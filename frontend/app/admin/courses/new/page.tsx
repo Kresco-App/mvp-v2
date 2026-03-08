@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, Check, BookOpen, FileText, Video, Puzzle } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, BookOpen, FileText } from 'lucide-react'
 import api from '@/lib/axios'
 import AuthGuard from '@/components/AuthGuard'
 import { toast } from 'sonner'

@@ -48,7 +48,7 @@ export default function AuthPage() {
   const [selectedLevel, setSelectedLevel] = useState('')
   const [selectedSpec, setSelectedSpec] = useState('')
 
-  useEffect(() => { hydrate() }, [])
+  useEffect(() => { hydrate() }, [hydrate])
 
   // If already logged in, check if onboarding is needed
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function AuthPage() {
         router.replace('/home')
       }
     }
-  }, [isHydrated, token, user])
+  }, [isHydrated, token, user, router])
 
   // Google Sign-In
   useEffect(() => {
@@ -112,7 +112,7 @@ export default function AuthPage() {
     }
     document.head.appendChild(script)
     return () => { try { document.head.removeChild(script) } catch {} }
-  }, [step])
+  }, [step, login, router])
 
   async function saveOnboarding() {
     setLoading(true)

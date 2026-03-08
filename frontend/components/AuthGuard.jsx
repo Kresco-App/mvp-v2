@@ -10,13 +10,13 @@ export default function AuthGuard({ children }) {
 
   useEffect(() => {
     hydrate()
-  }, [])
+  }, [hydrate])
 
   useEffect(() => {
     if (isHydrated && !token) {
       router.replace('/')
     }
-  }, [isHydrated, token])
+  }, [isHydrated, token, router])
 
   if (!isHydrated) {
     return (

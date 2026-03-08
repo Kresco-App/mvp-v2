@@ -311,6 +311,7 @@ export default function WatchPage() {
   ]
 
   function renderSectionContent() {
+    if (!section) return null
     switch (section.section_type) {
       case 'video':
         return (
@@ -398,6 +399,7 @@ export default function WatchPage() {
   }
 
   function getTopBarIcon() {
+    if (!section) return null
     switch (section.section_type) {
       case 'video':
         return <Play size={14} className="text-indigo-400" />

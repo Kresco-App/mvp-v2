@@ -66,7 +66,7 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
         break
       }
     }
-  }, [currentTime, triggers, activeTrigger])
+  }, [currentTime, triggers, activeTrigger, onPause])
 
   function selectAnswer(questionId: number, optionId: number) {
     setAnswers(a => ({ ...a, [questionId]: optionId }))
