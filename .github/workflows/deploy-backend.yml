@@ -28,15 +28,14 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-north-1
 
-      - name: Install Dependencies
+      - name: Install Dependencies & Deploy
         run: |
           cd backend
+          python -m venv venv
+          source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install zappa
-
-      - name: Deploy with Zappa
-        run: |
-          cd backend
-          # Deploy or update existing deployment
+          
+          # Deploy or update existing deployment using the venv python
           zappa deploy production || zappa update production
