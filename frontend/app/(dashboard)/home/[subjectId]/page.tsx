@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import {
   ArrowLeft, BookOpen, Play, CheckCircle2,
-  FileText, Clock, Lock, ChevronDown, ChevronRight,
+  FileText, Lock, ChevronDown, ChevronRight,
   ClipboardCheck, HelpCircle, Puzzle
 } from 'lucide-react'
 import api from '@/lib/axios'
@@ -64,22 +64,11 @@ function getSectionTypeLabel(section: Section) {
   }
 }
 
-function getSectionBgColor(section: Section) {
-  if (section.is_completed) return 'bg-green-50'
-  if (section.is_locked) return 'bg-slate-950'
-  switch (section.section_type) {
-    case 'video': return 'bg-indigo-50'
-    case 'quiz': return 'bg-amber-50'
-    case 'activity': return 'bg-purple-50'
-    case 'text': return 'bg-sky-50'
-    default: return 'bg-slate-950'
-  }
-}
+
 
 export default function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
   const router = useRouter()
-  const { user } = useAuthStore()
   const [subject, setSubject] = useState<Subject | null>(null)
   const [loading, setLoading] = useState(true)
   const [expandedChapters, setExpandedChapters] = useState<Set<number>>(new Set())
@@ -117,12 +106,12 @@ export default function SubjectDetailPage() {
       }
     }
     load()
-  }, [subjectId])
+  }, [subjectId, router])
 
   function toggleChapter(id: number) {
     setExpandedChapters(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next
     })
   }
@@ -232,7 +221,7 @@ export default function SubjectDetailPage() {
                         {/* Vertical line connecting sections */}
                         <div className="absolute left-[2.35rem] top-0 bottom-0 w-0.5 bg-slate-800" />
 
-                        {sections.map((section, sIdx) => {
+                        {sections.map((section) => {
                           const canAccess = !section.is_locked
                           let href = '#'
                           if (canAccess) {
@@ -309,7 +298,7 @@ export default function SubjectDetailPage() {
                   <div className="group inline-flex items-center gap-3 px-6 py-3.5 bg-slate-900 rounded-2xl border border-dashed border-slate-700">
                     <ClipboardCheck size={20} className="text-indigo-400" />
                     <div>
-                      <p className="text-slate-200 font-semibold text-sm">Examen Blanc d'étape</p>
+                      <p className="text-slate-200 font-semibold text-sm">Examen Blanc d&apos;étape</p>
                       <p className="text-slate-500 text-xs mt-0.5">Bientôt disponible</p>
                     </div>
                   </div>

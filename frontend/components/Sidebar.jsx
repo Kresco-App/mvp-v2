@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { BookOpen, Award, User, LogOut, ChevronRight } from 'lucide-react'
+import { BookOpen, User, LogOut, ChevronRight } from 'lucide-react'
 import { useAuthStore } from '@/lib/store'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'

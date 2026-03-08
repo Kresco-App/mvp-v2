@@ -120,7 +120,7 @@ export default function HomePage() {
     api.get('/progress/xp')
       .then(r => setStreakDays(r.data.streak_days ?? 0))
       .catch(e => console.error('Failed to load XP data', e))
-  }, [])
+  }, [user?.id])
 
   function claimQuest(questId: number) {
     api.post(`/progress/daily-quests/${questId}/claim`)

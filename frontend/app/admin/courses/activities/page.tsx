@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowLeft, Copy, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Copy } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import AuthGuard from '@/components/AuthGuard'
 import { toast } from 'sonner'

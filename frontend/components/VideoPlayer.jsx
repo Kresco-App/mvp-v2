@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle, Play } from 'lucide-react'
 import api from '@/lib/axios'
@@ -76,8 +76,8 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     document.head.appendChild(script)
     return () => {
       document.head.removeChild(script)
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamData])
 
   async function saveProgress(watchedSeconds) {
