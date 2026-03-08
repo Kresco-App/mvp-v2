@@ -4,6 +4,7 @@ from ninja.errors import HttpError
 from django.conf import settings
 from django.db.models import Count
 from courses.models import Subject, Chapter, Lesson, CoursePDF, Activity, ChapterSection
+from gamification.models import ContentProgress
 from courses.schemas import SubjectListOut, SubjectDetailOut, ChapterOut, StreamOut, CoursePDFOut, LessonDetailOut, ActivityOut, ChapterSectionOut, ChapterSectionBriefOut
 from users.auth import jwt_auth
 
@@ -43,6 +44,10 @@ def get_subject(request, subject_id: int):
 
     chapters_data = []
     for ch in subject.chapters.all():
+        sections = list(ch.sections.all())
+        for s in sections:
+            s.is_completed = False
+            s.is_locked = False
         chapters_data.append(ChapterOut(
             id=ch.id,
             title=ch.title,
@@ -50,7 +55,7 @@ def get_subject(request, subject_id: int):
             order=ch.order,
             lessons=list(ch.lessons.all()),
             blocks=list(ch.blocks.all()),
-            sections=list(ch.sections.all()),
+            sections=sections,
         ))
 
     return SubjectDetailOut(
@@ -69,6 +74,10 @@ def get_chapter(request, chapter_id: int):
         chapter = Chapter.objects.prefetch_related('lessons', 'blocks', 'sections').get(id=chapter_id)
     except Chapter.DoesNotExist:
         raise HttpError(404, "Chapter not found")
+    sections = list(chapter.sections.all())
+    for s in sections:
+        s.is_completed = False
+        s.is_locked = False
     return ChapterOut(
         id=chapter.id,
         title=chapter.title,
@@ -76,7 +85,7 @@ def get_chapter(request, chapter_id: int):
         order=chapter.order,
         lessons=list(chapter.lessons.all()),
         blocks=list(chapter.blocks.all()),
-        sections=list(chapter.sections.all()),
+        sections=sections,
     )
 
 
@@ -156,9 +165,40 @@ def get_lesson_pdfs(request, lesson_id: int):
 
 # ── Chapter Sections ─────────────────────────────────────────────────────────
 
-@router.get("/chapters/{chapter_id}/sections", response=list[ChapterSectionOut], auth=None)
+@router.get("/chapters/{chapter_id}/sections", response=list[ChapterSectionOut], auth=jwt_auth)
 def get_chapter_sections(request, chapter_id: int):
-    return list(ChapterSection.objects.filter(chapter_id=chapter_id))
+    sections = list(ChapterSection.objects.filter(chapter_id=chapter_id).order_by('order'))
+
+    # If not authenticated, return sections without progress metadata
+    if not request.auth:
+        return sections
+
+    completed_ids = set(
+        ContentProgress.objects.filter(
+            user=request.auth, item_type='section', item_id__in=[s.id for s in sections]
+        ).values_list('item_id', flat=True)
+    )
+
+    # Determine lock state based on gating rules
+    last_gating_section_id = None
+    first_section_id = sections[0].id if sections else None
+    for s in sections:
+        s.is_completed = s.id in completed_ids
+
+        if s.is_free_preview:
+            s.is_locked = False
+        elif not request.auth.is_pro:
+            s.is_locked = (first_section_id is not None and s.id != first_section_id)
+        else:
+            if last_gating_section_id and last_gating_section_id not in completed_ids:
+                s.is_locked = True
+            else:
+                s.is_locked = False
+
+        if s.is_gating:
+            last_gating_section_id = s.id
+
+    return sections
 
 
 @router.get("/sections/{section_id}/stream", response=StreamOut, auth=jwt_auth)
