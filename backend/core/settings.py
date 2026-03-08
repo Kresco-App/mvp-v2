@@ -135,6 +135,12 @@ CORS_ALLOW_CREDENTIALS = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 
+# CSRF trusted origins for admin panel access
+CSRF_TRUSTED_ORIGINS = [
+    'https://mvp-v2-pearl.vercel.app',
+]
+
+
 # Unfold admin theme
 UNFOLD = {
     "SITE_TITLE": "Kresco Admin",
