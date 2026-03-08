@@ -111,7 +111,8 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = '/static/'
+# On Lambda, API Gateway adds /production stage prefix to all URLs
+STATIC_URL = '/production/static/' if os.environ.get('LAMBDA_TASK_ROOT') else '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STORAGES = {
     "default": {
