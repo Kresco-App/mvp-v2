@@ -3,36 +3,19 @@
 .env.*
 !.env.example
 
-# Node / JS
+# Node
 node_modules/
 npm-debug.log
 yarn-error.log
 
-# Next.js
-.next/
-out/
-build/
-.swc/
-*.tsbuildinfo
-next-env.d.ts
-
-# Python / Django
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.pyc
-*.pyo
 venv/
 env/
 .venv/
-db.sqlite3
-db.sqlite3-journal
-media/
-staticfiles/
-
-# Zappa / AWS
-zappa_settings.json
-*.zip
+.env/
 
 # OS generated files
 .DS_Store
@@ -42,11 +25,3 @@ zappa_settings.json
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# IDEs
-.vscode/
-.idea/
-
-# Logs
-*.log
-logs/

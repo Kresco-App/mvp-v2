@@ -10,7 +10,8 @@ import {
   ClipboardCheck, HelpCircle, Puzzle
 } from 'lucide-react'
 import api from '@/lib/axios'
-import { useAuthStore } from '@/lib/store'
+import SubjectProgressBar from '@/components/SubjectProgressBar'
+import { buildSubjectProgressSummary, fetchSubjectPlan, type SubjectProgressSummary } from '@/lib/subjectProgress'
 import { formatDuration } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -64,8 +65,6 @@ function getSectionTypeLabel(section: Section) {
   }
 }
 
-
-
 export default function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
   const router = useRouter()
@@ -73,12 +72,22 @@ export default function SubjectDetailPage() {
   const [loading, setLoading] = useState(true)
   const [expandedChapters, setExpandedChapters] = useState<Set<number>>(new Set())
   const [chapterSections, setChapterSections] = useState<Record<number, Section[]>>({})
+  const [progressSummary, setProgressSummary] = useState<SubjectProgressSummary | null>(null)
 
   useEffect(() => {
     async function load() {
       try {
-        const subjectRes = await api.get(`/courses/subjects/${subjectId}`)
+        const [subjectRes, subjectPlan] = await Promise.all([
+          api.get(`/courses/subjects/${subjectId}`),
+          fetchSubjectPlan(subjectId).catch(() => null),
+        ])
         setSubject(subjectRes.data)
+
+        const completedSectionIds = new Set(subjectPlan?.completed_section_ids ?? [])
+        const totalLessonCount = subjectRes.data.chapters.reduce(
+          (count: number, chapter: Chapter) => count + (chapter.lessons?.length ?? 0),
+          0,
+        )
 
         // Expand first chapter by default
         if (subjectRes.data.chapters.length > 0) {
@@ -91,13 +100,20 @@ export default function SubjectDetailPage() {
           subjectRes.data.chapters.map(async (chapter: Chapter) => {
             try {
               const res = await api.get(`/courses/chapters/${chapter.id}/sections`)
-              sectionsMap[chapter.id] = res.data
+              sectionsMap[chapter.id] = res.data.map((section: Section) => ({
+                ...section,
+                is_completed: completedSectionIds.has(section.id),
+              }))
             } catch {
               sectionsMap[chapter.id] = []
             }
           })
         )
         setChapterSections(sectionsMap)
+
+        if (subjectPlan) {
+          setProgressSummary(buildSubjectProgressSummary(subjectPlan, totalLessonCount))
+        }
       } catch {
         toast.error('Erreur de chargement de la matiere.')
         router.push('/home')
@@ -106,12 +122,16 @@ export default function SubjectDetailPage() {
       }
     }
     load()
-  }, [subjectId, router])
+  }, [router, subjectId])
 
   function toggleChapter(id: number) {
     setExpandedChapters(prev => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
       return next
     })
   }
@@ -128,7 +148,13 @@ export default function SubjectDetailPage() {
   const allSections = Object.values(chapterSections).flat()
   const totalSections = allSections.length
   const completedCount = allSections.filter(s => s.is_completed).length
-  const progress = totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0
+  const fallbackProgress = totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0
+  const resolvedProgress = progressSummary ?? {
+    completedCount,
+    totalCount: totalSections,
+    percentage: fallbackProgress,
+    unitLabel: totalSections === 1 ? 'section' : 'sections',
+  }
 
   // Find first incomplete section for "Continue" button
   const nextSection = allSections.find(s => !s.is_completed && !s.is_locked)
@@ -150,15 +176,16 @@ export default function SubjectDetailPage() {
             <h1 className="text-2xl font-bold text-white mb-2">{subject.title}</h1>
             <p className="text-slate-500 mb-5 leading-relaxed">{subject.description}</p>
             <div className="flex items-center gap-2 mb-2">
-              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-indigo-600 rounded-full transition-all duration-500"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <span className="text-sm font-semibold text-slate-400 w-10 text-right">{progress}%</span>
+              <SubjectProgressBar
+                progress={resolvedProgress.percentage}
+                size="md"
+                className="flex-1"
+              />
+              <span className="text-sm font-semibold text-slate-400 w-10 text-right">{resolvedProgress.percentage}%</span>
             </div>
-            <p className="text-xs text-slate-400">{completedCount} sur {totalSections} sections terminees</p>
+            <p className="text-xs text-slate-400">
+              {resolvedProgress.completedCount} sur {resolvedProgress.totalCount} {resolvedProgress.unitLabel} terminees
+            </p>
           </div>
         </div>
 
@@ -166,7 +193,7 @@ export default function SubjectDetailPage() {
           <div className="mt-6 pt-6 border-t border-slate-800">
             <Link
               href={`/watch/${nextSection.id}`}
-              className="inline-flex items-center gap-2 bg-black text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-colors"
+              className="inline-flex items-center gap-2 bg-black text-slate-50 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition-colors"
             >
               <Play size={15} className="fill-current" />
               {completedCount === 0 ? 'Commencer' : 'Continuer'}
@@ -174,6 +201,12 @@ export default function SubjectDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Exam link */}
+      <Link href={`/exam/${subjectId}`} className="mt-6 mb-8 flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 transition">
+        <ClipboardCheck size={18} />
+        Passer l&apos;examen blanc
+      </Link>
 
       {/* Curriculum - Section-based path */}
       <h2 className="text-xl font-bold text-white mb-4">Programme</h2>
@@ -293,15 +326,15 @@ export default function SubjectDetailPage() {
               </div>
 
               {/* Exam Blanc Placeholder between chapters */}
-              {idx !== subject.chapters.length - 1 && (
+              {idx % 2 === 1 && idx !== subject.chapters.length - 1 && (
                 <div className="flex justify-center py-6">
-                  <div className="group inline-flex items-center gap-3 px-6 py-3.5 bg-slate-900 rounded-2xl border border-dashed border-slate-700">
-                    <ClipboardCheck size={20} className="text-indigo-400" />
+                  <Link href={`/exam/${subjectId}?chapter=${chapter.id}`} className="group inline-flex items-center gap-3 px-6 py-3.5 bg-slate-900 hover:bg-slate-800 transition-all rounded-2xl border border-dashed border-slate-700 hover:border-indigo-500/50">
+                    <ClipboardCheck size={20} className="text-indigo-400 group-hover:scale-110 transition-transform" />
                     <div>
-                      <p className="text-slate-200 font-semibold text-sm">Examen Blanc d&apos;étape</p>
-                      <p className="text-slate-500 text-xs mt-0.5">Bientôt disponible</p>
+                      <p className="text-slate-200 font-semibold text-sm">Examen Blanc d&apos;etape</p>
+                      <p className="text-slate-500 text-xs mt-0.5">Testez vos connaissances sur ces chapitres</p>
                     </div>
-                  </div>
+                  </Link>
                 </div>
               )}
             </div>

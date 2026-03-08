@@ -43,6 +43,14 @@ export const SUBJECT_ACTIVITIES = {
   onde_propagation:        'ondes/OndePropagation',
   onde_caracteristiques:   'ondes/OndeCaracteristiques',
   onde_true_false:         'ondes/OndeTrueFalse',
+  // Light waves simulators
+  diffraction_simulator:   '../simulators/DiffractionSimulator',
+  prism_simulator:         '../simulators/PrismSimulator',
+  wave_simulator:          '../simulators/DescartesBasicsSimulator',
+  descartes_basics_simulator: '../simulators/DescartesBasicsSimulator',
+  // Math
+  math_ensembles_lab:      'math/EnsemblesLab',
+  math_limites_continuite_lab: 'math/LimitesContinuiteLab',
 } as const
 
 // Combined registry for dynamic import
@@ -92,7 +100,7 @@ export async function loadActivity(activityType: string): Promise<React.Componen
  *   { statement, correct: true|false, explanation? }
  *
  * simulator:
- *   { simulator_type: "wave"|"prism"|"diffraction", title? }
+ *   { simulator_type: "wave"|"prism"|"diffraction"|"descartes", title? }
  *
  * onde_propagation:
  *   { question?, pairs?: [{id, left, right}] }

@@ -27,8 +27,6 @@ class ChapterSectionOut(Schema):
     order: int
     is_gating: bool
     is_free_preview: bool
-    is_completed: bool = False
-    is_locked: bool = False
     vdocipher_id: str
     duration_seconds: int
     content: str
@@ -47,8 +45,6 @@ class ChapterSectionBriefOut(Schema):
     is_free_preview: bool
     duration_seconds: int
     activity_type: str
-    is_completed: bool = False
-    is_locked: bool = False
 
 
 class ChapterOut(Schema):

@@ -4,25 +4,26 @@ from django.contrib.contenttypes.models import ContentType
 from interactions.models import Comment
 from interactions.schemas import CommentOut, CommentCreateIn, CommentAuthorOut
 from users.auth import jwt_auth
-from courses.models import Lesson, Chapter, ChapterSection
 
 router = Router(auth=jwt_auth)
 
 ALLOWED_TYPES = {
-    'lesson': Lesson,
-    'chapter': Chapter,
-    'section': ChapterSection,
-    'chaptersection': ChapterSection,
+    'lesson': 'courses.lesson',
+    'chapter': 'courses.chapter',
+    'section': 'courses.chaptersection',
 }
 
 
 @router.get("/comments", response=list[CommentOut])
 def list_comments(request, content_type: str, object_id: int):
-    model_class = ALLOWED_TYPES.get(content_type.lower())
-    if not model_class:
+    model_label = ALLOWED_TYPES.get(content_type)
+    if not model_label:
         raise HttpError(400, "Invalid content_type")
 
-    ct = ContentType.objects.get_for_model(model_class)
+    try:
+        ct = ContentType.objects.get_by_natural_key(*model_label.split('.'))
+    except ContentType.DoesNotExist:
+        raise HttpError(400, "Content type not found")
 
     comments = Comment.objects.filter(
         content_type=ct, object_id=object_id, parent=None
@@ -47,11 +48,14 @@ def list_comments(request, content_type: str, object_id: int):
 
 @router.post("/comments", response=CommentOut)
 def create_comment(request, body: CommentCreateIn):
-    model_class = ALLOWED_TYPES.get(body.content_type.lower())
-    if not model_class:
+    model_label = ALLOWED_TYPES.get(body.content_type)
+    if not model_label:
         raise HttpError(400, "Invalid content_type")
 
-    ct = ContentType.objects.get_for_model(model_class)
+    try:
+        ct = ContentType.objects.get_by_natural_key(*model_label.split('.'))
+    except ContentType.DoesNotExist:
+        raise HttpError(400, "Content type not found")
 
     parent = None
     if body.parent_id:

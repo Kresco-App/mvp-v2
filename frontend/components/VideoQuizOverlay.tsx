@@ -44,7 +44,7 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
   useEffect(() => {
     api.get(`/progress/lessons/${lessonId}/quiz-triggers`)
       .then(r => setTriggers(r.data))
-      .catch(() => { })
+      .catch(() => {})
   }, [lessonId])
 
   // Check if we should fire a trigger at current time
@@ -66,7 +66,6 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
         break
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, triggers, activeTrigger])
 
   function selectAnswer(questionId: number, optionId: number) {
@@ -134,10 +133,11 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
                     <button
                       key={opt.id}
                       onClick={() => selectAnswer(quiz.questions[currentQ].id, opt.id)}
-                      className={`w-full text-left text-sm px-3 py-2.5 rounded-xl border-2 transition ${answers[quiz.questions[currentQ].id] === opt.id
-                        ? 'border-kresco bg-kresco/5 text-kresco font-semibold'
-                        : 'border-slate-700 hover:border-kresco/30 text-slate-300'
-                        }`}
+                      className={`w-full text-left text-sm px-3 py-2.5 rounded-xl border-2 transition ${
+                        answers[quiz.questions[currentQ].id] === opt.id
+                          ? 'border-kresco bg-kresco/5 text-kresco font-semibold'
+                          : 'border-slate-700 hover:border-kresco/30 text-slate-300'
+                      }`}
                     >
                       {opt.text}
                     </button>

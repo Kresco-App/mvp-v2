@@ -20,15 +20,8 @@ export const useAuthStore = create((set, get) => ({
   isHydrated: false,
 
   hydrate() {
-    let token = null
-    let user = null
-    try {
-      token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null
-      user = loadFromStorage(USER_KEY)
-    } catch {
-      token = null
-      user = null
-    }
+    const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null
+    const user = loadFromStorage(USER_KEY)
     // Check token expiry
     if (token) {
       try {

@@ -6,7 +6,9 @@ import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 import api from '@/lib/axios'
 import XPBar from '@/components/XPBar'
+import SubjectProgressBar from '@/components/SubjectProgressBar'
 import { findSubjectIcon } from '@/lib/subjects'
+import { fetchSubjectProgressSummary, type SubjectProgressSummary } from '@/lib/subjectProgress'
 import { cn } from '@/lib/utils'
 
 function getSubjectStyle(title: string) {
@@ -57,7 +59,7 @@ export default function HomePage() {
   const [quests, setQuests] = useState<Quest[]>([])
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [streakDays, setStreakDays] = useState(0)
-  const [resumeProgress, setResumeProgress] = useState<Record<number, number>>({})
+  const [resumeProgress, setResumeProgress] = useState<Record<number, SubjectProgressSummary>>({})
 
   const firstName = user?.full_name?.split(' ')[0] ?? 'Apprenant'
 
@@ -74,27 +76,28 @@ export default function HomePage() {
 
   useEffect(() => {
     api.get('/courses/subjects')
-      .then(r => {
+      .then(async r => {
         setSubjects(r.data)
-        // Fetch progress for the first 2 subjects (resume cards) from sections
-        r.data.slice(0, 2).forEach(async (s: Subject) => {
-          try {
-            const subjDetail = await api.get(`/courses/subjects/${s.id}`)
-            const chapters = subjDetail.data.chapters ?? []
-            const sectionsRes = await Promise.all(
-              chapters.map((ch: any) =>
-                api.get(`/courses/chapters/${ch.id}/sections`).then(res => res.data).catch(() => [])
-              )
-            )
-            const allSections = sectionsRes.flat()
-            const total = allSections.length
-            const completed = allSections.filter((sec: any) => sec.is_completed).length
-            const pct = total > 0 ? Math.round((completed / total) * 100) : 0
-            setResumeProgress(prev => ({ ...prev, [s.id]: pct }))
-          } catch {
-            setResumeProgress(prev => ({ ...prev, [s.id]: 0 }))
-          }
-        })
+
+        const progressEntries = await Promise.all(
+          r.data.slice(0, 2).map(async (subject: Subject) => {
+            try {
+              const summary = await fetchSubjectProgressSummary(subject.id, subject.lesson_count)
+              return [subject.id, summary] as const
+            } catch {
+              return null
+            }
+          })
+        )
+
+        setResumeProgress(
+          progressEntries.reduce<Record<number, SubjectProgressSummary>>((acc, entry) => {
+            if (!entry) return acc
+            const [subjectId, summary] = entry
+            acc[subjectId] = summary
+            return acc
+          }, {})
+        )
       })
       .catch(() => toast.error('Erreur de chargement des matieres.'))
       .finally(() => setLoading(false))
@@ -150,6 +153,7 @@ export default function HomePage() {
             <div className="grid grid-cols-2 gap-4">
               {subjects.slice(0, 2).map(subject => {
                 const { emoji, bg } = getSubjectStyle(subject.title)
+                const progress = resumeProgress[subject.id]
                 return (
                   <Link key={subject.id} href={`/home/${subject.id}`}>
                     <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 flex items-center gap-4 hover:shadow-md hover:border-kresco/20 transition-all group cursor-pointer">
@@ -164,17 +168,14 @@ export default function HomePage() {
                           {subject.title}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{subject.description}</p>
-                        <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-700 ease-out"
-                            style={{
-                              width: `${resumeProgress[subject.id] ?? 0}%`,
-                              background: (resumeProgress[subject.id] ?? 0) === 100
-                                ? 'linear-gradient(90deg, #10B981 0%, #34D399 100%)'
-                                : 'linear-gradient(90deg, #4f46e5 0%, #818cf8 100%)',
-                              boxShadow: (resumeProgress[subject.id] ?? 0) === 100 ? '0 0 10px rgba(16,185,129,0.3)' : 'none'
-                            }}
-                          />
+                        <SubjectProgressBar
+                          progress={progress?.percentage ?? 0}
+                          size="sm"
+                          className="mt-2"
+                        />
+                        <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
+                          <span>{progress?.completedCount ?? 0}/{progress?.totalCount ?? 0} {progress?.unitLabel ?? 'sections'}</span>
+                          <span>{progress?.percentage ?? 0}%</span>
                         </div>
                       </div>
                     </div>

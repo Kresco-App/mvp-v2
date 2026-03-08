@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, Check, BookOpen, FileText } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, BookOpen, FileText, Video, Puzzle } from 'lucide-react'
 import api from '@/lib/axios'
 import AuthGuard from '@/components/AuthGuard'
 import { toast } from 'sonner'
@@ -97,12 +97,13 @@ export default function NewCoursePage() {
         <div className="flex items-center justify-center gap-0 py-8 px-6">
           {STEPS.map((s, i) => (
             <div key={s.id} className="flex items-center">
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition ${step === s.id
+              <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition ${
+                step === s.id
                   ? 'bg-indigo-600 text-white'
                   : step > s.id
-                    ? 'bg-green-600/20 text-green-400'
-                    : 'bg-slate-800 text-slate-500'
-                }`}>
+                  ? 'bg-green-600/20 text-green-400'
+                  : 'bg-slate-800 text-slate-500'
+              }`}>
                 {step > s.id ? <Check size={13} /> : <s.icon size={13} />}
                 {s.label}
               </div>
