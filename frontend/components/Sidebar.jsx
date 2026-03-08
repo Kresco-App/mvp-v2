@@ -2,14 +2,16 @@
 
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { BookOpen, Award, User, LogOut, ChevronRight } from 'lucide-react'
+import { BookOpen, User, LogOut, ChevronRight, Trophy, CreditCard } from 'lucide-react'
 import { useAuthStore } from '@/lib/store'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
   { href: '/home', icon: BookOpen, label: 'Apprendre' },
+  { href: '/classement', icon: Trophy, label: 'Classement' },
   { href: '/profile', icon: User, label: 'Profil' },
+  { href: '/pricing', icon: CreditCard, label: 'Abonnement' },
 ]
 
 export default function Sidebar() {

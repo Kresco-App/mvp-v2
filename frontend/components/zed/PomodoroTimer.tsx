@@ -28,7 +28,6 @@ export default function PomodoroTimer({ engine }: Props) {
 
   const presetLabel = preset === 'custom' ? 'Personnalise' : PRESETS[preset].label
   const isActive = state === 'running' || state === 'paused'
-  const progressPct = Math.round(progress * 100)
 
   return (
     <div className="flex items-center gap-3">

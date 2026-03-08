@@ -81,7 +81,6 @@ function solveIntersection(
   segStart: Vector,
   segEnd: Vector
 ): Vector | null {
-  const v1 = rayOrigin.sub(segStart);
   const v2 = segEnd.sub(segStart);
   
   // Ray: P + t*R
@@ -295,7 +294,6 @@ export function calculatePrism(
       // Angle between Refracted Ray and Normal Inward (1, 0).
       // ref1 angle.
       if (ref1) {
-          const r_rad = Math.asin(ref1.y); // Since x is approx 1? No.
           // Angle between (1, 0) and ref1.
           // dot = ref1.x * 1.
           // angle = acos(ref1.x). Check sign of y.

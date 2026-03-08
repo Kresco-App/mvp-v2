@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { X, GripVertical, Calculator } from 'lucide-react'
+import { X, Calculator } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Props {

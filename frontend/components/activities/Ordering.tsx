@@ -45,7 +45,6 @@ export default function Ordering({ question, items: initialItems, correctOrder, 
         {items.map((item, index) => {
           const correctIdx = correctOrder.indexOf(item.id)
           const isCorrectPos = submitted && index === correctIdx
-          const isWrongPos = submitted && index !== correctIdx
 
           return (
             <div

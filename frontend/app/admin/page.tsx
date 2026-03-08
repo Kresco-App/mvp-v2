@@ -1,15 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  BookOpen, Users, BarChart3, Puzzle,
-  ChevronRight, Plus, Video, FileText,
-  Trophy, TrendingUp
+  BookOpen, Users, Puzzle,
+  ChevronRight, Plus, Video, FileText
 } from 'lucide-react'
 import api from '@/lib/axios'
-import { useAuthStore } from '@/lib/store'
 import AuthGuard from '@/components/AuthGuard'
 
 interface Stats {
@@ -20,8 +17,6 @@ interface Stats {
 }
 
 export default function AdminDashboard() {
-  const router = useRouter()
-  const { user } = useAuthStore()
   const [stats, setStats] = useState<Stats | null>(null)
   const [subjects, setSubjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Trash2, Calculator } from 'lucide-react'
-import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
 const STORAGE_KEY = 'kresco_zed_scratchpad'

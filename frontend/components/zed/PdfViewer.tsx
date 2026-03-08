@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { Pin, Scissors, Upload, FileText, X } from 'lucide-react'
 
 interface PinnedSnippet {

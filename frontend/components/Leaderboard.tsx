@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Trophy, Search, ChevronUp, ChevronDown, Minus, Crown, Medal, Star } from 'lucide-react'
+import { Trophy, Search, Crown, Medal, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '@/lib/axios'
-import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 interface LeaderboardEntry {
@@ -16,21 +15,14 @@ interface LeaderboardEntry {
   is_current_user: boolean
 }
 
-interface LeaderboardData {
-  entries: LeaderboardEntry[]
-  total: number
-  current_user_rank?: number
-  current_user_entry?: LeaderboardEntry
-}
-
-// ─── Widget Mode: top 3 + current user rank ────────────────────────────────
+// ─── Widget Mode: top 5 + current user rank (used on Home page sidebar) ─────
 export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
-  const [data, setData] = useState<LeaderboardData | null>(null)
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.get('/gamification/leaderboard', { params: { page: 1, page_size: 5 } })
-      .then(r => setData(r.data))
+    api.get('/progress/leaderboard', { params: { limit: 5 } })
+      .then(r => setEntries(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -38,22 +30,16 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
   if (loading) {
     return (
       <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-3 animate-pulse">
-        {[1,2,3].map(i => (
+        {[1, 2, 3].map(i => (
           <div key={i} className="h-10 bg-slate-800 rounded-xl" />
         ))}
       </div>
     )
   }
 
-  const top3 = data?.entries.slice(0, 3) ?? []
-  const currentUserEntry = data?.current_user_entry
-
-  const rankIcon = (rank: number) => {
-    if (rank === 1) return <Crown size={14} className="text-yellow-400" />
-    if (rank === 2) return <Medal size={14} className="text-slate-300" />
-    if (rank === 3) return <Medal size={14} className="text-amber-600" />
-    return <span className="text-slate-500 text-xs font-bold w-3.5 text-center">{rank}</span>
-  }
+  const top = entries.filter(e => !e.is_current_user || e.rank <= 5).slice(0, 5)
+  const currentUser = entries.find(e => e.is_current_user)
+  const currentUserInTop = top.some(e => e.is_current_user)
 
   return (
     <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-3">
@@ -72,17 +58,15 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
         )}
       </div>
 
-      {top3.map(entry => (
+      {top.map(entry => (
         <LeaderboardRow key={entry.user_id} entry={entry} compact />
       ))}
 
-      {currentUserEntry && !top3.some(e => e.user_id === currentUserEntry.user_id) && (
-        <>
-          <div className="border-t border-slate-800 pt-2 mt-1">
-            <p className="text-xs text-slate-400 mb-2 text-center">• • •</p>
-            <LeaderboardRow entry={currentUserEntry} compact highlight />
-          </div>
-        </>
+      {currentUser && !currentUserInTop && (
+        <div className="border-t border-slate-800 pt-2 mt-1">
+          <p className="text-xs text-slate-500 mb-2 text-center">• • •</p>
+          <LeaderboardRow entry={currentUser} compact highlight />
+        </div>
       )}
     </div>
   )
@@ -91,8 +75,6 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 // ─── Full-page Leaderboard ──────────────────────────────────────────────────
 export function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
-  const [total, setTotal] = useState(0)
-  const [currentUserEntry, setCurrentUserEntry] = useState<LeaderboardEntry | null>(null)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
@@ -102,12 +84,11 @@ export function LeaderboardPage() {
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/gamification/leaderboard', {
-        params: { page, page_size: PAGE_SIZE, search: search || undefined }
+      const offset = (page - 1) * PAGE_SIZE
+      const { data } = await api.get('/progress/leaderboard', {
+        params: { limit: PAGE_SIZE, offset, search: search || undefined }
       })
-      setEntries(data.entries ?? [])
-      setTotal(data.total ?? 0)
-      setCurrentUserEntry(data.current_user_entry ?? null)
+      setEntries(data ?? [])
     } catch {
       // silently fail
     } finally {
@@ -122,22 +103,26 @@ export function LeaderboardPage() {
     setSearch(searchInput)
   }
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
-  const top3 = entries.filter(e => e.rank <= 3 && page === 1 && !search)
+  const currentUser = entries.find(e => e.is_current_user)
+  const top3 = entries.filter(e => e.rank <= 3)
+  const showPodium = page === 1 && !search && top3.length === 3
+  const hasMore = entries.length === PAGE_SIZE
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Trophy size={22} className="text-yellow-400" />
-        <h1 className="text-white text-2xl font-bold">Classement</h1>
-        <span className="ml-auto text-slate-500 text-sm">{total} joueurs</span>
+        <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center">
+          <Trophy size={20} className="text-yellow-400" />
+        </div>
+        <div>
+          <h1 className="text-white text-xl font-bold">Classement</h1>
+          <p className="text-slate-500 text-sm">Concours de XP entre les etudiants</p>
+        </div>
       </div>
 
       {/* Podium (page 1, no search) */}
-      {page === 1 && !search && top3.length === 3 && (
-        <Podium top3={top3} />
-      )}
+      {showPodium && <Podium top3={top3} />}
 
       {/* Search */}
       <div className="relative">
@@ -147,7 +132,7 @@ export function LeaderboardPage() {
           onChange={e => setSearchInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSearch()}
           placeholder="Rechercher un joueur..."
-          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50"
         />
         {searchInput && (
           <button
@@ -167,32 +152,38 @@ export function LeaderboardPage() {
               <div key={i} className="h-14 bg-slate-800/40 animate-pulse" />
             ))}
           </div>
-        ) : entries.length === 0 ? (
+        ) : entries.filter(e => !e.is_current_user || e.rank <= page * PAGE_SIZE).length === 0 ? (
           <div className="py-16 text-center text-slate-500 text-sm">
-            {search ? `Aucun joueur trouvé pour "${search}"` : 'Aucun classement disponible'}
+            {search ? `Aucun joueur trouve pour "${search}"` : 'Aucun classement disponible'}
           </div>
         ) : (
-          <div>
-            {entries.map((entry, i) => (
+          <div className="divide-y divide-slate-800/60">
+            {entries.map(entry => (
               <div
                 key={entry.user_id}
                 className={cn(
-                  'flex items-center gap-3 px-5 py-3 transition-colors',
-                  i < entries.length - 1 && 'border-b border-slate-800/60',
+                  'flex items-center gap-3 px-5 py-3.5 transition-colors',
                   entry.is_current_user && 'bg-indigo-500/10'
                 )}
               >
                 <RankBadge rank={entry.rank} />
                 <Avatar entry={entry} />
                 <div className="flex-1 min-w-0">
-                  <p className={cn('text-sm font-semibold truncate', entry.is_current_user ? 'text-indigo-300' : 'text-white')}>
+                  <p className={cn(
+                    'text-sm font-semibold truncate',
+                    entry.is_current_user ? 'text-indigo-300' : 'text-white'
+                  )}>
                     {entry.full_name}
-                    {entry.is_current_user && <span className="ml-1.5 text-xs text-indigo-500">(vous)</span>}
+                    {entry.is_current_user && (
+                      <span className="ml-1.5 text-xs text-indigo-400 font-normal">(vous)</span>
+                    )}
                   </p>
                   <p className="text-xs text-slate-500">Niveau {entry.level}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold text-amber-400">{entry.total_xp.toLocaleString()} XP</p>
+                  <p className="text-sm font-bold text-amber-400">
+                    {entry.total_xp.toLocaleString()} XP
+                  </p>
                 </div>
               </div>
             ))}
@@ -200,38 +191,42 @@ export function LeaderboardPage() {
         )}
       </div>
 
-      {/* Current user sticky if not visible */}
-      {currentUserEntry && !entries.some(e => e.is_current_user) && (
-        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl px-5 py-3 flex items-center gap-3">
-          <RankBadge rank={currentUserEntry.rank} />
-          <Avatar entry={currentUserEntry} />
+      {/* Current user sticky if not in visible list */}
+      {currentUser && !entries.some(e => e.is_current_user && e.rank <= page * PAGE_SIZE) && (
+        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl px-5 py-3.5 flex items-center gap-3">
+          <RankBadge rank={currentUser.rank} />
+          <Avatar entry={currentUser} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-indigo-300 truncate">
-              {currentUserEntry.full_name} <span className="text-xs text-indigo-500">(vous)</span>
+              {currentUser.full_name} <span className="text-xs text-indigo-400 font-normal">(vous)</span>
             </p>
-            <p className="text-xs text-slate-500">Niveau {currentUserEntry.level}</p>
+            <p className="text-xs text-slate-500">Niveau {currentUser.level}</p>
           </div>
-          <p className="text-sm font-bold text-amber-400">{currentUserEntry.total_xp.toLocaleString()} XP</p>
+          <p className="text-sm font-bold text-amber-400">
+            {currentUser.total_xp.toLocaleString()} XP
+          </p>
         </div>
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
+      {(page > 1 || hasMore) && (
+        <div className="flex items-center justify-center gap-3">
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-lg transition"
+            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 rounded-xl transition"
           >
-            ←
+            <ChevronLeft size={14} />
+            Precedent
           </button>
-          <span className="text-slate-400 text-sm">{page} / {totalPages}</span>
+          <span className="text-slate-500 text-sm font-medium">Page {page}</span>
           <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-lg transition"
+            onClick={() => setPage(p => p + 1)}
+            disabled={!hasMore}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 rounded-xl transition"
           >
-            →
+            Suivant
+            <ChevronRight size={14} />
           </button>
         </div>
       )}
@@ -257,24 +252,56 @@ function LeaderboardRow({
       !highlight && 'hover:bg-slate-800/50 transition-colors'
     )}>
       <RankBadge rank={entry.rank} small />
-      <Avatar entry={entry} small />
+      <Avatar entry={entry} small={compact} />
       <div className="flex-1 min-w-0">
-        <p className={cn('text-sm font-semibold truncate', highlight ? 'text-indigo-300' : 'text-white')}>
+        <p className={cn(
+          'text-sm font-semibold truncate',
+          highlight ? 'text-indigo-300' : 'text-white'
+        )}>
           {entry.full_name}
-          {entry.is_current_user && <span className="ml-1 text-xs text-indigo-500">(vous)</span>}
+          {entry.is_current_user && (
+            <span className="ml-1 text-xs text-indigo-400 font-normal">(vous)</span>
+          )}
         </p>
       </div>
-      <span className="text-xs font-bold text-amber-400">{entry.total_xp.toLocaleString()} XP</span>
+      <span className="text-xs font-bold text-amber-400 flex-shrink-0">
+        {entry.total_xp.toLocaleString()} XP
+      </span>
     </div>
   )
 }
 
 function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
-  const size = small ? 'w-5 h-5 text-[10px]' : 'w-7 h-7 text-xs'
-  if (rank === 1) return <span className={cn('flex items-center justify-center flex-shrink-0', size)}><Crown className="text-yellow-400" size={small ? 12 : 16} /></span>
-  if (rank === 2) return <span className={cn('flex items-center justify-center flex-shrink-0', size)}><Medal className="text-slate-300" size={small ? 12 : 16} /></span>
-  if (rank === 3) return <span className={cn('flex items-center justify-center flex-shrink-0', size)}><Medal className="text-amber-600" size={small ? 12 : 16} /></span>
-  return <span className={cn('flex items-center justify-center flex-shrink-0 rounded-full bg-slate-800 font-bold text-slate-400', size)}>#{rank}</span>
+  const size = small ? 'w-6 h-6' : 'w-8 h-8'
+  if (rank === 1) {
+    return (
+      <span className={cn('flex items-center justify-center flex-shrink-0 rounded-full bg-yellow-500/15', size)}>
+        <Crown className="text-yellow-400" size={small ? 13 : 16} />
+      </span>
+    )
+  }
+  if (rank === 2) {
+    return (
+      <span className={cn('flex items-center justify-center flex-shrink-0 rounded-full bg-slate-400/15', size)}>
+        <Medal className="text-slate-300" size={small ? 13 : 16} />
+      </span>
+    )
+  }
+  if (rank === 3) {
+    return (
+      <span className={cn('flex items-center justify-center flex-shrink-0 rounded-full bg-amber-600/15', size)}>
+        <Medal className="text-amber-500" size={small ? 13 : 16} />
+      </span>
+    )
+  }
+  return (
+    <span className={cn(
+      'flex items-center justify-center flex-shrink-0 rounded-full bg-slate-800 font-bold text-slate-400',
+      size, small ? 'text-[10px]' : 'text-xs'
+    )}>
+      {rank}
+    </span>
+  )
 }
 
 function Avatar({ entry, small = false }: { entry: LeaderboardEntry; small?: boolean }) {
@@ -287,29 +314,46 @@ function Avatar({ entry, small = false }: { entry: LeaderboardEntry; small?: boo
       className={cn('rounded-full object-cover flex-shrink-0', size)}
     />
   ) : (
-    <div className={cn('rounded-full bg-indigo-900 flex items-center justify-center flex-shrink-0', size)}>
-      <span className="text-indigo-300 font-bold">{entry.full_name[0]}</span>
+    <div className={cn('rounded-full bg-indigo-900/60 flex items-center justify-center flex-shrink-0', size)}>
+      <span className="text-indigo-300 font-bold">{entry.full_name?.[0]}</span>
     </div>
   )
 }
 
 function Podium({ top3 }: { top3: LeaderboardEntry[] }) {
-  const order = [top3[1], top3[0], top3[2]] // 2nd, 1st, 3rd
+  const sorted = [...top3].sort((a, b) => a.rank - b.rank)
+  const order = [sorted[1], sorted[0], sorted[2]] // 2nd, 1st, 3rd
   const heights = ['h-20', 'h-28', 'h-16']
-  const colors = ['bg-slate-600', 'bg-yellow-500', 'bg-amber-700']
+  const bgColors = [
+    'bg-gradient-to-t from-slate-600 to-slate-500',
+    'bg-gradient-to-t from-yellow-600 to-yellow-400',
+    'bg-gradient-to-t from-amber-800 to-amber-600',
+  ]
+  const ringColors = ['ring-slate-400', 'ring-yellow-400', 'ring-amber-600']
 
   return (
-    <div className="flex items-end justify-center gap-4 pt-2 pb-4">
-      {order.map((entry, i) => (
-        <div key={entry.user_id} className="flex flex-col items-center gap-2">
-          <Avatar entry={entry} />
-          <p className="text-xs text-white font-medium text-center max-w-[80px] truncate">{entry.full_name}</p>
-          <p className="text-[11px] text-amber-400 font-bold">{entry.total_xp.toLocaleString()} XP</p>
-          <div className={cn('w-16 rounded-t-xl flex items-center justify-center', heights[i], colors[i])}>
-            <span className="text-white font-bold text-lg">{entry.rank}</span>
+    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+      <div className="flex items-end justify-center gap-3">
+        {order.map((entry, i) => (
+          <div key={entry.user_id} className="flex flex-col items-center gap-2 flex-1 max-w-[120px]">
+            <div className={cn('rounded-full ring-2 p-0.5', ringColors[i])}>
+              <Avatar entry={entry} />
+            </div>
+            <p className="text-xs text-white font-medium text-center max-w-[90px] truncate">
+              {entry.full_name}
+            </p>
+            <p className="text-[11px] text-amber-400 font-bold">
+              {entry.total_xp.toLocaleString()} XP
+            </p>
+            <div className={cn(
+              'w-full rounded-t-xl flex items-center justify-center',
+              heights[i], bgColors[i]
+            )}>
+              <span className="text-white font-bold text-lg drop-shadow">{entry.rank}</span>
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }
