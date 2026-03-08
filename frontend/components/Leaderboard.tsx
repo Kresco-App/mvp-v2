@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Trophy, Search, ChevronUp, ChevronDown, Minus, Crown, Medal, Star } from 'lucide-react'
+import { Trophy, Search, Crown, Medal } from 'lucide-react'
 import api from '@/lib/axios'
-import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
 interface LeaderboardEntry {
@@ -16,21 +15,14 @@ interface LeaderboardEntry {
   is_current_user: boolean
 }
 
-interface LeaderboardData {
-  entries: LeaderboardEntry[]
-  total: number
-  current_user_rank?: number
-  current_user_entry?: LeaderboardEntry
-}
-
 // ─── Widget Mode: top 3 + current user rank ────────────────────────────────
 export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
-  const [data, setData] = useState<LeaderboardData | null>(null)
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.get('/gamification/leaderboard', { params: { page: 1, page_size: 5 } })
-      .then(r => setData(r.data))
+    api.get('/progress/leaderboard', { params: { limit: 5, offset: 0 } })
+      .then(r => setEntries(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -45,8 +37,8 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
     )
   }
 
-  const top3 = data?.entries.slice(0, 3) ?? []
-  const currentUserEntry = data?.current_user_entry
+  const top5 = entries.filter(e => e.rank <= 5)
+  const currentUserEntry = entries.find(e => e.is_current_user)
 
   const rankIcon = (rank: number) => {
     if (rank === 1) return <Crown size={14} className="text-yellow-400" />
@@ -72,11 +64,11 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
         )}
       </div>
 
-      {top3.map(entry => (
+      {top5.slice(0, 3).map(entry => (
         <LeaderboardRow key={entry.user_id} entry={entry} compact />
       ))}
 
-      {currentUserEntry && !top3.some(e => e.user_id === currentUserEntry.user_id) && (
+      {currentUserEntry && !top5.some(e => e.user_id === currentUserEntry.user_id) && (
         <>
           <div className="border-t border-slate-800 pt-2 mt-1">
             <p className="text-xs text-slate-400 mb-2 text-center">• • •</p>
@@ -91,8 +83,7 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 // ─── Full-page Leaderboard ──────────────────────────────────────────────────
 export function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
-  const [total, setTotal] = useState(0)
-  const [currentUserEntry, setCurrentUserEntry] = useState<LeaderboardEntry | null>(null)
+  const [hasMore, setHasMore] = useState(true)
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
@@ -102,12 +93,12 @@ export function LeaderboardPage() {
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/gamification/leaderboard', {
-        params: { page, page_size: PAGE_SIZE, search: search || undefined }
+      const offset = (page - 1) * PAGE_SIZE
+      const { data } = await api.get('/progress/leaderboard', {
+        params: { limit: PAGE_SIZE, offset, search: search || undefined }
       })
-      setEntries(data.entries ?? [])
-      setTotal(data.total ?? 0)
-      setCurrentUserEntry(data.current_user_entry ?? null)
+      setEntries(prev => (page > 1 && !search ? [...prev, ...(data ?? [])] : (data ?? [])))
+      setHasMore((data ?? []).length === PAGE_SIZE)
     } catch {
       // silently fail
     } finally {
@@ -122,7 +113,6 @@ export function LeaderboardPage() {
     setSearch(searchInput)
   }
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
   const top3 = entries.filter(e => e.rank <= 3 && page === 1 && !search)
 
   return (
@@ -130,8 +120,8 @@ export function LeaderboardPage() {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Trophy size={22} className="text-yellow-400" />
-        <h1 className="text-white text-2xl font-bold">Classement</h1>
-        <span className="ml-auto text-slate-500 text-sm">{total} joueurs</span>
+        <h1 className="text-slate-900 dark:text-white text-2xl font-bold">Classement</h1>
+        <span className="ml-auto text-slate-500 text-sm">{entries.length} joueurs</span>
       </div>
 
       {/* Podium (page 1, no search) */}
@@ -147,7 +137,7 @@ export function LeaderboardPage() {
           onChange={e => setSearchInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSearch()}
           placeholder="Rechercher un joueur..."
-          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />
         {searchInput && (
           <button
@@ -160,11 +150,11 @@ export function LeaderboardPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         {loading ? (
           <div className="space-y-px">
             {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="h-14 bg-slate-800/40 animate-pulse" />
+              <div key={i} className="h-14 bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
             ))}
           </div>
         ) : entries.length === 0 ? (
@@ -178,16 +168,16 @@ export function LeaderboardPage() {
                 key={entry.user_id}
                 className={cn(
                   'flex items-center gap-3 px-5 py-3 transition-colors',
-                  i < entries.length - 1 && 'border-b border-slate-800/60',
+                  i < entries.length - 1 && 'border-b border-slate-200 dark:border-slate-800/60',
                   entry.is_current_user && 'bg-indigo-500/10'
                 )}
               >
                 <RankBadge rank={entry.rank} />
                 <Avatar entry={entry} />
                 <div className="flex-1 min-w-0">
-                  <p className={cn('text-sm font-semibold truncate', entry.is_current_user ? 'text-indigo-300' : 'text-white')}>
+                  <p className={cn('text-sm font-semibold truncate', entry.is_current_user ? 'text-indigo-500' : 'text-slate-900 dark:text-white')}>
                     {entry.full_name}
-                    {entry.is_current_user && <span className="ml-1.5 text-xs text-indigo-500">(vous)</span>}
+                    {entry.is_current_user && <span className="ml-1.5 text-xs text-indigo-400">(vous)</span>}
                   </p>
                   <p className="text-xs text-slate-500">Niveau {entry.level}</p>
                 </div>
@@ -200,41 +190,17 @@ export function LeaderboardPage() {
         )}
       </div>
 
-      {/* Current user sticky if not visible */}
-      {currentUserEntry && !entries.some(e => e.is_current_user) && (
-        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl px-5 py-3 flex items-center gap-3">
-          <RankBadge rank={currentUserEntry.rank} />
-          <Avatar entry={currentUserEntry} />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-indigo-300 truncate">
-              {currentUserEntry.full_name} <span className="text-xs text-indigo-500">(vous)</span>
-            </p>
-            <p className="text-xs text-slate-500">Niveau {currentUserEntry.level}</p>
-          </div>
-          <p className="text-sm font-bold text-amber-400">{currentUserEntry.total_xp.toLocaleString()} XP</p>
+      {!loading && hasMore && !search && (
+        <div className="flex justify-center">
+          <button
+            onClick={() => setPage(p => p + 1)}
+            className="px-5 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition"
+          >
+            Charger plus
+          </button>
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-lg transition"
-          >
-            ←
-          </button>
-          <span className="text-slate-400 text-sm">{page} / {totalPages}</span>
-          <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-lg transition"
-          >
-            →
-          </button>
-        </div>
-      )}
     </div>
   )
 }

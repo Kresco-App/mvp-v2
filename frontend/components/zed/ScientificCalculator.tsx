@@ -129,7 +129,7 @@ export default function ScientificCalculator({ onClose, inline = false }: Props)
     >
       <div className={cn(
         'bg-slate-900 border border-slate-700 overflow-hidden flex flex-col',
-        inline ? 'rounded-3xl w-full max-w-md mx-auto shadow-sm' : 'rounded-3xl shadow-2xl w-96'
+        inline ? 'rounded-3xl w-full max-w-xl mx-auto shadow-sm' : 'rounded-3xl shadow-2xl w-[440px]'
       )}>
         {/* Header / drag handle */}
         <div
@@ -156,7 +156,7 @@ export default function ScientificCalculator({ onClose, inline = false }: Props)
           <div className="text-right text-slate-500 text-sm min-h-[20px] mb-2 truncate">
             {history[0] ? `${history[0].expr} =` : ''}
           </div>
-          <div className="text-right text-white font-mono text-4xl font-light tracking-wider min-h-[48px] truncate">
+          <div className="text-right text-white font-mono text-5xl font-light tracking-wider min-h-[56px] truncate">
             {display || '0'}
           </div>
         </div>
@@ -168,7 +168,7 @@ export default function ScientificCalculator({ onClose, inline = false }: Props)
               key={i}
               onClick={() => handleButton(btn)}
               className={cn(
-                'h-14 rounded-2xl text-base font-semibold transition-all active:scale-[0.92] shadow-sm flex flex-col items-center justify-center',
+                'h-16 rounded-2xl text-lg font-semibold transition-all active:scale-[0.92] shadow-sm flex flex-col items-center justify-center',
                 ACCENT.has(btn) && 'bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-500/50',
                 DANGER.has(btn) && 'bg-red-500/10 hover:bg-red-500/20 text-red-400',
                 MUTED.has(btn) && 'bg-slate-800 hover:bg-slate-750 text-slate-400',

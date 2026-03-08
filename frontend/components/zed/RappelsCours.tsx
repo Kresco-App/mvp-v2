@@ -187,6 +187,13 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
   const [search, setSearch] = useState('')
 
   const subject = CHEAT_SHEETS.find(s => s.id === selectedSubject) ?? CHEAT_SHEETS[0]
+  const hasPdfs = (subject.pdfs?.length ?? 0) > 0
+  const pdfSlots = hasPdfs
+    ? subject.pdfs!
+    : [
+      { title: 'PDF de rappel 1', url: '' },
+      { title: 'PDF de rappel 2', url: '' },
+    ]
 
   function toggleCategory(title: string) {
     setExpandedCategories(prev => {
@@ -257,17 +264,24 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-        {subject.pdfs && subject.pdfs.length > 0 && !search && (
+        {!search && (
           <div className="bg-indigo-900/10 border border-indigo-500/20 rounded-xl overflow-hidden mb-3">
             <div className="px-4 py-2 border-b border-indigo-500/10 bg-indigo-500/5">
               <span className="text-indigo-300 text-[11px] font-semibold uppercase tracking-wider">Documents PDF</span>
             </div>
             <div className="divide-y divide-indigo-500/10">
-              {subject.pdfs.map((pdf, i) => (
-                <a key={i} href={pdf.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-4 py-3 hover:bg-slate-800/50 transition group">
-                  <FileText size={16} className="text-indigo-400 group-hover:text-indigo-300 transition" />
-                  <span className="text-slate-200 text-xs font-medium group-hover:text-white transition">{pdf.title}</span>
-                </a>
+              {pdfSlots.map((pdf, i) => (
+                pdf.url ? (
+                  <a key={i} href={pdf.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-4 py-3 hover:bg-slate-800/50 transition group">
+                    <FileText size={16} className="text-indigo-400 group-hover:text-indigo-300 transition" />
+                    <span className="text-slate-200 text-xs font-medium group-hover:text-white transition">{pdf.title}</span>
+                  </a>
+                ) : (
+                  <div key={i} className="flex items-center gap-3 px-4 py-3 text-slate-500">
+                    <FileText size={16} className="text-slate-600" />
+                    <span className="text-xs font-medium italic">{pdf.title} — emplacement libre</span>
+                  </div>
+                )
               ))}
             </div>
           </div>

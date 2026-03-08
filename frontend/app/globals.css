@@ -13,7 +13,7 @@
 }
 
 html {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 body {
@@ -24,8 +24,12 @@ body {
   color: #0f172a;
 }
 
+html.dark body {
+  background: #0b1020;
+  color: #e2e8f0;
+}
+
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
-
