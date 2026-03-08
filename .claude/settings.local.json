@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(mkdir:*)",
+      "Bash(npx:*)",
+      "Bash(python3:*)",
+      "Bash(venv/bin/python:*)",
+      "Bash(/Users/tahalyousfi/Desktop/kresco-v2/backend/venv/bin/python:*)",
+      "Bash(mv:*)",
+      "Bash(npm run:*)",
+      "Bash(chmod +x:*)",
+      "Bash(DATABASE_URL=\"\" venv/bin/python:*)",
+      "Bash(curl:*)",
+      "Bash(kill %1:*)",
+      "Bash(open:*)",
+      "Bash(pkill:*)",
+      "Bash(python:*)",
+      "Bash(source:*)",
+      "Bash(ls:*)",
+      "Bash(lsof:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(pip install:*)",
+      "Bash(sips:*)",
+      "Bash(__NEW_LINE_9eb911f57d211c3a__ echo:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(rm:*)"
+    ]
+  }
+}
