@@ -11,8 +11,7 @@
         "cors": true,
         "timeout_seconds": 30,
         "memory_size": 512,
-        "manage_roles": false,
-        "role_name": "kresco-zappa-execution-role",
+        "manage_roles": true,
         "apigateway_enabled": true
     }
 }
