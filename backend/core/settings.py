@@ -54,7 +54,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'core.middleware.ZappaWhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -111,7 +111,7 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# On Lambda, API Gateway adds /production stage prefix to all URLs
+# On Lambda, API Gateway adds /production stage prefix to all browser-facing URLs
 STATIC_URL = '/production/static/' if os.environ.get('LAMBDA_TASK_ROOT') else '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STORAGES = {
