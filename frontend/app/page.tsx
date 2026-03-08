@@ -48,7 +48,7 @@ export default function AuthPage() {
   const [selectedLevel, setSelectedLevel] = useState('')
   const [selectedSpec, setSelectedSpec] = useState('')
 
-  useEffect(() => { hydrate() }, [])
+  useEffect(() => { hydrate() }, [hydrate])
 
   // If already logged in, check if onboarding is needed
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function AuthPage() {
         router.replace('/home')
       }
     }
-  }, [isHydrated, token, user])
+  }, [isHydrated, token, user, router])
 
   // Google Sign-In
   useEffect(() => {
@@ -111,8 +111,8 @@ export default function AuthPage() {
       }
     }
     document.head.appendChild(script)
-    return () => { try { document.head.removeChild(script) } catch {} }
-  }, [step])
+    return () => { try { document.head.removeChild(script) } catch { } }
+  }, [step, login, router])
 
   async function saveOnboarding() {
     setLoading(true)
@@ -196,11 +196,10 @@ export default function AuthPage() {
                 <button
                   key={n.id}
                   onClick={() => setSelectedLevel(n.id)}
-                  className={`w-full text-left px-5 py-4 rounded-xl border-2 transition-all text-sm font-medium flex items-center justify-between ${
-                    selectedLevel === n.id
+                  className={`w-full text-left px-5 py-4 rounded-xl border-2 transition-all text-sm font-medium flex items-center justify-between ${selectedLevel === n.id
                       ? 'border-kresco bg-kresco/5 text-kresco'
                       : 'border-slate-700 text-slate-300 hover:border-kresco/40'
-                  }`}
+                    }`}
                 >
                   {n.label}
                   {selectedLevel === n.id && <Check size={16} />}
@@ -229,11 +228,10 @@ export default function AuthPage() {
                 <button
                   key={spec}
                   onClick={() => setSelectedSpec(spec)}
-                  className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm flex items-center justify-between ${
-                    selectedSpec === spec
+                  className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm flex items-center justify-between ${selectedSpec === spec
                       ? 'border-kresco bg-kresco/5 text-kresco font-semibold'
                       : 'border-slate-700 text-slate-300 hover:border-kresco/40'
-                  }`}
+                    }`}
                 >
                   {spec}
                   {selectedSpec === spec && <Check size={14} />}

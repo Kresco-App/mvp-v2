@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  BookOpen, Users, BarChart3, Puzzle,
-  ChevronRight, Plus, Video, FileText,
-  Trophy, TrendingUp
+  BookOpen, Users, Puzzle,
+  ChevronRight, Plus, Video, FileText
 } from 'lucide-react'
 import api from '@/lib/axios'
 import { useAuthStore } from '@/lib/store'
@@ -21,7 +20,6 @@ interface Stats {
 
 export default function AdminDashboard() {
   const router = useRouter()
-  const { user } = useAuthStore()
   const [stats, setStats] = useState<Stats | null>(null)
   const [subjects, setSubjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -134,7 +132,7 @@ export default function AdminDashboard() {
 
             {loading ? (
               <div className="space-y-2">
-                {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-900 rounded-xl animate-pulse" />)}
+                {[1, 2, 3].map(i => <div key={i} className="h-16 bg-slate-900 rounded-xl animate-pulse" />)}
               </div>
             ) : subjects.length === 0 ? (
               <div className="bg-slate-900 rounded-2xl border border-slate-800 p-12 text-center">
@@ -153,9 +151,8 @@ export default function AdminDashboard() {
                   <Link
                     key={subj.id}
                     href={`/admin/courses/${subj.id}`}
-                    className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-800/50 transition group ${
-                      i < subjects.length - 1 ? 'border-b border-slate-800' : ''
-                    }`}
+                    className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-800/50 transition group ${i < subjects.length - 1 ? 'border-b border-slate-800' : ''
+                      }`}
                   >
                     <div className="w-10 h-10 rounded-xl bg-indigo-600/20 flex items-center justify-center flex-shrink-0">
                       <BookOpen size={16} className="text-indigo-400" />

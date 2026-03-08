@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, ChevronDown, ChevronRight, Plus,
-  Video, HelpCircle, Puzzle, FileText, Trash2,
-  Edit3, GripVertical, Eye, EyeOff
+  ArrowLeft, ChevronDown, ChevronRight,
+  Video, HelpCircle, Puzzle, FileText,
+  GripVertical, Eye
 } from 'lucide-react'
 import api from '@/lib/axios'
 import AuthGuard from '@/components/AuthGuard'
@@ -50,7 +50,7 @@ export default function AdminSubjectPage() {
       }
     }
     load()
-  }, [subjectId])
+  }, [subjectId, router])
 
   async function loadChapterSections(chapterId: number) {
     if (sections[chapterId]) return
@@ -169,7 +169,7 @@ export default function AdminSubjectPage() {
                   {/* Add section hint */}
                   <div className="px-5 py-3 border-t border-slate-800/60">
                     <p className="text-slate-400 text-xs">
-                      Pour ajouter des sections, utilisez l'admin Django → ChapterSection
+                      Pour ajouter des sections, utilisez l&apos;admin Django → ChapterSection
                     </p>
                   </div>
                 </div>

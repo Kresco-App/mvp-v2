@@ -8,7 +8,7 @@ import {
   ArrowLeft, CheckCircle2, MessageSquare,
   BookOpen, ChevronRight, Send, StickyNote,
   FileText, Save, Trash2, Play, HelpCircle,
-  Puzzle, ArrowRight, Lock, FlaskConical
+  Puzzle, ArrowRight, FlaskConical
 } from 'lucide-react'
 import api from '@/lib/axios'
 import { useAuthStore } from '@/lib/store'
@@ -83,7 +83,7 @@ export default function WatchPage() {
   const [notesSaved, setNotesSaved] = useState(true)
   const [pdfs, setPdfs] = useState<{ id: number; title: string; file_url: string; order: number }[]>([])
   const [currentTime, setCurrentTime] = useState(0)
-  const [videoPaused, setVideoPaused] = useState(false)
+  const [, setVideoPaused] = useState(false)
   const [completingSection, setCompletingSection] = useState(false)
 
   // Load saved notes from localStorage
@@ -195,7 +195,7 @@ export default function WatchPage() {
       }
     }
     loadSection()
-  }, [sectionId])
+  }, [sectionId, router])
 
   useEffect(() => {
     if (section) document.title = `${section.title} — Kresco`
@@ -203,6 +203,7 @@ export default function WatchPage() {
 
   const handleVideoComplete = useCallback(() => {
     markSectionComplete()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sectionId])
 
   async function markSectionComplete(opts?: { score?: number; correct_answers?: number; total_questions?: number }) {
