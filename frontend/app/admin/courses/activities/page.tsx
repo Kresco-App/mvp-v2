@@ -131,7 +131,7 @@ export default function ActivityBuilderPage() {
           <button onClick={() => router.push('/admin')} className="text-slate-400 hover:text-white transition">
             <ArrowLeft size={18} />
           </button>
-          <h1 className="text-white font-semibold">Créateur d'activités</h1>
+          <h1 className="text-white font-semibold">Créateur d&apos;activités</h1>
         </div>
 
         <div className="max-w-4xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -139,7 +139,7 @@ export default function ActivityBuilderPage() {
           <div className="space-y-6">
             {/* Type selector */}
             <div>
-              <h2 className="text-white font-semibold mb-3">Type d'activité</h2>
+              <h2 className="text-white font-semibold mb-3">Type d&apos;activité</h2>
               <div className="grid grid-cols-2 gap-2">
                 {ACTIVITY_TYPES.map(t => (
                   <button
@@ -260,7 +260,7 @@ export default function ActivityBuilderPage() {
                 <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap overflow-auto">{output}</pre>
               ) : (
                 <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
-                  Configurez l'activité et cliquez "Générer"
+                  Configurez l&apos;activité et cliquez &quot;Générer&quot;
                 </div>
               )}
             </div>
@@ -268,7 +268,7 @@ export default function ActivityBuilderPage() {
             {output && (
               <div className="bg-slate-800/60 rounded-xl p-4 text-xs text-slate-400 space-y-1">
                 <p className="text-slate-300 font-semibold mb-2">Comment utiliser :</p>
-                <p>1. Dans l'admin Django, créez un <code className="text-indigo-300">ChapterSection</code></p>
+                <p>1. Dans l&apos;admin Django, créez un <code className="text-indigo-300">ChapterSection</code></p>
                 <p>2. <code className="text-indigo-300">section_type</code> = <code className="text-green-400">activity</code></p>
                 <p>3. <code className="text-indigo-300">activity_type</code> = <code className="text-green-400">{selectedType}</code></p>
                 <p>4. Collez le contenu de <code className="text-indigo-300">activity_data</code> dans le champ JSON</p>
