@@ -12,7 +12,7 @@ from gamification.models import (
 )
 from gamification.schemas import (
     ProgressUpdateIn, ProgressCompleteIn,
-    SubjectPlanOut, LessonProgressOut,
+    SectionCompleteIn, SubjectPlanOut, LessonProgressOut,
     XPOut, XPTransactionOut, LessonAccessOut, VideoQuizTriggerOut,
     LeaderboardEntryOut, DailyQuestOut, UserStatsOut,
 )
@@ -193,22 +193,22 @@ def check_lesson_access(request, lesson_id: int):
 # ── Section completion + gating ───────────────────────────────────────────────
 
 @router.post("/section-complete")
-def complete_section(request, section_id: int, score: int = 0, correct_answers: int = 0, total_questions: int = 0):
+def complete_section(request, body: SectionCompleteIn):
     """Mark a chapter section as complete. Returns xp_earned."""
     from courses.models import ChapterSection
     try:
-        section = ChapterSection.objects.get(id=section_id)
+        section = ChapterSection.objects.get(id=body.section_id)
     except ChapterSection.DoesNotExist:
         raise HttpError(404, "Section not found")
 
     passed = True
     if section.section_type in ('quiz', 'activity'):
-        passed = score >= section.pass_score
+        passed = body.score >= section.pass_score
 
     xp_earned = 0
     if passed:
         _, created = ContentProgress.objects.get_or_create(
-            user=request.auth, item_type='section', item_id=section_id
+            user=request.auth, item_type='section', item_id=section.id
         )
         if created:
             # Award XP based on section type (marking system)
@@ -216,17 +216,17 @@ def complete_section(request, section_id: int, score: int = 0, correct_answers: 
                 xp_earned += award_xp(request.auth, 'video_complete', f'Video: {section.title}')
             elif section.section_type == 'quiz':
                 # 5 XP per correct answer
-                if correct_answers > 0:
+                if body.correct_answers > 0:
                     per_q = XP_REWARDS.get('quiz_correct', 5)
                     xp_obj, _ = UserXP.objects.get_or_create(user=request.auth)
-                    bonus = correct_answers * per_q
+                    bonus = body.correct_answers * per_q
                     xp_obj.total_xp += bonus
                     xp_obj.save()
                     XPTransaction.objects.create(user=request.auth, amount=bonus, reason='quiz_correct',
-                                                 description=f'{correct_answers} bonnes reponses: {section.title}')
+                                                 description=f'{body.correct_answers} bonnes reponses: {section.title}')
                     xp_earned += bonus
                 xp_earned += award_xp(request.auth, 'quiz_pass', f'Quiz reussi: {section.title}')
-                if score == 100:
+                if body.score == 100:
                     xp_earned += award_xp(request.auth, 'quiz_perfect', 'Score parfait !')
                 # Increment daily quest
                 DailyQuest.objects.filter(
@@ -241,7 +241,7 @@ def complete_section(request, section_id: int, score: int = 0, correct_answers: 
                 date=date.today(), completed=False
             ).update(progress=models.F('progress') + 1)
 
-    return {"ok": True, "passed": passed, "score": score, "xp_earned": xp_earned}
+    return {"ok": True, "passed": passed, "score": body.score, "xp_earned": xp_earned}
 
 
 @router.get("/sections/{section_id}/access")
@@ -255,7 +255,8 @@ def check_section_access(request, section_id: int):
 
     if not request.auth.is_pro:
         # Check if there's any free section (first one in chapter usually)
-        if section.order == 0:
+        first_section = ChapterSection.objects.filter(chapter=section.chapter).order_by('order').first()
+        if first_section and section.id == first_section.id:
             return {"can_access": True, "reason": "first_section"}
         return {"can_access": False, "reason": "requires_pro"}
 
