@@ -125,6 +125,14 @@ class ChapterSection(models.Model):
         ('flashcards', 'Cartes memoire'),
         ('classification', 'Classification'),
         ('simulator', 'Simulateur'),
+        ('onde_propagation', 'Onde - Propagation'),
+        ('onde_caracteristiques', 'Onde - Caracteristiques'),
+        ('onde_true_false', 'Onde - Vrai/Faux'),
+        ('math_ensembles_lab', 'Math - Ensembles'),
+        ('math_limites_continuite_lab', 'Math - Limites et continuite'),
+        ('wave_simulator', 'Simulateur - Onde'),
+        ('prism_simulator', 'Simulateur - Prisme'),
+        ('diffraction_simulator', 'Simulateur - Diffraction'),
     ]
     chapter = models.ForeignKey(Chapter, related_name='sections', on_delete=models.CASCADE)
     title = models.CharField(max_length=255)

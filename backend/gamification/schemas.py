@@ -13,10 +13,20 @@ class ProgressCompleteIn(Schema):
     item_id: int
 
 
+class SectionCompleteIn(Schema):
+    section_id: int
+    score: int = 0
+    correct_answers: int = 0
+    total_questions: int = 0
+
+
 class SubjectPlanOut(Schema):
     completed_lesson_ids: List[int]
     completed_block_ids: List[int]
     completed_quiz_ids: List[int]
+    completed_section_ids: List[int] = []
+    total_section_count: int = 0
+    total_lesson_count: int = 0
 
 
 class LessonProgressOut(Schema):
