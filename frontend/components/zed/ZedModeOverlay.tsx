@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  X, GripVertical, FileText, Code, Calculator,
-  Terminal, Maximize2, Minimize2, Moon, BookOpen
+  X, GripVertical, FileText, Calculator,
+  Maximize2, Minimize2, Moon, BookOpen, Home
 } from 'lucide-react'
 import { useFocusEngine } from '@/hooks/useFocusEngine'
 import PomodoroTimer from './PomodoroTimer'
@@ -24,7 +24,7 @@ import KrescoMascot, { MascotMood } from '@/components/KrescoMascot'
 
 type RightTab = 'scratchpad' | 'calculator' | 'rappels'
 
-const RIGHT_TABS: { id: RightTab; label: string; icon: typeof Code }[] = [
+const RIGHT_TABS: { id: RightTab; label: string; icon: typeof FileText }[] = [
   { id: 'scratchpad', label: 'Brouillon', icon: FileText },
   { id: 'calculator', label: 'Calcul', icon: Calculator },
   { id: 'rappels', label: 'Rappels', icon: BookOpen },
@@ -166,10 +166,11 @@ export default function ZedModeOverlay({ onClose }: Props) {
           </div>
           <button
             onClick={() => setShowHomeConfirm(true)}
-            className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition"
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition text-xs font-medium"
             title="Retour à l'accueil"
           >
-            <BookOpen size={16} /> {/* Placeholder for Home icon since we didn't import Home */}
+            <Home size={14} />
+            Accueil
           </button>
           <button
             onClick={onClose}
@@ -287,7 +288,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
             >
               <h3 className="text-xl font-bold text-white mb-2">Quitter et revenir ?</h3>
               <p className="text-slate-400 text-sm mb-6">
-                Êtes-vous sûr de vouloir quitter le Zed Mode et retourner à l'accueil ? Toutes les annotations locales non sauvegardées seront perdues.
+                Êtes-vous sûr de vouloir quitter le Zed Mode et retourner à l&apos;accueil ? Toutes les annotations locales non sauvegardées seront perdues.
               </p>
               <div className="flex gap-3 justify-end">
                 <button
@@ -299,8 +300,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
                 <button
                   onClick={() => {
                     setShowHomeConfirm(false)
-                    onClose() // the parent usually manages routing, or we can use next/navigation
-                    window.location.href = '/home' // forceful nav to home as requested
+                    onClose()
                   }}
                   className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
                 >

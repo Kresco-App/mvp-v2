@@ -186,12 +186,6 @@ export default function SubjectDetailPage() {
         )}
       </div>
 
-      {/* Exam link */}
-      <Link href={`/exam/${subjectId}`} className="mt-6 mb-8 flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 transition">
-        <ClipboardCheck size={18} />
-        Passer l&apos;examen blanc
-      </Link>
-
       {/* Curriculum - Section-based path */}
       <h2 className="text-xl font-bold text-white mb-4">Programme</h2>
       <div className="space-y-3">
@@ -310,15 +304,15 @@ export default function SubjectDetailPage() {
               </div>
 
               {/* Exam Blanc Placeholder between chapters */}
-              {idx % 2 === 1 && idx !== subject.chapters.length - 1 && (
+              {idx !== subject.chapters.length - 1 && (
                 <div className="flex justify-center py-6">
-                  <Link href={`/exam/${subjectId}?chapter=${chapter.id}`} className="group inline-flex items-center gap-3 px-6 py-3.5 bg-slate-900 hover:bg-slate-800 transition-all rounded-2xl border border-dashed border-slate-700 hover:border-indigo-500/50">
-                    <ClipboardCheck size={20} className="text-indigo-400 group-hover:scale-110 transition-transform" />
+                  <div className="group inline-flex items-center gap-3 px-6 py-3.5 bg-slate-900 rounded-2xl border border-dashed border-slate-700">
+                    <ClipboardCheck size={20} className="text-indigo-400" />
                     <div>
                       <p className="text-slate-200 font-semibold text-sm">Examen Blanc d'étape</p>
-                      <p className="text-slate-500 text-xs mt-0.5">Testez vos connaissances sur ces chapitres</p>
+                      <p className="text-slate-500 text-xs mt-0.5">Bientôt disponible</p>
                     </div>
-                  </Link>
+                  </div>
                 </div>
               )}
             </div>

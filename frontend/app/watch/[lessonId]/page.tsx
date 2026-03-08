@@ -8,7 +8,7 @@ import {
   ArrowLeft, CheckCircle2, MessageSquare,
   BookOpen, ChevronRight, Send, StickyNote,
   FileText, Save, Trash2, Play, HelpCircle,
-  Puzzle, ArrowRight, Lock, FlaskConical, Zap
+  Puzzle, ArrowRight, Lock, FlaskConical
 } from 'lucide-react'
 import api from '@/lib/axios'
 import { useAuthStore } from '@/lib/store'
@@ -163,7 +163,7 @@ export default function WatchPage() {
           const accessRes = await api.get(`/progress/sections/${parseInt(sectionId)}/access`)
           if (!accessRes.data.can_access) {
             toast.error('Cette section est verrouillée. Complétez la section précédente d\'abord.')
-            router.push(`/home`)
+            router.push(`/home/${foundChapterInfo.subject_id}`)
             return
           }
         } catch {
@@ -225,8 +225,7 @@ export default function WatchPage() {
         triggerMascot('happy', 'Bravo ! Section terminée !')
       }
     } catch {
-      setIsCompleted(true)
-      toast.success('Section terminée !')
+      toast.error('Impossible de valider la section. Réessayez.')
     } finally {
       setCompletingSection(false)
     }
@@ -473,6 +472,55 @@ export default function WatchPage() {
     }
   }
 
+  function renderLabContent() {
+    if (!section?.activity_type) {
+      return (
+        <div className="text-center py-10 bg-slate-900 border border-slate-800 rounded-2xl">
+          <p className="text-slate-400 text-sm">Aucune activité associée à cette leçon.</p>
+        </div>
+      )
+    }
+
+    const data = section.activity_data || {}
+
+    switch (section.activity_type) {
+      case 'wave_simulator':
+        return <SimulatorCard type="wave" label="Onde transversale" desc="Visualisez une onde se propageant" />
+      case 'prism_simulator':
+        return <SimulatorCard type="prism" label="Prisme" desc="Dispersion de la lumière" />
+      case 'diffraction_simulator':
+        return <SimulatorCard type="diffraction" label="Diffraction" desc="Fente simple — figure de diffraction" />
+      case 'OndeCaracteristiques':
+        return (
+          <OndeCaracteristiques
+            questions={data.questions}
+            onComplete={(correct) => { if (correct) toast.success('Activité réussie !') }}
+          />
+        )
+      case 'OndePropagation':
+        return (
+          <OndePropagation
+            question={data.question}
+            pairs={data.pairs}
+            onComplete={(correct) => { if (correct) toast.success('Activité réussie !') }}
+          />
+        )
+      case 'OndeTrueFalse':
+        return (
+          <OndeTrueFalse
+            statements={data.statements}
+            onComplete={(correct) => { if (correct) toast.success('Activité réussie !') }}
+          />
+        )
+      default:
+        return (
+          <div className="text-center py-10 bg-slate-900 border border-slate-800 rounded-2xl">
+            <p className="text-slate-400 text-sm">Type d&apos;activité non supporté : {section.activity_type}</p>
+          </div>
+        )
+    }
+  }
+
   // Section type icon for top bar
   function getTopBarIcon() {
     switch (section?.section_type) {
@@ -583,35 +631,7 @@ export default function WatchPage() {
 
               {activeTab === 'lab' && (
                 <div className="space-y-6">
-                  {!section.activity_type && (
-                    <div className="text-center py-10 bg-slate-900 border border-slate-800 rounded-2xl">
-                      <p className="text-slate-400 text-sm">Aucune activité associée à cette leçon.</p>
-                    </div>
-                  )}
-                  {section.activity_type === 'wave_simulator' && (
-                    <SimulatorCard type="wave" label="Onde transversale" desc="Visualisez une onde se propageant" />
-                  )}
-                  {section.activity_type === 'prism_simulator' && (
-                    <SimulatorCard type="prism" label="Prisme" desc="Dispersion de la lumière" />
-                  )}
-                  {section.activity_type === 'diffraction_simulator' && (
-                    <SimulatorCard type="diffraction" label="Diffraction" desc="Fente simple — figure de diffraction" />
-                  )}
-                  {section.activity_type === 'OndeCaracteristiques' && (
-                    <OndeCaracteristiques onComplete={(correct) => {
-                      if (correct) toast.success('Activité réussie !')
-                    }} />
-                  )}
-                  {section.activity_type === 'OndePropagation' && (
-                    <OndePropagation onComplete={(correct) => {
-                      if (correct) toast.success('Activité réussie !')
-                    }} />
-                  )}
-                  {section.activity_type === 'OndeTrueFalse' && (
-                    <OndeTrueFalse onComplete={(correct) => {
-                      if (correct) toast.success('Activité réussie !')
-                    }} />
-                  )}
+                  {renderLabContent()}
                 </div>
               )}
 

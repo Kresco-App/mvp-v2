@@ -76,17 +76,24 @@ export default function HomePage() {
     api.get('/courses/subjects')
       .then(r => {
         setSubjects(r.data)
-        // Fetch progress for the first 2 subjects (resume cards)
-        r.data.slice(0, 2).forEach((s: Subject) => {
-          api.get(`/progress/subject-plan/${s.id}`)
-            .then(planRes => {
-              const plan = planRes.data
-              const completedIds: number[] = plan.completed_lesson_ids || []
-              const totalLessons: number = plan.total_lessons ?? s.lesson_count ?? 1
-              const pct = totalLessons > 0 ? Math.round((completedIds.length / totalLessons) * 100) : 0
-              setResumeProgress(prev => ({ ...prev, [s.id]: pct }))
-            })
-            .catch(() => { })
+        // Fetch progress for the first 2 subjects (resume cards) from sections
+        r.data.slice(0, 2).forEach(async (s: Subject) => {
+          try {
+            const subjDetail = await api.get(`/courses/subjects/${s.id}`)
+            const chapters = subjDetail.data.chapters ?? []
+            const sectionsRes = await Promise.all(
+              chapters.map((ch: any) =>
+                api.get(`/courses/chapters/${ch.id}/sections`).then(res => res.data).catch(() => [])
+              )
+            )
+            const allSections = sectionsRes.flat()
+            const total = allSections.length
+            const completed = allSections.filter((sec: any) => sec.is_completed).length
+            const pct = total > 0 ? Math.round((completed / total) * 100) : 0
+            setResumeProgress(prev => ({ ...prev, [s.id]: pct }))
+          } catch {
+            setResumeProgress(prev => ({ ...prev, [s.id]: 0 }))
+          }
         })
       })
       .catch(() => toast.error('Erreur de chargement des matieres.'))

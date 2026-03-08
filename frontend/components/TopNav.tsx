@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useRef, useEffect } from 'react'
-import { LogOut, User, ChevronDown, Moon, LayoutDashboard } from 'lucide-react'
+import { LogOut, User, ChevronDown, Moon, Sun, LayoutDashboard } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 import KrescoLogo from '@/components/KrescoLogo'
@@ -19,7 +19,21 @@ export default function TopNav() {
   const router = useRouter()
   const { user, logout } = useAuthStore()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const saved = localStorage.getItem('kresco_theme')
+    const nextTheme = saved === 'dark' || saved === 'light' ? saved : 'light'
+    setTheme(nextTheme)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    localStorage.setItem('kresco_theme', theme)
+  }, [theme])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -58,7 +72,7 @@ export default function TopNav() {
                   'px-4 py-1.5 rounded-full text-sm font-medium transition-colors',
                   active
                     ? 'bg-kresco/10 text-kresco font-semibold'
-                    : 'text-slate-500 hover:text-white hover:bg-slate-100'
+                    : 'text-slate-500 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                 )}
               >
                 {label}
@@ -67,21 +81,29 @@ export default function TopNav() {
           })}
           <Link
             href="/zed"
-            className={cn(
-              'px-4 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5',
-              pathname === '/zed'
-                ? 'bg-indigo-600/10 text-indigo-600 font-semibold'
-                : 'text-slate-500 hover:text-white hover:bg-slate-100'
-            )}
-          >
+              className={cn(
+                'px-4 py-1.5 rounded-full text-sm font-medium transition-colors flex items-center gap-1.5',
+                pathname === '/zed'
+                  ? 'bg-indigo-600/10 text-indigo-600 font-semibold'
+                  : 'text-slate-500 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
+              )}
+            >
             <Moon size={13} />
             Zed Mode
           </Link>
           <button
             onClick={() => toast.info('Sessions en direct bientot disponibles !')}
-            className="px-4 py-1.5 rounded-full text-sm font-medium text-slate-500 hover:text-white hover:bg-slate-100 transition-colors"
+            className="px-4 py-1.5 rounded-full text-sm font-medium text-slate-500 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             Live
+          </button>
+          <button
+            onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+            className="px-3 py-1.5 rounded-full text-sm font-medium text-slate-500 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+            title={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
+          >
+            {theme === 'dark' ? <Sun size={13} /> : <Moon size={13} />}
+            {theme === 'dark' ? 'Clair' : 'Sombre'}
           </button>
         </div>
 
