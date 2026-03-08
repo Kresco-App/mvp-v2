@@ -45,6 +45,7 @@ export default function Ordering({ question, items: initialItems, correctOrder, 
         {items.map((item, index) => {
           const correctIdx = correctOrder.indexOf(item.id)
           const isCorrectPos = submitted && index === correctIdx
+          const isWrongPos = submitted && index !== correctIdx
 
           return (
             <div
@@ -52,13 +53,15 @@ export default function Ordering({ question, items: initialItems, correctOrder, 
               draggable={!submitted}
               onDragStart={() => handleDragStart(index)}
               onDragOver={e => handleDragOver(e, index)}
-              className={`flex items-center gap-4 p-4 rounded-xl border-2 transition select-none ${!submitted ? 'border-slate-700 hover:border-indigo-500/40 cursor-grab active:cursor-grabbing bg-slate-800/50' :
-                  isCorrectPos ? 'border-green-500/50 bg-green-500/10' : 'border-red-500/50 bg-red-500/10'
-                }`}
+              className={`flex items-center gap-4 p-4 rounded-xl border-2 transition select-none ${
+                !submitted ? 'border-slate-700 hover:border-indigo-500/40 cursor-grab active:cursor-grabbing bg-slate-800/50' :
+                isCorrectPos ? 'border-green-500/50 bg-green-500/10' : 'border-red-500/50 bg-red-500/10'
+              }`}
             >
               <GripVertical size={16} className="text-slate-500 flex-shrink-0" />
-              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${submitted ? isCorrectPos ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-slate-400'
-                }`}>
+              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                submitted ? isCorrectPos ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400' : 'bg-slate-700 text-slate-400'
+              }`}>
                 {index + 1}
               </span>
               <span className={`text-sm font-medium ${submitted ? isCorrectPos ? 'text-green-300' : 'text-red-300' : 'text-slate-200'}`}>

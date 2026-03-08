@@ -190,7 +190,7 @@ export function FloatingMascot() {
   if (!visible) return null
 
   return (
-    <div className="fixed bottom-14 right-14 z-50 flex flex-col items-end gap-2">
+    <div className="fixed bottom-10 right-10 z-50 flex flex-col items-end gap-2">
       {/* Expanded helper panel */}
       {expanded && (
         <div className="bubble-in bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-4 w-64 mb-2">

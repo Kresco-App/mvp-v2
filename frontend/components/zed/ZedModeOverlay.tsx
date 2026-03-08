@@ -1,30 +1,39 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  X, GripVertical, FileText, Calculator,
-  Maximize2, Minimize2, Moon, BookOpen, Home
+  X,
+  GripVertical,
+  FileText,
+  Code,
+  Calculator,
+  Maximize2,
+  Minimize2,
+  Moon,
+  BookOpen,
+  House,
 } from 'lucide-react'
 import { useFocusEngine } from '@/hooks/useFocusEngine'
+import KrescoMascot, { MascotMood } from '@/components/KrescoMascot'
 import PomodoroTimer from './PomodoroTimer'
 import ScientificCalculator from './ScientificCalculator'
 import RappelsCours from './RappelsCours'
-import dynamic from 'next/dynamic'
+import Scratchpad from './Scratchpad'
+
 const PdfViewer = dynamic(() => import('./PdfViewer'), {
   ssr: false,
   loading: () => (
-    <div className="flex items-center justify-center h-full">
-      <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+    <div className="flex h-full items-center justify-center">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
     </div>
   ),
 })
-import Scratchpad from './Scratchpad'
-import KrescoMascot, { MascotMood } from '@/components/KrescoMascot'
 
 type RightTab = 'scratchpad' | 'calculator' | 'rappels'
 
-const RIGHT_TABS: { id: RightTab; label: string; icon: typeof FileText }[] = [
+const RIGHT_TABS: { id: RightTab; label: string; icon: typeof Code }[] = [
   { id: 'scratchpad', label: 'Brouillon', icon: FileText },
   { id: 'calculator', label: 'Calcul', icon: Calculator },
   { id: 'rappels', label: 'Rappels', icon: BookOpen },
@@ -54,7 +63,6 @@ export default function ZedModeOverlay({ onClose }: Props) {
   const [showRappels, setShowRappels] = useState(false)
   const [showHomeConfirm, setShowHomeConfirm] = useState(false)
 
-  // Load split preference
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(SPLIT_STORAGE_KEY)
@@ -62,7 +70,6 @@ export default function ZedModeOverlay({ onClose }: Props) {
     }
   }, [])
 
-  // Mascot reacts to tab warnings
   useEffect(() => {
     if (engine.tabStatus === 'away' && engine.state === 'running') {
       setMascotMood('angry')
@@ -73,9 +80,8 @@ export default function ZedModeOverlay({ onClose }: Props) {
     } else {
       setMascotMood('idle')
     }
-  }, [engine.tabStatus, engine.state])
+  }, [engine.state, engine.tabStatus])
 
-  // Drag to resize split pane
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setIsResizing(true)
@@ -102,55 +108,59 @@ export default function ZedModeOverlay({ onClose }: Props) {
   }, [])
 
   const removePinnedSnippet = useCallback((id: string) => {
-    setPinnedSnippets(prev => prev.filter(s => s.id !== id))
+    setPinnedSnippets(prev => prev.filter(snippet => snippet.id !== id))
   }, [])
 
-  // ESC to close
+  const requestExit = useCallback(() => {
+    setShowHomeConfirm(true)
+  }, [])
+
   useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        requestExit()
+      }
     }
+
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [onClose])
+  }, [requestExit])
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] bg-slate-950 flex flex-col"
+      className="fixed inset-0 z-[100] flex flex-col bg-slate-950"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 flex-shrink-0">
-        {/* Left: Branding + Timer */}
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-2">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Moon size={16} className="text-indigo-400" />
             <span className="text-sm font-bold text-white">Zed Mode</span>
           </div>
-          <div className="w-px h-5 bg-slate-700" />
+          <div className="h-5 w-px bg-slate-700" />
           <PomodoroTimer engine={engine} />
         </div>
 
-        {/* Right: Tools + Mascot + Close */}
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowCalculator(s => !s)}
+            onClick={() => setShowCalculator(current => !current)}
             title="Calculatrice scientifique"
-            className={`p-1.5 rounded-lg transition text-sm ${showCalculator ? 'bg-indigo-600 text-white' : 'hover:bg-slate-700 text-slate-400 hover:text-white'}`}
+            className={`rounded-lg p-1.5 text-sm transition ${showCalculator ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
           >
             <Calculator size={15} />
           </button>
           <button
-            onClick={() => setShowRappels(s => !s)}
+            onClick={() => setShowRappels(current => !current)}
             title="Rappels de cours"
-            className={`p-1.5 rounded-lg transition text-sm ${showRappels ? 'bg-indigo-600 text-white' : 'hover:bg-slate-700 text-slate-400 hover:text-white'}`}
+            className={`rounded-lg p-1.5 text-sm transition ${showRappels ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
           >
             <BookOpen size={15} />
           </button>
-          <div className="w-px h-5 bg-slate-700" />
-          <div className="scale-75 origin-right">
+          <div className="h-5 w-px bg-slate-700" />
+          <div className="origin-right scale-75">
             <KrescoMascot
               mood={mascotMood}
               size={40}
@@ -165,16 +175,16 @@ export default function ZedModeOverlay({ onClose }: Props) {
             />
           </div>
           <button
-            onClick={() => setShowHomeConfirm(true)}
-            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition text-xs font-medium"
-            title="Retour à l'accueil"
+            onClick={requestExit}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 hover:text-white"
+            title="Retour a l'accueil"
           >
-            <Home size={14} />
-            Accueil
+            <House size={14} />
+            <span>Accueil</span>
           </button>
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition"
+            onClick={requestExit}
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-white"
             title="Quitter Zed Mode (Echap)"
           >
             <X size={16} />
@@ -182,42 +192,34 @@ export default function ZedModeOverlay({ onClose }: Props) {
         </div>
       </div>
 
-      {/* Main content: Split pane */}
-      <div className="flex-1 flex overflow-hidden" style={{ cursor: isResizing ? 'col-resize' : undefined }}>
-        {/* Left: PDF Viewer */}
+      <div className="flex flex-1 overflow-hidden" style={{ cursor: isResizing ? 'col-resize' : undefined }}>
         <div
-          className="h-full overflow-hidden flex flex-col bg-slate-950"
+          className="flex h-full flex-col overflow-hidden bg-slate-950"
           style={{ width: isFullscreenPdf ? '100%' : `${splitPercent}%` }}
         >
           <PdfViewer onPinSnippet={addPinnedSnippet} />
         </div>
 
-        {/* Resize handle */}
         {!isFullscreenPdf && (
           <div
-            className="w-1.5 bg-slate-800 hover:bg-indigo-600/50 cursor-col-resize flex-shrink-0 flex items-center justify-center transition-colors group"
+            className="group flex w-1.5 flex-shrink-0 cursor-col-resize items-center justify-center bg-slate-800 transition-colors hover:bg-indigo-600/50"
             onMouseDown={handleResizeStart}
           >
             <GripVertical size={12} className="text-slate-400 group-hover:text-indigo-300" />
           </div>
         )}
 
-        {/* Right: Tabbed workspace */}
         {!isFullscreenPdf && (
           <div
-            className="h-full overflow-hidden flex flex-col bg-slate-950"
+            className="flex h-full flex-col overflow-hidden bg-slate-950"
             style={{ width: `${100 - splitPercent}%` }}
           >
-            {/* Tab bar */}
-            <div className="flex items-center gap-0.5 px-2 py-1.5 bg-slate-900 border-b border-slate-800 flex-shrink-0">
+            <div className="flex flex-shrink-0 items-center gap-0.5 border-b border-slate-800 bg-slate-900 px-2 py-1.5">
               {RIGHT_TABS.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setRightTab(id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition ${rightTab === id
-                    ? 'bg-slate-800 text-white'
-                    : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'
-                    }`}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${rightTab === id ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-800/50 hover:text-slate-300'}`}
                 >
                   <Icon size={12} />
                   {label}
@@ -225,15 +227,14 @@ export default function ZedModeOverlay({ onClose }: Props) {
               ))}
               <div className="flex-1" />
               <button
-                onClick={() => setIsFullscreenPdf(f => !f)}
-                className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-white transition"
+                onClick={() => setIsFullscreenPdf(current => !current)}
+                className="rounded p-1 text-slate-500 transition hover:bg-slate-700 hover:text-white"
                 title={isFullscreenPdf ? 'Afficher panneau droit' : 'PDF plein ecran'}
               >
                 {isFullscreenPdf ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
               </button>
             </div>
 
-            {/* Tab content */}
             <div className="flex-1 overflow-hidden">
               {rightTab === 'scratchpad' && (
                 <Scratchpad
@@ -242,7 +243,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
                 />
               )}
               {rightTab === 'calculator' && (
-                <div className="h-full flex items-start justify-center pt-6 bg-slate-950 overflow-y-auto">
+                <div className="flex h-full items-start justify-center overflow-y-auto bg-slate-950 pt-6">
                   <ScientificCalculator onClose={() => setRightTab('scratchpad')} inline />
                 </div>
               )}
@@ -255,12 +256,11 @@ export default function ZedModeOverlay({ onClose }: Props) {
           </div>
         )}
       </div>
-      {/* Floating Scientific Calculator */}
+
       {showCalculator && (
         <ScientificCalculator onClose={() => setShowCalculator(false)} />
       )}
 
-      {/* Rappels de Cours slide-over */}
       <AnimatePresence>
         {showRappels && (
           <motion.div
@@ -269,14 +269,13 @@ export default function ZedModeOverlay({ onClose }: Props) {
             animate={{ x: 0 }}
             exit={{ x: 320 }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 h-full z-[150]"
+            className="fixed right-0 top-0 z-[150] h-full"
           >
             <RappelsCours onClose={() => setShowRappels(false)} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Home Confirmation Dialog */}
       <AnimatePresence>
         {showHomeConfirm && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -284,16 +283,16 @@ export default function ZedModeOverlay({ onClose }: Props) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl max-w-sm w-full mx-4"
+              className="mx-4 w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
             >
-              <h3 className="text-xl font-bold text-white mb-2">Quitter et revenir ?</h3>
-              <p className="text-slate-400 text-sm mb-6">
-                Êtes-vous sûr de vouloir quitter le Zed Mode et retourner à l&apos;accueil ? Toutes les annotations locales non sauvegardées seront perdues.
+              <h3 className="mb-2 text-xl font-bold text-white">Quitter et revenir ?</h3>
+              <p className="mb-6 text-sm text-slate-400">
+                Etes-vous sur de vouloir quitter le Zed Mode et retourner a l&apos;accueil ? Toutes les annotations locales non sauvegardees seront perdues.
               </p>
-              <div className="flex gap-3 justify-end">
+              <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setShowHomeConfirm(false)}
-                  className="px-4 py-2 rounded-xl text-slate-300 hover:bg-slate-800 font-medium transition"
+                  className="rounded-xl px-4 py-2 font-medium text-slate-300 transition hover:bg-slate-800"
                 >
                   Annuler
                 </button>
@@ -302,7 +301,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
                     setShowHomeConfirm(false)
                     onClose()
                   }}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
+                  className="rounded-xl bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700"
                 >
                   Confirmer
                 </button>
