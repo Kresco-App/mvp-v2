@@ -8,12 +8,12 @@ Stripe handles Pro subscription payments. Users pay monthly/yearly to unlock pre
 ## Step 1: Create a Stripe Account
 1. Sign up at https://stripe.com
 2. Go to **Developers → API Keys** and copy:
-   - `STRIPE_SECRET_KEY` (starts with `sk_test_...`)
-   - `STRIPE_PUBLISHABLE_KEY` (starts with `pk_test_...`)
+   - `STRIPE_SK` (starts with `sk_test_...`)
+   - `STRIPE_PK` (starts with `pk_test_...`)
 3. Add to `.env`:
    ```
-   STRIPE_SECRET_KEY=sk_test_...
-   STRIPE_PUBLISHABLE_KEY=pk_test_...
+   STRIPE_SK=sk_test_...
+   STRIPE_PK=pk_test_...
    STRIPE_WEBHOOK_SECRET=whsec_...
    ```
 
@@ -21,13 +21,11 @@ Stripe handles Pro subscription payments. Users pay monthly/yearly to unlock pre
 
 ## Step 2: Create Products in Stripe Dashboard
 1. **Products → Add product**
-2. Create two prices:
-   - Monthly Pro: 99 MAD/month → copy Price ID (`price_xxx`)
-   - Yearly Pro: 799 MAD/year → copy Price ID (`price_yyy`)
+2. Create product: `Kresco Pro`
+3. Create prices under that product (monthly/yearly as needed)
 3. Add to `.env`:
    ```
-   STRIPE_MONTHLY_PRICE_ID=price_xxx
-   STRIPE_YEARLY_PRICE_ID=price_yyy
+   STRIPE_PRODUCT_ID=prod_xxx
    ```
 
 ---

@@ -36,7 +36,20 @@ jobs:
           source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest
           pip install zappa
+
+      - name: Backend startup check
+        run: |
+          cd backend
+          source venv/bin/activate
+          python -c "from app.main import create_app; app = create_app(); print(app.title)"
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          source venv/bin/activate
+          pytest -q
 
       - name: Run Alembic Migrations
         run: |

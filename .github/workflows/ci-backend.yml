@@ -1,0 +1,46 @@
+name: Backend CI
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-backend.yml"
+      - ".github/workflows/deploy-backend.yml"
+  push:
+    branches:
+      - master
+      - "codex/**"
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci-backend.yml"
+      - ".github/workflows/deploy-backend.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Startup check
+        run: |
+          python -c "from app.main import create_app; app = create_app(); print(app.title)"
+
+      - name: Run tests
+        run: |
+          pytest -q
