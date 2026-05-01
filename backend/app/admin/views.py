@@ -1,5 +1,4 @@
 from sqladmin import ModelView
-from sqladmin.filters import AllUniqueStringValuesFilter, BooleanFilter, StaticValuesFilter
 
 from app.models.courses import Activity, Chapter, ChapterBlock, ChapterSection, CoursePDF, Lesson, Subject, VideoQuizTrigger
 from app.models.gamification import ContentProgress, DailyQuest, LessonProgress, QuizResult, UserXP, XPTransaction
@@ -16,13 +15,6 @@ class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.email, User.full_name, User.role, User.is_pro, User.niveau, User.filiere, User.is_active, User.is_email_verified, User.created_at]
     column_searchable_list = [User.email, User.full_name]
     column_sortable_list = [User.created_at, User.is_pro, User.role]
-    column_filters = [
-        AllUniqueStringValuesFilter(User.role, title="Role"),
-        BooleanFilter(User.is_pro, title="Pro"),
-        BooleanFilter(User.is_active, title="Active"),
-        BooleanFilter(User.is_email_verified, title="Email Verified"),
-        AllUniqueStringValuesFilter(User.niveau, title="Niveau"),
-    ]
     form_excluded_columns = ["password", "last_login", "lesson_progress", "content_progress",
                              "xp", "xp_transactions", "quiz_results", "daily_quests", "comments", "notifications"]
     can_create = True
@@ -38,7 +30,6 @@ class SubjectAdmin(ModelView, model=Subject):
     column_list = [Subject.id, Subject.title, Subject.is_published, Subject.order, Subject.created_at]
     column_searchable_list = [Subject.title]
     column_sortable_list = [Subject.order, Subject.created_at]
-    column_filters = [BooleanFilter(Subject.is_published, title="Published")]
     form_excluded_columns = ["chapters"]
     can_create = True
     can_edit = True
@@ -67,7 +58,6 @@ class LessonAdmin(ModelView, model=Lesson):
     column_list = [Lesson.id, Lesson.title, Lesson.chapter_id, Lesson.duration_seconds, Lesson.is_free_preview, Lesson.order]
     column_searchable_list = [Lesson.title]
     column_sortable_list = [Lesson.order]
-    column_filters = [BooleanFilter(Lesson.is_free_preview, title="Free Preview")]
     form_excluded_columns = ["chapter", "activities", "pdfs", "quiz", "quiz_triggers"]
     can_create = True
     can_edit = True
@@ -82,13 +72,6 @@ class ChapterSectionAdmin(ModelView, model=ChapterSection):
     column_list = [ChapterSection.id, ChapterSection.title, ChapterSection.chapter_id, ChapterSection.section_type, ChapterSection.order, ChapterSection.is_gating, ChapterSection.is_free_preview]
     column_searchable_list = [ChapterSection.title]
     column_sortable_list = [ChapterSection.order]
-    column_filters = [
-        StaticValuesFilter(ChapterSection.section_type, title="Type", values=[
-            ("video", "Video"), ("quiz", "Quiz"), ("activity", "Activity"), ("text", "Text"),
-        ]),
-        BooleanFilter(ChapterSection.is_gating, title="Gating"),
-        BooleanFilter(ChapterSection.is_free_preview, title="Free Preview"),
-    ]
     form_excluded_columns = ["chapter"]
     can_create = True
     can_edit = True
@@ -101,7 +84,6 @@ class ChapterBlockAdmin(ModelView, model=ChapterBlock):
     name_plural = "Chapter Blocks"
     icon = "fa-solid fa-paragraph"
     column_list = [ChapterBlock.id, ChapterBlock.title, ChapterBlock.chapter_id, ChapterBlock.block_type, ChapterBlock.order]
-    column_filters = [AllUniqueStringValuesFilter(ChapterBlock.block_type, title="Block Type")]
     form_excluded_columns = ["chapter"]
     can_create = True
     can_edit = True
@@ -115,7 +97,6 @@ class ActivityAdmin(ModelView, model=Activity):
     icon = "fa-solid fa-flask"
     column_list = [Activity.id, Activity.title, Activity.lesson_id, Activity.activity_type, Activity.order]
     column_searchable_list = [Activity.title]
-    column_filters = [AllUniqueStringValuesFilter(Activity.activity_type, title="Activity Type")]
     form_excluded_columns = ["lesson"]
     can_create = True
     can_edit = True
@@ -165,7 +146,6 @@ class QuizOptionAdmin(ModelView, model=QuizOption):
     name_plural = "Quiz Options"
     icon = "fa-solid fa-check-square"
     column_list = [QuizOption.id, QuizOption.question_id, QuizOption.text, QuizOption.is_correct]
-    column_filters = [BooleanFilter(QuizOption.is_correct, title="Correct")]
     form_excluded_columns = ["question"]
     can_create = True
     can_edit = True
@@ -178,7 +158,6 @@ class LessonProgressAdmin(ModelView, model=LessonProgress):
     name_plural = "Lesson Progress Records"
     icon = "fa-solid fa-chart-line"
     column_list = [LessonProgress.id, LessonProgress.user_id, LessonProgress.lesson_id, LessonProgress.watched_seconds, LessonProgress.status, LessonProgress.updated_at]
-    column_filters = [AllUniqueStringValuesFilter(LessonProgress.status, title="Status")]
     form_excluded_columns = ["user", "lesson"]
     can_create = False
     can_edit = True
@@ -204,7 +183,6 @@ class XPTransactionAdmin(ModelView, model=XPTransaction):
     name_plural = "XP Transactions"
     icon = "fa-solid fa-coins"
     column_list = [XPTransaction.id, XPTransaction.user_id, XPTransaction.amount, XPTransaction.reason, XPTransaction.description, XPTransaction.created_at]
-    column_filters = [AllUniqueStringValuesFilter(XPTransaction.reason, title="Reason")]
     form_excluded_columns = ["user"]
     can_create = False
     can_edit = False
@@ -217,7 +195,6 @@ class QuizResultAdmin(ModelView, model=QuizResult):
     name_plural = "Quiz Results"
     icon = "fa-solid fa-trophy"
     column_list = [QuizResult.id, QuizResult.user_id, QuizResult.quiz_id, QuizResult.score, QuizResult.passed, QuizResult.created_at]
-    column_filters = [BooleanFilter(QuizResult.passed, title="Passed")]
     form_excluded_columns = ["user", "quiz"]
     can_create = False
     can_edit = False
@@ -230,10 +207,6 @@ class DailyQuestAdmin(ModelView, model=DailyQuest):
     name_plural = "Daily Quests"
     icon = "fa-solid fa-calendar-check"
     column_list = [DailyQuest.id, DailyQuest.user_id, DailyQuest.quest_type, DailyQuest.title, DailyQuest.progress, DailyQuest.target, DailyQuest.completed, DailyQuest.date]
-    column_filters = [
-        BooleanFilter(DailyQuest.completed, title="Completed"),
-        AllUniqueStringValuesFilter(DailyQuest.quest_type, title="Quest Type"),
-    ]
     form_excluded_columns = ["user"]
     can_create = False
     can_edit = True
@@ -246,7 +219,6 @@ class ContentProgressAdmin(ModelView, model=ContentProgress):
     name_plural = "Content Progress Records"
     icon = "fa-solid fa-check"
     column_list = [ContentProgress.id, ContentProgress.user_id, ContentProgress.item_type, ContentProgress.item_id, ContentProgress.completed_at]
-    column_filters = [AllUniqueStringValuesFilter(ContentProgress.item_type, title="Item Type")]
     form_excluded_columns = ["user"]
     can_create = False
     can_edit = False
@@ -272,11 +244,6 @@ class CommentAdmin(ModelView, model=Comment):
     icon = "fa-solid fa-comment"
     column_list = [Comment.id, Comment.user_id, Comment.target_type, Comment.target_id, Comment.body, Comment.parent_id, Comment.created_at]
     column_searchable_list = [Comment.body]
-    column_filters = [
-        StaticValuesFilter(Comment.target_type, title="Target Type", values=[
-            ("lesson", "Lesson"), ("chapter", "Chapter"), ("section", "Section"),
-        ]),
-    ]
     form_excluded_columns = ["user"]
     can_create = False
     can_edit = True
@@ -291,10 +258,6 @@ class NotificationAdmin(ModelView, model=Notification):
     column_list = [Notification.id, Notification.user_id, Notification.type, Notification.title, Notification.body, Notification.is_read, Notification.created_at]
     column_searchable_list = [Notification.title, Notification.body]
     column_sortable_list = [Notification.created_at, Notification.is_read]
-    column_filters = [
-        AllUniqueStringValuesFilter(Notification.type, title="Type"),
-        BooleanFilter(Notification.is_read, title="Read"),
-    ]
     form_excluded_columns = ["user"]
     can_create = True
     can_edit = True
