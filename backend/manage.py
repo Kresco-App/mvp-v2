@@ -1,23 +1,17 @@
 #!/usr/bin/env python
-"""Django's command-line utility for administrative tasks."""
-import os
 import sys
-from pathlib import Path
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).resolve().parent / '.env')
 
 
-def main():
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-    try:
-        from django.core.management import execute_from_command_line
-    except ImportError as exc:
-        raise ImportError(
-            "Couldn't import Django. Are you sure it's installed?"
-        ) from exc
-    execute_from_command_line(sys.argv)
+def main() -> int:
+    message = (
+        "Django manage.py is deprecated in this repository.\n"
+        "Use FastAPI + Alembic commands instead.\n"
+        "Run backend with: python -m uvicorn app.main:create_app --factory --reload\n"
+        "Run migrations with: alembic upgrade head\n"
+    )
+    sys.stderr.write(message)
+    return 1
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    raise SystemExit(main())

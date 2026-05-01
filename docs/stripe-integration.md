@@ -43,42 +43,41 @@ echo "stripe" >> requirements.txt
 ---
 
 ## Step 4: Backend Subscription Endpoints
-Create `backend/payments/api.py`:
+Create/update `backend/app/routers/payments.py` (FastAPI):
 
 ```python
 import stripe
-from django.conf import settings
-from ninja import Router
-from users.auth import jwt_auth
+from fastapi import APIRouter, Depends
+from app.config import get_settings
+from app.dependencies import get_current_user
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
-router = Router(auth=jwt_auth)
+router = APIRouter(tags=["Payments"])
 
 @router.post("/create-checkout-session")
-def create_checkout(request, plan: str):  # plan: 'monthly' | 'yearly'
-    price_id = (settings.STRIPE_MONTHLY_PRICE_ID if plan == 'monthly'
-                else settings.STRIPE_YEARLY_PRICE_ID)
+async def create_checkout(plan: str = "monthly", user=Depends(get_current_user)):
+    settings = get_settings()
+    stripe.api_key = settings.stripe_sk
 
     session = stripe.checkout.Session.create(
         payment_method_types=['card'],
         mode='subscription',
         line_items=[{'price': price_id, 'quantity': 1}],
-        customer_email=request.auth.email,
-        metadata={'user_id': request.auth.id},
+        customer_email=user.email,
+        metadata={'user_id': str(user.id)},
         success_url='https://yourapp.com/pricing?success=1',
         cancel_url='https://yourapp.com/pricing?canceled=1',
     )
     return {"checkout_url": session.url}
 
 
-@router.post("/webhook", auth=None)
-def stripe_webhook(request):
-    payload = request.body
-    sig_header = request.headers.get('stripe-signature')
+@router.post("/webhook")
+async def stripe_webhook(request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
 
     try:
         event = stripe.Webhook.construct_event(
-            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            payload, sig_header, settings.stripe_webhook_secret
         )
     except (ValueError, stripe.error.SignatureVerificationError):
         return {"error": "Invalid"}, 400
@@ -86,21 +85,19 @@ def stripe_webhook(request):
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         user_id = session['metadata']['user_id']
-        from users.models import User
-        User.objects.filter(id=user_id).update(is_pro=True)
+        # Update user subscription status in DB
 
     elif event['type'] in ('customer.subscription.deleted', 'invoice.payment_failed'):
         customer_email = event['data']['object'].get('customer_email', '')
-        from users.models import User
-        User.objects.filter(email=customer_email).update(is_pro=False)
+        # Update user subscription status in DB
 
     return {"ok": True}
 ```
 
-Register in `core/api.py`:
+Register in `backend/app/main.py`:
 ```python
-from payments.api import router as payments_router
-api.add_router("/payments/", payments_router)
+from app.routers import payments
+app.include_router(payments.router, prefix="/api/payments")
 ```
 
 ---
