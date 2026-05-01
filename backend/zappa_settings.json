@@ -1,6 +1,6 @@
 {
     "production": {
-        "app_function": "app_handler.lambda_handler",
+        "app_function": "app_handler.application",
         "project_name": "kresco",
         "runtime": "python3.11",
         "s3_bucket": "kresco-zappa-367182071147",
