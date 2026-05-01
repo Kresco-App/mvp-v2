@@ -1,8 +1,11 @@
 import hashlib
 import hmac
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,13 +136,19 @@ async def signup(
         await db.refresh(user)
 
     token = generate_verification_token(email, settings)
+    email_sent = True
     try:
         await send_verification_email(email, body.full_name, token, settings)
-    except Exception:
-        pass  # Don't block signup if email fails; user can request resend
+    except Exception as exc:
+        email_sent = False
+        logger.error("send_verification_email failed for %s: %s", email, exc)
 
     return SignupPendingOut(
-        message="Un email de verification a ete envoye a votre adresse.",
+        message=(
+            "Un email de verification a ete envoye a votre adresse."
+            if email_sent
+            else "Compte cree. L'envoi de l'email a echoue — utilisez le bouton 'Renvoyer' pour reessayer."
+        ),
         email=email,
     )
 

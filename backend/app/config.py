@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     debug: bool = False
     resend_api_key: str = ""
+    resend_from_email: str = "Kresco <onboarding@resend.dev>"
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -185,17 +185,26 @@ export default function AuthPage() {
     script.src = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.onload = () => {
-      if (window.google && hiddenGoogleRef.current) {
-        window.google.accounts.id.initialize({
-          client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-          callback: window.handleGoogleCredential,
-        })
-        window.google.accounts.id.renderButton(hiddenGoogleRef.current, {
-          size: 'large', width: 1, text: 'continue_with',
-        })
+      try {
+        if (window.google) {
+          window.google.accounts.id.initialize({
+            client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+            callback: window.handleGoogleCredential,
+          })
+          if (hiddenGoogleRef.current) {
+            window.google.accounts.id.renderButton(hiddenGoogleRef.current, {
+              size: 'large', width: 200, text: 'continue_with',
+            })
+          }
+        }
+      } catch (e) {
+        console.error('[Kresco] Google GSI init failed:', e)
+      } finally {
+        // Always enable the button — triggerGoogle falls back to prompt()
         setGoogleReady(true)
       }
     }
+    script.onerror = () => setGoogleReady(true) // script blocked? still let user try
     document.head.appendChild(script)
     return () => { try { document.head.removeChild(script) } catch {} }
   }, [login, router])
@@ -285,7 +294,7 @@ export default function AuthPage() {
   return (
     <div style={pageStyle}>
       {/* Hidden GSI button */}
-      <div ref={hiddenGoogleRef} style={{ position: 'absolute', left: -9999, top: -9999, width: 1, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }} />
+      <div ref={hiddenGoogleRef} style={{ position: 'absolute', left: -9999, top: -9999, width: 200, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }} />
 
       <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 

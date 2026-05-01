@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from itsdangerous import URLSafeTimedSerializer
 
 import resend as resend_sdk
 
 from app.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
@@ -34,14 +37,15 @@ def verify_reset_token(token: str, settings: Settings, max_age: int = 3600) -> s
 
 def _send_email_sync(api_key: str, params: dict) -> None:
     resend_sdk.api_key = api_key
-    resend_sdk.Emails.send(params)
+    result = resend_sdk.Emails.send(params)
+    logger.info("Resend send result: %s", result)
 
 
 async def send_verification_email(email: str, full_name: str, token: str, settings: Settings) -> None:
     verify_url = f"{settings.frontend_url}/auth/verify-email?token={token}"
     name = full_name or email
     params = {
-        "from": "Kresco <onboarding@resend.dev>",
+        "from": settings.resend_from_email,
         "to": [email],
         "subject": "Verifiez votre email Kresco",
         "html": f"""
@@ -72,7 +76,7 @@ async def send_verification_email(email: str, full_name: str, token: str, settin
 async def send_reset_email(email: str, token: str, settings: Settings) -> None:
     reset_url = f"{settings.frontend_url}/auth/reset-password?token={token}"
     params = {
-        "from": "Kresco <onboarding@resend.dev>",
+        "from": settings.resend_from_email,
         "to": [email],
         "subject": "Reinitialiser votre mot de passe Kresco",
         "html": f"""
