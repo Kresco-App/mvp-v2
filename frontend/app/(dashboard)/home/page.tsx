@@ -5,26 +5,11 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 import api from '@/lib/axios'
-import XPBar from '@/components/XPBar'
-import SubjectProgressBar from '@/components/SubjectProgressBar'
 import { findSubjectIcon } from '@/lib/subjects'
 import { fetchSubjectProgressSummary, type SubjectProgressSummary } from '@/lib/subjectProgress'
-import { cn } from '@/lib/utils'
+import { Zap, Flame, Trophy, Star, ChevronRight, CheckCircle2, CalendarDays, TimerReset } from 'lucide-react'
 
-function getSubjectStyle(title: string) {
-  const s = findSubjectIcon(title)
-  return { emoji: s.emoji, bg: s.bg === 'bg-indigo-50' ? '#EEF2FF' : s.bg === 'bg-emerald-50' ? '#F0FDF4' : s.bg === 'bg-orange-50' ? '#FFF7ED' : s.bg === 'bg-purple-50' ? '#FDF4FF' : s.bg === 'bg-teal-50' ? '#ECFDF5' : s.bg === 'bg-amber-50' ? '#FEF3C7' : s.bg === 'bg-rose-50' ? '#FFF1F2' : s.bg === 'bg-blue-50' ? '#EFF6FF' : s.bg === 'bg-violet-50' ? '#F5F3FF' : s.bg === 'bg-green-50' ? '#F0FDF4' : '#F1F5F9' }
-}
-
-const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
-
-const QUEST_COLORS: Record<string, string> = {
-  complete_lesson: '#4D44DB',
-  pass_quiz: '#F59E0B',
-  earn_xp: '#10B981',
-  study_minutes: '#EF4444',
-}
-
+// ─── Types ─────────────────────────────────────────────────────
 interface Quest {
   id: number
   title: string
@@ -52,130 +37,201 @@ interface Subject {
   lesson_count: number
 }
 
+interface XPData {
+  total_xp: number
+  level: number
+  xp_for_current_level: number
+  xp_for_next_level: number
+  xp_progress_pct: number
+  streak_days: number
+}
+
+// ─── Helpers ───────────────────────────────────────────────────
+function getSubjectStyle(title: string) {
+  const s = findSubjectIcon(title)
+  const bgMap: Record<string, string> = {
+    'bg-indigo-50': '#EEF2FF', 'bg-emerald-50': '#F0FDF4', 'bg-orange-50': '#FFF7ED',
+    'bg-purple-50': '#FDF4FF', 'bg-teal-50': '#ECFDF5', 'bg-amber-50': '#FEF3C7',
+    'bg-rose-50': '#FFF1F2', 'bg-blue-50': '#EFF6FF', 'bg-violet-50': '#F5F3FF',
+    'bg-green-50': '#F0FDF4',
+  }
+  return { emoji: s.emoji, bg: bgMap[s.bg] ?? '#F1F5F9' }
+}
+
+const DAYS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+const CALENDAR_DAYS = [
+  { day: '8', label: 'Lun' },
+  { day: '9', label: 'Mar' },
+  { day: '10', label: 'Mer' },
+  { day: '11', label: 'Jeu' },
+  { day: '12', label: 'Ven' },
+]
+
+const QUEST_COLORS: Record<string, { from: string; to: string }> = {
+  complete_lesson: { from: '#453dee', to: '#6366f1' },
+  pass_quiz:       { from: '#f59e0b', to: '#f97316' },
+  earn_xp:         { from: '#10b981', to: '#059669' },
+  study_minutes:   { from: '#ef4444', to: '#dc2626' },
+}
+
+const RANK_STYLES = [
+  { emoji: '🥇', color: '#f59e0b' },
+  { emoji: '🥈', color: '#94a3b8' },
+  { emoji: '🥉', color: '#f97316' },
+]
+
+function LevelBadge({ level, xp }: { level: number; xp: number }) {
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      background: 'linear-gradient(135deg,#453dee,#6366f1)',
+      borderRadius: 99, padding: '4px 12px 4px 8px',
+      boxShadow: '0 2px 8px rgba(69,61,238,0.3)',
+    }}>
+      <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>{level}</span>
+      </div>
+      <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>{xp.toLocaleString()} XP</span>
+    </div>
+  )
+}
+
 export default function HomePage() {
   const { user } = useAuthStore()
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(true)
   const [quests, setQuests] = useState<Quest[]>([])
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
-  const [streakDays, setStreakDays] = useState(0)
+  const [xpData, setXpData] = useState<XPData | null>(null)
   const [resumeProgress, setResumeProgress] = useState<Record<number, SubjectProgressSummary>>({})
 
   const firstName = user?.full_name?.split(' ')[0] ?? 'Apprenant'
-
-  // Compute which day indices to light up based on streak
-  // Today = current day of week (Mon=0..Sun=6), light up the last streakDays days
-  const todayIndex = (new Date().getDay() + 6) % 7 // JS Sunday=0 → we want Mon=0
+  const streakDays = xpData?.streak_days ?? 0
+  const todayIndex = (new Date().getDay() + 6) % 7
   const activeStreak: number[] = []
   for (let i = 0; i < Math.min(streakDays, 7); i++) {
-    const idx = ((todayIndex - i) + 7) % 7
-    activeStreak.push(idx)
+    activeStreak.push(((todayIndex - i) + 7) % 7)
   }
+  const completedQuestCount = quests.filter(q => q.completed).length
 
-  useEffect(() => { document.title = 'Accueil \u2014 Kresco' }, [])
+  useEffect(() => { document.title = 'Accueil — Kresco' }, [])
 
   useEffect(() => {
     api.get('/courses/subjects')
       .then(async r => {
         setSubjects(r.data)
-
-        const progressEntries = await Promise.all(
-          r.data.slice(0, 2).map(async (subject: Subject) => {
-            try {
-              const summary = await fetchSubjectProgressSummary(subject.id, subject.lesson_count)
-              return [subject.id, summary] as const
-            } catch {
-              return null
-            }
+        const entries = await Promise.all(
+          r.data.slice(0, 2).map(async (s: Subject) => {
+            try { return [s.id, await fetchSubjectProgressSummary(s.id, s.lesson_count)] as const }
+            catch { return null }
           })
         )
-
-        setResumeProgress(
-          progressEntries.reduce<Record<number, SubjectProgressSummary>>((acc, entry) => {
-            if (!entry) return acc
-            const [subjectId, summary] = entry
-            acc[subjectId] = summary
-            return acc
-          }, {})
-        )
+        setResumeProgress(Object.fromEntries(entries.filter(Boolean) as [number, SubjectProgressSummary][]))
       })
-      .catch(() => toast.error('Erreur de chargement des matieres.'))
+      .catch(() => toast.error('Erreur de chargement des matières.'))
       .finally(() => setLoading(false))
 
-    api.get('/progress/daily-quests')
-      .then(r => setQuests(r.data))
-      .catch(e => console.error('Failed to load quests', e))
-
-    api.get('/progress/leaderboard')
-      .then(r => {
-        const userId = user?.id
-        setLeaderboard(r.data.map((e: any) => ({
-          rank: e.rank,
-          user_id: e.user_id,
-          name: e.full_name,
-          avatar_url: e.avatar_url || null,
-          xp: e.total_xp,
-          is_current_user: e.user_id === userId,
-        })))
-      })
-      .catch(e => console.error('Failed to load leaderboard', e))
-
-    api.get('/progress/xp')
-      .then(r => setStreakDays(r.data.streak_days ?? 0))
-      .catch(e => console.error('Failed to load XP data', e))
+    api.get('/progress/daily-quests').then(r => setQuests(r.data)).catch(() => {})
+    api.get('/progress/leaderboard').then(r => {
+      const uid = user?.id
+      setLeaderboard(r.data.map((e: any) => ({
+        rank: e.rank, user_id: e.user_id, name: e.full_name,
+        avatar_url: e.avatar_url || null, xp: e.total_xp,
+        is_current_user: e.user_id === uid,
+      })))
+    }).catch(() => {})
+    api.get('/progress/xp').then(r => setXpData(r.data)).catch(() => {})
   }, [user?.id])
 
-  function claimQuest(questId: number) {
-    api.post(`/progress/daily-quests/${questId}/claim`)
+  function claimQuest(id: number) {
+    api.post(`/progress/daily-quests/${id}/claim`)
       .then(() => {
-        setQuests(prev => prev.map(q => q.id === questId ? { ...q, completed: true } : q))
-        toast.success('Recompense reclamee !')
+        setQuests(prev => prev.map(q => q.id === id ? { ...q, completed: true } : q))
+        toast.success('🎉 Récompense réclamée !')
       })
-      .catch(e => console.error('Failed to claim quest', e))
+      .catch(() => {})
   }
 
   return (
-    <div className="flex gap-6 px-6 py-6">
-      {/* Left / Main */}
-      <div className="flex-1 min-w-0">
+    <div className="kresco-shell kresco-dashboard-grid">
+
+      {/* ── Main column ── */}
+      <div style={{ flex: 1, minWidth: 0 }}>
 
         {/* Greeting */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-white">
-            Bonjour {firstName} !
-          </h1>
-          <p className="text-slate-500 text-sm mt-1">Ou en etions-nous la derniere fois ?</p>
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+            <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+              Bonjour {firstName} !
+            </h1>
+            {xpData && <LevelBadge level={xpData.level} xp={xpData.total_xp} />}
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
+            Continue ton parcours Bac marocain là où tu t&apos;es arrêté.
+          </p>
         </div>
+
+        {/* XP Progress bar */}
+        {xpData && (
+          <div className="card" style={{ marginBottom: 24, padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Niveau {xpData.level}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                    {xpData.total_xp - xpData.xp_for_current_level} / {xpData.xp_for_next_level - xpData.xp_for_current_level} XP
+                  </span>
+                </div>
+                <div style={{ height: 8, borderRadius: 99, background: 'var(--surface-input)', overflow: 'hidden' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 99,
+                    width: `${xpData.xp_progress_pct}%`,
+                    background: 'linear-gradient(90deg,#453dee,#6366f1)',
+                    transition: 'width 600ms ease',
+                  }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#f97316', fontSize: 13, fontWeight: 700 }}>
+                <Flame size={16} />
+                <span>{streakDays}j</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Resume cards */}
         {subjects.length >= 2 && (
-          <div className="mb-8">
-            <div className="grid grid-cols-2 gap-4">
+          <div style={{ marginBottom: 32 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>
+              Reprendre
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 14 }}>
               {subjects.slice(0, 2).map(subject => {
                 const { emoji, bg } = getSubjectStyle(subject.title)
                 const progress = resumeProgress[subject.id]
                 return (
-                  <Link key={subject.id} href={`/home/${subject.id}`}>
-                    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 flex items-center gap-4 hover:shadow-md hover:border-kresco/20 transition-all group cursor-pointer">
-                      <div
-                        className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0"
-                        style={{ backgroundColor: bg }}
-                      >
+                  <Link key={subject.id} href={`/home/${subject.id}`} style={{ textDecoration: 'none' }}>
+                    <div className="card-hover" style={{ padding: 18, display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 48, height: 48, borderRadius: 14, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
                         {emoji}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-white text-sm group-hover:text-kresco transition-colors truncate">
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {subject.title}
                         </p>
-                        <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{subject.description}</p>
-                        <SubjectProgressBar
-                          progress={progress?.percentage ?? 0}
-                          size="sm"
-                          className="mt-2"
-                        />
-                        <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
-                          <span>{progress?.completedCount ?? 0}/{progress?.totalCount ?? 0} {progress?.unitLabel ?? 'sections'}</span>
-                          <span>{progress?.percentage ?? 0}%</span>
+                        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '0 0 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {subject.description}
+                        </p>
+                        <div style={{ height: 5, borderRadius: 99, background: 'var(--surface-input)', overflow: 'hidden', marginBottom: 4 }}>
+                          <div style={{
+                            height: '100%', borderRadius: 99,
+                            width: `${progress?.percentage ?? 0}%`,
+                            background: 'linear-gradient(90deg,#453dee,#6366f1)',
+                          }} />
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-tertiary)' }}>
+                          <span>{progress?.completedCount ?? 0}/{progress?.totalCount ?? 0} sections</span>
+                          <span style={{ fontWeight: 600, color: 'var(--primary)' }}>{progress?.percentage ?? 0}%</span>
                         </div>
                       </div>
                     </div>
@@ -186,39 +242,40 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Subjects grid */}
+        {/* All subjects */}
         <div>
-          <h2 className="text-lg font-bold text-white mb-4">Matieres</h2>
-          <p className="text-slate-400 text-sm mb-5 -mt-2">Choisissez ce que vous voulez etudier</p>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>
+            Matières
+          </h2>
+          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: '0 0 16px' }}>
+            Choisissez ce que vous voulez étudier
+          </p>
 
           {loading ? (
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-4">
-              {[...Array(10)].map((_, i) => (
-                <div key={i} className="bg-slate-900 rounded-2xl border border-slate-800 p-4 animate-pulse">
-                  <div className="w-12 h-12 bg-slate-100 rounded-2xl mb-3 mx-auto" />
-                  <div className="h-3 bg-slate-100 rounded mx-auto w-3/4 mb-1" />
-                  <div className="h-2 bg-slate-100 rounded mx-auto w-1/2" />
+            <div className="kresco-subject-grid">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="card" style={{ padding: 16, textAlign: 'center' }}>
+                  <div style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--surface-hover)', margin: '0 auto 10px', animation: 'pulse 1.5s ease infinite' }} />
+                  <div style={{ height: 10, borderRadius: 6, background: 'var(--surface-hover)', margin: '0 auto 6px', width: '70%', animation: 'pulse 1.5s ease infinite' }} />
+                  <div style={{ height: 8, borderRadius: 6, background: 'var(--surface-hover)', margin: '0 auto', width: '50%', animation: 'pulse 1.5s ease infinite' }} />
                 </div>
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="kresco-subject-grid" style={{ alignItems: 'stretch' }}>
               {subjects.map(subject => {
                 const { emoji, bg } = getSubjectStyle(subject.title)
                 return (
-                  <Link key={subject.id} href={`/home/${subject.id}`}>
-                    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-4 flex flex-col items-center text-center hover:shadow-md hover:border-kresco/20 hover:-translate-y-0.5 transition-all cursor-pointer group">
-                      <div
-                        className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-3 group-hover:scale-110 transition-transform"
-                        style={{ backgroundColor: bg }}
-                      >
+                  <Link key={subject.id} href={`/home/${subject.id}`} style={{ textDecoration: 'none', display: 'block', height: '100%' }}>
+                    <div className="card-hover" style={{ padding: 22, textAlign: 'center', height: '100%', minHeight: 180, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                      <div style={{ width: 68, height: 68, borderRadius: 18, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, margin: '0 auto 18px' }}>
                         {emoji}
                       </div>
-                      <p className="font-semibold text-slate-200 text-xs leading-tight mb-1">
+                      <p style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 5px', lineHeight: 1.25 }}>
                         {subject.title}
                       </p>
-                      <p className="text-[10px] text-slate-400">
-                        {subject.lesson_count} lecons
+                      <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)', margin: 0 }}>
+                        {subject.lesson_count} leçons Bac
                       </p>
                     </div>
                   </Link>
@@ -229,29 +286,85 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Right Sidebar */}
-      <div className="hidden lg:block w-72 flex-shrink-0 space-y-5">
+      {/* ── Right sidebar ── */}
+      <div className="kresco-sidebar">
 
-        {/* XP Bar */}
-        <XPBar />
+        <div className="card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: '#edf1ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TimerReset size={17} color="#453dee" />
+            </div>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Chrono Bac</p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>Garde le rythme jusqu&apos;aux examens.</p>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+            {[
+              { value: subjects.length || '-', label: 'Matières' },
+              { value: completedQuestCount, label: 'Quêtes' },
+              { value: streakDays, label: 'Série' },
+              { value: xpData?.level ?? '-', label: 'Niveau' },
+            ].map(item => (
+              <div key={item.label} style={{ borderRadius: 12, background: 'var(--surface-hover)', padding: '12px 8px', textAlign: 'center' }}>
+                <p style={{ fontSize: 17, fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>{item.value}</p>
+                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', margin: '2px 0 0' }}>{item.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
 
-        {/* Weekly Strike */}
-        <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-          <p className="font-bold text-white text-sm mb-0.5">Serie hebdomadaire</p>
-          <p className="text-xs text-slate-400 mb-4">Gardez le rythme !</p>
-          <div className="grid grid-cols-7 gap-1">
+        <div className="card" style={{ padding: 20, minHeight: 150 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CalendarDays size={17} color="#52525c" />
+            </div>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Calendrier</p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>Objectifs de la semaine</p>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '28px repeat(5,1fr) 28px', gap: 7, alignItems: 'center' }}>
+            <button style={{ height: 34, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-hover)', color: 'var(--text-primary)' }}>‹</button>
+            {CALENDAR_DAYS.map(item => {
+              const active = item.day === '10'
+              return (
+                <div key={item.day} style={{ borderRadius: 10, background: active ? 'var(--primary)' : 'var(--surface-hover)', color: active ? '#fff' : 'var(--text-primary)', textAlign: 'center', padding: '8px 4px' }}>
+                  <p style={{ fontSize: 14, fontWeight: 900, margin: 0 }}>{item.day}</p>
+                  <p style={{ fontSize: 11, fontWeight: 700, margin: 0 }}>{item.label}</p>
+                </div>
+              )
+            })}
+            <button style={{ height: 34, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-hover)', color: 'var(--text-primary)' }}>›</button>
+          </div>
+        </div>
+
+        {/* Streak calendar */}
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg,#f97316,#ef4444)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Flame size={16} color="#fff" />
+            </div>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Série</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0 }}>{streakDays} jour{streakDays !== 1 ? 's' : ''} consécutif{streakDays !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
             {DAYS.map((day, i) => {
               const isActive = activeStreak.includes(i)
               const isToday = i === todayIndex
               return (
-                <div key={day} className="flex flex-col items-center gap-1">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-lg transition-all ${isActive
-                    ? 'bg-kresco/10 ring-2 ring-kresco/30'
-                    : 'bg-slate-100'
-                    }`}>
-                    {isActive ? '🔥' : '⚪'}
+                <div key={day} style={{ textAlign: 'center' }}>
+                  <div style={{
+                    width: 30, height: 30, borderRadius: '50%', margin: '0 auto 3px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15,
+                    background: isActive ? 'linear-gradient(135deg,#f97316,#ef4444)' : 'var(--surface-input)',
+                    boxShadow: isActive ? '0 2px 6px rgba(249,115,22,0.4)' : 'none',
+                  }}>
+                    {isActive ? '🔥' : <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--border)', display: 'block' }} />}
                   </div>
-                  <span className={`text-[9px] font-medium ${isToday ? 'text-kresco font-bold' : 'text-slate-400'}`}>
+                  <span style={{ fontSize: 9, fontWeight: isToday ? 700 : 400, color: isToday ? 'var(--primary)' : 'var(--text-tertiary)' }}>
                     {day}
                   </span>
                 </div>
@@ -260,49 +373,69 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Daily Quests */}
-        <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-          <p className="font-bold text-white text-sm mb-4">Quetes du jour</p>
-          <div className="space-y-4">
-            {quests.length === 0 && (
-              <p className="text-xs text-slate-400 text-center py-4">Aucune quete pour aujourd&apos;hui</p>
-            )}
-            {quests.map((quest) => {
-              const color = QUEST_COLORS[quest.quest_type] ?? '#4D44DB'
+        {/* Daily quests */}
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg,#453dee,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Star size={16} color="#fff" />
+            </div>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Quêtes du jour</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0 }}>
+                {quests.filter(q => q.completed).length}/{quests.length} complétées
+              </p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {quests.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>
+                Aucune quête pour aujourd&apos;hui
+              </p>
+            ) : quests.map(quest => {
+              const colors = QUEST_COLORS[quest.quest_type] ?? QUEST_COLORS.complete_lesson
               const pct = quest.target > 0 ? Math.min((quest.progress / quest.target) * 100, 100) : 0
               const canClaim = quest.progress >= quest.target && !quest.completed
               return (
                 <div key={quest.id}>
-                  <div className="flex items-start gap-2.5 mb-1.5">
-                    <div
-                      className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
-                      style={{ backgroundColor: color + '20', border: `2px solid ${color}` }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-400 leading-tight">{quest.title}</p>
-                      <p className="text-[10px] text-slate-400">{quest.progress}/{quest.target} · +{quest.xp_reward} XP</p>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+                    <div style={{
+                      width: 24, height: 24, borderRadius: 8, flexShrink: 0,
+                      background: quest.completed ? '#dcfce7' : `linear-gradient(135deg,${colors.from},${colors.to})`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {quest.completed
+                        ? <CheckCircle2 size={14} color="#16a34a" />
+                        : <Zap size={12} color="#fff" />
+                      }
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 500, color: quest.completed ? 'var(--text-tertiary)' : 'var(--text-primary)', margin: '0 0 1px', textDecoration: quest.completed ? 'line-through' : 'none' }}>
+                        {quest.title}
+                      </p>
+                      <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0 }}>
+                        {quest.progress}/{quest.target} · <span style={{ color: '#f59e0b', fontWeight: 600 }}>+{quest.xp_reward} XP</span>
+                      </p>
                     </div>
                     {canClaim && (
                       <button
                         onClick={() => claimQuest(quest.id)}
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white flex-shrink-0"
-                        style={{ backgroundColor: color }}
+                        style={{
+                          fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 8,
+                          background: `linear-gradient(135deg,${colors.from},${colors.to})`,
+                          color: '#fff', border: 'none', cursor: 'pointer', flexShrink: 0,
+                        }}
                       >
-                        Reclamer
+                        Réclamer
                       </button>
                     )}
-                    {quest.completed && (
-                      <span className="text-[10px] font-bold text-emerald-500 flex-shrink-0">Fait</span>
-                    )}
                   </div>
-                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden ml-7">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{
-                        width: `${pct}%`,
-                        backgroundColor: color,
-                      }}
-                    />
+                  <div style={{ height: 4, borderRadius: 99, background: 'var(--surface-input)', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 99,
+                      width: `${pct}%`,
+                      background: quest.completed ? '#16a34a' : `linear-gradient(90deg,${colors.from},${colors.to})`,
+                      transition: 'width 400ms ease',
+                    }} />
                   </div>
                 </div>
               )
@@ -311,52 +444,62 @@ export default function HomePage() {
         </div>
 
         {/* Leaderboard */}
-        <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-          <p className="font-bold text-white text-sm mb-0.5">Classement</p>
-          <p className="text-xs text-slate-400 mb-4">Comparez-vous a vos pairs</p>
-          <div className="space-y-3">
-            {leaderboard.length === 0 && (
-              <p className="text-xs text-slate-400 text-center py-4">Aucun classement disponible</p>
-            )}
-            {(() => {
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: 'linear-gradient(135deg,#f59e0b,#f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Trophy size={16} color="#fff" />
+            </div>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Classement</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0 }}>Top étudiants</p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {leaderboard.length === 0 ? (
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', padding: '12px 0' }}>
+                Aucun classement disponible
+              </p>
+            ) : (() => {
               const top5 = leaderboard.slice(0, 5)
-              const userEntry = leaderboard.find(e => e.is_current_user)
-              const displayList = [...top5]
-              if (userEntry && !top5.find(e => e.user_id === userEntry.user_id)) {
-                displayList.push(userEntry)
-              }
-
-              return displayList.map((entry, idx) => {
-                const medal = entry.rank === 1 ? '\u{1F947}' : entry.rank === 2 ? '\u{1F948}' : entry.rank === 3 ? '\u{1F949}' : null
-                const isOutOfTop5 = idx === 5 && !top5.find(e => e.user_id === entry.user_id)
-
+              const me = leaderboard.find(e => e.is_current_user)
+              const list = [...top5]
+              if (me && !top5.find(e => e.user_id === me.user_id)) list.push(me)
+              return list.map((entry, idx) => {
+                const style = RANK_STYLES[entry.rank - 1]
+                const isMe = entry.is_current_user
+                const isGap = idx === 5
                 return (
-                  <div key={entry.rank} className="space-y-2">
-                    {isOutOfTop5 && (
-                      <div className="flex justify-center -my-1">
-                        <span className="text-slate-600 text-[10px] tracking-widest">• • •</span>
+                  <div key={entry.rank}>
+                    {isGap && (
+                      <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11, letterSpacing: 2, padding: '2px 0' }}>
+                        • • •
                       </div>
                     )}
-                    <div className={cn(
-                      'flex items-center gap-3',
-                      entry.is_current_user ? 'bg-indigo-500/10 -mx-2 px-2 py-1.5 rounded-xl border border-indigo-500/20' : ''
-                    )}>
-                      <span className={`text-xs font-bold w-5 text-center ${entry.rank === 1 ? 'text-amber-500' : entry.rank === 2 ? 'text-slate-400' : entry.rank === 3 ? 'text-orange-400' : 'text-slate-500'
-                        }`}>
-                        {medal ?? `${entry.rank}`}
-                      </span>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: isMe ? '8px 10px' : '4px 0',
+                      borderRadius: isMe ? 10 : 0,
+                      background: isMe ? 'var(--primary-soft)' : 'transparent',
+                      border: isMe ? '1px solid rgba(69,61,238,0.2)' : 'none',
+                    }}>
+                      <div style={{ width: 24, textAlign: 'center', fontSize: style ? 16 : 12, fontWeight: 700, color: style?.color ?? 'var(--text-tertiary)', flexShrink: 0 }}>
+                        {style ? style.emoji : entry.rank}
+                      </div>
                       {entry.avatar_url ? (
-                        <img src={entry.avatar_url} alt={entry.name} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                        <img src={entry.avatar_url} alt={entry.name} style={{ width: 26, height: 26, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} referrerPolicy="no-referrer" />
                       ) : (
-                        <div className="w-7 h-7 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
-                          <span className="text-indigo-400 text-xs font-bold">{entry.name?.[0] ?? '?'}</span>
+                        <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--primary-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)' }}>{entry.name?.[0] ?? '?'}</span>
                         </div>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-xs font-semibold truncate ${entry.is_current_user ? 'text-indigo-300' : 'text-slate-200'}`}>
-                          {entry.name}{entry.is_current_user ? ' (vous)' : ''}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 12, fontWeight: 600, color: isMe ? 'var(--primary)' : 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {entry.name}{isMe ? ' (vous)' : ''}
                         </p>
-                        <p className="text-[10px] text-slate-500">{entry.xp.toLocaleString()} pts</p>
+                        <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0 }}>
+                          {entry.xp.toLocaleString()} pts
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -364,8 +507,9 @@ export default function HomePage() {
               })
             })()}
           </div>
-          <Link href="/classement" className="mt-4 block w-full py-2 text-center text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition">
+          <Link href="/classement" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 12, padding: '8px 0', borderRadius: 10, background: 'var(--surface-hover)', fontSize: 12, fontWeight: 600, color: 'var(--primary)', textDecoration: 'none', transition: 'background 150ms' }}>
             Voir tout le classement
+            <ChevronRight size={14} />
           </Link>
         </div>
       </div>

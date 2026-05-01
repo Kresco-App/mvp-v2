@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { Search, BookOpen, ChevronRight } from 'lucide-react'
+import { Search, BookOpen, ChevronRight, CalendarDays, Zap, Trophy } from 'lucide-react'
 import api from '@/lib/axios'
 import { findSubjectIcon } from '@/lib/subjects'
 
@@ -24,6 +24,7 @@ export default function CoursesPage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [stream, setStream] = useState('2eme-bac')
 
   useEffect(() => { document.title = 'Matieres \u2014 Kresco' }, [])
 
@@ -40,76 +41,156 @@ export default function CoursesPage() {
   )
 
   return (
-    <div className="px-6 py-8 max-w-6xl">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Toutes les matieres</h1>
-        <p className="text-slate-500 text-sm mt-1">Parcourez le programme complet du Bac marocain</p>
+    <div className="kresco-shell kresco-dashboard-grid">
+      <div>
+        <p className="text-page-tertiary text-xs font-semibold mb-2">2ème Bac / Programme national</p>
+        <div className="mb-7">
+          <h1 className="text-2xl font-extrabold text-page-primary">Cours Bac marocain</h1>
+          <p className="text-page-secondary text-sm mt-1">Choisis une matière, puis avance par chapitres, exercices et examens blancs.</p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 mb-8 max-w-2xl">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search courses"
+              className="kresco-control w-full pl-9 pr-4 py-2.5"
+            />
+          </div>
+          <select
+            value={stream}
+            onChange={e => setStream(e.target.value)}
+            className="kresco-control px-3 py-2.5 min-w-[190px]"
+          >
+            <option value="2eme-bac">2ème Bac</option>
+            <option value="1ere-bac">1ère Bac</option>
+            <option value="sc-math">Sciences Math</option>
+            <option value="sc-pc">Sciences Physiques</option>
+            <option value="svt">SVT</option>
+          </select>
+        </div>
+
+        {loading ? (
+          <div className="kresco-lesson-grid">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="card p-5 animate-pulse">
+                <div className="h-32 rounded-xl bg-slate-100 mb-4" />
+                <div className="h-4 bg-slate-100 rounded w-3/4 mb-2" />
+                <div className="h-3 bg-slate-100 rounded w-full mb-4" />
+                <div className="h-9 bg-slate-100 rounded-xl" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="kresco-lesson-grid">
+            {filtered.map((subject, index) => {
+              const { emoji, bg } = getSubjectStyle(subject.title)
+              const isPriority = index < 2
+              return (
+                <Link key={subject.id} href={`/home/${subject.id}`} className="block no-underline">
+                  <div className="card-hover overflow-hidden group">
+                    <div className="relative h-36 bg-[#f4f4f5] flex items-center justify-center">
+                      <div className="absolute left-3 top-3 h-7 min-w-7 rounded-md bg-white border border-slate-200 text-xs font-extrabold text-slate-600 flex items-center justify-center px-2">
+                        {index + 1}
+                      </div>
+                      <div
+                        className="h-20 w-20 rounded-[22px] flex items-center justify-center text-4xl"
+                        style={{ backgroundColor: bg }}
+                      >
+                        {emoji}
+                      </div>
+                    </div>
+                    <div className={isPriority ? 'bg-[#ff9800] p-4' : 'p-4'}>
+                      <p className={`text-sm font-extrabold leading-tight mb-2 ${isPriority ? 'text-white' : 'text-page-primary'}`}>
+                        {subject.title}
+                      </p>
+                      <p className={`text-xs line-clamp-2 mb-4 ${isPriority ? 'text-white/85' : 'text-page-secondary'}`}>
+                        {subject.description || 'Programme, exercices et rappels pour cette matière.'}
+                      </p>
+                      <div className={`flex items-center justify-between text-xs font-semibold ${isPriority ? 'text-white/90' : 'text-page-tertiary'}`}>
+                        <span className="inline-flex items-center gap-1">
+                          <BookOpen size={12} />
+                          {subject.chapter_count} chapitres
+                        </span>
+                        <span>{subject.lesson_count} leçons</span>
+                      </div>
+                      <div className={`mt-4 h-9 rounded-xl flex items-center justify-center gap-2 text-xs font-extrabold ${isPriority ? 'bg-[#e98700] text-white' : 'bg-kresco text-white'}`}>
+                        Start the course
+                        <ChevronRight size={14} />
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+            {filtered.length === 0 && (
+              <div className="col-span-full text-center py-16 text-page-secondary">
+                <p className="text-4xl mb-3">🔍</p>
+                <p className="font-medium">Aucune matière trouvée pour &quot;{search}&quot;</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Search */}
-      <div className="relative mb-8 max-w-md">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Rechercher une matiere..."
-          className="w-full pl-9 pr-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-kresco/30 focus:border-kresco transition"
-        />
-      </div>
+      <div className="kresco-sidebar">
+        <div className="card p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-xl bg-[#f4f4f5] flex items-center justify-center">
+              <CalendarDays size={17} className="text-slate-600" />
+            </div>
+            <div>
+              <p className="text-sm font-extrabold text-page-primary m-0">Calendar</p>
+              <p className="text-xs text-page-secondary m-0">Stay on track this week</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].map((day, i) => (
+              <div key={day} className={`rounded-xl px-2 py-3 text-center ${i === 2 ? 'bg-kresco text-white' : 'bg-slate-100 text-slate-700'}`}>
+                <p className="text-sm font-black m-0">{8 + i}</p>
+                <p className="text-xs font-bold m-0">{day}</p>
+              </div>
+            ))}
+          </div>
+        </div>
 
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-slate-900 rounded-2xl border border-slate-800 p-6 animate-pulse">
-              <div className="w-12 h-12 bg-slate-100 rounded-2xl mb-4" />
-              <div className="h-4 bg-slate-100 rounded w-3/4 mb-2" />
-              <div className="h-3 bg-slate-100 rounded w-full mb-1" />
-              <div className="h-3 bg-slate-100 rounded w-2/3" />
+        <div className="card p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
+              <Zap size={17} className="text-orange-500" />
+            </div>
+            <div>
+              <p className="text-sm font-extrabold text-page-primary m-0">Daily Quests</p>
+              <p className="text-xs text-page-secondary m-0">Start learning now</p>
+            </div>
+          </div>
+          {['Complete 1 lesson', 'Score 80% in a quiz', 'Spend 20 min revising'].map((quest, i) => (
+            <div key={quest} className="mb-4 last:mb-0">
+              <div className="flex items-center justify-between text-xs font-bold mb-2">
+                <span className="text-page-primary">{quest}</span>
+                <span className={i === 0 ? 'text-orange-500' : 'text-kresco'}>{i === 0 ? '60%' : '20%'}</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className={i === 0 ? 'h-full bg-orange-500' : 'h-full bg-kresco'} style={{ width: i === 0 ? '60%' : '20%' }} />
+              </div>
             </div>
           ))}
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map(subject => {
-            const { emoji, bg } = getSubjectStyle(subject.title)
-            return (
-              <Link key={subject.id} href={`/home/${subject.id}`}>
-                <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 hover:shadow-md hover:border-kresco/20 hover:-translate-y-0.5 transition-all group cursor-pointer">
-                  <div className="flex items-start gap-4 mb-4">
-                    <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0 group-hover:scale-110 transition-transform"
-                      style={{ backgroundColor: bg }}
-                    >
-                      {emoji}
-                    </div>
-                    <div className="flex-1 min-w-0 pt-1">
-                      <p className="font-bold text-white text-sm group-hover:text-kresco transition-colors leading-tight">
-                        {subject.title}
-                      </p>
-                    </div>
-                    <ChevronRight size={16} className="text-slate-300 group-hover:text-kresco transition-colors flex-shrink-0 mt-1" />
-                  </div>
-                  <p className="text-xs text-slate-500 line-clamp-2 mb-4 leading-relaxed">{subject.description}</p>
-                  <div className="flex items-center gap-4 text-xs text-slate-400">
-                    <span className="flex items-center gap-1">
-                      <BookOpen size={11} />
-                      {subject.chapter_count} chapitres
-                    </span>
-                    <span>{subject.lesson_count} lecons</span>
-                  </div>
-                </div>
-              </Link>
-            )
-          })}
-          {filtered.length === 0 && (
-            <div className="col-span-3 text-center py-16 text-slate-400">
-              <p className="text-4xl mb-3">🔍</p>
-              <p className="font-medium">Aucune matiere trouvee pour &quot;{search}&quot;</p>
+
+        <div className="card p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 flex items-center justify-center">
+              <Trophy size={17} className="text-kresco" />
             </div>
-          )}
+            <div>
+              <p className="text-sm font-extrabold text-page-primary m-0">Programme</p>
+              <p className="text-xs text-page-secondary m-0">{subjects.length} matières disponibles</p>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }
