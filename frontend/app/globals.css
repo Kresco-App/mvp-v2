@@ -189,6 +189,14 @@ html[data-theme='light'] .border-slate-800\/60 { border-color: rgba(228,228,231,
 html[data-theme='light'] .hover\:bg-slate-800\/40:hover { background-color: rgba(241,245,249,0.8) !important; }
 html[data-theme='light'] .hover\:bg-slate-800\/50:hover { background-color: rgba(241,245,249,0.9) !important; }
 
+/* Restore white text on solid colored action buttons — must come after the text-white override */
+html[data-theme='light'] .bg-indigo-600,
+html[data-theme='light'] .bg-indigo-700,
+html[data-theme='light'] .bg-green-600,
+html[data-theme='light'] .bg-green-700,
+html[data-theme='light'] .bg-red-600,
+html[data-theme='light'] .bg-red-700 { color: #ffffff !important; }
+
 /* kresco brand */
 html[data-theme='light'] .bg-kresco\/10 { background-color: #edf1ff !important; }
 html[data-theme='light'] .text-kresco { color: #453dee !important; }

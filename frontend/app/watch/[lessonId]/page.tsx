@@ -13,6 +13,7 @@ import {
   FileText,
   FlaskConical,
   HelpCircle,
+  Lock,
   MessageSquare,
   Play,
   Puzzle,
@@ -286,6 +287,13 @@ export default function WatchPage() {
 
   const currentSectionIndex = allSections.findIndex((item) => item.id === parseInt(sectionId))
   const sectionProgress = allSections.length > 0 ? `Section ${currentSectionIndex + 1}/${allSections.length}` : ''
+  const nextSection = currentSectionIndex >= 0 && currentSectionIndex < allSections.length - 1
+    ? allSections[currentSectionIndex + 1]
+    : null
+  const nextIsLocked = nextSection?.is_locked ?? false
+  const nextLockHint = nextIsLocked
+    ? (user?.is_pro ? 'Terminez cette section pour débloquer la suivante' : 'Abonnement Pro requis pour accéder à la section suivante')
+    : undefined
 
   if (loading) {
     return (
@@ -467,13 +475,26 @@ export default function WatchPage() {
                   </button>
                 )}
                 {isCompleted && (
-                  <button
-                    onClick={navigateToNextSection}
-                    className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+                  <span
+                    title={nextLockHint}
+                    style={{ display: 'inline-flex', cursor: nextIsLocked ? 'not-allowed' : 'default' }}
                   >
-                    Section suivante
-                    <ArrowRight size={15} />
-                  </button>
+                    <button
+                      onClick={nextIsLocked ? undefined : navigateToNextSection}
+                      disabled={nextIsLocked}
+                      style={{ pointerEvents: nextIsLocked ? 'none' : 'auto' }}
+                      className={cn(
+                        'inline-flex items-center gap-2 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors',
+                        nextIsLocked
+                          ? 'bg-indigo-600/50 opacity-60 cursor-not-allowed'
+                          : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
+                      )}
+                    >
+                      {nextIsLocked ? <Lock size={14} /> : null}
+                      Section suivante
+                      {!nextIsLocked && <ArrowRight size={15} />}
+                    </button>
+                  </span>
                 )}
               </div>
 

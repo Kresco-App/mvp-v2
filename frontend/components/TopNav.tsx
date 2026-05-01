@@ -76,7 +76,6 @@ export default function TopNav() {
     }).catch(() => {})
   }, [])
 
-  // Click outside to close
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
@@ -112,11 +111,13 @@ export default function TopNav() {
     return pathname === href || pathname.startsWith(href + '/')
   }
 
+  const isZedActive = pathname === '/zed'
+
   return (
     <nav style={{
       position: 'sticky', top: 0, zIndex: 50,
-      backgroundColor: '#ffffff',
-      borderBottom: '1px solid #e4e4e7',
+      backgroundColor: 'var(--surface-card)',
+      borderBottom: '1px solid var(--border)',
       height: 64,
       boxShadow: '0 4px 18px rgba(24,24,27,0.05)',
     }}>
@@ -141,11 +142,11 @@ export default function TopNav() {
               position: 'relative', padding: '0 12px', height: 64, gap: 7,
               display: 'flex', alignItems: 'center', fontSize: 14, fontWeight: 700,
               textDecoration: 'none', cursor: 'pointer', background: 'none', border: 'none',
-              color: active ? '#3a2fd3' : '#52525c', transition: 'color 150ms',
+              color: active ? 'var(--primary)' : 'var(--text-secondary)', transition: 'color 150ms',
               whiteSpace: 'nowrap',
             }
             const underline = active ? (
-              <span style={{ position: 'absolute', bottom: 0, left: 12, right: 12, height: 2, borderRadius: 2, backgroundColor: '#3a2fd3' }} />
+              <span style={{ position: 'absolute', bottom: 0, left: 12, right: 12, height: 2, borderRadius: 2, backgroundColor: 'var(--primary)' }} />
             ) : null
 
             if (!href) return (
@@ -166,7 +167,7 @@ export default function TopNav() {
         {/* Right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 
-          {/* Notifications */}
+          {/* Planificateur */}
           <button
             onClick={() => toast.info('Planificateur bientôt disponible !')}
             title="Planificateur"
@@ -174,11 +175,27 @@ export default function TopNav() {
               width: 40, height: 40, borderRadius: 12,
               background: 'transparent', border: '1px solid transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', color: '#52525c',
+              cursor: 'pointer', color: 'var(--text-secondary)',
             }}
           >
             <ClipboardList size={17} />
           </button>
+
+          {/* Zed Mode */}
+          <Link
+            href="/zed"
+            title="Zed Mode — session de concentration"
+            style={{
+              width: 40, height: 40, borderRadius: 12,
+              background: isZedActive ? 'var(--primary-soft)' : 'transparent',
+              border: isZedActive ? '1px solid rgba(69,61,238,0.3)' : '1px solid transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: isZedActive ? 'var(--primary)' : 'var(--text-secondary)',
+              textDecoration: 'none', transition: 'all 150ms',
+            }}
+          >
+            <Zap size={17} />
+          </Link>
 
           {/* Notifications */}
           <div style={{ position: 'relative' }} ref={notifRef}>
@@ -186,17 +203,17 @@ export default function TopNav() {
               onClick={() => { setNotifOpen(v => !v); setMenuOpen(false) }}
               style={{
                 width: 44, height: 44, borderRadius: 14, position: 'relative',
-                background: notifOpen ? '#edf1ff' : '#f4f4f5',
-                border: notifOpen ? '1px solid rgba(69,61,238,0.3)' : '1px solid #e4e4e7',
+                background: notifOpen ? 'var(--primary-soft)' : 'var(--surface-input)',
+                border: notifOpen ? '1px solid rgba(69,61,238,0.3)' : '1px solid var(--border)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', color: notifOpen ? '#453dee' : '#52525c', transition: 'all 150ms',
+                cursor: 'pointer', color: notifOpen ? 'var(--primary)' : 'var(--text-secondary)', transition: 'all 150ms',
               }}
             >
               <Bell size={18} />
               {unreadCount > 0 && (
                 <span style={{
                   position: 'absolute', top: 7, right: 7, width: 8, height: 8,
-                  borderRadius: '50%', background: '#ef4444', border: '2px solid #fff',
+                  borderRadius: '50%', background: '#ef4444', border: '2px solid var(--surface-card)',
                 }} />
               )}
             </button>
@@ -204,14 +221,14 @@ export default function TopNav() {
             {notifOpen && (
               <div className="animate-fade-in" style={{
                 position: 'absolute', right: 0, top: 'calc(100% + 8px)',
-                width: 340, background: '#fff', borderRadius: 16,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.12)', border: '1px solid #e4e4e7', zIndex: 100,
+                width: 340, background: 'var(--surface-card)', borderRadius: 16,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.12)', border: '1px solid var(--border)', zIndex: 100,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px' }}>
                   <div>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: '#18181b', margin: 0 }}>Notifications</p>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Notifications</p>
                     {unreadCount > 0 && (
-                      <p style={{ fontSize: 11, color: '#453dee', margin: '1px 0 0', fontWeight: 600 }}>
+                      <p style={{ fontSize: 11, color: 'var(--primary)', margin: '1px 0 0', fontWeight: 600 }}>
                         {unreadCount} non lue{unreadCount > 1 ? 's' : ''}
                       </p>
                     )}
@@ -219,19 +236,19 @@ export default function TopNav() {
                   {unreadCount > 0 && (
                     <button
                       onClick={markAllRead}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#453dee', background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
                     >
                       <CheckCheck size={14} />
                       Tout lire
                     </button>
                   )}
                 </div>
-                <div style={{ borderTop: '1px solid #e4e4e7' }} />
+                <div style={{ borderTop: '1px solid var(--border)' }} />
 
                 {notifications.length === 0 ? (
                   <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-                    <Bell size={28} style={{ color: '#d4d4d8', margin: '0 auto 10px', display: 'block' }} />
-                    <p style={{ fontSize: 13, color: '#9f9fa9', margin: 0 }}>Aucune notification</p>
+                    <Bell size={28} style={{ color: 'var(--text-tertiary)', margin: '0 auto 10px', display: 'block' }} />
+                    <p style={{ fontSize: 13, color: 'var(--text-tertiary)', margin: 0 }}>Aucune notification</p>
                   </div>
                 ) : (
                   <div style={{ maxHeight: 360, overflowY: 'auto' }}>
@@ -243,12 +260,12 @@ export default function TopNav() {
                           onClick={() => !n.is_read && markRead(n.id)}
                           style={{
                             display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px',
-                            background: n.is_read ? 'transparent' : '#f8f8fb',
+                            background: n.is_read ? 'transparent' : 'var(--surface-hover)',
                             cursor: n.is_read ? 'default' : 'pointer',
-                            borderBottom: '1px solid #f4f4f6', transition: 'background 150ms',
+                            borderBottom: '1px solid var(--border)', transition: 'background 150ms',
                           }}
-                          onMouseEnter={e => { if (!n.is_read) (e.currentTarget as HTMLDivElement).style.background = '#edf1ff' }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = n.is_read ? 'transparent' : '#f8f8fb' }}
+                          onMouseEnter={e => { if (!n.is_read) (e.currentTarget as HTMLDivElement).style.background = 'var(--primary-soft)' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = n.is_read ? 'transparent' : 'var(--surface-hover)' }}
                         >
                           <div style={{
                             width: 32, height: 32, borderRadius: 10, flexShrink: 0,
@@ -259,12 +276,12 @@ export default function TopNav() {
                             {meta.icon}
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ fontSize: 13, fontWeight: 600, color: '#18181b', margin: '0 0 2px' }}>{n.title}</p>
-                            {n.body && <p style={{ fontSize: 12, color: '#71717b', margin: '0 0 3px', lineHeight: 1.4 }}>{n.body}</p>}
-                            <p style={{ fontSize: 11, color: '#9f9fa9', margin: 0 }}>{timeAgo(n.created_at)}</p>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 2px' }}>{n.title}</p>
+                            {n.body && <p style={{ fontSize: 12, color: 'var(--text-hint)', margin: '0 0 3px', lineHeight: 1.4 }}>{n.body}</p>}
+                            <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0 }}>{timeAgo(n.created_at)}</p>
                           </div>
                           {!n.is_read && (
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#453dee', flexShrink: 0, marginTop: 4 }} />
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', flexShrink: 0, marginTop: 4 }} />
                           )}
                         </div>
                       )
@@ -281,8 +298,8 @@ export default function TopNav() {
               onClick={() => { setMenuOpen(!menuOpen); setNotifOpen(false) }}
               style={{
                 width: 44, height: 44, borderRadius: 14, overflow: 'hidden',
-                border: menuOpen ? '1px solid rgba(69,61,238,0.3)' : '1px solid #e4e4e7',
-                background: menuOpen ? '#edf1ff' : '#f4f4f5',
+                border: menuOpen ? '1px solid rgba(69,61,238,0.3)' : '1px solid var(--border)',
+                background: menuOpen ? 'var(--primary-soft)' : 'var(--surface-input)',
                 cursor: 'pointer', padding: 0,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all 150ms',
@@ -291,20 +308,20 @@ export default function TopNav() {
               {user?.avatar_url ? (
                 <img src={user.avatar_url} alt={user.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} referrerPolicy="no-referrer" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
               ) : (
-                <span style={{ fontSize: 16, fontWeight: 700, color: '#453dee' }}>{user?.full_name?.[0]}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--primary)' }}>{user?.full_name?.[0]}</span>
               )}
             </button>
 
             {menuOpen && (
               <div className="animate-fade-in" style={{
                 position: 'absolute', right: 0, top: 'calc(100% + 8px)',
-                width: 224, background: '#ffffff', borderRadius: 16,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.12)', border: '1px solid #e4e4e7',
+                width: 224, background: 'var(--surface-card)', borderRadius: 16,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.12)', border: '1px solid var(--border)',
                 paddingTop: 8, paddingBottom: 8, zIndex: 100,
               }}>
-                <div style={{ padding: '10px 16px 12px', borderBottom: '1px solid #e4e4e7' }}>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: '#18181b', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.full_name}</p>
-                  <p style={{ fontSize: 12, color: '#9f9fa9', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</p>
+                <div style={{ padding: '10px 16px 12px', borderBottom: '1px solid var(--border)' }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.full_name}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</p>
                   {user?.is_pro && (
                     <span style={{ display: 'inline-block', marginTop: 6, fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: 'linear-gradient(135deg,#f59e0b,#f97316)', color: '#fff' }}>
                       PRO ✦
@@ -319,19 +336,19 @@ export default function TopNav() {
                     key={href}
                     href={href}
                     onClick={() => setMenuOpen(false)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', fontSize: 14, color: '#52525c', textDecoration: 'none', transition: 'background 150ms' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#f4f4f5')}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', fontSize: 14, color: 'var(--text-secondary)', textDecoration: 'none', transition: 'background 150ms' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-hover)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
                     <Icon size={15} />
                     {label}
                   </Link>
                 ))}
-                <div style={{ borderTop: '1px solid #f4f4f6', marginTop: 4 }} />
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: 4 }} />
                 <button
                   onClick={handleLogout}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', fontSize: 14, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--danger-soft)')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                 >
                   <LogOut size={15} />
