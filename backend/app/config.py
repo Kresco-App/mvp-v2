@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     debug: bool = False
     resend_api_key: str = ""
     resend_from_email: str = "Kresco <onboarding@resend.dev>"
+    # Set to true in .env during local development to skip email verification
+    dev_skip_email_verification: bool = False
 
     @property
     def cors_origins_list(self) -> list[str]:

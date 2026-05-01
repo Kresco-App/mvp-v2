@@ -3,6 +3,19 @@
 .env.*
 !.env.example
 
+# Zappa
+backend/zappa_settings.json
+
+# Local settings
+.claude/settings.local.json
+
+# Local databases
+backend/db.sqlite3
+backend/dev.sqlite3
+
+# Python cache
+**/__pycache__/
+
 # Node
 node_modules/
 npm-debug.log

@@ -100,7 +100,7 @@ async def google_login(
     return TokenOut(access_token=token, user=UserOut.model_validate(user))
 
 
-@router.post("/auth/signup", response_model=SignupPendingOut, status_code=202)
+@router.post("/auth/signup", response_model=None, status_code=202)
 @limiter.limit("3/minute")
 async def signup(
     request: Request,
@@ -135,19 +135,36 @@ async def signup(
         await db.commit()
         await db.refresh(user)
 
+    # ── Dev bypass: skip email verification in local development ──
+    if settings.dev_skip_email_verification:
+        if not user.is_email_verified:
+            user.is_email_verified = True
+            await db.commit()
+            await db.refresh(user)
+        logger.warning("DEV_SKIP_EMAIL_VERIFICATION=true — auto-verifying %s", email)
+        access_token = create_token(user.id, settings)
+        return TokenOut(access_token=access_token, user=UserOut.model_validate(user))
+
     token = generate_verification_token(email, settings)
     email_sent = True
-    try:
-        await send_verification_email(email, body.full_name, token, settings)
-    except Exception as exc:
+    email_error = ""
+    if not settings.resend_api_key:
         email_sent = False
-        logger.error("send_verification_email failed for %s: %s", email, exc)
+        email_error = "RESEND_API_KEY not configured on server"
+        logger.error("send_verification_email skipped: %s", email_error)
+    else:
+        try:
+            await send_verification_email(email, body.full_name, token, settings)
+        except Exception as exc:
+            email_sent = False
+            email_error = str(exc)
+            logger.error("send_verification_email failed for %s: %s", email, exc)
 
     return SignupPendingOut(
         message=(
             "Un email de verification a ete envoye a votre adresse."
             if email_sent
-            else "Compte cree. L'envoi de l'email a echoue — utilisez le bouton 'Renvoyer' pour reessayer."
+            else f"Compte cree. L'envoi de l'email a echoue ({email_error}). Utilisez le bouton 'Renvoyer' pour reessayer."
         ),
         email=email,
     )

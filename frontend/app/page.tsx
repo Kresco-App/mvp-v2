@@ -181,39 +181,44 @@ export default function AuthPage() {
       }
     }
 
+    function initGSI() {
+      if (!window.google?.accounts?.id) return
+      window.google.accounts.id.initialize({
+        client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+        callback: window.handleGoogleCredential,
+        ux_mode: 'popup',
+      })
+      if (hiddenGoogleRef.current) {
+        window.google.accounts.id.renderButton(hiddenGoogleRef.current, {
+          size: 'large', width: 240, text: 'continue_with',
+        })
+      }
+      setGoogleReady(true)
+    }
+
+    if (window.google?.accounts?.id) {
+      initGSI()
+      return
+    }
+
     const script = document.createElement('script')
     script.src = 'https://accounts.google.com/gsi/client'
     script.async = true
-    script.onload = () => {
-      try {
-        if (window.google) {
-          window.google.accounts.id.initialize({
-            client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-            callback: window.handleGoogleCredential,
-          })
-          if (hiddenGoogleRef.current) {
-            window.google.accounts.id.renderButton(hiddenGoogleRef.current, {
-              size: 'large', width: 200, text: 'continue_with',
-            })
-          }
-        }
-      } catch (e) {
-        console.error('[Kresco] Google GSI init failed:', e)
-      } finally {
-        // Always enable the button — triggerGoogle falls back to prompt()
-        setGoogleReady(true)
-      }
-    }
-    script.onerror = () => setGoogleReady(true) // script blocked? still let user try
+    script.onload = () => { try { initGSI() } catch (e) { console.error('[Kresco] GSI init failed:', e); setGoogleReady(true) } }
+    script.onerror = () => setGoogleReady(true)
     document.head.appendChild(script)
     return () => { try { document.head.removeChild(script) } catch {} }
-  }, [login, router])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function triggerGoogle() {
-    if (!googleReady) return
+    // Click the real rendered GSI button (triggers OAuth popup, works on any origin)
     const btn = hiddenGoogleRef.current?.querySelector('div[role="button"]') as HTMLElement | null
-    if (btn) btn.click()
-    else window.google?.accounts?.id?.prompt()
+    if (btn) {
+      btn.click()
+    } else {
+      // Fallback: One Tap prompt (requires origin registered in Google Cloud Console)
+      window.google?.accounts?.id?.prompt()
+    }
   }
 
   function resetForm() {
@@ -227,9 +232,18 @@ export default function AuthPage() {
     setLoading(true)
     try {
       const { data } = await api.post('/auth/signup', { email, password, full_name: fullName })
-      setPendingEmail(data.email)
-      setAuthMode('verify-pending')
-      toast.success('Email de vérification envoyé !')
+      // Dev bypass: server returns access_token immediately (no email verification needed)
+      if (data.access_token) {
+        login(data.access_token, data.user)
+        toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
+        if (!data.user.niveau) setStep('niveau')
+        else if (!data.user.filiere) setStep('filiere')
+        else router.push('/home')
+      } else {
+        setPendingEmail(data.email)
+        setAuthMode('verify-pending')
+        toast.success('Email de vérification envoyé !')
+      }
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Erreur lors de la création du compte.')
     } finally { setLoading(false) }
@@ -293,8 +307,8 @@ export default function AuthPage() {
 
   return (
     <div style={pageStyle}>
-      {/* Hidden GSI button */}
-      <div ref={hiddenGoogleRef} style={{ position: 'absolute', left: -9999, top: -9999, width: 200, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }} />
+      {/* Hidden GSI button — renderButton renders here, triggerGoogle clicks it */}
+      <div ref={hiddenGoogleRef} style={{ position: 'absolute', left: -9999, top: -9999, width: 240, overflow: 'hidden', opacity: 0, pointerEvents: 'auto', zIndex: -1 }} />
 
       <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
@@ -332,7 +346,7 @@ export default function AuthPage() {
 
                 {/* Figma 3 social buttons */}
                 <div style={{ width: '100%', display: 'flex', gap: 11, marginBottom: 4 }}>
-                  <SocialBtn icon={<GoogleIcon />} label="Continuer avec Google" onClick={triggerGoogle} disabled={!googleReady || loading} />
+                  <SocialBtn icon={<GoogleIcon />} label="Continuer avec Google" onClick={triggerGoogle} disabled={loading} />
                   <SocialBtn icon={<FacebookIcon />} label="Facebook (bientôt)" disabled />
                   <SocialBtn icon={<AppleIcon />} label="Apple (bientôt)" disabled />
                 </div>

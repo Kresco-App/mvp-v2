@@ -7,6 +7,13 @@ django.setup()
 from courses.models import Subject, Chapter, ChapterSection
 import random
 
+VALID_VDOCIPHER_IDS = [
+    "fa1c30a17b874965ac332e03f68545df",
+    "562c7b1b502044588678b678179430ba",
+    "2b524afb877b4f00a665ac53d4081332",
+    "ab23780708d9abdaf4afe627ad3bdb6b",
+]
+
 def seed_content():
     print("Seeding Physique and Math...")
 
@@ -27,19 +34,19 @@ def seed_content():
     andes_sections = [
         {
             "title": "Les ondes mécaniques progressives",
-            "vdo_id": "36af6ddfc79844bebc33857d45763567",
+            "vdo_id": VALID_VDOCIPHER_IDS[0],
             "activity_type": "OndePropagation",
             "order": 1
         },
         {
             "title": "Les ondes progressives périodiques",
-            "vdo_id": "41e98feec5424feebfd7cc4b2ccfe171",
+            "vdo_id": VALID_VDOCIPHER_IDS[1],
             "activity_type": "OndeCaracteristiques",
             "order": 2
         },
         {
             "title": "Les ondes lumineuses",
-            "vdo_id": "1c9b4eaf45cb4974a95e791f4a9b6eb5",
+            "vdo_id": VALID_VDOCIPHER_IDS[2],
             "activity_type": "OndeTrueFalse",
             "order": 3
         }
@@ -90,7 +97,7 @@ def seed_content():
         title="1. Introduction aux ensembles",
         defaults={
             "section_type": "video",
-            "vdocipher_id": "dummy_ensembles_vid",
+            "vdocipher_id": VALID_VDOCIPHER_IDS[3],
             "order": 1,
             "duration_seconds": 300
         }
@@ -128,7 +135,7 @@ def seed_content():
         title="1. Introduction aux limites",
         defaults={
             "section_type": "video",
-            "vdocipher_id": "dummy_limites_vid",
+            "vdocipher_id": VALID_VDOCIPHER_IDS[0],
             "order": 1,
             "duration_seconds": 450
         }

@@ -10,6 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+VALID_VDOCIPHER_IDS = [
+    "fa1c30a17b874965ac332e03f68545df",
+    "562c7b1b502044588678b678179430ba",
+    "2b524afb877b4f00a665ac53d4081332",
+    "ab23780708d9abdaf4afe627ad3bdb6b",
+]
 
 # ── async bootstrap ─────────────────────────────────────────────
 async def main():
@@ -271,7 +277,7 @@ async def seed_all(db: AsyncSession):
 
             for sec_order, (sec_title, sec_type, duration) in enumerate(ch_data["sections"]):
                 is_free = sec_order == 0  # First section of each chapter is free preview
-                vdocipher_id = f"mock-video-{subject.id}-{chapter.id}-{sec_order}" if sec_type == "video" else ""
+                vdocipher_id = VALID_VDOCIPHER_IDS[(subject.id + chapter.id + sec_order) % len(VALID_VDOCIPHER_IDS)] if sec_type == "video" else ""
 
                 quiz_data = None
                 activity_data = None

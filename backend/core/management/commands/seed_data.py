@@ -7,6 +7,13 @@ from courses.models import Subject, Chapter, Lesson, ChapterBlock
 from quizzes.models import Quiz, QuizQuestion, QuizOption
 
 
+VALID_VDOCIPHER_IDS = [
+    "fa1c30a17b874965ac332e03f68545df",
+    "562c7b1b502044588678b678179430ba",
+    "2b524afb877b4f00a665ac53d4081332",
+    "ab23780708d9abdaf4afe627ad3bdb6b",
+]
+
 SUBJECTS = [
     {
         "title": "Mathématiques",
@@ -292,7 +299,7 @@ class Command(BaseCommand):
                         chapter=chapter,
                         title=l_data["title"],
                         defaults={
-                            "vdocipher_id": f"mock-video-{s_idx}-{c_idx}-{l_idx}",
+                            "vdocipher_id": VALID_VDOCIPHER_IDS[(s_idx + c_idx + l_idx) % len(VALID_VDOCIPHER_IDS)],
                             "duration_seconds": l_data["duration"],
                             "is_free_preview": l_data.get("free", False),
                             "order": l_idx,
