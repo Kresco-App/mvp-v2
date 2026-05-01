@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import FastAPI, Request
@@ -81,20 +82,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(payments.router, prefix="/api/payments")
     app.include_router(notifications.router, prefix="/api/notifications")
 
-    # SQLAdmin panel
-    admin_password = os.environ.get("ADMIN_PASSWORD", "kresco-admin-2026")
-    auth_backend = AdminAuth(
-        secret_key=settings.jwt_secret_key,
-        admin_password=admin_password,
-    )
-    admin = Admin(
-        app,
-        engine,
-        title="Kresco Admin",
-        base_url="/admin",
-        authentication_backend=auth_backend,
-    )
-    register_admin_views(admin)
+    # SQLAdmin panel (disabled on Lambda by default)
+    enable_admin_env = os.environ.get("ENABLE_ADMIN")
+    if enable_admin_env is None:
+        enable_admin = not settings.is_lambda
+    else:
+        enable_admin = enable_admin_env.lower() in ("1", "true", "yes")
+
+    if enable_admin:
+        try:
+            admin_password = os.environ.get("ADMIN_PASSWORD", "kresco-admin-2026")
+            auth_backend = AdminAuth(
+                secret_key=settings.jwt_secret_key,
+                admin_password=admin_password,
+            )
+            admin = Admin(
+                app,
+                engine,
+                title="Kresco Admin",
+                base_url="/admin",
+                authentication_backend=auth_backend,
+            )
+            register_admin_views(admin)
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Admin init failed: %s", exc)
 
     @app.get("/")
     @app.get("/health")
