@@ -26,6 +26,8 @@
         "timeout_seconds": 30,
         "memory_size": 512,
         "manage_roles": true,
-        "apigateway_enabled": true
+        "apigateway_enabled": true,
+        "slim_handler": true,
+        "keep_warm": false
     }
 }
