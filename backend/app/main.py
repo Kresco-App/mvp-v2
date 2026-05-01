@@ -96,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     register_admin_views(admin)
 
+    @app.get("/")
     @app.get("/health")
     async def health():
         return {"status": "ok", "version": "2.0.0"}
