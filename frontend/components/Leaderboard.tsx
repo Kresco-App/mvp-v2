@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Trophy, Search, Crown, Medal, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Trophy, Search, Crown, Medal, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
 import api from '@/lib/axios'
-import { cn } from '@/lib/utils'
 
 interface LeaderboardEntry {
   rank: number
@@ -15,7 +14,7 @@ interface LeaderboardEntry {
   is_current_user: boolean
 }
 
-// ─── Widget Mode: top 5 + current user rank (used on Home page sidebar) ─────
+// ─── Widget Mode: used on Home page sidebar ───────────────────────────────────
 export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -29,9 +28,9 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 
   if (loading) {
     return (
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-3 animate-pulse">
+      <div className="card p-5 space-y-3 animate-pulse">
         {[1, 2, 3].map(i => (
-          <div key={i} className="h-10 bg-slate-800 rounded-xl" />
+          <div key={i} style={{ height: 40, borderRadius: 10, background: 'var(--surface-hover)' }} />
         ))}
       </div>
     )
@@ -42,37 +41,35 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
   const currentUserInTop = top.some(e => e.is_current_user)
 
   return (
-    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-3">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
-          <Trophy size={15} className="text-yellow-400" />
-          <span className="text-white text-sm font-semibold">Classement</span>
+    <div className="card p-5">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Trophy size={15} style={{ color: '#f59e0b' }} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Classement</span>
         </div>
         {onExpand && (
-          <button
-            onClick={onExpand}
-            className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition"
-          >
+          <button onClick={onExpand} style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
             Voir tout
           </button>
         )}
       </div>
 
-      {top.map(entry => (
-        <LeaderboardRow key={entry.user_id} entry={entry} compact />
-      ))}
-
-      {currentUser && !currentUserInTop && (
-        <div className="border-t border-slate-800 pt-2 mt-1">
-          <p className="text-xs text-slate-500 mb-2 text-center">• • •</p>
-          <LeaderboardRow entry={currentUser} compact highlight />
-        </div>
-      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {top.map(entry => (
+          <LeaderboardRow key={entry.user_id} entry={entry} compact highlight={entry.is_current_user} />
+        ))}
+        {currentUser && !currentUserInTop && (
+          <>
+            <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11, letterSpacing: 2, padding: '2px 0' }}>• • •</div>
+            <LeaderboardRow entry={currentUser} compact highlight />
+          </>
+        )}
+      </div>
     </div>
   )
 }
 
-// ─── Full-page Leaderboard ──────────────────────────────────────────────────
+// ─── Full-page Leaderboard ────────────────────────────────────────────────────
 export function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -105,39 +102,41 @@ export function LeaderboardPage() {
 
   const currentUser = entries.find(e => e.is_current_user)
   const top3 = entries.filter(e => e.rank <= 3)
-  const showPodium = page === 1 && !search && top3.length === 3
+  const showPodium = page === 1 && !search && top3.length >= 2
   const hasMore = entries.length === PAGE_SIZE
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
+    <div className="kresco-shell" style={{ maxWidth: 680, margin: '0 auto' }}>
+
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center">
-          <Trophy size={20} className="text-yellow-400" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 28 }}>
+        <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg,#f59e0b,#f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Trophy size={22} color="#fff" />
         </div>
         <div>
-          <h1 className="text-white text-xl font-bold">Classement</h1>
-          <p className="text-slate-500 text-sm">Concours de XP entre les etudiants</p>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 2px' }}>Classement</h1>
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>Compétition de XP entre les étudiants Kresco</p>
         </div>
       </div>
 
-      {/* Podium (page 1, no search) */}
+      {/* Podium */}
       {showPodium && <Podium top3={top3} />}
 
       {/* Search */}
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }} />
         <input
           value={searchInput}
           onChange={e => setSearchInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSearch()}
           placeholder="Rechercher un joueur..."
-          className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50"
+          className="kresco-control"
+          style={{ width: '100%', paddingLeft: 42, paddingRight: 40, paddingTop: 11, paddingBottom: 11, fontSize: 14 }}
         />
         {searchInput && (
           <button
             onClick={() => { setSearchInput(''); setSearch(''); setPage(1) }}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+            style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}
           >
             ✕
           </button>
@@ -145,85 +144,108 @@ export function LeaderboardPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+      <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
         {loading ? (
-          <div className="space-y-px">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="h-14 bg-slate-800/40 animate-pulse" />
+          <div>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} style={{ height: 60, background: i % 2 === 0 ? 'var(--surface-card)' : 'var(--surface-hover)', animation: 'pulse 1.5s ease infinite' }} />
             ))}
           </div>
-        ) : entries.filter(e => !e.is_current_user || e.rank <= page * PAGE_SIZE).length === 0 ? (
-          <div className="py-16 text-center text-slate-500 text-sm">
-            {search ? `Aucun joueur trouve pour "${search}"` : 'Aucun classement disponible'}
+        ) : entries.length === 0 ? (
+          <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>
+            {search ? `Aucun joueur trouvé pour "${search}"` : 'Aucun classement disponible'}
           </div>
         ) : (
-          <div className="divide-y divide-slate-800/60">
-            {entries.map(entry => (
-              <div
-                key={entry.user_id}
-                className={cn(
-                  'flex items-center gap-3 px-5 py-3.5 transition-colors',
-                  entry.is_current_user && 'bg-indigo-500/10'
-                )}
-              >
-                <RankBadge rank={entry.rank} />
-                <Avatar entry={entry} />
-                <div className="flex-1 min-w-0">
-                  <p className={cn(
-                    'text-sm font-semibold truncate',
-                    entry.is_current_user ? 'text-indigo-300' : 'text-white'
-                  )}>
-                    {entry.full_name}
-                    {entry.is_current_user && (
-                      <span className="ml-1.5 text-xs text-indigo-400 font-normal">(vous)</span>
-                    )}
-                  </p>
-                  <p className="text-xs text-slate-500">Niveau {entry.level}</p>
+          <div>
+            {entries.map((entry, idx) => {
+              const isMe = entry.is_current_user
+              return (
+                <div
+                  key={entry.user_id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    padding: '12px 20px',
+                    background: isMe ? 'var(--primary-soft)' : 'transparent',
+                    borderBottom: idx < entries.length - 1 ? '1px solid var(--border)' : 'none',
+                    borderLeft: isMe ? '3px solid var(--primary)' : '3px solid transparent',
+                    transition: 'background 150ms',
+                  }}
+                >
+                  <RankBadge rank={entry.rank} />
+
+                  <AvatarBubble entry={entry} />
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: isMe ? 'var(--primary)' : 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {entry.full_name}
+                      {isMe && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--primary)', fontWeight: 400, opacity: 0.8 }}>(vous)</span>}
+                    </p>
+                    <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0 }}>Niveau {entry.level}</p>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <Zap size={13} color="#f59e0b" fill="#f59e0b" />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>
+                      {entry.total_xp.toLocaleString()}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>XP</span>
+                  </div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-bold text-amber-400">
-                    {entry.total_xp.toLocaleString()} XP
-                  </p>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
 
       {/* Current user sticky if not in visible list */}
-      {currentUser && !entries.some(e => e.is_current_user && e.rank <= page * PAGE_SIZE) && (
-        <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl px-5 py-3.5 flex items-center gap-3">
+      {currentUser && !entries.some(e => e.is_current_user) && (
+        <div style={{
+          marginTop: 12, borderRadius: 14, padding: '12px 20px',
+          background: 'var(--primary-soft)', border: '1px solid rgba(69,61,238,0.2)',
+          display: 'flex', alignItems: 'center', gap: 14,
+        }}>
           <RankBadge rank={currentUser.rank} />
-          <Avatar entry={currentUser} />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-indigo-300 truncate">
-              {currentUser.full_name} <span className="text-xs text-indigo-400 font-normal">(vous)</span>
+          <AvatarBubble entry={currentUser} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--primary)', margin: '0 0 2px' }}>
+              {currentUser.full_name} <span style={{ fontSize: 11, fontWeight: 400 }}>(vous)</span>
             </p>
-            <p className="text-xs text-slate-500">Niveau {currentUser.level}</p>
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0 }}>Niveau {currentUser.level}</p>
           </div>
-          <p className="text-sm font-bold text-amber-400">
-            {currentUser.total_xp.toLocaleString()} XP
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Zap size={13} color="#f59e0b" fill="#f59e0b" />
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>{currentUser.total_xp.toLocaleString()}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>XP</span>
+          </div>
         </div>
       )}
 
       {/* Pagination */}
       {(page > 1 || hasMore) && (
-        <div className="flex items-center justify-center gap-3">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 }}>
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 rounded-xl transition"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10,
+              background: 'var(--surface-hover)', border: '1px solid var(--border)',
+              color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              opacity: page === 1 ? 0.4 : 1,
+            }}
           >
             <ChevronLeft size={14} />
-            Precedent
+            Précédent
           </button>
-          <span className="text-slate-500 text-sm font-medium">Page {page}</span>
+          <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 600 }}>Page {page}</span>
           <button
             onClick={() => setPage(p => p + 1)}
             disabled={!hasMore}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 rounded-xl transition"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10,
+              background: 'var(--surface-hover)', border: '1px solid var(--border)',
+              color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              opacity: !hasMore ? 0.4 : 1,
+            }}
           >
             Suivant
             <ChevronRight size={14} />
@@ -234,37 +256,30 @@ export function LeaderboardPage() {
   )
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function LeaderboardRow({
-  entry,
-  compact = false,
-  highlight = false,
-}: {
+function LeaderboardRow({ entry, compact = false, highlight = false }: {
   entry: LeaderboardEntry
   compact?: boolean
   highlight?: boolean
 }) {
   return (
-    <div className={cn(
-      'flex items-center gap-3 rounded-xl px-3 py-2',
-      highlight && 'bg-indigo-500/10 border border-indigo-500/20',
-      !highlight && 'hover:bg-slate-800/50 transition-colors'
-    )}>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      borderRadius: 10, padding: compact ? '6px 8px' : '10px 14px',
+      background: highlight ? 'var(--primary-soft)' : 'transparent',
+      border: highlight ? '1px solid rgba(69,61,238,0.15)' : '1px solid transparent',
+      transition: 'background 150ms',
+    }}>
       <RankBadge rank={entry.rank} small />
-      <Avatar entry={entry} small={compact} />
-      <div className="flex-1 min-w-0">
-        <p className={cn(
-          'text-sm font-semibold truncate',
-          highlight ? 'text-indigo-300' : 'text-white'
-        )}>
+      <AvatarBubble entry={entry} small={compact} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: highlight ? 'var(--primary)' : 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {entry.full_name}
-          {entry.is_current_user && (
-            <span className="ml-1 text-xs text-indigo-400 font-normal">(vous)</span>
-          )}
+          {entry.is_current_user && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--primary)', fontWeight: 400 }}>(vous)</span>}
         </p>
       </div>
-      <span className="text-xs font-bold text-amber-400 flex-shrink-0">
+      <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', flexShrink: 0 }}>
         {entry.total_xp.toLocaleString()} XP
       </span>
     </div>
@@ -272,84 +287,76 @@ function LeaderboardRow({
 }
 
 function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
-  const size = small ? 'w-6 h-6' : 'w-8 h-8'
-  if (rank === 1) {
-    return (
-      <span className={cn('flex items-center justify-center flex-shrink-0 rounded-full bg-yellow-500/15', size)}>
-        <Crown className="text-yellow-400" size={small ? 13 : 16} />
-      </span>
-    )
-  }
-  if (rank === 2) {
-    return (
-      <span className={cn('flex items-center justify-center flex-shrink-0 rounded-full bg-slate-400/15', size)}>
-        <Medal className="text-slate-300" size={small ? 13 : 16} />
-      </span>
-    )
-  }
-  if (rank === 3) {
-    return (
-      <span className={cn('flex items-center justify-center flex-shrink-0 rounded-full bg-amber-600/15', size)}>
-        <Medal className="text-amber-500" size={small ? 13 : 16} />
-      </span>
-    )
-  }
+  const sz = small ? 24 : 32
+  if (rank === 1) return (
+    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Crown size={small ? 13 : 16} color="#f59e0b" />
+    </div>
+  )
+  if (rank === 2) return (
+    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(148,163,184,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Medal size={small ? 13 : 16} color="#94a3b8" />
+    </div>
+  )
+  if (rank === 3) return (
+    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(217,119,6,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Medal size={small ? 13 : 16} color="#d97706" />
+    </div>
+  )
   return (
-    <span className={cn(
-      'flex items-center justify-center flex-shrink-0 rounded-full bg-slate-800 font-bold text-slate-400',
-      size, small ? 'text-[10px]' : 'text-xs'
-    )}>
-      {rank}
-    </span>
+    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'var(--surface-hover)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <span style={{ fontSize: small ? 10 : 11, fontWeight: 700, color: 'var(--text-tertiary)' }}>{rank}</span>
+    </div>
   )
 }
 
-function Avatar({ entry, small = false }: { entry: LeaderboardEntry; small?: boolean }) {
-  const size = small ? 'w-7 h-7 text-xs' : 'w-9 h-9 text-sm'
+function AvatarBubble({ entry, small = false }: { entry: LeaderboardEntry; small?: boolean }) {
+  const size = small ? 28 : 36
   return entry.avatar_url ? (
     <img
       src={entry.avatar_url}
       alt=""
       referrerPolicy="no-referrer"
-      className={cn('rounded-full object-cover flex-shrink-0', size)}
+      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
     />
   ) : (
-    <div className={cn('rounded-full bg-indigo-900/60 flex items-center justify-center flex-shrink-0', size)}>
-      <span className="text-indigo-300 font-bold">{entry.full_name?.[0]}</span>
+    <div style={{ width: size, height: size, borderRadius: '50%', background: 'var(--primary-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <span style={{ fontSize: small ? 11 : 13, fontWeight: 700, color: 'var(--primary)' }}>{entry.full_name?.[0] ?? '?'}</span>
     </div>
   )
 }
 
 function Podium({ top3 }: { top3: LeaderboardEntry[] }) {
-  const sorted = [...top3].sort((a, b) => a.rank - b.rank)
-  const order = [sorted[1], sorted[0], sorted[2]] // 2nd, 1st, 3rd
-  const heights = ['h-20', 'h-28', 'h-16']
-  const bgColors = [
-    'bg-gradient-to-t from-slate-600 to-slate-500',
-    'bg-gradient-to-t from-yellow-600 to-yellow-400',
-    'bg-gradient-to-t from-amber-800 to-amber-600',
+  const sorted = top3.slice(0, 3).sort((a, b) => a.rank - b.rank)
+  const order = sorted.length >= 2
+    ? [sorted[1], sorted[0], sorted.length >= 3 ? sorted[2] : null].filter(Boolean) as LeaderboardEntry[]
+    : sorted
+  const heights = [80, 110, 64]
+  const rankColors = [
+    { bg: 'linear-gradient(to top,#94a3b8,#cbd5e1)', text: '#475569' },
+    { bg: 'linear-gradient(to top,#f59e0b,#fcd34d)', text: '#92400e' },
+    { bg: 'linear-gradient(to top,#d97706,#fbbf24)', text: '#78350f' },
   ]
-  const ringColors = ['ring-slate-400', 'ring-yellow-400', 'ring-amber-600']
+  const rankLabel = [2, 1, 3]
 
   return (
-    <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-      <div className="flex items-end justify-center gap-3">
+    <div className="card" style={{ padding: '24px 20px 0', marginBottom: 20, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 12 }}>
         {order.map((entry, i) => (
-          <div key={entry.user_id} className="flex flex-col items-center gap-2 flex-1 max-w-[120px]">
-            <div className={cn('rounded-full ring-2 p-0.5', ringColors[i])}>
-              <Avatar entry={entry} />
-            </div>
-            <p className="text-xs text-white font-medium text-center max-w-[90px] truncate">
+          <div key={entry.user_id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flex: 1, maxWidth: 140 }}>
+            <AvatarBubble entry={entry} />
+            <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', textAlign: 'center', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: '0 0 1px' }}>
               {entry.full_name}
             </p>
-            <p className="text-[11px] text-amber-400 font-bold">
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', margin: 0 }}>
               {entry.total_xp.toLocaleString()} XP
             </p>
-            <div className={cn(
-              'w-full rounded-t-xl flex items-center justify-center',
-              heights[i], bgColors[i]
-            )}>
-              <span className="text-white font-bold text-lg drop-shadow">{entry.rank}</span>
+            <div style={{
+              width: '100%', borderRadius: '10px 10px 0 0',
+              height: heights[i], background: rankColors[i].bg,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <span style={{ fontSize: 22, fontWeight: 900, color: rankColors[i].text }}>{rankLabel[i]}</span>
             </div>
           </div>
         ))}

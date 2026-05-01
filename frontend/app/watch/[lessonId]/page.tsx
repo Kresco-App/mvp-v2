@@ -426,7 +426,9 @@ export default function WatchPage() {
             <span>{chapterInfo.subject_title}</span>
           </Link>
           <ChevronRight size={14} className="text-slate-300" />
-          <span className="text-slate-500 text-sm">{chapterInfo.title}</span>
+          <Link href={`/home/${chapterInfo.subject_id}`} className="text-slate-500 hover:text-slate-300 text-sm transition-colors">
+            {chapterInfo.title}
+          </Link>
           <ChevronRight size={14} className="text-slate-300" />
           <div className="flex items-center gap-2">
             {getTopBarIcon()}

@@ -6,11 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "=== Kresco E-Learning Platform ==="
 echo ""
 
-# Start Django backend
-echo "Starting Django backend on http://localhost:8000 ..."
+# Start FastAPI backend
+echo "Starting FastAPI backend on http://localhost:8000 ..."
 cd "$SCRIPT_DIR/backend"
-venv/bin/python manage.py migrate --run-syncdb 2>/dev/null || true
-venv/bin/python manage.py runserver 0.0.0.0:8000 &
+venv/bin/uvicorn handler:_app --host 0.0.0.0 --port 8000 --reload &
 BACKEND_PID=$!
 
 echo "Backend PID: $BACKEND_PID"

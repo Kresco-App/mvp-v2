@@ -1,4 +1,4 @@
-name: Deploy Django to AWS Lambda
+name: Deploy FastAPI to AWS Lambda
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -20,7 +20,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-north-1
 
-      - name: Install Dependencies & Deploy
+      - name: Install Dependencies
         run: |
           cd backend
           python -m venv venv
@@ -36,6 +36,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install zappa
-          
-          # Deploy or update existing deployment using the venv python
+
+      - name: Run Alembic Migrations
+        run: |
+          cd backend
+          source venv/bin/activate
+          DATABASE_URL="${{ secrets.DATABASE_URL }}" alembic upgrade head
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy to Lambda
+        run: |
+          cd backend
+          source venv/bin/activate
           zappa deploy production || zappa update production
