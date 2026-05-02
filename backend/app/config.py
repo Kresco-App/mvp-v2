@@ -30,7 +30,7 @@ class Settings(BaseSettings):
         import os
         return bool(os.environ.get("LAMBDA_TASK_ROOT"))
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
 
 
 @lru_cache

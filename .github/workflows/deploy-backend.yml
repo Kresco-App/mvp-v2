@@ -49,7 +49,7 @@ jobs:
                       "JWT_SECRET_KEY": os.environ.get("JWT_SECRET_KEY", ""),
                       "JWT_ALGORITHM": os.environ.get("JWT_ALGORITHM", ""),
                       "JWT_EXPIRE_MINUTES": os.environ.get("JWT_EXPIRE_MINUTES", ""),
-                      "DEBUG": os.environ.get("DEBUG", "false"),
+                      "DEBUG": os.environ.get("DEBUG") or "false",
                       "GOOGLE_CLIENT_ID": os.environ.get("GOOGLE_CLIENT_ID", ""),
                       "VDOCIPHER_API_SECRET": os.environ.get("VDOCIPHER_API_SECRET", ""),
                       "CORS_ALLOWED_ORIGINS": os.environ.get("CORS_ALLOWED_ORIGINS", ""),

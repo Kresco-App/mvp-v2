@@ -1,0 +1,12 @@
+.env
+.env.*
+*.pyc
+__pycache__
+.git
+.gitignore
+venv
+.venv
+*.sqlite3
+alembic/
+seed_mock_data.py
+dev.sqlite3
