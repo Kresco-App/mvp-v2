@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
@@ -137,10 +137,50 @@ function SocialBtn({
   )
 }
 
+/* ── Google overlay button ──────────────────────────────────────────────────
+   Shows our custom-styled button visually, but places the real Google iframe
+   on top (opacity 0.01). The user's click lands on the iframe naturally — no
+   programmatic click needed, so popup blockers can't interfere.
+   The overlay div ref is a callback ref so renderButton is called every time
+   the div mounts (i.e. when the auth mode changes and the div remounts).
+*/
+function GoogleOverlayBtn({
+  loading,
+  overlayRef,
+}: {
+  loading: boolean
+  overlayRef: (node: HTMLDivElement | null) => void
+}) {
+  return (
+    <div style={{ position: 'relative', flex: 1, height: 44 }} title="Continuer avec Google">
+      {/* shadow layer */}
+      <div style={{ position: 'absolute', inset: 0, borderRadius: 14, background: '#f4f4f5' }} />
+      {/* base layer (visible icon) */}
+      <div style={{
+        position: 'absolute', inset: 0, borderRadius: 14,
+        background: '#ffffff', border: '1px solid #e4e4e7',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        pointerEvents: 'none', opacity: loading ? 0.45 : 1,
+      }}>
+        <GoogleIcon />
+      </div>
+      {/* Real Google GSI iframe — transparent overlay, receives user clicks */}
+      <div
+        ref={overlayRef}
+        style={{
+          position: 'absolute', inset: 0,
+          opacity: 0.01, overflow: 'hidden', borderRadius: 14,
+          pointerEvents: loading ? 'none' : 'auto',
+        }}
+      />
+    </div>
+  )
+}
+
 export default function AuthPage() {
   const router = useRouter()
   const { login, token, hydrate, isHydrated, user, updateUser } = useAuthStore()
-  const hiddenGoogleRef = useRef<HTMLDivElement>(null)
+  const googleOverlayDivRef = useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState<Step>('auth')
   const [authMode, setAuthMode] = useState<AuthMode>('options')
@@ -151,7 +191,23 @@ export default function AuthPage() {
   const [fullName, setFullName] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [pendingEmail, setPendingEmail] = useState('')
-  const [googleReady, setGoogleReady] = useState(false)
+  // Called whenever a Google overlay div mounts/unmounts.
+  // Re-renders the GSI button into whichever overlay div is currently in the DOM.
+  const googleOverlayCallback = useCallback((node: HTMLDivElement | null) => {
+    googleOverlayDivRef.current = node
+    if (node && window.google?.accounts?.id) {
+      setTimeout(() => {
+        if (node.isConnected && window.google?.accounts?.id) {
+          try {
+            window.google.accounts.id.renderButton(node, {
+              size: 'large',
+              width: Math.max(node.offsetWidth, 80),
+            })
+          } catch {}
+        }
+      }, 0)
+    }
+  }, [])
 
   useEffect(() => { hydrate() }, [hydrate])
 
@@ -188,12 +244,14 @@ export default function AuthPage() {
         callback: window.handleGoogleCredential,
         ux_mode: 'popup',
       })
-      if (hiddenGoogleRef.current) {
-        window.google.accounts.id.renderButton(hiddenGoogleRef.current, {
-          size: 'large', width: 240, text: 'continue_with',
-        })
+      if (googleOverlayDivRef.current) {
+        try {
+          window.google.accounts.id.renderButton(googleOverlayDivRef.current, {
+            size: 'large',
+            width: Math.max(googleOverlayDivRef.current.offsetWidth, 80),
+          })
+        } catch {}
       }
-      setGoogleReady(true)
     }
 
     if (window.google?.accounts?.id) {
@@ -204,22 +262,11 @@ export default function AuthPage() {
     const script = document.createElement('script')
     script.src = 'https://accounts.google.com/gsi/client'
     script.async = true
-    script.onload = () => { try { initGSI() } catch (e) { console.error('[Kresco] GSI init failed:', e); setGoogleReady(true) } }
-    script.onerror = () => setGoogleReady(true)
+    script.onload = () => { try { initGSI() } catch (e) { console.error('[Kresco] GSI init failed:', e) } }
+    script.onerror = () => console.error('[Kresco] GSI script failed to load')
     document.head.appendChild(script)
     return () => { try { document.head.removeChild(script) } catch {} }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function triggerGoogle() {
-    // Click the real rendered GSI button (triggers OAuth popup, works on any origin)
-    const btn = hiddenGoogleRef.current?.querySelector('div[role="button"]') as HTMLElement | null
-    if (btn) {
-      btn.click()
-    } else {
-      // Fallback: One Tap prompt (requires origin registered in Google Cloud Console)
-      window.google?.accounts?.id?.prompt()
-    }
-  }
 
   function resetForm() {
     setEmail(''); setPassword(''); setFullName(''); setShowPassword(false)
@@ -307,8 +354,6 @@ export default function AuthPage() {
 
   return (
     <div style={pageStyle}>
-      {/* Hidden GSI button — renderButton renders here, triggerGoogle clicks it */}
-      <div ref={hiddenGoogleRef} style={{ position: 'absolute', left: -9999, top: -9999, width: 240, overflow: 'hidden', opacity: 0, pointerEvents: 'auto', zIndex: -1 }} />
 
       <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
@@ -346,7 +391,7 @@ export default function AuthPage() {
 
                 {/* Figma 3 social buttons */}
                 <div style={{ width: '100%', display: 'flex', gap: 11, marginBottom: 4 }}>
-                  <SocialBtn icon={<GoogleIcon />} label="Continuer avec Google" onClick={triggerGoogle} disabled={loading} />
+                  <GoogleOverlayBtn loading={loading} overlayRef={googleOverlayCallback} />
                   <SocialBtn icon={<FacebookIcon />} label="Facebook (bientôt)" disabled />
                   <SocialBtn icon={<AppleIcon />} label="Apple (bientôt)" disabled />
                 </div>
@@ -378,7 +423,7 @@ export default function AuthPage() {
 
                 {/* Social row on signup too */}
                 <div style={{ width: '100%', display: 'flex', gap: 11, marginBottom: 20 }}>
-                  <SocialBtn icon={<GoogleIcon />} label="Google" onClick={triggerGoogle} disabled={!googleReady || loading} />
+                  <GoogleOverlayBtn loading={loading} overlayRef={googleOverlayCallback} />
                   <SocialBtn icon={<FacebookIcon />} label="Facebook" disabled />
                   <SocialBtn icon={<AppleIcon />} label="Apple" disabled />
                 </div>
@@ -458,7 +503,7 @@ export default function AuthPage() {
 
                 {/* Social row on login too */}
                 <div style={{ width: '100%', display: 'flex', gap: 11, marginBottom: 20 }}>
-                  <SocialBtn icon={<GoogleIcon />} label="Google" onClick={triggerGoogle} disabled={!googleReady || loading} />
+                  <GoogleOverlayBtn loading={loading} overlayRef={googleOverlayCallback} />
                   <SocialBtn icon={<FacebookIcon />} label="Facebook" disabled />
                   <SocialBtn icon={<AppleIcon />} label="Apple" disabled />
                 </div>
