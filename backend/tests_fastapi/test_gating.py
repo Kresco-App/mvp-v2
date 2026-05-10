@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.database import get_session_factory
-from app.models.courses import Chapter, Lesson, Subject, Topic, TopicItem, TopicSection
+from app.models.courses import Chapter, Exam, ExamProblem, Lesson, Subject, Topic, TopicItem, TopicSection
 from app.models.users import UserSubjectEntitlement
 
 
@@ -154,3 +154,79 @@ def test_topic_workspace_requires_matching_subject_entitlement(app_client, auth_
     locked_workspace = app_client.get(f"/api/courses/topics/{locked_topic_id}/workspace", headers={"Authorization": f"Bearer {token}"})
     assert locked_workspace.status_code == 403
     assert locked_workspace.json()["detail"] == "subject_access_required"
+
+
+def test_exam_bank_reports_access_policy_and_searches_exam_metadata(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-bank-policy@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            allowed_subject = Subject(title="Philosophy", description="", is_published=True, order=1)
+            locked_subject = Subject(title="English", description="", is_published=True, order=2)
+            db.add_all([allowed_subject, locked_subject])
+            await db.flush()
+
+            allowed_exam = Exam(
+                subject_id=allowed_subject.id,
+                title="National Bac Philosophy",
+                year=2024,
+                session="Normal",
+                status="published",
+            )
+            locked_exam = Exam(
+                subject_id=locked_subject.id,
+                title="National Bac English",
+                year=2025,
+                session="Rattrapage",
+                status="published",
+            )
+            db.add_all([allowed_exam, locked_exam])
+            await db.flush()
+
+            db.add_all([
+                ExamProblem(
+                    exam_id=allowed_exam.id,
+                    title="Argument analysis",
+                    statement="Analyze a philosophical argument.",
+                    difficulty="bac",
+                    concept_slugs=["argumentation"],
+                    status="published",
+                ),
+                ExamProblem(
+                    exam_id=locked_exam.id,
+                    title="Reading comprehension",
+                    statement="Read and answer.",
+                    difficulty="bac",
+                    concept_slugs=["reading"],
+                    status="published",
+                    required_feature_key="exam_bank_video_solutions",
+                ),
+                UserSubjectEntitlement(
+                    user_id=user_id,
+                    subject_id=allowed_subject.id,
+                    starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                    source="test",
+                    status="active",
+                ),
+            ])
+            await db.commit()
+            return allowed_exam.id, locked_exam.id
+
+    allowed_exam_id, locked_exam_id = run_db(_seed())
+
+    response = app_client.get("/api/courses/exam-bank?q=2025", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    by_id = {item["id"]: item for item in response.json()}
+    assert locked_exam_id in by_id
+    assert by_id[locked_exam_id]["can_access"] is False
+    assert by_id[locked_exam_id]["locked_reason"] == "subject_access_required"
+    assert by_id[locked_exam_id]["problems"][0]["can_access"] is False
+    assert by_id[locked_exam_id]["problems"][0]["locked_reason"] == "subject_access_required"
+    assert allowed_exam_id not in by_id
+
+    subject_response = app_client.get("/api/courses/exam-bank?q=philosophy", headers={"Authorization": f"Bearer {token}"})
+    assert subject_response.status_code == 200
+    subject_results = {item["id"]: item for item in subject_response.json()}
+    assert allowed_exam_id in subject_results
+    assert subject_results[allowed_exam_id]["can_access"] is True

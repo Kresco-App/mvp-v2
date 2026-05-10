@@ -542,10 +542,23 @@ async def get_exam_bank(
             problems = [p for p in problems if p.topic_id == topic_id]
         if q:
             q_lower = q.lower()
-            problems = [p for p in problems if q_lower in (p.title + " " + p.statement + " " + " ".join(p.concept_slugs or [])).lower()]
+            exam_text = f"{exam.title} {exam.subject.title if exam.subject else ''} {exam.year} {exam.session}".lower()
+            if q_lower not in exam_text:
+                problems = [p for p in problems if q_lower in (p.title + " " + p.statement + " " + p.difficulty + " " + " ".join(p.concept_slugs or [])).lower()]
         if topic_id or q:
             if not problems:
                 continue
+        exam_can_access, exam_locked_reason = await _access_state(exam, user, db, exam.subject_id)
+        problem_out = []
+        for problem in problems:
+            if exam_can_access:
+                can_access, locked_reason = await _access_state(problem, user, db, exam.subject_id)
+            else:
+                can_access, locked_reason = False, exam_locked_reason
+            item = ExamProblemOut.model_validate(problem)
+            item.can_access = can_access
+            item.locked_reason = "" if can_access else locked_reason
+            problem_out.append(item)
         out.append(ExamOut(
             id=exam.id,
             subject_id=exam.subject_id,
@@ -554,7 +567,9 @@ async def get_exam_bank(
             year=exam.year,
             session=exam.session,
             statement_url=exam.statement_url,
-            problems=[ExamProblemOut.model_validate(problem) for problem in problems],
+            can_access=exam_can_access,
+            locked_reason="" if exam_can_access else exam_locked_reason,
+            problems=problem_out,
         ))
     return out
 

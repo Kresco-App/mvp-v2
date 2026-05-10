@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import { BookOpen, CalendarDays, CheckCircle2, FileText, Play, Search, Trophy } from 'lucide-react'
+import { BookOpen, CalendarDays, CheckCircle2, FileText, Lock, Play, Search, Trophy } from 'lucide-react'
 import api from '@/lib/axios'
 import { SkeletonBlock } from '@/components/figma'
 
@@ -17,6 +17,8 @@ interface ExamProblem {
   difficulty: string
   concept_slugs: string[]
   video_resource?: { id: number; title: string; provider: string; provider_resource_id: string } | null
+  can_access?: boolean
+  locked_reason?: string
 }
 
 interface Exam {
@@ -27,6 +29,8 @@ interface Exam {
   year: number
   session: string
   statement_url: string
+  can_access?: boolean
+  locked_reason?: string
   problems: ExamProblem[]
 }
 
@@ -114,11 +118,19 @@ export default function ExamBankPage() {
                   </div>
                   <h2 className="m-0 text-lg font-black text-[#3f3f46]">{exam.title}</h2>
                 </div>
-                <span className="rounded-2xl bg-[#eaf8ff] px-4 py-2 text-xs font-black text-[#1292cf]">{exam.problems.length} problem(s)</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {exam.can_access === false && (
+                    <span className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#f4f4f5] px-3 text-xs font-black text-[#71717b]">
+                      <Lock size={14} />
+                      Locked
+                    </span>
+                  )}
+                  <span className="rounded-2xl bg-[#eaf8ff] px-4 py-2 text-xs font-black text-[#1292cf]">{exam.problems.length} problem(s)</span>
+                </div>
               </div>
               <div className="grid gap-4 p-5 lg:grid-cols-2">
                 {exam.problems.map((problem) => (
-                  <article key={problem.id} className="rounded-2xl border border-[#e4e4e7] bg-[#fbfcff] p-5">
+                  <article key={problem.id} className={`rounded-2xl border border-[#e4e4e7] bg-[#fbfcff] p-5 ${problem.can_access === false ? 'opacity-85' : ''}`}>
                     <div className="mb-4 flex items-start justify-between gap-3">
                       <div>
                         <h3 className="m-0 text-base font-black text-[#3f3f46]">{problem.title}</h3>
@@ -132,11 +144,17 @@ export default function ExamBankPage() {
                       ))}
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {problem.topic_id && (
+                      {problem.topic_id && problem.can_access !== false && (
                         <Link href={`/topics/${problem.topic_id}`} className="figma-button">
                           <Play size={14} />
                           Open topic
                         </Link>
+                      )}
+                      {problem.can_access === false && (
+                        <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-[#f4f4f5] px-4 text-xs font-black text-[#71717b]">
+                          <Lock size={14} />
+                          {lockedExamReason(problem.locked_reason)}
+                        </span>
                       )}
                       <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-white px-4 text-xs font-black text-[#71717b]">
                         <FileText size={14} />
@@ -158,4 +176,11 @@ export default function ExamBankPage() {
       )}
     </div>
   )
+}
+
+function lockedExamReason(reason?: string) {
+  if (reason === 'pro_required') return 'Pro required'
+  if (reason === 'subject_access_required') return 'Subject locked'
+  if (reason?.startsWith('feature_required:')) return 'Feature locked'
+  return 'Locked'
 }

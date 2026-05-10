@@ -282,6 +282,8 @@ class ExamProblemOut(BaseModel):
     difficulty: str
     concept_slugs: list[str] = []
     video_resource: Optional[ResourceOut] = None
+    can_access: bool = True
+    locked_reason: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -294,6 +296,8 @@ class ExamOut(BaseModel):
     year: int
     session: str
     statement_url: str
+    can_access: bool = True
+    locked_reason: str = ""
     problems: list[ExamProblemOut] = []
 
     model_config = {"from_attributes": True}

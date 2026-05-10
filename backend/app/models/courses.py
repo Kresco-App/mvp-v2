@@ -262,6 +262,9 @@ class Exam(Base):
     session: Mapped[str] = mapped_column(String(120), default="National")
     statement_url: Mapped[str] = mapped_column(String(500), default="")
     status: Mapped[str] = mapped_column(String(30), default="published")
+    required_tier: Mapped[str] = mapped_column(String(40), default="")
+    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
+    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
 
     subject: Mapped["Subject"] = relationship("Subject")
     problems: Mapped[list["ExamProblem"]] = relationship("ExamProblem", back_populates="exam", order_by="ExamProblem.order")
@@ -281,6 +284,9 @@ class ExamProblem(Base):
     order: Mapped[int] = mapped_column(Integer, default=0)
     difficulty: Mapped[str] = mapped_column(String(40), default="bac")
     status: Mapped[str] = mapped_column(String(30), default="published")
+    required_tier: Mapped[str] = mapped_column(String(40), default="")
+    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
+    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
     concept_slugs: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     exam: Mapped["Exam"] = relationship("Exam", back_populates="problems")
