@@ -89,6 +89,66 @@ def test_topic_cards_report_pro_access_state(app_client, auth_token, run_db):
     assert workspace.json()["detail"] == "pro_required"
 
 
+def test_free_preview_topic_marks_locked_items(app_client, auth_token, run_db):
+    token, _ = auth_token(email="free-preview-items@example.com", is_pro=False)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Math", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+
+            topic = Topic(
+                subject_id=subject.id,
+                slug="free-preview-item-locks",
+                title="Free Preview Topic",
+                description="Topic opens but paid items stay locked.",
+                status="published",
+                is_free_preview=True,
+            )
+            db.add(topic)
+            await db.flush()
+
+            section = TopicSection(topic_id=topic.id, title="Lessons", section_type="lessons", order=1)
+            db.add(section)
+            await db.flush()
+
+            free_item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Intro preview",
+                item_type="video",
+                status="published",
+                is_free_preview=True,
+                order=1,
+            )
+            paid_item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Paid lesson",
+                item_type="video",
+                status="published",
+                required_tier="pro",
+                order=2,
+            )
+            db.add_all([free_item, paid_item])
+            await db.commit()
+            return topic.id, free_item.id, paid_item.id
+
+    topic_id, free_item_id, paid_item_id = run_db(_seed())
+    response = app_client.get(f"/api/courses/topics/{topic_id}/workspace", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["active_item_id"] == free_item_id
+    items = {item["id"]: item for section in body["sections"] for item in section["items"]}
+    assert items[free_item_id]["can_access"] is True
+    assert items[paid_item_id]["can_access"] is False
+    assert items[paid_item_id]["locked_reason"] == "pro_required"
+    assert body["item_count"] == 1
+
+
 def test_topic_workspace_requires_matching_subject_entitlement(app_client, auth_token, run_db):
     token, user_id = auth_token(email="subject-entitlement@example.com", is_pro=True)
 

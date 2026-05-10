@@ -1,7 +1,7 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, Lock } from 'lucide-react'
 import { figmaChapterItems, figmaLessonItems } from './data'
 import { FigmaProgressBar } from './progress'
 import type { FigmaRailItem, FigmaRailSection } from './types'
@@ -187,32 +187,34 @@ function RailItemRow({
   size?: 'compact' | 'workspace'
 }) {
   const isActive = Boolean(item.active || item.completed)
+  const isLocked = Boolean(item.disabled)
   const isWorkspace = size === 'workspace'
 
   return (
     <button
       className={`flex w-full items-center border-0 bg-transparent p-0 text-left ${
         isWorkspace ? 'gap-[20px]' : 'gap-[8px]'
-      } ${item.disabled ? 'cursor-default opacity-55' : 'cursor-pointer hover:translate-x-0.5'} transition-transform duration-150`}
+      } ${isLocked ? 'cursor-default opacity-60' : 'cursor-pointer hover:translate-x-0.5'} transition-transform duration-150`}
       disabled={item.disabled}
       onClick={() => onSelect?.(item)}
       type="button"
     >
       <span
         className={`grid shrink-0 place-items-center rounded-full ${isWorkspace ? 'h-[36px] w-[36px]' : 'h-[24px] w-[24px]'} ${
-          isActive ? 'bg-[#f5900b]' : 'bg-[#e5e7eb]'
+          isActive ? 'bg-[#f5900b]' : isLocked ? 'bg-[#a1a1aa]' : 'bg-[#e5e7eb]'
         } text-white`}
       >
-        {isActive && <Check size={isWorkspace ? 24 : 16} strokeWidth={3.5} />}
+        {isActive ? <Check size={isWorkspace ? 24 : 16} strokeWidth={3.5} /> : isLocked ? <Lock size={isWorkspace ? 18 : 12} strokeWidth={3.2} /> : null}
       </span>
       <span className={`min-w-0 flex-1 ${isWorkspace ? 'py-0' : 'py-[5px]'}`}>
         <strong
           className={`block truncate leading-[1.1] ${
             isWorkspace ? 'text-[26px] font-medium tracking-normal' : 'text-[16px] font-bold tracking-[0.24px]'
-          } ${isActive ? 'text-[#f5900b]' : 'text-[#6a7282]'}`}
+          } ${isActive ? 'text-[#f5900b]' : isLocked ? 'text-[#9f9fa9]' : 'text-[#6a7282]'}`}
         >
           {item.label}
         </strong>
+        {item.meta && <span className={`mt-1 block truncate font-bold ${isWorkspace ? 'text-[15px]' : 'text-[12px]'} text-[#9f9fa9]`}>{item.meta}</span>}
       </span>
     </button>
   )

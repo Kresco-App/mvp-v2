@@ -83,9 +83,25 @@ async def _access_state(obj, user: User, db: AsyncSession, subject_id: int | Non
     return True, "unlocked"
 
 
-def _item_out(item: TopicItem, progress_by_item: dict[int, TopicItemProgress]) -> TopicItemOut:
+def _resource_out(resource: Resource, resource_access: dict[int, tuple[bool, str]] | None = None) -> ResourceOut:
+    out = ResourceOut.model_validate(resource)
+    access = resource_access.get(resource.id) if resource_access else None
+    if access:
+        can_access, locked_reason = access
+        out.can_access = can_access
+        out.locked_reason = "" if can_access else locked_reason
+    return out
+
+
+def _item_out(
+    item: TopicItem,
+    progress_by_item: dict[int, TopicItemProgress],
+    item_access: dict[int, tuple[bool, str]] | None = None,
+    resource_access: dict[int, tuple[bool, str]] | None = None,
+) -> TopicItemOut:
     progress = progress_by_item.get(item.id)
-    return TopicItemOut(
+    can_access, locked_reason = item_access.get(item.id, (True, "")) if item_access else (True, "")
+    out = TopicItemOut(
         id=item.id,
         topic_id=item.topic_id,
         section_id=item.section_id,
@@ -98,11 +114,21 @@ def _item_out(item: TopicItem, progress_by_item: dict[int, TopicItemProgress]) -
         completion_policy=item.completion_policy,
         is_free_preview=item.is_free_preview,
         concept_slugs=item.concept_slugs or [],
-        primary_resource=ResourceOut.model_validate(item.primary_resource) if item.primary_resource else None,
+        primary_resource=_resource_out(item.primary_resource, resource_access) if item.primary_resource else None,
         tabs=[TabContentOut.model_validate(t) for t in item.tabs if t.status == "published"],
         progress_status=progress.status if progress else "not_started",
         best_score=progress.best_score if progress else None,
+        can_access=can_access,
+        locked_reason="" if can_access else locked_reason,
     )
+    for tab in out.tabs:
+        if tab.resource and resource_access:
+            access = resource_access.get(tab.resource.id)
+            if access:
+                can_access, locked_reason = access
+                tab.resource.can_access = can_access
+                tab.resource.locked_reason = "" if can_access else locked_reason
+    return out
 
 
 def _matches_item(item: TopicItem, query: str, notes_by_item: dict[int, list[str]] | None = None) -> bool:
@@ -302,14 +328,26 @@ async def get_topic_workspace(
     )
     progress_by_item = {p.topic_item_id: p for p in progress_result.scalars().all()}
 
-    active_item = next((item for item in items if item.id == item_id), None) if item_id else None
+    item_access: dict[int, tuple[bool, str]] = {}
+    for item in items:
+        item_access[item.id] = await _access_state(item, user, db, topic.subject_id)
+
+    resources = [resource for resource in topic.resources if resource.status == "published"]
+    resources.extend([item.primary_resource for item in items if item.primary_resource])
+    resources.extend([tab.resource for item in items for tab in item.tabs if tab.status == "published" and tab.resource])
+    resource_access: dict[int, tuple[bool, str]] = {}
+    for resource in {resource.id: resource for resource in resources if resource is not None}.values():
+        resource_access[resource.id] = await _access_state(resource, user, db, topic.subject_id)
+
+    accessible_items = [item for item in items if item_access.get(item.id, (True, ""))[0]]
+    active_item = next((item for item in accessible_items if item.id == item_id), None) if item_id else None
     if active_item is None:
-        started = [progress_by_item.get(item.id) for item in items if progress_by_item.get(item.id)]
+        started = [progress_by_item.get(item.id) for item in accessible_items if progress_by_item.get(item.id)]
         started = sorted(started, key=lambda p: p.updated_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         if started:
-            active_item = next((item for item in items if item.id == started[0].topic_item_id), None)
+            active_item = next((item for item in accessible_items if item.id == started[0].topic_item_id), None)
     if active_item is None:
-        active_item = next((item for item in items if progress_by_item.get(item.id, None) is None), None) or (items[0] if items else None)
+        active_item = next((item for item in accessible_items if progress_by_item.get(item.id, None) is None), None) or (accessible_items[0] if accessible_items else (items[0] if items else None))
 
     sections = [
         TopicSectionOut(
@@ -317,12 +355,12 @@ async def get_topic_workspace(
             title=section.title,
             section_type=section.section_type,
             order=section.order,
-            items=[_item_out(item, progress_by_item) for item in section.items if item.status == "published"],
+            items=[_item_out(item, progress_by_item, item_access, resource_access) for item in section.items if item.status == "published"],
         )
         for section in topic.sections
     ]
-    completed_count = len([item for item in items if progress_by_item.get(item.id) and progress_by_item[item.id].status == "completed"])
-    progress_pct = round((completed_count / len(items)) * 100) if items else 0
+    completed_count = len([item for item in accessible_items if progress_by_item.get(item.id) and progress_by_item[item.id].status == "completed"])
+    progress_pct = round((completed_count / len(accessible_items)) * 100) if accessible_items else 0
 
     notes_result = await db.execute(
         select(UserNote)
@@ -347,10 +385,10 @@ async def get_topic_workspace(
     study_tools = StudyToolsOut(
         quizzes=[TabContentOut.model_validate(tab) for tab in all_tabs if tab.tab_type == "quiz"],
         interactive=[TabContentOut.model_validate(tab) for tab in all_tabs if tab.tab_type in {"lab", "interactive"}],
-        resources=[ResourceOut.model_validate(resource) for resource in topic.resources if resource.status == "published"],
+        resources=[_resource_out(resource, resource_access) for resource in topic.resources if resource.status == "published"],
         notes=notes,
     )
-    search_results = [_item_out(item, progress_by_item) for item in items if q and _matches_item(item, q, notes_by_item)]
+    search_results = [_item_out(item, progress_by_item, item_access, resource_access) for item in items if q and _matches_item(item, q, notes_by_item)]
 
     return TopicWorkspaceOut(
         id=topic.id,
@@ -361,10 +399,10 @@ async def get_topic_workspace(
         description=topic.description,
         progress_pct=progress_pct,
         completed_count=completed_count,
-        item_count=len(items),
+        item_count=len(accessible_items),
         active_item_id=active_item.id if active_item else None,
         sections=sections,
-        active_item=_item_out(active_item, progress_by_item) if active_item else None,
+        active_item=_item_out(active_item, progress_by_item, item_access, resource_access) if active_item else None,
         study_tools=study_tools,
         search_results=search_results,
     )

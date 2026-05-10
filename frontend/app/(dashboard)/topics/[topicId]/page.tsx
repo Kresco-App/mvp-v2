@@ -29,6 +29,8 @@ interface Resource {
   provider_resource_id: string
   url: string
   summary: string
+  can_access?: boolean
+  locked_reason?: string
 }
 
 interface TabContent {
@@ -52,6 +54,8 @@ interface TopicItem {
   renderer_key: string
   duration_seconds: number
   progress_status: string
+  can_access?: boolean
+  locked_reason?: string
   primary_resource?: Resource | null
   tabs: TabContent[]
 }
@@ -174,8 +178,17 @@ function buildRailSections(workspace: TopicWorkspace, activeItemId: number | nul
       label: railLabel(section, item, index),
       active: item.id === activeItemId,
       completed: item.progress_status === 'completed',
+      disabled: item.can_access === false,
+      meta: item.can_access === false ? lockedContentReason(item.locked_reason) : undefined,
     })),
   }))
+}
+
+function lockedContentReason(reason?: string) {
+  if (reason === 'pro_required') return 'Pro required'
+  if (reason === 'subject_access_required') return 'Subject locked'
+  if (reason?.startsWith('feature_required:')) return 'Feature locked'
+  return 'Locked'
 }
 
 function tabMatchesSlot(tab: TabContent, slot: WorkspaceTabSlot) {
@@ -804,6 +817,10 @@ export default function TopicWorkspacePage() {
   const activeVideoId = activeItem ? youtubeVideoId(activeItem) : 'dQw4w9WgXcQ'
 
   async function selectItem(item: TopicItem) {
+    if (item.can_access === false) {
+      toast.info(lockedContentReason(item.locked_reason))
+      return
+    }
     setActiveItemId(item.id)
     setActiveTabSlot('course')
     setOpenSectionIds((prev) => new Set(prev).add(item.section_id))
@@ -831,6 +848,10 @@ export default function TopicWorkspacePage() {
     if (!workspace) return
     const item = workspace.sections.flatMap((section) => section.items).find((candidate) => candidate.id === itemId)
     if (!item) return
+    if (item.can_access === false) {
+      toast.info(lockedContentReason(item.locked_reason))
+      return
+    }
     setActiveItemId(item.id)
     setActiveTabSlot(slot)
     setOpenSectionIds((prev) => new Set(prev).add(item.section_id))

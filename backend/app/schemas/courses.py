@@ -152,6 +152,8 @@ class ResourceOut(BaseModel):
     is_free_preview: bool = False
     required_tier: str = ""
     required_feature_key: str = ""
+    can_access: bool = True
+    locked_reason: str = ""
 
     model_config = {"from_attributes": True}
 
@@ -188,6 +190,8 @@ class TopicItemOut(BaseModel):
     tabs: list[TabContentOut] = []
     progress_status: str = "not_started"
     best_score: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
 
     model_config = {"from_attributes": True}
 
