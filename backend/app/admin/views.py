@@ -13,7 +13,7 @@ from app.models.gamification import (
 from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
 from app.models.quizzes import Quiz, QuizOption, QuizQuestion
-from app.models.users import User
+from app.models.users import User, UserSubjectEntitlement
 
 
 class UserAdmin(ModelView, model=User):
@@ -24,7 +24,26 @@ class UserAdmin(ModelView, model=User):
     column_searchable_list = [User.email, User.full_name]
     column_sortable_list = [User.created_at, User.is_pro, User.role]
     form_excluded_columns = ["password", "last_login", "lesson_progress", "content_progress",
-                             "xp", "xp_transactions", "quiz_results", "daily_quests", "comments", "notifications"]
+                             "xp", "xp_transactions", "quiz_results", "daily_quests", "comments", "notifications",
+                             "subject_entitlements"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class UserSubjectEntitlementAdmin(ModelView, model=UserSubjectEntitlement):
+    name = "Subject Entitlement"
+    name_plural = "Subject Entitlements"
+    icon = "fa-solid fa-key"
+    column_list = [
+        UserSubjectEntitlement.id, UserSubjectEntitlement.user_id,
+        UserSubjectEntitlement.subject_id, UserSubjectEntitlement.status,
+        UserSubjectEntitlement.source, UserSubjectEntitlement.starts_at,
+        UserSubjectEntitlement.ends_at,
+    ]
+    column_sortable_list = [UserSubjectEntitlement.starts_at, UserSubjectEntitlement.ends_at]
+    form_excluded_columns = ["user"]
     can_create = True
     can_edit = True
     can_delete = True
@@ -268,7 +287,10 @@ class TopicAdmin(ModelView, model=Topic):
     name = "Topic"
     name_plural = "Topics"
     icon = "fa-solid fa-diagram-project"
-    column_list = [Topic.id, Topic.title, Topic.subject_id, Topic.status, Topic.order, Topic.is_free_preview]
+    column_list = [
+        Topic.id, Topic.title, Topic.subject_id, Topic.status, Topic.order,
+        Topic.is_free_preview, Topic.required_tier, Topic.required_feature_key,
+    ]
     column_searchable_list = [Topic.title, Topic.slug]
     column_sortable_list = [Topic.order, Topic.created_at]
     form_excluded_columns = ["subject", "sections", "resources"]
@@ -294,7 +316,11 @@ class TopicItemAdmin(ModelView, model=TopicItem):
     name = "Topic Item"
     name_plural = "Topic Items"
     icon = "fa-solid fa-play"
-    column_list = [TopicItem.id, TopicItem.topic_id, TopicItem.section_id, TopicItem.title, TopicItem.item_type, TopicItem.status, TopicItem.order]
+    column_list = [
+        TopicItem.id, TopicItem.topic_id, TopicItem.section_id, TopicItem.title,
+        TopicItem.item_type, TopicItem.status, TopicItem.order,
+        TopicItem.is_free_preview, TopicItem.required_tier, TopicItem.required_feature_key,
+    ]
     column_searchable_list = [TopicItem.title]
     form_excluded_columns = ["topic", "section", "primary_resource", "tabs"]
     can_create = True
@@ -307,7 +333,11 @@ class ResourceAdmin(ModelView, model=Resource):
     name = "Resource"
     name_plural = "Resources"
     icon = "fa-solid fa-folder-open"
-    column_list = [Resource.id, Resource.topic_id, Resource.title, Resource.resource_type, Resource.provider, Resource.status]
+    column_list = [
+        Resource.id, Resource.topic_id, Resource.title, Resource.resource_type,
+        Resource.provider, Resource.status, Resource.is_free_preview,
+        Resource.required_tier, Resource.required_feature_key,
+    ]
     column_searchable_list = [Resource.title]
     form_excluded_columns = ["topic"]
     can_create = True
@@ -320,7 +350,11 @@ class TabContentAdmin(ModelView, model=TabContent):
     name = "Tab Content"
     name_plural = "Tab Contents"
     icon = "fa-solid fa-table-columns"
-    column_list = [TabContent.id, TabContent.topic_item_id, TabContent.label, TabContent.tab_type, TabContent.status, TabContent.order]
+    column_list = [
+        TabContent.id, TabContent.topic_item_id, TabContent.label, TabContent.tab_type,
+        TabContent.status, TabContent.order, TabContent.required_tier,
+        TabContent.required_feature_key,
+    ]
     form_excluded_columns = ["topic_item", "resource"]
     can_create = True
     can_edit = True
@@ -344,7 +378,10 @@ class ExamAdmin(ModelView, model=Exam):
     name = "Exam"
     name_plural = "Exams"
     icon = "fa-solid fa-file-lines"
-    column_list = [Exam.id, Exam.subject_id, Exam.title, Exam.year, Exam.session, Exam.status]
+    column_list = [
+        Exam.id, Exam.subject_id, Exam.title, Exam.year, Exam.session,
+        Exam.status, Exam.is_free_preview, Exam.required_tier, Exam.required_feature_key,
+    ]
     form_excluded_columns = ["subject", "problems"]
     can_create = True
     can_edit = True
@@ -356,7 +393,11 @@ class ExamProblemAdmin(ModelView, model=ExamProblem):
     name = "Exam Problem"
     name_plural = "Exam Problems"
     icon = "fa-solid fa-clipboard-question"
-    column_list = [ExamProblem.id, ExamProblem.exam_id, ExamProblem.topic_id, ExamProblem.title, ExamProblem.difficulty, ExamProblem.status]
+    column_list = [
+        ExamProblem.id, ExamProblem.exam_id, ExamProblem.topic_id, ExamProblem.title,
+        ExamProblem.difficulty, ExamProblem.status, ExamProblem.is_free_preview,
+        ExamProblem.required_tier, ExamProblem.required_feature_key,
+    ]
     column_searchable_list = [ExamProblem.title, ExamProblem.statement]
     form_excluded_columns = ["exam", "topic", "video_resource"]
     can_create = True
@@ -453,7 +494,7 @@ class NotificationAdmin(ModelView, model=Notification):
 
 
 ALL_VIEWS = [
-    UserAdmin, SubjectAdmin, ChapterAdmin, LessonAdmin, ChapterSectionAdmin,
+    UserAdmin, UserSubjectEntitlementAdmin, SubjectAdmin, ChapterAdmin, LessonAdmin, ChapterSectionAdmin,
     ChapterBlockAdmin, ActivityAdmin, CoursePDFAdmin, QuizAdmin, QuizQuestionAdmin,
     QuizOptionAdmin, LessonProgressAdmin, UserXPAdmin, XPTransactionAdmin,
     QuizResultAdmin, DailyQuestAdmin, CalendarEventAdmin, ContentProgressAdmin, VideoQuizTriggerAdmin,
