@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Integer, Boolean, DateTime, String, func
+from sqlalchemy import BigInteger, Integer, Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -46,3 +46,19 @@ class User(Base):
     daily_quests: Mapped[list["DailyQuest"]] = relationship("DailyQuest", back_populates="user")
     comments: Mapped[list["Comment"]] = relationship("Comment", back_populates="user")
     notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="user")
+    subject_entitlements: Mapped[list["UserSubjectEntitlement"]] = relationship("UserSubjectEntitlement", back_populates="user")
+
+
+class UserSubjectEntitlement(Base):
+    __tablename__ = "user_subject_entitlements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
+    starts_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[str] = mapped_column(String(60), default="manual")
+    status: Mapped[str] = mapped_column(String(30), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="subject_entitlements")

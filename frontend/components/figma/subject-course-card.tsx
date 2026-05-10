@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { KeyboardEventHandler } from 'react'
 
 export type FigmaSubjectCourseCardState = 'completed' | 'current' | 'available' | 'locked' | 'upcoming'
 
@@ -12,6 +13,7 @@ export type FigmaSubjectCourseCardProps = {
   xp?: number
   href?: string
   imageUrl?: string
+  onClick?: () => void
   state: FigmaSubjectCourseCardState
 }
 
@@ -24,6 +26,7 @@ export function FigmaSubjectCourseCard({
   progress,
   href,
   imageUrl,
+  onClick,
   state,
 }: FigmaSubjectCourseCardProps) {
   const safeProgress = Math.max(0, Math.min(100, Math.round(progress)))
@@ -109,6 +112,27 @@ export function FigmaSubjectCourseCard({
       {description && <p className="sr-only">{description}</p>}
     </article>
   )
+
+  if (onClick) {
+    const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        onClick()
+      }
+    }
+
+    return (
+      <div
+        className="block w-full max-w-[344.33px] cursor-pointer no-underline transition duration-200 hover:-translate-y-1 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20"
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={handleKeyDown}
+      >
+        {card}
+      </div>
+    )
+  }
 
   if (!href || isUnavailable) return card
 

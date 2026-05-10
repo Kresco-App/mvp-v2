@@ -13,7 +13,7 @@ from app.models.courses import (
 )
 from app.models.gamification import ActivityEvent, QuizAttempt, TopicItemProgress
 from app.models.interactions import UserNote
-from app.models.users import User
+from app.models.users import User, UserSubjectEntitlement
 from app.schemas.courses import (
     ActivityEventIn,
     ActivityOut, ChapterOut, ChapterSectionOut, CoursePDFOut,
@@ -28,13 +28,59 @@ from app.services.vdocipher import get_video_otp
 router = APIRouter(tags=["Courses"])
 
 
-def _is_unlocked(obj, user: User) -> bool:
-    if getattr(obj, "is_free_preview", False):
+def _tier_allows(required_tier: str, user: User) -> bool:
+    tier = (required_tier or "").lower()
+    if not tier:
         return True
+    if tier == "pro":
+        return user.is_pro
+    return user.is_pro
+
+
+async def _subject_scope_allows(db: AsyncSession, user: User, subject_id: int | None) -> bool:
+    if subject_id is None:
+        return True
+    now = datetime.now(timezone.utc)
+    entitlements = (
+        await db.execute(
+            select(UserSubjectEntitlement).where(
+                UserSubjectEntitlement.user_id == user.id,
+            )
+        )
+    ).scalars().all()
+    if not entitlements:
+        return True
+
+    def is_active(entitlement: UserSubjectEntitlement) -> bool:
+        if entitlement.status != "active":
+            return False
+        starts_at = entitlement.starts_at
+        ends_at = entitlement.ends_at
+        if starts_at is not None and starts_at.tzinfo is None:
+            starts_at = starts_at.replace(tzinfo=timezone.utc)
+        if ends_at is not None and ends_at.tzinfo is None:
+            ends_at = ends_at.replace(tzinfo=timezone.utc)
+        return (starts_at is None or starts_at <= now) and (ends_at is None or ends_at >= now)
+
+    return any(
+        entitlement.subject_id == subject_id
+        and is_active(entitlement)
+        for entitlement in entitlements
+    )
+
+
+async def _access_state(obj, user: User, db: AsyncSession, subject_id: int | None = None) -> tuple[bool, str]:
+    if getattr(obj, "is_free_preview", False):
+        return True, "free_preview"
+    if not await _subject_scope_allows(db, user, subject_id):
+        return False, "subject_access_required"
     required_tier = getattr(obj, "required_tier", "") or ""
-    if required_tier and required_tier.lower() == "pro" and not user.is_pro:
-        return False
-    return True
+    if not _tier_allows(required_tier, user):
+        return False, f"{required_tier.lower()}_required"
+    required_feature = getattr(obj, "required_feature_key", "") or ""
+    if required_feature and not user.is_pro:
+        return False, f"feature_required:{required_feature}"
+    return True, "unlocked"
 
 
 def _item_out(item: TopicItem, progress_by_item: dict[int, TopicItemProgress]) -> TopicItemOut:
@@ -186,6 +232,7 @@ async def list_topics(
         concepts = sorted({slug for item in items for slug in (item.concept_slugs or [])})
         completed = len([item for item in items if item.id in progress_by_item])
         progress_pct = round((completed / len(items)) * 100) if items else 0
+        can_access, locked_reason = await _access_state(topic, user, db, topic.subject_id)
         cards.append(TopicCardOut(
             id=topic.id,
             subject_id=topic.subject_id,
@@ -198,6 +245,8 @@ async def list_topics(
             completed_count=completed,
             progress_pct=progress_pct,
             concepts=concepts[:8],
+            can_access=can_access,
+            locked_reason="" if can_access else locked_reason,
         ))
     return cards
 
@@ -237,8 +286,9 @@ async def get_topic_workspace(
     topic = result.scalar_one_or_none()
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
-    if not _is_unlocked(topic, user):
-        raise HTTPException(status_code=403, detail="Topic requires upgraded access")
+    can_access, locked_reason = await _access_state(topic, user, db, topic.subject_id)
+    if not can_access:
+        raise HTTPException(status_code=403, detail=locked_reason)
 
     items = [item for section in topic.sections for item in section.items if item.status == "published"]
     progress_result = await db.execute(

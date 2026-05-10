@@ -214,6 +214,8 @@ class TopicCardOut(BaseModel):
     completed_count: int = 0
     progress_pct: int = 0
     concepts: list[str] = []
+    can_access: bool = True
+    locked_reason: str = ""
 
 
 class StudyToolsOut(BaseModel):

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/lib/axios'
 import { FigmaCourseSearchControls, type FigmaCourseSubjectOption } from '@/components/figma/course-search-controls'
@@ -17,6 +18,8 @@ interface TopicCard {
   completed_count: number
   progress_pct: number
   concepts: string[]
+  can_access?: boolean
+  locked_reason?: string
 }
 
 export default function CoursesPage() {
@@ -24,6 +27,7 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [subjectFilter, setSubjectFilter] = useState('')
+  const [previewTopic, setPreviewTopic] = useState<TopicCard | null>(null)
 
   useEffect(() => { document.title = 'Courses - Kresco' }, [])
 
@@ -110,6 +114,7 @@ export default function CoursesPage() {
                         progress={topic.progress_pct}
                         state={topicCardState(topic)}
                         href={`/topics/${topic.id}`}
+                        onClick={topic.can_access === false ? () => setPreviewTopic(topic) : undefined}
                       />
                     ))}
                   </div>
@@ -138,6 +143,8 @@ export default function CoursesPage() {
 
         <PermanentSidebar sections={['quests', 'leaderboard']} />
       </div>
+
+      {previewTopic && <LockedTopicPreview topic={previewTopic} onClose={() => setPreviewTopic(null)} />}
     </div>
   )
 }
@@ -161,10 +168,73 @@ function SubjectDividerSkeleton() {
 }
 
 function topicCardState(topic: TopicCard): FigmaSubjectCourseCardState {
+  if (topic.can_access === false) return 'locked'
   if (topic.item_count <= 0) return 'upcoming'
   if (normalizeProgress(topic.progress_pct) >= 100 || topic.completed_count >= topic.item_count) return 'completed'
   if (normalizeProgress(topic.progress_pct) > 0 || topic.completed_count > 0) return 'current'
   return 'available'
+}
+
+function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () => void }) {
+  const reason = lockedTopicReason(topic.locked_reason)
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#18181b]/35 px-4 backdrop-blur-[2px]" onClick={onClose}>
+      <section
+        aria-modal="true"
+        className="w-full max-w-[520px] rounded-[16px] border-2 border-[#e4e4e7] bg-white p-6 shadow-[0_24px_80px_rgba(24,24,27,.18)]"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="m-0 text-[14px] font-bold leading-[1.1] tracking-[0.2px] text-[#9f9fa9]">{canonicalSubjectLabel(topic.subject_title)}</p>
+            <h2 className="m-0 mt-2 text-[24px] font-bold leading-[1.2] tracking-normal text-[#3f3f46]">{topic.title}</h2>
+          </div>
+          <button
+            className="grid size-[36px] shrink-0 place-items-center rounded-[10px] border-2 border-[#e4e4e7] bg-white text-[18px] font-bold leading-none text-[#71717b] transition hover:bg-[#f4f4f5]"
+            type="button"
+            onClick={onClose}
+            aria-label="Close locked topic preview"
+          >
+            <X aria-hidden="true" size={18} strokeWidth={2.8} />
+          </button>
+        </div>
+
+        <p className="m-0 mt-4 text-[15px] font-bold leading-[1.45] tracking-[0.18px] text-[#71717b]">{topic.description || 'This topic is part of a protected study path.'}</p>
+
+        <div className="mt-5 rounded-[12px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4">
+          <p className="m-0 text-[13px] font-bold leading-[1.2] tracking-[0.2px] text-[#9f9fa9]">Access</p>
+          <p className="m-0 mt-1 text-[16px] font-bold leading-[1.3] tracking-[0.2px] text-[#3f3f46]">{reason}</p>
+        </div>
+
+        {topic.concepts.length > 0 && (
+          <div className="mt-5 flex flex-wrap gap-2">
+            {topic.concepts.slice(0, 6).map((concept) => (
+              <span key={concept} className="rounded-[8px] border-2 border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-bold leading-[1] tracking-[0.18px] text-[#71717b]">
+                {concept.replace(/[-_]+/g, ' ')}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <button
+          className="mt-6 h-[44px] w-full rounded-[12px] bg-[#5b60f9] px-[34px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition hover:brightness-[1.03]"
+          type="button"
+          onClick={onClose}
+        >
+          Got it
+        </button>
+      </section>
+    </div>
+  )
+}
+
+function lockedTopicReason(reason?: string) {
+  if (reason === 'pro_required') return 'Kresco Pro is required for this topic.'
+  if (reason === 'subject_access_required') return 'Your account does not include this subject yet.'
+  if (reason?.startsWith('feature_required:')) return 'This topic requires an additional feature on your account.'
+  return 'This topic is locked for your current account.'
 }
 
 function normalizeProgress(progress: number) {
