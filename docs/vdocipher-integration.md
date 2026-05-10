@@ -19,12 +19,7 @@ VdoCipher provides DRM-protected video hosting. Videos are streamed via signed O
 1. In the VdoCipher dashboard, go to **Videos → Upload**.
 2. Upload your `.mp4` files or bulk import.
 3. After processing, each video gets a **Video ID** (e.g. `abc123xyz`).
-4. Store this Video ID in your database — in the `Lesson.vdo_cipher_id` field:
-   ```python
-   # In Django admin or seed script:
-   lesson.vdo_cipher_id = "abc123xyz"
-   lesson.save()
-   ```
+4. Store this Video ID in your database — in the `Lesson.vdo_cipher_id` field (via SQLAdmin or seed process).
 
 ---
 
@@ -62,25 +57,19 @@ This iframe is DRM-protected — users cannot download or screen-capture.
 
 ---
 
-## Step 5: Add `vdo_cipher_id` to the Lesson Model
-```python
-# courses/models.py
-class Lesson(models.Model):
-    ...
-    vdo_cipher_id = models.CharField(max_length=100, blank=True)
-    duration_seconds = models.IntegerField(default=0)
-```
-
-Run migration:
+## Step 5: Schema and migrations
+`vdo_cipher_id` and `duration_seconds` are managed in the active FastAPI/SQLAlchemy models.
+Apply DB changes with Alembic:
 ```bash
-python manage.py makemigrations courses
-python manage.py migrate
+cd backend
+source venv/bin/activate
+alembic upgrade head
 ```
 
 ---
 
 ## Step 6: Set Video IDs via Admin
-1. Go to Django Admin → Courses → Lessons
+1. Go to SQLAdmin → Lessons (`/admin`)
 2. For each lesson, paste the VdoCipher Video ID into the `vdo_cipher_id` field.
 3. Also set `duration_seconds` (in seconds) for accurate progress tracking.
 

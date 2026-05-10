@@ -21,7 +21,7 @@ To get the Product ID:
 2. Click "Add product" -> Name: "Kresco Pro", Price: 99 MAD/month
 3. Copy the `prod_XXXX` ID from the URL
 
-After adding, restart the backend: `cd backend && source venv/bin/activate && python manage.py runserver`
+After adding, restart the backend: `cd backend && source venv/bin/activate && python -m uvicorn app.main:create_app --factory --reload`
 
 ---
 
@@ -31,21 +31,21 @@ All 6 subjects have `thumbnail_url = ""`. You need to either:
 
 **Option A — Upload images:**
 1. Place 6 images in `frontend/public/subjects/` (e.g. `maths.jpg`, `physique.jpg`, etc.)
-2. Go to Django admin: http://localhost:8000/admin/courses/subject/
+2. Go to FastAPI admin: http://localhost:8000/admin/subject
 3. Set each subject's thumbnail_url to `/subjects/maths.jpg` etc.
 
 **Option B — Use external URLs:**
 1. Upload images to any CDN/S3
-2. Set the thumbnail_url in Django admin
+2. Set the thumbnail_url in FastAPI admin
 
 ---
 
-## 3. Add Course Content via Django Admin
+## 3. Add Course Content via SQLAdmin
 
 The following content types have 0 entries in the database:
 
 ### Activities (interactive exercises per lesson)
-1. http://localhost:8000/admin/courses/activity/
+1. http://localhost:8000/admin/activity/list
 2. Add activities linked to specific lessons
 3. Choose type: drag_and_drop, matching, fill_in_blank, true_false, ordering, simulator
 4. Fill `config_json` with the exercise data (see format below)
@@ -73,31 +73,25 @@ The following content types have 0 entries in the database:
 ```
 
 ### Course PDFs (downloadable supports per lesson)
-1. http://localhost:8000/admin/courses/coursepdf/
+1. http://localhost:8000/admin/coursepdf/list
 2. Upload PDF files or set S3 URLs
 3. Link each PDF to a lesson
 
 ### Video Quiz Triggers (mid-video quiz popups)
-1. http://localhost:8000/admin/gamification/videoquiztrigger/
+1. http://localhost:8000/admin/videoquiztrigger/list
 2. Set: lesson, timestamp_seconds, quiz, is_blocking
 3. Example: Quiz at 300 seconds into Lesson 1
 
 ### More Quizzes
 Currently only 3 quizzes for 39 lessons. Add quizzes for more lessons via:
-1. http://localhost:8000/admin/quizzes/quiz/
+1. http://localhost:8000/admin/quiz/list
 2. Add quiz -> link to lesson -> add questions with options
 
 ---
 
-## 4. Create Django Superuser (if you don't have one)
+## 4. Access FastAPI Admin
 
-```bash
-cd backend && source venv/bin/activate
-python manage.py createsuperuser
-# Enter: admin email, password
-```
-
-Then access admin at http://localhost:8000/admin/
+Use SQLAdmin at http://localhost:8000/admin/ with your `ADMIN_PASSWORD` from backend `.env`.
 
 ---
 

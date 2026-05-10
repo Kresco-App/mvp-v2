@@ -14,6 +14,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    inspector = sa.inspect(op.get_bind())
+    if "is_email_verified" in {col["name"] for col in inspector.get_columns("users")}:
+        return
     op.add_column(
         "users",
         sa.Column("is_email_verified", sa.Boolean(), nullable=False, server_default="false"),

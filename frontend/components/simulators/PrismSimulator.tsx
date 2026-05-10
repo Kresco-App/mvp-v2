@@ -7,8 +7,6 @@ import { calculatePrism, SimulationResult } from './PrismLogic'
 type SourceMode = 'white' | 'single' | 'double'
 
 export default function PrismSimulator() {
-  const isDark = true
-
   const [incidentAngle, setIncidentAngle] = useState(45)
   const [prismAngle, setPrismAngle] = useState(60)
   const [sourceMode, setSourceMode] = useState<SourceMode>('white')
@@ -106,20 +104,14 @@ export default function PrismSimulator() {
     const { width, height } = canvas
 
     ctx.clearRect(0, 0, width, height)
-    ctx.fillStyle = isDark ? '#0F172A' : '#F8FAFC'
+    ctx.fillStyle = '#F8FAFC'
     ctx.fillRect(0, 0, width, height)
 
     const { A, B, C } = simulation.geometry
     const prismGrad = ctx.createLinearGradient(A.x, A.y, C.x, C.y)
-    if (isDark) {
-      prismGrad.addColorStop(0, 'rgba(255, 255, 255, 0.08)')
-      prismGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.03)')
-      prismGrad.addColorStop(1, 'rgba(255, 255, 255, 0.08)')
-    } else {
-      prismGrad.addColorStop(0, 'rgba(0, 0, 0, 0.02)')
-      prismGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.05)')
-      prismGrad.addColorStop(1, 'rgba(0, 0, 0, 0.02)')
-    }
+    prismGrad.addColorStop(0, 'rgba(0, 0, 0, 0.02)')
+    prismGrad.addColorStop(0.5, 'rgba(0, 0, 0, 0.05)')
+    prismGrad.addColorStop(1, 'rgba(0, 0, 0, 0.02)')
 
     ctx.fillStyle = prismGrad
     ctx.beginPath()
@@ -129,11 +121,11 @@ export default function PrismSimulator() {
     ctx.closePath()
     ctx.fill()
 
-    ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.2)'
+    ctx.strokeStyle = 'rgba(100, 116, 139, 0.2)'
     ctx.lineWidth = 1
     ctx.stroke()
 
-    ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.5)'
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'
     ctx.lineWidth = 3
     ctx.beginPath()
     ctx.moveTo(A.x - 5, A.y + 5)
@@ -148,7 +140,7 @@ export default function PrismSimulator() {
       color: string,
       lineWidth: number,
     ) => {
-      ctx.strokeStyle = isDark ? '#fff' : color
+      ctx.strokeStyle = color
       ctx.lineWidth = lineWidth * 0.4
       ctx.beginPath()
       ctx.moveTo(start.x, start.y)
@@ -158,10 +150,6 @@ export default function PrismSimulator() {
       ctx.strokeStyle = color
       ctx.lineWidth = lineWidth
       ctx.globalAlpha = 0.6
-      if (isDark) {
-        ctx.shadowBlur = 12
-        ctx.shadowColor = color
-      }
       ctx.beginPath()
       ctx.moveTo(start.x, start.y)
       ctx.lineTo(end.x, end.y)
@@ -171,7 +159,7 @@ export default function PrismSimulator() {
     }
 
     if (sourceMode === 'white') {
-      drawRayGlow(incidentRay.start, incidentRay.end, isDark ? '#ffffff' : '#e2e8f0', 4)
+      drawRayGlow(incidentRay.start, incidentRay.end, '#e2e8f0', 4)
     } else {
       drawRayGlow(incidentRay.start, incidentRay.end, getWavelengthColor(laser1Wavelength), sourceMode === 'double' ? 3 : 5)
       if (sourceMode === 'double') {
@@ -190,12 +178,6 @@ export default function PrismSimulator() {
         ray.segments.forEach((segment) => ctx.lineTo(segment.end.x, segment.end.y))
         ctx.stroke()
 
-        if (isDark && sourceMode !== 'white') {
-          ctx.shadowBlur = 8
-          ctx.shadowColor = ray.color
-          ctx.stroke()
-          ctx.shadowBlur = 0
-        }
       }
       ctx.globalAlpha = 1.0
     })
@@ -213,7 +195,7 @@ export default function PrismSimulator() {
         const n2InAngle = n2OutAngle + Math.PI
 
         ctx.setLineDash([5, 5])
-        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.3)'
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)'
         ctx.lineWidth = 1
         ctx.beginPath()
         ctx.moveTo(P.x - 80, P.y)
@@ -271,7 +253,7 @@ export default function PrismSimulator() {
           drawAngle(pPrime, angExit, n2OutAngle, '#10b981', 45)
 
           ctx.setLineDash([4, 4])
-          ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'
+          ctx.strokeStyle = 'rgba(0,0,0,0.1)'
           ctx.beginPath()
           ctx.moveTo(P.x, P.y)
           const extLen = 250
@@ -282,13 +264,13 @@ export default function PrismSimulator() {
 
         const angAB = Math.atan2(B.y - A.y, B.x - A.x)
         const angAC = Math.atan2(C.y - A.y, C.x - A.x)
-        drawAngle(A, angAB, angAC, isDark ? '#94a3b8' : '#64748b', 60)
+        drawAngle(A, angAB, angAC, '#64748b', 60)
       }
     }
-  }, [incidentAngle, isDark, laser1Wavelength, laser2Wavelength, prismAngle, showAngles, simulation, sourceMode])
+  }, [incidentAngle, laser1Wavelength, laser2Wavelength, prismAngle, showAngles, simulation, sourceMode])
 
-  const textPrimary = isDark ? 'text-[#F1F5F9]' : 'text-[#1E293B]'
-  const textSecondary = isDark ? 'text-[#94A3B8]' : 'text-[#64748B]'
+  const textPrimary = 'text-[#1E293B]'
+  const textSecondary = 'text-[#64748B]'
 
   return (
     <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">

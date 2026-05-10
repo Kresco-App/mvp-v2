@@ -85,6 +85,40 @@ class DailyQuestOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SidebarCountdownUnitOut(BaseModel):
+    value: int | str
+    label: str
+
+
+class SidebarCalendarDayOut(BaseModel):
+    value: int | str
+    label: str
+    active: bool = False
+
+
+class SidebarLiveEventOut(BaseModel):
+    id: int | str
+    title: str
+    starts_at: str
+    subject: str
+    href: str = "/live"
+    status: str = "upcoming"
+
+
+class SidebarStrikeDayOut(BaseModel):
+    label: str
+    done: bool = False
+
+
+class SidebarSummaryOut(BaseModel):
+    chrono_units: list[SidebarCountdownUnitOut]
+    calendar_days: list[SidebarCalendarDayOut]
+    live_events: list[SidebarLiveEventOut]
+    strike_days: list[SidebarStrikeDayOut]
+    quests: list[DailyQuestOut]
+    leaderboard_entries: list[LeaderboardEntryOut]
+
+
 class UserStatsOut(BaseModel):
     total_watch_minutes: int
     quizzes_passed: int

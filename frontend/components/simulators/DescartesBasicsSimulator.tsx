@@ -5,8 +5,6 @@ import { RefreshCw } from 'lucide-react'
 import { GeometricOpticsEngine } from './GeometricOpticsEngine'
 
 export default function DescartesBasicsSimulator() {
-  const isDark = true
-
   const [angleDeg, setAngleDeg] = useState(45)
   const [n1, setN1] = useState(1.0)
   const [n2, setN2] = useState(1.5)
@@ -42,18 +40,12 @@ export default function DescartesBasicsSimulator() {
     const cx = width / 2
     const cy = height / 2
 
-    const boundaryColor = isDark ? '#475569' : '#cbd5e1'
-    const normalColor = isDark ? '#334155' : '#e2e8f0'
-    const textColor = isDark ? '#94a3b8' : '#64748b'
+    const boundaryColor = '#cbd5e1'
+    const normalColor = '#e2e8f0'
+    const textColor = '#64748b'
 
     const getMediumColor = (refractiveIndex: number) => {
       const intensity = Math.max(0, (refractiveIndex - 1) / 1.5)
-      if (isDark) {
-        const base = 15
-        const add = Math.round(intensity * 40)
-        return `rgb(${base + add}, ${base + add + 8}, ${base + add + 27})`
-      }
-
       const base = 250
       const sub = Math.round(intensity * 50)
       return `rgb(${base - sub}, ${base - sub - 10}, ${base - sub - 5})`
@@ -88,7 +80,7 @@ export default function DescartesBasicsSimulator() {
       alpha = 1.0,
     ) => {
       ctx.globalAlpha = alpha
-      ctx.strokeStyle = isDark ? '#fff' : color
+      ctx.strokeStyle = color
       ctx.lineWidth = lineWidth * 0.4
       ctx.beginPath()
       ctx.moveTo(start.x, start.y)
@@ -98,10 +90,6 @@ export default function DescartesBasicsSimulator() {
       ctx.strokeStyle = color
       ctx.lineWidth = lineWidth
       ctx.globalAlpha = alpha * 0.6
-      if (isDark) {
-        ctx.shadowBlur = 12
-        ctx.shadowColor = color
-      }
       ctx.beginPath()
       ctx.moveTo(start.x, start.y)
       ctx.lineTo(end.x, end.y)
@@ -200,7 +188,7 @@ export default function DescartesBasicsSimulator() {
     const labelY = incidentStart.y + (cy - incidentStart.y) * 0.2
     ctx.font = 'bold italic 16px serif'
     ctx.fillText('i', labelX, labelY - 10)
-  }, [angleDeg, dimensions, isDark, n1, n2, showAngles])
+  }, [angleDeg, dimensions, n1, n2, showAngles])
 
   return (
     <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">

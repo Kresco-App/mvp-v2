@@ -1,8 +1,8 @@
-# AWS Deployment Guide (Zappa + RDS + CloudFront)
+# AWS Deployment Guide (FastAPI + Zappa + RDS + CloudFront)
 
 ## Architecture
 ```
-CloudFront CDN → S3 (Next.js static) + API Gateway → Lambda (Django/Zappa) → RDS PostgreSQL
+CloudFront CDN → S3 (Next.js static) + API Gateway → Lambda (FastAPI/Zappa) → RDS PostgreSQL
 ```
 
 ---
@@ -47,14 +47,12 @@ DATABASE_URL=postgresql://postgres:<password>@<rds-endpoint>:5432/postgres
 ```bash
 cd backend
 source venv/bin/activate
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py seed_data
+alembic upgrade head
 ```
 
 ---
 
-## Part 2: Django on AWS Lambda with Zappa
+## Part 2: FastAPI on AWS Lambda with Zappa
 
 ### 2.1 Install Zappa
 ```bash
@@ -67,7 +65,7 @@ pip install zappa
 ```json
 {
   "production": {
-    "django_settings": "core.settings",
+    "app_function": "app_handler.application",
     "project_name": "kresco",
     "runtime": "python3.11",
     "s3_bucket": "kresco-zappa-deployments",
@@ -76,8 +74,7 @@ pip install zappa
       "DATABASE_URL": "postgresql://postgres:<pass>@<rds-endpoint>:5432/postgres",
       "JWT_SECRET_KEY": "your-secret-key",
       "GOOGLE_CLIENT_ID": "your-google-client-id",
-      "VDOCIPHER_API_SECRET": "your-vdocipher-secret",
-      "DJANGO_SETTINGS_MODULE": "core.settings"
+      "VDOCIPHER_API_SECRET": "your-vdocipher-secret"
     },
     "cors": true,
     "timeout_seconds": 30,
@@ -98,9 +95,8 @@ zappa deploy production
 # Subsequent updates:
 zappa update production
 
-# Run management commands on Lambda:
-zappa manage production migrate
-zappa manage production "seed_data"
+# (Optional) Run one-off scripts in Lambda if needed:
+# zappa invoke production "<callable>"
 ```
 
 ### 2.4 Set custom domain

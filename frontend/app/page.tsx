@@ -152,8 +152,12 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [pendingEmail, setPendingEmail] = useState('')
   const [googleReady, setGoogleReady] = useState(false)
+  const [isLocalhost, setIsLocalhost] = useState(false)
 
   useEffect(() => { hydrate() }, [hydrate])
+  useEffect(() => {
+    setIsLocalhost(['localhost', '127.0.0.1'].includes(window.location.hostname))
+  }, [])
 
   useEffect(() => {
     if (!isHydrated) return
@@ -243,6 +247,18 @@ export default function AuthPage() {
       } else {
         toast.error(err?.response?.data?.detail || 'Email ou mot de passe incorrect.')
       }
+    } finally { setLoading(false) }
+  }
+
+  async function handleDemoLogin() {
+    if (!isLocalhost) return
+    setLoading(true)
+    try {
+      const { data } = await api.post('/auth/demo-login')
+      login(data.access_token, data.user)
+      router.push('/home')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Demo login unavailable. Start the local backend on port 8000.')
     } finally { setLoading(false) }
   }
 
@@ -340,6 +356,11 @@ export default function AuthPage() {
                 <button onClick={() => { setAuthMode('signup'); resetForm() }} style={outlineBtn}>
                   Créer un compte
                 </button>
+                {isLocalhost && (
+                  <button onClick={handleDemoLogin} disabled={loading} style={{ ...outlineBtn, marginTop: 10, borderColor: C.primary, color: C.primary, opacity: loading ? 0.6 : 1 }}>
+                    Local demo login
+                  </button>
+                )}
                 <button onClick={() => { setAuthMode('login'); resetForm() }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', marginTop: 14, fontSize: 14, color: C.muted }}>
                   Déjà un compte ? <span style={{ color: C.primary, fontWeight: 600 }}>Se connecter</span>

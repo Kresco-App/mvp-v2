@@ -37,7 +37,23 @@ function loadState(): PersistedState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw) as Partial<PersistedState>
+    const preset = parsed.preset
+    const state = parsed.state
+    const validPreset = preset === 'sprint' || preset === 'deep_work' || preset === 'bac_blanc' || preset === 'custom'
+    const validState = state === 'idle' || state === 'running' || state === 'paused' || state === 'break' || state === 'finished'
+    if (!validPreset || !validState || !preset || !state) return null
+    return {
+      preset,
+      customMinutes: Number.isFinite(parsed.customMinutes) ? parsed.customMinutes! : 30,
+      totalSeconds: Number.isFinite(parsed.totalSeconds) && parsed.totalSeconds! > 0 ? parsed.totalSeconds! : PRESETS.sprint.minutes * 60,
+      elapsedSeconds: Number.isFinite(parsed.elapsedSeconds) && parsed.elapsedSeconds! >= 0 ? parsed.elapsedSeconds! : 0,
+      state,
+      streak: Number.isFinite(parsed.streak) && parsed.streak! >= 0 ? parsed.streak! : 0,
+      tabWarnings: Number.isFinite(parsed.tabWarnings) && parsed.tabWarnings! >= 0 ? parsed.tabWarnings! : 0,
+      startedAt: typeof parsed.startedAt === 'number' ? parsed.startedAt : null,
+      pausedAt: typeof parsed.pausedAt === 'number' ? parsed.pausedAt : null,
+    }
   } catch { return null }
 }
 
@@ -47,26 +63,48 @@ function saveState(state: PersistedState) {
 }
 
 export function useFocusEngine() {
-  const saved = loadState()
-
-  const [preset, setPreset] = useState<FocusPreset>(saved?.preset ?? 'sprint')
-  const [customMinutes, setCustomMinutes] = useState(saved?.customMinutes ?? 30)
-  const [totalSeconds, setTotalSeconds] = useState(saved?.totalSeconds ?? PRESETS.sprint.minutes * 60)
-  const [elapsedSeconds, setElapsedSeconds] = useState(saved?.elapsedSeconds ?? 0)
-  const [state, setState] = useState<FocusState>(saved?.state === 'running' ? 'paused' : saved?.state ?? 'idle')
-  const [streak, setStreak] = useState(saved?.streak ?? 0)
-  const [tabWarnings, setTabWarnings] = useState(saved?.tabWarnings ?? 0)
+  const [preset, setPreset] = useState<FocusPreset>('sprint')
+  const [customMinutes, setCustomMinutes] = useState(30)
+  const [totalSeconds, setTotalSeconds] = useState(PRESETS.sprint.minutes * 60)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [state, setState] = useState<FocusState>('idle')
+  const [streak, setStreak] = useState(0)
+  const [tabWarnings, setTabWarnings] = useState(0)
   const [tabStatus, setTabStatus] = useState<TabStatus>('focused')
   const [isMuted, setIsMuted] = useState(false)
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  const startedAtRef = useRef<number | null>(saved?.startedAt ?? null)
+  const startedAtRef = useRef<number | null>(null)
+  const hasLoadedRef = useRef(false)
 
   const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds)
   const progress = totalSeconds > 0 ? elapsedSeconds / totalSeconds : 0
 
+  useEffect(() => {
+    const saved = loadState()
+    if (!saved) {
+      hasLoadedRef.current = true
+      return
+    }
+
+    const reconciledElapsed = saved.state === 'running' && saved.startedAt
+      ? Math.min(saved.totalSeconds, saved.elapsedSeconds + Math.max(0, Math.floor((Date.now() - saved.startedAt) / 1000)))
+      : Math.min(saved.elapsedSeconds, saved.totalSeconds)
+
+    setPreset(saved.preset)
+    setCustomMinutes(saved.customMinutes)
+    setTotalSeconds(saved.totalSeconds)
+    setElapsedSeconds(reconciledElapsed)
+    setState(saved.state === 'running' ? (reconciledElapsed >= saved.totalSeconds ? 'finished' : 'paused') : saved.state)
+    setStreak(saved.streak)
+    setTabWarnings(saved.tabWarnings)
+    startedAtRef.current = saved.startedAt
+    hasLoadedRef.current = true
+  }, [])
+
   // Persist state
   useEffect(() => {
+    if (!hasLoadedRef.current) return
     saveState({
       preset,
       customMinutes,

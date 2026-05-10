@@ -4,14 +4,12 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
-import {
-  ArrowLeft, BookOpen, Play, CheckCircle2,
-  FileText, Lock, ClipboardCheck, HelpCircle, Puzzle, Zap, Star,
-} from 'lucide-react'
+import { ArrowLeft, BookOpen, ClipboardCheck, Play } from 'lucide-react'
 import api from '@/lib/axios'
 import { buildSubjectProgressSummary, fetchSubjectPlan, type SubjectProgressSummary } from '@/lib/subjectProgress'
-import { formatDuration } from '@/lib/utils'
 import { useAuthStore } from '@/lib/store'
+import { FigmaSubjectCourseCard, PermanentSidebar, type FigmaSubjectCourseCardState } from '@/components/figma'
+import { FigmaSubjectDetailSkeleton } from '@/components/figma/skeletons'
 
 interface Section {
   id: number
@@ -29,8 +27,8 @@ interface Chapter {
   id: number
   title: string
   order: number
-  lessons: any[]
-  blocks: any[]
+  lessons: unknown[]
+  blocks: unknown[]
 }
 
 interface Subject {
@@ -39,39 +37,6 @@ interface Subject {
   description: string
   thumbnail_url: string
   chapters: Chapter[]
-}
-
-const ZIGZAG = [90, 0, -90, 0]
-
-function getNodeStyle(section: Section, isNext: boolean): React.CSSProperties {
-  if (section.is_completed) return {
-    background: 'linear-gradient(135deg,#16a34a,#22c55e)',
-    border: '5px solid #bbf7d0',
-    boxShadow: '0 6px 20px rgba(22,163,74,0.28)',
-  }
-  if (section.is_locked) return {
-    background: '#f4f4f5',
-    border: '5px solid #e4e4e7',
-    boxShadow: 'none',
-  }
-  return {
-    background: 'linear-gradient(135deg,#453dee,#6366f1)',
-    border: isNext ? '5px solid rgba(99,102,241,0.35)' : '5px solid rgba(99,102,241,0.2)',
-    boxShadow: isNext ? '0 8px 28px rgba(69,61,238,0.45)' : '0 4px 16px rgba(69,61,238,0.28)',
-  }
-}
-
-function NodeIcon({ section, isNext }: { section: Section; isNext: boolean }) {
-  const sz = 26
-  if (section.is_completed) return <CheckCircle2 size={sz} style={{ color: '#fff' }} />
-  if (section.is_locked) return <Lock size={sz - 4} style={{ color: '#a1a1aa' }} />
-  switch (section.section_type) {
-    case 'video':    return <Play size={sz} style={{ color: '#fff', fill: '#fff' }} />
-    case 'quiz':     return <HelpCircle size={sz} style={{ color: '#fff' }} />
-    case 'activity': return <Puzzle size={sz} style={{ color: '#fff' }} />
-    case 'text':     return <FileText size={sz} style={{ color: '#fff' }} />
-    default:         return <Star size={sz} style={{ color: '#fff' }} />
-  }
 }
 
 export default function SubjectDetailPage() {
@@ -96,7 +61,8 @@ export default function SubjectDetailPage() {
 
         const completedSectionIds = new Set(subjectPlan?.completed_section_ids ?? [])
         const totalLessonCount = subjectRes.data.chapters.reduce(
-          (c: number, ch: Chapter) => c + (ch.lessons?.length ?? 0), 0
+          (count: number, chapter: Chapter) => count + (chapter.lessons?.length ?? 0),
+          0,
         )
 
         const sectionsMap: Record<number, Section[]> = {}
@@ -104,269 +70,151 @@ export default function SubjectDetailPage() {
           subjectRes.data.chapters.map(async (chapter: Chapter) => {
             try {
               const res = await api.get(`/courses/chapters/${chapter.id}/sections`)
-              sectionsMap[chapter.id] = res.data.map((s: Section) => ({
-                ...s,
-                is_completed: completedSectionIds.has(s.id),
+              sectionsMap[chapter.id] = res.data.map((section: Section) => ({
+                ...section,
+                is_completed: completedSectionIds.has(section.id),
               }))
             } catch {
               sectionsMap[chapter.id] = []
             }
-          })
+          }),
         )
         setChapterSections(sectionsMap)
 
-        if (subjectPlan) {
-          setProgressSummary(buildSubjectProgressSummary(subjectPlan, totalLessonCount))
-        }
+        if (subjectPlan) setProgressSummary(buildSubjectProgressSummary(subjectPlan, totalLessonCount))
       } catch {
-        toast.error('Erreur de chargement de la matière.')
+        toast.error('Could not load this subject.')
         router.push('/home')
       } finally {
         setLoading(false)
       }
     }
+
     load()
   }, [router, subjectId])
 
-  function handleSectionClick(section: Section) {
-    if (section.is_locked) {
-      const isProGated = !isPro && !section.is_free_preview
-      if (isProGated) {
-        toast.info('🔒 Passez Pro pour accéder à ce contenu.', {
-          action: { label: 'Voir les offres', onClick: () => window.location.href = '/pricing' }
-        })
-      } else {
-        toast.info('Terminez les sections précédentes pour débloquer celle-ci.')
-      }
-      return
-    }
-    window.location.href = `/watch/${section.id}`
-  }
-
   if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div style={{ width: 36, height: 36, border: '3px solid var(--surface-hover)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-      </div>
-    )
+    return <FigmaSubjectDetailSkeleton />
   }
 
   if (!subject) return null
 
   const allSections = Object.values(chapterSections).flat()
   const totalSections = allSections.length
-  const completedCount = allSections.filter(s => s.is_completed).length
+  const completedCount = allSections.filter((section) => section.is_completed).length
   const percentage = progressSummary?.percentage ?? (totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0)
-  const nextSection = allSections.find(s => !s.is_completed && !s.is_locked)
+  const nextSection = allSections.find((section) => !section.is_completed && canAccessSection(section, isPro))
+  const activeChapterId = subject.chapters.find((chapter) => (chapterSections[chapter.id] || []).some((section) => section.id === nextSection?.id))?.id
 
   return (
-    <div className="kresco-shell" style={{ maxWidth: 760, margin: '0 auto' }}>
-
-      {/* Breadcrumb */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <Link href="/home" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-tertiary)', fontSize: 12, fontWeight: 500, textDecoration: 'none' }}>
-          <ArrowLeft size={13} />
-          Accueil
-        </Link>
-        <span style={{ color: 'var(--border)', fontSize: 12 }}>/</span>
-        <span style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600 }}>{subject.title}</span>
-      </div>
-
-      {/* Hero card */}
-      <div className="card" style={{ padding: 28, marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
-          <div style={{ width: 56, height: 56, borderRadius: 16, background: '#edf1ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <BookOpen size={26} style={{ color: '#453dee' }} />
+    <div className="figma-container">
+      <div className="figma-dashboard-grid">
+        <main className="w-full">
+          <div className="mb-4 flex items-center gap-2">
+            <Link href="/home" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#9f9fa9] no-underline">
+              <ArrowLeft size={13} />
+              Home
+            </Link>
+            <span className="text-[12px] text-[#e4e4e7]">/</span>
+            <span className="text-[12px] font-bold text-[#71717b]">{subject.title}</span>
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px' }}>{subject.title}</h1>
-            <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: '0 0 18px', lineHeight: 1.6 }}>{subject.description}</p>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-                <span>{completedCount} / {totalSections} sections complétées</span>
-                <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{percentage}%</span>
-              </div>
-              <div style={{ height: 8, borderRadius: 99, background: 'var(--surface-input)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 99, width: `${percentage}%`, background: 'linear-gradient(90deg,#453dee,#6366f1)', transition: 'width 600ms ease' }} />
+
+          <section className="mb-8 rounded-2xl border-2 border-[#e4e4e7] bg-white p-7 shadow-none">
+            <div className="flex items-start gap-5">
+              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-[#edf1ff] text-[#453dee]">
+                <BookOpen size={26} strokeWidth={2.5} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h1 className="m-0 text-[28px] font-bold leading-tight tracking-normal text-[#3f3f46]">{subject.title}</h1>
+                <p className="m-0 mt-2 max-w-[620px] text-[15px] font-semibold leading-relaxed text-[#71717b]">{subject.description}</p>
+                <div className="mt-5">
+                  <div className="mb-2 flex justify-between text-[13px] font-bold text-[#71717b]">
+                    <span>{completedCount} / {totalSections} sections completed</span>
+                    <span className="text-[#453dee]">{percentage}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-[#f4f4f5]">
+                    <span className="block h-full rounded-full bg-[#453dee] transition-[width] duration-500" style={{ width: `${percentage}%` }} />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        {nextSection && (
-          <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Link href={`/watch/${nextSection.id}`} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              background: 'var(--primary)', color: '#fff',
-              padding: '11px 22px', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none',
-              boxShadow: '0 4px 14px rgba(69,61,238,0.35)', transition: 'transform 150ms',
-            }}
-              onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-1px)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'none' }}
-            >
-              <Play size={15} style={{ fill: 'currentColor' }} />
-              {completedCount === 0 ? 'Commencer le cours' : 'Continuer'}
-            </Link>
-            <Link href={`/exam/${subjectId}`} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, textDecoration: 'none',
-              padding: '11px 16px', borderRadius: 12, border: '1px solid var(--border)',
-              transition: 'all 150ms',
-            }}
-              onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--primary)'; (e.currentTarget as HTMLAnchorElement).style.color = 'var(--primary)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLAnchorElement).style.color = 'var(--text-secondary)' }}
-            >
-              <ClipboardCheck size={15} />
-              Examen blanc
-            </Link>
-          </div>
-        )}
-      </div>
-
-      {/* Duolingo-style learning path */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '12px 0 80px' }}>
-        {subject.chapters.map((chapter, chapterIdx) => {
-          const sections = chapterSections[chapter.id] || []
-          const nextInChapterIdx = sections.findIndex(s => !s.is_completed && !s.is_locked)
-
-          return (
-            <div key={chapter.id} style={{ width: '100%', maxWidth: 500, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-
-              {/* Separator dots between chapters */}
-              {chapterIdx > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, marginBottom: 28, marginTop: 8 }}>
-                  {[0, 1, 2].map(i => (
-                    <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--border)' }} />
-                  ))}
-                </div>
-              )}
-
-              {/* Chapter header box */}
-              <div style={{
-                border: '2px solid #453dee', borderRadius: 20, padding: '14px 36px',
-                fontWeight: 800, fontSize: 15, color: '#453dee', textAlign: 'center',
-                background: 'var(--surface-card)', marginBottom: 36, maxWidth: 380, width: '100%',
-                boxShadow: '0 2px 16px rgba(69,61,238,0.1)',
-              }}>
-                {chapter.title}
-              </div>
-
-              {/* Section nodes */}
-              {sections.length === 0 ? (
-                <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 24 }}>Aucune section disponible.</p>
-              ) : (
-                <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  {sections.map((section, si) => {
-                    const offset = ZIGZAG[si % 4]
-                    const isNext = si === nextInChapterIdx
-                    const nodeStyle = getNodeStyle(section, isNext)
-                    const isProGated = section.is_locked && !isPro && !section.is_free_preview
-
-                    return (
-                      <div key={section.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-
-                        {/* Connecting dots */}
-                        {si > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 4 }}>
-                            {[0, 1, 2].map(i => (
-                              <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--border)' }} />
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Node + label */}
-                        <div style={{ transform: `translateX(${offset}px)`, display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 8 }}>
-
-                          {/* Circle node */}
-                          <div
-                            onClick={() => handleSectionClick(section)}
-                            style={{
-                              width: 80, height: 80, borderRadius: '50%',
-                              cursor: section.is_locked ? 'default' : 'pointer',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              transition: 'transform 180ms ease, box-shadow 180ms ease',
-                              opacity: section.is_locked && !section.is_free_preview ? 0.7 : 1,
-                              ...nodeStyle,
-                            }}
-                            onMouseEnter={e => { if (!section.is_locked) (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.08)' }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
-                          >
-                            <NodeIcon section={section} isNext={isNext} />
-                          </div>
-
-                          {/* Title */}
-                          <div style={{ marginTop: 10, textAlign: 'center', maxWidth: 140, minWidth: 80 }}>
-                            <p style={{
-                              fontSize: 12, fontWeight: 700, lineHeight: 1.35, margin: '0 0 4px',
-                              color: section.is_locked ? 'var(--text-tertiary)' : section.is_completed ? '#16a34a' : 'var(--text-primary)',
-                              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                            }}>
-                              {section.title}
-                            </p>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, flexWrap: 'wrap' }}>
-                              {section.duration_seconds && section.duration_seconds > 0 && (
-                                <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{formatDuration(section.duration_seconds)}</span>
-                              )}
-                              {isProGated && (
-                                <span style={{ fontSize: 10, fontWeight: 700, color: '#d97706', background: '#fffbeb', padding: '1px 6px', borderRadius: 99, border: '1px solid #fcd34d' }}>Pro</span>
-                              )}
-                              {section.is_free_preview && !section.is_completed && !section.is_locked && (
-                                <span style={{ fontSize: 10, fontWeight: 600, color: '#453dee', background: '#edf1ff', padding: '1px 6px', borderRadius: 99 }}>Gratuit</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* Mid-point exam prompt every 2 chapters */}
-              {chapterIdx % 2 === 1 && chapterIdx !== subject.chapters.length - 1 && (
-                <Link href={`/exam/${subjectId}?chapter=${chapter.id}`} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, width: '100%', maxWidth: 360,
-                  padding: '14px 20px', borderRadius: 16, margin: '12px 0',
-                  border: '1px dashed var(--border)', textDecoration: 'none',
-                  background: 'var(--surface-card)', transition: 'all 150ms',
-                }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--primary)'; (e.currentTarget as HTMLAnchorElement).style.background = 'var(--primary-soft)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLAnchorElement).style.background = 'var(--surface-card)' }}
-                >
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--primary-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Zap size={18} style={{ color: 'var(--primary)' }} />
-                  </div>
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 1px' }}>Examen blanc d&apos;étape</p>
-                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>Testez vos connaissances sur ces chapitres</p>
-                  </div>
+            {nextSection && (
+              <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[#e4e4e7] pt-5">
+                <Link href={`/watch/${nextSection.id}`} className="inline-flex h-12 items-center gap-2 rounded-xl bg-[#453dee] px-5 text-[14px] font-bold text-white no-underline shadow-none transition hover:-translate-y-0.5">
+                  <Play size={15} fill="currentColor" />
+                  {completedCount === 0 ? 'Start course' : 'Continue'}
                 </Link>
-              )}
-            </div>
-          )
-        })}
+                <Link href={`/exam/${subjectId}`} className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#e4e4e7] bg-white px-5 text-[14px] font-bold text-[#52525c] no-underline transition hover:border-[#453dee] hover:text-[#453dee]">
+                  <ClipboardCheck size={15} />
+                  Mock exam
+                </Link>
+              </div>
+            )}
+          </section>
 
-        {/* Final exam CTA */}
-        <div style={{ width: '100%', maxWidth: 500, marginTop: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, marginBottom: 28 }}>
-            {[0, 1, 2].map(i => <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--border)' }} />)}
-          </div>
-          <Link href={`/exam/${subjectId}`} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            padding: '18px 24px', borderRadius: 20, textDecoration: 'none',
-            background: 'linear-gradient(135deg,#453dee,#6366f1)',
-            boxShadow: '0 8px 28px rgba(69,61,238,0.35)',
-            color: '#fff', fontWeight: 800, fontSize: 16,
-            transition: 'transform 150ms',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'translateY(-2px)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.transform = 'none' }}
-          >
-            <ClipboardCheck size={22} />
-            Passer l&apos;examen blanc final
-          </Link>
-        </div>
+          <section className="pb-20">
+            <div className="mb-5">
+              <h2 className="m-0 text-[25px] font-bold leading-none tracking-normal text-[#3f3f46]">Chapters</h2>
+              <p className="m-0 mt-2 text-[16px] font-bold leading-none tracking-normal text-[#a1a1aa]">Choose the next chapter to continue.</p>
+            </div>
+
+            <div className="grid grid-cols-[repeat(3,344.33px)] gap-[14px] max-[1140px]:grid-cols-[repeat(2,344.33px)] max-[760px]:grid-cols-[344.33px] max-[420px]:grid-cols-1">
+              {subject.chapters.map((chapter, chapterIdx) => {
+                const sections = chapterSections[chapter.id] || []
+                const lessonCount = Math.max(sections.length, chapter.lessons?.length ?? 0, 1)
+
+                return (
+                  <FigmaSubjectCourseCard
+                    key={chapter.id}
+                    index={chapterIdx}
+                    title={chapter.title}
+                    description={`${completedInChapter(sections)} of ${sections.length || lessonCount} sections complete`}
+                    progress={getChapterProgress(sections)}
+                    state={getChapterCardState(sections, chapter.id === activeChapterId, isPro)}
+                    href={getChapterHref(sections, isPro)}
+                  />
+                )
+              })}
+            </div>
+
+            <Link href={`/exam/${subjectId}`} className="mt-8 inline-flex h-[58px] w-full items-center justify-center gap-3 rounded-[18px] bg-[#453dee] text-[17px] font-bold text-white no-underline shadow-none transition hover:-translate-y-0.5">
+              <ClipboardCheck size={22} />
+              Passer l&apos;examen blanc final
+            </Link>
+          </section>
+        </main>
+
+        <PermanentSidebar />
       </div>
     </div>
   )
+}
+
+function completedInChapter(sections: Section[]) {
+  return sections.filter((section) => section.is_completed).length
+}
+
+function getChapterProgress(sections: Section[]) {
+  if (sections.length === 0) return 0
+  return Math.round((completedInChapter(sections) / sections.length) * 100)
+}
+
+function getChapterHref(sections: Section[], isPro?: boolean) {
+  const next = sections.find((section) => !section.is_completed && canAccessSection(section, isPro)) || sections.find((section) => canAccessSection(section, isPro))
+  return next ? `/watch/${next.id}` : undefined
+}
+
+function getChapterCardState(sections: Section[], isActive: boolean, isPro?: boolean): FigmaSubjectCourseCardState {
+  if (sections.length === 0) return 'upcoming'
+  const completed = completedInChapter(sections)
+  if (completed === sections.length) return 'completed'
+  const hasAccessible = sections.some((section) => canAccessSection(section, isPro))
+  if (!hasAccessible) return 'locked'
+  if (isActive || completed > 0) return 'current'
+  return 'available'
+}
+
+function canAccessSection(section: Section, isPro?: boolean) {
+  return !section.is_locked || Boolean(section.is_free_preview) || Boolean(isPro)
 }

@@ -1,8 +1,11 @@
 import hashlib
 import hmac
 import os
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +16,7 @@ from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.users import (
     ForgotPasswordIn, GoogleLoginIn, LoginIn, MessageOut, ResendVerificationIn,
-    ResetPasswordIn, SignupIn, SignupPendingOut, TokenOut, UserOut, UserUpdateIn,
+    ProfileMediaOut, ResetPasswordIn, SignupIn, SignupPendingOut, TokenOut, UserOut, UserUpdateIn,
     VerifyEmailIn,
 )
 from app.services.auth import create_token, verify_google_token
@@ -24,6 +27,14 @@ from app.services.email import (
 )
 
 router = APIRouter(tags=["Auth & Users"])
+
+ALLOWED_PROFILE_MEDIA_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+MAX_PROFILE_MEDIA_BYTES = 5 * 1024 * 1024
 
 
 def _hash_password(plain: str) -> str:
@@ -41,6 +52,18 @@ def _verify_password(plain: str, stored: str) -> bool:
         return hmac.compare_digest(dk, new_dk)
     except Exception:
         return False
+
+
+def _is_local_request(request: Request, settings: Settings) -> bool:
+    if settings.is_lambda:
+        return False
+
+    client_host = request.client.host if request.client else ""
+    if client_host in {"127.0.0.1", "::1", "localhost"}:
+        return True
+
+    origin = request.headers.get("origin", "")
+    return origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")
 
 
 @router.post("/google-login", response_model=TokenOut)
@@ -92,6 +115,48 @@ async def google_login(
                 await db.refresh(user)
             except Exception:
                 await db.rollback()
+
+    token = create_token(user.id, settings)
+    return TokenOut(access_token=token, user=UserOut.model_validate(user))
+
+
+@router.post("/auth/demo-login", response_model=TokenOut)
+async def demo_login(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if not _is_local_request(request, settings):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    email = "student@kresco.local"
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        now = datetime.now(timezone.utc)
+        user = User(email=email, created_at=now, updated_at=now)
+        db.add(user)
+        await db.flush()
+
+    user.full_name = "Kresco Student"
+    user.password = _hash_password("kresco123")
+    user.is_email_verified = True
+    user.is_active = True
+    user.is_pro = True
+    user.role = "student"
+    user.niveau = "2bac"
+    user.filiere = "Bac Sciences Physiques"
+
+    now = datetime.now(timezone.utc)
+    user.updated_at = now
+
+    xp = (await db.execute(select(UserXP).where(UserXP.user_id == user.id))).scalar_one_or_none()
+    if xp is None:
+        db.add(UserXP(user_id=user.id, total_xp=0, streak_days=0, updated_at=now))
+
+    await db.commit()
+    await db.refresh(user)
 
     token = create_token(user.id, settings)
     return TokenOut(access_token=token, user=UserOut.model_validate(user))
@@ -284,3 +349,40 @@ async def update_profile(
     await db.commit()
     await db.refresh(user)
     return UserOut.model_validate(user)
+
+
+@router.post("/profile/me/media/{kind}", response_model=ProfileMediaOut)
+async def upload_profile_media(
+    kind: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if kind not in {"avatar", "banner"}:
+        raise HTTPException(status_code=404, detail="Unsupported profile media type")
+
+    extension = ALLOWED_PROFILE_MEDIA_TYPES.get(file.content_type or "")
+    if extension is None:
+        raise HTTPException(status_code=400, detail="Upload a JPG, PNG, WEBP, or GIF image")
+
+    content = await file.read(MAX_PROFILE_MEDIA_BYTES + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="Upload a non-empty image")
+    if len(content) > MAX_PROFILE_MEDIA_BYTES:
+        raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
+
+    media_root = Path("media") / "profile" / str(user.id)
+    media_root.mkdir(parents=True, exist_ok=True)
+    filename = f"{kind}-{uuid.uuid4().hex}{extension}"
+    path = media_root / filename
+    path.write_bytes(content)
+
+    url = f"/media/profile/{user.id}/{filename}"
+    if kind == "avatar":
+        user.avatar_url = url
+    else:
+        user.banner_url = url
+
+    await db.commit()
+    await db.refresh(user)
+    return ProfileMediaOut(url=url)

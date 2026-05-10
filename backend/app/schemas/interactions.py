@@ -23,6 +23,45 @@ class CommentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NoteCreateIn(BaseModel):
+    topic_id: int | None = None
+    topic_item_id: int | None = None
+    tab_content_id: int | None = None
+    body: str
+
+
+class NoteOut(BaseModel):
+    id: int
+    topic_id: int | None = None
+    topic_item_id: int | None = None
+    tab_content_id: int | None = None
+    body: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SavedItemCreateIn(BaseModel):
+    target_type: str
+    target_id: int
+    topic_id: int | None = None
+    topic_item_id: int | None = None
+    label: str = ""
+
+
+class SavedItemOut(BaseModel):
+    id: int
+    target_type: str
+    target_id: int
+    topic_id: int | None = None
+    topic_item_id: int | None = None
+    label: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class CommentCreateIn(BaseModel):
     body: str
     content_type: str

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select, update
@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
+from app.models.calendar import CalendarEvent
 from app.models.courses import Chapter, ChapterSection, Lesson, Subject, VideoQuizTrigger
 from app.models.gamification import (
     ContentProgress, DailyQuest, LessonProgress, QuizResult, UserXP, XPTransaction,
@@ -15,12 +16,81 @@ from app.models.users import User
 from app.schemas.gamification import (
     DailyQuestOut, LessonAccessOut, LessonProgressOut, SectionAccessOut,
     SectionCompleteIn, SubjectPlanOut, UserStatsOut, XPOut, XPTransactionOut,
-    ProgressUpdateIn, ProgressCompleteIn, LeaderboardEntryOut,
+    ProgressUpdateIn, ProgressCompleteIn, LeaderboardEntryOut, SidebarSummaryOut,
 )
 from app.schemas.courses import VideoQuizTriggerOut
 from app.services.xp import award_xp, calculate_level, generate_daily_quests
 
 router = APIRouter(tags=["Progress & Gamification"])
+
+
+def _sidebar_calendar_days() -> list[dict[str, int | str | bool]]:
+    days = [("Mon", 8), ("Tue", 9), ("Wed", 10), ("Thu", 11), ("Fri", 12), ("Sat", 13), ("Sun", 14)]
+    return [{"label": label, "value": value, "active": label == "Wed"} for label, value in days]
+
+
+def _sidebar_strike_days(streak_days: int) -> list[dict[str, str | bool]]:
+    labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    done_count = max(0, min(streak_days, len(labels)))
+    return [{"label": label, "done": index < done_count} for index, label in enumerate(labels)]
+
+
+def _format_sidebar_start(starts_at: datetime) -> str:
+    now = datetime.now(timezone.utc)
+    value = starts_at
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    if value.date() == now.date():
+        prefix = "Today"
+    elif (value.date() - now.date()).days == 1:
+        prefix = "Tomorrow"
+    else:
+        prefix = f"{value.strftime('%b')} {value.day}"
+    return f"{prefix} {value.strftime('%H:%M')}"
+
+
+async def _sidebar_live_events(db: AsyncSession) -> list[dict[str, int | str]]:
+    result = await db.execute(
+        select(CalendarEvent)
+        .where(
+            CalendarEvent.event_type == "live_session",
+            CalendarEvent.status.in_(["scheduled", "live"]),
+            CalendarEvent.ends_at >= datetime.now(timezone.utc),
+        )
+        .order_by(CalendarEvent.starts_at, CalendarEvent.id)
+        .limit(2)
+    )
+    events = result.scalars().all()
+    if events:
+        return [
+            {
+                "id": event.id,
+                "title": event.title,
+                "starts_at": _format_sidebar_start(event.starts_at),
+                "subject": event.subtitle or event.teacher_name or "Live session",
+                "href": f"/calendar?event={event.id}",
+                "status": "upcoming" if event.status == "scheduled" else event.status,
+            }
+            for event in events
+        ]
+    return [
+        {
+            "id": "math-live",
+            "title": "Continuity clinic",
+            "starts_at": "Today 18:30",
+            "subject": "Mathematics",
+            "href": "/calendar",
+            "status": "upcoming",
+        },
+        {
+            "id": "physics-live",
+            "title": "Wave speed review",
+            "starts_at": "Tomorrow 19:00",
+            "subject": "Physique-Chimie",
+            "href": "/calendar",
+            "status": "upcoming",
+        },
+    ]
 
 
 @router.get("/subject-plan/{subject_id}", response_model=SubjectPlanOut)
@@ -362,6 +432,36 @@ async def get_daily_quests(
 ):
     quests = await generate_daily_quests(user.id, db)
     return [DailyQuestOut.model_validate(q) for q in quests]
+
+
+@router.get("/sidebar-summary", response_model=SidebarSummaryOut)
+async def get_sidebar_summary(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    xp_result = await db.execute(select(UserXP).where(UserXP.user_id == user.id))
+    xp_record = xp_result.scalar_one_or_none()
+    streak_days = xp_record.streak_days if xp_record else 0
+
+    quests = await generate_daily_quests(user.id, db)
+    leaderboard = await get_leaderboard(limit=10, offset=0, search="", db=db, user=user)
+
+    live_events = await _sidebar_live_events(db)
+
+    return SidebarSummaryOut(
+        chrono_units=[
+            {"value": 8, "label": "Month"},
+            {"value": 3, "label": "Week"},
+            {"value": 14, "label": "Day"},
+            {"value": 16, "label": "Hour"},
+            {"value": 45, "label": "Minute"},
+        ],
+        calendar_days=_sidebar_calendar_days(),
+        live_events=live_events,
+        strike_days=_sidebar_strike_days(streak_days),
+        quests=[DailyQuestOut.model_validate(q) for q in quests],
+        leaderboard_entries=leaderboard,
+    )
 
 
 @router.post("/daily-quests/{quest_id}/claim")

@@ -13,6 +13,7 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     avatar_url: str
+    banner_url: str = ""
     role: str
     is_pro: bool
     niveau: str
@@ -41,8 +42,13 @@ class MessageOut(BaseModel):
 class UserUpdateIn(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    banner_url: Optional[str] = None
     niveau: Optional[str] = None
     filiere: Optional[str] = None
+
+
+class ProfileMediaOut(BaseModel):
+    url: str
 
 
 class SignupIn(BaseModel):

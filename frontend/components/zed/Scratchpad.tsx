@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Trash2, Calculator } from 'lucide-react'
+import { CornerDownLeft, Pin, Trash2, Calculator } from 'lucide-react'
 import 'katex/dist/katex.min.css'
+import { evaluateMathExpression } from '@/lib/zedMath'
 
 const STORAGE_KEY = 'kresco_zed_scratchpad'
 
@@ -21,6 +22,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<{ expr: string; result: string }[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const hasInput = input.trim().length > 0
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -42,39 +44,14 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
   }, [history])
 
   function evaluate(expr: string): string {
-    try {
-      // Basic safe math evaluation
-      const sanitized = expr
-        .replace(/\^/g, '**')
-        .replace(/sqrt\(/g, 'Math.sqrt(')
-        .replace(/sin\(/g, 'Math.sin(')
-        .replace(/cos\(/g, 'Math.cos(')
-        .replace(/tan\(/g, 'Math.tan(')
-        .replace(/log\(/g, 'Math.log(')
-        .replace(/ln\(/g, 'Math.log(')
-        .replace(/abs\(/g, 'Math.abs(')
-        .replace(/pi/g, 'Math.PI')
-        .replace(/e(?![a-z])/g, 'Math.E')
-
-      // Only allow math characters
-      if (/[^0-9+\-*/().%\s,Math.sqrtsincoanglobEPI]/.test(sanitized.replace(/Math\.\w+/g, ''))) {
-        return 'Expression invalide'
-      }
-
-      const result = Function('"use strict"; return (' + sanitized + ')')()
-      if (typeof result === 'number') {
-        return Number.isInteger(result) ? String(result) : result.toFixed(6).replace(/\.?0+$/, '')
-      }
-      return String(result)
-    } catch {
-      return 'Erreur'
-    }
+    return evaluateMathExpression(expr)
   }
 
   function handleSubmit() {
-    if (!input.trim()) return
-    const result = evaluate(input.trim())
-    setHistory(prev => [...prev, { expr: input.trim(), result }])
+    const expr = input.trim()
+    if (!expr) return
+    const result = evaluate(expr)
+    setHistory(prev => [...prev, { expr, result }])
     setInput('')
   }
 
@@ -83,84 +60,132 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-900/80">
+    <div className="flex h-full flex-col bg-stone-50 text-slate-900">
+      <div className="flex items-center justify-between border-b border-stone-200 bg-white px-4 py-3 shadow-sm">
         <div className="flex items-center gap-2">
-          <Calculator size={14} className="text-slate-400" />
-          <span className="text-xs font-medium text-slate-400">Brouillon / Calculs</span>
+          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 text-amber-700">
+            <Calculator size={15} />
+          </span>
+          <div>
+            <p className="text-sm font-semibold leading-tight text-slate-900">Notes d&apos;etude</p>
+            <p className="text-[11px] leading-tight text-slate-500">Brouillon et calculs rapides</p>
+          </div>
         </div>
         {history.length > 0 && (
           <button
             onClick={clearHistory}
-            className="text-slate-500 hover:text-red-400 transition p-1"
+            className="rounded-md p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
             title="Effacer"
+            aria-label="Effacer l'historique"
           >
-            <Trash2 size={13} />
+            <Trash2 size={15} />
           </button>
         )}
       </div>
 
       {/* Pinned snippets from PDF */}
       {pinnedSnippets.length > 0 && (
-        <div className="px-4 py-3 border-b border-slate-800 space-y-2">
-          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">Epingles</p>
-          {pinnedSnippets.map(snippet => (
-            <div key={snippet.id} className="relative group">
-              {snippet.type === 'image' ? (
-                <img src={snippet.content} alt="Snippet" className="rounded-lg max-h-32 w-auto" />
-              ) : (
-                <div className="bg-slate-800 rounded-lg px-3 py-2 text-xs text-slate-300">
-                  {snippet.content}
-                </div>
-              )}
-              <button
-                onClick={() => onRemoveSnippet(snippet.id)}
-                className="absolute -top-1 -right-1 w-5 h-5 bg-slate-700 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition hover:bg-red-600"
-              >
-                <Trash2 size={10} className="text-white" />
-              </button>
-            </div>
-          ))}
+        <div className="space-y-2 border-b border-stone-200 bg-amber-50/50 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+              <Pin size={12} />
+              Epingles
+            </p>
+            <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500 shadow-sm ring-1 ring-stone-200">
+              {pinnedSnippets.length}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {pinnedSnippets.map(snippet => (
+              <div key={snippet.id} className="group relative rounded-lg border border-stone-200 bg-white p-2 shadow-sm">
+                {snippet.type === 'image' ? (
+                  <img
+                    src={snippet.content}
+                    alt="Extrait epingle"
+                    className="max-h-36 w-full rounded-md object-contain"
+                  />
+                ) : (
+                  <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-stone-50 px-3 py-2 text-sm leading-relaxed text-slate-700">
+                    {snippet.content}
+                  </div>
+                )}
+                <button
+                  onClick={() => onRemoveSnippet(snippet.id)}
+                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-400 opacity-0 shadow-sm ring-1 ring-stone-200 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus:opacity-100"
+                  title="Retirer l'epingle"
+                  aria-label="Retirer l'epingle"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Calculation history */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
         {history.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-slate-400 text-sm">Aucun calcul</p>
-            <p className="text-slate-300 text-xs mt-1">Tapez une expression ci-dessous</p>
+          <div className="rounded-lg border border-dashed border-stone-300 bg-white px-4 py-8 text-center">
+            <p className="text-sm font-medium text-slate-700">Aucun calcul</p>
+            <p className="mt-1 text-xs text-slate-500">Tapez une expression ci-dessous pour garder une trace.</p>
           </div>
         )}
-        {history.map((entry, i) => (
-          <div key={i} className="space-y-0.5">
-            <p className="text-xs text-slate-500 font-mono">{entry.expr}</p>
-            <p className={`text-sm font-mono font-bold ${entry.result === 'Erreur' || entry.result === 'Expression invalide' ? 'text-red-400' : 'text-indigo-300'}`}>
-              = {entry.result}
-            </p>
-          </div>
-        ))}
+        {history.map((entry, i) => {
+          const isError = entry.result === 'Erreur'
+
+          return (
+            <div key={`${entry.expr}-${i}`} className="rounded-lg border border-stone-200 bg-white px-3 py-2.5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 flex-1 break-words font-mono text-xs leading-relaxed text-slate-500">
+                  {entry.expr}
+                </p>
+                <span className="shrink-0 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                  #{i + 1}
+                </span>
+              </div>
+              <p className={`mt-1 break-words font-mono text-base font-semibold ${isError ? 'text-red-600' : 'text-emerald-700'}`}>
+                = {entry.result}
+              </p>
+            </div>
+          )
+        })}
         <div ref={bottomRef} />
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-slate-800">
-        <div className="flex gap-2">
-          <input
+      <div className="border-t border-stone-200 bg-white px-4 py-3 shadow-[0_-1px_8px_rgba(15,23,42,0.04)]">
+        <div className="rounded-lg border border-stone-200 bg-stone-50 p-2 transition focus-within:border-amber-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-100">
+          <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                handleSubmit()
+              }
+            }}
             placeholder="Ex: sqrt(144) + 3^2"
-            className="flex-1 bg-slate-800 border border-slate-700 text-white text-sm font-mono px-3 py-2 rounded-lg outline-none focus:border-indigo-500 transition placeholder:text-slate-400"
+            rows={3}
+            className="max-h-32 min-h-20 w-full resize-none bg-transparent px-1 py-1 font-mono text-sm leading-relaxed text-slate-900 outline-none placeholder:text-slate-400"
+            aria-label="Expression mathematique"
           />
-          <button
-            onClick={handleSubmit}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition"
-          >
-            =
-          </button>
+          <div className="flex items-center justify-between gap-3 border-t border-stone-200 pt-2">
+            <p className="min-w-0 text-[11px] leading-snug text-slate-500">
+              sqrt, sin, cos, tan, ln, log, pi, e, ^ supportes
+            </p>
+            <button
+              onClick={handleSubmit}
+              disabled={!hasInput}
+              className="flex h-8 min-w-12 items-center justify-center gap-1 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
+              title="Calculer"
+              aria-label="Calculer l'expression"
+            >
+              <span>=</span>
+              <CornerDownLeft size={13} />
+            </button>
+          </div>
         </div>
-        <p className="text-[10px] text-slate-400 mt-1.5">sqrt, sin, cos, tan, log, pi, ^ supportes</p>
       </div>
     </div>
   )

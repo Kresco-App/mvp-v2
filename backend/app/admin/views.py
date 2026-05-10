@@ -1,8 +1,16 @@
 from sqladmin import ModelView
 
-from app.models.courses import Activity, Chapter, ChapterBlock, ChapterSection, CoursePDF, Lesson, Subject, VideoQuizTrigger
-from app.models.gamification import ContentProgress, DailyQuest, LessonProgress, QuizResult, UserXP, XPTransaction
-from app.models.interactions import Comment
+from app.models.calendar import CalendarEvent
+from app.models.courses import (
+    Activity, Chapter, ChapterBlock, ChapterSection, ConceptTag, CoursePDF, Exam,
+    ExamProblem, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection,
+    VideoQuizTrigger,
+)
+from app.models.gamification import (
+    ActivityEvent, ContentProgress, DailyQuest, LessonProgress, QuizAttempt, QuizResult,
+    TopicItemProgress, UserXP, XPTransaction,
+)
+from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
 from app.models.quizzes import Quiz, QuizOption, QuizQuestion
 from app.models.users import User
@@ -214,6 +222,24 @@ class DailyQuestAdmin(ModelView, model=DailyQuest):
     can_view_details = True
 
 
+class CalendarEventAdmin(ModelView, model=CalendarEvent):
+    name = "Calendar Event"
+    name_plural = "Calendar Events"
+    icon = "fa-solid fa-calendar-days"
+    column_list = [
+        CalendarEvent.id, CalendarEvent.event_type, CalendarEvent.title,
+        CalendarEvent.subject_id, CalendarEvent.topic_id, CalendarEvent.starts_at,
+        CalendarEvent.ends_at, CalendarEvent.status,
+    ]
+    column_searchable_list = [CalendarEvent.title, CalendarEvent.subtitle, CalendarEvent.teacher_name]
+    column_sortable_list = [CalendarEvent.starts_at, CalendarEvent.ends_at, CalendarEvent.status]
+    form_excluded_columns = ["subject", "topic"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
 class ContentProgressAdmin(ModelView, model=ContentProgress):
     name = "Content Progress"
     name_plural = "Content Progress Records"
@@ -234,6 +260,167 @@ class VideoQuizTriggerAdmin(ModelView, model=VideoQuizTrigger):
     form_excluded_columns = ["lesson"]
     can_create = True
     can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class TopicAdmin(ModelView, model=Topic):
+    name = "Topic"
+    name_plural = "Topics"
+    icon = "fa-solid fa-diagram-project"
+    column_list = [Topic.id, Topic.title, Topic.subject_id, Topic.status, Topic.order, Topic.is_free_preview]
+    column_searchable_list = [Topic.title, Topic.slug]
+    column_sortable_list = [Topic.order, Topic.created_at]
+    form_excluded_columns = ["subject", "sections", "resources"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class TopicSectionAdmin(ModelView, model=TopicSection):
+    name = "Topic Section"
+    name_plural = "Topic Sections"
+    icon = "fa-solid fa-list"
+    column_list = [TopicSection.id, TopicSection.topic_id, TopicSection.title, TopicSection.section_type, TopicSection.order]
+    form_excluded_columns = ["topic", "items"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class TopicItemAdmin(ModelView, model=TopicItem):
+    name = "Topic Item"
+    name_plural = "Topic Items"
+    icon = "fa-solid fa-play"
+    column_list = [TopicItem.id, TopicItem.topic_id, TopicItem.section_id, TopicItem.title, TopicItem.item_type, TopicItem.status, TopicItem.order]
+    column_searchable_list = [TopicItem.title]
+    form_excluded_columns = ["topic", "section", "primary_resource", "tabs"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ResourceAdmin(ModelView, model=Resource):
+    name = "Resource"
+    name_plural = "Resources"
+    icon = "fa-solid fa-folder-open"
+    column_list = [Resource.id, Resource.topic_id, Resource.title, Resource.resource_type, Resource.provider, Resource.status]
+    column_searchable_list = [Resource.title]
+    form_excluded_columns = ["topic"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class TabContentAdmin(ModelView, model=TabContent):
+    name = "Tab Content"
+    name_plural = "Tab Contents"
+    icon = "fa-solid fa-table-columns"
+    column_list = [TabContent.id, TabContent.topic_item_id, TabContent.label, TabContent.tab_type, TabContent.status, TabContent.order]
+    form_excluded_columns = ["topic_item", "resource"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ConceptTagAdmin(ModelView, model=ConceptTag):
+    name = "Concept Tag"
+    name_plural = "Concept Tags"
+    icon = "fa-solid fa-tag"
+    column_list = [ConceptTag.id, ConceptTag.slug, ConceptTag.label, ConceptTag.tag_type]
+    column_searchable_list = [ConceptTag.slug, ConceptTag.label]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ExamAdmin(ModelView, model=Exam):
+    name = "Exam"
+    name_plural = "Exams"
+    icon = "fa-solid fa-file-lines"
+    column_list = [Exam.id, Exam.subject_id, Exam.title, Exam.year, Exam.session, Exam.status]
+    form_excluded_columns = ["subject", "problems"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ExamProblemAdmin(ModelView, model=ExamProblem):
+    name = "Exam Problem"
+    name_plural = "Exam Problems"
+    icon = "fa-solid fa-clipboard-question"
+    column_list = [ExamProblem.id, ExamProblem.exam_id, ExamProblem.topic_id, ExamProblem.title, ExamProblem.difficulty, ExamProblem.status]
+    column_searchable_list = [ExamProblem.title, ExamProblem.statement]
+    form_excluded_columns = ["exam", "topic", "video_resource"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class UserNoteAdmin(ModelView, model=UserNote):
+    name = "User Note"
+    name_plural = "User Notes"
+    icon = "fa-solid fa-note-sticky"
+    column_list = [UserNote.id, UserNote.user_id, UserNote.topic_id, UserNote.topic_item_id, UserNote.updated_at]
+    form_excluded_columns = ["user"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class SavedItemAdmin(ModelView, model=SavedItem):
+    name = "Saved Item"
+    name_plural = "Saved Items"
+    icon = "fa-solid fa-bookmark"
+    column_list = [SavedItem.id, SavedItem.user_id, SavedItem.target_type, SavedItem.target_id, SavedItem.label, SavedItem.created_at]
+    form_excluded_columns = ["user"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ActivityEventAdmin(ModelView, model=ActivityEvent):
+    name = "Activity Event"
+    name_plural = "Activity Events"
+    icon = "fa-solid fa-wave-square"
+    column_list = [ActivityEvent.id, ActivityEvent.user_id, ActivityEvent.event_type, ActivityEvent.target_type, ActivityEvent.target_id, ActivityEvent.created_at]
+    form_excluded_columns = ["user"]
+    can_create = False
+    can_edit = False
+    can_delete = True
+    can_view_details = True
+
+
+class TopicItemProgressAdmin(ModelView, model=TopicItemProgress):
+    name = "Topic Item Progress"
+    name_plural = "Topic Item Progress"
+    icon = "fa-solid fa-bars-progress"
+    column_list = [TopicItemProgress.id, TopicItemProgress.user_id, TopicItemProgress.topic_id, TopicItemProgress.topic_item_id, TopicItemProgress.status, TopicItemProgress.best_score]
+    form_excluded_columns = ["user"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class QuizAttemptAdmin(ModelView, model=QuizAttempt):
+    name = "Quiz Attempt"
+    name_plural = "Quiz Attempts"
+    icon = "fa-solid fa-circle-check"
+    column_list = [QuizAttempt.id, QuizAttempt.user_id, QuizAttempt.topic_item_id, QuizAttempt.tab_content_id, QuizAttempt.score, QuizAttempt.passed, QuizAttempt.attempt_number]
+    form_excluded_columns = ["user"]
+    can_create = False
+    can_edit = False
     can_delete = True
     can_view_details = True
 
@@ -269,8 +456,11 @@ ALL_VIEWS = [
     UserAdmin, SubjectAdmin, ChapterAdmin, LessonAdmin, ChapterSectionAdmin,
     ChapterBlockAdmin, ActivityAdmin, CoursePDFAdmin, QuizAdmin, QuizQuestionAdmin,
     QuizOptionAdmin, LessonProgressAdmin, UserXPAdmin, XPTransactionAdmin,
-    QuizResultAdmin, DailyQuestAdmin, ContentProgressAdmin, VideoQuizTriggerAdmin,
-    CommentAdmin, NotificationAdmin,
+    QuizResultAdmin, DailyQuestAdmin, CalendarEventAdmin, ContentProgressAdmin, VideoQuizTriggerAdmin,
+    TopicAdmin, TopicSectionAdmin, TopicItemAdmin, ResourceAdmin, TabContentAdmin,
+    ConceptTagAdmin, ExamAdmin, ExamProblemAdmin, UserNoteAdmin, SavedItemAdmin,
+    ActivityEventAdmin, TopicItemProgressAdmin, QuizAttemptAdmin, CommentAdmin,
+    NotificationAdmin,
 ]
 
 

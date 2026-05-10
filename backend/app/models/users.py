@@ -19,6 +19,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), default="")
     avatar_url: Mapped[str] = mapped_column(String(500), default="")
+    banner_url: Mapped[str] = mapped_column(String(500), default="")
     role: Mapped[str] = mapped_column(String(20), default="student")
     niveau: Mapped[str] = mapped_column(String(10), default="")
     filiere: Mapped[str] = mapped_column(String(100), default="")

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { Pin, Scissors, Upload, FileText, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { FileText, Pin, Scissors, Trash2, Upload, X } from 'lucide-react'
 
 interface PinnedSnippet {
   id: string
@@ -13,38 +13,196 @@ interface Props {
   onPinSnippet: (snippet: PinnedSnippet) => void
 }
 
+interface LocalDocument {
+  id: string
+  name: string
+  type: string
+  size: number
+  updatedAt: number
+  blob: Blob
+}
+
+const DB_NAME = 'kresco_zed_workspace'
+const DB_VERSION = 1
+const DOC_STORE = 'documents'
+const ACTIVE_DOC_KEY = 'kresco_zed_active_document'
+
+function openDocumentDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(DOC_STORE)) {
+        db.createObjectStore(DOC_STORE, { keyPath: 'id' })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+
+async function readAllDocuments(): Promise<LocalDocument[]> {
+  const db = await openDocumentDb()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(DOC_STORE, 'readonly')
+    const request = transaction.objectStore(DOC_STORE).getAll()
+    request.onsuccess = () => resolve(request.result as LocalDocument[])
+    request.onerror = () => reject(request.error)
+    transaction.oncomplete = () => db.close()
+  })
+}
+
+async function saveDocument(document: LocalDocument): Promise<void> {
+  const db = await openDocumentDb()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(DOC_STORE, 'readwrite')
+    transaction.objectStore(DOC_STORE).put(document)
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    transaction.onerror = () => reject(transaction.error)
+  })
+}
+
+async function deleteDocument(id: string): Promise<void> {
+  const db = await openDocumentDb()
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(DOC_STORE, 'readwrite')
+    transaction.objectStore(DOC_STORE).delete(id)
+    transaction.oncomplete = () => {
+      db.close()
+      resolve()
+    }
+    transaction.onerror = () => reject(transaction.error)
+  })
+}
+
+function formatBytes(size: number) {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default function PdfViewer({ onPinSnippet }: Props) {
+  const [documents, setDocuments] = useState<LocalDocument[]>([])
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [status, setStatus] = useState('Importez un enonce ou un cours PDF')
   const [isSnipping, setIsSnipping] = useState(false)
   const [snipStart, setSnipStart] = useState<{ x: number; y: number } | null>(null)
   const [snipRect, setSnipRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
+  const objectUrlRef = useRef<string | null>(null)
+  const activeDocument = documents.find((item) => item.id === activeDocumentId) ?? null
 
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    let cancelled = false
+
+    readAllDocuments()
+      .then((items) => {
+        if (cancelled) return
+        const sorted = items.sort((a, b) => b.updatedAt - a.updatedAt)
+        setDocuments(sorted)
+        const savedActive = localStorage.getItem(ACTIVE_DOC_KEY)
+        const active = sorted.find((item) => item.id === savedActive) ?? sorted[0]
+        if (active) setActiveDocumentId(active.id)
+      })
+      .catch(() => setStatus('Stockage local indisponible'))
+
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    const active = documents.find((item) => item.id === activeDocumentId)
+
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+
+    if (!active) {
+      setPdfUrl(null)
+      return
+    }
+
+    const nextUrl = URL.createObjectURL(active.blob)
+    objectUrlRef.current = nextUrl
+    setPdfUrl(nextUrl)
+    localStorage.setItem(ACTIVE_DOC_KEY, active.id)
+
+    return () => {
+      if (objectUrlRef.current === nextUrl) {
+        URL.revokeObjectURL(nextUrl)
+        objectUrlRef.current = null
+      }
+    }
+  }, [activeDocumentId, documents])
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl)
-    const url = URL.createObjectURL(file)
-    setPdfUrl(url)
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setStatus('Seuls les fichiers PDF sont pris en charge pour cette version')
+      e.target.value = ''
+      return
+    }
+
+    const document: LocalDocument = {
+      id: `doc_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      name: file.name,
+      type: file.type || 'application/pdf',
+      size: file.size,
+      updatedAt: Date.now(),
+      blob: file,
+    }
+
+    try {
+      await saveDocument(document)
+      setDocuments(prev => [document, ...prev])
+      setActiveDocumentId(document.id)
+      setStatus('Document sauvegarde hors ligne')
+    } catch {
+      setStatus('Impossible de sauvegarder ce document hors ligne')
+    } finally {
+      e.target.value = ''
+    }
   }
 
-  // Pin selected text from outside the iframe
+  async function removeDocument(id: string) {
+    try {
+      await deleteDocument(id)
+      setDocuments(prev => {
+        const next = prev.filter(item => item.id !== id)
+        if (activeDocumentId === id) {
+          const replacement = next[0] ?? null
+          setActiveDocumentId(replacement?.id ?? null)
+          if (replacement) localStorage.setItem(ACTIVE_DOC_KEY, replacement.id)
+          else localStorage.removeItem(ACTIVE_DOC_KEY)
+        }
+        return next
+      })
+      setStatus('Document supprime du stockage local')
+    } catch {
+      setStatus('Impossible de supprimer ce document')
+    }
+  }
+
   function handlePinText() {
     const text = window.getSelection()?.toString().trim()
     if (text) {
       onPinSnippet({ id: `pin_${Date.now()}`, content: text, type: 'text' })
       window.getSelection()?.removeAllRanges()
-    } else {
-      // Let user type something to pin
-      const val = prompt('Texte a epingler :')
-      if (val?.trim()) {
-        onPinSnippet({ id: `pin_${Date.now()}`, content: val.trim(), type: 'text' })
-      }
+      return
+    }
+
+    const value = prompt('Texte a epingler :')
+    if (value?.trim()) {
+      onPinSnippet({ id: `pin_${Date.now()}`, content: value.trim(), type: 'text' })
     }
   }
 
-  // Snip overlay handlers
   function handleMouseDown(e: React.MouseEvent) {
     if (!isSnipping || !overlayRef.current) return
     const rect = overlayRef.current.getBoundingClientRect()
@@ -65,106 +223,172 @@ export default function PdfViewer({ onPinSnippet }: Props) {
     })
   }
 
-  async function handleMouseUp() {
+  function handleMouseUp() {
     if (!isSnipping || !snipRect || snipRect.w < 10 || snipRect.h < 10) {
-      setSnipStart(null); setSnipRect(null)
+      setSnipStart(null)
+      setSnipRect(null)
       return
     }
 
-    // Use html2canvas-free approach: capture via OffscreenCanvas + CSS snapshot
-    // Since the PDF is in an iframe (cross-origin restricted), capture the overlay area
-    // and add as a placeholder snippet with coordinates for reference
-    const label = `Zone PDF (${Math.round(snipRect.x)},${Math.round(snipRect.y)}) ${Math.round(snipRect.w)}×${Math.round(snipRect.h)}px`
-    onPinSnippet({ id: `snip_${Date.now()}`, content: label, type: 'text' })
+    const active = documents.find((item) => item.id === activeDocumentId)
+    onPinSnippet({
+      id: `snip_${Date.now()}`,
+      content: `${active?.name ?? 'PDF'} - zone (${Math.round(snipRect.x)},${Math.round(snipRect.y)}) ${Math.round(snipRect.w)}x${Math.round(snipRect.h)}px`,
+      type: 'text',
+    })
 
-    setSnipStart(null); setSnipRect(null)
+    setSnipStart(null)
+    setSnipRect(null)
     setIsSnipping(false)
   }
 
   if (!pdfUrl) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-5 p-10 bg-slate-950">
-        <div className="w-20 h-20 rounded-2xl bg-slate-800/80 flex items-center justify-center">
-          <FileText size={34} className="text-slate-500" />
+      <div className="flex h-full flex-col items-center justify-center bg-slate-50 p-6 text-slate-900">
+        <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50">
+            <FileText size={30} className="text-indigo-600" />
+          </div>
+          <p className="text-base font-semibold text-slate-950">Aucun PDF ouvert</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{status}</p>
+
+          {documents.length > 0 && (
+            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-left">
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Documents locaux
+              </label>
+              <select
+                value={activeDocumentId ?? ''}
+                onChange={(event) => setActiveDocumentId(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="" disabled>Choisir un PDF</option>
+                {documents.map((document) => (
+                  <option key={document.id} value={document.id}>
+                    {document.name} ({formatBytes(document.size)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <label className="mt-5 inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-within:ring-2 focus-within:ring-indigo-200">
+            <Upload size={16} />
+            Importer un PDF
+            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" />
+          </label>
         </div>
-        <div className="text-center">
-          <p className="text-white font-semibold mb-1">Aucun PDF chargé</p>
-          <p className="text-slate-500 text-sm">Importez un énoncé ou un cours PDF</p>
-        </div>
-        <label className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl cursor-pointer transition">
-          <Upload size={14} />
-          Importer un PDF
-          <input type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" />
-        </label>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-950">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 bg-slate-900/80 flex-shrink-0">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <FileText size={13} />
-          <span className="font-medium text-slate-400">Visionneuse PDF</span>
-          <span className="text-slate-400">(zoom natif inclus)</span>
+    <div className="flex h-full flex-col bg-slate-100 text-slate-900">
+      <div className="flex flex-shrink-0 flex-col gap-3 border-b border-slate-200 bg-white px-3 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50">
+            <FileText size={17} className="text-indigo-600" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-sm font-semibold text-slate-950">{activeDocument?.name ?? 'Visionneuse PDF'}</p>
+              {activeDocument && (
+                <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 sm:inline-flex">
+                  {formatBytes(activeDocument.size)}
+                </span>
+              )}
+            </div>
+            <p className="truncate text-xs text-slate-500">Sauvegarde locale hors ligne active</p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {documents.length > 0 && (
+            <select
+              value={activeDocumentId ?? ''}
+              onChange={(event) => setActiveDocumentId(event.target.value)}
+              className="min-h-9 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 sm:min-w-56 lg:max-w-64"
+              title="Documents locaux"
+            >
+              {documents.map((document) => (
+                <option key={document.id} value={document.id}>
+                  {document.name} ({formatBytes(document.size)})
+                </option>
+              ))}
+            </select>
+          )}
+
           <button
             onClick={handlePinText}
-            className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-indigo-600/15 transition"
+            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+            title="Epingler du texte"
+            aria-label="Epingler du texte"
           >
-            <Pin size={12} />
-            Épingler
+            <Pin size={14} />
+            <span className="hidden sm:inline">Epingler</span>
           </button>
 
           <button
             onClick={() => setIsSnipping(!isSnipping)}
-            className={`flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-lg transition ${
-              isSnipping ? 'bg-amber-600/20 text-amber-300' : 'text-slate-400 hover:text-amber-300 hover:bg-amber-600/15'
+            className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+              isSnipping
+                ? 'border-amber-300 bg-amber-50 text-amber-700'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700'
             }`}
+            title={isSnipping ? 'Glissez pour capturer une zone' : 'Capturer une zone'}
+            aria-label={isSnipping ? 'Glissez pour capturer une zone' : 'Capturer une zone'}
           >
-            <Scissors size={12} />
-            {isSnipping ? 'Cliquez et glissez…' : 'Capturer zone'}
+            <Scissors size={14} />
+            <span className="hidden sm:inline">{isSnipping ? 'Glissez' : 'Capturer'}</span>
           </button>
 
           {isSnipping && (
-            <button onClick={() => { setIsSnipping(false); setSnipRect(null) }} className="p-1 text-slate-500 hover:text-white">
-              <X size={13} />
+            <button
+              onClick={() => { setIsSnipping(false); setSnipRect(null) }}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
+              title="Annuler la capture"
+            >
+              <X size={15} />
             </button>
           )}
 
-          <label className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 cursor-pointer transition">
-            <Upload size={12} />
-            Changer
-            <input type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" />
+          <label className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-within:ring-2 focus-within:ring-indigo-100">
+            <Upload size={14} />
+            <span className="hidden sm:inline">Changer</span>
+            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Changer de PDF" />
           </label>
+
+          {activeDocumentId && (
+            <button
+              onClick={() => removeDocument(activeDocumentId)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-100 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+              title="Supprimer du stockage local"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* PDF iframe + snip overlay */}
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative flex-1 overflow-hidden bg-slate-200">
         <iframe
           ref={iframeRef}
           src={pdfUrl}
-          className="w-full h-full border-0"
+          className="h-full w-full border-0 bg-white"
           title="PDF Viewer"
         />
 
-        {/* Transparent snip overlay */}
         {isSnipping && (
           <div
             ref={overlayRef}
-            className="absolute inset-0 cursor-crosshair"
-            style={{ background: 'rgba(0,0,0,0.05)' }}
+            className="absolute inset-0 cursor-crosshair bg-indigo-950/5"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
           >
             {snipRect && (
               <div
-                className="absolute border-2 border-amber-400 bg-amber-400/10 pointer-events-none"
+                className="pointer-events-none absolute border-2 border-amber-400 bg-amber-300/20 shadow-[0_0_0_9999px_rgba(15,23,42,0.08)]"
                 style={{ left: snipRect.x, top: snipRect.y, width: snipRect.w, height: snipRect.h }}
               />
             )}
