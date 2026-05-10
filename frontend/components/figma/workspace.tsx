@@ -11,6 +11,7 @@ export type VideoLearningWorkspaceProps = {
   title?: string
   videoId?: string
   srcDoc?: string
+  toolbar?: React.ReactNode
   tabs?: FigmaTabItem[]
   rail?: CourseContentRailProps
   onTabSelect?: (tab: FigmaTabItem) => void
@@ -22,6 +23,7 @@ export function VideoLearningWorkspace({
   title = 'Mathematics: Continuity at a single point and extension',
   srcDoc,
   videoId = 'dQw4w9WgXcQ',
+  toolbar,
   tabs = figmaWorkspaceTabs,
   rail,
   onTabSelect,
@@ -30,6 +32,7 @@ export function VideoLearningWorkspace({
   return (
     <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-[12px] bg-white pb-[120px] pt-[32px]" data-figma-workspace>
       <WorkspaceHeader breadcrumb={breadcrumb} title={title} />
+      {toolbar}
 
       <div className="grid grid-cols-[minmax(720px,1057px)_351px] justify-between max-[1100px]:grid-cols-1" data-figma-workspace-grid>
         <main className="min-w-0 overflow-hidden pb-[160px] pt-[48px]">

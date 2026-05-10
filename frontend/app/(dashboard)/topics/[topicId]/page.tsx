@@ -10,7 +10,10 @@ import {
   BookOpen,
   Check,
   FileText,
+  ListChecks,
+  Search,
   StickyNote,
+  Wrench,
   type LucideIcon,
 } from 'lucide-react'
 import api from '@/lib/axios'
@@ -81,11 +84,14 @@ interface TopicWorkspace {
   search_results: TopicItem[]
 }
 
-type WorkspaceTabSlot = 'course' | 'lab' | 'resources' | 'notes'
+type WorkspaceMode = 'path' | 'tools'
+
+type WorkspaceTabSlot = 'course' | 'lab' | 'quiz' | 'resources' | 'notes'
 
 const workspaceTabSlots: { id: WorkspaceTabSlot; label: string; icon: LucideIcon; tabTypes: string[] }[] = [
   { id: 'course', label: 'Course', icon: BookOpen, tabTypes: ['course', 'summary', 'transcript', 'formula', 'definitions', 'vocabulary', 'methods', 'mistakes', 'text'] },
   { id: 'lab', label: 'Lab', icon: Beaker, tabTypes: ['lab', 'interactive', 'simulator'] },
+  { id: 'quiz', label: 'Quiz', icon: ListChecks, tabTypes: ['quiz', 'checkpoint_quiz', 'questions'] },
   { id: 'resources', label: 'Resources', icon: FileText, tabTypes: ['resources', 'resource', 'pdf', 'attachment', 'worksheet'] },
   { id: 'notes', label: 'Notes', icon: StickyNote, tabTypes: ['notes'] },
 ]
@@ -446,12 +452,180 @@ function TabPanel({
   )
 }
 
+function TopicWorkspaceToolbar({
+  query,
+  mode,
+  resultCount,
+  onQueryChange,
+  onSearch,
+  onModeChange,
+}: {
+  query: string
+  mode: WorkspaceMode
+  resultCount: number
+  onQueryChange: (value: string) => void
+  onSearch: () => void
+  onModeChange: (mode: WorkspaceMode) => void
+}) {
+  return (
+    <div className="kresco-enter flex max-w-[1057px] flex-wrap items-center justify-between gap-3 pt-2" style={{ animationDelay: '40ms' }}>
+      <form
+        className="relative min-w-[280px] flex-1"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSearch()
+        }}
+      >
+        <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          className="figma-input w-full pl-11"
+          placeholder="Search this topic"
+          aria-label="Search this topic"
+        />
+      </form>
+
+      <div className="inline-flex h-[44px] rounded-[14px] bg-[#f7f8fb] p-1">
+        <button
+          type="button"
+          onClick={() => onModeChange('path')}
+          className={`inline-flex items-center gap-2 rounded-[11px] px-4 text-[13px] font-black transition ${
+            mode === 'path' ? 'bg-white text-[#3f3f46] shadow-[0_4px_12px_rgba(24,24,27,0.08)]' : 'text-[#71717b]'
+          }`}
+        >
+          <ListChecks size={15} />
+          Main Path
+        </button>
+        <button
+          type="button"
+          onClick={() => onModeChange('tools')}
+          className={`inline-flex items-center gap-2 rounded-[11px] px-4 text-[13px] font-black transition ${
+            mode === 'tools' ? 'bg-white text-[#3f3f46] shadow-[0_4px_12px_rgba(24,24,27,0.08)]' : 'text-[#71717b]'
+          }`}
+        >
+          <Wrench size={15} />
+          Study Tools
+        </button>
+      </div>
+
+      {query.trim() && (
+        <span className="text-[12px] font-black text-[#71717b]">
+          {resultCount} result{resultCount === 1 ? '' : 's'}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function TopicSearchResults({
+  query,
+  items,
+  onSelect,
+}: {
+  query: string
+  items: TopicItem[]
+  onSelect: (item: TopicItem) => void
+}) {
+  if (!query.trim()) return null
+
+  return (
+    <section className="rounded-[16px] border border-[#e4e4e7] bg-[#f7f8fb] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <strong className="text-[13px] font-black text-[#3f3f46]">Topic search</strong>
+        <span className="text-[12px] font-black text-[#9f9fa9]">{items.length} match{items.length === 1 ? '' : 'es'}</span>
+      </div>
+      {items.length > 0 ? (
+        <div className="grid gap-2">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelect(item)}
+              className="rounded-[12px] bg-white px-4 py-3 text-left text-[13px] font-black text-[#3f3f46] transition hover:-translate-y-0.5 hover:shadow-[0_10px_22px_rgba(24,24,27,0.08)]"
+            >
+              {item.title}
+              <span className="ml-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9f9fa9]">{item.item_type}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="m-0 text-[13px] font-bold text-[#71717b]">No item, tab, resource, or concept tag matched this search.</p>
+      )}
+    </section>
+  )
+}
+
+function StudyToolsPanel({
+  workspace,
+  onTabSelect,
+}: {
+  workspace: TopicWorkspace
+  onTabSelect: (itemId: number, slot: WorkspaceTabSlot) => void
+}) {
+  const notes = workspace.study_tools.notes
+  const itemByTabId = new Map<number, TopicItem>()
+  workspace.sections.forEach((section) => {
+    section.items.forEach((item) => {
+      item.tabs.forEach((tab) => itemByTabId.set(tab.id, item))
+    })
+  })
+  const tools = [
+    { label: 'Quizzes', count: workspace.study_tools.quizzes.length },
+    { label: 'Interactive', count: workspace.study_tools.interactive.length },
+    { label: 'Resources', count: workspace.study_tools.resources.length },
+    { label: 'Notes', count: notes.length },
+  ]
+
+  return (
+    <section className="grid gap-4 rounded-[16px] border border-[#e4e4e7] bg-white p-4">
+      <div className="grid grid-cols-4 gap-2 max-[800px]:grid-cols-2">
+        {tools.map((tool) => (
+          <div key={tool.label} className="rounded-[14px] bg-[#f7f8fb] px-4 py-3">
+            <strong className="block text-[20px] font-black leading-none text-[#3f3f46]">{tool.count}</strong>
+            <span className="text-[12px] font-black text-[#71717b]">{tool.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-3">
+        {workspace.study_tools.quizzes.slice(0, 4).map((tab) => (
+          <button
+            key={`quiz-${tab.id}`}
+            type="button"
+            onClick={() => {
+              const item = itemByTabId.get(tab.id)
+              if (item) onTabSelect(item.id, 'quiz')
+            }}
+            className="rounded-[12px] border border-[#e4e4e7] px-4 py-3 text-left text-[13px] font-black text-[#3f3f46]"
+          >
+            Quiz: {tab.label}
+          </button>
+        ))}
+        {workspace.study_tools.resources.slice(0, 4).map((resource) => (
+          <div key={`resource-${resource.id}`} className="rounded-[12px] border border-[#e4e4e7] px-4 py-3">
+            <strong className="block text-[13px] font-black text-[#3f3f46]">{resource.title}</strong>
+            <span className="text-[12px] font-bold text-[#71717b]">{resource.resource_type}</span>
+          </div>
+        ))}
+        {notes.slice(0, 3).map((note) => (
+          <button key={`note-${note.id}`} type="button" onClick={() => onTabSelect(note.topic_item_id, 'notes')} className="rounded-[12px] bg-[#fff7df] px-4 py-3 text-left text-[13px] font-bold text-[#705000]">
+            {note.body}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export default function TopicWorkspacePage() {
   const { topicId } = useParams<{ topicId: string }>()
   const searchParams = useSearchParams()
   const [workspace, setWorkspace] = useState<TopicWorkspace | null>(null)
   const [activeItemId, setActiveItemId] = useState<number | null>(null)
   const [activeTabSlot, setActiveTabSlot] = useState<WorkspaceTabSlot>('course')
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('path')
+  const [topicQuery, setTopicQuery] = useState('')
   const [openSectionIds, setOpenSectionIds] = useState<Set<string | number>>(new Set())
   const [loading, setLoading] = useState(true)
 
@@ -512,6 +686,24 @@ export default function TopicWorkspacePage() {
     } catch {}
   }
 
+  async function runTopicSearch() {
+    if (!activeItem) return
+    try {
+      await load(activeItem.id, topicQuery)
+    } catch {
+      toast.error('Topic search failed.')
+    }
+  }
+
+  function selectToolTarget(itemId: number, slot: WorkspaceTabSlot) {
+    if (!workspace) return
+    const item = workspace.sections.flatMap((section) => section.items).find((candidate) => candidate.id === itemId)
+    if (!item) return
+    setActiveItemId(item.id)
+    setActiveTabSlot(slot)
+    setOpenSectionIds((prev) => new Set(prev).add(item.section_id))
+  }
+
   function toggleSection(section: FigmaRailSection) {
     setOpenSectionIds((prev) => {
       const next = new Set(prev)
@@ -528,7 +720,7 @@ export default function TopicWorkspacePage() {
   }
 
   function selectWorkspaceTab(tab: FigmaTabItem) {
-    if (tab.id === 'course' || tab.id === 'lab' || tab.id === 'resources' || tab.id === 'notes') {
+    if (tab.id === 'course' || tab.id === 'lab' || tab.id === 'quiz' || tab.id === 'resources' || tab.id === 'notes') {
       setActiveTabSlot(tab.id)
     }
   }
@@ -566,6 +758,16 @@ export default function TopicWorkspacePage() {
       title={`${workspace.subject_title}: ${activeItem.title}`}
       videoId={activeVideoId}
       srcDoc={youtubeSrcDoc(activeItem, activeVideoId)}
+      toolbar={(
+        <TopicWorkspaceToolbar
+          query={topicQuery}
+          mode={workspaceMode}
+          resultCount={workspace.search_results.length}
+          onQueryChange={setTopicQuery}
+          onSearch={runTopicSearch}
+          onModeChange={setWorkspaceMode}
+        />
+      )}
       tabs={workspaceTabs}
       onTabSelect={selectWorkspaceTab}
       rail={{
@@ -579,6 +781,8 @@ export default function TopicWorkspacePage() {
     >
       <LessonBody>
         <div className="grid gap-[24px]">
+          <TopicSearchResults query={topicQuery} items={workspace.search_results} onSelect={selectItem} />
+          {workspaceMode === 'tools' && <StudyToolsPanel workspace={workspace} onTabSelect={selectToolTarget} />}
           <AnimatePresence mode="wait" initial={false}>
             {activeTab && (
               <motion.div

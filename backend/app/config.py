@@ -27,8 +27,12 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("STRIPE_WEBHOOK_SECRET"),
     )
     cors_allowed_origins: str = Field(
-        default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
+        default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002",
         validation_alias=AliasChoices("CORS_ALLOWED_ORIGINS"),
+    )
+    cors_allow_origin_regex: str = Field(
+        default=r"^https?://(localhost|127\.0\.0\.1):\d+$",
+        validation_alias=AliasChoices("CORS_ALLOW_ORIGIN_REGEX"),
     )
     frontend_url: str = Field(default="http://localhost:3000", validation_alias=AliasChoices("FRONTEND_URL"))
     debug: bool = Field(default=False, validation_alias=AliasChoices("DEBUG"))
