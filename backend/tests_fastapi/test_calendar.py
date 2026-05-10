@@ -72,6 +72,16 @@ def test_calendar_event_detail_404(app_client, auth_token):
     assert response.status_code == 404
 
 
+def test_calendar_events_defaults_to_current_week(app_client, auth_token):
+    token, _ = auth_token(email="calendar-default@example.com", is_pro=True)
+    response = app_client.get(
+        "/api/calendar/events",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
 def test_sidebar_summary_uses_upcoming_calendar_live_event(app_client, auth_token, run_db):
     token, _ = auth_token(email="sidebar-calendar@example.com", is_pro=True)
 

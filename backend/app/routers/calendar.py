@@ -1,4 +1,4 @@
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -19,6 +19,12 @@ def _date_start(value: date) -> datetime:
 
 def _date_end(value: date) -> datetime:
     return datetime.combine(value, time.max, tzinfo=timezone.utc)
+
+
+def _current_week_range() -> tuple[date, date]:
+    today = date.today()
+    start = today - timedelta(days=today.weekday())
+    return start, start + timedelta(days=6)
 
 
 def _event_out(event: CalendarEvent) -> CalendarEventOut:
@@ -44,12 +50,16 @@ def _event_out(event: CalendarEvent) -> CalendarEventOut:
 
 @router.get("/events", response_model=list[CalendarEventOut])
 async def list_calendar_events(
-    start: date = Query(...),
-    end: date = Query(...),
+    start: date | None = Query(None),
+    end: date | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     del user
+    if start is None or end is None:
+        default_start, default_end = _current_week_range()
+        start = start or default_start
+        end = end or default_end
     if end < start:
         raise HTTPException(status_code=400, detail="end must be on or after start")
 
