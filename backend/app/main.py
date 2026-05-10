@@ -6,6 +6,7 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqladmin import Admin
@@ -16,7 +17,7 @@ from app.admin.views import register_admin_views
 from app.config import Settings, get_settings
 from app.database import init_engine
 from app.rate_limit import limiter
-from app.routers import courses, gamification, interactions, notifications, payments, quizzes, users
+from app.routers import calendar, courses, gamification, interactions, notifications, payments, quizzes, users
 
 logger = logging.getLogger("kresco.api")
 if not logging.getLogger().handlers:
@@ -84,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Routers
     app.include_router(users.router, prefix="/api")
+    app.include_router(calendar.router, prefix="/api/calendar")
     app.include_router(courses.router, prefix="/api/courses")
     app.include_router(quizzes.router, prefix="/api/quizzes")
     app.include_router(gamification.router, prefix="/api/progress")
@@ -91,8 +93,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(payments.router, prefix="/api/payments")
     app.include_router(notifications.router, prefix="/api/notifications")
 
+    os.makedirs("media", exist_ok=True)
+    app.mount("/media", StaticFiles(directory="media"), name="media")
+
     # SQLAdmin panel
-    admin_password = os.environ.get("ADMIN_PASSWORD", "kresco-admin-2026")
+    admin_password = os.environ.get("ADMIN_PASSWORD") or settings.admin_password
+    if not admin_password:
+        raise ValueError("ADMIN_PASSWORD environment variable is required to start the admin panel.")
+    
     auth_backend = AdminAuth(
         secret_key=settings.jwt_secret_key,
         admin_password=admin_password,

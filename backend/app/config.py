@@ -27,12 +27,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("STRIPE_WEBHOOK_SECRET"),
     )
     cors_allowed_origins: str = Field(
-        default="http://localhost:3000",
+        default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
         validation_alias=AliasChoices("CORS_ALLOWED_ORIGINS"),
     )
     frontend_url: str = Field(default="http://localhost:3000", validation_alias=AliasChoices("FRONTEND_URL"))
     debug: bool = Field(default=False, validation_alias=AliasChoices("DEBUG"))
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("RESEND_API_KEY"))
+    admin_password: str = Field(default="", validation_alias=AliasChoices("ADMIN_PASSWORD"))
 
     @property
     def cors_origins_list(self) -> list[str]:

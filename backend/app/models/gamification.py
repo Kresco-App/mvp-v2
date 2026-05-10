@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Integer, Boolean, Date, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Integer, Boolean, Date, DateTime, ForeignKey, Integer, String, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -97,3 +97,58 @@ class DailyQuest(Base):
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped["User"] = relationship("User", back_populates="daily_quests")
+
+
+class ActivityEvent(Base):
+    __tablename__ = "activity_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    event_type: Mapped[str] = mapped_column(String(60))
+    target_type: Mapped[str] = mapped_column(String(40))
+    target_id: Mapped[int] = mapped_column(Integer)
+    topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User")
+
+
+class TopicItemProgress(Base):
+    __tablename__ = "topic_item_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    topic_id: Mapped[int] = mapped_column(Integer)
+    topic_item_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="started")
+    watched_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    best_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    latest_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    user: Mapped["User"] = relationship("User")
+
+
+class QuizAttempt(Base):
+    __tablename__ = "quiz_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    source_type: Mapped[str] = mapped_column(String(40), default="tab")
+    score: Mapped[int] = mapped_column(Integer)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)
+    grading: Mapped[dict] = mapped_column(JSON, default=dict)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1)
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User")

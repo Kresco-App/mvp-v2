@@ -53,7 +53,7 @@ from app.models.interactions import Comment
 
 SUBJECTS_DATA = [
     {
-        "title": "Mathématiques", "description": "Programme complet de Mathématiques 2BAC Sciences Mathématiques",
+        "title": "Math", "description": "Programme complet de Math 2BAC Sciences Mathematiques",
         "thumbnail_url": "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=400",
         "chapters": [
             {"title": "Les suites numériques", "sections": [
@@ -83,7 +83,7 @@ SUBJECTS_DATA = [
         ],
     },
     {
-        "title": "Physique-Chimie", "description": "Cours de Physique-Chimie 2BAC Sciences",
+        "title": "Physics", "description": "Cours de Physics 2BAC Sciences",
         "thumbnail_url": "https://images.unsplash.com/photo-1636466497217-26a8cbeaf0aa?w=400",
         "chapters": [
             {"title": "Les ondes mécaniques", "sections": [
@@ -107,7 +107,7 @@ SUBJECTS_DATA = [
         ],
     },
     {
-        "title": "Sciences de la Vie et de la Terre", "description": "Programme SVT 2BAC",
+        "title": "Biology", "description": "Programme Biology 2BAC",
         "thumbnail_url": "https://images.unsplash.com/photo-1530026405186-ed1f139313f8?w=400",
         "chapters": [
             {"title": "La génétique humaine", "sections": [
@@ -126,7 +126,7 @@ SUBJECTS_DATA = [
         ],
     },
     {
-        "title": "Philosophie", "description": "Cours de Philosophie Terminale",
+        "title": "Philosophy", "description": "Cours de Philosophy Terminale",
         "thumbnail_url": "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=400",
         "chapters": [
             {"title": "La conscience", "sections": [
@@ -144,25 +144,7 @@ SUBJECTS_DATA = [
         ],
     },
     {
-        "title": "Français", "description": "Langue française et littérature",
-        "thumbnail_url": "https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=400",
-        "chapters": [
-            {"title": "Le Dernier Jour d'un Condamné", "sections": [
-                ("Présentation de l'œuvre", "video", 720), ("Analyse des thèmes", "video", 900),
-                ("Quiz - Le Condamné", "quiz", 0), ("Commentaire composé", "text", 0),
-            ]},
-            {"title": "La Boîte à Merveilles", "sections": [
-                ("Biographie de Sefrioui", "video", 600), ("Résumé et structure", "video", 840),
-                ("Quiz - La Boîte", "quiz", 0), ("Personnages principaux", "text", 0),
-            ]},
-            {"title": "Antigone de Jean Anouilh", "sections": [
-                ("Contexte historique", "video", 720), ("Analyse d'Antigone", "video", 960),
-                ("Le conflit tragique", "video", 840), ("Quiz - Antigone", "quiz", 0),
-            ]},
-        ],
-    },
-    {
-        "title": "Anglais", "description": "English Language - 2BAC",
+        "title": "English", "description": "English Language - 2BAC",
         "thumbnail_url": "https://images.unsplash.com/photo-1543109740-4bdb38fda756?w=400",
         "chapters": [
             {"title": "Writing Skills", "sections": [
@@ -178,30 +160,26 @@ SUBJECTS_DATA = [
 ]
 
 QUIZ_BANK = {
-    "Mathématiques": [
+    "Math": [
         {"q": "Quelle est la limite de (1+1/n)^n quand n→+∞?", "opts": ["e", "1", "0", "+∞"], "correct": 0},
         {"q": "La dérivée de ln(x) est:", "opts": ["1/x", "x", "ln(x)/x", "e^x"], "correct": 0},
         {"q": "Si u_n = 3n + 1, la suite est:", "opts": ["Arithmétique", "Géométrique", "Ni l'un ni l'autre", "Constante"], "correct": 0},
         {"q": "exp(ln(x)) = ?", "opts": ["x", "1", "e", "ln(x)"], "correct": 0},
     ],
-    "Physique-Chimie": [
+    "Physics": [
         {"q": "La célérité du son dans l'air est environ:", "opts": ["340 m/s", "3×10⁸ m/s", "1500 m/s", "100 m/s"], "correct": 0},
         {"q": "La demi-vie du carbone 14 est:", "opts": ["5730 ans", "1600 ans", "14 ans", "100 000 ans"], "correct": 0},
         {"q": "La constante de temps d'un circuit RC est:", "opts": ["τ = RC", "τ = R/C", "τ = R+C", "τ = 1/RC"], "correct": 0},
     ],
-    "Sciences de la Vie et de la Terre": [
+    "Biology": [
         {"q": "Le groupe sanguin est déterminé par:", "opts": ["Les gènes", "L'environnement", "L'alimentation", "L'âge"], "correct": 0},
         {"q": "Les anticorps sont produits par:", "opts": ["Les lymphocytes B", "Les globules rouges", "Les plaquettes", "Les neurones"], "correct": 0},
     ],
-    "Philosophie": [
+    "Philosophy": [
         {"q": "Qui a dit 'Je pense donc je suis'?", "opts": ["Descartes", "Platon", "Kant", "Nietzsche"], "correct": 0},
         {"q": "L'inconscient est un concept central chez:", "opts": ["Freud", "Aristote", "Marx", "Rousseau"], "correct": 0},
     ],
-    "Français": [
-        {"q": "Qui a écrit 'Le Dernier Jour d'un Condamné'?", "opts": ["Victor Hugo", "Balzac", "Zola", "Flaubert"], "correct": 0},
-        {"q": "'La Boîte à Merveilles' est une œuvre:", "opts": ["Autobiographique", "Théâtrale", "Poétique", "Épistolaire"], "correct": 0},
-    ],
-    "Anglais": [
+    "English": [
         {"q": "Which tense: 'I have been studying for 3 hours'?", "opts": ["Present perfect continuous", "Past simple", "Future perfect", "Past continuous"], "correct": 0},
         {"q": "The correct conditional: 'If I ___ rich, I would travel.'", "opts": ["were", "am", "will be", "was being"], "correct": 0},
     ],
@@ -332,7 +310,7 @@ async def seed_all(db: AsyncSession):
         subj = await db.execute(select(Subject).where(Subject.id == chapter_obj.subject_id))
         subject_obj = subj.scalar_one()
         
-        bank = QUIZ_BANK.get(subject_obj.title, QUIZ_BANK["Mathématiques"])
+        bank = QUIZ_BANK.get(subject_obj.title, QUIZ_BANK["Math"])
         questions = random.sample(bank, min(len(bank), 3))
 
         quiz_json = {"questions": []}
@@ -355,7 +333,7 @@ async def seed_all(db: AsyncSession):
         db.add(quiz)
         await db.flush()
 
-        bank = QUIZ_BANK.get(subject_obj.title, QUIZ_BANK["Mathématiques"])
+        bank = QUIZ_BANK.get(subject_obj.title, QUIZ_BANK["Math"])
         for q_order, q_data in enumerate(bank[:3]):
             question = QuizQuestion(quiz_id=quiz.id, text=q_data["q"], order=q_order)
             db.add(question)

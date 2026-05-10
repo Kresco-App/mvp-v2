@@ -1,7 +1,61 @@
 import type { Metadata } from 'next'
+import localFont from 'next/font/local'
 import { Toaster } from 'sonner'
-import ThemeToggle from '@/components/ThemeToggle'
 import './globals.css'
+
+const sunghyunSans = localFont({
+  src: [
+    {
+      path: './fonts/sunghyun-sans/SunghyunSans-Regular.woff2',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: './fonts/sunghyun-sans/SunghyunSans-SemiBold.woff2',
+      weight: '600',
+      style: 'normal',
+    },
+    {
+      path: './fonts/sunghyun-sans/SunghyunSans-Bold.woff2',
+      weight: '700',
+      style: 'normal',
+    },
+  ],
+  variable: '--font-sunghyun-sans',
+  display: 'swap',
+})
+
+const sfProRounded = localFont({
+  src: [
+    {
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Regular.otf',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Medium.otf',
+      weight: '500',
+      style: 'normal',
+    },
+    {
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Semibold.otf',
+      weight: '600',
+      style: 'normal',
+    },
+    {
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Bold.otf',
+      weight: '700',
+      style: 'normal',
+    },
+    {
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Heavy.otf',
+      weight: '800',
+      style: 'normal',
+    },
+  ],
+  variable: '--font-sf-rounded',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Kresco — Plateforme E-Learning',
@@ -10,28 +64,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr" data-theme="light" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  var t = localStorage.getItem('kresco-theme');
-                  if (t !== 'light' && t !== 'dark') t = 'light';
-                  document.documentElement.setAttribute('data-theme', t);
-                } catch (e) {
-                  document.documentElement.setAttribute('data-theme', 'light');
-                }
-              })();
-            `,
-          }}
-        />
-      </head>
-      <body className="antialiased">
-        <ThemeToggle />
+    <html lang="fr">
+      <body className={`${sfProRounded.variable} ${sunghyunSans.variable} antialiased`}>
         {children}
         <Toaster
           position="top-right"

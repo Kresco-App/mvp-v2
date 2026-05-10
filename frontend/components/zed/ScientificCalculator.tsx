@@ -1,63 +1,49 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { X, Calculator } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Calculator, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { evaluateMathExpression } from '@/lib/zedMath'
 
 interface Props {
   onClose: () => void
-  inline?: boolean
 }
 
 type HistoryEntry = { expr: string; result: string }
 
 const BUTTONS = [
-  // row 1
-  ['sin(', 'cos(', 'tan(', '√(', 'x²'],
-  // row 2
-  ['ln(', 'log(', 'π', 'e', '^'],
-  // row 3
-  ['7', '8', '9', '÷', 'C'],
-  // row 4
-  ['4', '5', '6', '×', '←'],
-  // row 5
-  ['1', '2', '3', '−', '('],
-  // row 6
+  ['sin(', 'cos(', 'tan(', 'sqrt(', 'x^2'],
+  ['ln(', 'log(', 'pi', 'e', '^'],
+  ['7', '8', '9', '/', 'C'],
+  ['4', '5', '6', '*', '<-'],
+  ['1', '2', '3', '-', '('],
   ['0', '.', '=', '+', ')'],
 ]
 
 const ACCENT = new Set(['='])
 const DANGER = new Set(['C'])
-const MUTED = new Set(['←', '(', ')'])
-const FUNC = new Set(['sin(', 'cos(', 'tan(', '√(', 'ln(', 'log(', 'π', 'e', '^', 'x²'])
+const MUTED = new Set(['<-', '(', ')'])
+const FUNC = new Set(['sin(', 'cos(', 'tan(', 'sqrt(', 'ln(', 'log(', 'pi', 'e', '^', 'x^2'])
 
-function safeEval(expr: string): string {
-  try {
-    const cleaned = expr
-      .replace(/×/g, '*')
-      .replace(/÷/g, '/')
-      .replace(/−/g, '-')
-      .replace(/π/g, String(Math.PI))
-      .replace(/\be\b/g, String(Math.E))
-      .replace(/sin\(/g, 'Math.sin(')
-      .replace(/cos\(/g, 'Math.cos(')
-      .replace(/tan\(/g, 'Math.tan(')
-      .replace(/ln\(/g, 'Math.log(')
-      .replace(/log\(/g, 'Math.log10(')
-      .replace(/√\(/g, 'Math.sqrt(')
-      .replace(/\^/g, '**')
-    // eslint-disable-next-line no-new-func
-    const result = Function('"use strict"; return (' + cleaned + ')')()
-    if (typeof result !== 'number' || isNaN(result)) return 'Erreur'
-    if (!isFinite(result)) return result > 0 ? '∞' : '-∞'
-    // round to avoid floating point noise
-    return parseFloat(result.toPrecision(12)).toString()
-  } catch {
-    return 'Erreur'
+const EDGE_PADDING = 12
+const DEFAULT_WIDTH = 384
+const DEFAULT_HEIGHT = 520
+
+function clampPosition(x: number, y: number, el: HTMLDivElement | null) {
+  if (typeof window === 'undefined') return { x, y }
+
+  const width = el?.offsetWidth ?? DEFAULT_WIDTH
+  const height = el?.offsetHeight ?? DEFAULT_HEIGHT
+  const maxX = Math.max(EDGE_PADDING, window.innerWidth - width - EDGE_PADDING)
+  const maxY = Math.max(EDGE_PADDING, window.innerHeight - height - EDGE_PADDING)
+
+  return {
+    x: Math.min(Math.max(EDGE_PADDING, x), maxX),
+    y: Math.min(Math.max(EDGE_PADDING, y), maxY),
   }
 }
 
-export default function ScientificCalculator({ onClose, inline = false }: Props) {
+export default function ScientificCalculator({ onClose }: Props) {
   const [display, setDisplay] = useState('')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -65,9 +51,9 @@ export default function ScientificCalculator({ onClose, inline = false }: Props)
   const dragOffset = useRef({ x: 0, y: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Drag logic
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
+  const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button')) return
+    e.currentTarget.setPointerCapture(e.pointerId)
     setIsDragging(true)
     dragOffset.current = {
       x: e.clientX - pos.x,
@@ -77,104 +63,135 @@ export default function ScientificCalculator({ onClose, inline = false }: Props)
 
   useEffect(() => {
     if (!isDragging) return
-    const move = (e: MouseEvent) => {
-      setPos({
-        x: Math.max(0, e.clientX - dragOffset.current.x),
-        y: Math.max(0, e.clientY - dragOffset.current.y),
-      })
+
+    const move = (e: PointerEvent) => {
+      setPos(clampPosition(
+        e.clientX - dragOffset.current.x,
+        e.clientY - dragOffset.current.y,
+        containerRef.current,
+      ))
     }
     const up = () => setIsDragging(false)
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
-    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
   }, [isDragging])
 
-  function handleButton(val: string) {
-    if (val === 'C') { setDisplay(''); return }
-    if (val === '←') { setDisplay(d => d.slice(0, -1)); return }
-    if (val === 'x²') { setDisplay(d => `(${d || '0'})^2`); return }
+  useEffect(() => {
+    setPos(current => clampPosition(current.x, current.y, containerRef.current))
+
+    const handleResize = () => {
+      setPos(current => clampPosition(current.x, current.y, containerRef.current))
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [history.length])
+
+  const handleButton = useCallback((val: string) => {
+    if (val === 'C') {
+      setDisplay('')
+      return
+    }
+    if (val === '<-') {
+      setDisplay(d => d.slice(0, -1))
+      return
+    }
+    if (val === 'x^2') {
+      setDisplay(d => `(${d || '0'})^2`)
+      return
+    }
 
     if (val === '=') {
       if (!display) return
-      const result = safeEval(display)
+      const result = evaluateMathExpression(display)
       setHistory(h => [{ expr: display, result }, ...h.slice(0, 19)])
       setDisplay(result === 'Erreur' ? display : result)
       return
     }
 
     setDisplay(d => d + val)
-  }
+  }, [display])
 
-  // Keyboard support
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!containerRef.current?.offsetParent) return
-      if (e.key === 'Escape') { onClose(); return }
-      if (e.key === 'Enter') { handleButton('='); return }
-      if (e.key === 'Backspace') { handleButton('←'); return }
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key === 'Enter') {
+        handleButton('=')
+        return
+      }
+      if (e.key === 'Backspace') {
+        handleButton('<-')
+        return
+      }
       if ('0123456789+-*/.()^'.includes(e.key)) {
         setDisplay(d => d + e.key)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [display])
+  }, [handleButton, onClose])
 
   return (
     <div
       ref={containerRef}
-      style={inline ? undefined : { left: pos.x, top: pos.y }}
-      className={inline ? 'select-none' : 'fixed z-[200] select-none'}
+      style={{ left: pos.x, top: pos.y }}
+      className="fixed z-[200] select-none"
     >
       <div className={cn(
-        'bg-slate-900 border border-slate-700 overflow-hidden flex flex-col',
-        inline ? 'rounded-3xl w-full max-w-md mx-auto shadow-sm' : 'rounded-3xl shadow-2xl w-96'
+        'flex max-h-[calc(100vh-1.5rem)] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white',
+        'shadow-[0_24px_70px_rgba(15,23,42,0.20)] ring-1 ring-white/80'
       )}>
-        {/* Header / drag handle */}
         <div
-          onMouseDown={inline ? undefined : onMouseDown}
-          className={cn(
-            'flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-950',
-            !inline && 'cursor-grab active:cursor-grabbing'
-          )}
+          onPointerDown={onPointerDown}
+          className="flex touch-none cursor-grab items-center justify-between border-b border-slate-200 bg-white px-5 py-3 active:cursor-grabbing"
         >
           <div className="flex items-center gap-2.5">
-            <Calculator size={18} className="text-indigo-400" />
-            <span className="text-slate-300 text-sm font-semibold">Calculatrice</span>
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-700">
+              <Calculator size={17} />
+            </span>
+            <span className="text-sm font-semibold text-slate-900">Calculatrice</span>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-slate-300 transition"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            aria-label="Fermer la calculatrice"
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* Display */}
-        <div className="px-6 py-5 bg-slate-950/50">
-          <div className="text-right text-slate-500 text-sm min-h-[20px] mb-2 truncate">
+        <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-6 py-5">
+          <div className="mb-2 min-h-[20px] truncate text-right text-sm text-slate-500">
             {history[0] ? `${history[0].expr} =` : ''}
           </div>
-          <div className="text-right text-white font-mono text-4xl font-light tracking-wider min-h-[48px] truncate">
+          <div className="min-h-[48px] truncate text-right font-mono text-4xl font-light tracking-normal text-slate-950">
             {display || '0'}
           </div>
         </div>
 
-        {/* Buttons */}
-        <div className="grid grid-cols-5 gap-2 p-5 bg-slate-900 border-t border-slate-800/50">
-          {BUTTONS.flat().map((btn, i) => (
+        <div className="grid min-h-0 grid-cols-5 gap-2 overflow-y-auto bg-white p-5">
+          {BUTTONS.flat().map((btn) => (
             <button
-              key={i}
+              key={btn}
               onClick={() => handleButton(btn)}
               className={cn(
-                'h-14 rounded-2xl text-base font-semibold transition-all active:scale-[0.92] shadow-sm flex flex-col items-center justify-center',
-                ACCENT.has(btn) && 'bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-500/50',
-                DANGER.has(btn) && 'bg-red-500/10 hover:bg-red-500/20 text-red-400',
-                MUTED.has(btn) && 'bg-slate-800 hover:bg-slate-750 text-slate-400',
-                FUNC.has(btn) && 'bg-slate-800 hover:bg-slate-750 text-indigo-300 text-sm',
+                'flex h-14 flex-col items-center justify-center rounded-xl border text-base font-semibold shadow-sm transition-all active:scale-[0.96]',
+                ACCENT.has(btn) && 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700',
+                DANGER.has(btn) && 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100',
+                MUTED.has(btn) && 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100',
+                FUNC.has(btn) && 'border-emerald-100 bg-emerald-50 text-sm text-emerald-700 hover:bg-emerald-100',
                 !ACCENT.has(btn) && !DANGER.has(btn) && !MUTED.has(btn) && !FUNC.has(btn)
-                && 'bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700/50',
+                && 'border-slate-200 bg-white text-slate-900 hover:bg-slate-50',
               )}
             >
               {btn}
@@ -182,16 +199,15 @@ export default function ScientificCalculator({ onClose, inline = false }: Props)
           ))}
         </div>
 
-        {/* History */}
         {history.length > 0 && (
-          <div className="border-t border-slate-800 px-4 py-2 space-y-0.5 max-h-[88px] overflow-y-auto">
+          <div className="max-h-[88px] space-y-0.5 overflow-y-auto border-t border-slate-100 bg-slate-50 px-4 py-2">
             {history.slice(0, 5).map((h, i) => (
               <button
-                key={i}
+                key={`${h.expr}-${i}`}
                 onClick={() => setDisplay(h.result)}
-                className="w-full text-right text-xs text-slate-500 hover:text-slate-300 transition truncate block"
+                className="block w-full truncate text-right text-xs text-slate-500 transition hover:text-slate-900"
               >
-                {h.expr} = <span className="text-slate-300 font-medium">{h.result}</span>
+                {h.expr} = <span className="font-medium text-slate-900">{h.result}</span>
               </button>
             ))}
           </div>

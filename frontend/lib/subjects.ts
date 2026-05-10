@@ -1,6 +1,15 @@
 import { Calculator, Atom, Dna, BookOpen, Globe, Brain, BookMarked, BarChart3, Monitor, Landmark } from 'lucide-react'
 
+const CANONICAL_SUBJECT_ICONS = {
+  'Math': { icon: Calculator, color: 'text-indigo-600', bg: 'bg-indigo-50', emoji: 'Math' },
+  'Physics': { icon: Atom, color: 'text-emerald-600', bg: 'bg-emerald-50', emoji: 'Phy' },
+  'Biology': { icon: Dna, color: 'text-orange-600', bg: 'bg-orange-50', emoji: 'Bio' },
+  'Philosophy': { icon: Brain, color: 'text-amber-600', bg: 'bg-amber-50', emoji: 'Phi' },
+  'English': { icon: BookOpen, color: 'text-purple-600', bg: 'bg-purple-50', emoji: 'Eng' },
+}
+
 export const SUBJECT_ICONS: Record<string, { icon: any; color: string; bg: string; emoji: string }> = {
+  ...CANONICAL_SUBJECT_ICONS,
   'Mathematiques': { icon: Calculator, color: 'text-indigo-600', bg: 'bg-indigo-50', emoji: '📐' },
   'Physique': { icon: Atom, color: 'text-emerald-600', bg: 'bg-emerald-50', emoji: '⚗️' },
   'Sciences de la Vie': { icon: Dna, color: 'text-orange-600', bg: 'bg-orange-50', emoji: '🧬' },

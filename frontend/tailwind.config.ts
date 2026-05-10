@@ -9,7 +9,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-rounded)', 'system-ui', 'sans-serif'],
+        rounded: ['var(--font-rounded)', 'system-ui', 'sans-serif'],
       },
       colors: {
         kresco: {

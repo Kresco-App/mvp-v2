@@ -31,12 +31,12 @@ All 6 subjects have `thumbnail_url = ""`. You need to either:
 
 **Option A — Upload images:**
 1. Place 6 images in `frontend/public/subjects/` (e.g. `maths.jpg`, `physique.jpg`, etc.)
-2. Go to Django admin: http://localhost:8000/admin/courses/subject/
+2. Go to FastAPI admin: http://localhost:8000/admin/subject
 3. Set each subject's thumbnail_url to `/subjects/maths.jpg` etc.
 
 **Option B — Use external URLs:**
 1. Upload images to any CDN/S3
-2. Set the thumbnail_url in Django admin
+2. Set the thumbnail_url in FastAPI admin
 
 ---
 

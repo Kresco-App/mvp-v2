@@ -98,9 +98,9 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 
 export function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
+  const [lastNonEmptyEntries, setLastNonEmptyEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
-  const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const PAGE_SIZE = 20
 
@@ -109,25 +109,35 @@ export function LeaderboardPage() {
     try {
       const offset = (page - 1) * PAGE_SIZE
       const { data } = await api.get('/progress/leaderboard', {
-        params: { limit: PAGE_SIZE, offset, search: search || undefined }
+        params: { limit: PAGE_SIZE, offset }
       })
-      setEntries((data ?? []).map((entry: LeaderboardEntry) => enrichEntry(entry)))
+      const mapped = (data ?? []).map((entry: LeaderboardEntry) => enrichEntry(entry))
+      setEntries(mapped)
+      if (mapped.length > 0) {
+        setLastNonEmptyEntries(mapped)
+      }
     } catch {
       setEntries([])
     } finally {
       setLoading(false)
     }
-  }, [page, search])
+  }, [page])
 
   useEffect(() => { fetchLeaderboard() }, [fetchLeaderboard])
 
-  function handleSearch() {
-    setPage(1)
-    setSearch(searchInput)
+  function clearSearch() {
+    setSearchInput('')
   }
 
+  const displayEntries = entries.length > 0 ? entries : lastNonEmptyEntries
+  const normalizedSearch = searchInput.trim().toLowerCase()
+  const instantEntries = normalizedSearch
+    ? displayEntries.filter((entry) => entry.full_name.toLowerCase().includes(normalizedSearch))
+    : displayEntries
+  const visibleEntries = normalizedSearch && instantEntries.length === 0 ? displayEntries : instantEntries
   const hasMore = entries.length === PAGE_SIZE
-  const currentUser = entries.find((e) => e.is_current_user) ?? entries[0]
+  const headerSourceEntries = entries.length > 0 ? entries : lastNonEmptyEntries
+  const currentUser = headerSourceEntries.find((e) => e.is_current_user) ?? headerSourceEntries[0]
   const currentLeague = currentUser?.leagueKey ? getLeagueInfoByKey(currentUser.leagueKey) : null
   const leagueStrip = currentLeague ? getMajorLeagueStrip(currentLeague.key) : []
 
@@ -164,14 +174,13 @@ export function LeaderboardPage() {
             <input
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
               placeholder="Rechercher un joueur..."
               className="kresco-control"
               style={{ width: '100%', paddingLeft: 42, paddingRight: 40, paddingTop: 11, paddingBottom: 11, fontSize: 14 }}
             />
             {searchInput && (
               <button
-                onClick={() => { setSearchInput(''); setSearch(''); setPage(1) }}
+                onClick={clearSearch}
                 style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}
               >
                 x
@@ -186,13 +195,23 @@ export function LeaderboardPage() {
                   <div key={i} style={{ height: 60, background: i % 2 === 0 ? 'var(--surface-card)' : 'var(--surface-hover)', animation: 'pulse 1.5s ease infinite' }} />
                 ))}
               </div>
-            ) : entries.length === 0 ? (
+            ) : visibleEntries.length === 0 ? (
               <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>
-                {search ? `Aucun joueur trouve pour "${search}"` : 'Aucun classement disponible'}
+                {normalizedSearch ? `Aucun joueur trouve pour "${searchInput}"` : 'Aucun classement disponible'}
               </div>
             ) : (
               <div>
-                {entries.map((entry, idx) => (
+                {normalizedSearch && instantEntries.length === 0 && (
+                  <div style={{ padding: '10px 20px', color: 'var(--text-secondary)', fontSize: 12 }}>
+                    Aucun résultat pour &quot;{searchInput}&quot;. Classement complet affiché.
+                  </div>
+                )}
+                {normalizedSearch && instantEntries.length > 0 && instantEntries.length !== displayEntries.length && (
+                  <div style={{ padding: '10px 20px', color: 'var(--text-secondary)', fontSize: 12 }}>
+                    Filtre instantané actif pour &quot;{searchInput}&quot;.
+                  </div>
+                )}
+                {visibleEntries.map((entry, idx) => (
                   <div key={`${entry.user_id}-${entry.rank}`}>
                     {entry.divisionLocalRank === getPromotionCutoff() + 1 && (
                       <ZoneDivider zone="promotion" />
@@ -207,7 +226,7 @@ export function LeaderboardPage() {
                         gap: 14,
                         padding: '12px 20px',
                         background: entry.is_current_user ? 'var(--primary-soft)' : 'transparent',
-                        borderBottom: idx < entries.length - 1 ? '1px solid var(--border)' : 'none',
+                        borderBottom: idx < visibleEntries.length - 1 ? '1px solid var(--border)' : 'none',
                         borderLeft: entry.is_current_user ? '3px solid var(--primary)' : '3px solid transparent',
                       }}
                     >
