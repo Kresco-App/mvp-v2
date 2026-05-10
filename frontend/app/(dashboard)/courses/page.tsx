@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/lib/axios'
-import { FigmaCourseSearchControls, type FigmaCourseSubjectOption } from '@/components/figma/course-search-controls'
+import { FigmaCourseSearchControls, type FigmaCourseStatusFilter, type FigmaCourseSubjectOption } from '@/components/figma/course-search-controls'
 import { FigmaCourseCardSkeleton, FigmaSubjectCourseCard, type FigmaSubjectCourseCardState, PermanentSidebar } from '@/components/figma'
 
 interface TopicCard {
@@ -27,6 +27,7 @@ export default function CoursesPage() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [subjectFilter, setSubjectFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<FigmaCourseStatusFilter>('all')
   const [previewTopic, setPreviewTopic] = useState<TopicCard | null>(null)
 
   useEffect(() => { document.title = 'Courses - Kresco' }, [])
@@ -65,10 +66,11 @@ export default function CoursesPage() {
       const text = [topic.title, topic.description, topic.subject_title, ...topic.concepts].join(' ').toLowerCase()
       const matchesQuery = !q || text.includes(q)
       const matchesSubject = !subject || subjectKey(topic.subject_title) === subject || topic.subject_title.toLowerCase().includes(subjectFilter.trim().toLowerCase())
-      return matchesQuery && matchesSubject
+      const matchesStatus = topicMatchesStatus(topic, statusFilter)
+      return matchesQuery && matchesSubject && matchesStatus
     })
     return dedupeTopics(matches)
-  }, [topics, query, subjectFilter])
+  }, [topics, query, subjectFilter, statusFilter])
 
   const groupedSections = useMemo(() => groupTopicsBySubject(filtered), [filtered])
 
@@ -84,9 +86,11 @@ export default function CoursesPage() {
           <FigmaCourseSearchControls
             query={query}
             subject={subjectFilter}
+            status={statusFilter}
             subjects={subjectOptions}
             onQueryChange={setQuery}
             onSubjectChange={setSubjectFilter}
+            onStatusChange={setStatusFilter}
           />
 
           {loading ? (
@@ -132,6 +136,7 @@ export default function CoursesPage() {
                   onClick={() => {
                     setQuery('')
                     setSubjectFilter('')
+                    setStatusFilter('all')
                   }}
                 >
                   Reset filters
@@ -173,6 +178,16 @@ function topicCardState(topic: TopicCard): FigmaSubjectCourseCardState {
   if (normalizeProgress(topic.progress_pct) >= 100 || topic.completed_count >= topic.item_count) return 'completed'
   if (normalizeProgress(topic.progress_pct) > 0 || topic.completed_count > 0) return 'current'
   return 'available'
+}
+
+function topicMatchesStatus(topic: TopicCard, status: FigmaCourseStatusFilter) {
+  const state = topicCardState(topic)
+  if (status === 'all') return true
+  if (status === 'unlocked') return state !== 'locked'
+  if (status === 'locked') return state === 'locked'
+  if (status === 'in_progress') return state === 'current'
+  if (status === 'completed') return state === 'completed'
+  return true
 }
 
 function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () => void }) {
