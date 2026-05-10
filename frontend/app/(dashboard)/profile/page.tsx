@@ -10,6 +10,8 @@ import {
   toProfileSubject,
   type FigmaProfileEditDraft,
   type FigmaProfileMediaKind,
+  type FigmaProfileNote,
+  type FigmaProfileSavedItem,
   type FigmaProfileStats,
   type FigmaProfileSubject,
   type FigmaProfileXP,
@@ -52,6 +54,8 @@ export default function ProfilePage() {
   const [stats, setStats] = useState<FigmaProfileStats | null>(null)
   const [subjects, setSubjects] = useState<SubjectCard[]>([])
   const [topics, setTopics] = useState<TopicCard[]>([])
+  const [notes, setNotes] = useState<FigmaProfileNote[]>([])
+  const [saves, setSaves] = useState<FigmaProfileSavedItem[]>([])
   const [sidebar, setSidebar] = useState<SidebarSummary>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -64,12 +68,14 @@ export default function ProfilePage() {
 
     async function loadProfile() {
       setLoading(true)
-      const [profileResult, xpResult, statsResult, subjectsResult, topicsResult, sidebarResult] = await Promise.allSettled([
+      const [profileResult, xpResult, statsResult, subjectsResult, topicsResult, notesResult, savesResult, sidebarResult] = await Promise.allSettled([
         getMyProfile(),
         api.get('/progress/xp'),
         api.get('/progress/stats'),
         api.get('/courses/subjects'),
         api.get('/courses/topics'),
+        api.get('/interactions/notes'),
+        api.get('/interactions/saves'),
         api.get('/progress/sidebar-summary'),
       ])
 
@@ -86,6 +92,8 @@ export default function ProfilePage() {
       if (statsResult.status === 'fulfilled') setStats(toProfileStats(statsResult.value.data))
       if (subjectsResult.status === 'fulfilled') setSubjects(Array.isArray(subjectsResult.value.data) ? subjectsResult.value.data : [])
       if (topicsResult.status === 'fulfilled') setTopics(Array.isArray(topicsResult.value.data) ? topicsResult.value.data : [])
+      if (notesResult.status === 'fulfilled') setNotes(Array.isArray(notesResult.value.data) ? notesResult.value.data : [])
+      if (savesResult.status === 'fulfilled') setSaves(Array.isArray(savesResult.value.data) ? savesResult.value.data : [])
       if (sidebarResult.status === 'fulfilled') setSidebar(sidebarResult.value.data ?? {})
 
       setLoading(false)
@@ -149,6 +157,8 @@ export default function ProfilePage() {
       xp={xp}
       stats={stats}
       subjects={profileSubjects}
+      notes={notes}
+      saves={saves}
       sidebar={{
         chronoUnits: sidebar.chrono_units,
         calendarDays: sidebar.calendar_days,

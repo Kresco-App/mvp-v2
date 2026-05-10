@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
-import { BookCheck, Camera, ChevronRight, Clock3, Flame, Loader2, Pencil, Save, ShieldCheck, Star, Trophy, X, Zap } from 'lucide-react'
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { BookCheck, Bookmark, Camera, ChevronRight, Clock3, Flame, Loader2, Pencil, Save, ShieldCheck, Star, StickyNote, Trophy, X, Zap } from 'lucide-react'
 import { getLeagueInfoByKey, rankToLeagueKey } from '@/lib/leaderboardLeagues'
 import {
   CalendarCard,
@@ -54,6 +54,24 @@ export type FigmaProfileSidebarData = {
   leaderboardEntries?: PermanentSidebarLeaderboardEntry[]
 }
 
+export type FigmaProfileNote = {
+  id: number
+  topic_id?: number | null
+  topic_item_id?: number | null
+  body: string
+  updated_at?: string
+}
+
+export type FigmaProfileSavedItem = {
+  id: number
+  target_type: string
+  target_id: number
+  topic_id?: number | null
+  topic_item_id?: number | null
+  label?: string
+  created_at?: string
+}
+
 export type FigmaProfileMediaKind = 'avatar' | 'banner'
 
 export type FigmaProfileEditDraft = {
@@ -70,6 +88,8 @@ export type FigmaProfileProps = {
   stats?: FigmaProfileStats | null
   subjects: FigmaProfileSubject[]
   sidebar: FigmaProfileSidebarData
+  notes?: FigmaProfileNote[]
+  saves?: FigmaProfileSavedItem[]
   loading?: boolean
   editable?: boolean
   saving?: boolean
@@ -98,6 +118,8 @@ export function FigmaProfile({
   stats,
   subjects,
   sidebar,
+  notes = [],
+  saves = [],
   loading,
   editable = true,
   saving,
@@ -253,6 +275,8 @@ export function FigmaProfile({
               <SubjectScoreCard subject={subject} key={subject.key} />
             ))}
           </section>
+
+          <ProfileHub notes={notes} saves={saves} />
         </main>
 
         <aside className="figma-profile-rail" aria-label="Profile sidebar">
@@ -372,6 +396,87 @@ export function FigmaProfile({
       ) : null}
     </div>
   )
+}
+
+function ProfileHub({ notes, saves }: { notes: FigmaProfileNote[]; saves: FigmaProfileSavedItem[] }) {
+  const recentNotes = notes.slice(0, 4)
+  const recentSaves = saves.slice(0, 4)
+
+  return (
+    <section className="figma-profile-hub" aria-label="Notes and saved items">
+      <ProfileHubColumn
+        icon={<StickyNote size={18} />}
+        title="Recent notes"
+        empty="Notes you save in a topic will appear here."
+        items={recentNotes.map((note) => ({
+          id: `note-${note.id}`,
+          href: topicDeepLink(note.topic_id, note.topic_item_id),
+          title: note.body,
+          meta: formatHubDate(note.updated_at),
+        }))}
+      />
+      <ProfileHubColumn
+        icon={<Bookmark size={18} />}
+        title="Saved items"
+        empty="Saved lessons, resources, quizzes, and exam problems will appear here."
+        items={recentSaves.map((save) => ({
+          id: `save-${save.id}`,
+          href: topicDeepLink(save.topic_id, save.topic_item_id),
+          title: save.label || `${save.target_type.replace(/_/g, ' ')} #${save.target_id}`,
+          meta: save.target_type.replace(/_/g, ' '),
+        }))}
+      />
+    </section>
+  )
+}
+
+function ProfileHubColumn({
+  icon,
+  title,
+  empty,
+  items,
+}: {
+  icon: ReactNode
+  title: string
+  empty: string
+  items: { id: string; href: string; title: string; meta: string }[]
+}) {
+  return (
+    <article className="figma-profile-hub-column">
+      <div className="figma-profile-hub-heading">
+        <span>{icon}</span>
+        <strong>{title}</strong>
+      </div>
+      {items.length > 0 ? (
+        <div className="figma-profile-hub-list">
+          {items.map((item) => (
+            <a href={item.href} key={item.id} className="figma-profile-hub-row">
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.meta}</small>
+              </span>
+              <ChevronRight size={15} strokeWidth={2.4} />
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p>{empty}</p>
+      )}
+    </article>
+  )
+}
+
+function topicDeepLink(topicId?: number | null, topicItemId?: number | null) {
+  if (!topicId) return '/profile'
+  const params = topicItemId ? `?item=${topicItemId}` : ''
+  return `/topics/${topicId}${params}`
+}
+
+function formatHubDate(value?: string) {
+  if (!value) return 'Recent'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Recent'
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function ProfileEditStyles() {
@@ -596,6 +701,108 @@ function ProfileEditStyles() {
 
         .figma-profile-edit-actions {
           display: grid;
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .figma-profile-hub {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        padding-top: 18px;
+      }
+
+      .figma-profile-hub-column {
+        min-width: 0;
+        border: 2px solid #e4e4e7;
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 16px;
+      }
+
+      .figma-profile-hub-heading {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: #3f3f46;
+      }
+
+      .figma-profile-hub-heading span {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 12px;
+        background: #eaf8ff;
+        color: #1292cf;
+      }
+
+      .figma-profile-hub-heading strong {
+        font-size: 15px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .figma-profile-hub-list {
+        display: grid;
+        gap: 9px;
+        padding-top: 13px;
+      }
+
+      .figma-profile-hub-row {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-radius: 13px;
+        background: #f7f8fb;
+        color: #3f3f46;
+        padding: 12px;
+        text-decoration: none;
+        transition: transform 160ms ease, box-shadow 160ms ease;
+      }
+
+      .figma-profile-hub-row:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 22px rgba(24,24,27,0.08);
+      }
+
+      .figma-profile-hub-row span {
+        min-width: 0;
+      }
+
+      .figma-profile-hub-row strong {
+        display: block;
+        overflow: hidden;
+        color: #3f3f46;
+        font-size: 13px;
+        font-weight: 900;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .figma-profile-hub-row small {
+        display: block;
+        margin-top: 4px;
+        color: #71717b;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1;
+        text-transform: capitalize;
+      }
+
+      .figma-profile-hub-column p {
+        margin: 13px 0 0;
+        color: #71717b;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      @media (max-width: 980px) {
+        .figma-profile-hub {
           grid-template-columns: 1fr;
         }
       }
