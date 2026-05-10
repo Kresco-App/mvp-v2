@@ -105,12 +105,15 @@ def _item_out(item: TopicItem, progress_by_item: dict[int, TopicItemProgress]) -
     )
 
 
-def _matches_item(item: TopicItem, query: str) -> bool:
+def _matches_item(item: TopicItem, query: str, notes_by_item: dict[int, list[str]] | None = None) -> bool:
     haystack = " ".join([
         item.title,
         item.description or "",
         " ".join(item.concept_slugs or []),
         item.item_type,
+        item.primary_resource.title if item.primary_resource else "",
+        item.primary_resource.summary if item.primary_resource else "",
+        " ".join(notes_by_item.get(item.id, [])) if notes_by_item else "",
         *(tab.label + " " + (tab.content or "") + " " + " ".join(tab.concept_slugs or []) for tab in item.tabs),
     ]).lower()
     return query.lower() in haystack
@@ -326,16 +329,19 @@ async def get_topic_workspace(
         .where(UserNote.user_id == user.id, UserNote.topic_id == topic.id)
         .order_by(UserNote.updated_at.desc())
     )
-    notes = [
-        {
+    note_rows = notes_result.scalars().all()
+    notes_by_item: dict[int, list[str]] = {}
+    notes = []
+    for note in note_rows:
+        notes.append({
             "id": note.id,
             "topic_item_id": note.topic_item_id,
             "tab_content_id": note.tab_content_id,
             "body": note.body,
             "updated_at": note.updated_at.isoformat() if note.updated_at else "",
-        }
-        for note in notes_result.scalars().all()
-    ]
+        })
+        if note.topic_item_id:
+            notes_by_item.setdefault(note.topic_item_id, []).append(note.body)
 
     all_tabs = [tab for item in items for tab in item.tabs if tab.status == "published"]
     study_tools = StudyToolsOut(
@@ -344,7 +350,7 @@ async def get_topic_workspace(
         resources=[ResourceOut.model_validate(resource) for resource in topic.resources if resource.status == "published"],
         notes=notes,
     )
-    search_results = [_item_out(item, progress_by_item) for item in items if q and _matches_item(item, q)]
+    search_results = [_item_out(item, progress_by_item) for item in items if q and _matches_item(item, q, notes_by_item)]
 
     return TopicWorkspaceOut(
         id=topic.id,
