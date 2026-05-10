@@ -323,6 +323,149 @@ function AnimatedTabPanel({
   return <AnimatedContentRenderer {...rendererProps} />
 }
 
+function normalizeOptionKey(value: unknown) {
+  return String(value ?? '')
+}
+
+function splitOrderingInput(value: string) {
+  return value.split(',').map((item) => item.trim()).filter(Boolean)
+}
+
+function toggleMultiAnswer(current: unknown, option: string) {
+  const values = Array.isArray(current) ? current.map(String) : []
+  return values.includes(option) ? values.filter((value) => value !== option) : [...values, option]
+}
+
+function QuizQuestion({
+  question,
+  value,
+  onChange,
+}: {
+  question: any
+  value: any
+  onChange: (value: any) => void
+}) {
+  const type = question.type || 'multiple_choice'
+  const options = question.options || ['true', 'false']
+
+  if (type === 'multiple_choice' || type === 'true_false') {
+    return (
+      <div className="grid gap-2">
+        {options.map((option: string) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => onChange(option)}
+            className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
+              value === option ? 'border-[#29aee4] bg-[#29aee4] text-white' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
+            }`}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'multi_select') {
+    const selected = Array.isArray(value) ? value.map(String) : []
+    return (
+      <div className="grid gap-2">
+        {(question.options || []).map((option: string) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => onChange(toggleMultiAnswer(value, option))}
+            className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
+              selected.includes(option) ? 'border-[#29aee4] bg-[#eaf8ff] text-[#1292cf]' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
+            }`}
+          >
+            {selected.includes(option) ? 'Selected: ' : ''}{option}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'matching') {
+    const pairs = question.pairs || Object.keys(question.answer || {}).map((left) => ({ left, right: question.answer[left] }))
+    const answers = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    return (
+      <div className="grid gap-2">
+        {pairs.map((pair: any) => (
+          <label key={pair.left} className="grid gap-1 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-3">
+            <span className="text-xs font-black text-[#71717b]">{pair.left}</span>
+            <input
+              className="figma-input w-full bg-white"
+              value={answers[pair.left] || ''}
+              onChange={(event) => onChange({ ...answers, [pair.left]: event.target.value })}
+              placeholder="Match"
+            />
+          </label>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'ordering') {
+    const orderingValue = Array.isArray(value) ? value.join(', ') : normalizeOptionKey(value)
+    return (
+      <div className="grid gap-2">
+        {question.items && (
+          <div className="flex flex-wrap gap-2">
+            {question.items.map((item: string) => (
+              <span key={item} className="rounded-full bg-[#f7f8fb] px-3 py-1 text-xs font-black text-[#71717b]">{item}</span>
+            ))}
+          </div>
+        )}
+        <input
+          className="figma-input w-full"
+          value={orderingValue}
+          onChange={(event) => onChange(splitOrderingInput(event.target.value))}
+          placeholder="Comma-separated order"
+        />
+      </div>
+    )
+  }
+
+  if (type === 'drag_and_drop') {
+    const answers = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    const items = question.items || Object.keys(question.answer || {}).map((id) => ({ id, label: id }))
+    const zones = question.zones || Array.from(new Set(Object.values(question.answer || {})))
+    return (
+      <div className="grid gap-2">
+        {items.map((item: any) => (
+          <label key={item.id} className="grid gap-1 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-3">
+            <span className="text-xs font-black text-[#71717b]">{item.label || item.id}</span>
+            <select
+              className="figma-input w-full bg-white"
+              value={answers[item.id] || ''}
+              onChange={(event) => onChange({ ...answers, [item.id]: event.target.value })}
+            >
+              <option value="">Choose zone</option>
+              {zones.map((zone: any) => (
+                <option key={String(zone)} value={String(zone)}>{String(zone)}</option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </div>
+    )
+  }
+
+  const placeholder = type === 'numeric_answer' ? 'Numeric answer' : type === 'fill_in_blank' ? 'Fill the blank' : type === 'interactive_checkpoint' ? 'Checkpoint answer' : 'Short answer'
+
+  return (
+    <input
+      className="figma-input w-full"
+      value={value || ''}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      inputMode={type === 'numeric_answer' ? 'decimal' : 'text'}
+    />
+  )
+}
+
 function QuizTab({ tab }: { tab: TabContent }) {
   const questions = tab.config_json?.questions || []
   const [answers, setAnswers] = useState<Record<string, any>>({})
@@ -347,28 +490,17 @@ function QuizTab({ tab }: { tab: TabContent }) {
     <div className="space-y-4">
       {questions.map((question: any, index: number) => (
         <div key={question.id} className="rounded-2xl border border-[#e4e4e7] bg-white p-4">
-          <p className="m-0 mb-3 text-sm font-black text-[#3f3f46]">{index + 1}. {question.prompt}</p>
-          <div className="grid gap-2">
-            {(question.options || []).map((option: string) => (
-              <button
-                key={option}
-                onClick={() => setAnswers((prev) => ({ ...prev, [question.id]: option }))}
-                className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
-                  answers[question.id] === option ? 'border-[#29aee4] bg-[#29aee4] text-white' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
-                }`}
-              >
-                {option}
-              </button>
-            ))}
-            {!question.options && (
-              <input
-                className="figma-input w-full"
-                value={answers[question.id] || ''}
-                onChange={(event) => setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }))}
-                placeholder="Your answer"
-              />
-            )}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <p className="m-0 text-sm font-black text-[#3f3f46]">{index + 1}. {question.prompt}</p>
+            <span className="rounded-full bg-[#f7f8fb] px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">
+              {String(question.type || 'multiple_choice').replace(/_/g, ' ')}
+            </span>
           </div>
+          <QuizQuestion
+            question={question}
+            value={answers[question.id]}
+            onChange={(value) => setAnswers((prev) => ({ ...prev, [question.id]: value }))}
+          />
         </div>
       ))}
       <div className="flex flex-wrap items-center gap-3">

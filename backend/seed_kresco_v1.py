@@ -53,12 +53,24 @@ PHYSICS_QUESTIONS = [
     {"id": "q1", "type": "multiple_choice", "prompt": "A wave period is measured in:", "options": ["Hz", "s", "m", "m/s"], "answer": "s"},
     {"id": "q2", "type": "true_false", "prompt": "Frequency and period satisfy f = 1 / T.", "options": ["true", "false"], "answer": "true"},
     {"id": "q3", "type": "numeric_answer", "prompt": "If T = 0.02 s, what is f in Hz?", "answer": "50"},
+    {"id": "q4", "type": "multi_select", "prompt": "Select wave quantities measured from a graph.", "options": ["period", "wavelength", "mass", "frequency"], "answer": ["period", "wavelength"]},
+    {"id": "q5", "type": "matching", "prompt": "Match quantity to unit.", "answer": {"T": "s", "f": "Hz", "lambda": "m"}},
+    {"id": "q6", "type": "ordering", "prompt": "Order the method.", "items": ["read T", "calculate f", "calculate v"], "answer": ["read T", "calculate f", "calculate v"]},
+    {"id": "q7", "type": "fill_in_blank", "prompt": "Complete: v = lambda x __.", "answer": "f"},
+    {"id": "q8", "type": "drag_and_drop", "prompt": "Classify quantities.", "items": [{"id": "period", "label": "T"}, {"id": "lambda", "label": "lambda"}], "zones": ["time", "space"], "answer": {"period": "time", "lambda": "space"}},
+    {"id": "q9", "type": "interactive_checkpoint", "prompt": "Type done after testing the simulator.", "answer": "done"},
 ]
 
 MATH_QUESTIONS = [
     {"id": "q1", "type": "multiple_choice", "prompt": "A function is continuous at a when:", "options": ["lim f(x)=f(a)", "f(a)=0", "lim f(x)=0", "f is increasing"], "answer": "lim f(x)=f(a)"},
     {"id": "q2", "type": "true_false", "prompt": "A removable discontinuity can be fixed by redefining the value at one point.", "options": ["true", "false"], "answer": "true"},
     {"id": "q3", "type": "short_answer", "prompt": "Name the theorem used to prove a root exists on an interval.", "answer": "intermediate value theorem"},
+    {"id": "q4", "type": "multi_select", "prompt": "Select checks before applying continuity.", "options": ["domain", "left limit", "favorite color", "function value"], "answer": ["domain", "left limit", "function value"]},
+    {"id": "q5", "type": "matching", "prompt": "Match object to role.", "answer": {"domain": "where f is defined", "limit": "near a", "image": "output set"}},
+    {"id": "q6", "type": "ordering", "prompt": "Order the proof.", "items": ["state theorem", "verify conditions", "conclude"], "answer": ["state theorem", "verify conditions", "conclude"]},
+    {"id": "q7", "type": "fill_in_blank", "prompt": "A continuous graph has no vertical ____.", "answer": "jump"},
+    {"id": "q8", "type": "drag_and_drop", "prompt": "Classify terms.", "items": [{"id": "x", "label": "x"}, {"id": "f(x)", "label": "f(x)"}], "zones": ["input", "output"], "answer": {"x": "input", "f(x)": "output"}},
+    {"id": "q9", "type": "interactive_checkpoint", "prompt": "Type done after moving the graph control.", "answer": "done"},
 ]
 
 

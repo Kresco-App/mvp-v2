@@ -70,6 +70,62 @@ def _matches_item(item: TopicItem, query: str) -> bool:
     return query.lower() in haystack
 
 
+def _normalize_answer(value) -> str:
+    return str(value if value is not None else "").strip().casefold()
+
+
+def _normalize_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [_normalize_answer(item) for item in value]
+    if isinstance(value, str):
+        return [_normalize_answer(item) for item in value.split(",") if item.strip()]
+    return [_normalize_answer(value)]
+
+
+def _grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
+    question_type = str(question.get("type") or "multiple_choice")
+    expected = question.get("answer")
+
+    if question_type in {"multiple_choice", "true_false", "fill_in_blank", "short_answer", "interactive_checkpoint"}:
+        accepted = question.get("accepted_answers") or [expected]
+        return _normalize_answer(submitted) in {_normalize_answer(item) for item in accepted}, accepted
+
+    if question_type == "numeric_answer":
+        tolerance = float(question.get("tolerance", 0))
+        try:
+            return abs(float(submitted) - float(expected)) <= tolerance, expected
+        except (TypeError, ValueError):
+            return False, expected
+
+    if question_type == "multi_select":
+        return sorted(_normalize_list(submitted)) == sorted(_normalize_list(expected)), expected
+
+    if question_type == "ordering":
+        return _normalize_list(submitted) == _normalize_list(expected or question.get("items")), expected
+
+    if question_type == "matching":
+        expected_map = expected or {pair.get("left"): pair.get("right") for pair in question.get("pairs", [])}
+        submitted_map = submitted if isinstance(submitted, dict) else {}
+        normalized_expected = {_normalize_answer(k): _normalize_answer(v) for k, v in expected_map.items()}
+        normalized_submitted = {_normalize_answer(k): _normalize_answer(v) for k, v in submitted_map.items()}
+        return normalized_submitted == normalized_expected, expected_map
+
+    if question_type == "drag_and_drop":
+        expected_map = expected or {
+            item.get("id"): item.get("zone")
+            for item in question.get("items", [])
+            if isinstance(item, dict)
+        }
+        submitted_map = submitted if isinstance(submitted, dict) else {}
+        normalized_expected = {_normalize_answer(k): _normalize_answer(v) for k, v in expected_map.items()}
+        normalized_submitted = {_normalize_answer(k): _normalize_answer(v) for k, v in submitted_map.items()}
+        return normalized_submitted == normalized_expected, expected_map
+
+    return submitted == expected, expected
+
+
 @router.get("/subjects", response_model=list[SubjectListOut])
 async def list_subjects(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -354,12 +410,16 @@ async def submit_tab_quiz(
     correct = 0
     for question in questions:
         qid = str(question["id"])
-        expected = question.get("answer")
         submitted = body.answers.get(qid)
-        is_correct = submitted == expected
+        is_correct, expected = _grade_quiz_question(question, submitted)
         if is_correct:
             correct += 1
-        grading["questions"].append({"id": qid, "correct": is_correct, "answer": expected})
+        grading["questions"].append({
+            "id": qid,
+            "type": question.get("type", "multiple_choice"),
+            "correct": is_correct,
+            "answer": expected,
+        })
     total = len(questions)
     score = round((correct / total) * 100) if total else 0
     passed = score >= pass_score
