@@ -49,7 +49,7 @@ Visible tab slots are intentionally fixed to the current Figma workspace shell:
 | `Resources` | document | `resources`, `resource`, `pdf`, `attachment`, `worksheet` |
 | `Notes` | document | `notes`; if no note tab is seeded, the UI still renders a note composer and saves against the topic item |
 
-This preserves the knowledge-base model: tabs are configurable `TabContent` under a `TopicItem`, while the visible v1 Figma shell remains Course/Lab/Resources/Notes. Quizzes remain first-class data and can be main-path items or study tools; they are not shown as a fifth tab in this shell unless the Figma direction changes.
+This preserves the knowledge-base model: tabs are configurable `TabContent` under a `TopicItem`, while the visible v1 Figma shell remains Course/Lab/Resources/Notes. Quizzes remain first-class data and can be main-path items or final revision items; they are not shown as a fifth tab in this shell unless the Figma direction changes.
 
 ## Course Content Accordion
 

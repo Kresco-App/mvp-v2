@@ -1,0 +1,280 @@
+export type QuizPrimitiveBaseQuestion = {
+  id: string
+  type: string
+  title: string
+  prompt: string
+  concept: string
+  difficulty: string
+  hook?: string
+  explanation?: string
+  media?: {
+    src: string
+    alt: string
+  }
+}
+
+export type QuizPrimitiveOption = {
+  id: string
+  label: string
+  image?: string
+}
+
+export type EllipseAnswerRegion = {
+  shape: 'ellipse'
+  label: string
+  x: number
+  y: number
+  rx: number
+  ry: number
+}
+
+export type QuizPrimitiveQuestion =
+  | (QuizPrimitiveBaseQuestion & { type: 'multiple_choice' | 'true_false'; options: QuizPrimitiveOption[]; answer: string })
+  | (QuizPrimitiveBaseQuestion & { type: 'multi_select'; options: QuizPrimitiveOption[]; answer: string[] })
+  | (QuizPrimitiveBaseQuestion & { type: 'numeric_approximation'; answer: number; tolerance: number; unit: string; sample: string })
+  | (QuizPrimitiveBaseQuestion & { type: 'slider_estimation'; min: number; max: number; step: number; answer: number; tolerance: number; unit: string; start: number })
+  | (QuizPrimitiveBaseQuestion & { type: 'exact_match' | 'fill_in_blank' | 'short_answer'; answer: string; sample: string; hint?: string })
+  | (QuizPrimitiveBaseQuestion & { type: 'ordering'; items: QuizPrimitiveOption[]; answer: string[] })
+  | (QuizPrimitiveBaseQuestion & { type: 'matching'; left: QuizPrimitiveOption[]; right: QuizPrimitiveOption[]; answer: Record<string, string> })
+  | (QuizPrimitiveBaseQuestion & { type: 'formula_builder'; tokens: QuizPrimitiveOption[]; answer: string[] })
+  | (QuizPrimitiveBaseQuestion & { type: 'error_spotting'; lines: QuizPrimitiveOption[]; answer: string })
+  | (QuizPrimitiveBaseQuestion & { type: 'drag_and_drop'; items: QuizPrimitiveOption[]; zones: QuizPrimitiveOption[]; answer: Record<string, string> })
+  | (QuizPrimitiveBaseQuestion & {
+      type: 'image_hotspot'
+      cursor: { x: number; y: number; radius: number }
+      answerRegion: EllipseAnswerRegion
+    })
+
+export const quizPrimitiveQuestions: QuizPrimitiveQuestion[] = [
+  {
+    id: 'q-wave-source',
+    type: 'multiple_choice',
+    title: 'Spot the Bac trap',
+    prompt: 'The examiner asks for a transverse mechanical wave. Which visual is the best model?',
+    concept: 'ondes mecaniques',
+    difficulty: 'direct',
+    hook: 'Fast visual diagnostic before a video correction.',
+    explanation: 'A rope pulse is mechanical and transverse: the medium moves perpendicular to propagation.',
+    media: {
+      src: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80',
+      alt: 'Water surface with visible ripples',
+    },
+    options: [
+      { id: 'rope', label: 'Rope pulse', image: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=480&q=80' },
+      { id: 'sound', label: 'Sound in air', image: 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=480&q=80' },
+      { id: 'spring', label: 'Longitudinal spring', image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=480&q=80' },
+    ],
+    answer: 'rope',
+  },
+  {
+    id: 'q-formula',
+    type: 'numeric_approximation',
+    title: 'Mental calculation',
+    prompt: 'A sound wave travels at 340 m/s with frequency 170 Hz. Estimate the wavelength.',
+    concept: 'relation v = lambda f',
+    difficulty: 'application',
+    hook: 'Bac-style number sense: no calculator needed.',
+    explanation: 'lambda = v / f = 340 / 170 = 2 m.',
+    answer: 2,
+    tolerance: 0.05,
+    unit: 'm',
+    sample: '2.00',
+  },
+  {
+    id: 'q-exact',
+    type: 'exact_match',
+    title: 'Exact symbol',
+    prompt: 'Type the official SI unit symbol for frequency.',
+    concept: 'frequence',
+    difficulty: 'direct',
+    hook: 'Tiny detail, easy lost point.',
+    explanation: 'Frequency is measured in hertz, written Hz.',
+    answer: 'Hz',
+    sample: 'Hz',
+    hint: 'Case-sensitive for display, normalized for grading.',
+  },
+  {
+    id: 'q-slider',
+    type: 'slider_estimation',
+    title: 'Graph estimate',
+    prompt: 'A wave crest repeats roughly every 4 cm on the diagram. Estimate the wavelength.',
+    concept: 'lecture graphique',
+    difficulty: 'visual estimation',
+    hook: 'A fast slider builds the habit of reading scale before calculating.',
+    explanation: 'The wavelength is the distance between two consecutive crests.',
+    min: 0,
+    max: 10,
+    step: 0.1,
+    start: 6.5,
+    answer: 4,
+    tolerance: 0.4,
+    unit: 'cm',
+  },
+  {
+    id: 'q-fill',
+    type: 'fill_in_blank',
+    title: 'Definition gap',
+    prompt: 'The period T is the ____ of one complete oscillation.',
+    concept: 'periode',
+    difficulty: 'direct',
+    hook: 'Definition recall before formula work.',
+    explanation: 'The period is a duration, measured in seconds.',
+    answer: 'duration',
+    sample: 'duration',
+  },
+  {
+    id: 'q-multi',
+    type: 'multi_select',
+    title: 'Choose all that move',
+    prompt: 'In the same medium, the source frequency increases. Which quantities must change?',
+    concept: 'periodicite',
+    difficulty: 'reasoning',
+    hook: 'Multiple answers, one classic misconception.',
+    explanation: 'The speed stays fixed by the medium, so higher frequency means lower period and shorter wavelength.',
+    options: [
+      { id: 'period', label: 'Period T decreases' },
+      { id: 'wavelength', label: 'Wavelength lambda decreases' },
+      { id: 'speed', label: 'Propagation speed increases' },
+      { id: 'amplitude', label: 'Amplitude must increase' },
+    ],
+    answer: ['period', 'wavelength'],
+  },
+  {
+    id: 'q-order',
+    type: 'ordering',
+    title: 'Method stack',
+    prompt: 'Rebuild the correct Bac method for a wave calculation.',
+    concept: 'methode bac',
+    difficulty: 'application',
+    hook: 'Order matters: this is how written solutions earn points.',
+    explanation: 'A clean answer identifies the data, converts units, chooses the relation, then calculates with a unit.',
+    items: [
+      { id: 'formula', label: 'Choose formula' },
+      { id: 'identify', label: 'Identify known values' },
+      { id: 'compute', label: 'Compute and conclude' },
+      { id: 'convert', label: 'Convert units' },
+    ],
+    answer: ['identify', 'convert', 'formula', 'compute'],
+  },
+  {
+    id: 'q-formula-builder',
+    type: 'formula_builder',
+    title: 'Build the relation',
+    prompt: 'Tap the tiles to rebuild the wave relation used to calculate wavelength.',
+    concept: 'formules ondes',
+    difficulty: 'method',
+    hook: 'Formula recall becomes an active construction instead of a passive reveal.',
+    explanation: 'For a periodic wave, v = lambda f, so lambda = v / f.',
+    tokens: [
+      { id: 'lambda', label: 'lambda' },
+      { id: 'equals', label: '=' },
+      { id: 'v', label: 'v' },
+      { id: 'divide', label: '/' },
+      { id: 'f', label: 'f' },
+      { id: 'times', label: 'x' },
+      { id: 't', label: 'T' },
+    ],
+    answer: ['lambda', 'equals', 'v', 'divide', 'f'],
+  },
+  {
+    id: 'q-match',
+    type: 'matching',
+    title: 'Symbol sprint',
+    prompt: 'Match each wave symbol to the unit expected in a Bac answer.',
+    concept: 'grandeurs et unites',
+    difficulty: 'direct',
+    hook: 'Quick pairs, Duolingo-style.',
+    explanation: 'T is seconds, f is hertz, lambda is meters, and wave speed v is m/s.',
+    left: [
+      { id: 'period', label: 'T' },
+      { id: 'frequency', label: 'f' },
+      { id: 'wavelength', label: 'lambda' },
+      { id: 'speed', label: 'v' },
+    ],
+    right: [
+      { id: 'meter_per_second', label: 'm/s' },
+      { id: 'meter', label: 'm' },
+      { id: 'hertz', label: 'Hz' },
+      { id: 'second', label: 's' },
+    ],
+    answer: { period: 'second', frequency: 'hertz', wavelength: 'meter', speed: 'meter_per_second' },
+  },
+  {
+    id: 'q-error',
+    type: 'error_spotting',
+    title: 'Spot the bad line',
+    prompt: 'A student solves: v = 340 m/s and f = 170 Hz. Which line is the first wrong one?',
+    concept: 'correction bac',
+    difficulty: 'trap',
+    hook: 'This trains correction instincts, not just final-answer guessing.',
+    explanation: 'The second line is wrong because lambda = v / f, not v x f.',
+    lines: [
+      { id: 'line_1', label: '1. Known values: v = 340 m/s and f = 170 Hz' },
+      { id: 'line_2', label: '2. lambda = v x f' },
+      { id: 'line_3', label: '3. lambda = 340 x 170' },
+      { id: 'line_4', label: '4. lambda = 57 800 m' },
+    ],
+    answer: 'line_2',
+  },
+  {
+    id: 'q-drag',
+    type: 'drag_and_drop',
+    title: 'Sort the examples',
+    prompt: 'Sort each situation into its wave family.',
+    concept: 'familles dondes',
+    difficulty: 'reasoning',
+    hook: 'A physical sorting task for exam vocabulary.',
+    explanation: 'Mechanical waves require a material medium; electromagnetic waves can travel in vacuum.',
+    items: [
+      { id: 'sound', label: 'Sound wave' },
+      { id: 'light', label: 'Light wave' },
+      { id: 'rope', label: 'Rope wave' },
+      { id: 'radio', label: 'Radio wave' },
+      { id: 'water', label: 'Water ripple' },
+    ],
+    zones: [
+      { id: 'mechanical', label: 'Mechanical' },
+      { id: 'electromagnetic', label: 'Electromagnetic' },
+    ],
+    answer: { sound: 'mechanical', light: 'electromagnetic', rope: 'mechanical', radio: 'electromagnetic', water: 'mechanical' },
+  },
+  {
+    id: 'q-hotspot',
+    type: 'image_hotspot',
+    title: 'Aim the selector',
+    prompt: 'Move the circle so its full body sits inside a crest of the wave.',
+    concept: 'lecture graphique',
+    difficulty: 'visual',
+    hook: 'Control the cursor, then validate the hidden answer region.',
+    explanation: 'The circle must fit inside the crest region, not just touch the curve.',
+    cursor: { x: 38, y: 62, radius: 7 },
+    answerRegion: { shape: 'ellipse', label: 'crest region', x: 63, y: 29, rx: 10, ry: 12 },
+  },
+  {
+    id: 'q-short',
+    type: 'short_answer',
+    title: 'Explain like correction',
+    prompt: 'In one sentence, explain why wave speed stays constant in the same medium.',
+    concept: 'milieu de propagation',
+    difficulty: 'explain',
+    hook: 'Train concise written justification.',
+    explanation: 'For Bac corrections, connect speed to the medium instead of the source frequency.',
+    answer: 'The medium fixes the propagation speed.',
+    sample: 'Because the medium determines the wave speed.',
+  },
+  {
+    id: 'q-true',
+    type: 'true_false',
+    title: 'Trap statement',
+    prompt: 'A higher frequency always means a higher wave speed.',
+    concept: 'vitesse de propagation',
+    difficulty: 'trap',
+    hook: 'One tap to catch a common false shortcut.',
+    explanation: 'In the same medium, wave speed is fixed; wavelength adjusts when frequency changes.',
+    options: [
+      { id: 'true', label: 'True' },
+      { id: 'false', label: 'False' },
+    ],
+    answer: 'false',
+  },
+]

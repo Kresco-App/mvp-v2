@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,7 @@ from app.schemas.gamification import (
     ProgressUpdateIn, ProgressCompleteIn, LeaderboardEntryOut, SidebarSummaryOut,
 )
 from app.schemas.courses import VideoQuizTriggerOut
+from app.services.access import build_access_context
 from app.services.xp import award_xp, calculate_level, generate_daily_quests
 
 router = APIRouter(tags=["Progress & Gamification"])
@@ -102,7 +103,8 @@ async def get_subject_plan(
     result = await db.execute(
         select(Subject)
         .options(
-            selectinload(Subject.chapters).selectinload(Chapter.lessons),
+            selectinload(Subject.chapters).selectinload(Chapter.lessons).selectinload(Lesson.quiz),
+            selectinload(Subject.chapters).selectinload(Chapter.blocks),
             selectinload(Subject.chapters).selectinload(Chapter.sections),
         )
         .where(Subject.id == subject_id)
@@ -112,6 +114,8 @@ async def get_subject_plan(
         raise HTTPException(status_code=404, detail="Subject not found")
 
     all_lesson_ids = [l.id for c in subject.chapters for l in c.lessons]
+    all_block_ids = [b.id for c in subject.chapters for b in c.blocks]
+    all_quiz_ids = [l.quiz.id for c in subject.chapters for l in c.lessons if l.quiz is not None]
     all_section_ids = [s.id for c in subject.chapters for s in c.sections]
 
     progress_result = await db.execute(
@@ -123,10 +127,26 @@ async def get_subject_plan(
     )
     completed_lessons = [p.lesson_id for p in progress_result.scalars().all()]
 
-    content_result = await db.execute(
-        select(ContentProgress).where(ContentProgress.user_id == user.id)
-    )
-    all_content = content_result.scalars().all()
+    content_filters = []
+    if all_block_ids:
+        content_filters.append(
+            (ContentProgress.item_type == "block") & ContentProgress.item_id.in_(all_block_ids)
+        )
+    if all_quiz_ids:
+        content_filters.append(
+            (ContentProgress.item_type == "quiz") & ContentProgress.item_id.in_(all_quiz_ids)
+        )
+    if all_section_ids:
+        content_filters.append(
+            (ContentProgress.item_type == "section") & ContentProgress.item_id.in_(all_section_ids)
+        )
+    if content_filters:
+        content_result = await db.execute(
+            select(ContentProgress).where(ContentProgress.user_id == user.id, or_(*content_filters))
+        )
+        all_content = content_result.scalars().all()
+    else:
+        all_content = []
     completed_blocks = [c.item_id for c in all_content if c.item_type == "block"]
     completed_quizzes = [c.item_id for c in all_content if c.item_type == "quiz"]
     completed_sections = [c.item_id for c in all_content if c.item_type == "section"]
@@ -147,6 +167,22 @@ async def update_progress(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    lesson_result = await db.execute(
+        select(Lesson).options(selectinload(Lesson.chapter)).where(Lesson.id == body.lesson_id)
+    )
+    lesson = lesson_result.scalar_one_or_none()
+    if lesson is None:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    access_context = await build_access_context(db, user)
+    subject_id = lesson.chapter.subject_id if lesson.chapter else None
+    access = access_context.decide_for(lesson, subject_id=subject_id, fallback_required_tier="pro")
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
+
+    watched_seconds = max(0, body.watched_seconds)
+    if lesson.duration_seconds > 0:
+        watched_seconds = min(watched_seconds, lesson.duration_seconds)
+
     result = await db.execute(
         select(LessonProgress).where(
             LessonProgress.user_id == user.id,
@@ -155,19 +191,14 @@ async def update_progress(
     )
     progress = result.scalar_one_or_none()
 
-    lesson_result = await db.execute(select(Lesson).where(Lesson.id == body.lesson_id))
-    lesson = lesson_result.scalar_one_or_none()
-    if lesson is None:
-        raise HTTPException(status_code=404, detail="Lesson not found")
-
     if progress is None:
         progress = LessonProgress(
-            user_id=user.id, lesson_id=body.lesson_id, watched_seconds=body.watched_seconds
+            user_id=user.id, lesson_id=body.lesson_id, watched_seconds=watched_seconds
         )
         db.add(progress)
     else:
-        if body.watched_seconds > progress.watched_seconds:
-            progress.watched_seconds = body.watched_seconds
+        if watched_seconds > progress.watched_seconds:
+            progress.watched_seconds = watched_seconds
 
     # Auto-complete if watched ≥ 90%
     if lesson.duration_seconds > 0 and progress.watched_seconds >= lesson.duration_seconds * 0.9:
@@ -219,33 +250,10 @@ async def check_lesson_access(
     if lesson is None:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    if lesson.is_free_preview:
-        return LessonAccessOut(can_access=True, reason="free_preview")
-    if not user.is_pro:
-        return LessonAccessOut(can_access=False, reason="pro_required")
-
-    chapter_lessons = sorted(lesson.chapter.lessons, key=lambda l: l.order)
-    current_idx = next((i for i, l in enumerate(chapter_lessons) if l.id == lesson_id), 0)
-
-    if current_idx == 0:
-        return LessonAccessOut(can_access=True, reason="first_lesson")
-
-    prev_lesson = chapter_lessons[current_idx - 1]
-    prev_progress_result = await db.execute(
-        select(LessonProgress).where(
-            LessonProgress.user_id == user.id,
-            LessonProgress.lesson_id == prev_lesson.id,
-        )
-    )
-    prev_progress = prev_progress_result.scalar_one_or_none()
-
-    if not prev_progress or prev_progress.status != "completed":
-        return LessonAccessOut(
-            can_access=False, reason="previous_lesson_incomplete",
-            blocker_lesson_id=prev_lesson.id,
-        )
-
-    return LessonAccessOut(can_access=True, reason="sequential_unlocked")
+    access_context = await build_access_context(db, user)
+    subject_id = lesson.chapter.subject_id if lesson.chapter else None
+    access = access_context.decide_for(lesson, subject_id=subject_id, fallback_required_tier="pro")
+    return LessonAccessOut(can_access=access.can_access, reason=access.reason)
 
 
 @router.post("/section-complete")
@@ -254,10 +262,19 @@ async def complete_section(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(ChapterSection).where(ChapterSection.id == body.section_id))
+    result = await db.execute(
+        select(ChapterSection)
+        .options(selectinload(ChapterSection.chapter))
+        .where(ChapterSection.id == body.section_id)
+    )
     section = result.scalar_one_or_none()
     if section is None:
         raise HTTPException(status_code=404, detail="Section not found")
+    access_context = await build_access_context(db, user)
+    subject_id = section.chapter.subject_id if section.chapter else None
+    access = access_context.decide_for(section, subject_id=subject_id, fallback_required_tier="pro")
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
 
     existing = await db.execute(
         select(ContentProgress).where(
@@ -297,29 +314,15 @@ async def check_section_access(
     if section is None:
         raise HTTPException(status_code=404, detail="Section not found")
 
-    if section.is_free_preview:
-        return SectionAccessOut(can_access=True)
-    if not user.is_pro:
-        return SectionAccessOut(can_access=False)
-
-    chapter_sections = sorted(section.chapter.sections, key=lambda s: s.order)
-    current_idx = next((i for i, s in enumerate(chapter_sections) if s.id == section_id), 0)
-
-    if current_idx == 0:
-        return SectionAccessOut(can_access=True)
-
-    prev_section = chapter_sections[current_idx - 1]
-    if not prev_section.is_gating:
-        return SectionAccessOut(can_access=True)
-
-    prev_done = await db.execute(
-        select(ContentProgress).where(
-            ContentProgress.user_id == user.id,
-            ContentProgress.item_type == "section",
-            ContentProgress.item_id == prev_section.id,
-        )
+    access_context = await build_access_context(db, user)
+    subject_id = section.chapter.subject_id if section.chapter else None
+    access = access_context.decide_for(section, subject_id=subject_id, fallback_required_tier="pro")
+    return SectionAccessOut(
+        can_access=access.can_access,
+        reason=access.reason,
+        required_tier=access.required_tier,
+        required_subject_id=access.required_subject_id,
     )
-    return SectionAccessOut(can_access=prev_done.scalar_one_or_none() is not None)
 
 
 @router.get("/xp", response_model=XPOut)
@@ -377,13 +380,42 @@ async def record_quiz_result(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    qr = QuizResult(user_id=user.id, quiz_id=quiz_id, score=score, passed=passed)
+    quiz_result = await db.execute(
+        select(Quiz)
+        .options(selectinload(Quiz.lesson).selectinload(Lesson.chapter))
+        .where(Quiz.id == quiz_id)
+    )
+    quiz = quiz_result.scalar_one_or_none()
+    if quiz is None:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    if quiz.lesson is None:
+        raise HTTPException(status_code=404, detail="Quiz lesson not found")
+    access_context = await build_access_context(db, user)
+    subject_id = quiz.lesson.chapter.subject_id if quiz.lesson.chapter else None
+    access = access_context.decide_for(quiz.lesson, subject_id=subject_id, fallback_required_tier="pro")
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
+
+    normalized_score = max(0, min(score, 100))
+    server_passed = normalized_score >= quiz.pass_score
+    prior_passed_result = await db.execute(
+        select(QuizResult.id)
+        .where(
+            QuizResult.user_id == user.id,
+            QuizResult.quiz_id == quiz_id,
+            QuizResult.passed == True,  # noqa: E712
+        )
+        .limit(1)
+    )
+    already_passed = prior_passed_result.scalar_one_or_none() is not None
+
+    qr = QuizResult(user_id=user.id, quiz_id=quiz_id, score=normalized_score, passed=server_passed)
     db.add(qr)
     xp_earned = 0
-    if passed:
-        xp_earned = await award_xp(user.id, "quiz_pass", f"Quiz {quiz_id} passed", db)
+    if server_passed and not already_passed:
+        xp_earned = await award_xp(user.id, "quiz_pass", f"Quiz {quiz_id} passed", db, dedupe=True)
     await db.commit()
-    return {"score": score, "passed": passed, "xp_earned": xp_earned}
+    return {"score": normalized_score, "passed": server_passed, "xp_earned": xp_earned}
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntryOut])
@@ -396,6 +428,10 @@ async def get_leaderboard(
 ):
     from sqlalchemy import func as sqlfunc
     from app.models.users import User as UserModel
+
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    search = search.strip()[:80]
 
     rank_col = sqlfunc.rank().over(order_by=UserXP.total_xp.desc()).label("rank")
     stmt = (

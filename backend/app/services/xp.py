@@ -10,6 +10,7 @@ from app.models.gamification import DailyQuest, UserXP, XPTransaction
 XP_REWARDS: dict[str, int] = {
     "video_complete": 10,
     "quiz_correct": 5,
+    "quiz_retry_correct": 3,
     "lab_complete": 50,
     "exam_complete": 100,
     "quiz_pass": 20,
@@ -47,9 +48,54 @@ def calculate_level(total_xp: int) -> dict:
     }
 
 
-async def award_xp(user_id: int, reason: str, description: str, db: AsyncSession) -> int:
+async def has_xp_award(user_id: int, reason: str, description: str, db: AsyncSession) -> bool:
+    result = await db.execute(
+        select(XPTransaction.id)
+        .where(
+            XPTransaction.user_id == user_id,
+            XPTransaction.reason == reason,
+            XPTransaction.description == description,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def has_xp_idempotency_key(user_id: int, idempotency_key: str, db: AsyncSession) -> bool:
+    result = await db.execute(
+        select(XPTransaction.id)
+        .where(
+            XPTransaction.user_id == user_id,
+            XPTransaction.idempotency_key == idempotency_key,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def award_xp(
+    user_id: int,
+    reason: str,
+    description: str,
+    db: AsyncSession,
+    *,
+    dedupe: bool = False,
+    subject_id: Optional[int] = None,
+    topic_id: Optional[int] = None,
+    topic_section_id: Optional[int] = None,
+    topic_item_id: Optional[int] = None,
+    question_set_id: Optional[int] = None,
+    question_id: Optional[int] = None,
+    quiz_attempt_id: Optional[int] = None,
+    question_attempt_id: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
+) -> int:
     amount = XP_REWARDS.get(reason, 0)
     if amount == 0:
+        return 0
+    if dedupe and await has_xp_award(user_id, reason, description, db):
+        return 0
+    if idempotency_key and await has_xp_idempotency_key(user_id, idempotency_key, db):
         return 0
 
     result = await db.execute(select(UserXP).where(UserXP.user_id == user_id))
@@ -61,7 +107,21 @@ async def award_xp(user_id: int, reason: str, description: str, db: AsyncSession
     else:
         xp_record.total_xp += amount
 
-    transaction = XPTransaction(user_id=user_id, amount=amount, reason=reason, description=description)
+    transaction = XPTransaction(
+        user_id=user_id,
+        amount=amount,
+        reason=reason,
+        description=description,
+        subject_id=subject_id,
+        topic_id=topic_id,
+        topic_section_id=topic_section_id,
+        topic_item_id=topic_item_id,
+        question_set_id=question_set_id,
+        question_id=question_id,
+        quiz_attempt_id=quiz_attempt_id,
+        question_attempt_id=question_attempt_id,
+        idempotency_key=idempotency_key,
+    )
     db.add(transaction)
 
     # Update earn_xp daily quest progress

@@ -111,6 +111,7 @@ const fallbackSubjects: FigmaProfileSubject[] = [
 const badgeTones = ['#5b60f9', '#c4d1ff', '#51a2ff', '#ff8904']
 const defaultBannerUrl = '/figma-assets/profile/profile-cover.png'
 const defaultAvatarUrl = '/figma-assets/profile/profile-avatar.png'
+const PROFILE_HUB_VISIBLE_ITEMS = 4
 
 export function FigmaProfile({
   user,
@@ -399,8 +400,18 @@ export function FigmaProfile({
 }
 
 function ProfileHub({ notes, saves }: { notes: FigmaProfileNote[]; saves: FigmaProfileSavedItem[] }) {
-  const recentNotes = notes.slice(0, 4)
-  const recentSaves = saves.slice(0, 4)
+  const noteItems = useMemo(() => notes.slice(0, PROFILE_HUB_VISIBLE_ITEMS).map((note) => ({
+    id: `note-${note.id}`,
+    href: topicDeepLink(note.topic_id, note.topic_item_id),
+    title: note.body,
+    meta: formatHubDate(note.updated_at),
+  })), [notes])
+  const saveItems = useMemo(() => saves.slice(0, PROFILE_HUB_VISIBLE_ITEMS).map((save) => ({
+    id: `save-${save.id}`,
+    href: topicDeepLink(save.topic_id, save.topic_item_id),
+    title: save.label || `${save.target_type.replace(/_/g, ' ')} #${save.target_id}`,
+    meta: save.target_type.replace(/_/g, ' '),
+  })), [saves])
 
   return (
     <section className="figma-profile-hub" aria-label="Notes and saved items">
@@ -408,23 +419,13 @@ function ProfileHub({ notes, saves }: { notes: FigmaProfileNote[]; saves: FigmaP
         icon={<StickyNote size={18} />}
         title="Recent notes"
         empty="Notes you save in a topic will appear here."
-        items={recentNotes.map((note) => ({
-          id: `note-${note.id}`,
-          href: topicDeepLink(note.topic_id, note.topic_item_id),
-          title: note.body,
-          meta: formatHubDate(note.updated_at),
-        }))}
+        items={noteItems}
       />
       <ProfileHubColumn
         icon={<Bookmark size={18} />}
         title="Saved items"
         empty="Saved lessons, resources, quizzes, and exam problems will appear here."
-        items={recentSaves.map((save) => ({
-          id: `save-${save.id}`,
-          href: topicDeepLink(save.topic_id, save.topic_item_id),
-          title: save.label || `${save.target_type.replace(/_/g, ' ')} #${save.target_id}`,
-          meta: save.target_type.replace(/_/g, ' '),
-        }))}
+        items={saveItems}
       />
     </section>
   )

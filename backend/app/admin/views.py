@@ -1,5 +1,11 @@
-from sqladmin import ModelView
+from typing import Any
 
+from sqlalchemy import Boolean, Date, DateTime, Integer, String, Text, inspect as sa_inspect
+from sqladmin import ModelView
+from sqladmin.filters import AllUniqueStringValuesFilter, BooleanFilter
+
+from app.database import get_session_factory
+from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import (
     Activity, Chapter, ChapterBlock, ChapterSection, ConceptTag, CoursePDF, Exam,
@@ -7,16 +13,64 @@ from app.models.courses import (
     VideoQuizTrigger,
 )
 from app.models.gamification import (
-    ActivityEvent, ContentProgress, DailyQuest, LessonProgress, QuizAttempt, QuizResult,
+    ActivityEvent, ContentProgress, DailyQuest, LessonProgress, QuestionAttempt, QuizAttempt, QuizResult,
     TopicItemProgress, UserXP, XPTransaction,
 )
 from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
-from app.models.quizzes import Quiz, QuizOption, QuizQuestion
+from app.models.quizzes import Question, QuestionSet, Quiz, QuizOption, QuizQuestion
 from app.models.users import User, UserSubjectEntitlement
 
 
-class UserAdmin(ModelView, model=User):
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    return str(value)
+
+
+def _object_pk(model: Any) -> str:
+    try:
+        identity = sa_inspect(model).identity
+    except Exception:
+        identity = None
+    if not identity:
+        return ""
+    return ":".join(str(part) for part in identity)
+
+
+class PowerModelView(ModelView):
+    async def _write_audit_log(self, action: str, data: dict, model: Any, request) -> None:
+        if model.__class__.__name__ == "AdminAuditLog":
+            return
+        session_factory = get_session_factory()
+        if session_factory is None:
+            return
+
+        async with session_factory() as db:
+            db.add(AdminAuditLog(
+                action=action,
+                model_name=model.__class__.__name__,
+                object_pk=_object_pk(model),
+                object_repr=str(model)[:500],
+                changed_data={str(key): _json_safe(value) for key, value in (data or {}).items()},
+                request_path=str(request.url.path) if request else "",
+                client_host=request.client.host if request and request.client else "",
+                note="Recorded from SQLAdmin power admin",
+            ))
+            await db.commit()
+
+    async def after_model_change(self, data: dict, model: Any, is_created: bool, request) -> None:
+        await self._write_audit_log("create" if is_created else "update", data, model, request)
+
+    async def after_model_delete(self, model: Any, request) -> None:
+        await self._write_audit_log("delete", {}, model, request)
+
+
+class UserAdmin(PowerModelView, model=User):
     name = "User"
     name_plural = "Users"
     icon = "fa-solid fa-user"
@@ -32,7 +86,7 @@ class UserAdmin(ModelView, model=User):
     can_view_details = True
 
 
-class UserSubjectEntitlementAdmin(ModelView, model=UserSubjectEntitlement):
+class UserSubjectEntitlementAdmin(PowerModelView, model=UserSubjectEntitlement):
     name = "Subject Entitlement"
     name_plural = "Subject Entitlements"
     icon = "fa-solid fa-key"
@@ -50,7 +104,7 @@ class UserSubjectEntitlementAdmin(ModelView, model=UserSubjectEntitlement):
     can_view_details = True
 
 
-class SubjectAdmin(ModelView, model=Subject):
+class SubjectAdmin(PowerModelView, model=Subject):
     name = "Subject"
     name_plural = "Subjects"
     icon = "fa-solid fa-book"
@@ -64,7 +118,7 @@ class SubjectAdmin(ModelView, model=Subject):
     can_view_details = True
 
 
-class ChapterAdmin(ModelView, model=Chapter):
+class ChapterAdmin(PowerModelView, model=Chapter):
     name = "Chapter"
     name_plural = "Chapters"
     icon = "fa-solid fa-bookmark"
@@ -78,7 +132,7 @@ class ChapterAdmin(ModelView, model=Chapter):
     can_view_details = True
 
 
-class LessonAdmin(ModelView, model=Lesson):
+class LessonAdmin(PowerModelView, model=Lesson):
     name = "Lesson"
     name_plural = "Lessons"
     icon = "fa-solid fa-video"
@@ -92,7 +146,7 @@ class LessonAdmin(ModelView, model=Lesson):
     can_view_details = True
 
 
-class ChapterSectionAdmin(ModelView, model=ChapterSection):
+class ChapterSectionAdmin(PowerModelView, model=ChapterSection):
     name = "Chapter Section"
     name_plural = "Chapter Sections"
     icon = "fa-solid fa-layer-group"
@@ -106,7 +160,7 @@ class ChapterSectionAdmin(ModelView, model=ChapterSection):
     can_view_details = True
 
 
-class ChapterBlockAdmin(ModelView, model=ChapterBlock):
+class ChapterBlockAdmin(PowerModelView, model=ChapterBlock):
     name = "Chapter Block"
     name_plural = "Chapter Blocks"
     icon = "fa-solid fa-paragraph"
@@ -118,7 +172,7 @@ class ChapterBlockAdmin(ModelView, model=ChapterBlock):
     can_view_details = True
 
 
-class ActivityAdmin(ModelView, model=Activity):
+class ActivityAdmin(PowerModelView, model=Activity):
     name = "Activity"
     name_plural = "Activities"
     icon = "fa-solid fa-flask"
@@ -131,7 +185,7 @@ class ActivityAdmin(ModelView, model=Activity):
     can_view_details = True
 
 
-class CoursePDFAdmin(ModelView, model=CoursePDF):
+class CoursePDFAdmin(PowerModelView, model=CoursePDF):
     name = "Course PDF"
     name_plural = "Course PDFs"
     icon = "fa-solid fa-file-pdf"
@@ -143,7 +197,7 @@ class CoursePDFAdmin(ModelView, model=CoursePDF):
     can_view_details = True
 
 
-class QuizAdmin(ModelView, model=Quiz):
+class QuizAdmin(PowerModelView, model=Quiz):
     name = "Quiz"
     name_plural = "Quizzes"
     icon = "fa-solid fa-question-circle"
@@ -155,7 +209,7 @@ class QuizAdmin(ModelView, model=Quiz):
     can_view_details = True
 
 
-class QuizQuestionAdmin(ModelView, model=QuizQuestion):
+class QuizQuestionAdmin(PowerModelView, model=QuizQuestion):
     name = "Quiz Question"
     name_plural = "Quiz Questions"
     icon = "fa-solid fa-list-ol"
@@ -168,7 +222,7 @@ class QuizQuestionAdmin(ModelView, model=QuizQuestion):
     can_view_details = True
 
 
-class QuizOptionAdmin(ModelView, model=QuizOption):
+class QuizOptionAdmin(PowerModelView, model=QuizOption):
     name = "Quiz Option"
     name_plural = "Quiz Options"
     icon = "fa-solid fa-check-square"
@@ -180,7 +234,40 @@ class QuizOptionAdmin(ModelView, model=QuizOption):
     can_view_details = True
 
 
-class LessonProgressAdmin(ModelView, model=LessonProgress):
+class QuestionSetAdmin(PowerModelView, model=QuestionSet):
+    name = "Question Set"
+    name_plural = "Question Sets"
+    icon = "fa-solid fa-layer-group"
+    column_list = [
+        QuestionSet.id, QuestionSet.title, QuestionSet.subject_id, QuestionSet.topic_id,
+        QuestionSet.topic_section_id, QuestionSet.topic_item_id, QuestionSet.tab_content_id,
+        QuestionSet.pass_score, QuestionSet.status,
+    ]
+    column_searchable_list = [QuestionSet.title]
+    form_excluded_columns = ["questions"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class QuestionAdmin(PowerModelView, model=Question):
+    name = "Question"
+    name_plural = "Questions"
+    icon = "fa-solid fa-circle-question"
+    column_list = [
+        Question.id, Question.question_set_id, Question.external_id, Question.type,
+        Question.title, Question.difficulty, Question.status, Question.order,
+    ]
+    column_searchable_list = [Question.title, Question.prompt, Question.external_id]
+    form_excluded_columns = ["question_set", "attempts"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class LessonProgressAdmin(PowerModelView, model=LessonProgress):
     name = "Lesson Progress"
     name_plural = "Lesson Progress Records"
     icon = "fa-solid fa-chart-line"
@@ -192,7 +279,7 @@ class LessonProgressAdmin(ModelView, model=LessonProgress):
     can_view_details = True
 
 
-class UserXPAdmin(ModelView, model=UserXP):
+class UserXPAdmin(PowerModelView, model=UserXP):
     name = "User XP"
     name_plural = "User XP Records"
     icon = "fa-solid fa-star"
@@ -205,7 +292,7 @@ class UserXPAdmin(ModelView, model=UserXP):
     can_view_details = True
 
 
-class XPTransactionAdmin(ModelView, model=XPTransaction):
+class XPTransactionAdmin(PowerModelView, model=XPTransaction):
     name = "XP Transaction"
     name_plural = "XP Transactions"
     icon = "fa-solid fa-coins"
@@ -217,7 +304,7 @@ class XPTransactionAdmin(ModelView, model=XPTransaction):
     can_view_details = True
 
 
-class QuizResultAdmin(ModelView, model=QuizResult):
+class QuizResultAdmin(PowerModelView, model=QuizResult):
     name = "Quiz Result"
     name_plural = "Quiz Results"
     icon = "fa-solid fa-trophy"
@@ -229,7 +316,7 @@ class QuizResultAdmin(ModelView, model=QuizResult):
     can_view_details = True
 
 
-class DailyQuestAdmin(ModelView, model=DailyQuest):
+class DailyQuestAdmin(PowerModelView, model=DailyQuest):
     name = "Daily Quest"
     name_plural = "Daily Quests"
     icon = "fa-solid fa-calendar-check"
@@ -241,7 +328,7 @@ class DailyQuestAdmin(ModelView, model=DailyQuest):
     can_view_details = True
 
 
-class CalendarEventAdmin(ModelView, model=CalendarEvent):
+class CalendarEventAdmin(PowerModelView, model=CalendarEvent):
     name = "Calendar Event"
     name_plural = "Calendar Events"
     icon = "fa-solid fa-calendar-days"
@@ -259,7 +346,7 @@ class CalendarEventAdmin(ModelView, model=CalendarEvent):
     can_view_details = True
 
 
-class ContentProgressAdmin(ModelView, model=ContentProgress):
+class ContentProgressAdmin(PowerModelView, model=ContentProgress):
     name = "Content Progress"
     name_plural = "Content Progress Records"
     icon = "fa-solid fa-check"
@@ -271,7 +358,7 @@ class ContentProgressAdmin(ModelView, model=ContentProgress):
     can_view_details = True
 
 
-class VideoQuizTriggerAdmin(ModelView, model=VideoQuizTrigger):
+class VideoQuizTriggerAdmin(PowerModelView, model=VideoQuizTrigger):
     name = "Video Quiz Trigger"
     name_plural = "Video Quiz Triggers"
     icon = "fa-solid fa-clock"
@@ -283,7 +370,7 @@ class VideoQuizTriggerAdmin(ModelView, model=VideoQuizTrigger):
     can_view_details = True
 
 
-class TopicAdmin(ModelView, model=Topic):
+class TopicAdmin(PowerModelView, model=Topic):
     name = "Topic"
     name_plural = "Topics"
     icon = "fa-solid fa-diagram-project"
@@ -300,7 +387,7 @@ class TopicAdmin(ModelView, model=Topic):
     can_view_details = True
 
 
-class TopicSectionAdmin(ModelView, model=TopicSection):
+class TopicSectionAdmin(PowerModelView, model=TopicSection):
     name = "Topic Section"
     name_plural = "Topic Sections"
     icon = "fa-solid fa-list"
@@ -312,7 +399,7 @@ class TopicSectionAdmin(ModelView, model=TopicSection):
     can_view_details = True
 
 
-class TopicItemAdmin(ModelView, model=TopicItem):
+class TopicItemAdmin(PowerModelView, model=TopicItem):
     name = "Topic Item"
     name_plural = "Topic Items"
     icon = "fa-solid fa-play"
@@ -329,7 +416,7 @@ class TopicItemAdmin(ModelView, model=TopicItem):
     can_view_details = True
 
 
-class ResourceAdmin(ModelView, model=Resource):
+class ResourceAdmin(PowerModelView, model=Resource):
     name = "Resource"
     name_plural = "Resources"
     icon = "fa-solid fa-folder-open"
@@ -346,7 +433,7 @@ class ResourceAdmin(ModelView, model=Resource):
     can_view_details = True
 
 
-class TabContentAdmin(ModelView, model=TabContent):
+class TabContentAdmin(PowerModelView, model=TabContent):
     name = "Tab Content"
     name_plural = "Tab Contents"
     icon = "fa-solid fa-table-columns"
@@ -362,7 +449,7 @@ class TabContentAdmin(ModelView, model=TabContent):
     can_view_details = True
 
 
-class ConceptTagAdmin(ModelView, model=ConceptTag):
+class ConceptTagAdmin(PowerModelView, model=ConceptTag):
     name = "Concept Tag"
     name_plural = "Concept Tags"
     icon = "fa-solid fa-tag"
@@ -374,7 +461,7 @@ class ConceptTagAdmin(ModelView, model=ConceptTag):
     can_view_details = True
 
 
-class ExamAdmin(ModelView, model=Exam):
+class ExamAdmin(PowerModelView, model=Exam):
     name = "Exam"
     name_plural = "Exams"
     icon = "fa-solid fa-file-lines"
@@ -389,7 +476,7 @@ class ExamAdmin(ModelView, model=Exam):
     can_view_details = True
 
 
-class ExamProblemAdmin(ModelView, model=ExamProblem):
+class ExamProblemAdmin(PowerModelView, model=ExamProblem):
     name = "Exam Problem"
     name_plural = "Exam Problems"
     icon = "fa-solid fa-clipboard-question"
@@ -406,7 +493,7 @@ class ExamProblemAdmin(ModelView, model=ExamProblem):
     can_view_details = True
 
 
-class UserNoteAdmin(ModelView, model=UserNote):
+class UserNoteAdmin(PowerModelView, model=UserNote):
     name = "User Note"
     name_plural = "User Notes"
     icon = "fa-solid fa-note-sticky"
@@ -418,7 +505,7 @@ class UserNoteAdmin(ModelView, model=UserNote):
     can_view_details = True
 
 
-class SavedItemAdmin(ModelView, model=SavedItem):
+class SavedItemAdmin(PowerModelView, model=SavedItem):
     name = "Saved Item"
     name_plural = "Saved Items"
     icon = "fa-solid fa-bookmark"
@@ -430,7 +517,7 @@ class SavedItemAdmin(ModelView, model=SavedItem):
     can_view_details = True
 
 
-class ActivityEventAdmin(ModelView, model=ActivityEvent):
+class ActivityEventAdmin(PowerModelView, model=ActivityEvent):
     name = "Activity Event"
     name_plural = "Activity Events"
     icon = "fa-solid fa-wave-square"
@@ -442,7 +529,7 @@ class ActivityEventAdmin(ModelView, model=ActivityEvent):
     can_view_details = True
 
 
-class TopicItemProgressAdmin(ModelView, model=TopicItemProgress):
+class TopicItemProgressAdmin(PowerModelView, model=TopicItemProgress):
     name = "Topic Item Progress"
     name_plural = "Topic Item Progress"
     icon = "fa-solid fa-bars-progress"
@@ -454,11 +541,16 @@ class TopicItemProgressAdmin(ModelView, model=TopicItemProgress):
     can_view_details = True
 
 
-class QuizAttemptAdmin(ModelView, model=QuizAttempt):
+class QuizAttemptAdmin(PowerModelView, model=QuizAttempt):
     name = "Quiz Attempt"
     name_plural = "Quiz Attempts"
     icon = "fa-solid fa-circle-check"
-    column_list = [QuizAttempt.id, QuizAttempt.user_id, QuizAttempt.topic_item_id, QuizAttempt.tab_content_id, QuizAttempt.score, QuizAttempt.passed, QuizAttempt.attempt_number]
+    column_list = [
+        QuizAttempt.id, QuizAttempt.user_id, QuizAttempt.question_set_id,
+        QuizAttempt.subject_id, QuizAttempt.topic_id, QuizAttempt.topic_section_id,
+        QuizAttempt.topic_item_id, QuizAttempt.tab_content_id, QuizAttempt.score,
+        QuizAttempt.passed, QuizAttempt.attempt_number,
+    ]
     form_excluded_columns = ["user"]
     can_create = False
     can_edit = False
@@ -466,7 +558,24 @@ class QuizAttemptAdmin(ModelView, model=QuizAttempt):
     can_view_details = True
 
 
-class CommentAdmin(ModelView, model=Comment):
+class QuestionAttemptAdmin(PowerModelView, model=QuestionAttempt):
+    name = "Question Attempt"
+    name_plural = "Question Attempts"
+    icon = "fa-solid fa-check-double"
+    column_list = [
+        QuestionAttempt.id, QuestionAttempt.user_id, QuestionAttempt.quiz_attempt_id,
+        QuestionAttempt.question_id, QuestionAttempt.subject_id, QuestionAttempt.topic_id,
+        QuestionAttempt.topic_section_id, QuestionAttempt.topic_item_id,
+        QuestionAttempt.is_correct, QuestionAttempt.created_at,
+    ]
+    form_excluded_columns = ["user", "quiz_attempt", "question"]
+    can_create = False
+    can_edit = False
+    can_delete = True
+    can_view_details = True
+
+
+class CommentAdmin(PowerModelView, model=Comment):
     name = "Comment"
     name_plural = "Comments"
     icon = "fa-solid fa-comment"
@@ -479,7 +588,7 @@ class CommentAdmin(ModelView, model=Comment):
     can_view_details = True
 
 
-class NotificationAdmin(ModelView, model=Notification):
+class NotificationAdmin(PowerModelView, model=Notification):
     name = "Notification"
     name_plural = "Notifications"
     icon = "fa-solid fa-bell"
@@ -493,16 +602,159 @@ class NotificationAdmin(ModelView, model=Notification):
     can_view_details = True
 
 
+class AdminAuditLogAdmin(PowerModelView, model=AdminAuditLog):
+    name = "Admin Audit Log"
+    name_plural = "Admin Audit Logs"
+    icon = "fa-solid fa-clipboard-list"
+    can_create = False
+    can_edit = False
+    can_delete = False
+    can_view_details = True
+
+
 ALL_VIEWS = [
     UserAdmin, UserSubjectEntitlementAdmin, SubjectAdmin, ChapterAdmin, LessonAdmin, ChapterSectionAdmin,
     ChapterBlockAdmin, ActivityAdmin, CoursePDFAdmin, QuizAdmin, QuizQuestionAdmin,
-    QuizOptionAdmin, LessonProgressAdmin, UserXPAdmin, XPTransactionAdmin,
+    QuizOptionAdmin, QuestionSetAdmin, QuestionAdmin, LessonProgressAdmin, UserXPAdmin, XPTransactionAdmin,
     QuizResultAdmin, DailyQuestAdmin, CalendarEventAdmin, ContentProgressAdmin, VideoQuizTriggerAdmin,
     TopicAdmin, TopicSectionAdmin, TopicItemAdmin, ResourceAdmin, TabContentAdmin,
     ConceptTagAdmin, ExamAdmin, ExamProblemAdmin, UserNoteAdmin, SavedItemAdmin,
-    ActivityEventAdmin, TopicItemProgressAdmin, QuizAttemptAdmin, CommentAdmin,
-    NotificationAdmin,
+    ActivityEventAdmin, TopicItemProgressAdmin, QuizAttemptAdmin, QuestionAttemptAdmin, CommentAdmin,
+    NotificationAdmin, AdminAuditLogAdmin,
 ]
+
+
+TRACKING_COLUMN_NAMES = {
+    "id",
+    "created_at",
+    "updated_at",
+    "completed_at",
+    "starts_at",
+    "ends_at",
+    "date",
+    "last_active_date",
+    "last_login",
+    "order",
+    "status",
+    "is_active",
+    "is_published",
+    "is_free_preview",
+    "is_pro",
+    "is_staff",
+    "is_superuser",
+    "is_email_verified",
+    "passed",
+    "completed",
+    "score",
+    "best_score",
+    "latest_score",
+    "total_xp",
+    "streak_days",
+    "attempt_number",
+    "duration_seconds",
+    "watched_seconds",
+    "year",
+}
+
+SENSITIVE_COLUMN_NAMES = {
+    "password",
+}
+
+IMMUTABLE_ADMIN_MODELS = {
+    "AdminAuditLog",
+}
+
+FILTERABLE_CHOICE_COLUMN_NAMES = {
+    "activity_type",
+    "block_type",
+    "category",
+    "content_type",
+    "event_type",
+    "filiere",
+    "item_type",
+    "niveau",
+    "notification_type",
+    "provider",
+    "renderer_key",
+    "role",
+    "section_type",
+    "source",
+    "status",
+    "subject_type",
+    "type",
+}
+
+
+def _model_columns(view: type[ModelView]):
+    return list(view.model.__mapper__.columns)
+
+
+def _admin_attr(model, column):
+    return getattr(model, column.key)
+
+
+def _is_searchable_column(column) -> bool:
+    return column.key not in SENSITIVE_COLUMN_NAMES and isinstance(column.type, (String, Text))
+
+
+def _is_sortable_column(column) -> bool:
+    if column.key in SENSITIVE_COLUMN_NAMES:
+        return False
+    return column.key in TRACKING_COLUMN_NAMES or isinstance(
+        column.type,
+        (String, Integer, Boolean, Date, DateTime),
+    )
+
+
+def _admin_filter_for_column(model: type, column):
+    if column.key in SENSITIVE_COLUMN_NAMES:
+        return None
+
+    attr = _admin_attr(model, column)
+    if isinstance(column.type, Boolean):
+        return BooleanFilter(attr)
+    if column.key in FILTERABLE_CHOICE_COLUMN_NAMES and isinstance(column.type, String):
+        return AllUniqueStringValuesFilter(attr)
+    return None
+
+
+def configure_power_admin_view(view: type[ModelView]) -> None:
+    model = view.model
+    columns = _model_columns(view)
+    visible_columns = [column for column in columns if column.key not in SENSITIVE_COLUMN_NAMES]
+    scalar_attrs = [_admin_attr(model, column) for column in visible_columns]
+
+    view.column_list = scalar_attrs
+    view.column_details_list = scalar_attrs
+    view.column_export_list = scalar_attrs
+    view.column_searchable_list = [
+        _admin_attr(model, column)
+        for column in columns
+        if _is_searchable_column(column)
+    ]
+    view.column_sortable_list = [
+        _admin_attr(model, column)
+        for column in columns
+        if _is_sortable_column(column)
+    ]
+    view.column_filters = [
+        column_filter
+        for column in columns
+        if (column_filter := _admin_filter_for_column(model, column)) is not None
+    ]
+    view.column_default_sort = [(model.created_at, True)] if hasattr(model, "created_at") else [(model.id, True)]
+    view.page_size = 50
+    view.page_size_options = [25, 50, 100, 250]
+    is_immutable = model.__name__ in IMMUTABLE_ADMIN_MODELS
+    view.can_create = not is_immutable
+    view.can_edit = not is_immutable
+    view.can_delete = not is_immutable
+    view.can_export = True
+    view.can_view_details = True
+
+
+for admin_view in ALL_VIEWS:
+    configure_power_admin_view(admin_view)
 
 
 def register_admin_views(admin) -> None:

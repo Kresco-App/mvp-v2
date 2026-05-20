@@ -1,102 +1,56 @@
-# VdoCipher Integration Guide
+# VdoCipher Integration
 
-## Overview
-VdoCipher provides DRM-protected video hosting. Videos are streamed via signed OTP tokens — clients never get a raw video URL.
+## Current Implementation
 
----
+VdoCipher OTP generation is implemented in:
 
-## Step 1: Create a VdoCipher Account
-1. Sign up at https://www.vdocipher.com
-2. Go to **Settings → API Keys** and copy your `API Secret`.
-3. Set it in `.env`:
-   ```
-   VDOCIPHER_API_SECRET=your_api_secret_here
-   ```
+- Service: `backend/app/services/vdocipher.py`
+- Compatibility stream endpoints: `backend/app/routers/courses.py`
 
----
+Current implemented stream endpoints:
 
-## Step 2: Upload Videos
-1. In the VdoCipher dashboard, go to **Videos → Upload**.
-2. Upload your `.mp4` files or bulk import.
-3. After processing, each video gets a **Video ID** (e.g. `abc123xyz`).
-4. Store this Video ID in your database — in the `Lesson.vdo_cipher_id` field (via SQLAdmin or seed process).
+- `GET /api/courses/lessons/{lesson_id}/stream`
+- `GET /api/courses/sections/{section_id}/stream`
 
----
+These endpoints validate access before requesting a VdoCipher OTP.
 
-## Step 3: Backend OTP Endpoint (already implemented)
-The endpoint `/api/courses/lessons/{id}/stream` calls VdoCipher's API to generate a short-lived OTP:
+## Required Environment
 
-```python
-# courses/api.py — stream endpoint
-import requests
+Set this in the backend environment:
 
-VDOCIPHER_API_SECRET = settings.VDOCIPHER_API_SECRET
-
-def get_vdo_otp(video_id: str):
-    url = f"https://dev.vdocipher.com/api/videos/{video_id}/otp"
-    headers = {"Authorization": f"Apisecret {VDOCIPHER_API_SECRET}"}
-    body = {"ttl": 300}  # OTP valid for 5 minutes
-    r = requests.post(url, json=body, headers=headers)
-    r.raise_for_status()
-    return r.json()  # {"otp": "...", "playbackInfo": "..."}
+```text
+VDOCIPHER_API_SECRET=
 ```
 
-The response `{"otp": "...", "playbackInfo": "..."}` is returned to the frontend.
+Do not expose this value to the frontend.
 
----
+## Current Service Contract
 
-## Step 4: Frontend Video Player (already implemented)
-`components/VideoPlayer.jsx` embeds the VdoCipher iframe:
+`get_video_otp(vdocipher_id, settings)`:
 
-```jsx
-const src = `https://player.vdocipher.com/v2/?otp=${otp}&playbackInfo=${playbackInfo}`
-<iframe src={src} allowFullScreen allow="encrypted-media" />
-```
+- Rejects missing video ids with `404`.
+- Calls `https://dev.vdocipher.com/api/videos/{id}/otp`.
+- Uses `ttl=300`.
+- Returns:
 
-This iframe is DRM-protected — users cannot download or screen-capture.
-
----
-
-## Step 5: Schema and migrations
-`vdo_cipher_id` and `duration_seconds` are managed in the active FastAPI/SQLAlchemy models.
-Apply DB changes with Alembic:
-```bash
-cd backend
-source venv/bin/activate
-alembic upgrade head
-```
-
----
-
-## Step 6: Set Video IDs via Admin
-1. Go to SQLAdmin → Lessons (`/admin`)
-2. For each lesson, paste the VdoCipher Video ID into the `vdo_cipher_id` field.
-3. Also set `duration_seconds` (in seconds) for accurate progress tracking.
-
----
-
-## Step 7: Configure CORS on VdoCipher
-In the VdoCipher dashboard → **Settings → Whitelisted Domains**, add:
-- `localhost:3000` (development)
-- `yourdomain.com` (production)
-
-This prevents other sites from embedding your videos.
-
----
-
-## Testing
-```bash
-curl -X GET http://localhost:8000/api/courses/lessons/1/stream \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"
-```
-Expected response:
 ```json
-{"otp": "...", "playbackInfo": "..."}
+{
+  "otp": "...",
+  "playback_info": "..."
+}
 ```
 
----
+## Content Data
 
-## Production Notes
-- OTPs expire in 5 minutes — always fetch fresh on each page load.
-- Never expose `VDOCIPHER_API_SECRET` in the frontend.
-- Enable **Watermarking** in VdoCipher dashboard for extra protection.
+Current compatibility content stores VdoCipher ids on lesson/section video fields.
+
+TopicItem-first content should model provider-backed video through `Resource` and `TabContent` so the Topic Workspace can render it without depending on the compatibility lesson route.
+
+## Local Verification
+
+Use a local authenticated request against a seeded lesson or section that has a real VdoCipher id:
+
+```bash
+curl http://127.0.0.1:8000/api/courses/lessons/1/stream ^
+  -H "Authorization: Bearer <token>"
+```

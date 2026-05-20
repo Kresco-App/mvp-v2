@@ -20,6 +20,7 @@ import {
   type PermanentSidebarLeaderboardEntry,
   type PermanentSidebarLiveEvent,
 } from '@/components/figma'
+import { FigmaProfileSkeleton } from '@/components/figma/skeletons'
 
 type SubjectCard = {
   id: number | string
@@ -151,6 +152,10 @@ export default function ProfilePage() {
     }
   }
 
+  if (loading) {
+    return <FigmaProfileSkeleton />
+  }
+
   return (
     <FigmaProfile
       user={profile ?? user}
@@ -165,7 +170,7 @@ export default function ProfilePage() {
         liveEvents: sidebar.live_events,
         leaderboardEntries: sidebar.leaderboard_entries,
       }}
-      loading={loading}
+      loading={false}
       saving={saving}
       editError={editError}
       onSaveProfile={handleSaveProfile}
@@ -184,20 +189,21 @@ function toProfileStats(raw: ProfileStatsResult): FigmaProfileStats {
 }
 
 function buildProfileSubjects(subjects: SubjectCard[], topics: TopicCard[]): FigmaProfileSubject[] {
-  const progressBySubject = new Map<string, number[]>()
+  const progressBySubject = new Map<string, { sum: number; count: number }>()
 
   for (const topic of topics) {
     if (typeof topic.progress_pct !== 'number') continue
     const key = subjectKey(topic.subject_title)
-    const values = progressBySubject.get(key) ?? []
-    values.push(topic.progress_pct)
-    progressBySubject.set(key, values)
+    const current = progressBySubject.get(key) ?? { sum: 0, count: 0 }
+    current.sum += topic.progress_pct
+    current.count += 1
+    progressBySubject.set(key, current)
   }
 
   return subjects.map((subject, index) => {
-    const topicValues = progressBySubject.get(subjectKey(subject.title))
-    const progress = topicValues && topicValues.length > 0
-      ? topicValues.reduce((sum, value) => sum + value, 0) / topicValues.length
+    const topicProgress = progressBySubject.get(subjectKey(subject.title))
+    const progress = topicProgress && topicProgress.count > 0
+      ? topicProgress.sum / topicProgress.count
       : subject.progress_pct
     return toProfileSubject(subject.title, progress, index)
   })

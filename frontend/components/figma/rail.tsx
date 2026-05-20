@@ -1,5 +1,6 @@
 'use client'
 
+import type React from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Check, ChevronDown, Lock } from 'lucide-react'
 import { figmaChapterItems, figmaLessonItems } from './data'
@@ -12,6 +13,7 @@ export type CourseContentRailProps = {
   total?: number
   value?: number
   sections?: FigmaRailSection[]
+  toolbar?: React.ReactNode
   onSectionToggle?: (section: FigmaRailSection) => void
   onItemSelect?: (item: FigmaRailItem, section: FigmaRailSection) => void
 }
@@ -29,6 +31,7 @@ export function CourseContentRail({
   total = 30,
   value = 7,
   sections = defaultSections,
+  toolbar,
   onSectionToggle,
   onItemSelect,
 }: CourseContentRailProps) {
@@ -41,6 +44,7 @@ export function CourseContentRail({
       aria-label="Course content"
     >
       <CourseProgressHeader completed={completed} total={total} value={value} size={size} />
+      {toolbar}
       <div className="grid gap-[22px]">
         {sections.map((section) => (
           <RailCard
@@ -194,8 +198,8 @@ function RailItemRow({
     <button
       className={`flex w-full items-center border-0 bg-transparent p-0 text-left ${
         isWorkspace ? 'gap-[20px]' : 'gap-[8px]'
-      } ${isLocked ? 'cursor-default opacity-60' : 'cursor-pointer hover:translate-x-0.5'} transition-transform duration-150`}
-      disabled={item.disabled}
+      } ${isLocked ? 'cursor-pointer opacity-75 hover:translate-x-0.5' : 'cursor-pointer hover:translate-x-0.5'} transition-transform duration-150`}
+      aria-label={isLocked ? `${item.label} locked preview` : undefined}
       onClick={() => onSelect?.(item)}
       type="button"
     >

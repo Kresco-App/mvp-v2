@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/lib/axios'
 import { useAuthStore } from '@/lib/store'
 import { PermanentSidebarPanelTitle } from '@/components/figma'
+import { CalendarPageSkeleton } from '@/components/figma/skeletons'
 
 type CalendarEvent = {
   id: number
@@ -76,6 +78,10 @@ export default function CalendarPage() {
 
   function moveWeek(direction: -1 | 1) {
     setSelectedDate((current) => addDays(current, direction * 7))
+  }
+
+  if (loading && events.length === 0) {
+    return <CalendarPageSkeleton />
   }
 
   return (
@@ -241,52 +247,82 @@ function MiniCalendarCard({ selectedDate, onSelectDate }: { selectedDate: Date; 
 
 function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
   return (
-    <section className="w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none max-[1180px]:w-full">
+    <motion.section
+      key={event.id}
+      initial={{ opacity: 0, y: 10, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+      className="w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none max-[1180px]:w-full"
+    >
       <div className="flex items-start justify-between gap-3">
         <PermanentSidebarPanelTitle title="Event Details" subtitle={event.event_type === 'live_session' ? 'Live preparation' : 'Study block'} />
-        <button type="button" onClick={onClose} className="h-8 rounded-md border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b]">Close</button>
+        <motion.button type="button" onClick={onClose} className="h-8 rounded-md border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b]" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
+          Close
+        </motion.button>
       </div>
-      <div className="mt-6 rounded-lg p-3 text-white" style={{ background: event.color || '#5b60f9' }}>
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, delay: 0.04, ease: [0.2, 0.8, 0.2, 1] }}
+        className="mt-6 rounded-lg p-3 text-white"
+        style={{ background: event.color || '#5b60f9' }}
+      >
         <div className="mb-2 flex items-center gap-2 text-[12px] font-bold text-[#c4d1ff]">
           <Video size={14} />
           {event.status}
         </div>
         <h2 className="m-0 text-[16px] font-bold leading-[1.2] tracking-[0.16px]">{event.title}</h2>
         <p className="m-0 mt-3 text-[12px] font-bold leading-[1.2] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</p>
-      </div>
+      </motion.div>
       <div className="mt-5 grid gap-3 text-[14px] font-bold leading-[1.2] tracking-[0.14px]">
-        <InfoRow label="Time" value={`${formatEventDate(new Date(event.starts_at))} - ${formatTime(new Date(event.ends_at))}`} />
-        <InfoRow label="Subject" value={event.subject_title || event.subtitle || '-'} />
-        <InfoRow label="Topic" value={event.topic_title || '-'} />
+        <InfoRow index={0} label="Time" value={`${formatEventDate(new Date(event.starts_at))} - ${formatTime(new Date(event.ends_at))}`} />
+        <InfoRow index={1} label="Subject" value={event.subject_title || event.subtitle || '-'} />
+        <InfoRow index={2} label="Topic" value={event.topic_title || '-'} />
       </div>
-      {event.description && <p className="m-0 mt-5 text-[14px] font-semibold leading-[1.35] tracking-[0.14px] text-[#71717b]">{event.description}</p>}
+      {event.description && (
+        <motion.p
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18, delay: 0.14, ease: [0.2, 0.8, 0.2, 1] }}
+          className="m-0 mt-5 text-[14px] font-semibold leading-[1.35] tracking-[0.14px] text-[#71717b]"
+        >
+          {event.description}
+        </motion.p>
+      )}
       <div className="mt-5 grid gap-2">
         {event.preparation_href && (
-          <Link href={event.preparation_href} className="figma-button h-11 shadow-none">
+          <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+            <Link href={event.preparation_href} className="figma-button h-11 w-full shadow-none">
             Prepare
             <ExternalLink size={15} />
-          </Link>
+            </Link>
+          </motion.div>
         )}
         {event.join_url ? (
-          <a href={event.join_url} className="figma-button secondary h-11" target="_blank" rel="noreferrer">
-            Join session
-          </a>
+          <motion.a href={event.join_url} className="figma-button secondary h-11" target="_blank" rel="noreferrer" whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+              Join session
+          </motion.a>
         ) : (
           <button type="button" disabled className="h-11 rounded-[14px] border-0 bg-[#f4f4f5] text-[13px] font-black text-[#9f9fa9]">
             Join unavailable
           </button>
         )}
       </div>
-    </section>
+    </motion.section>
   )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value, index = 0 }: { label: string; value: string; index?: number }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f4f4f5] px-3 py-2">
+    <motion.div
+      initial={{ opacity: 0, x: 6 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.18, delay: 0.08 + index * 0.035, ease: [0.2, 0.8, 0.2, 1] }}
+      className="flex items-center justify-between gap-3 rounded-lg bg-[#f4f4f5] px-3 py-2"
+    >
       <span className="text-[#9f9fa9]">{label}</span>
       <span className="min-w-0 truncate text-right text-[#3f3f46]">{value}</span>
-    </div>
+    </motion.div>
   )
 }
 

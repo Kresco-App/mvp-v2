@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.models  # noqa: F401
 from app.config import Settings
-from app.database import get_session_factory, init_engine
+from app.database import get_session_factory, init_engine, reset_engine
 from app.main import create_app
 from app.models.base import Base
 from app.services.auth import create_token
@@ -22,12 +22,14 @@ def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
         google_client_id="test-google-client-id",
         stripe_webhook_secret="",
         resend_api_key="",
+        admin_password="test-admin-password",
         debug=True,
     )
 
 
 @pytest.fixture(scope="session")
 def app_client(test_settings: Settings):
+    asyncio.run(reset_engine())
     engine, _ = init_engine(test_settings.database_url, is_lambda=False)
 
     async def _init_schema():
@@ -39,6 +41,7 @@ def app_client(test_settings: Settings):
     app = create_app(test_settings)
     with TestClient(app) as client:
         yield client
+    asyncio.run(reset_engine())
 
 
 @pytest.fixture

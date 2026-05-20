@@ -9,6 +9,7 @@ import { FigmaCourseCardSkeleton, FigmaSubjectCourseCard, type FigmaSubjectCours
 
 interface TopicCard {
   id: number
+  subject_id?: number
   subject_title: string
   slug: string
   title: string
@@ -20,7 +21,21 @@ interface TopicCard {
   concepts: string[]
   can_access?: boolean
   locked_reason?: string
+  access_reason?: string
+  required_tier?: string
+  required_feature_key?: string
+  required_subject_id?: number | null
 }
+
+type TopicView = TopicCard & {
+  search_text: string
+  subject_key: string
+  subject_label: string
+  state: FigmaSubjectCourseCardState
+  topic_key: string
+}
+
+const MAX_TOPICS_PER_SECTION = 72
 
 export default function CoursesPage() {
   const [topics, setTopics] = useState<TopicCard[]>([])
@@ -33,44 +48,63 @@ export default function CoursesPage() {
   useEffect(() => { document.title = 'Courses - Kresco' }, [])
 
   useEffect(() => {
+    let alive = true
+
     api.get('/courses/topics')
-      .then((res) => setTopics(res.data))
-      .catch(() => toast.error('Could not load Bac topics.'))
-      .finally(() => setLoading(false))
+      .then((res) => {
+        if (!alive) return
+        setTopics(Array.isArray(res.data) ? res.data : [])
+      })
+      .catch(() => {
+        if (!alive) return
+        toast.error('Could not load Bac topics.')
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
   }, [])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const incomingSubject = params.get('subject') ?? ''
+    const incomingQuery = params.get('q') ?? params.get('search') ?? ''
+    const incomingStatus = parseStatusFilter(params.get('status') ?? params.get('filter'))
     setSubjectFilter(incomingSubject)
+    if (incomingQuery) setQuery(incomingQuery)
+    if (incomingStatus) setStatusFilter(incomingStatus)
   }, [])
+
+  const topicViews = useMemo<TopicView[]>(() => topics.map(toTopicView), [topics])
 
   const subjectOptions = useMemo<FigmaCourseSubjectOption[]>(() => {
     const byKey = new Map<string, FigmaCourseSubjectOption>()
-    topics.forEach((topic) => {
-      const key = subjectKey(topic.subject_title)
-      if (!byKey.has(key)) {
-        byKey.set(key, {
-          label: canonicalSubjectLabel(topic.subject_title),
+    topicViews.forEach((topic) => {
+      if (!byKey.has(topic.subject_key)) {
+        byKey.set(topic.subject_key, {
+          label: topic.subject_label,
           value: topic.subject_title,
         })
       }
     })
     return Array.from(byKey.values())
-  }, [topics])
+  }, [topicViews])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const subject = subjectKey(subjectFilter)
-    const matches = topics.filter((topic) => {
-      const text = [topic.title, topic.description, topic.subject_title, ...topic.concepts].join(' ').toLowerCase()
-      const matchesQuery = !q || text.includes(q)
-      const matchesSubject = !subject || subjectKey(topic.subject_title) === subject || topic.subject_title.toLowerCase().includes(subjectFilter.trim().toLowerCase())
-      const matchesStatus = topicMatchesStatus(topic, statusFilter)
+    const subjectText = subjectFilter.trim().toLowerCase()
+    const matches = topicViews.filter((topic) => {
+      const matchesQuery = !q || topic.search_text.includes(q)
+      const matchesSubject = !subject || topic.subject_key === subject || topic.subject_title.toLowerCase().includes(subjectText)
+      const matchesStatus = topicMatchesStatus(topic.state, statusFilter)
       return matchesQuery && matchesSubject && matchesStatus
     })
     return dedupeTopics(matches)
-  }, [topics, query, subjectFilter, statusFilter])
+  }, [topicViews, query, subjectFilter, statusFilter])
 
   const groupedSections = useMemo(() => groupTopicsBySubject(filtered), [filtered])
 
@@ -98,7 +132,7 @@ export default function CoursesPage() {
               <SubjectDividerSkeleton />
               <div className="figma-course-grid">
                 {Array.from({ length: 6 }).map((_, index) => (
-                  <FigmaCourseCardSkeleton key={index} index={index} />
+                  <FigmaCourseCardSkeleton key={index} />
                 ))}
               </div>
             </div>
@@ -108,20 +142,25 @@ export default function CoursesPage() {
                 <section key={section.key}>
                   <SubjectDivider title={section.title} subtitle={section.subtitle} />
                   <div className="figma-course-grid">
-                    {section.topics.map((topic, index) => (
+                    {section.topics.slice(0, MAX_TOPICS_PER_SECTION).map((topic, index) => (
                       <FigmaSubjectCourseCard
                         key={topic.id}
                         index={index}
-                        eyebrow={canonicalSubjectLabel(topic.subject_title)}
+                        eyebrow={topic.subject_label}
                         title={topic.title}
                         description={topic.description}
                         progress={topic.progress_pct}
-                        state={topicCardState(topic)}
+                        state={topic.state}
                         href={`/topics/${topic.id}`}
                         onClick={topic.can_access === false ? () => setPreviewTopic(topic) : undefined}
                       />
                     ))}
                   </div>
+                  {section.topics.length > MAX_TOPICS_PER_SECTION && (
+                    <p className="m-0 mt-4 text-[13px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">
+                      Showing the first {MAX_TOPICS_PER_SECTION} matching topics. Narrow the search to see a smaller list.
+                    </p>
+                  )}
                 </section>
               ))}
             </div>
@@ -180,8 +219,7 @@ function topicCardState(topic: TopicCard): FigmaSubjectCourseCardState {
   return 'available'
 }
 
-function topicMatchesStatus(topic: TopicCard, status: FigmaCourseStatusFilter) {
-  const state = topicCardState(topic)
+function topicMatchesStatus(state: FigmaSubjectCourseCardState, status: FigmaCourseStatusFilter) {
   if (status === 'all') return true
   if (status === 'unlocked') return state !== 'locked'
   if (status === 'locked') return state === 'locked'
@@ -192,6 +230,7 @@ function topicMatchesStatus(topic: TopicCard, status: FigmaCourseStatusFilter) {
 
 function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () => void }) {
   const reason = lockedTopicReason(topic.locked_reason)
+  const requirements = accessSummary(topic)
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#18181b]/35 px-4 backdrop-blur-[2px]" onClick={onClose}>
@@ -218,9 +257,23 @@ function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () 
 
         <p className="m-0 mt-4 text-[15px] font-bold leading-[1.45] tracking-[0.18px] text-[#71717b]">{topic.description || 'This topic is part of a protected study path.'}</p>
 
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <LockedPreviewMetric label="Items" value={topic.item_count.toLocaleString()} />
+          <LockedPreviewMetric label="Free preview" value={topic.is_free_preview ? 'Available' : 'Not included'} />
+        </div>
+
         <div className="mt-5 rounded-[12px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4">
           <p className="m-0 text-[13px] font-bold leading-[1.2] tracking-[0.2px] text-[#9f9fa9]">Access</p>
           <p className="m-0 mt-1 text-[16px] font-bold leading-[1.3] tracking-[0.2px] text-[#3f3f46]">{reason}</p>
+          {requirements.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {requirements.map((item) => (
+                <span key={item} className="rounded-[8px] bg-white px-2.5 py-1.5 text-[11px] font-bold leading-[1] tracking-[0.16px] text-[#71717b]">
+                  {item}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {topic.concepts.length > 0 && (
@@ -245,21 +298,39 @@ function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () 
   )
 }
 
+function LockedPreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[12px] border-2 border-[#e4e4e7] bg-white p-3">
+      <p className="m-0 text-[12px] font-bold leading-[1] tracking-[0.16px] text-[#9f9fa9]">{label}</p>
+      <p className="m-0 mt-2 text-[15px] font-bold leading-[1.15] tracking-[0.18px] text-[#3f3f46]">{value}</p>
+    </div>
+  )
+}
+
 function lockedTopicReason(reason?: string) {
   if (reason === 'pro_required') return 'Kresco Pro is required for this topic.'
+  if (reason === 'vip_required') return 'Kresco VIP is required for this topic.'
   if (reason === 'subject_access_required') return 'Your account does not include this subject yet.'
   if (reason?.startsWith('feature_required:')) return 'This topic requires an additional feature on your account.'
   return 'This topic is locked for your current account.'
+}
+
+function accessSummary(topic: TopicCard) {
+  return [
+    topic.required_tier ? `${topic.required_tier.toUpperCase()} tier` : '',
+    topic.required_feature_key ? `Feature: ${topic.required_feature_key.replace(/_/g, ' ')}` : '',
+    topic.required_subject_id ? `Subject access #${topic.required_subject_id}` : '',
+  ].filter(Boolean)
 }
 
 function normalizeProgress(progress: number) {
   return Math.max(0, Math.min(100, Math.round(Number.isFinite(progress) ? progress : 0)))
 }
 
-function dedupeTopics(topics: TopicCard[]) {
-  const byKey = new Map<string, TopicCard>()
+function dedupeTopics(topics: TopicView[]) {
+  const byKey = new Map<string, TopicView>()
   topics.forEach((topic) => {
-    const key = normalizedTopicKey(topic.title)
+    const key = topic.topic_key
     const existing = byKey.get(key)
     if (!existing || topic.progress_pct > existing.progress_pct || (topic.progress_pct === existing.progress_pct && topic.completed_count > existing.completed_count)) {
       byKey.set(key, topic)
@@ -268,11 +339,16 @@ function dedupeTopics(topics: TopicCard[]) {
   return Array.from(byKey.values())
 }
 
-function groupTopicsBySubject(topics: TopicCard[]) {
-  const buckets = new Map<string, TopicCard[]>()
+function groupTopicsBySubject(topics: TopicView[]) {
+  const buckets = new Map<string, TopicView[]>()
   topics.forEach((topic) => {
-    const key = subjectKey(topic.subject_title)
-    buckets.set(key, [...(buckets.get(key) ?? []), topic])
+    const key = topic.subject_key
+    const bucket = buckets.get(key)
+    if (bucket) {
+      bucket.push(topic)
+    } else {
+      buckets.set(key, [topic])
+    }
   })
 
   const known = courseSubjectSections
@@ -286,12 +362,31 @@ function groupTopicsBySubject(topics: TopicCard[]) {
     .filter(([key]) => !courseSubjectSections.some((section) => section.key === key))
     .map(([key, sectionTopics]) => ({
       key,
-      title: canonicalSubjectLabel(sectionTopics[0]?.subject_title ?? key),
+      title: sectionTopics[0]?.subject_label ?? canonicalSubjectLabel(key),
       subtitle: 'Continue the next available courses.',
       topics: sectionTopics,
     }))
 
   return [...known, ...unknown]
+}
+
+function toTopicView(topic: TopicCard): TopicView {
+  const subject_key = subjectKey(topic.subject_title)
+  const subject_label = canonicalSubjectLabel(topic.subject_title)
+  return {
+    ...topic,
+    search_text: [topic.title, topic.description, topic.subject_title, ...topic.concepts].join(' ').toLowerCase(),
+    subject_key,
+    subject_label,
+    state: topicCardState(topic),
+    topic_key: `${subject_key}:${normalizedTopicKey(topic.title)}`,
+  }
+}
+
+function parseStatusFilter(value: string | null): FigmaCourseStatusFilter | null {
+  const normalized = value?.trim().toLowerCase().replace(/[-\s]+/g, '_')
+  if (normalized === 'unlocked' || normalized === 'locked' || normalized === 'in_progress' || normalized === 'completed' || normalized === 'all') return normalized
+  return null
 }
 
 function normalizedTopicKey(title: string) {

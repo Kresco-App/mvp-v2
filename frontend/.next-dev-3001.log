@@ -7,208 +7,24 @@
   - Environments: .env.local
 
  ✓ Starting...
- ✓ Ready in 3.9s
- ○ Compiling /courses ...
- ✓ Compiled /courses in 10.7s (1733 modules)
- ✓ Compiled in 1838ms (796 modules)
- GET /courses 200 in 12735ms
- ○ Compiling /favicon.ico ...
- ✓ Compiled /favicon.ico in 1281ms (969 modules)
- GET /favicon.ico 200 in 1448ms
- GET /courses 200 in 434ms
- GET /courses 200 in 91ms
- GET /favicon.ico 200 in 32ms
- GET /courses 200 in 124ms
- GET /favicon.ico 200 in 28ms
- ○ Compiling /exam-bank ...
- ✓ Compiled /exam-bank in 1379ms (1763 modules)
+ ✓ Ready in 7.3s
+ ○ Compiling /animated-showcase ...
+ ✓ Compiled /courses in 28.3s (1847 modules)
+ GET /courses 200 in 14775ms
+ GET / 200 in 48ms
  ○ Compiling /home ...
- ✓ Compiled /home in 1328ms (1770 modules)
- ○ Compiling /calendar ...
- ✓ Compiled /calendar in 709ms (1780 modules)
- ○ Compiling /classement ...
- ✓ Compiled /classement in 1802ms (1799 modules)
+ ✓ Compiled /home in 862ms (1854 modules)
+ GET / 200 in 242ms
  ○ Compiling /_not-found ...
- ✓ Compiled /_not-found in 902ms (1800 modules)
- GET /assets/leaderboard/leagues/silver-4.png 404 in 1325ms
- GET /assets/leaderboard/leagues/bronze-4.png 404 in 1342ms
- GET /assets/leaderboard/leagues/sapphire-4.png 404 in 1330ms
- GET /assets/leaderboard/leagues/gold-4.png 404 in 1333ms
- ○ Compiling /live ...
- ✓ Compiled /live in 1571ms (1812 modules)
- GET /assets/leaderboard/leagues/bronze-4.png 404 in 223ms
- GET /assets/leaderboard/leagues/gold-4.png 404 in 218ms
- GET /assets/leaderboard/leagues/silver-4.png 404 in 227ms
- GET /assets/leaderboard/leagues/sapphire-4.png 404 in 219ms
- ○ Compiling /topics/[topicId] ...
- ✓ Compiled /topics/[topicId] in 1748ms (1823 modules)
- ✓ Compiled in 1707ms (1768 modules)
- ✓ Compiled in 1618ms (1768 modules)
- ○ Compiling /home ...
- ✓ Compiled /home in 687ms (949 modules)
- ○ Compiling /exam-bank ...
- ✓ Compiled /exam-bank in 2s (1780 modules)
- GET /topics/1 200 in 451ms
- ○ Compiling /favicon.ico ...
- ✓ Compiled /favicon.ico in 625ms (988 modules)
- GET /favicon.ico 200 in 846ms
- ○ Compiling /calendar ...
- ✓ Compiled /calendar in 520ms (987 modules)
- ✓ Compiled /exam-bank in 485ms (994 modules)
- ✓ Compiled in 1755ms (1818 modules)
- ✓ Compiled in 1778ms (1818 modules)
- ✓ Compiled in 1486ms (1786 modules)
- ✓ Compiled in 2.2s (1773 modules)
- ○ Compiling /calendar ...
- ✓ Compiled /calendar in 894ms (955 modules)
- ✓ Compiled in 1351ms (1779 modules)
- ○ Compiling /profile ...
- ✓ Compiled /profile in 1433ms (1771 modules)
- ✓ Compiled in 2.6s (1785 modules)
- ○ Compiling /classement ...
- ✓ Compiled /classement in 1676ms (971 modules)
- ○ Compiling /_not-found ...
- ✓ Compiled /_not-found in 1251ms (972 modules)
- GET /assets/leaderboard/leagues/silver-4.png 404 in 2049ms
- GET /assets/leaderboard/leagues/bronze-4.png 404 in 2060ms
- GET /assets/leaderboard/leagues/gold-4.png 404 in 2056ms
- GET /assets/leaderboard/leagues/sapphire-4.png 404 in 72ms
-   Reload env: .env.local
- ✓ Compiled in 5.1s (1776 modules)
- ✓ Compiled in 6.8s (1790 modules)
- ✓ Compiled in 1986ms (1783 modules)
- ○ Compiling /_not-found ...
- ✓ Compiled /_not-found in 1180ms (961 modules)
- GET /assets/leaderboard/leagues/bronze-4.png 404 in 2048ms
- GET /assets/leaderboard/leagues/gold-4.png 404 in 2055ms
- GET /assets/leaderboard/leagues/silver-4.png 404 in 2063ms
- GET /assets/leaderboard/leagues/sapphire-4.png 404 in 217ms
- ✓ Compiled in 2.8s (1794 modules)
- GET /assets/leaderboard/leagues/gold-4.png 404 in 452ms
- GET /assets/leaderboard/leagues/silver-4.png 404 in 461ms
- GET /assets/leaderboard/leagues/bronze-4.png 404 in 467ms
- GET /assets/leaderboard/leagues/sapphire-4.png 404 in 452ms
- ○ Compiling /exam-bank ...
- ✓ Compiled /exam-bank in 4.6s (1800 modules)
- ✓ Compiled in 2.3s (1800 modules)
- ○ Compiling /courses ...
- ✓ Compiled /courses in 49.1s (1807 modules)
+ ✓ Compiled /_not-found in 1593ms (1795 modules)
  ○ Compiling /_error ...
- ✓ Compiled /_error in 75.7s (2028 modules)
- GET /exam-bank 200 in 21836ms
- GET /_next/static/css/app/layout.css?v=1778378502753 404 in 250ms
- GET /_next/static/chunks/app-pages-internals.js 404 in 1441ms
- GET /_next/static/chunks/main-app.js?v=1778378502753 404 in 1456ms
- GET /_next/static/chunks/app/(dashboard)/layout.js 404 in 819ms
- GET /_next/static/chunks/app/not-found.js 404 in 820ms
- ✓ Compiled in 4.1s (2021 modules)
+ ✓ Compiled /_error in 3.3s (2021 modules)
+ GET /courses 500 in 9186ms
+ GET /home 500 in 289ms
  ○ Compiling /favicon.ico ...
- ✓ Compiled /favicon.ico in 1808ms (1038 modules)
- GET /favicon.ico 200 in 2182ms
- ✓ Compiled in 10.7s (2053 modules)
- ✓ Compiled in 1626ms (2053 modules)
- ✓ Compiled in 3.3s (2053 modules)
- ✓ Compiled in 1607ms (2053 modules)
- ✓ Compiled in 2.4s (2053 modules)
- ✓ Compiled in 5.2s (2053 modules)
- ✓ Compiled in 6.7s (2006 modules)
- ✓ Compiled in 3s (2020 modules)
- ✓ Compiled in 2.1s (2020 modules)
- ✓ Compiled in 1836ms (2020 modules)
- GET /classement 200 in 308ms
- GET /home 200 in 321ms
- ○ Compiling /courses ...
- ✓ Compiled /courses in 758ms (1012 modules)
- GET /courses 200 in 1030ms
- ✓ Compiled in 838ms (2013 modules)
- ✓ Compiled in 1688ms (2027 modules)
- ✓ Compiled in 2.6s (2027 modules)
- ✓ Compiled in 3.5s (2027 modules)
- ✓ Compiled in 4s (2027 modules)
- ✓ Compiled in 4.2s (2027 modules)
- ✓ Compiled in 1547ms (2020 modules)
- ✓ Compiled in 2.1s (2020 modules)
- ✓ Compiled in 1054ms (2020 modules)
- ✓ Compiled in 2.1s (2020 modules)
- ✓ Compiled in 1553ms (2020 modules)
- ✓ Compiled in 2.6s (2020 modules)
- ✓ Compiled in 1953ms (2020 modules)
- ✓ Compiled in 1291ms (2020 modules)
- ✓ Compiled in 2.4s (2020 modules)
- ✓ Compiled in 2.3s (2020 modules)
- ✓ Compiled in 1394ms (2020 modules)
- ✓ Compiled in 1870ms (2020 modules)
- ✓ Compiled in 4.1s (2020 modules)
- ✓ Compiled in 10.1s (2020 modules)
- ✓ Compiled in 1928ms (2020 modules)
- GET /exam-bank 200 in 1994ms
- ○ Compiling /_not-found ...
- ✓ Compiled /_not-found in 3.2s (1006 modules)
- GET /_next/static/chunks/app-pages-internals.js 404 in 3781ms
- GET /_next/static/chunks/main-app.js?v=1778378833136 404 in 3807ms
- GET /_next/static/chunks/app/(dashboard)/layout.js 404 in 3757ms
- GET /_next/static/chunks/app/not-found.js 404 in 3668ms
- ○ Compiling /favicon.ico ...
- ✓ Compiled /favicon.ico in 1152ms (1038 modules)
- GET /favicon.ico 200 in 1515ms
- ✓ Compiled in 12.2s (2053 modules)
- ✓ Compiled in 4.6s (2053 modules)
- ✓ Compiled in 9.9s (2053 modules)
- ✓ Compiled in 2.6s (2020 modules)
- ✓ Compiled in 1090ms (1015 modules)
- ✓ Compiled in 1175ms (1015 modules)
- ✓ Compiled in 2.6s (2020 modules)
- ✓ Compiled in 4.1s (2020 modules)
- ✓ Compiled in 1826ms (1015 modules)
- ✓ Compiled in 1812ms (2020 modules)
- ✓ Compiled in 2.2s (2020 modules)
- ✓ Compiled in 1895ms (2020 modules)
- ✓ Compiled in 5.7s (2020 modules)
- ✓ Compiled in 2.1s (1015 modules)
- ✓ Compiled in 742ms (1015 modules)
- ✓ Compiled in 6.6s (2020 modules)
- GET /exam-bank 200 in 602ms
- ○ Compiling /_not-found ...
- ✓ Compiled /_not-found in 798ms (1006 modules)
- GET /_next/static/chunks/main-app.js?v=1778379007837 404 in 1128ms
- GET /_next/static/chunks/app/(dashboard)/layout.js 404 in 1146ms
- GET /_next/static/chunks/app-pages-internals.js 404 in 1159ms
- GET /_next/static/chunks/app/not-found.js 404 in 1156ms
- ○ Compiling /favicon.ico ...
- ✓ Compiled /favicon.ico in 755ms (1038 modules)
- GET /favicon.ico 200 in 933ms
- GET /calendar 200 in 445ms
- GET /_next/static/chunks/app-pages-internals.js 404 in 280ms
- GET /_next/static/chunks/main-app.js?v=1778379011585 404 in 299ms
- GET /_next/static/chunks/app/(dashboard)/layout.js 404 in 293ms
- GET /_next/static/chunks/app/not-found.js 404 in 338ms
- GET /favicon.ico 200 in 52ms
- ✓ Compiled in 3.7s (2053 modules)
- ✓ Compiled in 1787ms (1015 modules)
- ✓ Compiled in 3.3s (1051 modules)
- ✓ Compiled in 1826ms (1051 modules)
- ✓ Compiled in 960ms (1051 modules)
- ✓ Compiled in 1416ms (1051 modules)
- ✓ Compiled in 1871ms (1051 modules)
- ✓ Compiled in 1893ms (1051 modules)
- ✓ Compiled in 1795ms (1051 modules)
- ✓ Compiled in 2.7s (1051 modules)
- ✓ Compiled in 2.4s (2056 modules)
- ✓ Compiled in 1657ms (1051 modules)
- ✓ Compiled in 1850ms (1015 modules)
- ✓ Compiled in 1889ms (1015 modules)
- GET /calendar 200 in 882ms
- ○ Compiling /_not-found ...
- ✓ Compiled /_not-found in 3.2s (1006 modules)
- GET /_next/static/chunks/main-app.js?v=1778379157504 404 in 4298ms
- GET /_next/static/chunks/app-pages-internals.js 404 in 4293ms
- GET /_next/static/chunks/app/(dashboard)/layout.js 404 in 4286ms
- GET /_next/static/chunks/app/not-found.js 404 in 4210ms
- ○ Compiling /favicon.ico ...
- ✓ Compiled /favicon.ico in 1389ms (1038 modules)
- GET /favicon.ico 200 in 1721ms
- ✓ Compiled in 3.5s (1026 modules)
- ✓ Compiled in 3s (1026 modules)
- ✓ Compiled in 2.5s (1026 modules)
- ✓ Compiled in 1964ms (1026 modules)
-[?25h
+ ✓ Compiled /favicon.ico in 1476ms (1021 modules)
+ GET /favicon.ico 200 in 1751ms
+   Reload env: .env.local
+ ✓ Compiled in 2.1s (2034 modules)
+   Reload env: .env.local
+ ✓ Compiled in 2.6s (2034 modules)

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Trophy, Search, Crown, Medal, ChevronLeft, ChevronRight, Zap, ArrowUp, ArrowDown } from 'lucide-react'
 import api from '@/lib/axios'
+import { LeaderboardPageSkeleton, SkeletonBlock } from '@/components/figma/skeletons'
 import {
   type LeagueKey,
   type Zone,
@@ -55,9 +56,14 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 
   if (loading) {
     return (
-      <div className="card p-5 space-y-3 animate-pulse">
-        {[1, 2, 3].map(i => (
-          <div key={i} style={{ height: 40, borderRadius: 10, background: 'var(--surface-hover)' }} />
+      <div className="card kresco-skeleton-card space-y-3 p-5">
+        {[1, 2, 3].map((i) => (
+          <div className="grid grid-cols-[24px_28px_1fr_auto] items-center gap-2" key={i}>
+            <SkeletonBlock className="h-6 w-6 rounded-full" />
+            <SkeletonBlock className="h-7 w-7 rounded-full" />
+            <SkeletonBlock className="h-[13px] w-[70%] rounded-[6px]" />
+            <SkeletonBlock className="h-[12px] w-14 rounded-[6px]" />
+          </div>
         ))}
       </div>
     )
@@ -141,6 +147,10 @@ export function LeaderboardPage() {
   const currentLeague = currentUser?.leagueKey ? getLeagueInfoByKey(currentUser.leagueKey) : null
   const leagueStrip = currentLeague ? getMajorLeagueStrip(currentLeague.key) : []
 
+  if (loading && lastNonEmptyEntries.length === 0) {
+    return <LeaderboardPageSkeleton />
+  }
+
   return (
     <div className="kresco-shell" style={{ maxWidth: 980, margin: '0 auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20 }}>
@@ -190,11 +200,7 @@ export function LeaderboardPage() {
 
           <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
             {loading ? (
-              <div>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} style={{ height: 60, background: i % 2 === 0 ? 'var(--surface-card)' : 'var(--surface-hover)', animation: 'pulse 1.5s ease infinite' }} />
-                ))}
-              </div>
+              <LeaderboardRowsSkeleton />
             ) : visibleEntries.length === 0 ? (
               <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>
                 {normalizedSearch ? `Aucun joueur trouve pour "${searchInput}"` : 'Aucun classement disponible'}
@@ -294,6 +300,27 @@ export function LeaderboardPage() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function LeaderboardRowsSkeleton() {
+  return (
+    <div>
+      {Array.from({ length: 10 }).map((_, index) => (
+        <div
+          className="grid h-[64px] grid-cols-[32px_36px_1fr_auto] items-center gap-[14px] border-b border-theme px-5 last:border-b-0"
+          key={index}
+        >
+          <SkeletonBlock className="h-8 w-8 rounded-full" />
+          <SkeletonBlock className="h-9 w-9 rounded-full" />
+          <span className="grid min-w-0 gap-2">
+            <SkeletonBlock className="h-[15px] w-[46%] rounded-[6px]" />
+            <SkeletonBlock className="h-[12px] w-[32%] rounded-[6px]" />
+          </span>
+          <SkeletonBlock className="h-[16px] w-24 rounded-[6px]" />
+        </div>
+      ))}
     </div>
   )
 }

@@ -1,16 +1,50 @@
-# Backend Contract (Canonical Runtime)
+# Backend Contract
 
-## Source of truth
-- Active backend runtime is **FastAPI** under `backend/app/**`.
-- API entrypoint is `app.main:create_app`.
-- Lambda entrypoint is `app_handler.application`.
-- DB migration tool is **Alembic** (`alembic upgrade head`).
+## Active Runtime
 
-## Deprecated path
-- Django/Ninja modules under `backend/core`, `backend/users`, `backend/courses`, etc. are legacy.
-- `backend/manage.py` is intentionally blocked and must not be used for runtime or migrations.
+- Runtime: FastAPI.
+- Application factory: `backend/app/main.py`, `app.main:create_app`.
+- Lambda adapter: `backend/app_handler.py`, `application`.
+- API routers: `backend/app/routers/**`.
+- SQLAlchemy models: `backend/app/models/**`.
+- Pydantic schemas: `backend/app/schemas/**`.
+- Migrations: Alembic under `backend/alembic/**`.
+- Tests: `backend/tests_fastapi/**`.
 
-## Rules for new changes
-1. New backend features must be added only in `backend/app/**`.
-2. New schema changes must ship with Alembic migrations.
-3. CI must pass (`pytest`, startup check) before deployment.
+## Database Contract
+
+Run migrations from `backend`:
+
+```bash
+python -m alembic upgrade head
+```
+
+New schema changes must include an Alembic migration and matching SQLAlchemy model updates.
+
+## Current Content Model
+
+New product work should target the Topic model:
+
+```text
+Subject
+-> Topic
+-> TopicSection
+-> TopicItem
+-> TabContent / Resource
+```
+
+Existing `Chapter`, `Lesson`, and `ChapterSection` routes remain compatibility surfaces for active screens and tests. New learning-room work should prefer TopicItem-first endpoints.
+
+## Current Verification
+
+Use:
+
+```bash
+python -m pytest tests_fastapi
+```
+
+The backend must start through:
+
+```bash
+python -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
+```

@@ -1,0 +1,8 @@
+export { default as MathSetsPage } from './math-sets-lab/pages/MathSetsPage'
+export { default as PascalTriangleLab } from './math-sets-lab/math/PascalTriangleLab'
+export { default as LabLayout } from './math-sets-lab/components/LabLayout'
+export { default as PascalTriangleAnimation } from './math-sets-lab/components/PascalTriangleAnimation'
+export { default as SetsInclusionAnimation } from './math-sets-lab/components/SetsInclusionAnimation'
+export { default as VariationsAnimation } from './math-sets-lab/components/VariationsAnimation'
+export { ThemeProvider as MathSetsThemeProvider } from './math-sets-lab/context/ThemeContext'
+export { FunctionExplorer } from './course/components/math/FunctionExplorer'

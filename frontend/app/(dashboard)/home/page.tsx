@@ -20,6 +20,7 @@ interface TopicCard {
   completed_count: number
   progress_pct: number
   concepts: string[]
+  can_access?: boolean
 }
 
 interface SubjectCard {
@@ -76,15 +77,11 @@ export default function HomePage() {
 
   const firstName = user?.full_name?.split(' ')[0] || 'Student'
   const continueTopics = useMemo<FigmaHomeTopic[]>(() => {
-    const recommended = [
-      ...topics.filter((topic) => topic.progress_pct > 0 && topic.progress_pct < 100),
-      ...topics,
-    ]
-    const source = uniqueById(recommended)
+    const source = pickContinueTopics(topics, 2)
 
     if (source.length === 0) return fallbackContinueTopics
 
-    return source.slice(0, 2).map((topic) => ({
+    return source.map((topic) => ({
       id: topic.id,
       subject_title: topic.subject_title,
       title: topic.title,
@@ -127,13 +124,35 @@ export default function HomePage() {
   )
 }
 
-function uniqueById(topics: TopicCard[]) {
+function pickContinueTopics(topics: TopicCard[], limit: number) {
   const seen = new Set<number>()
-  return topics.filter((topic) => {
+  const picked: TopicCard[] = []
+
+  function add(topic: TopicCard, includeLocked = false) {
     if (seen.has(topic.id)) return false
+    if (!includeLocked && topic.can_access === false) return false
     seen.add(topic.id)
-    return true
-  })
+    picked.push(topic)
+    return picked.length >= limit
+  }
+
+  for (const topic of topics) {
+    if (topic.progress_pct > 0 && topic.progress_pct < 100 && add(topic)) return picked
+  }
+
+  for (const topic of topics) {
+    if (add(topic)) return picked
+  }
+
+  for (const topic of topics) {
+    if (topic.progress_pct > 0 && topic.progress_pct < 100 && add(topic, true)) return picked
+  }
+
+  for (const topic of topics) {
+    if (add(topic, true)) return picked
+  }
+
+  return picked
 }
 
 function buildSubjectShortcuts(subjects: SubjectCard[], fallbacks: SubjectCard[]) {

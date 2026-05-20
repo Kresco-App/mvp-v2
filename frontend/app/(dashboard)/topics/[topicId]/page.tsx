@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
@@ -13,7 +13,6 @@ import {
   ListChecks,
   Search,
   StickyNote,
-  Wrench,
   type LucideIcon,
 } from 'lucide-react'
 import api from '@/lib/axios'
@@ -41,6 +40,8 @@ interface TabContent {
   config_json: any
   renderer_key: string
   order: number
+  can_access?: boolean
+  locked_reason?: string
   resource?: Resource | null
 }
 
@@ -79,16 +80,11 @@ interface TopicWorkspace {
   active_item_id: number | null
   sections: TopicSection[]
   active_item: TopicItem | null
-  study_tools: {
-    quizzes: TabContent[]
-    interactive: TabContent[]
-    resources: Resource[]
-    notes: { id: number; topic_item_id: number; body: string; updated_at: string }[]
-  }
   search_results: TopicItem[]
+  can_access?: boolean
+  locked_reason?: string
+  access_reason?: string
 }
-
-type WorkspaceMode = 'path' | 'tools'
 
 type WorkspaceTabSlot = 'course' | 'lab' | 'quiz' | 'resources' | 'notes'
 
@@ -123,10 +119,23 @@ const animatedItemTypes = new Set([
 
 const nonAnimatedRendererKeys = new Set(['pdf', 'resource', 'vdocipher', 'video', 'youtube_embed'])
 
+type TopicLookups = {
+  itemById: Map<number, TopicItem>
+}
 
 function duration(seconds: number) {
   if (!seconds) return ''
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] ?? char))
 }
 
 function youtubeVideoId(item: TopicItem) {
@@ -136,7 +145,7 @@ function youtubeVideoId(item: TopicItem) {
 }
 
 function youtubeSrcDoc(item: TopicItem, videoId: string) {
-  const title = item.title.replace(/"/g, '&quot;')
+  const title = escapeHtml(item.title)
   return `
     <style>
       * { box-sizing: border-box; }
@@ -153,18 +162,60 @@ function youtubeSrcDoc(item: TopicItem, videoId: string) {
     `
 }
 
+function lockedVideoSrcDoc(item: TopicItem) {
+  const title = escapeHtml(item.title || 'Locked lesson')
+  const summary = escapeHtml(item.description || 'Unlock this topic to watch the full lesson and use the attached practice tools.')
+  return `
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f4f5; font-family: system-ui, sans-serif; color: #3f3f46; }
+      article { width: min(560px, calc(100% - 48px)); border: 2px solid #e4e4e7; border-radius: 18px; background: white; padding: 24px; box-shadow: 0 18px 42px rgba(24,24,27,.08); }
+      b { display: block; margin-bottom: 8px; color: #9f9fa9; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+      h2 { margin: 0; font-size: 22px; line-height: 1.2; }
+      p { margin: 12px 0 0; color: #71717b; font-size: 14px; font-weight: 650; line-height: 1.55; }
+    </style>
+    <article aria-label="Locked lesson preview">
+      <b>Locked preview</b>
+      <h2>${title}</h2>
+      <p>${summary}</p>
+    </article>
+  `
+}
+
 function sectionCopy(section: TopicSection) {
   const key = `${section.title} ${section.section_type}`.toLowerCase()
   if (key.includes('lesson')) return 'Learn the basics of the subject.'
   if (key.includes('exercise')) return 'Learn by doing with interactive tasks.'
   if (key.includes('homework')) return 'Learn by practicing with real-world problems.'
   if (key.includes('bac') || key.includes('exam')) return 'Get yourself familiarized with the final boss'
-  return section.items[0]?.description || 'Keep the flow of knowledge ongoing!'
+  return section.items?.[0]?.description || 'Keep the flow of knowledge ongoing!'
 }
 
 function railLabel(section: TopicSection, item: TopicItem, index: number) {
   const base = section.title.replace(/s$/i, '')
   return item.title?.trim() || `${base} ${index + 1}`
+}
+
+function buildTopicLookups(sections: TopicSection[]): TopicLookups {
+  const itemById = new Map<number, TopicItem>()
+
+  sections.forEach((section) => {
+    section.items?.forEach((item) => {
+      itemById.set(item.id, item)
+    })
+  })
+
+  return { itemById }
+}
+
+function activeSectionIdForWorkspace(workspace: TopicWorkspace, itemId: number | null) {
+  if (!itemId) return workspace.active_item?.section_id ?? null
+
+  for (const section of workspace.sections) {
+    if (section.items?.some((item) => item.id === itemId)) return section.id
+  }
+
+  return workspace.active_item?.section_id ?? null
 }
 
 function buildRailSections(workspace: TopicWorkspace, activeItemId: number | null, openIds: Set<string | number>): FigmaRailSection[] {
@@ -173,22 +224,51 @@ function buildRailSections(workspace: TopicWorkspace, activeItemId: number | nul
     title: section.title,
     copy: sectionCopy(section),
     open: openIds.has(section.id),
-    items: section.items.map((item, index) => ({
+    items: section.items?.map((item, index) => ({
       id: item.id,
       label: railLabel(section, item, index),
       active: item.id === activeItemId,
       completed: item.progress_status === 'completed',
       disabled: item.can_access === false,
       meta: item.can_access === false ? lockedContentReason(item.locked_reason) : undefined,
-    })),
+    })) ?? [],
   }))
 }
 
 function lockedContentReason(reason?: string) {
   if (reason === 'pro_required') return 'Pro required'
+  if (reason === 'vip_required') return 'VIP required'
   if (reason === 'subject_access_required') return 'Subject locked'
   if (reason?.startsWith('feature_required:')) return 'Feature locked'
   return 'Locked'
+}
+
+function LockedContentPanel({
+  reason,
+  title,
+  summary,
+}: {
+  reason?: string
+  title?: string
+  summary?: string
+}) {
+  return (
+    <div className="rounded-[16px] border border-[#e4e4e7] bg-[#f7f8fb] p-5">
+      <p className="m-0 text-[13px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">Locked preview</p>
+      <p className="m-0 mt-2 text-[16px] font-black text-[#3f3f46]">{title || lockedContentReason(reason)}</p>
+      <p className="m-0 mt-2 text-[13px] font-semibold leading-6 text-[#71717b]">
+        {summary || 'This learning item is visible in the topic path, but the protected lesson content is not available for the current account.'}
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">
+          {lockedContentReason(reason)}
+        </span>
+        <span className="rounded-full bg-[#fff7df] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#b76b00]">
+          Upgrade to unlock
+        </span>
+      </div>
+    </div>
+  )
 }
 
 function tabMatchesSlot(tab: TabContent, slot: WorkspaceTabSlot) {
@@ -240,7 +320,7 @@ function fallbackTabForSlot(slot: WorkspaceTabSlot, item: TopicItem): TabContent
   return fallback
 }
 
-function resolveTabForSlot(tabs: TabContent[], slot: WorkspaceTabSlot, item: TopicItem) {
+function resolveTabForSlot(tabs: TabContent[] = [], slot: WorkspaceTabSlot, item: TopicItem) {
   return tabs.find((tab) => tabMatchesSlot(tab, slot)) || fallbackTabForSlot(slot, item)
 }
 
@@ -545,6 +625,16 @@ function TabPanel({
 }) {
   const [note, setNote] = useState('')
 
+  if (item.can_access === false || tab.can_access === false) {
+    return (
+      <LockedContentPanel
+        reason={item.locked_reason || tab.locked_reason}
+        title={item.title}
+        summary={item.description || tab.content || tab.resource?.summary}
+      />
+    )
+  }
+
   async function saveNote() {
     if (!note.trim()) return
     try {
@@ -566,9 +656,24 @@ function TabPanel({
 
   if (tab.tab_type === 'notes') {
     return (
-      <div className="space-y-3">
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} className="figma-input min-h-36 w-full py-3" placeholder="Write notes for this item" />
-        <button type="button" onClick={saveNote} className="figma-button">Save note</button>
+      <div className="max-w-[760px] rounded-[14px] border border-[#e4e4e7] bg-white">
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          className="min-h-24 w-full resize-y rounded-t-[14px] border-0 bg-white px-4 py-3 text-[14px] font-semibold leading-6 text-[#3f3f46] outline-none placeholder:text-[#a1a1aa]"
+          placeholder="Write a short note for this item"
+        />
+        <div className="flex items-center justify-between border-t border-[#f4f4f5] px-3 py-2">
+          <span className="text-[11px] font-bold text-[#9f9fa9]">Saved locally to your notes hub</span>
+          <button
+            type="button"
+            onClick={saveNote}
+            disabled={!note.trim()}
+            className="inline-flex h-8 items-center rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9]"
+          >
+            Save note
+          </button>
+        </div>
       </div>
     )
   }
@@ -599,59 +704,37 @@ function TabPanel({
 
 function TopicWorkspaceToolbar({
   query,
-  mode,
   resultCount,
   onQueryChange,
   onSearch,
-  onModeChange,
 }: {
   query: string
-  mode: WorkspaceMode
   resultCount: number
   onQueryChange: (value: string) => void
   onSearch: () => void
-  onModeChange: (mode: WorkspaceMode) => void
 }) {
   return (
-    <div className="kresco-enter flex max-w-[1057px] flex-wrap items-center justify-between gap-3 pt-2" style={{ animationDelay: '40ms' }}>
+    <div className="kresco-enter grid w-[351px] max-w-full justify-items-start gap-3" style={{ animationDelay: '40ms' }}>
       <form
-        className="relative min-w-[280px] flex-1"
+        className="relative w-full"
         onSubmit={(event) => {
           event.preventDefault()
           onSearch()
         }}
       >
-        <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
+        <Search size={17} className="pointer-events-none absolute left-[18px] top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          className="figma-input w-full pl-11"
+          className="figma-input h-[52px] w-full !pl-[52px] !pr-[18px] text-[15px]"
           placeholder="Search this topic"
           aria-label="Search this topic"
         />
       </form>
 
-      <div className="inline-flex h-[44px] rounded-[14px] bg-[#f7f8fb] p-1">
-        <button
-          type="button"
-          onClick={() => onModeChange('path')}
-          className={`inline-flex items-center gap-2 rounded-[11px] px-4 text-[13px] font-black transition ${
-            mode === 'path' ? 'bg-white text-[#3f3f46] shadow-[0_4px_12px_rgba(24,24,27,0.08)]' : 'text-[#71717b]'
-          }`}
-        >
-          <ListChecks size={15} />
-          Main Path
-        </button>
-        <button
-          type="button"
-          onClick={() => onModeChange('tools')}
-          className={`inline-flex items-center gap-2 rounded-[11px] px-4 text-[13px] font-black transition ${
-            mode === 'tools' ? 'bg-white text-[#3f3f46] shadow-[0_4px_12px_rgba(24,24,27,0.08)]' : 'text-[#71717b]'
-          }`}
-        >
-          <Wrench size={15} />
-          Study Tools
-        </button>
+      <div className="inline-flex h-[48px] items-center gap-2 rounded-[16px] bg-[#f7f8fb] px-4 text-[13px] font-black text-[#3f3f46]">
+        <ListChecks size={15} />
+        Main Path
       </div>
 
       {query.trim() && (
@@ -701,107 +784,61 @@ function TopicSearchResults({
   )
 }
 
-function StudyToolsPanel({
-  workspace,
-  onTabSelect,
-}: {
-  workspace: TopicWorkspace
-  onTabSelect: (itemId: number, slot: WorkspaceTabSlot) => void
-}) {
-  const notes = workspace.study_tools.notes
-  const itemByTabId = new Map<number, TopicItem>()
-  workspace.sections.forEach((section) => {
-    section.items.forEach((item) => {
-      item.tabs.forEach((tab) => itemByTabId.set(tab.id, item))
-    })
-  })
-  const tools = [
-    { label: 'Quizzes', count: workspace.study_tools.quizzes.length },
-    { label: 'Interactive', count: workspace.study_tools.interactive.length },
-    { label: 'Resources', count: workspace.study_tools.resources.length },
-    { label: 'Notes', count: notes.length },
-  ]
-
-  return (
-    <section className="grid gap-4 rounded-[16px] border border-[#e4e4e7] bg-white p-4">
-      <div className="grid grid-cols-4 gap-2 max-[800px]:grid-cols-2">
-        {tools.map((tool) => (
-          <div key={tool.label} className="rounded-[14px] bg-[#f7f8fb] px-4 py-3">
-            <strong className="block text-[20px] font-black leading-none text-[#3f3f46]">{tool.count}</strong>
-            <span className="text-[12px] font-black text-[#71717b]">{tool.label}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-3">
-        {workspace.study_tools.quizzes.slice(0, 4).map((tab) => (
-          <button
-            key={`quiz-${tab.id}`}
-            type="button"
-            onClick={() => {
-              const item = itemByTabId.get(tab.id)
-              if (item) onTabSelect(item.id, 'quiz')
-            }}
-            className="rounded-[12px] border border-[#e4e4e7] px-4 py-3 text-left text-[13px] font-black text-[#3f3f46]"
-          >
-            Quiz: {tab.label}
-          </button>
-        ))}
-        {workspace.study_tools.resources.slice(0, 4).map((resource) => (
-          <div key={`resource-${resource.id}`} className="rounded-[12px] border border-[#e4e4e7] px-4 py-3">
-            <strong className="block text-[13px] font-black text-[#3f3f46]">{resource.title}</strong>
-            <span className="text-[12px] font-bold text-[#71717b]">{resource.resource_type}</span>
-          </div>
-        ))}
-        {notes.slice(0, 3).map((note) => (
-          <button key={`note-${note.id}`} type="button" onClick={() => onTabSelect(note.topic_item_id, 'notes')} className="rounded-[12px] bg-[#fff7df] px-4 py-3 text-left text-[13px] font-bold text-[#705000]">
-            {note.body}
-          </button>
-        ))}
-      </div>
-    </section>
-  )
-}
-
 export default function TopicWorkspacePage() {
   const { topicId } = useParams<{ topicId: string }>()
   const searchParams = useSearchParams()
+  const requestedItemId = searchParams.get('item')
   const [workspace, setWorkspace] = useState<TopicWorkspace | null>(null)
   const [activeItemId, setActiveItemId] = useState<number | null>(null)
   const [activeTabSlot, setActiveTabSlot] = useState<WorkspaceTabSlot>('course')
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('path')
   const [topicQuery, setTopicQuery] = useState('')
   const [openSectionIds, setOpenSectionIds] = useState<Set<string | number>>(new Set())
   const [loading, setLoading] = useState(true)
 
-  async function load(itemId?: number | null, q = '') {
+  const load = useCallback(async (
+    itemId?: number | null,
+    q = '',
+    options: { preserveActiveTab?: boolean; preserveOpenSections?: boolean } = {},
+  ) => {
     const params = new URLSearchParams()
     if (itemId) params.set('item_id', String(itemId))
     if (q.trim()) params.set('q', q.trim())
-    const { data } = await api.get(`/courses/topics/${topicId}/workspace?${params.toString()}`)
+    const { data } = await api.get<TopicWorkspace>(`/courses/topics/${topicId}/workspace?${params.toString()}`)
+    const nextActiveItemId = data.active_item_id ?? itemId ?? data.active_item?.id ?? null
+    const nextOpenSectionId = activeSectionIdForWorkspace(data, nextActiveItemId)
+
     setWorkspace(data)
-    setActiveItemId(data.active_item_id)
-    setActiveTabSlot('course')
+    setActiveItemId(nextActiveItemId)
+    if (!options.preserveActiveTab) setActiveTabSlot('course')
     setOpenSectionIds((prev) => {
-      if (prev.size > 0) return prev
-      return new Set()
+      if (nextOpenSectionId == null) return options.preserveOpenSections ? prev : new Set()
+      if (!options.preserveOpenSections) return new Set([nextOpenSectionId])
+      const next = new Set(prev)
+      next.add(nextOpenSectionId)
+      return next
     })
-  }
+  }, [topicId])
 
   useEffect(() => {
-    const item = searchParams.get('item')
-    load(item ? Number(item) : null)
+    setLoading(true)
+    load(requestedItemId ? Number(requestedItemId) : null)
       .catch(() => toast.error('Could not load topic workspace.'))
       .finally(() => setLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topicId])
+  }, [load, requestedItemId])
+
+  const topicLookups = useMemo(() => {
+    if (!workspace) return null
+    return buildTopicLookups(workspace.sections)
+  }, [workspace])
 
   const activeItem = useMemo(() => {
     if (!workspace) return null
-    return workspace.sections.flatMap((section) => section.items).find((item) => item.id === activeItemId) || workspace.active_item
-  }, [workspace, activeItemId])
+    return topicLookups?.itemById.get(activeItemId ?? -1) || workspace.active_item
+  }, [activeItemId, topicLookups, workspace])
 
-  const activeTab = activeItem ? resolveTabForSlot(activeItem.tabs, activeTabSlot, activeItem) : null
+  const activeTab = useMemo(() => (
+    activeItem ? resolveTabForSlot(activeItem.tabs, activeTabSlot, activeItem) : null
+  ), [activeItem, activeTabSlot])
   const railSections = useMemo(() => {
     if (!workspace) return []
     return buildRailSections(workspace, activeItemId, openSectionIds)
@@ -814,16 +851,26 @@ export default function TopicWorkspacePage() {
       active: slot.id === activeTabSlot,
     }))
   }, [activeTabSlot])
-  const activeVideoId = activeItem ? youtubeVideoId(activeItem) : 'dQw4w9WgXcQ'
+  const isActiveItemLocked = activeItem?.can_access === false
+  const activeVideoId = useMemo(() => (
+    activeItem && !isActiveItemLocked ? youtubeVideoId(activeItem) : 'dQw4w9WgXcQ'
+  ), [activeItem, isActiveItemLocked])
+  const activeSrcDoc = useMemo(() => {
+    if (!activeItem) return undefined
+    return isActiveItemLocked ? lockedVideoSrcDoc(activeItem) : youtubeSrcDoc(activeItem, activeVideoId)
+  }, [activeItem, activeVideoId, isActiveItemLocked])
+  const activeDurationLabel = activeItem ? duration(activeItem.duration_seconds) : ''
 
-  async function selectItem(item: TopicItem) {
+  const selectItem = useCallback(async (item: TopicItem) => {
+    setActiveItemId(item.id)
+    setActiveTabSlot('course')
+    setOpenSectionIds((prev) => new Set(prev).add(item.section_id))
+
     if (item.can_access === false) {
       toast.info(lockedContentReason(item.locked_reason))
       return
     }
-    setActiveItemId(item.id)
-    setActiveTabSlot('course')
-    setOpenSectionIds((prev) => new Set(prev).add(item.section_id))
+
     try {
       await api.post(`/courses/topic-items/${item.id}/event`, {
         event_type: `${item.item_type}_opened`,
@@ -833,71 +880,65 @@ export default function TopicWorkspacePage() {
         topic_item_id: item.id,
       })
     } catch {}
-  }
+  }, [workspace?.id])
 
-  async function runTopicSearch() {
+  const runTopicSearch = useCallback(async () => {
     if (!activeItem) return
     try {
-      await load(activeItem.id, topicQuery)
+      await load(activeItem.id, topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
     } catch {
       toast.error('Topic search failed.')
     }
-  }
+  }, [activeItem, load, topicQuery])
 
-  function selectToolTarget(itemId: number, slot: WorkspaceTabSlot) {
-    if (!workspace) return
-    const item = workspace.sections.flatMap((section) => section.items).find((candidate) => candidate.id === itemId)
-    if (!item) return
-    if (item.can_access === false) {
-      toast.info(lockedContentReason(item.locked_reason))
-      return
-    }
-    setActiveItemId(item.id)
-    setActiveTabSlot(slot)
-    setOpenSectionIds((prev) => new Set(prev).add(item.section_id))
-  }
-
-  function toggleSection(section: FigmaRailSection) {
+  const toggleSection = useCallback((section: FigmaRailSection) => {
     setOpenSectionIds((prev) => {
       const next = new Set(prev)
       if (next.has(section.id)) next.delete(section.id)
       else next.add(section.id)
       return next
     })
-  }
+  }, [])
 
-  function selectRailItem(railItem: FigmaRailItem) {
-    if (!workspace) return
-    const item = workspace.sections.flatMap((section) => section.items).find((candidate) => candidate.id === railItem.id)
+  const selectRailItem = useCallback((railItem: FigmaRailItem) => {
+    const item = topicLookups?.itemById.get(Number(railItem.id))
     if (item) selectItem(item)
-  }
+  }, [selectItem, topicLookups])
 
-  function selectWorkspaceTab(tab: FigmaTabItem) {
+  const selectWorkspaceTab = useCallback((tab: FigmaTabItem) => {
     if (tab.id === 'course' || tab.id === 'lab' || tab.id === 'quiz' || tab.id === 'resources' || tab.id === 'notes') {
       setActiveTabSlot(tab.id)
     }
-  }
+  }, [])
 
-  async function completeActive() {
+  const completeActive = useCallback(async () => {
     if (!activeItem) return
+    if (activeItem.can_access === false) {
+      toast.info(lockedContentReason(activeItem.locked_reason))
+      return
+    }
     try {
       const { data } = await api.post(`/courses/topic-items/${activeItem.id}/complete`, { watched_seconds: activeItem.duration_seconds || 0 })
       toast.success(`Progress saved${data.xp_earned ? ` (+${data.xp_earned} XP)` : ''}.`)
-      await load(activeItem.id)
+      await load(activeItem.id, topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
     } catch {
       toast.error('Could not save progress.')
     }
-  }
+  }, [activeItem, load, topicQuery])
 
-  async function saveActive() {
+  const saveActive = useCallback(async () => {
     if (!activeItem || !workspace) return
+    if (activeItem.can_access === false) {
+      toast.info(lockedContentReason(activeItem.locked_reason))
+      return
+    }
     try {
       await api.post('/interactions/saves', { target_type: 'topic_item', target_id: activeItem.id, topic_id: workspace.id, topic_item_id: activeItem.id, label: activeItem.title })
       toast.success('Saved.')
     } catch {
       toast.error('Could not save item.')
     }
-  }
+  }, [activeItem, workspace])
 
   if (loading) {
     return <FigmaVideoWorkspaceSkeleton />
@@ -910,15 +951,13 @@ export default function TopicWorkspacePage() {
       breadcrumb={`2eme Bac / ${workspace.subject_title} / ${workspace.title}`}
       title={`${workspace.subject_title}: ${activeItem.title}`}
       videoId={activeVideoId}
-      srcDoc={youtubeSrcDoc(activeItem, activeVideoId)}
+      srcDoc={activeSrcDoc}
       toolbar={(
         <TopicWorkspaceToolbar
           query={topicQuery}
-          mode={workspaceMode}
           resultCount={workspace.search_results.length}
           onQueryChange={setTopicQuery}
           onSearch={runTopicSearch}
-          onModeChange={setWorkspaceMode}
         />
       )}
       tabs={workspaceTabs}
@@ -935,7 +974,6 @@ export default function TopicWorkspacePage() {
       <LessonBody>
         <div className="grid gap-[24px]">
           <TopicSearchResults query={topicQuery} items={workspace.search_results} onSelect={selectItem} />
-          {workspaceMode === 'tools' && <StudyToolsPanel workspace={workspace} onTabSelect={selectToolTarget} />}
           <AnimatePresence mode="wait" initial={false}>
             {activeTab && (
               <motion.div
@@ -949,23 +987,35 @@ export default function TopicWorkspacePage() {
                   tab={activeTab}
                   item={activeItem}
                   topicId={workspace.id}
-                  onNoteSaved={() => load(activeItem.id)}
+                  onNoteSaved={() => load(activeItem.id, topicQuery, { preserveActiveTab: true, preserveOpenSections: true })}
                   onItemComplete={completeActive}
                 />
               </motion.div>
             )}
           </AnimatePresence>
-          <div className="flex flex-wrap items-center gap-[12px]">
-            <button type="button" onClick={completeActive} className="figma-button shadow-none">
-              <Check size={16} />
-              Mark complete
-            </button>
-            <button type="button" onClick={saveActive} className="figma-button secondary">
-              <Bookmark size={15} />
-              Save
-            </button>
-            {duration(activeItem.duration_seconds) && (
-              <span className="text-[13px] font-bold text-[#71717b]">{duration(activeItem.duration_seconds)}</span>
+          <div className="flex flex-wrap items-center gap-2 border-t border-[#f4f4f5] pt-4">
+            {activeItem.can_access !== false && (
+              <>
+                <button
+                  type="button"
+                  onClick={completeActive}
+                  className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition hover:bg-[#2f27b8]"
+                >
+                  <Check size={15} />
+                  Mark complete
+                </button>
+                <button
+                  type="button"
+                  onClick={saveActive}
+                  className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46]"
+                >
+                  <Bookmark size={14} />
+                  Save
+                </button>
+              </>
+            )}
+            {activeDurationLabel && (
+              <span className="ml-1 text-[12px] font-bold text-[#9f9fa9]">{activeDurationLabel}</span>
             )}
           </div>
         </div>

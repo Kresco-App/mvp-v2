@@ -152,8 +152,10 @@ class ResourceOut(BaseModel):
     is_free_preview: bool = False
     required_tier: str = ""
     required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
     can_access: bool = True
     locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -169,6 +171,12 @@ class TabContentOut(BaseModel):
     is_recommended: bool = False
     concept_slugs: list[str] = []
     resource: Optional[ResourceOut] = None
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -190,8 +198,12 @@ class TopicItemOut(BaseModel):
     tabs: list[TabContentOut] = []
     progress_status: str = "not_started"
     best_score: Optional[int] = None
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
     can_access: bool = True
     locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -218,15 +230,12 @@ class TopicCardOut(BaseModel):
     completed_count: int = 0
     progress_pct: int = 0
     concepts: list[str] = []
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
     can_access: bool = True
     locked_reason: str = ""
-
-
-class StudyToolsOut(BaseModel):
-    quizzes: list[TabContentOut] = []
-    interactive: list[TabContentOut] = []
-    resources: list[ResourceOut] = []
-    notes: list[dict] = []
+    access_reason: str = "unlocked"
 
 
 class TopicWorkspaceOut(BaseModel):
@@ -239,10 +248,15 @@ class TopicWorkspaceOut(BaseModel):
     progress_pct: int
     completed_count: int
     item_count: int
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
     active_item_id: Optional[int]
     sections: list[TopicSectionOut]
     active_item: Optional[TopicItemOut]
-    study_tools: StudyToolsOut
     search_results: list[TopicItemOut] = []
 
 
@@ -286,8 +300,12 @@ class ExamProblemOut(BaseModel):
     difficulty: str
     concept_slugs: list[str] = []
     video_resource: Optional[ResourceOut] = None
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
     can_access: bool = True
     locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -300,8 +318,12 @@ class ExamOut(BaseModel):
     year: int
     session: str
     statement_url: str
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
     can_access: bool = True
     locked_reason: str = ""
+    access_reason: str = "unlocked"
     problems: list[ExamProblemOut] = []
 
     model_config = {"from_attributes": True}

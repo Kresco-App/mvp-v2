@@ -84,7 +84,7 @@ export function FigmaHomeMain({
         {loading ? (
           <div className="grid max-w-[984px] gap-[24px] min-[960px]:grid-cols-[repeat(2,480px)]">
             {Array.from({ length: 2 }).map((_, index) => (
-              <FigmaContinueTopicSkeleton key={index} index={index} />
+              <FigmaContinueTopicSkeleton key={index} />
             ))}
           </div>
         ) : (
@@ -105,7 +105,7 @@ export function FigmaHomeMain({
         {loading ? (
           <div className="grid grid-cols-[repeat(5,176px)] gap-[20px] max-[1180px]:grid-cols-[repeat(auto-fit,176px)]">
             {Array.from({ length: 5 }).map((_, index) => (
-              <FigmaSubjectShortcutSkeleton key={index} index={index} />
+              <FigmaSubjectShortcutSkeleton key={index} />
             ))}
           </div>
         ) : (

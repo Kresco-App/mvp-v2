@@ -17,6 +17,7 @@ from app.admin.views import register_admin_views
 from app.config import Settings, get_settings
 from app.database import init_engine
 from app.rate_limit import limiter
+from app.routers import admin as admin_api
 from app.routers import calendar, courses, gamification, interactions, notifications, payments, quizzes, users
 
 logger = logging.getLogger("kresco.api")
@@ -66,6 +67,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Store settings on app state for access in dependencies
     app.state.settings = settings
+    app.dependency_overrides[get_settings] = lambda: settings
 
     # Rate limiting
     app.state.limiter = limiter
@@ -93,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(interactions.router, prefix="/api/interactions")
     app.include_router(payments.router, prefix="/api/payments")
     app.include_router(notifications.router, prefix="/api/notifications")
+    app.include_router(admin_api.router, prefix="/api/admin")
 
     os.makedirs("media", exist_ok=True)
     app.mount("/media", StaticFiles(directory="media"), name="media")

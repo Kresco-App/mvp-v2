@@ -51,6 +51,14 @@ class XPTransactionOut(BaseModel):
     amount: int
     reason: str
     description: str
+    subject_id: Optional[int] = None
+    topic_id: Optional[int] = None
+    topic_section_id: Optional[int] = None
+    topic_item_id: Optional[int] = None
+    question_set_id: Optional[int] = None
+    question_id: Optional[int] = None
+    quiz_attempt_id: Optional[int] = None
+    question_attempt_id: Optional[int] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -128,3 +136,6 @@ class UserStatsOut(BaseModel):
 
 class SectionAccessOut(BaseModel):
     can_access: bool
+    reason: str = "unlocked"
+    required_tier: str = ""
+    required_subject_id: Optional[int] = None

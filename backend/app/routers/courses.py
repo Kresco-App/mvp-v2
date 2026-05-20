@@ -1,8 +1,8 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import func, inspect, or_, select
+from sqlalchemy.orm import selectinload, with_loader_criteria
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -11,96 +11,106 @@ from app.models.courses import (
     Activity, Chapter, ChapterSection, CoursePDF, Exam, ExamProblem, Lesson, Resource,
     Subject, TabContent, Topic, TopicItem, TopicSection,
 )
-from app.models.gamification import ActivityEvent, QuizAttempt, TopicItemProgress
+from app.models.gamification import ActivityEvent, QuestionAttempt, QuizAttempt, TopicItemProgress
 from app.models.interactions import UserNote
-from app.models.users import User, UserSubjectEntitlement
+from app.models.quizzes import Question, QuestionSet
+from app.models.users import User
 from app.schemas.courses import (
     ActivityEventIn,
     ActivityOut, ChapterOut, ChapterSectionOut, CoursePDFOut,
-    ExamOut, ExamProblemOut, LessonDetailOut, ResourceOut, StreamOut, StudyToolsOut,
+    ExamOut, ExamProblemOut, LessonDetailOut, ResourceOut, StreamOut,
     SubjectDetailOut, SubjectListOut, TabContentOut, TabQuizResultOut, TabQuizSubmitIn,
     TopicCardOut, TopicItemCompleteIn, TopicItemOut, TopicSectionOut, TopicWorkspaceOut,
     VideoQuizTriggerOut,
 )
+from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.xp import award_xp
 from app.services.vdocipher import get_video_otp
 
 router = APIRouter(tags=["Courses"])
 
 
-def _tier_allows(required_tier: str, user: User) -> bool:
-    tier = (required_tier or "").lower()
-    if not tier:
-        return True
-    if tier == "pro":
-        return user.is_pro
-    return user.is_pro
+def _apply_access(out, decision: AccessDecision):
+    out.can_access = decision.can_access
+    out.locked_reason = decision.locked_reason
+    out.required_tier = decision.required_tier
+    out.required_feature_key = decision.required_feature_key
+    if hasattr(out, "required_subject_id"):
+        out.required_subject_id = decision.required_subject_id
+    if hasattr(out, "access_reason"):
+        out.access_reason = decision.reason
+    return out
 
 
-async def _subject_scope_allows(db: AsyncSession, user: User, subject_id: int | None) -> bool:
-    if subject_id is None:
-        return True
-    now = datetime.now(timezone.utc)
-    entitlements = (
-        await db.execute(
-            select(UserSubjectEntitlement).where(
-                UserSubjectEntitlement.user_id == user.id,
-            )
-        )
-    ).scalars().all()
-    if not entitlements:
-        return True
-
-    def is_active(entitlement: UserSubjectEntitlement) -> bool:
-        if entitlement.status != "active":
-            return False
-        starts_at = entitlement.starts_at
-        ends_at = entitlement.ends_at
-        if starts_at is not None and starts_at.tzinfo is None:
-            starts_at = starts_at.replace(tzinfo=timezone.utc)
-        if ends_at is not None and ends_at.tzinfo is None:
-            ends_at = ends_at.replace(tzinfo=timezone.utc)
-        return (starts_at is None or starts_at <= now) and (ends_at is None or ends_at >= now)
-
-    return any(
-        entitlement.subject_id == subject_id
-        and is_active(entitlement)
-        for entitlement in entitlements
-    )
+def _shape_locked_resource(out: ResourceOut) -> ResourceOut:
+    if not out.can_access:
+        out.provider_resource_id = ""
+        out.url = ""
+        out.metadata_json = {}
+    return out
 
 
-async def _access_state(obj, user: User, db: AsyncSession, subject_id: int | None = None) -> tuple[bool, str]:
-    if getattr(obj, "is_free_preview", False):
-        return True, "free_preview"
-    if not await _subject_scope_allows(db, user, subject_id):
-        return False, "subject_access_required"
-    required_tier = getattr(obj, "required_tier", "") or ""
-    if not _tier_allows(required_tier, user):
-        return False, f"{required_tier.lower()}_required"
-    required_feature = getattr(obj, "required_feature_key", "") or ""
-    if required_feature and not user.is_pro:
-        return False, f"feature_required:{required_feature}"
-    return True, "unlocked"
+def _shape_locked_tab(out: TabContentOut) -> TabContentOut:
+    if not out.can_access:
+        out.content = ""
+        out.config_json = {}
+    return out
 
 
-def _resource_out(resource: Resource, resource_access: dict[int, tuple[bool, str]] | None = None) -> ResourceOut:
+def _shape_locked_exam_problem(out: ExamProblemOut) -> ExamProblemOut:
+    if not out.can_access:
+        out.written_solution = ""
+        out.written_solution_url = ""
+    return out
+
+
+def _store_access(target: dict[int, AccessDecision], key: int, decision: AccessDecision) -> None:
+    current = target.get(key)
+    if current is None or (decision.can_access and not current.can_access):
+        target[key] = decision
+
+
+def _loaded_relationship(obj, name: str):
+    return None if name in inspect(obj).unloaded else getattr(obj, name)
+
+
+def _resource_out(resource: Resource, resource_access: dict[int, AccessDecision] | None = None) -> ResourceOut:
     out = ResourceOut.model_validate(resource)
     access = resource_access.get(resource.id) if resource_access else None
     if access:
-        can_access, locked_reason = access
-        out.can_access = can_access
-        out.locked_reason = "" if can_access else locked_reason
+        _apply_access(out, access)
+        _shape_locked_resource(out)
+    return out
+
+
+def _tab_out(
+    tab: TabContent,
+    tab_access: dict[int, AccessDecision] | None = None,
+    resource_access: dict[int, AccessDecision] | None = None,
+) -> TabContentOut:
+    out = TabContentOut.model_validate(tab)
+    access = tab_access.get(tab.id) if tab_access else None
+    if access:
+        _apply_access(out, access)
+    if out.resource and resource_access:
+        resource_decision = resource_access.get(out.resource.id)
+        if resource_decision:
+            _apply_access(out.resource, resource_decision)
+            _shape_locked_resource(out.resource)
+    if access:
+        _shape_locked_tab(out)
     return out
 
 
 def _item_out(
     item: TopicItem,
     progress_by_item: dict[int, TopicItemProgress],
-    item_access: dict[int, tuple[bool, str]] | None = None,
-    resource_access: dict[int, tuple[bool, str]] | None = None,
+    item_access: dict[int, AccessDecision] | None = None,
+    tab_access: dict[int, AccessDecision] | None = None,
+    resource_access: dict[int, AccessDecision] | None = None,
 ) -> TopicItemOut:
     progress = progress_by_item.get(item.id)
-    can_access, locked_reason = item_access.get(item.id, (True, "")) if item_access else (True, "")
+    access = item_access.get(item.id) if item_access else None
     out = TopicItemOut(
         id=item.id,
         topic_id=item.topic_id,
@@ -115,19 +125,12 @@ def _item_out(
         is_free_preview=item.is_free_preview,
         concept_slugs=item.concept_slugs or [],
         primary_resource=_resource_out(item.primary_resource, resource_access) if item.primary_resource else None,
-        tabs=[TabContentOut.model_validate(t) for t in item.tabs if t.status == "published"],
+        tabs=[_tab_out(t, tab_access, resource_access) for t in item.tabs if t.status == "published"],
         progress_status=progress.status if progress else "not_started",
         best_score=progress.best_score if progress else None,
-        can_access=can_access,
-        locked_reason="" if can_access else locked_reason,
     )
-    for tab in out.tabs:
-        if tab.resource and resource_access:
-            access = resource_access.get(tab.resource.id)
-            if access:
-                can_access, locked_reason = access
-                tab.resource.can_access = can_access
-                tab.resource.locked_reason = "" if can_access else locked_reason
+    if access:
+        _apply_access(out, access)
     return out
 
 
@@ -145,6 +148,39 @@ def _matches_item(item: TopicItem, query: str, notes_by_item: dict[int, list[str
     return query.lower() in haystack
 
 
+async def _access_for_topic_item(db: AsyncSession, user: User, item: TopicItem) -> AccessDecision:
+    topic = _loaded_relationship(item, "topic")
+    if topic is None:
+        topic = await db.scalar(select(Topic).where(Topic.id == item.topic_id))
+    access_context = await build_access_context(db, user)
+    if topic is None:
+        return access_context.decide_for(item)
+    topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
+    return access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
+
+
+async def _access_for_tab(db: AsyncSession, user: User, tab: TabContent) -> AccessDecision:
+    item = _loaded_relationship(tab, "topic_item")
+    if item is None:
+        item = await db.scalar(
+            select(TopicItem)
+            .options(selectinload(TopicItem.topic))
+            .where(TopicItem.id == tab.topic_item_id)
+        )
+    access_context = await build_access_context(db, user)
+    if item is None:
+        return access_context.decide_for(tab)
+    topic = _loaded_relationship(item, "topic")
+    if topic is None:
+        topic = await db.scalar(select(Topic).where(Topic.id == item.topic_id))
+    if topic is None:
+        item_access = access_context.decide_for(item)
+        return access_context.decide_child(item_access, tab)
+    topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
+    item_access = access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
+    return access_context.decide_child(item_access, tab, subject_id=topic.subject_id)
+
+
 def _normalize_answer(value) -> str:
     return str(value if value is not None else "").strip().casefold()
 
@@ -159,15 +195,123 @@ def _normalize_list(value) -> list[str]:
     return [_normalize_answer(value)]
 
 
+def _answer_payload(value) -> dict:
+    return value if isinstance(value, dict) and "value" in value else {"value": value}
+
+
+def _question_external_id(question: dict, index: int) -> str:
+    return str(question.get("id") or f"q{index + 1}")
+
+
+def _question_concept_slugs(question: dict, fallback: list[str] | None = None) -> list[str]:
+    raw = question.get("concept_slugs")
+    if isinstance(raw, list):
+        return [str(item) for item in raw if str(item).strip()]
+    if question.get("concept"):
+        return [str(question["concept"])]
+    return fallback or []
+
+
+def _question_config(question: dict) -> dict:
+    answer_keys = {"answer", "accepted_answers"}
+    scalar_columns = {"id", "type", "title", "prompt", "concept", "concept_slugs", "difficulty", "explanation"}
+    return {
+        key: value
+        for key, value in question.items()
+        if key not in answer_keys and key not in scalar_columns
+    }
+
+
+def _question_answer(question: dict) -> dict:
+    payload = {"answer": question.get("answer")}
+    if "accepted_answers" in question:
+        payload["accepted_answers"] = question.get("accepted_answers")
+    if "answerRegion" in question:
+        payload["answerRegion"] = question.get("answerRegion")
+    return payload
+
+
+async def _ensure_question_set_for_tab(db: AsyncSession, tab: TabContent) -> tuple[QuestionSet, dict[str, Question]]:
+    topic_item = tab.topic_item
+    topic = topic_item.topic if topic_item else None
+    questions = tab.config_json.get("questions", []) if isinstance(tab.config_json, dict) else []
+    pass_score = int(tab.config_json.get("pass_score", 70)) if isinstance(tab.config_json, dict) else 70
+    title = tab.label or f"Quiz tab {tab.id}"
+
+    result = await db.execute(
+        select(QuestionSet)
+        .options(selectinload(QuestionSet.questions))
+        .where(QuestionSet.tab_content_id == tab.id)
+    )
+    question_set = result.scalar_one_or_none()
+    if question_set is None:
+        question_set = QuestionSet(
+            subject_id=topic.subject_id if topic else None,
+            topic_id=topic_item.topic_id if topic_item else None,
+            topic_section_id=topic_item.section_id if topic_item else None,
+            topic_item_id=tab.topic_item_id,
+            tab_content_id=tab.id,
+            title=title,
+            source_type="tab",
+            pass_score=pass_score,
+            status=tab.status,
+            order=tab.order,
+            concept_slugs=tab.concept_slugs or [],
+        )
+        db.add(question_set)
+        await db.flush()
+    else:
+        question_set.subject_id = topic.subject_id if topic else question_set.subject_id
+        question_set.topic_id = topic_item.topic_id if topic_item else question_set.topic_id
+        question_set.topic_section_id = topic_item.section_id if topic_item else question_set.topic_section_id
+        question_set.topic_item_id = tab.topic_item_id
+        question_set.title = title
+        question_set.pass_score = pass_score
+        question_set.status = tab.status
+        question_set.order = tab.order
+        question_set.concept_slugs = tab.concept_slugs or []
+
+    existing_questions = (
+        await db.execute(select(Question).where(Question.question_set_id == question_set.id))
+    ).scalars().all()
+    by_external_id = {question.external_id: question for question in existing_questions}
+    active_external_ids: set[str] = set()
+    for index, raw_question in enumerate(questions):
+        external_id = _question_external_id(raw_question, index)
+        active_external_ids.add(external_id)
+        row = by_external_id.get(external_id)
+        if row is None:
+            row = Question(question_set_id=question_set.id, external_id=external_id, type=str(raw_question.get("type") or "multiple_choice"), prompt=str(raw_question.get("prompt") or ""))
+            db.add(row)
+            by_external_id[external_id] = row
+        row.type = str(raw_question.get("type") or "multiple_choice")
+        row.title = str(raw_question.get("title") or raw_question.get("prompt") or external_id)[:255]
+        row.prompt = str(raw_question.get("prompt") or "")
+        row.explanation = str(raw_question.get("explanation") or "")
+        row.difficulty = str(raw_question.get("difficulty") or "")
+        row.concept_slugs = _question_concept_slugs(raw_question, tab.concept_slugs or [])
+        row.config_json = _question_config(raw_question)
+        row.answer_json = _question_answer(raw_question)
+        row.order = index + 1
+        row.status = "published"
+
+    for external_id, row in by_external_id.items():
+        if external_id not in active_external_ids:
+            row.status = "archived"
+
+    await db.flush()
+    return question_set, by_external_id
+
+
 def _grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
     question_type = str(question.get("type") or "multiple_choice")
     expected = question.get("answer")
 
-    if question_type in {"multiple_choice", "true_false", "fill_in_blank", "short_answer", "interactive_checkpoint"}:
+    if question_type in {"multiple_choice", "true_false", "fill_in_blank", "short_answer", "interactive_checkpoint", "exact_match", "error_spotting"}:
         accepted = question.get("accepted_answers") or [expected]
         return _normalize_answer(submitted) in {_normalize_answer(item) for item in accepted}, accepted
 
-    if question_type == "numeric_answer":
+    if question_type in {"numeric_answer", "numeric_approximation", "slider_estimation"}:
         tolerance = float(question.get("tolerance", 0))
         try:
             return abs(float(submitted) - float(expected)) <= tolerance, expected
@@ -178,7 +322,11 @@ def _grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
         return sorted(_normalize_list(submitted)) == sorted(_normalize_list(expected)), expected
 
     if question_type == "ordering":
-        return _normalize_list(submitted) == _normalize_list(expected or question.get("items")), expected
+        expected_order = expected or [item.get("id") for item in question.get("items", []) if isinstance(item, dict)]
+        return _normalize_list(submitted) == _normalize_list(expected_order), expected_order
+
+    if question_type == "formula_builder":
+        return _normalize_list(submitted) == _normalize_list(expected), expected
 
     if question_type == "matching":
         expected_map = expected or {pair.get("left"): pair.get("right") for pair in question.get("pairs", [])}
@@ -187,16 +335,19 @@ def _grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
         normalized_submitted = {_normalize_answer(k): _normalize_answer(v) for k, v in submitted_map.items()}
         return normalized_submitted == normalized_expected, expected_map
 
-    if question_type == "drag_and_drop":
-        expected_map = expected or {
-            item.get("id"): item.get("zone")
-            for item in question.get("items", [])
-            if isinstance(item, dict)
-        }
-        submitted_map = submitted if isinstance(submitted, dict) else {}
-        normalized_expected = {_normalize_answer(k): _normalize_answer(v) for k, v in expected_map.items()}
-        normalized_submitted = {_normalize_answer(k): _normalize_answer(v) for k, v in submitted_map.items()}
-        return normalized_submitted == normalized_expected, expected_map
+    if question_type == "image_hotspot":
+        region = question.get("answerRegion") or {}
+        cursor = submitted if isinstance(submitted, dict) else {}
+        try:
+            safe_rx = float(region.get("rx", 0)) - float(cursor.get("radius", 0))
+            safe_ry = float(region.get("ry", 0)) - float(cursor.get("radius", 0))
+            if safe_rx <= 0 or safe_ry <= 0:
+                return False, region
+            dx = float(cursor.get("x", 0)) - float(region.get("x", 0))
+            dy = float(cursor.get("y", 0)) - float(region.get("y", 0))
+            return ((dx * dx) / (safe_rx * safe_rx)) + ((dy * dy) / (safe_ry * safe_ry)) <= 1, region
+        except (TypeError, ValueError, ZeroDivisionError):
+            return False, region
 
     return submitted == expected, expected
 
@@ -205,20 +356,38 @@ def _grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
 async def list_subjects(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Subject)
-        .options(selectinload(Subject.chapters).selectinload(Chapter.lessons))
         .where(Subject.is_published == True)  # noqa: E712
         .order_by(Subject.order, Subject.title)
     )
-    subjects = result.scalars().unique().all()
+    subjects = result.scalars().all()
+    subject_ids = [subject.id for subject in subjects]
+
+    chapter_counts: dict[int, int] = {}
+    lesson_counts: dict[int, int] = {}
+    if subject_ids:
+        chapter_count_result = await db.execute(
+            select(Chapter.subject_id, func.count(Chapter.id))
+            .where(Chapter.subject_id.in_(subject_ids))
+            .group_by(Chapter.subject_id)
+        )
+        chapter_counts = {subject_id: count for subject_id, count in chapter_count_result.all()}
+
+        lesson_count_result = await db.execute(
+            select(Chapter.subject_id, func.count(Lesson.id))
+            .join(Lesson, Lesson.chapter_id == Chapter.id)
+            .where(Chapter.subject_id.in_(subject_ids))
+            .group_by(Chapter.subject_id)
+        )
+        lesson_counts = {subject_id: count for subject_id, count in lesson_count_result.all()}
 
     out = []
     for s in subjects:
-        chapter_count = len(s.chapters)
-        lesson_count = sum(len(c.lessons) for c in s.chapters)
         out.append(SubjectListOut(
             id=s.id, title=s.title, description=s.description,
             thumbnail_url=s.thumbnail_url, is_published=s.is_published,
-            order=s.order, chapter_count=chapter_count, lesson_count=lesson_count,
+            order=s.order,
+            chapter_count=chapter_counts.get(s.id, 0),
+            lesson_count=lesson_counts.get(s.id, 0),
         ))
     return out
 
@@ -232,7 +401,11 @@ async def list_topics(
 ):
     stmt = (
         select(Topic)
-        .options(selectinload(Topic.subject), selectinload(Topic.sections).selectinload(TopicSection.items))
+        .options(
+            selectinload(Topic.subject),
+            selectinload(Topic.sections).selectinload(TopicSection.items),
+            with_loader_criteria(TopicItem, TopicItem.status == "published"),
+        )
         .where(Topic.status == "published")
         .order_by(Topic.order, Topic.title)
     )
@@ -242,6 +415,7 @@ async def list_topics(
         stmt = stmt.where(or_(Topic.title.ilike(f"%{q}%"), Topic.description.ilike(f"%{q}%"), Topic.slug.ilike(f"%{q}%")))
     result = await db.execute(stmt)
     topics = result.scalars().unique().all()
+    access_context = await build_access_context(db, user)
 
     item_ids = [item.id for topic in topics for section in topic.sections for item in section.items]
     progress_by_item: set[int] = set()
@@ -261,7 +435,7 @@ async def list_topics(
         concepts = sorted({slug for item in items for slug in (item.concept_slugs or [])})
         completed = len([item for item in items if item.id in progress_by_item])
         progress_pct = round((completed / len(items)) * 100) if items else 0
-        can_access, locked_reason = await _access_state(topic, user, db, topic.subject_id)
+        access = access_context.decide_for(topic, subject_id=topic.subject_id)
         cards.append(TopicCardOut(
             id=topic.id,
             subject_id=topic.subject_id,
@@ -274,8 +448,12 @@ async def list_topics(
             completed_count=completed,
             progress_pct=progress_pct,
             concepts=concepts[:8],
-            can_access=can_access,
-            locked_reason="" if can_access else locked_reason,
+            can_access=access.can_access,
+            locked_reason=access.locked_reason,
+            access_reason=access.reason,
+            required_subject_id=access.required_subject_id,
+            required_tier=access.required_tier,
+            required_feature_key=access.required_feature_key,
         ))
     return cards
 
@@ -309,37 +487,65 @@ async def get_topic_workspace(
                 .selectinload(TopicItem.tabs)
                 .selectinload(TabContent.resource),
             selectinload(Topic.resources),
+            with_loader_criteria(TopicItem, TopicItem.status == "published"),
+            with_loader_criteria(TabContent, TabContent.status == "published"),
+            with_loader_criteria(Resource, Resource.status == "published"),
         )
         .where(Topic.id == topic_id, Topic.status == "published")
     )
     topic = result.scalar_one_or_none()
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
-    can_access, locked_reason = await _access_state(topic, user, db, topic.subject_id)
-    if not can_access:
-        raise HTTPException(status_code=403, detail=locked_reason)
+    access_context = await build_access_context(db, user)
+    topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
 
     items = [item for section in topic.sections for item in section.items if item.status == "published"]
-    progress_result = await db.execute(
-        select(TopicItemProgress).where(
-            TopicItemProgress.user_id == user.id,
-            TopicItemProgress.topic_id == topic.id,
+    item_ids = [item.id for item in items]
+    progress_by_item = {}
+    if item_ids:
+        progress_result = await db.execute(
+            select(TopicItemProgress).where(
+                TopicItemProgress.user_id == user.id,
+                TopicItemProgress.topic_id == topic.id,
+                TopicItemProgress.topic_item_id.in_(item_ids),
+            )
         )
-    )
-    progress_by_item = {p.topic_item_id: p for p in progress_result.scalars().all()}
+        progress_by_item = {p.topic_item_id: p for p in progress_result.scalars().all()}
 
-    item_access: dict[int, tuple[bool, str]] = {}
+    item_access: dict[int, AccessDecision] = {}
     for item in items:
-        item_access[item.id] = await _access_state(item, user, db, topic.subject_id)
+        item_access[item.id] = access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
 
-    resources = [resource for resource in topic.resources if resource.status == "published"]
-    resources.extend([item.primary_resource for item in items if item.primary_resource])
-    resources.extend([tab.resource for item in items for tab in item.tabs if tab.status == "published" and tab.resource])
-    resource_access: dict[int, tuple[bool, str]] = {}
-    for resource in {resource.id: resource for resource in resources if resource is not None}.values():
-        resource_access[resource.id] = await _access_state(resource, user, db, topic.subject_id)
+    tab_access: dict[int, AccessDecision] = {}
+    resource_access: dict[int, AccessDecision] = {}
+    for resource in topic.resources:
+        if resource.status == "published":
+            _store_access(
+                resource_access,
+                resource.id,
+                access_context.decide_child(topic_access, resource, subject_id=topic.subject_id),
+            )
+    for item in items:
+        current_item_access = item_access[item.id]
+        if item.primary_resource:
+            _store_access(
+                resource_access,
+                item.primary_resource.id,
+                access_context.decide_child(current_item_access, item.primary_resource, subject_id=topic.subject_id),
+            )
+        for tab in item.tabs:
+            if tab.status != "published":
+                continue
+            current_tab_access = access_context.decide_child(current_item_access, tab, subject_id=topic.subject_id)
+            tab_access[tab.id] = current_tab_access
+            if tab.resource:
+                _store_access(
+                    resource_access,
+                    tab.resource.id,
+                    access_context.decide_child(current_tab_access, tab.resource, subject_id=topic.subject_id),
+                )
 
-    accessible_items = [item for item in items if item_access.get(item.id, (True, ""))[0]]
+    accessible_items = [item for item in items if item_access.get(item.id, topic_access).can_access]
     active_item = next((item for item in accessible_items if item.id == item_id), None) if item_id else None
     if active_item is None:
         started = [progress_by_item.get(item.id) for item in accessible_items if progress_by_item.get(item.id)]
@@ -355,7 +561,7 @@ async def get_topic_workspace(
             title=section.title,
             section_type=section.section_type,
             order=section.order,
-            items=[_item_out(item, progress_by_item, item_access, resource_access) for item in section.items if item.status == "published"],
+            items=[_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in section.items if item.status == "published"],
         )
         for section in topic.sections
     ]
@@ -369,26 +575,11 @@ async def get_topic_workspace(
     )
     note_rows = notes_result.scalars().all()
     notes_by_item: dict[int, list[str]] = {}
-    notes = []
     for note in note_rows:
-        notes.append({
-            "id": note.id,
-            "topic_item_id": note.topic_item_id,
-            "tab_content_id": note.tab_content_id,
-            "body": note.body,
-            "updated_at": note.updated_at.isoformat() if note.updated_at else "",
-        })
         if note.topic_item_id:
             notes_by_item.setdefault(note.topic_item_id, []).append(note.body)
 
-    all_tabs = [tab for item in items for tab in item.tabs if tab.status == "published"]
-    study_tools = StudyToolsOut(
-        quizzes=[TabContentOut.model_validate(tab) for tab in all_tabs if tab.tab_type == "quiz"],
-        interactive=[TabContentOut.model_validate(tab) for tab in all_tabs if tab.tab_type in {"lab", "interactive"}],
-        resources=[_resource_out(resource, resource_access) for resource in topic.resources if resource.status == "published"],
-        notes=notes,
-    )
-    search_results = [_item_out(item, progress_by_item, item_access, resource_access) for item in items if q and _matches_item(item, q, notes_by_item)]
+    search_results = [_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in items if q and _matches_item(item, q, notes_by_item)]
 
     return TopicWorkspaceOut(
         id=topic.id,
@@ -400,10 +591,15 @@ async def get_topic_workspace(
         progress_pct=progress_pct,
         completed_count=completed_count,
         item_count=len(accessible_items),
+        can_access=topic_access.can_access,
+        locked_reason=topic_access.locked_reason,
+        access_reason=topic_access.reason,
+        required_subject_id=topic_access.required_subject_id,
+        required_tier=topic_access.required_tier,
+        required_feature_key=topic_access.required_feature_key,
         active_item_id=active_item.id if active_item else None,
         sections=sections,
-        active_item=_item_out(active_item, progress_by_item, item_access, resource_access) if active_item else None,
-        study_tools=study_tools,
+        active_item=_item_out(active_item, progress_by_item, item_access, tab_access, resource_access) if active_item else None,
         search_results=search_results,
     )
 
@@ -415,10 +611,17 @@ async def record_topic_event(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(TopicItem).where(TopicItem.id == item_id))
+    result = await db.execute(
+        select(TopicItem)
+        .options(selectinload(TopicItem.topic))
+        .where(TopicItem.id == item_id)
+    )
     item = result.scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="Topic item not found")
+    access = await _access_for_topic_item(db, user, item)
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
     db.add(ActivityEvent(
         user_id=user.id,
         event_type=body.event_type,
@@ -448,10 +651,17 @@ async def complete_topic_item(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(TopicItem).where(TopicItem.id == item_id))
+    result = await db.execute(
+        select(TopicItem)
+        .options(selectinload(TopicItem.topic))
+        .where(TopicItem.id == item_id)
+    )
     item = result.scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="Topic item not found")
+    access = await _access_for_topic_item(db, user, item)
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
     progress_result = await db.execute(
         select(TopicItemProgress).where(
             TopicItemProgress.user_id == user.id,
@@ -492,20 +702,29 @@ async def submit_tab_quiz(
 ):
     result = await db.execute(
         select(TabContent)
-        .options(selectinload(TabContent.topic_item))
+        .options(
+            selectinload(TabContent.topic_item).selectinload(TopicItem.topic),
+            selectinload(TabContent.topic_item).selectinload(TopicItem.section),
+        )
         .where(TabContent.id == tab_id, TabContent.tab_type == "quiz")
     )
     tab = result.scalar_one_or_none()
     if tab is None:
         raise HTTPException(status_code=404, detail="Quiz tab not found")
+    access = await _access_for_tab(db, user, tab)
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
+    question_set, questions_by_external_id = await _ensure_question_set_for_tab(db, tab)
     questions = tab.config_json.get("questions", [])
-    pass_score = int(tab.config_json.get("pass_score", 70))
+    pass_score = question_set.pass_score
     grading = {"questions": []}
     correct = 0
+    question_attempt_rows: list[QuestionAttempt] = []
     for question in questions:
-        qid = str(question["id"])
+        qid = _question_external_id(question, len(grading["questions"]))
         submitted = body.answers.get(qid)
         is_correct, expected = _grade_quiz_question(question, submitted)
+        question_row = questions_by_external_id.get(qid)
         if is_correct:
             correct += 1
         grading["questions"].append({
@@ -514,18 +733,43 @@ async def submit_tab_quiz(
             "correct": is_correct,
             "answer": expected,
         })
+        if question_row is not None:
+            question_attempt_rows.append(QuestionAttempt(
+                quiz_attempt_id=0,
+                question_id=question_row.id,
+                user_id=user.id,
+                subject_id=question_set.subject_id,
+                topic_id=question_set.topic_id,
+                topic_section_id=question_set.topic_section_id,
+                topic_item_id=question_set.topic_item_id,
+                tab_content_id=question_set.tab_content_id,
+                selected_answer_json=_answer_payload(submitted),
+                correct_answer_json=_answer_payload(expected),
+                is_correct=is_correct,
+                score_awarded=1 if is_correct else 0,
+                max_score=1,
+                grading_json={
+                    "external_id": qid,
+                    "type": question.get("type", "multiple_choice"),
+                    "correct": is_correct,
+                },
+            ))
     total = len(questions)
     score = round((correct / total) * 100) if total else 0
     passed = score >= pass_score
     attempts_count = await db.scalar(
         select(func.count()).select_from(QuizAttempt).where(
             QuizAttempt.user_id == user.id,
-            QuizAttempt.tab_content_id == tab.id,
+            QuizAttempt.question_set_id == question_set.id,
         )
     )
+    now = datetime.now(timezone.utc)
     attempt = QuizAttempt(
         user_id=user.id,
-        topic_id=tab.topic_item.topic_id,
+        question_set_id=question_set.id,
+        subject_id=question_set.subject_id,
+        topic_id=question_set.topic_id,
+        topic_section_id=question_set.topic_section_id,
         topic_item_id=tab.topic_item_id,
         tab_content_id=tab.id,
         source_type="tab",
@@ -535,9 +779,49 @@ async def submit_tab_quiz(
         grading=grading,
         attempt_number=(attempts_count or 0) + 1,
         duration_seconds=body.duration_seconds,
+        started_at=now,
+        completed_at=now,
     )
     db.add(attempt)
-    xp_earned = await award_xp(user.id, "quiz_pass", f"Tab quiz {tab.id} submitted", db) if passed else 0
+    await db.flush()
+    for question_attempt in question_attempt_rows:
+        question_attempt.quiz_attempt_id = attempt.id
+    db.add_all(question_attempt_rows)
+    await db.flush()
+
+    xp_earned = 0
+    for question_attempt in question_attempt_rows:
+        if not question_attempt.is_correct:
+            continue
+        xp_earned += await award_xp(
+            user.id,
+            "quiz_correct",
+            f"Question {question_attempt.question_id} first correct",
+            db,
+            subject_id=question_attempt.subject_id,
+            topic_id=question_attempt.topic_id,
+            topic_section_id=question_attempt.topic_section_id,
+            topic_item_id=question_attempt.topic_item_id,
+            question_set_id=question_set.id,
+            question_id=question_attempt.question_id,
+            quiz_attempt_id=attempt.id,
+            question_attempt_id=question_attempt.id,
+            idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt.question_id}",
+        )
+    if passed:
+        xp_earned += await award_xp(
+            user.id,
+            "quiz_pass",
+            f"QuestionSet {question_set.id} passed",
+            db,
+            subject_id=question_set.subject_id,
+            topic_id=question_set.topic_id,
+            topic_section_id=question_set.topic_section_id,
+            topic_item_id=question_set.topic_item_id,
+            question_set_id=question_set.id,
+            quiz_attempt_id=attempt.id,
+            idempotency_key=f"quiz_pass:user:{user.id}:question_set:{question_set.id}",
+        )
     if passed:
         progress_result = await db.execute(
             select(TopicItemProgress).where(
@@ -551,6 +835,23 @@ async def submit_tab_quiz(
             db.add(progress)
         progress.latest_score = score
         progress.best_score = max(progress.best_score or 0, score)
+    db.add(ActivityEvent(
+        user_id=user.id,
+        event_type="quiz_submitted",
+        target_type="question_set",
+        target_id=question_set.id,
+        topic_id=question_set.topic_id,
+        topic_item_id=question_set.topic_item_id,
+        metadata_json={
+            "quiz_attempt_id": attempt.id,
+            "tab_content_id": tab.id,
+            "topic_section_id": question_set.topic_section_id,
+            "score": score,
+            "passed": passed,
+            "correct": correct,
+            "total": total,
+        },
+    ))
     await db.commit()
     return TabQuizResultOut(score=score, passed=passed, correct=correct, total=total, pass_score=pass_score, xp_earned=xp_earned, grading=grading)
 
@@ -569,6 +870,8 @@ async def get_exam_bank(
         .options(
             selectinload(Exam.subject),
             selectinload(Exam.problems).selectinload(ExamProblem.video_resource),
+            with_loader_criteria(ExamProblem, ExamProblem.status == "published"),
+            with_loader_criteria(Resource, Resource.status == "published"),
         )
         .where(Exam.status == "published")
         .order_by(Exam.year.desc(), Exam.title)
@@ -579,6 +882,7 @@ async def get_exam_bank(
         stmt = stmt.where(Exam.year == year)
     result = await db.execute(stmt)
     exams = result.scalars().unique().all()
+    access_context = await build_access_context(db, user)
     out = []
     for exam in exams:
         problems = [p for p in exam.problems if p.status == "published"]
@@ -592,16 +896,17 @@ async def get_exam_bank(
         if topic_id or q:
             if not problems:
                 continue
-        exam_can_access, exam_locked_reason = await _access_state(exam, user, db, exam.subject_id)
+        exam_access = access_context.decide_for(exam, subject_id=exam.subject_id)
         problem_out = []
         for problem in problems:
-            if exam_can_access:
-                can_access, locked_reason = await _access_state(problem, user, db, exam.subject_id)
-            else:
-                can_access, locked_reason = False, exam_locked_reason
+            problem_access = access_context.decide_child(exam_access, problem, subject_id=exam.subject_id)
             item = ExamProblemOut.model_validate(problem)
-            item.can_access = can_access
-            item.locked_reason = "" if can_access else locked_reason
+            _apply_access(item, problem_access)
+            _shape_locked_exam_problem(item)
+            if item.video_resource:
+                video_access = access_context.decide_child(problem_access, problem.video_resource, subject_id=exam.subject_id)
+                _apply_access(item.video_resource, video_access)
+                _shape_locked_resource(item.video_resource)
             problem_out.append(item)
         out.append(ExamOut(
             id=exam.id,
@@ -611,8 +916,12 @@ async def get_exam_bank(
             year=exam.year,
             session=exam.session,
             statement_url=exam.statement_url,
-            can_access=exam_can_access,
-            locked_reason="" if exam_can_access else exam_locked_reason,
+            can_access=exam_access.can_access,
+            locked_reason=exam_access.locked_reason,
+            access_reason=exam_access.reason,
+            required_subject_id=exam_access.required_subject_id,
+            required_tier=exam_access.required_tier,
+            required_feature_key=exam_access.required_feature_key,
             problems=problem_out,
         ))
     return out
@@ -690,12 +999,19 @@ async def get_lesson_stream(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    result = await db.execute(select(Lesson).where(Lesson.id == lesson_id))
+    result = await db.execute(
+        select(Lesson)
+        .options(selectinload(Lesson.chapter))
+        .where(Lesson.id == lesson_id)
+    )
     lesson = result.scalar_one_or_none()
     if lesson is None:
         raise HTTPException(status_code=404, detail="Lesson not found")
-    if not lesson.is_free_preview and not user.is_pro:
-        raise HTTPException(status_code=403, detail="Pro subscription required")
+    access_context = await build_access_context(db, user)
+    subject_id = lesson.chapter.subject_id if lesson.chapter else None
+    access = access_context.decide_for(lesson, subject_id=subject_id, fallback_required_tier="pro")
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
     otp_data = await get_video_otp(lesson.vdocipher_id, settings)
     return StreamOut(**otp_data)
 
@@ -736,11 +1052,18 @@ async def get_section_stream(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    result = await db.execute(select(ChapterSection).where(ChapterSection.id == section_id))
+    result = await db.execute(
+        select(ChapterSection)
+        .options(selectinload(ChapterSection.chapter))
+        .where(ChapterSection.id == section_id)
+    )
     section = result.scalar_one_or_none()
     if section is None:
         raise HTTPException(status_code=404, detail="Section not found")
-    if not section.is_free_preview and not user.is_pro:
-        raise HTTPException(status_code=403, detail="Pro subscription required")
+    access_context = await build_access_context(db, user)
+    subject_id = section.chapter.subject_id if section.chapter else None
+    access = access_context.decide_for(section, subject_id=subject_id, fallback_required_tier="pro")
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
     otp_data = await get_video_otp(section.vdocipher_id, settings)
     return StreamOut(**otp_data)

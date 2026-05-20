@@ -1,89 +1,68 @@
 # Topic Workspace UX
 
-## Core idea
+## Current Core Idea
 
-The Topic Workspace is the main learning room.
+The Topic Workspace is the main learning room. A student enters a topic, resumes the active item, and works through one guided Main Path rail.
 
-When a student clicks a topic such as Light Waves, they should not land on a passive table of contents. They should enter a workspace that resumes or starts the learning flow.
+Current backend endpoint:
 
-Default behavior:
+```text
+GET /api/courses/topics/{topic_id}/workspace
+```
 
-- Returning student: open the last active item, including video timestamp if available.
-- New topic: open the first introductory video in Lessons.
+Current frontend route:
 
-## Layout
+```text
+/topics/[topicId]
+```
 
-Desktop v1 layout:
+## Current Layout
+
+Desktop layout:
 
 ```text
 Header / breadcrumb / topic progress / search
-
 Primary viewer
 Tabs / secondary viewer
-
-Right control room
+Right control room with section rail
 ```
 
-The primary viewer is dominant.
+The primary viewer can show:
 
-It can show:
-
-- Video player.
+- Video.
 - Quiz.
-- Interactive lesson.
-- Lab.
+- Animated lesson.
+- Lab/simulator.
 - Exam problem.
 - Resource preview.
 
-The secondary viewer/tabs usually live below the primary viewer.
+## Current Path Structure
 
-The control room usually lives on the right and handles navigation, progress, Path/Tools, and current item list.
+The control room has one guided route: Main Path.
 
-## Video behavior
-
-Video is usually the focus, but it is not sacred.
-
-For a normal lesson video, the video should stay primary and the lab/course/quiz/resources should appear below or through tabs.
-
-For a pure quiz, interactive course, or exam problem, the primary viewer can become that thing.
-
-Do not force labs to replace the video by default just because a Figma screen shows that state. That can exist as a mode, but the default lesson experience should keep the video accessible.
-
-VdoCipher PiP reliability is not a product foundation. Treat PiP as a nice enhancement only if provider/browser support works well. The core UX should still work without PiP.
-
-## Main Path and Study Tools
-
-The control room has two modes:
-
-- Main Path.
-- Study Tools.
-
-Main Path is visually emphasized and selected by default.
-
-Main Path sections:
+Current sections:
 
 - Lessons.
 - Exercises.
 - Bac Examples.
+- Synthese et Revision.
 
-Study Tools:
+The final revision section contains normal TopicItems for:
 
-- Quizzes.
-- Interactive.
-- Resources.
+- Summary video.
+- Animated course collection.
+- Lab collection.
+- Quiz collection.
+- Resource collection.
 - Notes.
 
-The Path is the guided learning route. Tools are aggregations for targeted work.
+## Current Navigation
 
-## Navigation
+Next/previous movement follows path items, not every tab.
 
-Next/Previous should move through the Main Path, not through every tab.
+Tabs are related content for the selected item.
 
-Tabs are related material for the current item.
-
-A student can jump freely unless a specific future feature requires gating. Avoid hard blocking normal flow.
-
-Guidance should happen through:
+Current guidance surfaces:
 
 - Checkmarks.
 - Recommended labels.
@@ -92,23 +71,20 @@ Guidance should happen through:
 - Progress credit.
 - Completion indicators.
 
-## Tabs under viewer
+## Current Tabs
 
-Tabs should be editable/configurable from data.
+Tabs are editable/configurable data through `TabContent`.
 
-Possible tabs:
+Current tab types:
 
-- Course transcript or structured animated course.
-- Lab/simulator.
-- Quiz/checkpoint.
-- Summary.
-- Resources.
-- Notes.
-- Formula.
-- Definitions.
-- Vocabulary.
-- Methods.
-- Mistakes.
+- `course`
+- `interactive`
+- `lab`
+- `quiz`
+- `summary`
+- `resources`
+- `notes`
+- `exam_problem`
 
 Tabs can render:
 
@@ -119,13 +95,11 @@ Tabs can render:
 - Resource list.
 - Notes component.
 
-Show important tabs directly. Use More only for overflow.
+## Current Search
 
-## Topic search
+Topic search is scoped to the active topic.
 
-V1 search is topic-scoped.
-
-Topic search should search:
+Search covers:
 
 - Lesson videos.
 - Exercise videos.
@@ -139,58 +113,28 @@ Topic search should search:
 - Difficulty tags.
 - Tab content where indexed.
 
-Example search for `frequence` should find:
+## Current Locked Preview Behavior
 
-- Lesson video about frequency.
-- Quiz attached to that video.
-- Lab using frequency.
-- Summary mentioning frequency.
-- Exercise about frequency.
-
-Global cross-platform search is later.
-
-## Courses page and dashboard routing
-
-Courses page should show cards directly when the user clicks Courses.
-
-Dashboard shortcuts can open Courses with a prefilled filter or search.
-
-Courses filters:
-
-- All.
-- Unlocked.
-- Locked.
-- In Progress.
-- Completed.
-
-Locked course/topic card click should show a lightweight preview, not a dead state.
-
-## Locked/free preview behavior
+Locked preview keeps the learning structure visible while protected content is stripped.
 
 Locked preview should show:
 
 - Short summary.
 - What the student will learn.
-- Available free previews.
+- Available free preview state.
 - Locked items.
-- Upgrade/unlock CTA.
+- Upgrade or unlock CTA.
 
-Free preview should open the normal Topic Workspace with locked indicators.
+## Current Usability Requirements
 
-This makes the product understandable before purchase and avoids hiding the learning structure.
-
-## Usability guardrails
-
-The UX should support these student workflows:
+The workspace must support:
 
 - Continue where I stopped.
 - Watch the next lesson.
-- Practice all quizzes in this topic.
-- Open only interactive labs.
-- Download all resources.
-- Review my notes.
+- Practice quizzes in this topic.
+- Open interactive labs.
+- Download resources.
+- Review notes.
 - Retry weak quizzes.
 - Search for a concept inside this topic.
 - Jump from a saved item back into the exact workspace context.
-
-If a layout cannot support these workflows, it is incomplete.

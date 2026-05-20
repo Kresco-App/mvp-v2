@@ -15,6 +15,7 @@ import {
   figmaLessonItems,
   figmaWorkspaceTabs,
 } from '@/components/figma'
+import { QuizPrimitiveShowcase } from '@/components/quiz/QuizPrimitiveShowcase'
 import type { ReactNode } from 'react'
 
 const youtubeVideoId = 'M7lc1UVf-VE'
@@ -65,6 +66,13 @@ export default function FigmaAuditPage() {
           <div className="max-w-[1496px]">
             <LearningTabBar tabs={figmaWorkspaceTabs} size="workspace" />
           </div>
+        </AuditSection>
+
+        <AuditSection
+          title="Data-Driven Quiz Primitives"
+          note="Prototype catalog for schema-driven quiz surfaces below the player: image choices, approximate numeric answers, slider estimation, formula builder, error spotting, drag/drop, matching, ordering, multi-select, fill blank, region hotspot, short answer, and true/false."
+        >
+          <QuizPrimitiveShowcase />
         </AuditSection>
 
         <AuditSection title="Segmented Choice" note="Figma node 573:5952. Keep this as a compact two-option control only, not a workspace tab treatment.">

@@ -19,6 +19,10 @@ interface ExamProblem {
   video_resource?: { id: number; title: string; provider: string; provider_resource_id: string } | null
   can_access?: boolean
   locked_reason?: string
+  access_reason?: string
+  required_tier?: string
+  required_feature_key?: string
+  required_subject_id?: number | null
 }
 
 interface Exam {
@@ -31,40 +35,64 @@ interface Exam {
   statement_url: string
   can_access?: boolean
   locked_reason?: string
+  access_reason?: string
+  required_tier?: string
+  required_feature_key?: string
+  required_subject_id?: number | null
   problems: ExamProblem[]
 }
 
+type VisibleExam = Exam & {
+  totalProblemCount: number
+}
+
+const EXAM_SEARCH_DEBOUNCE_MS = 280
+const MAX_EXAMS_RENDERED = 30
+const MAX_PROBLEMS_PER_EXAM = 12
+
 export default function ExamBankPage() {
   const [exams, setExams] = useState<Exam[]>([])
-  const [query, setQuery] = useState('')
+  const [queryInput, setQueryInput] = useState('')
   const [loading, setLoading] = useState(true)
+  const query = useDebouncedValue(queryInput, EXAM_SEARCH_DEBOUNCE_MS)
 
   useEffect(() => { document.title = 'Exam Bank - Kresco' }, [])
 
   useEffect(() => {
-    api.get('/courses/exam-bank')
-      .then((res) => setExams(res.data))
-      .catch(() => toast.error('Could not load Exam Bank.'))
-      .finally(() => setLoading(false))
-  }, [])
+    let alive = true
+    const params = new URLSearchParams()
+    const trimmedQuery = query.trim()
+    if (trimmedQuery) params.set('q', trimmedQuery)
+    const queryString = params.toString()
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return exams
-    return exams
-      .map((exam) => ({
-        ...exam,
-        problems: exam.problems.filter((problem) => [
-          exam.title,
-          exam.subject_title,
-          String(exam.year),
-          problem.title,
-          problem.statement,
-          ...problem.concept_slugs,
-        ].join(' ').toLowerCase().includes(q)),
-      }))
-      .filter((exam) => exam.problems.length > 0)
-  }, [exams, query])
+    setLoading(true)
+    api.get(`/courses/exam-bank${queryString ? `?${queryString}` : ''}`)
+      .then((res) => {
+        if (!alive) return
+        setExams(Array.isArray(res.data) ? res.data : [])
+      })
+      .catch(() => {
+        if (!alive) return
+        toast.error('Could not load Exam Bank.')
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [query])
+
+  const visibleExams = useMemo<VisibleExam[]>(() => {
+    return exams.slice(0, MAX_EXAMS_RENDERED).map((exam) => ({
+      ...exam,
+      problems: exam.problems.slice(0, MAX_PROBLEMS_PER_EXAM),
+      totalProblemCount: exam.problems.length,
+    }))
+  }, [exams])
+  const isCapped = exams.length > MAX_EXAMS_RENDERED || exams.some((exam) => exam.problems.length > MAX_PROBLEMS_PER_EXAM)
+  const showInitialLoading = loading && exams.length === 0
 
   return (
     <div className="figma-container">
@@ -78,11 +106,11 @@ export default function ExamBankPage() {
         </div>
         <div className="relative w-full lg:w-[380px]">
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#a1a1aa]" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} className="figma-input w-full pl-11" placeholder="Search year, topic, concept..." />
+          <input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} className="figma-input w-full pl-11" placeholder="Search year, topic, concept..." />
         </div>
       </header>
 
-      {loading ? (
+      {showInitialLoading ? (
         <div className="grid gap-5">
           {Array.from({ length: 3 }).map((_, index) => (
             <section key={index} className="figma-card kresco-enter overflow-hidden" style={{ animationDelay: `${index * 60}ms` }}>
@@ -108,7 +136,22 @@ export default function ExamBankPage() {
         </div>
       ) : (
         <div className="grid gap-6">
-          {filtered.map((exam) => (
+          {loading && (
+            <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">
+              Updating results...
+            </p>
+          )}
+          {!loading && visibleExams.length === 0 && (
+            <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">
+              No exam problems match this search.
+            </p>
+          )}
+          {isCapped && (
+            <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">
+              Showing the first {Math.min(exams.length, MAX_EXAMS_RENDERED)} exam groups and up to {MAX_PROBLEMS_PER_EXAM} problems per group. Use search to narrow the list.
+            </p>
+          )}
+          {visibleExams.map((exam) => (
             <section key={exam.id} className="figma-card overflow-hidden">
               <div className="flex flex-col gap-3 border-b border-[#e4e4e7] bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -122,12 +165,13 @@ export default function ExamBankPage() {
                   {exam.can_access === false && (
                     <span className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#f4f4f5] px-3 text-xs font-black text-[#71717b]">
                       <Lock size={14} />
-                      Locked
+                      {lockedExamReason(exam.locked_reason)}
                     </span>
                   )}
-                  <span className="rounded-2xl bg-[#eaf8ff] px-4 py-2 text-xs font-black text-[#1292cf]">{exam.problems.length} problem(s)</span>
+                  <span className="rounded-2xl bg-[#eaf8ff] px-4 py-2 text-xs font-black text-[#1292cf]">{exam.totalProblemCount} problem(s)</span>
                 </div>
               </div>
+              {exam.can_access === false && <LockedExamPreview exam={exam} />}
               <div className="grid gap-4 p-5 lg:grid-cols-2">
                 {exam.problems.map((problem) => (
                   <article key={problem.id} className={`rounded-2xl border border-[#e4e4e7] bg-[#fbfcff] p-5 ${problem.can_access === false ? 'opacity-85' : ''}`}>
@@ -153,7 +197,7 @@ export default function ExamBankPage() {
                       {problem.can_access === false && (
                         <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-[#f4f4f5] px-4 text-xs font-black text-[#71717b]">
                           <Lock size={14} />
-                          {lockedExamReason(problem.locked_reason)}
+                          {lockedExamReason(problem.locked_reason)}{lockMetadata(problem) ? ` - ${lockMetadata(problem)}` : ''}
                         </span>
                       )}
                       <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-white px-4 text-xs font-black text-[#71717b]">
@@ -170,6 +214,11 @@ export default function ExamBankPage() {
                   </article>
                 ))}
               </div>
+              {exam.totalProblemCount > exam.problems.length && (
+                <p className="m-0 border-t border-[#e4e4e7] bg-white px-5 py-3 text-xs font-black text-[#9f9fa9]">
+                  {exam.totalProblemCount - exam.problems.length} more problem(s) hidden in this group. Search by concept, topic, or year to narrow the result.
+                </p>
+              )}
             </section>
           ))}
         </div>
@@ -178,9 +227,41 @@ export default function ExamBankPage() {
   )
 }
 
+function LockedExamPreview({ exam }: { exam: VisibleExam }) {
+  const metadata = lockMetadata(exam)
+
+  return (
+    <div className="border-b border-[#e4e4e7] bg-[#fafafa] px-5 py-4">
+      <p className="m-0 text-sm font-black leading-relaxed text-[#52525c]">
+        Locked preview: {exam.subject_title} {exam.year} {exam.session}. {exam.totalProblemCount} problem(s) are listed so you can inspect the exam structure before unlocking.
+      </p>
+      {metadata && <p className="m-0 mt-1 text-xs font-black capitalize text-[#9f9fa9]">{metadata}</p>}
+    </div>
+  )
+}
+
 function lockedExamReason(reason?: string) {
   if (reason === 'pro_required') return 'Pro required'
+  if (reason === 'vip_required') return 'VIP required'
   if (reason === 'subject_access_required') return 'Subject locked'
   if (reason?.startsWith('feature_required:')) return 'Feature locked'
   return 'Locked'
+}
+
+function lockMetadata(item: Pick<Exam | ExamProblem, 'required_tier' | 'required_feature_key' | 'required_subject_id'>) {
+  if (item.required_tier) return `${item.required_tier.toUpperCase()} tier`
+  if (item.required_feature_key) return item.required_feature_key.replace(/_/g, ' ')
+  if (item.required_subject_id) return `subject access #${item.required_subject_id}`
+  return ''
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = useState(value)
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebounced(value), delayMs)
+    return () => window.clearTimeout(timeout)
+  }, [value, delayMs])
+
+  return debounced
 }

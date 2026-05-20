@@ -29,7 +29,7 @@ Use local/dev systems only:
 - Local seed data.
 - Local migrations.
 - Mock providers.
-- Placeholder provider IDs.
+- Demo provider IDs only when records are clearly local/demo data.
 - Browser validation on localhost.
 
 ## Missing services rule
@@ -38,7 +38,7 @@ If a third-party service is missing, do not stop the whole loop.
 
 Use a local workaround:
 
-- Missing VdoCipher: use placeholder video IDs or mock video provider adapter.
+- Missing VdoCipher: use demo video records or a mock video provider adapter.
 - Missing Stripe: use mock payment/subscription state.
 - Missing Resend: log/mock email sends.
 - Missing Google OAuth: use mock/dev login if available.

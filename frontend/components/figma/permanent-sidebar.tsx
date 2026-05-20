@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Check, ChevronLeft, ChevronRight, Clock3, Trophy, Zap } from 'lucide-react'
 import api from '@/lib/axios'
 import type { FigmaDailyQuest } from './home'
@@ -347,40 +347,30 @@ export function CalendarCard({
       <div className="mt-6 flex w-full items-center gap-2">
         <CalendarArrow direction="left" onClick={() => moveWindow(-1)} />
         <div className="relative h-12 min-w-0 flex-1 overflow-hidden text-center text-[14px] font-bold leading-[1.1] tracking-[0.21px]">
-          <AnimatePresence initial={false} mode="popLayout">
             <motion.div
               key={visibleDays.map(getCalendarDayKey).join('|')}
-              initial={{ x: slideDirection * 18, opacity: 0 }}
+              initial={{ x: slideDirection * 10, opacity: 0.92 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: slideDirection * -18, opacity: 0 }}
-              transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
+              transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
               className="absolute inset-0 flex items-center gap-1.5"
             >
               {visibleDays.map((day) => {
                 const isActive = safeDays[activeIndex] && getCalendarDayKey(safeDays[activeIndex]) === getCalendarDayKey(day)
                 return (
                   <button
-                    className={`relative flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg transition-colors duration-150 ${
-                      isActive ? 'text-[#edf1ff]' : 'bg-[#f4f4f5] text-[#52525c] hover:bg-[#eceef2]'
+                    className={`flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg transition-colors duration-200 ${
+                      isActive ? 'bg-[#453dee] text-[#edf1ff]' : 'bg-[#f4f4f5] text-[#52525c] hover:bg-[#eceef2]'
                     }`}
                     key={getCalendarDayKey(day)}
                     type="button"
                     onClick={() => selectDay(day)}
                   >
-                    {isActive && (
-                      <motion.span
-                        layoutId="calendar-active-day"
-                        className="absolute inset-0 rounded-lg bg-[#453dee]"
-                        transition={{ type: 'spring', stiffness: 430, damping: 34 }}
-                      />
-                    )}
-                    <span className="relative z-[1]">{day.value}</span>
-                    <span className="relative z-[1]">{day.label}</span>
+                    <span>{day.value}</span>
+                    <span>{day.label}</span>
                   </button>
                 )
               })}
             </motion.div>
-          </AnimatePresence>
         </div>
         <CalendarArrow direction="right" onClick={() => moveWindow(1)} />
       </div>
