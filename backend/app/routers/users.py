@@ -63,7 +63,11 @@ def _is_local_request(request: Request, settings: Settings) -> bool:
         return True
 
     origin = request.headers.get("origin", "")
-    return origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")
+    return (
+        origin.startswith("http://localhost:")
+        or origin.startswith("http://127.0.0.1:")
+        or origin in settings.cors_origins_list
+    )
 
 
 @router.post("/google-login", response_model=TokenOut)

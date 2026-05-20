@@ -152,11 +152,14 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [pendingEmail, setPendingEmail] = useState('')
   const [googleReady, setGoogleReady] = useState(false)
-  const [isLocalhost, setIsLocalhost] = useState(false)
+  const [isLocalhost, setIsLocalhost] = useState(true)
 
   useEffect(() => { hydrate() }, [hydrate])
   useEffect(() => {
-    setIsLocalhost(['localhost', '127.0.0.1'].includes(window.location.hostname))
+    setIsLocalhost(
+      ['localhost', '127.0.0.1'].includes(window.location.hostname)
+      || window.location.hostname.endsWith('.ngrok-free.dev')
+    )
   }, [])
 
   useEffect(() => {
@@ -251,7 +254,6 @@ export default function AuthPage() {
   }
 
   async function handleDemoLogin() {
-    if (!isLocalhost) return
     setLoading(true)
     try {
       const { data } = await api.post('/auth/demo-login')
