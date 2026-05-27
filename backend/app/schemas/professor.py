@@ -191,7 +191,6 @@ class ProfessorDashboardOut(BaseModel):
 class ChatParticipantOut(BaseModel):
     id: int
     full_name: str
-    email: str
     avatar_url: str = ""
     tier: str = "basic"
 

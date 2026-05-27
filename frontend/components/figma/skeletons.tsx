@@ -173,69 +173,80 @@ function sidebarSkeletonHeight(section: SidebarSkeletonSection) {
 
 export function FigmaCoursesSkeleton() {
   return (
-    <div className="figma-courses-container">
-      <div className="figma-courses-grid">
-        <main className="pt-[44px]">
-          <div className="mb-[64px] flex h-[18px] items-center">
-            <SkeletonBlock className="h-[18px] w-[238px] rounded-[6px]" />
-          </div>
-          <div className="mb-[32px] flex flex-wrap items-start gap-[18px]">
-            <SkeletonBlock className="h-[44px] w-[280px] max-w-full rounded-[14px]" />
-            <SkeletonBlock className="h-[44px] w-[170px] max-w-full rounded-[14px]" />
-          </div>
-          <div className="mb-[32px]">
-            <SkeletonBlock className="h-[34px] w-[196px] rounded-[8px]" />
-            <SkeletonBlock className="mt-[8px] h-[18px] w-[292px] rounded-[6px]" />
-          </div>
-          <div className="figma-course-grid">
-            {Array.from({ length: 6 }).map((_, index) => <FigmaCourseCardSkeleton key={index} />)}
-          </div>
-        </main>
-        <FigmaSidebarSkeleton sectionTypes={['quests', 'leaderboard']} />
+    <main className="pt-[44px]">
+      <div className="mb-[64px] flex h-[18px] items-center">
+        <SkeletonBlock className="h-[18px] w-[238px] rounded-[6px]" />
       </div>
-    </div>
+      <div className="mb-[32px] flex flex-wrap items-start gap-[18px]">
+        <SkeletonBlock className="h-[44px] w-[280px] max-w-full rounded-[14px]" />
+        <SkeletonBlock className="h-[44px] w-[170px] max-w-full rounded-[14px]" />
+      </div>
+      <div className="mb-[32px]">
+        <SkeletonBlock className="h-[34px] w-[196px] rounded-[8px]" />
+        <SkeletonBlock className="mt-[8px] h-[18px] w-[292px] rounded-[6px]" />
+      </div>
+      <div className="figma-course-grid">
+        {Array.from({ length: 6 }).map((_, index) => <FigmaCourseCardSkeleton key={index} />)}
+      </div>
+    </main>
   )
 }
 
 export function FigmaSubjectDetailSkeleton() {
   return (
-    <div className="figma-container">
-      <div className="figma-dashboard-grid">
-        <main className="w-full">
-          <div className="mb-4 flex items-center gap-2">
-            <SkeletonBlock className="h-3 w-28 rounded-[6px]" />
-            <SkeletonBlock className="h-3 w-20 rounded-[6px]" />
-          </div>
-          <section className="kresco-skeleton-card mb-8 rounded-2xl border-2 bg-white p-7">
-            <div className="flex items-start gap-5">
-              <div className="kresco-skeleton kresco-skeleton-media h-14 w-14 shrink-0 rounded-2xl" />
-              <div className="min-w-0 flex-1">
-                <SkeletonBlock className="h-8 w-64 max-w-full rounded-[8px]" />
-                <SkeletonBlock className="mt-3 h-4 w-[68%] rounded-[6px]" />
-                <SkeletonBlock className="mt-2 h-4 w-[52%] rounded-[6px]" />
-                <div className="mt-5">
-                  <div className="mb-2 flex justify-between">
-                    <SkeletonBlock className="h-3 w-36 rounded-[6px]" />
-                    <SkeletonBlock className="h-3 w-10 rounded-[6px]" />
-                  </div>
-                  <span className="block h-2 overflow-hidden rounded-full bg-[#f4f4f5]">
-                    <SkeletonBlock className="kresco-skeleton-accent h-full w-[34%] rounded-full" />
-                  </span>
-                </div>
-              </div>
-            </div>
-          </section>
-          <section className="pb-20">
-            <SkeletonBlock className="h-7 w-32 rounded-[8px]" />
-            <SkeletonBlock className="mt-3 h-4 w-60 rounded-[6px]" />
-            <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-[14px]">
-              {Array.from({ length: 6 }).map((_, index) => <FigmaCourseCardSkeleton key={index} />)}
-            </div>
-          </section>
-        </main>
-        <FigmaSidebarSkeleton />
+    <main className="w-full">
+      <div className="mb-4 flex items-center gap-2">
+        <SkeletonBlock className="h-3 w-28 rounded-[6px]" />
+        <SkeletonBlock className="h-3 w-20 rounded-[6px]" />
       </div>
-    </div>
+      <section className="kresco-skeleton-card mb-8 rounded-2xl border-2 bg-white p-7">
+        <div className="flex items-start gap-5">
+          <div className="kresco-skeleton kresco-skeleton-media h-14 w-14 shrink-0 rounded-2xl" />
+          <div className="min-w-0 flex-1">
+            <SkeletonBlock className="h-8 w-64 max-w-full rounded-[8px]" />
+            <SkeletonBlock className="mt-3 h-4 w-[68%] rounded-[6px]" />
+            <SkeletonBlock className="mt-2 h-4 w-[52%] rounded-[6px]" />
+            <div className="mt-5">
+              <div className="mb-2 flex justify-between">
+                <SkeletonBlock className="h-3 w-36 rounded-[6px]" />
+                <SkeletonBlock className="h-3 w-10 rounded-[6px]" />
+              </div>
+              <span className="block h-2 overflow-hidden rounded-full bg-[#f4f4f5]">
+                <SkeletonBlock className="kresco-skeleton-accent h-full w-[34%] rounded-full" />
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="pb-20">
+        <SkeletonBlock className="h-7 w-32 rounded-[8px]" />
+        <SkeletonBlock className="mt-3 h-4 w-60 rounded-[6px]" />
+        <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-[14px]">
+          {Array.from({ length: 6 }).map((_, index) => <FigmaCourseCardSkeleton key={index} />)}
+        </div>
+      </section>
+    </main>
+  )
+}
+
+export function FigmaLiveSkeleton() {
+  return (
+    <section className="kresco-shell w-full max-w-[860px]">
+      <div className="mb-8">
+        <SkeletonBlock className="h-4 w-16 rounded-[6px]" />
+        <SkeletonBlock className="mt-4 h-11 w-64 max-w-full rounded-[10px]" />
+        <SkeletonBlock className="mt-3 h-5 w-[560px] max-w-full rounded-[7px]" />
+      </div>
+      <div className="grid gap-4">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <section className="kresco-skeleton-card h-[132px] rounded-2xl border-2 bg-white p-5" key={index}>
+            <SkeletonBlock className="h-4 w-32 rounded-[6px]" />
+            <SkeletonBlock className="mt-5 h-6 w-72 max-w-full rounded-[8px]" />
+            <SkeletonBlock className="mt-3 h-4 w-44 rounded-[6px]" />
+          </section>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -287,28 +298,23 @@ export function FigmaVideoWorkspaceSkeleton() {
 
 export function FigmaDashboardSkeleton() {
   return (
-    <div className="figma-home-container">
-      <div className="figma-home-grid">
-        <main className="w-full pt-[32px]">
-          <section className="mb-[58px]">
-            <div className="mb-[32px]">
-              <SkeletonBlock className="h-7 w-40 rounded-lg" />
-              <SkeletonBlock className="mt-3 h-4 w-72 rounded-md" />
-            </div>
-            <div className="grid max-w-[984px] grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[24px]">
-              {Array.from({ length: 2 }).map((_, index) => <FigmaContinueTopicSkeleton key={index} />)}
-            </div>
-          </section>
-          <section>
-            <SkeletonBlock className="h-6 w-28 rounded-lg" />
-            <SkeletonBlock className="mt-3 h-4 w-48 rounded-md" />
-            <div className="mt-[22px] grid grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-[20px]">
-              {Array.from({ length: 5 }).map((_, index) => <FigmaSubjectShortcutSkeleton key={index} />)}
-            </div>
-          </section>
-        </main>
-        <FigmaSidebarSkeleton />
-      </div>
+    <div className="w-full pt-[32px]">
+      <section className="mb-[58px]">
+        <div className="mb-[32px]">
+          <SkeletonBlock className="h-7 w-40 rounded-lg" />
+          <SkeletonBlock className="mt-3 h-4 w-72 rounded-md" />
+        </div>
+        <div className="grid max-w-[984px] grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[24px]">
+          {Array.from({ length: 2 }).map((_, index) => <FigmaContinueTopicSkeleton key={index} />)}
+        </div>
+      </section>
+      <section>
+        <SkeletonBlock className="h-6 w-28 rounded-lg" />
+        <SkeletonBlock className="mt-3 h-4 w-48 rounded-md" />
+        <div className="mt-[22px] grid grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-[20px]">
+          {Array.from({ length: 5 }).map((_, index) => <FigmaSubjectShortcutSkeleton key={index} />)}
+        </div>
+      </section>
     </div>
   )
 }

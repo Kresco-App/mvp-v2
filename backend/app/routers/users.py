@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import inspect
 import logging
 import os
 import uuid
@@ -9,7 +10,6 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db, require_professor_active_offering
@@ -17,8 +17,8 @@ from app.models.gamification import UserXP
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.users import (
-    ForgotPasswordIn, GoogleLoginIn, LoginIn, MessageOut, ResendVerificationIn,
-    ProfileMediaOut, ResetPasswordIn, SignupIn, SignupPendingOut, TokenOut, UserOut, UserUpdateIn,
+    AuthSessionOut, ForgotPasswordIn, GoogleLoginIn, LoginIn, MessageOut, ResendVerificationIn,
+    ProfileMediaOut, ResetPasswordIn, SignupIn, SignupPendingOut, UserOut, UserUpdateIn,
     VerifyEmailIn,
 )
 from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_google_token
@@ -27,16 +27,15 @@ from app.services.email import (
     send_reset_email, send_verification_email,
     verify_reset_token, verify_verification_token,
 )
+from app.services.image_uploads import (
+    allowed_image_extension,
+    image_matches_mime_type,
+    normalize_image_mime_type,
+)
 
 router = APIRouter(tags=["Auth & Users"])
 logger = logging.getLogger("kresco.auth")
 
-ALLOWED_PROFILE_MEDIA_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-}
 MAX_PROFILE_MEDIA_BYTES = 5 * 1024 * 1024
 
 
@@ -61,16 +60,21 @@ def _auth_cookie_secure(settings: Settings) -> bool:
     return settings.is_production_like
 
 
+def _auth_cookie_samesite(settings: Settings) -> str:
+    return "none" if settings.is_production_like else "lax"
+
+
 def _set_auth_cookies(response: Response, token: str, user: User, settings: Settings) -> None:
     max_age = max(int(settings.jwt_expire_minutes) * 60, 0)
     secure = _auth_cookie_secure(settings)
+    samesite = _auth_cookie_samesite(settings)
     response.set_cookie(
         AUTH_COOKIE_NAME,
         token,
         max_age=max_age,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite=samesite,
         path="/",
     )
     response.set_cookie(
@@ -79,30 +83,39 @@ def _set_auth_cookies(response: Response, token: str, user: User, settings: Sett
         max_age=max_age,
         httponly=False,
         secure=secure,
-        samesite="lax",
+        samesite=samesite,
         path="/",
     )
 
 
 def _clear_auth_cookies(response: Response, settings: Settings) -> None:
     secure = _auth_cookie_secure(settings)
+    samesite = _auth_cookie_samesite(settings)
     response.delete_cookie(
         AUTH_COOKIE_NAME,
         path="/",
         secure=secure,
         httponly=True,
-        samesite="lax",
+        samesite=samesite,
     )
     response.delete_cookie(
         AUTH_ROLE_COOKIE_NAME,
         path="/",
         secure=secure,
         httponly=False,
-        samesite="lax",
+        samesite=samesite,
     )
 
 
-@router.post("/google-login", response_model=TokenOut)
+def _log_email_dispatch_failure(flow: str, exc: Exception) -> None:
+    logger.warning(
+        "auth_email_dispatch_failed",
+        extra={"flow": flow, "error_type": type(exc).__name__},
+        exc_info=True,
+    )
+
+
+@router.post("/google-login", response_model=AuthSessionOut)
 async def google_login(
     body: GoogleLoginIn,
     response: Response,
@@ -110,7 +123,8 @@ async def google_login(
     settings: Settings = Depends(get_settings),
 ):
     try:
-        payload = await run_in_threadpool(verify_google_token, body.credential, settings.google_client_id)
+        verification = verify_google_token(body.credential, settings.google_client_id)
+        payload = await verification if inspect.isawaitable(verification) else verification
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Google credential")
 
@@ -160,7 +174,7 @@ async def google_login(
 
     token = create_token(user, settings)
     _set_auth_cookies(response, token, user, settings)
-    return TokenOut(access_token=token, user=UserOut.model_validate(user))
+    return AuthSessionOut(user=UserOut.model_validate(user))
 
 
 @router.post("/auth/signup", response_model=SignupPendingOut, status_code=202)
@@ -201,8 +215,8 @@ async def signup(
     token = generate_verification_token(email, settings)
     try:
         await send_verification_email(email, body.full_name, token, settings)
-    except Exception:
-        pass  # Don't block signup if email fails; user can request resend
+    except Exception as exc:
+        _log_email_dispatch_failure("signup_verification", exc)
 
     return SignupPendingOut(
         message="Un email de verification a ete envoye a votre adresse.",
@@ -210,7 +224,7 @@ async def signup(
     )
 
 
-@router.post("/auth/verify-email", response_model=TokenOut)
+@router.post("/auth/verify-email", response_model=AuthSessionOut)
 async def verify_email(
     body: VerifyEmailIn,
     response: Response,
@@ -236,7 +250,7 @@ async def verify_email(
 
     token = create_token(user, settings)
     _set_auth_cookies(response, token, user, settings)
-    return TokenOut(access_token=token, user=UserOut.model_validate(user))
+    return AuthSessionOut(user=UserOut.model_validate(user))
 
 
 @router.post("/auth/resend-verification", response_model=MessageOut)
@@ -255,14 +269,14 @@ async def resend_verification(
         token = generate_verification_token(email, settings)
         try:
             await send_verification_email(email, user.full_name, token, settings)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_email_dispatch_failure("resend_verification", exc)
 
     # Always return success to avoid email enumeration
     return MessageOut(message="Si ce compte existe et n'est pas verifie, un email a ete envoye.")
 
 
-@router.post("/auth/login", response_model=TokenOut)
+@router.post("/auth/login", response_model=AuthSessionOut)
 @limiter.limit("5/minute")
 async def login(
     request: Request,
@@ -289,7 +303,7 @@ async def login(
 
     token = create_token(user, settings)
     _set_auth_cookies(response, token, user, settings)
-    return TokenOut(access_token=token, user=UserOut.model_validate(user))
+    return AuthSessionOut(user=UserOut.model_validate(user))
 
 
 @router.post("/auth/logout", response_model=MessageOut)
@@ -319,8 +333,8 @@ async def forgot_password(
         token = generate_reset_token(email, settings, token_version=user.auth_token_version or 0)
         try:
             await send_reset_email(email, token, settings)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_email_dispatch_failure("forgot_password", exc)
 
     # Always return success to avoid email enumeration
     return MessageOut(message="Si ce compte existe, vous recevrez un email de reinitialisation.")
@@ -384,7 +398,8 @@ async def upload_profile_media(
     if kind not in {"avatar", "banner"}:
         raise HTTPException(status_code=404, detail="Unsupported profile media type")
 
-    extension = ALLOWED_PROFILE_MEDIA_TYPES.get(file.content_type or "")
+    mime_type = normalize_image_mime_type(file.content_type)
+    extension = allowed_image_extension(mime_type)
     if extension is None:
         raise HTTPException(status_code=400, detail="Upload a JPG, PNG, WEBP, or GIF image")
 
@@ -393,6 +408,8 @@ async def upload_profile_media(
         raise HTTPException(status_code=400, detail="Upload a non-empty image")
     if len(content) > MAX_PROFILE_MEDIA_BYTES:
         raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
+    if not image_matches_mime_type(content, mime_type):
+        raise HTTPException(status_code=400, detail="Upload a valid JPG, PNG, WEBP, or GIF image")
 
     media_root = Path("media") / "profile" / str(user.id)
     media_root.mkdir(parents=True, exist_ok=True)

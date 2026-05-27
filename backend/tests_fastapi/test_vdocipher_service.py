@@ -140,16 +140,17 @@ def test_create_live_stream_requires_provider_config():
     assert "VDOCIPHER_LIVE_CREATE_URL" in missing_url.value.detail
 
 
-def test_create_live_stream_surfaces_provider_error(monkeypatch):
+def test_create_live_stream_masks_provider_error(monkeypatch):
     FakeAsyncClient.calls = []
-    FakeAsyncClient.response = httpx.Response(400, json={"message": "chat mode is invalid"})
+    FakeAsyncClient.response = httpx.Response(400, json={"message": "chat mode is invalid for api-secret"})
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
 
     with pytest.raises(HTTPException) as error:
         asyncio.run(vdocipher.create_live_stream("Bad live", live_settings()))
 
     assert error.value.status_code == 502
-    assert error.value.detail == "Failed to create VdoCipher live stream: chat mode is invalid"
+    assert error.value.detail == "Failed to create VdoCipher live stream"
+    assert "api-secret" not in error.value.detail
 
 
 def test_create_live_stream_rejects_missing_live_id(monkeypatch):

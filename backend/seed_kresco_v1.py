@@ -379,22 +379,33 @@ async def seed_topic(db: AsyncSession, subject: Subject, title: str, description
     lab_config = animated_course[1] if animated_course else {}
     lab_renderer = animated_course[0] if animated_course else renderer_key
     lab_content = lab_config.get("summary", "Interactive component registered locally by key.")
+    intro_course_tab = TabContent(topic_item_id=intro.id, label="Course", tab_type="course", order=1, content=f"## {title}\n\nKey Bac definitions, formulas, and method steps for this lesson.", concept_slugs=tag_rows)
+    checkpoint_quiz_tab = TabContent(topic_item_id=checkpoint.id, label="Quiz", tab_type="quiz", order=1, config_json={"pass_score": 70, "questions": questions}, concept_slugs=tag_rows)
+    exercise_statement_tab = TabContent(topic_item_id=exercise.id, label="Statement", tab_type="course", order=1, content="Solve the exercise before watching the correction.")
+    bac_problem_tab = TabContent(topic_item_id=bac_item.id, label="Problem", tab_type="exam_problem", order=1, content="Bac statement preview and expected reasoning.")
     db.add_all([
-        TabContent(topic_item_id=intro.id, label="Course", tab_type="course", order=1, is_recommended=True, content=f"## {title}\n\nKey Bac definitions, formulas, and method steps for this lesson.", concept_slugs=tag_rows),
-        TabContent(topic_item_id=intro.id, label=lab_label, tab_type=lab_type, order=2, is_recommended=True, renderer_key=lab_renderer, config_json=lab_config, content=lab_content, concept_slugs=tag_rows[:2]),
-        TabContent(topic_item_id=intro.id, label="Quiz", tab_type="quiz", order=3, is_recommended=True, config_json={"pass_score": 70, "questions": questions}, concept_slugs=tag_rows),
+        intro_course_tab,
+        TabContent(topic_item_id=intro.id, label=lab_label, tab_type=lab_type, order=2, renderer_key=lab_renderer, config_json=lab_config, content=lab_content, concept_slugs=tag_rows[:2]),
+        TabContent(topic_item_id=intro.id, label="Quiz", tab_type="quiz", order=3, config_json={"pass_score": 70, "questions": questions}, concept_slugs=tag_rows),
         TabContent(topic_item_id=intro.id, resource_id=resources["summary"].id, label="Summary", tab_type="summary", order=4, content="Open the summary sheet and mark it reviewed.", concept_slugs=tag_rows),
         TabContent(topic_item_id=intro.id, resource_id=resources["worksheet"].id, label="Resources", tab_type="resources", order=5, content="Worksheet and extra practice resources.", concept_slugs=tag_rows),
         TabContent(topic_item_id=intro.id, label="Notes", tab_type="notes", order=6, content="Personal notes are stored per topic item."),
-        TabContent(topic_item_id=checkpoint.id, label="Quiz", tab_type="quiz", order=1, is_recommended=True, config_json={"pass_score": 70, "questions": questions}, concept_slugs=tag_rows),
+        TabContent(topic_item_id=intro.id, label="Discussion", tab_type="comments", order=7),
+        checkpoint_quiz_tab,
         TabContent(topic_item_id=checkpoint.id, label="Notes", tab_type="notes", order=2),
-        TabContent(topic_item_id=exercise.id, label="Statement", tab_type="course", order=1, content="Solve the exercise before watching the correction."),
+        TabContent(topic_item_id=checkpoint.id, label="Discussion", tab_type="comments", order=3),
+        exercise_statement_tab,
         TabContent(topic_item_id=exercise.id, label="Quiz", tab_type="quiz", order=2, config_json={"pass_score": 70, "questions": questions[:2]}, concept_slugs=tag_rows),
         TabContent(topic_item_id=exercise.id, label="Notes", tab_type="notes", order=3),
-        TabContent(topic_item_id=bac_item.id, label="Problem", tab_type="exam_problem", order=1, content="Bac statement preview and expected reasoning."),
+        bac_problem_tab,
         TabContent(topic_item_id=bac_item.id, label="Correction", tab_type="course", order=2, content="Written correction scaffold for local validation."),
         TabContent(topic_item_id=bac_item.id, label="Notes", tab_type="notes", order=3),
     ])
+    await db.flush()
+    intro.primary_tab_content_id = intro_course_tab.id
+    checkpoint.primary_tab_content_id = checkpoint_quiz_tab.id
+    exercise.primary_tab_content_id = exercise_statement_tab.id
+    bac_item.primary_tab_content_id = bac_problem_tab.id
 
     exam = Exam(subject_id=subject.id, title=f"National Bac {2024 if is_physics else 2023} - {subject.title}", year=2024 if is_physics else 2023, session="Normal")
     db.add(exam)
@@ -455,7 +466,6 @@ async def ensure_animated_course_tab(db: AsyncSession, topic: Topic) -> None:
             renderer_key=renderer_key,
             order=2,
             status="published",
-            is_recommended=True,
             concept_slugs=intro.concept_slugs,
         )
         db.add(target)
@@ -466,8 +476,9 @@ async def ensure_animated_course_tab(db: AsyncSession, topic: Topic) -> None:
     target.config_json = config_json
     target.renderer_key = renderer_key
     target.status = "published"
-    target.is_recommended = True
     target.concept_slugs = intro.concept_slugs
+    await db.flush()
+    intro.primary_tab_content_id = target.id
 
 
 async def seed_all(db: AsyncSession, *, destructive_confirmed: bool = False) -> None:

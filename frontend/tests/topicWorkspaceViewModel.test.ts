@@ -12,9 +12,12 @@ import {
   lockedVideoSrcDoc,
   missingVideoSrcDoc,
   parseTopicWorkspaceQuery,
+  defaultSecondaryTabSlotForItem,
+  resolvePrimaryTab,
   resolveAnimatedRendererKey,
   resolveTabForSlot,
   resolveTabSlotForTopicWorkspaceQuery,
+  secondaryTabSlotSpecsForItem,
   selectTopicWorkspaceQueryState,
   splitOrderingInput,
   topicWorkspaceQueryTargetsFromItemId,
@@ -77,6 +80,16 @@ const resourceTab: TabContent = {
   },
 }
 
+const commentsTab: TabContent = {
+  id: 13,
+  label: 'Discussion',
+  tab_type: 'comments',
+  content: '',
+  config_json: {},
+  renderer_key: '',
+  order: 3,
+}
+
 describe('topic workspace view model', () => {
   it('formats videos and escapes srcdoc content', () => {
     expect(formatTopicItemDuration(125)).toBe('2:05')
@@ -124,6 +137,23 @@ describe('topic workspace view model', () => {
       resource: baseItem.primary_resource,
       is_missing: false,
     })
+    expect(fallbackTabForSlot('comments', item)).toMatchObject({
+      is_missing: true,
+      empty_title: 'Comments unavailable',
+    })
+  })
+
+  it('distinguishes the primary center tab from secondary tabs', () => {
+    const item = {
+      ...baseItem,
+      primary_tab_content_id: quizTab.id,
+      primary_tab: quizTab,
+      tabs: [resourceTab, quizTab, commentsTab],
+    }
+
+    expect(resolvePrimaryTab(item)).toBe(quizTab)
+    expect(secondaryTabSlotSpecsForItem(item).map((slot) => slot.id)).toEqual(['course', 'lab', 'resources', 'notes', 'comments'])
+    expect(defaultSecondaryTabSlotForItem(item)).toBe('resources')
   })
 
   it('parses workspace route query targets defensively', () => {
@@ -165,11 +195,11 @@ describe('topic workspace view model', () => {
     expect(selectTopicWorkspaceQueryState(workspace, {
       ...topicWorkspaceQueryTargetsFromItemId(null),
       tabId: resourceTab.id,
-    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'resources' })
+    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'quiz' })
     expect(selectTopicWorkspaceQueryState(workspace, {
       ...topicWorkspaceQueryTargetsFromItemId(null),
       resourceId: resourceTab.resource?.id ?? null,
-    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'resources' })
+    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'quiz' })
     expect(resolveTabSlotForTopicWorkspaceQuery(resourceItem, {
       ...topicWorkspaceQueryTargetsFromItemId(resourceItem.id),
       quizId: quizTab.id,
@@ -181,7 +211,7 @@ describe('topic workspace view model', () => {
     expect(resolveTabSlotForTopicWorkspaceQuery(baseItem, {
       ...topicWorkspaceQueryTargetsFromItemId(baseItem.id),
       resourceId: baseItem.primary_resource?.id ?? null,
-    })).toBe('resources')
+    })).toBe('course')
   })
 
   it('detects animated tabs and builds renderer config metadata', () => {

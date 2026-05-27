@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import type { KeyboardEventHandler } from 'react'
+import Image from 'next/image'
 
 export type FigmaSubjectCourseCardState = 'completed' | 'current' | 'available' | 'locked' | 'upcoming'
 
@@ -50,7 +50,7 @@ export function FigmaSubjectCourseCard({
 
   const card = (
     <article
-      className={`group kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${isUnavailable ? 'opacity-80' : ''}`}
+      className={`kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${isUnavailable ? 'opacity-80' : ''}`}
       style={{
         background: borderColor,
         animationDelay: `${Math.min(index * 45, 220)}ms`,
@@ -68,7 +68,13 @@ export function FigmaSubjectCourseCard({
           className="relative h-[193.5px] w-full overflow-hidden border-b-2 p-[12px]"
           style={{ borderColor: imageBorderColor }}
         >
-          <img alt="" className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]" src={imageUrl ?? PLACEHOLDER_IMAGE} />
+          <Image
+            alt=""
+            className="object-cover transition duration-500 group-hover:scale-[1.035]"
+            fill
+            sizes="(max-width: 768px) 100vw, 344px"
+            src={imageUrl ?? PLACEHOLDER_IMAGE}
+          />
           <div className={`relative grid size-[36px] place-items-center rounded-[4px] border-2 text-[20px] font-black leading-[1.2] tracking-[0.2px] ${badgeClass}`}>
             {index + 1}
           </div>
@@ -109,22 +115,18 @@ export function FigmaSubjectCourseCard({
   )
 
   if (onClick) {
-    const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        onClick()
-      }
-    }
-
     return (
       <div
-        className="block w-full max-w-[344.33px] cursor-pointer no-underline transition duration-200 hover:-translate-y-1 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20"
-        role="button"
-        tabIndex={0}
-        onClick={onClick}
-        onKeyDown={handleKeyDown}
+        className="group relative block w-full max-w-[344.33px] cursor-pointer no-underline transition duration-200 hover:-translate-y-1"
       >
         {card}
+        <button
+          type="button"
+          className="absolute inset-0 rounded-[16px] border-0 bg-transparent p-0 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20"
+          onClick={onClick}
+        >
+          <span className="sr-only">{label}: {title}</span>
+        </button>
       </div>
     )
   }

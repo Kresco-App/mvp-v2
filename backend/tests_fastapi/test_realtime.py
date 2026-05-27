@@ -45,6 +45,13 @@ async def _seed_live_session_for_realtime(test_settings, *, student_tier: str = 
         offering = CourseOffering(subject_id=subject.id, track_id=track.id, professor_user_id=professor.id)
         db.add(offering)
         await db.flush()
+        db.add(UserSubjectEntitlement(
+            user_id=student.id,
+            subject_id=subject.id,
+            starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+            source="test",
+            status="active",
+        ))
         live = LiveSession(
             course_offering_id=offering.id,
             professor_user_id=professor.id,
@@ -243,6 +250,13 @@ async def _seed_live_session_window_regression(test_settings):
         )
         db.add(offering)
         await db.flush()
+        db.add(UserSubjectEntitlement(
+            user_id=student.id,
+            subject_id=subject.id,
+            starts_at=now - timedelta(days=1),
+            source="test",
+            status="active",
+        ))
 
         active_live = LiveSession(
             course_offering_id=offering.id,

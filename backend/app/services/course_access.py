@@ -124,6 +124,26 @@ def tab_content_out(
     return out
 
 
+def _primary_tab_for_item(item: TopicItem) -> TabContent | None:
+    published_tabs = [tab for tab in item.tabs if tab.status == "published"]
+    if not published_tabs:
+        return None
+
+    primary_tab_content_id = getattr(item, "primary_tab_content_id", None)
+    if primary_tab_content_id:
+        primary = next((tab for tab in published_tabs if tab.id == primary_tab_content_id), None)
+        if primary is not None:
+            return primary
+
+    primary_resource_id = getattr(item, "primary_resource_id", None)
+    if primary_resource_id:
+        primary = next((tab for tab in published_tabs if getattr(tab, "resource_id", None) == primary_resource_id), None)
+        if primary is not None:
+            return primary
+
+    return next((tab for tab in published_tabs if tab.tab_type.lower() not in {"comments", "discussion"}), None)
+
+
 def topic_item_out(
     item: TopicItem,
     progress_by_item: dict[int, TopicItemProgress],
@@ -133,6 +153,7 @@ def topic_item_out(
 ) -> TopicItemOut:
     progress = progress_by_item.get(item.id)
     access = item_access.get(item.id) if item_access else None
+    primary_tab = _primary_tab_for_item(item)
     out = TopicItemOut(
         id=item.id,
         topic_id=item.topic_id,
@@ -147,6 +168,8 @@ def topic_item_out(
         is_free_preview=item.is_free_preview,
         concept_slugs=item.concept_slugs or [],
         primary_resource=resource_out(item.primary_resource, resource_access) if item.primary_resource else None,
+        primary_tab_content_id=primary_tab.id if primary_tab else getattr(item, "primary_tab_content_id", None),
+        primary_tab=tab_content_out(primary_tab, tab_access, resource_access) if primary_tab else None,
         tabs=[tab_content_out(t, tab_access, resource_access) for t in item.tabs if t.status == "published"],
         progress_status=progress.status if progress else "not_started",
         best_score=progress.best_score if progress else None,

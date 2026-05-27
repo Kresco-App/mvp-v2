@@ -4,6 +4,7 @@ from app.database import get_session_factory
 from app.models.courses import Chapter, ChapterSection, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.gamification import ActivityEvent
 from app.models.quizzes import QuestionSet, Quiz
+from app.models.users import UserSubjectEntitlement
 
 
 async def _seed_topic_context(slug: str):
@@ -364,3 +365,54 @@ def test_saved_unknown_quiz_context_stays_empty_without_error(app_client, auth_t
     assert save["subject_id"] is None
     assert save["topic_id"] is None
     assert save["topic_item_id"] is None
+
+
+def test_topic_item_comments_require_comments_tab_and_use_topic_key(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interaction-topic-comments@example.com", is_pro=False)
+    seeded = run_db(_seed_topic_context("interaction-topic-comments"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    blocked = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}",
+        headers=headers,
+    )
+    assert blocked.status_code == 404
+    assert blocked.json()["detail"] == "Comments are not enabled for this item"
+
+    async def _enable_comments_tab():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=seeded["subject_id"],
+                source="test",
+                status="active",
+            ))
+            db.add(TabContent(
+                topic_item_id=seeded["topic_item_id"],
+                label="Discussion",
+                tab_type="comments",
+                content="",
+                status="published",
+            ))
+            await db.commit()
+
+    run_db(_enable_comments_tab())
+
+    created = app_client.post(
+        "/api/interactions/comments",
+        json={"topic_item_id": seeded["topic_item_id"], "body": "This belongs to the topic item."},
+        headers=headers,
+    )
+    assert created.status_code == 200
+    comment = created.json()
+    assert comment["topic_item_id"] == seeded["topic_item_id"]
+    assert "target_type" not in comment
+    assert "target_id" not in comment
+
+    listed = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}",
+        headers=headers,
+    )
+    assert listed.status_code == 200
+    assert [item["body"] for item in listed.json()] == ["This belongs to the topic item."]

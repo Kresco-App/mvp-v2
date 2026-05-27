@@ -314,7 +314,8 @@ async def upsert_topic_content(db: AsyncSession, topic: Topic) -> tuple[TopicIte
             }
         ]
     }
-    tab.is_recommended = True
+    await db.flush()
+    item.primary_tab_content_id = tab.id
     await db.flush()
     return item, tab
 

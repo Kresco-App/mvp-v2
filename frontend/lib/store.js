@@ -37,9 +37,9 @@ export const useAuthStore = create((set, get) => ({
   },
 
   updateUser(patch) {
-    const updated = { ...get().user, ...patch }
+    const updated = { ...(get().user ?? {}), ...patch }
     updateStoredAuthUser(updated)
-    set({ user: updated })
+    set({ token: KRESCO_COOKIE_SESSION, user: updated })
   },
 
   get isAuthenticated() {

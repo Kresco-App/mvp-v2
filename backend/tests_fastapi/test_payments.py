@@ -278,6 +278,76 @@ def test_webhook_invoice_payment_failed_marks_user_not_pro(app_client, test_sett
     assert run_db(_get_user(user_id)).is_pro is False
 
 
+def test_webhook_charge_refunded_marks_user_not_pro(app_client, test_settings, monkeypatch, run_db):
+    import app.routers.payments as payments_router
+
+    user_id = run_db(_seed_user("charge-refunded@example.com", is_pro=True, stripe_customer_id="cus_refunded"))
+    monkeypatch.setattr(
+        payments_router.stripe.Webhook,
+        "construct_event",
+        lambda *_: {"type": "charge.refunded", "data": {"object": {"customer": "cus_refunded"}}},
+    )
+    original_secret = _with_webhook_secret(test_settings)
+    try:
+        response = app_client.post("/api/payments/webhook", content=b"{}", headers={"stripe-signature": "sig"})
+    finally:
+        test_settings.stripe_webhook_secret = original_secret
+
+    assert response.status_code == 200
+    assert run_db(_get_user(user_id)).is_pro is False
+
+
+def test_webhook_charge_dispute_created_marks_user_not_pro(app_client, test_settings, monkeypatch, run_db):
+    import app.routers.payments as payments_router
+
+    user_id = run_db(_seed_user("charge-dispute@example.com", is_pro=True, stripe_customer_id="cus_disputed"))
+    lookups = []
+
+    async def fake_customer_id_for_charge(charge_id, settings):
+        lookups.append(charge_id)
+        return "cus_disputed"
+
+    monkeypatch.setattr(payments_router, "customer_id_for_charge", fake_customer_id_for_charge)
+    monkeypatch.setattr(
+        payments_router.stripe.Webhook,
+        "construct_event",
+        lambda *_: {"type": "charge.dispute.created", "data": {"object": {"charge": "ch_disputed"}}},
+    )
+    original_secret = _with_webhook_secret(test_settings)
+    try:
+        response = app_client.post("/api/payments/webhook", content=b"{}", headers={"stripe-signature": "sig"})
+    finally:
+        test_settings.stripe_webhook_secret = original_secret
+
+    assert response.status_code == 200
+    assert lookups == ["ch_disputed"]
+    assert run_db(_get_user(user_id)).is_pro is False
+
+
+def test_webhook_charge_dispute_lookup_failure_requests_retry(app_client, test_settings, monkeypatch, run_db):
+    import app.routers.payments as payments_router
+
+    user_id = run_db(_seed_user("charge-dispute-retry@example.com", is_pro=True, stripe_customer_id="cus_retry"))
+
+    async def fake_customer_id_for_charge(charge_id, settings):
+        return ""
+
+    monkeypatch.setattr(payments_router, "customer_id_for_charge", fake_customer_id_for_charge)
+    monkeypatch.setattr(
+        payments_router.stripe.Webhook,
+        "construct_event",
+        lambda *_: {"type": "charge.dispute.created", "data": {"object": {"charge": "ch_retry"}}},
+    )
+    original_secret = _with_webhook_secret(test_settings)
+    try:
+        response = app_client.post("/api/payments/webhook", content=b"{}", headers={"stripe-signature": "sig"})
+    finally:
+        test_settings.stripe_webhook_secret = original_secret
+
+    assert response.status_code == 502
+    assert run_db(_get_user(user_id)).is_pro is True
+
+
 def test_webhook_rejects_invalid_signature(app_client, test_settings, monkeypatch):
     import app.routers.payments as payments_router
 

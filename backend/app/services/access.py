@@ -95,10 +95,15 @@ class AccessContext:
     effective_tier: str
     feature_keys: frozenset[str]
     active_subject_ids: frozenset[int]
+    has_subject_entitlement_rows: bool = False
 
     @property
     def subject_scope_enforced(self) -> bool:
-        return bool(self.active_subject_ids)
+        return (
+            self.has_subject_entitlement_rows
+            or bool(self.active_subject_ids)
+            or TIER_RANK.get(self.effective_tier, 0) >= TIER_RANK["pro"]
+        )
 
     def decide_for(
         self,
@@ -197,6 +202,7 @@ async def build_access_context(db: AsyncSession, user: User) -> AccessContext:
         effective_tier=effective_tier,
         feature_keys=frozenset(_feature_keys_for_user(user, effective_tier)),
         active_subject_ids=active_subject_ids,
+        has_subject_entitlement_rows=bool(entitlements),
     )
 
 

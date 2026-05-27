@@ -14,6 +14,7 @@ class CommentAuthorOut(BaseModel):
 
 class CommentOut(BaseModel):
     id: int
+    topic_item_id: int
     body: str
     author: CommentAuthorOut
     parent_id: Optional[int] = None
@@ -68,6 +69,5 @@ class SavedItemOut(BaseModel):
 
 class CommentCreateIn(BaseModel):
     body: str
-    content_type: str
-    object_id: int
+    topic_item_id: int
     parent_id: Optional[int] = None

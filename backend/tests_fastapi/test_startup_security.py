@@ -31,6 +31,24 @@ def test_local_settings_allow_development_defaults():
     assert settings.production_config_errors() == []
 
 
+def test_security_headers_are_applied_to_responses(app_client):
+    response = app_client.get("/health")
+
+    assert response.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+
+
+def test_global_rate_limit_applies_to_undecorated_routes(app_client):
+    response = None
+    for _ in range(121):
+        response = app_client.get("/health")
+
+    assert response is not None
+    assert response.status_code == 429
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
 def test_deployed_app_rejects_fallback_jwt_secret(monkeypatch):
     monkeypatch.setenv("LAMBDA_TASK_ROOT", "/var/task")
     settings = Settings(

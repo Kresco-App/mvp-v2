@@ -427,7 +427,7 @@ async def rebuild_topic(
             await db.execute(delete(ActivityEvent).where(ActivityEvent.topic_item_id.in_(old_item_ids)))
             await db.execute(delete(UserNote).where(UserNote.topic_item_id.in_(old_item_ids)))
             await db.execute(delete(SavedItem).where(SavedItem.topic_item_id.in_(old_item_ids)))
-            await db.execute(delete(Comment).where(Comment.target_type == "topic_item", Comment.target_id.in_(old_item_ids)))
+            await db.execute(delete(Comment).where(Comment.topic_item_id.in_(old_item_ids)))
         await db.execute(delete(ExamProblem).where(ExamProblem.topic_id == existing.id))
         await db.execute(delete(TopicItem).where(TopicItem.topic_id == existing.id))
         await db.execute(delete(TopicSection).where(TopicSection.topic_id == existing.id))
@@ -595,7 +595,7 @@ async def rebuild_topic(
         (exam, "Notes", "notes", 3, "", {}, "", False, None),
     ]
     for item, label, tab_type, tab_order, content, config, renderer, recommended, resource in tab_rows:
-        db.add(TabContent(
+        tab = TabContent(
             topic_item_id=item.id,
             resource_id=resource.id if resource else None,
             label=label,
@@ -605,9 +605,12 @@ async def rebuild_topic(
             renderer_key=renderer,
             order=tab_order,
             status="published",
-            is_recommended=recommended,
             concept_slugs=tag_slugs,
-        ))
+        )
+        db.add(tab)
+        if recommended and item.primary_tab_content_id is None:
+            await db.flush()
+            item.primary_tab_content_id = tab.id
 
     exam_row = Exam(
         subject_id=subject.id,
@@ -747,7 +750,7 @@ async def seed_leaderboard(db: AsyncSession) -> None:
 
 
 async def seed_comments(db: AsyncSession, user: User, topics: list[Topic]) -> None:
-    await db.execute(delete(Comment).where(Comment.target_type == "topic_item"))
+    await db.execute(delete(Comment))
     peers = (await db.execute(select(User).where(User.email != DEMO_EMAIL).limit(4))).scalars().all()
     if not peers:
         return
@@ -761,10 +764,19 @@ async def seed_comments(db: AsyncSession, user: User, topics: list[Topic]) -> No
         ).scalars().first()
         if item is None:
             continue
+        comments_tab_id = (
+            await db.execute(
+                select(TabContent.id)
+                .where(TabContent.topic_item_id == item.id, TabContent.tab_type.in_(("comments", "discussion")))
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if comments_tab_id is None:
+            db.add(TabContent(topic_item_id=item.id, label="Discussion", tab_type="comments", order=99, status="published"))
         db.add_all([
-            Comment(user_id=peers[0].id, target_type="topic_item", target_id=item.id, body="This example finally made the method click for me.", created_at=now_utc() - timedelta(hours=3), updated_at=now_utc() - timedelta(hours=3)),
-            Comment(user_id=peers[1].id, target_type="topic_item", target_id=item.id, body="Can someone explain why the condition is checked before substituting?", created_at=now_utc() - timedelta(hours=2), updated_at=now_utc() - timedelta(hours=2)),
-            Comment(user_id=user.id, target_type="topic_item", target_id=item.id, body="For Bac correction, I would write the theorem first and then the numeric step.", created_at=now_utc() - timedelta(hours=1), updated_at=now_utc() - timedelta(hours=1)),
+            Comment(user_id=peers[0].id, topic_item_id=item.id, body="This example finally made the method click for me.", created_at=now_utc() - timedelta(hours=3), updated_at=now_utc() - timedelta(hours=3)),
+            Comment(user_id=peers[1].id, topic_item_id=item.id, body="Can someone explain why the condition is checked before substituting?", created_at=now_utc() - timedelta(hours=2), updated_at=now_utc() - timedelta(hours=2)),
+            Comment(user_id=user.id, topic_item_id=item.id, body="For Bac correction, I would write the theorem first and then the numeric step.", created_at=now_utc() - timedelta(hours=1), updated_at=now_utc() - timedelta(hours=1)),
         ])
 
 

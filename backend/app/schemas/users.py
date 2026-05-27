@@ -26,9 +26,7 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class TokenOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class AuthSessionOut(BaseModel):
     user: UserOut
 
 

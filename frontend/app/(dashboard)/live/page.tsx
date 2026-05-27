@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight, CalendarDays, Radio } from 'lucide-react'
 import { toast } from 'sonner'
-import { PermanentSidebar } from '@/components/figma'
 import { getKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
 import { listStudentLiveSessions, type StudentLiveSession } from '@/lib/professor'
 import { useAuthStore } from '@/lib/store'
@@ -44,9 +43,7 @@ export default function LivePage() {
   }, [loadLiveSessions, user?.id])
 
   return (
-    <main className="figma-container">
-      <div className="figma-dashboard-grid">
-        <section className="kresco-shell w-full max-w-[860px]">
+    <section className="kresco-shell w-full max-w-[860px]">
           <div className="mb-8">
             <p className="figma-eyebrow">Live</p>
             <h1 className="font-rounded text-[40px] font-bold leading-tight tracking-normal text-[#3f3f46]">Live sessions</h1>
@@ -103,11 +100,7 @@ export default function LivePage() {
               ))
             )}
           </div>
-        </section>
-
-        <PermanentSidebar />
-      </div>
-    </main>
+    </section>
   )
 }
 

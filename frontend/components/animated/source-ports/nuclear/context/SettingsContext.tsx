@@ -9,17 +9,20 @@ interface SettingsContextType {
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
+const EXAM_MODE_STORAGE_KEY = 'examMode';
 
 export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [examMode, setExamMode] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    const saved = localStorage.getItem('examMode');
-    return saved === 'true';
-  });
+  const [examMode, setExamMode] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('examMode', examMode.toString());
-  }, [examMode]);
+    setExamMode(localStorage.getItem(EXAM_MODE_STORAGE_KEY) === 'true');
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (isHydrated) localStorage.setItem(EXAM_MODE_STORAGE_KEY, examMode.toString());
+  }, [examMode, isHydrated]);
 
   const toggleExamMode = () => {
     setExamMode(prev => !prev);

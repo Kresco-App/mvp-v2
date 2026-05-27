@@ -172,7 +172,7 @@ def test_locked_legacy_lesson_payloads_are_redacted_or_forbidden(app_client, aut
 
 
 def test_quiz_result_awards_xp_once_and_uses_server_pass_score(app_client, auth_token, run_db):
-    token, _ = auth_token(email="quiz-result-xp@example.com", is_pro=True)
+    token, user_id = auth_token(email="quiz-result-xp@example.com", is_pro=True)
 
     async def _seed():
         session_factory = get_session_factory()
@@ -208,6 +208,13 @@ def test_quiz_result_awards_xp_once_and_uses_server_pass_score(app_client, auth_
             first_wrong = QuizOption(question_id=first_question.id, text="5", is_correct=False)
             second_correct = QuizOption(question_id=second_question.id, text="6", is_correct=True)
             db.add_all([first_correct, first_wrong, second_correct])
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
             await db.commit()
             return quiz.id, first_question.id, first_correct.id, first_wrong.id, second_question.id, second_correct.id
 
@@ -251,7 +258,7 @@ def test_quiz_result_awards_xp_once_and_uses_server_pass_score(app_client, auth_
 
 
 def test_progress_update_lesson_completion_uses_idempotent_xp_key(app_client, auth_token, run_db):
-    token, _ = auth_token(email="lesson-progress-idempotency@example.com", is_pro=True)
+    token, user_id = auth_token(email="lesson-progress-idempotency@example.com", is_pro=True)
 
     async def _seed():
         session_factory = get_session_factory()
@@ -264,6 +271,13 @@ def test_progress_update_lesson_completion_uses_idempotent_xp_key(app_client, au
             await db.flush()
             lesson = Lesson(chapter_id=chapter.id, title="Progress lesson", order=1, duration_seconds=100, is_free_preview=True)
             db.add(lesson)
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
             await db.commit()
             return lesson.id
 
@@ -318,6 +332,13 @@ def test_legacy_lesson_quiz_submit_awards_pass_and_perfect_xp_once(app_client, a
             await db.flush()
             option = QuizOption(question_id=question.id, text="4", is_correct=True)
             db.add(option)
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
             await db.commit()
             return lesson.id, quiz.id, question.id, option.id
 
@@ -363,6 +384,75 @@ def test_legacy_lesson_quiz_submit_awards_pass_and_perfect_xp_once(app_client, a
             assert len(result_rows) == 1
 
     run_db(_assert_xp())
+
+
+def test_legacy_lesson_quiz_submit_reuses_failed_result_row(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="legacy-quiz-submit-failed-idempotency@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Legacy Quiz Failed Attempts", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            chapter = Chapter(subject_id=subject.id, title="Chapter", description="", order=1)
+            db.add(chapter)
+            await db.flush()
+            lesson = Lesson(chapter_id=chapter.id, title="Failed quiz lesson", order=1, duration_seconds=600, is_free_preview=True)
+            db.add(lesson)
+            await db.flush()
+            quiz = Quiz(lesson_id=lesson.id, title="Failed checkpoint", pass_score=70)
+            db.add(quiz)
+            await db.flush()
+            question = QuizQuestion(quiz_id=quiz.id, text="2 + 2?", order=1)
+            db.add(question)
+            await db.flush()
+            correct = QuizOption(question_id=question.id, text="4", is_correct=True)
+            wrong = QuizOption(question_id=question.id, text="5", is_correct=False)
+            db.add_all([correct, wrong])
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
+            await db.commit()
+            return lesson.id, quiz.id, question.id, correct.id, wrong.id
+
+    lesson_id, quiz_id, question_id, correct_id, wrong_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+    wrong_payload = {"answers": {str(question_id): wrong_id}}
+    correct_payload = {"answers": {str(question_id): correct_id}}
+
+    first_failed = app_client.post(f"/api/quizzes/lessons/{lesson_id}/quiz/submit", headers=headers, json=wrong_payload)
+    duplicate_failed = app_client.post(f"/api/quizzes/lessons/{lesson_id}/quiz/submit", headers=headers, json=wrong_payload)
+    passed = app_client.post(f"/api/quizzes/lessons/{lesson_id}/quiz/submit", headers=headers, json=correct_payload)
+
+    assert first_failed.status_code == 200
+    assert first_failed.json()["passed"] is False
+    assert duplicate_failed.status_code == 200
+    assert duplicate_failed.json()["passed"] is False
+    assert passed.status_code == 200
+    assert passed.json()["passed"] is True
+    assert passed.json()["xp_earned"] == 35
+
+    async def _assert_single_result():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            result_rows = (
+                await db.execute(
+                    select(QuizResult).where(
+                        QuizResult.user_id == user_id,
+                        QuizResult.quiz_id == quiz_id,
+                    )
+                )
+            ).scalars().all()
+            assert len(result_rows) == 1
+            assert result_rows[0].passed is True
+            assert result_rows[0].score == 100
+
+    run_db(_assert_single_result())
 
 
 def test_topic_cards_report_pro_access_state(app_client, auth_token, run_db):
@@ -416,7 +506,7 @@ def test_topic_cards_report_pro_access_state(app_client, auth_token, run_db):
 
 
 def test_legacy_is_pro_user_with_basic_tier_gets_pro_access(app_client, auth_token, run_db):
-    token, _ = auth_token(email="legacy-pro-basic-tier@example.com", is_pro=True)
+    token, user_id = auth_token(email="legacy-pro-basic-tier@example.com", is_pro=True)
 
     async def _seed():
         session_factory = get_session_factory()
@@ -439,6 +529,13 @@ def test_legacy_is_pro_user_with_basic_tier_gets_pro_access(app_client, auth_tok
             db.add(section)
             await db.flush()
             db.add(TopicItem(topic_id=topic.id, section_id=section.id, title="Paid item", item_type="lesson_video", status="published"))
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
             await db.commit()
             return topic.id
 
@@ -659,7 +756,7 @@ def test_topic_workspace_requires_matching_subject_entitlement(app_client, auth_
     assert locked_body["sections"][0]["items"][0]["locked_reason"] == "subject_access_required"
 
 
-def test_expired_entitlement_rows_do_not_enforce_subject_scope(app_client, auth_token, run_db):
+def test_expired_entitlement_rows_leave_paid_user_without_subject_access(app_client, auth_token, run_db):
     token, user_id = auth_token(email="expired-entitlement-scope@example.com", is_pro=True)
 
     async def _seed():
@@ -710,8 +807,8 @@ def test_expired_entitlement_rows_do_not_enforce_subject_scope(app_client, auth_
     assert response.status_code == 200
     by_id = {item["id"]: item for item in response.json() if item["id"] in topic_ids}
     assert set(by_id) == set(topic_ids)
-    assert all(item["can_access"] is True for item in by_id.values())
-    assert all(item["access_reason"] == "unlocked" for item in by_id.values())
+    assert all(item["can_access"] is False for item in by_id.values())
+    assert all(item["locked_reason"] == "subject_access_required" for item in by_id.values())
 
 
 def test_exam_bank_reports_access_policy_and_searches_exam_metadata(app_client, auth_token, run_db):

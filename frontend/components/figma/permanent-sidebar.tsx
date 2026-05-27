@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import Image from 'next/image'
+import Link from 'next/link'
 import { Check, ChevronLeft, ChevronRight, Clock3, Trophy, Zap } from 'lucide-react'
 import api from '@/lib/axios'
 import {
@@ -283,7 +285,7 @@ export function CalendarCard({
       </div>
       <div className="mt-8 grid gap-2">
         {events.length > 0 ? events.slice(0, 2).map((event) => (
-          <a
+          <Link
             className="kresco-hover-lift grid min-h-[62px] grid-cols-[1fr_auto] items-center gap-3 rounded-lg bg-[#f4f4f5] px-3 text-left no-underline hover:bg-[#eef2ff]"
             href={event.href || liveHref}
             key={event.id}
@@ -293,7 +295,7 @@ export function CalendarCard({
               <span className="truncate text-[12px] font-semibold leading-[1.1] tracking-[0.18px] text-[#71717b]">{event.subject}</span>
             </span>
             <span className="whitespace-nowrap text-[12px] font-bold leading-none tracking-[0.18px] text-[#453dee]">{event.startsAt || event.starts_at}</span>
-          </a>
+          </Link>
         )) : (
           <div className="grid min-h-[132px] place-items-center rounded-lg bg-[#f4f4f5] px-4 text-center text-[13px] font-bold leading-[1.2] tracking-[0.18px] text-[#71717b]">
             No upcoming live sessions
@@ -411,14 +413,14 @@ export function LeaderboardPanel({
     <PermanentSidebarCard title={title} subtitle={subtitle} height={663}>
       <div className="mt-8 grid w-full gap-4">
         {entries.slice(0, 10).map((entry, index) => (
-          <a className="grid h-10 w-full grid-cols-[27px_40px_1fr] items-start gap-4 rounded-xl no-underline transition duration-150 hover:translate-x-0.5 hover:bg-[#f7f8fb]" href={entry.href || href} key={`${entry.user_id}-${entry.rank}-${index}`}>
+          <Link className="grid h-10 w-full grid-cols-[27px_40px_1fr] items-start gap-4 rounded-xl no-underline transition duration-150 hover:translate-x-0.5 hover:bg-[#f7f8fb]" href={entry.href || href} key={`${entry.user_id}-${entry.rank}-${index}`}>
             <RankMarker rank={entry.rank || index + 1} />
             <LeaderboardAvatar entry={entry} index={index} />
             <div className="grid min-w-0 gap-0.5">
               <strong className="truncate text-[16px] font-bold leading-[0.95] tracking-[0.24px] text-[#3f3f46]">{entry.full_name}</strong>
               <span className="whitespace-nowrap text-[14px] font-semibold leading-[1.1] tracking-[0.21px] text-[#71717b]">{entry.total_xp.toLocaleString()} point</span>
             </div>
-          </a>
+          </Link>
         ))}
       </div>
     </PermanentSidebarCard>
@@ -447,8 +449,7 @@ export function LeaderboardAvatar({ entry, index }: { entry: PermanentSidebarLea
 
   return (
     <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[12.727px] bg-[#e4e4e7]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="h-10 w-10 object-cover" src={src} alt="" referrerPolicy="no-referrer" />
+      <Image className="h-10 w-10 object-cover" src={src} alt="" width={40} height={40} unoptimized referrerPolicy="no-referrer" />
     </span>
   )
 }

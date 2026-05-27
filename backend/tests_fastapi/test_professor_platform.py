@@ -10,7 +10,7 @@ from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import Subject, Topic, TopicItem, TopicSection
 from app.models.professor import CourseOffering, LiveSession, ProgramTrack
-from app.models.users import User
+from app.models.users import User, UserSubjectEntitlement
 from app.services.auth import create_token
 
 
@@ -96,6 +96,13 @@ async def _seed_professor_platform(test_settings):
         )
         db.add_all([offering, second_offering, other_professor_offering])
         await db.flush()
+        db.add(UserSubjectEntitlement(
+            user_id=vip_student.id,
+            subject_id=subject.id,
+            starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+            source="test",
+            status="active",
+        ))
         topic = Topic(
             subject_id=subject.id,
             course_offering_id=offering.id,
@@ -598,7 +605,7 @@ def test_professor_live_session_generation_failure_does_not_create_session(app_c
 
     async def fake_create_live_stream(title, settings, *, chat_mode="anonymous"):
         del title, settings, chat_mode
-        raise HTTPException(status_code=502, detail="Failed to create VdoCipher live stream: upstream rejected chatMode")
+        raise HTTPException(status_code=502, detail="Failed to create VdoCipher live stream")
 
     monkeypatch.setattr(professor_router, "create_live_stream", fake_create_live_stream)
 
@@ -616,7 +623,7 @@ def test_professor_live_session_generation_failure_does_not_create_session(app_c
         headers={"Authorization": f"Bearer {seeded['professor_token']}"},
     )
     assert failed.status_code == 502
-    assert failed.json()["detail"] == "Failed to create VdoCipher live stream: upstream rejected chatMode"
+    assert failed.json()["detail"] == "Failed to create VdoCipher live stream"
 
     async def _live_count():
         session_factory = get_session_factory()
@@ -852,6 +859,8 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     assert created.status_code == 201
     conversation_id = created.json()["id"]
     assert created.json()["unread_for_professor"] == 1
+    assert "email" not in created.json()["professor"]
+    assert "email" not in created.json()["student"]
 
     duplicate = app_client.post(
         "/api/professor/student-chat/conversations",
@@ -873,8 +882,11 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     assert first_thread["last_message_sender_role"] == "student"
     assert first_thread["last_message_preview"] == "Can you explain the last step?"
     assert first_thread["unread_count"] == 0
+    assert "email" not in first_thread["professor"]
+    assert "email" not in first_thread["conversation"]["student"]
     assert other_professor_thread["conversation"] is None
     assert other_professor_thread["professor"]["full_name"] == "Pr Other"
+    assert "email" not in other_professor_thread["professor"]
 
     second_conversation = app_client.post(
         "/api/professor/student-chat/conversations",
@@ -883,6 +895,8 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     )
     assert second_conversation.status_code == 201
     assert second_conversation.json()["professor"]["full_name"] == "Pr Other"
+    assert "email" not in second_conversation.json()["professor"]
+    assert "email" not in second_conversation.json()["student"]
 
     reply = app_client.post(
         f"/api/professor/chat/conversations/{conversation_id}/messages",
@@ -979,6 +993,13 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
     assert invalid_image.status_code == 400
+
+    invalid_signature = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/images",
+        files={"file": ("work.png", b"<script>alert(1)</script>", "image/png")},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert invalid_signature.status_code == 400
 
     blocked_reply = app_client.post(
         f"/api/professor/chat/conversations/{conversation_id}/messages",

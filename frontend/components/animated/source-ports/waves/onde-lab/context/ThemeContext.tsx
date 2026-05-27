@@ -4,6 +4,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 type Theme = 'light' | 'dark';
+const DEFAULT_THEME: Theme = 'light';
+const THEME_STORAGE_KEY = 'theme';
 
 interface ThemeContextType {
     theme: Theme;
@@ -13,18 +15,25 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-    const [theme, setTheme] = useState<Theme>(() => {
-        if (typeof window === 'undefined') return 'light';
-        // Check localStorage first, then system preference
-        const stored = localStorage.getItem('theme') as Theme;
-        if (stored) return stored;
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    });
+    const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
+    const [isHydrated, setIsHydrated] = useState(false);
 
     useEffect(() => {
-        localStorage.setItem('theme', theme);
+        const stored = localStorage.getItem(THEME_STORAGE_KEY);
+        if (stored === 'light' || stored === 'dark') {
+            setTheme(stored);
+        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            setTheme('dark');
+        } else {
+            setTheme('light');
+        }
+        setIsHydrated(true);
+    }, []);
+
+    useEffect(() => {
         document.documentElement.classList.toggle('dark', theme === 'dark');
-    }, [theme]);
+        if (isHydrated) localStorage.setItem(THEME_STORAGE_KEY, theme);
+    }, [isHydrated, theme]);
 
     const toggleTheme = () => {
         setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -40,7 +49,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function useTheme() {
     const context = useContext(ThemeContext);
     if (!context) {
-        return { theme: 'light' as Theme, toggleTheme: () => undefined };
+        return { theme: DEFAULT_THEME, toggleTheme: () => undefined };
     }
     return context;
 }

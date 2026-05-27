@@ -41,6 +41,8 @@ export interface TopicItem {
   can_access?: boolean
   locked_reason?: string
   primary_resource?: Resource | null
+  primary_tab_content_id?: number | null
+  primary_tab?: TabContent | null
   tabs: TabContent[]
 }
 
@@ -69,7 +71,7 @@ export interface TopicWorkspace {
   access_reason?: string
 }
 
-export type WorkspaceTabSlot = 'course' | 'lab' | 'quiz' | 'resources' | 'notes'
+export type WorkspaceTabSlot = 'course' | 'lab' | 'quiz' | 'resources' | 'notes' | 'comments'
 
 export type WorkspaceTabSlotSpec = {
   id: WorkspaceTabSlot
@@ -119,6 +121,7 @@ export const workspaceTabSlotSpecs: WorkspaceTabSlotSpec[] = [
   { id: 'quiz', label: 'Quiz', tabTypes: ['quiz', 'checkpoint_quiz', 'questions'] },
   { id: 'resources', label: 'Resources', tabTypes: ['resources', 'resource', 'pdf', 'attachment', 'worksheet'] },
   { id: 'notes', label: 'Notes', tabTypes: ['notes'] },
+  { id: 'comments', label: 'Comments', tabTypes: ['comments', 'discussion'] },
 ]
 
 const animatedTabTypes = new Set([
@@ -159,10 +162,26 @@ export function escapeHtml(value: string) {
   }[char] ?? char))
 }
 
-export function youtubeVideoId(item: TopicItem) {
-  const raw = item.primary_resource?.provider_resource_id || item.primary_resource?.url || ''
+export function resourceVideoId(resource?: Resource | null) {
+  const raw = resource?.provider_resource_id || resource?.url || ''
   const match = raw.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{6,})/) || raw.match(/^[A-Za-z0-9_-]{6,}$/)
   return match?.[1] || match?.[0] || null
+}
+
+export function youtubeVideoId(item: TopicItem) {
+  return resourceVideoId(item.primary_resource)
+}
+
+export function youtubeVideoIdForTab(tab: TabContent | null | undefined, item: TopicItem) {
+  if (!tab) return null
+  const tabVideoId = resourceVideoId(tab.resource)
+  if (tabVideoId) return tabVideoId
+  const type = tab.tab_type.toLowerCase()
+  const rendererKey = normalizeRendererKey(tab.renderer_key).toLowerCase()
+  if (type === 'video' || rendererKey === 'youtube_embed' || rendererKey === 'video') {
+    return resourceVideoId(item.primary_resource)
+  }
+  return null
 }
 
 export function youtubeSrcDoc(item: TopicItem, videoId: string) {
@@ -311,6 +330,24 @@ export function tabMatchesSlot(tab: TabContent, slot: WorkspaceTabSlot) {
   return spec.tabTypes.some((candidate) => type === candidate || label.includes(candidate))
 }
 
+export function isCommentsTab(tab: TabContent) {
+  return tabMatchesSlot(tab, 'comments')
+}
+
+export function resolvePrimaryTab(item: TopicItem): TabContent | null {
+  const tabs = item.tabs ?? []
+  if (item.primary_tab && !item.primary_tab.is_missing) return item.primary_tab
+  if (item.primary_tab_content_id) {
+    const explicit = tabs.find((tab) => tab.id === item.primary_tab_content_id)
+    if (explicit) return explicit
+  }
+  if (item.primary_resource?.id) {
+    const resourceTab = tabs.find((tab) => tab.resource?.id === item.primary_resource?.id)
+    if (resourceTab) return resourceTab
+  }
+  return tabs.find((tab) => !isCommentsTab(tab)) ?? null
+}
+
 export function fallbackTabForSlot(slot: WorkspaceTabSlot, item: TopicItem): TabContent {
   const base = workspaceTabSlotSpecs.find((entry) => entry.id === slot)!
   const fallback: TabContent = {
@@ -367,11 +404,34 @@ export function fallbackTabForSlot(slot: WorkspaceTabSlot, item: TopicItem): Tab
     }
   }
 
+  if (slot === 'comments') {
+    return {
+      ...fallback,
+      tab_type: 'comments',
+      is_missing: true,
+      empty_title: 'Comments unavailable',
+      empty_message: 'Comments are not enabled for this item.',
+    }
+  }
+
   return fallback
 }
 
 export function resolveTabForSlot(tabs: TabContent[] = [], slot: WorkspaceTabSlot, item: TopicItem) {
   return tabs.find((tab) => tabMatchesSlot(tab, slot)) || fallbackTabForSlot(slot, item)
+}
+
+export function secondaryTabSlotSpecsForItem(item: TopicItem, primaryTab: TabContent | null = resolvePrimaryTab(item)) {
+  const primarySlot = primaryTab ? workspaceTabSlotForTab(primaryTab) : null
+  return workspaceTabSlotSpecs.filter((slot) => {
+    if (slot.id === 'comments') return item.tabs.some((tab) => tabMatchesSlot(tab, 'comments'))
+    return slot.id !== primarySlot
+  })
+}
+
+export function defaultSecondaryTabSlotForItem(item: TopicItem, primaryTab: TabContent | null = resolvePrimaryTab(item)) {
+  const slots = secondaryTabSlotSpecsForItem(item, primaryTab)
+  return slots.find((slot) => item.tabs.some((tab) => tabMatchesSlot(tab, slot.id)))?.id ?? slots[0]?.id ?? 'course'
 }
 
 export function tabConfig(tab: TabContent): Record<string, any> {
@@ -403,10 +463,13 @@ export function resolveTabSlotForTopicWorkspaceQuery(
   query: TopicWorkspaceQueryTargets,
 ): WorkspaceTabSlot {
   const targetTab = findTabForQueryTarget(item, query)
-  if (targetTab) return workspaceTabSlotForTab(targetTab) ?? 'course'
-  if (query.resourceId && item.primary_resource?.id === query.resourceId) return 'resources'
+  if (targetTab) {
+    const targetSlot = workspaceTabSlotForTab(targetTab)
+    if (targetSlot && targetTab.id !== resolvePrimaryTab(item)?.id) return targetSlot
+  }
+  if (query.resourceId && item.primary_resource?.id === query.resourceId) return defaultSecondaryTabSlotForItem(item)
   if ((query.quizId || query.questionId) && item.tabs.some((tab) => tabMatchesSlot(tab, 'quiz'))) return 'quiz'
-  return 'course'
+  return defaultSecondaryTabSlotForItem(item)
 }
 
 export function normalizeRendererKey(value?: string | null) {

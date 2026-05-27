@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildWatchChapterSections,
-  buildWatchCommentsParams,
   buildWatchSectionCompletePayload,
   buildWatchTabs,
   canUseWatchLab,
@@ -66,9 +65,8 @@ describe('watch view model', () => {
     expect(buildWatchChapterSections([chapter])[3]).toEqual([videoSection, quizSection])
   })
 
-  it('centralizes notes, comments, and completion payloads', () => {
+  it('centralizes notes and completion payloads', () => {
     expect(getWatchNotesKey('12')).toBe('kresco_notes_12')
-    expect(buildWatchCommentsParams(12)).toEqual({ content_type: 'section', object_id: '12' })
     expect(buildWatchSectionCompletePayload('12', { score: 80, correct_answers: 4, total_questions: 5 })).toEqual({
       section_id: 12,
       score: 80,
@@ -81,7 +79,7 @@ describe('watch view model', () => {
     expect(canUseWatchLab(videoSection)).toBe(true)
     expect(shouldLoadWatchPdfs(videoSection)).toBe(true)
     expect(normalizeWatchTab('lab', quizSection)).toBe('overview')
-    expect(buildWatchTabs(videoSection, 2).map((tab) => tab.id)).toEqual(['overview', 'lab', 'notes', 'support', 'comments'])
+    expect(buildWatchTabs(videoSection).map((tab) => tab.id)).toEqual(['overview', 'lab', 'notes', 'support'])
     expect(getWatchSectionProgressLabel(chapter.sections, quizSection.id)).toBe('Section 2/2')
     expect(getWatchSectionProgressLabel(chapter.sections, 999)).toBe('')
   })

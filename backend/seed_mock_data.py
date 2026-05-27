@@ -51,7 +51,6 @@ from app.models.users import User
 from app.models.courses import Subject, Chapter, ChapterSection, Lesson, ChapterBlock, Activity, CoursePDF
 from app.models.quizzes import Quiz, QuizQuestion, QuizOption
 from app.models.gamification import UserXP, XPTransaction, LessonProgress, ContentProgress, DailyQuest, QuizResult
-from app.models.interactions import Comment
 
 SUBJECTS_DATA = [
     {
@@ -376,24 +375,10 @@ async def seed_all(db: AsyncSession):
     await db.flush()
     print(f"  ✅ Progress data created")
 
-    # 5. Comments
-    print("💬 Creating comments...")
-    comment_texts = [
-        "Très bien expliqué, merci!", "J'ai pas compris la partie sur les limites...",
-        "Est-ce que c'est au programme du national?", "Quelqu'un peut m'expliquer l'exercice 3?",
-        "Excellent cours, continuez comme ça!", "La qualité vidéo est top 👌",
-        "Peut-on avoir plus d'exercices corrigés?", "Merci prof, c'est clair maintenant!",
-        "Je recommande ce cours à tous les bacheliers", "Le quiz était difficile mais instructif",
-    ]
-    for _ in range(25):
-        user = random.choice(user_objects)
-        sec = random.choice(all_sections[:20])
-        db.add(Comment(
-            user_id=user.id, target_type="section", target_id=sec.id,
-            body=random.choice(comment_texts),
-        ))
+    # 5. Comments are now attached only to topic items. This legacy section
+    # seed intentionally stays empty instead of writing orphan-prone rows.
     await db.flush()
-    print(f"  ✅ 25 comments created")
+    print("  ✅ Legacy section comments skipped")
 
     # 6. Daily quests for today
     print("🎯 Creating daily quests...")

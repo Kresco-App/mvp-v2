@@ -1,3 +1,4 @@
+import asyncio
 import stripe
 from dataclasses import dataclass
 
@@ -27,6 +28,10 @@ def _stripe_client(settings: Settings) -> stripe.StripeClient:
     return stripe.StripeClient(settings.stripe_sk)
 
 
+async def _call_stripe(func, *args, **kwargs):
+    return await asyncio.to_thread(func, *args, **kwargs)
+
+
 def _require_checkout_config(settings: Settings) -> None:
     if not settings.stripe_sk.strip() or not settings.stripe_product_id.strip():
         raise HTTPException(status_code=503, detail=MISSING_CHECKOUT_CONFIG_DETAIL)
@@ -46,13 +51,15 @@ async def create_checkout_session(user: User, plan: str, settings: Settings) -> 
     # Ensure stripe customer exists
     customer_id = user.stripe_customer_id or None
     if not customer_id:
-        customer = client.v1.customers.create(
+        customer = await _call_stripe(
+            client.v1.customers.create,
             params={"email": user.email, "name": user.full_name, "metadata": {"user_id": str(user.id)}}
         )
         customer_id = customer.id
         user.stripe_customer_id = customer_id
 
-    session = client.v1.checkout.sessions.create(
+    session = await _call_stripe(
+        client.v1.checkout.sessions.create,
         params={
             "customer": customer_id,
             "payment_method_types": ["card"],
@@ -82,7 +89,7 @@ async def create_checkout_session(user: User, plan: str, settings: Settings) -> 
 async def verify_checkout_session(session_id: str, settings: Settings) -> CheckoutSessionVerification:
     client = _stripe_client(settings)
     try:
-        session = client.v1.checkout.sessions.retrieve(session_id)
+        session = await _call_stripe(client.v1.checkout.sessions.retrieve, session_id)
         metadata = getattr(session, "metadata", {}) or {}
         raw_user_id = metadata.get("user_id") if isinstance(metadata, dict) else getattr(metadata, "user_id", None)
         try:
@@ -96,3 +103,18 @@ async def verify_checkout_session(session_id: str, settings: Settings) -> Checko
         )
     except stripe.StripeError:
         return CheckoutSessionVerification(is_paid=False)
+
+
+async def customer_id_for_charge(charge_id: str | None, settings: Settings) -> str:
+    normalized_charge_id = str(charge_id or "").strip()
+    if not normalized_charge_id or not settings.stripe_sk.strip():
+        return ""
+
+    client = _stripe_client(settings)
+    try:
+        charge = await _call_stripe(client.v1.charges.retrieve, normalized_charge_id)
+    except stripe.StripeError:
+        return ""
+
+    customer_id = getattr(charge, "customer", "") or ""
+    return str(customer_id)

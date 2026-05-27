@@ -14,24 +14,20 @@ import {
   FileText,
   FlaskConical,
   HelpCircle,
-  MessageSquare,
   Play,
   Puzzle,
   Save,
-  Send,
   StickyNote,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import api from '@/lib/axios'
-import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import AuthGuard from '@/components/AuthGuard'
 import { sanitizeHtml } from '@/lib/sanitizeHtml'
 import { triggerMascot } from '@/lib/mascotEvents'
 import {
   buildWatchChapterSections,
-  buildWatchCommentsParams,
   buildWatchSectionCompletePayload,
   buildWatchTabs,
   getCurrentWatchChapter,
@@ -82,7 +78,6 @@ const watchTabIcons: Record<WatchTab, LucideIcon> = {
   lab: FlaskConical,
   notes: StickyNote,
   support: FileText,
-  comments: MessageSquare,
 }
 
 function WatchPaneLoading({ label }: { label: string }) {
@@ -97,7 +92,6 @@ export default function WatchPage() {
   const { lessonId } = useParams<{ lessonId: string }>()
   const sectionId = lessonId
   const router = useRouter()
-  const { user } = useAuthStore()
 
   const [section, setSection] = useState<WatchSection | null>(null)
   const [allSections, setAllSections] = useState<WatchSection[]>([])
@@ -107,9 +101,6 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<WatchTab>('overview')
   const [isCompleted, setIsCompleted] = useState(false)
-  const [comments, setComments] = useState<any[]>([])
-  const [newComment, setNewComment] = useState('')
-  const [postingComment, setPostingComment] = useState(false)
   const [notes, setNotes] = useState('')
   const [notesSaved, setNotesSaved] = useState(true)
   const [pdfs, setPdfs] = useState<{ id: number; title: string; file_url: string; order: number }[]>([])
@@ -172,14 +163,6 @@ export default function WatchPage() {
           setPdfs([])
         }
 
-        try {
-          const commentsRes = await api.get('/interactions/comments', {
-            params: buildWatchCommentsParams(sectionId),
-          })
-          setComments(commentsRes.data)
-        } catch {
-          setComments([])
-        }
       } catch {
         toast.error('Erreur de chargement.')
         router.push('/home')
@@ -245,26 +228,6 @@ export default function WatchPage() {
     }
   }
 
-  async function postComment() {
-    if (!newComment.trim()) return
-
-    setPostingComment(true)
-    try {
-      const { data } = await api.post('/interactions/comments', {
-        body: newComment.trim(),
-        content_type: 'section',
-        object_id: getWatchSectionId(sectionId),
-      })
-      setComments((prev) => [...prev, data])
-      setNewComment('')
-      toast.success('Commentaire publie !')
-    } catch {
-      toast.error('Erreur lors de la publication.')
-    } finally {
-      setPostingComment(false)
-    }
-  }
-
   const sectionProgress = getWatchSectionProgressLabel(allSections, sectionId)
 
   if (loading) {
@@ -282,7 +245,7 @@ export default function WatchPage() {
 
   if (!section || !chapterInfo) return null
 
-  const tabs = buildWatchTabs(section, comments.length).map((tab) => ({
+  const tabs = buildWatchTabs(section).map((tab) => ({
     ...tab,
     icon: watchTabIcons[tab.id],
   }))
@@ -563,79 +526,6 @@ export default function WatchPage() {
                 </div>
               )}
 
-              {activeTab === 'comments' && (
-                <div className="space-y-4">
-                  <div className="flex gap-3">
-                    {user?.avatar_url ? (
-                      <img
-                        src={user.avatar_url}
-                        alt=""
-                        className="w-8 h-8 rounded-full object-cover flex-shrink-0 mt-1"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-indigo-900 flex items-center justify-center flex-shrink-0 mt-1">
-                        <span className="text-indigo-300 text-xs font-bold">{user?.full_name?.[0]}</span>
-                      </div>
-                    )}
-
-                    <div className="flex-1">
-                      <textarea
-                        aria-label="Commentaire"
-                        value={newComment}
-                        onChange={(event) => setNewComment(event.target.value)}
-                        placeholder="Posez une question ou partagez vos reflexions..."
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                        rows={3}
-                      />
-                      <div className="flex justify-end mt-2">
-                        <button type="button"
-                          onClick={postComment}
-                          disabled={postingComment || !newComment.trim()}
-                          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
-                        >
-                          <Send size={14} />
-                          Publier
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {comments.length === 0 ? (
-                    <div className="text-center py-12">
-                      <MessageSquare size={28} className="text-slate-300 mx-auto mb-3" />
-                      <p className="text-slate-500 text-sm">Pas encore de discussion. Lancez la conversation !</p>
-                    </div>
-                  ) : (
-                    comments.map((comment) => (
-                      <div key={comment.id} className="flex gap-3">
-                        {comment.author.avatar_url ? (
-                          <img
-                            src={comment.author.avatar_url}
-                            alt=""
-                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0">
-                            <span className="text-slate-400 text-xs font-bold">{comment.author.full_name?.[0]}</span>
-                          </div>
-                        )}
-
-                        <div className="flex-1 bg-slate-900 rounded-xl p-4">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-white text-sm font-semibold">{comment.author.full_name}</span>
-                            <span className="text-slate-400 text-xs">
-                              {new Date(comment.created_at).toLocaleDateString('fr-FR')}
-                            </span>
-                          </div>
-                          <p className="text-slate-300 text-sm leading-relaxed">{comment.body}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
             </div>
           </div>
 

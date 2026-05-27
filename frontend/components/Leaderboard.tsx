@@ -31,6 +31,14 @@ interface LeaderboardEntry {
   zone?: Zone
 }
 
+type LeaderboardVisibleRow = {
+  entry: LeaderboardEntry
+  key: string
+  showPromotionDivider: boolean
+  showDemotionDivider: boolean
+  isLast: boolean
+}
+
 function enrichEntry(entry: LeaderboardEntry): LeaderboardEntry {
   const leagueKey = rankToLeagueKey(entry.rank)
   const league = getLeagueInfoByKey(leagueKey)
@@ -170,6 +178,16 @@ export function LeaderboardPage() {
     () => (currentLeague ? getMajorLeagueStrip(currentLeague.key) : []),
     [currentLeague],
   )
+  const visibleRows = useMemo<LeaderboardVisibleRow[]>(
+    () => visibleEntries.map((entry, idx) => ({
+      entry,
+      key: `${entry.user_id}-${entry.rank}`,
+      showPromotionDivider: entry.divisionLocalRank === getPromotionCutoff() + 1,
+      showDemotionDivider: entry.divisionLocalRank === getDemotionStartRank(),
+      isLast: idx >= visibleEntries.length - 1,
+    })),
+    [visibleEntries],
+  )
 
   if (loading && lastNonEmptyEntries.length === 0) {
     return <LeaderboardPageSkeleton />
@@ -242,12 +260,12 @@ export function LeaderboardPage() {
                     Filtre instantané actif pour &quot;{searchInput}&quot;.
                   </div>
                 )}
-                {visibleEntries.map((entry, idx) => (
-                  <div key={`${entry.user_id}-${entry.rank}`}>
-                    {entry.divisionLocalRank === getPromotionCutoff() + 1 && (
+                {visibleRows.map(({ entry, key, showPromotionDivider, showDemotionDivider, isLast }) => (
+                  <div key={key}>
+                    {showPromotionDivider && (
                       <ZoneDivider zone="promotion" />
                     )}
-                    {entry.divisionLocalRank === getDemotionStartRank() && (
+                    {showDemotionDivider && (
                       <ZoneDivider zone="demotion" />
                     )}
                     <div
@@ -257,7 +275,7 @@ export function LeaderboardPage() {
                         gap: 14,
                         padding: '12px 20px',
                         background: entry.is_current_user ? 'var(--primary-soft)' : 'transparent',
-                        borderBottom: idx < visibleEntries.length - 1 ? '1px solid var(--border)' : 'none',
+                        borderBottom: !isLast ? '1px solid var(--border)' : 'none',
                         borderLeft: entry.is_current_user ? '3px solid var(--primary)' : '3px solid transparent',
                       }}
                     >
@@ -436,9 +454,12 @@ function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
 function AvatarBubble({ entry, small = false }: { entry: LeaderboardEntry; small?: boolean }) {
   const size = small ? 28 : 36
   return entry.avatar_url ? (
-    <img
+    <Image
       src={entry.avatar_url}
       alt=""
+      width={size}
+      height={size}
+      unoptimized
       referrerPolicy="no-referrer"
       style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
     />

@@ -1,5 +1,5 @@
 export type WatchSectionType = 'video' | 'quiz' | 'activity' | 'text'
-export type WatchTab = 'overview' | 'comments' | 'notes' | 'support' | 'lab'
+export type WatchTab = 'overview' | 'notes' | 'support' | 'lab'
 
 export interface WatchSection {
   id: number
@@ -100,13 +100,12 @@ export function normalizeWatchTab(tab: WatchTab, section?: WatchSection | null):
   return tab
 }
 
-export function buildWatchTabs(section: WatchSection, commentsCount: number): WatchTabDescriptor[] {
+export function buildWatchTabs(section: WatchSection): WatchTabDescriptor[] {
   return [
     { id: 'overview', label: 'Apercu' },
     ...(canUseWatchLab(section) ? [{ id: 'lab' as WatchTab, label: 'Lab' }] : []),
     { id: 'notes', label: 'Mes notes' },
     ...(canUseWatchSupport(section) ? [{ id: 'support' as WatchTab, label: 'Support du cours' }] : []),
-    { id: 'comments', label: `Discussion (${commentsCount})` },
   ]
 }
 
@@ -132,13 +131,6 @@ export function getNextWatchDestination(section: WatchSection | null, sections: 
 
 export function shouldLoadWatchPdfs(section?: WatchSection | null) {
   return section?.section_type === 'video'
-}
-
-export function buildWatchCommentsParams(sectionId: string | number) {
-  return {
-    content_type: 'section',
-    object_id: String(sectionId),
-  }
 }
 
 export function buildWatchSectionCompletePayload(sectionId: string | number, opts?: WatchCompletionOptions) {

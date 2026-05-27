@@ -8,7 +8,7 @@ import { ArrowLeft, BookOpen, ClipboardCheck, Play } from 'lucide-react'
 import api from '@/lib/axios'
 import { buildSubjectProgressSummary, fetchSubjectPlan, type SubjectProgressSummary } from '@/lib/subjectProgress'
 import { useAuthStore } from '@/lib/store'
-import { FigmaSubjectCourseCard, PermanentSidebar, type FigmaSubjectCourseCardState } from '@/components/figma'
+import { FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
 import { FigmaSubjectDetailSkeleton } from '@/components/figma/skeletons'
 
 interface Section {
@@ -136,9 +136,7 @@ export default function SubjectDetailPage() {
   const activeChapterId = subject.chapters.find((chapter) => (chapterSections[chapter.id] || []).some((section) => section.id === nextSection?.id))?.id
 
   return (
-    <div className="figma-container">
-      <div className="figma-dashboard-grid">
-        <main className="w-full">
+    <main className="w-full">
           <div className="mb-4 flex items-center gap-2">
             <Link href="/home" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#9f9fa9] no-underline">
               <ArrowLeft size={13} />
@@ -224,11 +222,7 @@ export default function SubjectDetailPage() {
               Passer l&apos;examen blanc final
             </Link>
           </section>
-        </main>
-
-        <PermanentSidebar />
-      </div>
-    </div>
+    </main>
   )
 }
 

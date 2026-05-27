@@ -77,8 +77,8 @@ class XPTransaction(Base):
     amount: Mapped[int] = mapped_column(Integer)
     reason: Mapped[str] = mapped_column(String(50))
     description: Mapped[str] = mapped_column(String(200), default="")
-    subject_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
     topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     question_set_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -142,7 +142,7 @@ class ActivityEvent(Base):
     event_type: Mapped[str] = mapped_column(String(60))
     target_type: Mapped[str] = mapped_column(String(40))
     target_id: Mapped[int] = mapped_column(Integer)
-    topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -160,7 +160,7 @@ class TopicItemProgress(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    topic_id: Mapped[int] = mapped_column(Integer)
+    topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"))
     topic_item_id: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="started")
     watched_seconds: Mapped[int] = mapped_column(Integer, default=0)
@@ -179,6 +179,7 @@ class QuizAttempt(Base):
     __table_args__ = (
         Index("ix_quiz_attempts_user_tab_created", "user_id", "tab_content_id", "created_at"),
         Index("ix_quiz_attempts_user_set_created", "user_id", "question_set_id", "created_at"),
+        Index("ix_quiz_attempts_user_set_submission", "user_id", "question_set_id", "submission_hash", unique=True),
         Index("ix_quiz_attempts_subject_topic", "subject_id", "topic_id"),
         Index("ix_quiz_attempts_passed", "passed"),
     )
@@ -186,12 +187,13 @@ class QuizAttempt(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     question_set_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("question_sets.id", ondelete="SET NULL"), nullable=True)
-    subject_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
     topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     source_type: Mapped[str] = mapped_column(String(40), default="tab")
+    submission_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     score: Mapped[int] = mapped_column(Integer)
     passed: Mapped[bool] = mapped_column(Boolean, default=False)
     answers: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -220,8 +222,8 @@ class QuestionAttempt(Base):
     quiz_attempt_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quiz_attempts.id", ondelete="CASCADE"))
     question_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("questions.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    subject_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
     topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

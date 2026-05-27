@@ -8,7 +8,7 @@ const DEFAULT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
 const BASE64URL_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 
 export type StoredAuthSession = {
-  token: string | null
+  token: typeof KRESCO_COOKIE_SESSION | null
   user: Record<string, unknown> | null
 }
 

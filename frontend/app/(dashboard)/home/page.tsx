@@ -4,10 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import api from '@/lib/axios'
 import { useAuthStore } from '@/lib/store'
-import {
-  FigmaHomeMain,
-  PermanentSidebar,
-} from '@/components/figma'
+import { FigmaHomeMain } from '@/components/figma'
 import {
   toHomeContinueTopics,
   toHomeSubjectShortcuts,
@@ -65,19 +62,11 @@ export default function HomePage() {
   const subjectShortcuts = useMemo(() => toHomeSubjectShortcuts(subjects), [subjects])
 
   return (
-    <div className="figma-home-container">
-      <div className="figma-home-grid">
-        <main>
-          <FigmaHomeMain
-            firstName={firstName}
-            subjects={subjectShortcuts}
-            continueTopics={continueTopics}
-            loading={loading}
-          />
-        </main>
-
-        <PermanentSidebar />
-      </div>
-    </div>
+    <FigmaHomeMain
+      firstName={firstName}
+      subjects={subjectShortcuts}
+      continueTopics={continueTopics}
+      loading={loading}
+    />
   )
 }

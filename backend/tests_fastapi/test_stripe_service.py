@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from app.models.users import User
 from app.services import stripe_service
-from app.services.stripe_service import create_checkout_session, verify_checkout_session
+from app.services.stripe_service import create_checkout_session, customer_id_for_charge, verify_checkout_session
 
 
 class FakeCustomers:
@@ -36,11 +36,25 @@ class FakeSessions:
         return SimpleNamespace(id=session_id, payment_status=self.payment_status, metadata=self.metadata, customer=self.customer)
 
 
+class FakeCharges:
+    def __init__(self, customer="cus_charge", retrieve_error=None):
+        self.customer = customer
+        self.retrieve_error = retrieve_error
+        self.retrieved_charge_id = None
+
+    def retrieve(self, charge_id):
+        self.retrieved_charge_id = charge_id
+        if self.retrieve_error:
+            raise self.retrieve_error
+        return SimpleNamespace(id=charge_id, customer=self.customer)
+
+
 class FakeStripeClient:
-    def __init__(self, sessions=None):
+    def __init__(self, sessions=None, charges=None):
         self.v1 = SimpleNamespace(
             customers=FakeCustomers(),
             checkout=SimpleNamespace(sessions=sessions or FakeSessions()),
+            charges=charges or FakeCharges(),
         )
 
 
@@ -152,3 +166,15 @@ def test_verify_checkout_session_returns_false_on_stripe_error(monkeypatch, test
     verification = asyncio.run(verify_checkout_session("cs_test", test_settings))
     assert verification.is_paid is False
     assert verification.user_id is None
+
+
+def test_customer_id_for_charge_retrieves_charge_customer(monkeypatch, test_settings):
+    charges = FakeCharges(customer="cus_from_charge")
+    client = FakeStripeClient(charges=charges)
+    monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
+    settings = test_settings.model_copy(update={"stripe_sk": "sk_test"})
+
+    customer_id = asyncio.run(customer_id_for_charge("ch_test", settings))
+
+    assert customer_id == "cus_from_charge"
+    assert charges.retrieved_charge_id == "ch_test"

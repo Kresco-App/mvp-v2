@@ -417,14 +417,12 @@ const professorConversations = [
     professor: {
       id: smokeProfessor.id,
       full_name: smokeProfessor.full_name,
-      email: smokeProfessor.email,
       avatar_url: '',
       tier: 'basic',
     },
     student: {
       id: smokeUser.id,
       full_name: 'Sara Benali',
-      email: 'vip@student.example.com',
       avatar_url: '',
       tier: 'vip',
     },
@@ -447,14 +445,12 @@ const professorConversations = [
     professor: {
       id: smokeProfessor.id,
       full_name: smokeProfessor.full_name,
-      email: smokeProfessor.email,
       avatar_url: '',
       tier: 'basic',
     },
     student: {
       id: 33,
       full_name: 'Youssef El Idrissi',
-      email: 'platinum@student.example.com',
       avatar_url: '',
       tier: 'platinum',
     },
@@ -530,7 +526,6 @@ const studentProfessorChat = {
       professor: {
         id: smokePhysicsProfessor.id,
         full_name: smokePhysicsProfessor.full_name,
-        email: smokePhysicsProfessor.email,
         avatar_url: '',
         tier: 'basic',
       },
@@ -901,7 +896,7 @@ test('topic workspace and watch routes hydrate with mocked course data', async (
   await page.goto('/watch/101')
   await expect(page.getByRole('heading', { name: 'Mock limits video' })).toBeVisible()
   await expect(page.getByText('Lecteur video de demo')).toBeVisible()
-  await expect(page.getByRole('button', { name: /Discussion \(0\)/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Mes notes/i })).toBeVisible()
 
   browserErrors.assertClean()
 })

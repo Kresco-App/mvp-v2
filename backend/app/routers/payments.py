@@ -15,10 +15,15 @@ from app.services.payment_entitlements import (
     revoke_paid_access_by_customer_id,
     stripe_metadata_user_id,
 )
-from app.services.stripe_service import create_checkout_session, verify_checkout_session
+from app.services.stripe_service import create_checkout_session, customer_id_for_charge, verify_checkout_session
 
 router = APIRouter(tags=["Payments"])
 logger = logging.getLogger("kresco.payments")
+
+
+def _event_value(data, key: str, default: str = "") -> str:
+    value = data.get(key, default) if hasattr(data, "get") else getattr(data, key, default)
+    return str(value or "").strip()
 
 
 @router.post("/create-checkout-session", response_model=CheckoutOut)
@@ -80,6 +85,21 @@ async def stripe_webhook(
         await apply_paid_checkout_by_user_id(db, user_id, customer_id=data.get("customer", ""))
 
     elif event_type in ("customer.subscription.deleted", "invoice.payment_failed"):
-        await revoke_paid_access_by_customer_id(db, customer_id=data.get("customer", ""))
+        await revoke_paid_access_by_customer_id(db, customer_id=_event_value(data, "customer"))
+
+    elif event_type == "charge.refunded":
+        await revoke_paid_access_by_customer_id(db, customer_id=_event_value(data, "customer"))
+
+    elif event_type == "charge.dispute.created":
+        customer_id = _event_value(data, "customer")
+        charge_id = _event_value(data, "charge")
+        if not customer_id:
+            customer_id = await customer_id_for_charge(charge_id, settings)
+        if not customer_id:
+            logger.warning("stripe_dispute_created_missing_customer")
+            if charge_id:
+                raise HTTPException(status_code=502, detail="Could not resolve disputed Stripe customer")
+            return {"received": True}
+        await revoke_paid_access_by_customer_id(db, customer_id=customer_id)
 
     return {"received": True}

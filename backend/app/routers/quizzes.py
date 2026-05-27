@@ -57,56 +57,75 @@ async def submit_quiz(
         raise HTTPException(status_code=404, detail="Quiz not found for this lesson")
     await _ensure_lesson_quiz_access(db, user, lesson_id)
 
+    user_id = user.id
+    quiz_id = quiz.id
     scored = score_quiz_answers(quiz, body.answers)
-    already_passed = await db.scalar(
-        select(QuizResult.id)
+    score_payload = {
+        "score": scored.score,
+        "passed": scored.passed,
+        "correct": scored.correct,
+        "total": scored.total,
+    }
+    pass_score = quiz.pass_score
+    subject_id = quiz.lesson.chapter.subject_id if quiz.lesson and quiz.lesson.chapter else None
+    await db.execute(select(User.id).where(User.id == user_id).with_for_update())
+    existing_result = await db.scalar(
+        select(QuizResult)
         .where(
-            QuizResult.user_id == user.id,
-            QuizResult.quiz_id == quiz.id,
-            QuizResult.passed == True,  # noqa: E712
+            QuizResult.user_id == user_id,
+            QuizResult.quiz_id == quiz_id,
         )
+        .order_by(QuizResult.passed.desc(), QuizResult.score.desc(), QuizResult.id.asc())
         .limit(1)
+        .with_for_update()
     )
 
-    if already_passed is not None:
+    if existing_result is not None and existing_result.passed:
+        await db.rollback()
         return QuizResultOut(
-            score=scored.score,
-            passed=scored.passed,
-            correct=scored.correct,
-            total=scored.total,
-            pass_score=quiz.pass_score,
+            **score_payload,
+            pass_score=pass_score,
             xp_earned=0,
         )
 
-    quiz_result = QuizResult(user_id=user.id, quiz_id=quiz.id, score=scored.score, passed=scored.passed)
-    db.add(quiz_result)
+    should_commit = False
+    if existing_result is None:
+        db.add(QuizResult(user_id=user_id, quiz_id=quiz_id, score=scored.score, passed=scored.passed))
+        should_commit = True
+    elif scored.passed or scored.score > existing_result.score:
+        existing_result.score = scored.score
+        existing_result.passed = scored.passed
+        should_commit = True
 
     xp_earned = 0
-    subject_id = quiz.lesson.chapter.subject_id if quiz.lesson and quiz.lesson.chapter else None
     if scored.passed:
         xp_earned += await award_xp(
-            user.id,
+            user_id,
             "quiz_pass",
-            f"Quiz {quiz.id} passed",
+            f"Quiz {quiz_id} passed",
             db,
             subject_id=subject_id,
-            idempotency_key=f"legacy_quiz_pass:user:{user.id}:quiz:{quiz.id}",
+            idempotency_key=f"legacy_quiz_pass:user:{user_id}:quiz:{quiz_id}",
         )
         if scored.score == 100:
             xp_earned += await award_xp(
-                user.id,
+                user_id,
                 "quiz_perfect",
-                f"Quiz {quiz.id} perfect score",
+                f"Quiz {quiz_id} perfect score",
                 db,
                 subject_id=subject_id,
-                idempotency_key=f"legacy_quiz_perfect:user:{user.id}:quiz:{quiz.id}",
+                idempotency_key=f"legacy_quiz_perfect:user:{user_id}:quiz:{quiz_id}",
             )
 
-    await db.commit()
+    if should_commit:
+        await db.commit()
+    else:
+        await db.rollback()
 
     return QuizResultOut(
-        score=scored.score, passed=scored.passed, correct=scored.correct, total=scored.total,
-        pass_score=quiz.pass_score, xp_earned=xp_earned,
+        **score_payload,
+        pass_score=pass_score,
+        xp_earned=xp_earned,
     )
 
 

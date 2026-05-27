@@ -4,13 +4,14 @@ import logging
 import time
 import uuid
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqladmin import Admin
 from sqladmin.authentication import AuthenticationBackend
 from starlette.middleware.sessions import SessionMiddleware
@@ -28,6 +29,19 @@ if not logging.getLogger().handlers:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
+
+
+def _apply_security_headers(response: Response) -> Response:
+    for name, value in SECURITY_HEADERS.items():
+        if name not in response.headers:
+            response.headers[name] = value
+    return response
 
 
 class AdminAuth(AuthenticationBackend):
@@ -78,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Rate limiting
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     # Sessions (required by SQLAdmin auth)
     app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret_key, max_age=86400)
@@ -144,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             raise
         duration_ms = int((time.perf_counter() - started) * 1000)
+        _apply_security_headers(response)
         response.headers["x-request-id"] = request_id
         logger.info(
             "request_complete request_id=%s method=%s path=%s status=%s duration_ms=%s",
@@ -159,10 +175,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def unhandled_exception_handler(request: Request, exc: Exception):
         request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
         logger.exception("unhandled_exception request_id=%s path=%s", request_id, request.url.path)
-        return JSONResponse(
+        return _apply_security_headers(JSONResponse(
             status_code=500,
             content={"detail": "Internal server error", "request_id": request_id},
-        )
+        ))
 
     @app.get("/")
     @app.get("/health")

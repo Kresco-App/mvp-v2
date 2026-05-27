@@ -1,7 +1,10 @@
+import hashlib
+import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, with_loader_criteria
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +18,7 @@ from app.models.gamification import ActivityEvent, QuestionAttempt, QuizAttempt,
 from app.models.interactions import UserNote
 from app.models.quizzes import Question, QuestionSet
 from app.models.users import User
+from app.rate_limit import limiter
 from app.schemas.courses import (
     ActivityEventIn,
     ActivityOut, ChapterOut, ChapterSectionOut, ChapterWithSectionsOut, CoursePDFOut,
@@ -222,6 +226,81 @@ def _grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
             return False, region
 
     return submitted == expected, expected
+
+
+def _canonical_json_payload(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _normalized_submission_value(question: dict, submitted) -> object:
+    question_type = str(question.get("type") or "multiple_choice")
+
+    if question_type in {"multiple_choice", "true_false", "fill_in_blank", "short_answer", "interactive_checkpoint", "exact_match", "error_spotting"}:
+        return _normalize_answer(submitted)
+
+    if question_type in {"numeric_answer", "numeric_approximation", "slider_estimation"}:
+        try:
+            return float(submitted)
+        except (TypeError, ValueError):
+            return _normalize_answer(submitted)
+
+    if question_type == "multi_select":
+        return sorted(_normalize_list(submitted))
+
+    if question_type in {"ordering", "formula_builder"}:
+        return _normalize_list(submitted)
+
+    if question_type in {"matching", "drag_and_drop"}:
+        submitted_map = submitted if isinstance(submitted, dict) else {}
+        return {
+            _normalize_answer(key): _normalize_answer(value)
+            for key, value in sorted(submitted_map.items(), key=lambda item: _normalize_answer(item[0]))
+        }
+
+    if question_type == "image_hotspot":
+        cursor = submitted if isinstance(submitted, dict) else {}
+        normalized_cursor = {}
+        for key in ("x", "y", "radius"):
+            try:
+                normalized_cursor[key] = float(cursor.get(key, 0))
+            except (TypeError, ValueError):
+                normalized_cursor[key] = _normalize_answer(cursor.get(key))
+        return normalized_cursor
+
+    return submitted
+
+
+def _tab_quiz_submission_hash(questions: list[dict], answers: dict) -> str:
+    normalized_questions = []
+    for index, question in enumerate(questions):
+        qid = _question_external_id(question, index)
+        normalized_questions.append({
+            "id": qid,
+            "type": str(question.get("type") or "multiple_choice"),
+            "answer": _question_answer(question),
+            "submitted": _normalized_submission_value(question, answers.get(qid)),
+        })
+    return hashlib.sha256(_canonical_json_payload(normalized_questions).encode("utf-8")).hexdigest()
+
+
+async def _find_existing_tab_quiz_submission(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    question_set_id: int,
+    submission_hash: str,
+) -> QuizAttempt | None:
+    return await db.scalar(
+        select(QuizAttempt)
+        .where(
+            QuizAttempt.user_id == user_id,
+            QuizAttempt.question_set_id == question_set_id,
+            QuizAttempt.submission_hash == submission_hash,
+        )
+        .order_by(QuizAttempt.id.asc())
+        .limit(1)
+        .with_for_update()
+    )
 
 
 @router.get("/subjects", response_model=list[SubjectListOut])
@@ -579,7 +658,9 @@ async def complete_topic_item(
 
 
 @router.post("/tabs/{tab_id}/quiz/submit", response_model=TabQuizResultOut)
+@limiter.limit("20/minute")
 async def submit_tab_quiz(
+    request: Request,
     tab_id: int,
     body: TabQuizSubmitIn,
     db: AsyncSession = Depends(get_db),
@@ -642,6 +723,27 @@ async def submit_tab_quiz(
     total = len(questions)
     score = round((correct / total) * 100) if total else 0
     passed = score >= pass_score
+    result_payload = {
+        "score": score,
+        "passed": passed,
+        "correct": correct,
+        "total": total,
+        "pass_score": pass_score,
+        "grading": grading,
+    }
+    submission_hash = _tab_quiz_submission_hash(questions, body.answers)
+
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    existing_attempt = await _find_existing_tab_quiz_submission(
+        db,
+        user_id=user.id,
+        question_set_id=question_set.id,
+        submission_hash=submission_hash,
+    )
+    if existing_attempt is not None:
+        await db.rollback()
+        return TabQuizResultOut(**result_payload, xp_earned=0)
+
     attempts_count = await db.scalar(
         select(func.count()).select_from(QuizAttempt).where(
             QuizAttempt.user_id == user.id,
@@ -658,6 +760,7 @@ async def submit_tab_quiz(
         topic_item_id=tab.topic_item_id,
         tab_content_id=tab.id,
         source_type="tab",
+        submission_hash=submission_hash,
         score=score,
         passed=passed,
         answers=body.answers,
@@ -668,7 +771,20 @@ async def submit_tab_quiz(
         completed_at=now,
     )
     db.add(attempt)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        existing_after_race = await _find_existing_tab_quiz_submission(
+            db,
+            user_id=user.id,
+            question_set_id=question_set.id,
+            submission_hash=submission_hash,
+        )
+        if existing_after_race is None:
+            raise
+        await db.rollback()
+        return TabQuizResultOut(**result_payload, xp_earned=0)
     for question_attempt in question_attempt_rows:
         question_attempt.quiz_attempt_id = attempt.id
     db.add_all(question_attempt_rows)
@@ -738,7 +854,7 @@ async def submit_tab_quiz(
         },
     ))
     await db.commit()
-    return TabQuizResultOut(score=score, passed=passed, correct=correct, total=total, pass_score=pass_score, xp_earned=xp_earned, grading=grading)
+    return TabQuizResultOut(**result_payload, xp_earned=xp_earned)
 
 
 @router.get("/exam-bank", response_model=list[ExamOut])

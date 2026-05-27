@@ -91,6 +91,7 @@ describe('AuthGuard component behavior', () => {
 
   it('redirects unauthenticated users to the route-specific login destination', async () => {
     window.history.pushState({}, '', '/professor/chat')
+    getMyProfileMock.mockRejectedValueOnce(new Error('not authenticated'))
 
     const { container } = renderComponent(
       React.createElement(AuthGuardForTest, { requireRole: 'professor' }, React.createElement('main', null, 'Professor child')),
@@ -100,7 +101,22 @@ describe('AuthGuard component behavior', () => {
       expect(replaceBrowserLocationMock).toHaveBeenCalledWith('/professor/login')
     })
     expect(container.textContent).toContain('Redirecting to login')
-    expect(getMyProfileMock).not.toHaveBeenCalled()
+    expect(getMyProfileMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('recovers a server-backed HttpOnly cookie session without a readable client token', async () => {
+    getMyProfileMock.mockResolvedValueOnce(studentUser as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Student child')),
+    )
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Student child')
+    })
+    expect(useAuthStore.getState().token).toBe('cookie-session')
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toMatchObject(studentUser)
+    expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
   })
 
   it('renders ProfessorAuthGate children after the server confirms professor role', async () => {

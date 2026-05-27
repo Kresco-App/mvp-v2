@@ -415,11 +415,11 @@ class TopicItemAdmin(PowerModelView, model=TopicItem):
     icon = "fa-solid fa-play"
     column_list = [
         TopicItem.id, TopicItem.topic_id, TopicItem.section_id, TopicItem.title,
-        TopicItem.item_type, TopicItem.status, TopicItem.order,
+        TopicItem.item_type, TopicItem.primary_tab_content_id, TopicItem.status, TopicItem.order,
         TopicItem.is_free_preview, TopicItem.required_tier, TopicItem.required_feature_key,
     ]
     column_searchable_list = [TopicItem.title]
-    form_excluded_columns = ["topic", "section", "primary_resource", "tabs"]
+    form_excluded_columns = ["topic", "section", "primary_resource", "primary_tab_content", "tabs"]
     can_create = True
     can_edit = True
     can_delete = True
@@ -589,9 +589,9 @@ class CommentAdmin(PowerModelView, model=Comment):
     name = "Comment"
     name_plural = "Comments"
     icon = "fa-solid fa-comment"
-    column_list = [Comment.id, Comment.user_id, Comment.target_type, Comment.target_id, Comment.body, Comment.parent_id, Comment.created_at]
+    column_list = [Comment.id, Comment.user_id, Comment.topic_item_id, Comment.body, Comment.parent_id, Comment.created_at]
     column_searchable_list = [Comment.body]
-    form_excluded_columns = ["user"]
+    form_excluded_columns = ["user", "topic_item"]
     can_create = False
     can_edit = True
     can_delete = True

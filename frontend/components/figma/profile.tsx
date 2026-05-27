@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import Image from 'next/image'
+import Link from 'next/link'
 import { BookCheck, Bookmark, Camera, ChevronRight, Clock3, Flame, Loader2, Pencil, Save, ShieldCheck, Star, StickyNote, Trophy, X, Zap } from 'lucide-react'
 import {
   DEFAULT_PROFILE_AVATAR_URL,
@@ -173,10 +175,10 @@ export function FigmaProfile({
         <main className="figma-profile-main" aria-busy={loading ? 'true' : 'false'}>
           <section className="figma-profile-hero" aria-label="Profile summary">
             <div className="figma-profile-cover">
-              <img src={bannerUrl} alt="" />
+              <Image src={bannerUrl} alt="" fill sizes="720px" priority unoptimized />
             </div>
             <div className="figma-profile-avatar" aria-label="Profile picture">
-              <img src={avatarUrl} alt={firstName} referrerPolicy="no-referrer" />
+              <Image src={avatarUrl} alt={firstName} fill sizes="82px" unoptimized referrerPolicy="no-referrer" />
             </div>
 
             <div className="figma-profile-badges" aria-label="Badges">
@@ -244,8 +246,8 @@ export function FigmaProfile({
             </div>
 
             <div className="figma-profile-edit-preview">
-              <img className="figma-profile-edit-cover" src={mediaUrl(draft.banner_url || DEFAULT_PROFILE_BANNER_URL)} alt="" />
-              <img className="figma-profile-edit-avatar" src={mediaUrl(draft.avatar_url || DEFAULT_PROFILE_AVATAR_URL)} alt="" referrerPolicy="no-referrer" />
+              <Image className="figma-profile-edit-cover" src={mediaUrl(draft.banner_url || DEFAULT_PROFILE_BANNER_URL)} alt="" fill sizes="520px" unoptimized />
+              <Image className="figma-profile-edit-avatar" src={mediaUrl(draft.avatar_url || DEFAULT_PROFILE_AVATAR_URL)} alt="" width={72} height={72} unoptimized referrerPolicy="no-referrer" />
             </div>
 
             <div className="figma-profile-edit-grid">
@@ -382,13 +384,13 @@ function ProfileHubColumn({
       {items.length > 0 ? (
         <div className="figma-profile-hub-list">
           {items.map((item) => (
-            <a href={item.href} key={item.id} className="figma-profile-hub-row">
+            <Link href={item.href} key={item.id} className="figma-profile-hub-row">
               <span>
                 <strong>{item.title}</strong>
                 <small>{item.meta}</small>
               </span>
               <ChevronRight size={15} strokeWidth={2.4} />
-            </a>
+            </Link>
           ))}
         </div>
       ) : (
@@ -823,14 +825,14 @@ function FollowerPanel({ entries }: { entries: PermanentSidebarLeaderboardEntry[
       </div>
       <div className="figma-profile-follow-list">
         {visible.map((entry, index) => (
-          <a href="/classement" className="figma-profile-follow-row" key={`${entry.user_id}-${entry.rank}-${index}`}>
-            <img src={entry.avatar_url || followerAvatar(index)} alt="" />
+          <Link href="/classement" className="figma-profile-follow-row" key={`${entry.user_id}-${entry.rank}-${index}`}>
+            <Image src={entry.avatar_url || followerAvatar(index)} alt="" width={40} height={40} unoptimized referrerPolicy="no-referrer" />
             <span>
               <strong>{entry.full_name}</strong>
               <small>{entry.total_xp.toLocaleString()} point</small>
             </span>
             <ChevronRight size={15} strokeWidth={2.4} />
-          </a>
+          </Link>
         ))}
       </div>
     </section>

@@ -11,6 +11,7 @@ export type VideoLearningWorkspaceProps = {
   title?: string
   videoId?: string
   srcDoc?: string
+  primaryContent?: React.ReactNode
   toolbar?: React.ReactNode
   tabs?: FigmaTabItem[]
   rail?: CourseContentRailProps
@@ -23,6 +24,7 @@ export function VideoLearningWorkspace({
   title = 'Mathematics: Continuity at a single point and extension',
   srcDoc,
   videoId = 'dQw4w9WgXcQ',
+  primaryContent,
   toolbar,
   tabs = figmaWorkspaceTabs,
   rail,
@@ -35,7 +37,7 @@ export function VideoLearningWorkspace({
 
       <div className="grid grid-cols-[minmax(0,1fr)_351px] gap-[32px] max-[1100px]:grid-cols-1" data-figma-workspace-grid>
         <main className="min-w-0 overflow-hidden pb-[160px] pt-[24px]">
-          <VideoPlayerFrame srcDoc={srcDoc} videoId={videoId} />
+          {primaryContent ?? <VideoPlayerFrame srcDoc={srcDoc} videoId={videoId} />}
           <LearningTabBar tabs={tabs} onSelect={onTabSelect} size="compact" />
           {children ?? <LessonBody />}
         </main>
@@ -58,6 +60,16 @@ export function WorkspaceHeader({ breadcrumb, title }: { breadcrumb: string; tit
         {title}
       </h1>
     </header>
+  )
+}
+
+export function PrimaryContentFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-white shadow-none transition-shadow duration-300 hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)]" data-figma-primary-frame>
+      <div className="absolute inset-0 overflow-y-auto p-6">
+        {children}
+      </div>
+    </div>
   )
 }
 

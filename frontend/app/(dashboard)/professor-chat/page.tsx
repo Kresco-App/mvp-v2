@@ -353,7 +353,7 @@ export default function StudentProfessorChatPage() {
                                   {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#71717b]">{message.body}</p>}
                                   {message.attachment_url && (
                                     <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[10px] border border-[#e4e4e7]' : 'block overflow-hidden rounded-[10px] border border-[#e4e4e7]'}>
-                                      <img src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} className="max-h-[260px] w-full object-cover" />
+                                      <Image src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} width={520} height={260} unoptimized className="max-h-[260px] w-full object-cover" />
                                     </a>
                                   )}
                                 </>
@@ -378,7 +378,7 @@ export default function StudentProfessorChatPage() {
                 <form onSubmit={send} className="mt-6 flex w-full max-w-[720px] shrink-0 flex-col gap-3 rounded-[12px] border border-[#e4e4e7] bg-[#f4f4f5] p-3">
                   {selectedImagePreview && (
                     <div className="flex items-center gap-3 rounded-[10px] border border-[#e4e4e7] bg-white p-2">
-                      <img src={selectedImagePreview} alt="" className="h-14 w-14 rounded-[8px] object-cover" />
+                      <Image src={selectedImagePreview} alt="" width={56} height={56} unoptimized className="h-14 w-14 rounded-[8px] object-cover" />
                       <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-[#71717b]">{selectedImage?.name}</span>
                       <button type="button" onClick={clearSelectedImage} className="grid h-8 w-8 place-items-center rounded-[8px] border-0 bg-[#f4f4f5] text-[#71717b]" aria-label="Remove image">
                         <X size={15} />
@@ -506,7 +506,7 @@ function initials(name: string) {
 function Avatar({ name, src }: { name: string; src?: string | null }) {
   return (
     <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[12.727px] bg-[#e4e4e7] text-[13px] font-black text-[#71717b]">
-      {src ? <img src={src} alt="" className="h-full w-full object-cover" /> : initials(name)}
+      {src ? <Image src={src} alt="" width={40} height={40} unoptimized className="h-full w-full object-cover" /> : initials(name)}
     </span>
   )
 }
@@ -553,7 +553,6 @@ function teacherThreads(status: StudentProfessorChatStatus) {
       professor: conversation?.professor ?? {
         id: offering.professor_user_id,
         full_name: 'Professor',
-        email: '',
         avatar_url: '',
         tier: 'basic',
       },

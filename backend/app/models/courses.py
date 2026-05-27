@@ -212,6 +212,17 @@ class TopicItem(Base):
     topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"))
     section_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_sections.id", ondelete="CASCADE"))
     primary_resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True)
+    primary_tab_content_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey(
+            "tab_contents.id",
+            ondelete="SET NULL",
+            name="fk_topic_items_primary_tab_content_id_tab_contents",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
     item_type: Mapped[str] = mapped_column(String(60))
@@ -229,7 +240,17 @@ class TopicItem(Base):
     topic: Mapped["Topic"] = relationship("Topic")
     section: Mapped["TopicSection"] = relationship("TopicSection", back_populates="items")
     primary_resource: Mapped[Optional["Resource"]] = relationship("Resource")
-    tabs: Mapped[list["TabContent"]] = relationship("TabContent", back_populates="topic_item", order_by="TabContent.order")
+    primary_tab_content: Mapped[Optional["TabContent"]] = relationship(
+        "TabContent",
+        foreign_keys=[primary_tab_content_id],
+        post_update=True,
+    )
+    tabs: Mapped[list["TabContent"]] = relationship(
+        "TabContent",
+        back_populates="topic_item",
+        order_by="TabContent.order",
+        foreign_keys="TabContent.topic_item_id",
+    )
 
 
 class TabContent(Base):
@@ -245,12 +266,11 @@ class TabContent(Base):
     renderer_key: Mapped[str] = mapped_column(String(120), default="")
     order: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(30), default="published")
-    is_recommended: Mapped[bool] = mapped_column(Boolean, default=False)
     required_tier: Mapped[str] = mapped_column(String(40), default="")
     required_feature_key: Mapped[str] = mapped_column(String(80), default="")
     concept_slugs: Mapped[list[str]] = mapped_column(JSON, default=list)
 
-    topic_item: Mapped["TopicItem"] = relationship("TopicItem", back_populates="tabs")
+    topic_item: Mapped["TopicItem"] = relationship("TopicItem", back_populates="tabs", foreign_keys=[topic_item_id])
     resource: Mapped[Optional["Resource"]] = relationship("Resource")
 
 

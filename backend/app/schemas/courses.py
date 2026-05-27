@@ -186,7 +186,6 @@ class TabContentOut(BaseModel):
     config_json: dict = {}
     renderer_key: str = ""
     order: int
-    is_recommended: bool = False
     concept_slugs: list[str] = []
     resource: Optional[ResourceOut] = None
     required_tier: str = ""
@@ -213,6 +212,8 @@ class TopicItemOut(BaseModel):
     is_free_preview: bool = False
     concept_slugs: list[str] = []
     primary_resource: Optional[ResourceOut] = None
+    primary_tab_content_id: Optional[int] = None
+    primary_tab: Optional[TabContentOut] = None
     tabs: list[TabContentOut] = []
     progress_status: str = "not_started"
     best_score: Optional[int] = None

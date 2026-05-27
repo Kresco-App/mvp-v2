@@ -123,7 +123,6 @@ export type ProfessorDashboard = {
 export type ChatParticipant = {
   id: number
   full_name: string
-  email: string
   avatar_url: string
   tier: string
 }

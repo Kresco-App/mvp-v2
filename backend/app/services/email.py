@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+from html import escape
 
 from itsdangerous import URLSafeTimedSerializer
 
@@ -67,7 +68,7 @@ def _send_email_sync(api_key: str, params: dict) -> None:
 
 async def send_verification_email(email: str, full_name: str, token: str, settings: Settings) -> None:
     verify_url = f"{settings.frontend_url}/auth/verify-email?token={token}"
-    name = full_name or email
+    name = escape(full_name or email, quote=True)
     params = {
         "from": "Kresco <onboarding@resend.dev>",
         "to": [email],

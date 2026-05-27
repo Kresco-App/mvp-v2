@@ -4,51 +4,87 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_current_user, get_db
+from app.models.courses import TabContent, TopicItem
 from app.models.gamification import ActivityEvent
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.users import User
 from app.schemas.interactions import (
-    CommentAuthorOut, CommentCreateIn, CommentOut, NoteCreateIn, NoteOut,
-    SavedItemCreateIn, SavedItemOut,
+    CommentAuthorOut,
+    CommentCreateIn,
+    CommentOut,
+    NoteCreateIn,
+    NoteOut,
+    SavedItemCreateIn,
+    SavedItemOut,
 )
+from app.services.course_access import access_for_tab, access_for_topic_item
 from app.services.interaction_context import activity_metadata, infer_interaction_context
 
 router = APIRouter(tags=["Interactions"])
 
+COMMENT_TAB_TYPES = {"comments", "discussion"}
+
+
+async def _require_comments_enabled_for_topic_item(db: AsyncSession, user: User, topic_item_id: int) -> None:
+    item = await db.get(TopicItem, topic_item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Topic item not found")
+
+    comments_tab = await db.scalar(
+        select(TabContent)
+        .where(
+            TabContent.topic_item_id == topic_item_id,
+            TabContent.status == "published",
+            TabContent.tab_type.in_(COMMENT_TAB_TYPES),
+        )
+        .limit(1)
+    )
+    if comments_tab is None:
+        raise HTTPException(status_code=404, detail="Comments are not enabled for this item")
+    item_access = await access_for_topic_item(db, user, item)
+    tab_access = await access_for_tab(db, user, comments_tab)
+    if not item_access.can_access or not tab_access.can_access:
+        raise HTTPException(status_code=403, detail="Comments are locked for this item")
+
+
+def _comment_out(comment: Comment) -> CommentOut:
+    return CommentOut(
+        id=comment.id,
+        topic_item_id=comment.topic_item_id,
+        body=comment.body,
+        author=CommentAuthorOut(
+            id=comment.user.id,
+            full_name=comment.user.full_name,
+            avatar_url=comment.user.avatar_url or "",
+        ),
+        parent_id=comment.parent_id,
+        reply_count=len(comment.replies) if "replies" in comment.__dict__ else 0,
+        created_at=comment.created_at,
+    )
+
 
 @router.get("/comments", response_model=list[CommentOut])
 async def list_comments(
-    content_type: str,
-    object_id: int,
+    topic_item_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    _user: User = Depends(get_current_user),
 ):
-    if content_type not in ALLOWED_TARGET_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid content_type. Use one of: {ALLOWED_TARGET_TYPES}")
+    await _require_comments_enabled_for_topic_item(db, _user, topic_item_id)
 
     result = await db.execute(
         select(Comment)
         .options(selectinload(Comment.user), selectinload(Comment.replies))
         .where(
-            Comment.target_type == content_type,
-            Comment.target_id == object_id,
+            Comment.topic_item_id == topic_item_id,
             Comment.parent_id == None,  # noqa: E711
         )
         .order_by(Comment.created_at)
     )
-    comments = result.scalars().all()
+    return [_comment_out(comment) for comment in result.scalars().all()]
 
-    return [
-        CommentOut(
-            id=c.id,
-            body=c.body,
-            author=CommentAuthorOut(id=c.user.id, full_name=c.user.full_name, avatar_url=c.user.avatar_url or ""),
-            parent_id=c.parent_id,
-            reply_count=len(c.replies),
-            created_at=c.created_at,
-        )
-        for c in comments
-    ]
+
+def _comment_parent_mismatch(parent: Comment, topic_item_id: int) -> bool:
+    return parent.topic_item_id != topic_item_id
 
 
 @router.post("/comments", response_model=CommentOut)
@@ -57,33 +93,26 @@ async def create_comment(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if body.content_type not in ALLOWED_TARGET_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid content_type. Use one of: {ALLOWED_TARGET_TYPES}")
+    await _require_comments_enabled_for_topic_item(db, user, body.topic_item_id)
 
     if body.parent_id is not None:
-        parent_result = await db.execute(select(Comment).where(Comment.id == body.parent_id))
-        if parent_result.scalar_one_or_none() is None:
+        parent = await db.get(Comment, body.parent_id)
+        if parent is None:
             raise HTTPException(status_code=404, detail="Parent comment not found")
+        if _comment_parent_mismatch(parent, body.topic_item_id):
+            raise HTTPException(status_code=400, detail="Parent comment belongs to a different item")
 
     comment = Comment(
         user_id=user.id,
-        target_type=body.content_type,
-        target_id=body.object_id,
+        topic_item_id=body.topic_item_id,
         body=body.body,
         parent_id=body.parent_id,
     )
     db.add(comment)
     await db.commit()
     await db.refresh(comment)
-
-    return CommentOut(
-        id=comment.id,
-        body=comment.body,
-        author=CommentAuthorOut(id=user.id, full_name=user.full_name, avatar_url=user.avatar_url or ""),
-        parent_id=comment.parent_id,
-        reply_count=0,
-        created_at=comment.created_at,
-    )
+    comment.user = user
+    return _comment_out(comment)
 
 
 @router.get("/notes", response_model=list[NoteOut])
@@ -128,15 +157,17 @@ async def create_note(
     )
     db.add(note)
     await db.flush()
-    db.add(ActivityEvent(
-        user_id=user.id,
-        event_type="note_created",
-        target_type="user_note",
-        target_id=note.id,
-        topic_id=note.topic_id,
-        topic_item_id=note.topic_item_id,
-        metadata_json=activity_metadata(subject_id=note.subject_id, tab_content_id=note.tab_content_id),
-    ))
+    db.add(
+        ActivityEvent(
+            user_id=user.id,
+            event_type="note_created",
+            target_type="user_note",
+            target_id=note.id,
+            topic_id=note.topic_id,
+            topic_item_id=note.topic_item_id,
+            metadata_json=activity_metadata(subject_id=note.subject_id, tab_content_id=note.tab_content_id),
+        )
+    )
     await db.commit()
     await db.refresh(note)
     return NoteOut.model_validate(note)
@@ -207,15 +238,17 @@ async def save_item(
             save.label = body.label
 
     if created:
-        db.add(ActivityEvent(
-            user_id=user.id,
-            event_type="saved_item_created",
-            target_type=save.target_type,
-            target_id=save.target_id,
-            topic_id=save.topic_id,
-            topic_item_id=save.topic_item_id,
-            metadata_json=activity_metadata(saved_item_id=save.id, subject_id=save.subject_id),
-        ))
+        db.add(
+            ActivityEvent(
+                user_id=user.id,
+                event_type="saved_item_created",
+                target_type=save.target_type,
+                target_id=save.target_id,
+                topic_id=save.topic_id,
+                topic_item_id=save.topic_item_id,
+                metadata_json=activity_metadata(saved_item_id=save.id, subject_id=save.subject_id),
+            )
+        )
     await db.commit()
     await db.refresh(save)
     return SavedItemOut.model_validate(save)

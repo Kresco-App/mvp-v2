@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '@/lib/store'
 import {
   getAccessDeniedDestination,
@@ -29,9 +29,10 @@ function LoadingScreen({ message }) {
  * }} props
  */
 export default function AuthGuard({ children, requireRole = null, requireStaff = false }) {
-  const { token, user, hydrate, isHydrated, updateUser, logout } = useAuthStore()
+  const { token, user, hydrate, isHydrated, login, updateUser, logout } = useAuthStore()
   const [accessState, setAccessState] = useState('pending')
-  const needsServerProfile = Boolean(requireRole || requireStaff || !user)
+  const verificationStateRef = useRef('idle')
+  const needsServerProfile = Boolean(requireRole || requireStaff || !user || !token)
 
   useEffect(() => {
     hydrate()
@@ -39,55 +40,54 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
 
   useEffect(() => {
     if (!isHydrated) return
-
-    if (!token) {
-      setAccessState('denied')
-      replaceBrowserLocation(getUnauthorizedDestination(window.location.pathname))
-      return
-    }
+    if (verificationStateRef.current === 'checking' || verificationStateRef.current === 'denied') return
 
     if (!needsServerProfile) {
+      verificationStateRef.current = 'idle'
       setAccessState('ready')
       return
     }
 
     let cancelled = false
+    verificationStateRef.current = 'checking'
     setAccessState('checking')
 
-    getMyProfile()
+    Promise.resolve()
+      .then(() => getMyProfile())
       .then((profile) => {
         if (cancelled) return
-        updateUser(profile)
+        if (!profile) throw new Error('Missing profile')
+        if (token) updateUser(profile)
+        else login(profile)
 
         const requirement = { role: requireRole, staff: requireStaff }
         if (!hasRequiredAuthAccess(profile, requirement)) {
+          verificationStateRef.current = 'denied'
           setAccessState('denied')
           replaceBrowserLocation(getAccessDeniedDestination(requirement, window.location.pathname))
           return
         }
 
+        verificationStateRef.current = 'idle'
         setAccessState('ready')
       })
       .catch(() => {
       if (cancelled) return
+      verificationStateRef.current = 'denied'
       setAccessState('denied')
       logout()
       replaceBrowserLocation(getUnauthorizedDestination(window.location.pathname))
     })
 
     return () => { cancelled = true }
-  }, [isHydrated, token, needsServerProfile, requireRole, requireStaff, updateUser, logout])
+  }, [isHydrated, token, needsServerProfile, requireRole, requireStaff, login, updateUser, logout])
 
   if (!isHydrated) {
     return <LoadingScreen message="Loading Kresco..." />
   }
 
-  if (!token) {
-    return <LoadingScreen message="Redirecting to login..." />
-  }
-
   if (accessState !== 'ready') {
-    return <LoadingScreen message="Checking access..." />
+    return <LoadingScreen message={accessState === 'denied' ? 'Redirecting to login...' : 'Checking access...'} />
   }
 
   return children

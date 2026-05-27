@@ -23,6 +23,21 @@ def test_send_verification_email_builds_resend_payload(monkeypatch, test_setting
     assert "https://app.example/auth/verify-email?token=verify-token" in payload["html"]
 
 
+def test_send_verification_email_escapes_full_name(monkeypatch, test_settings):
+    sent = []
+    settings = test_settings.model_copy(
+        update={"frontend_url": "https://app.example", "resend_api_key": "re_test"}
+    )
+
+    monkeypatch.setattr(email_service, "_send_email_sync", lambda api_key, params: sent.append((api_key, params)))
+
+    asyncio.run(send_verification_email("student@example.com", '<img src=x onerror="alert(1)">', "verify-token", settings))
+
+    html = sent[0][1]["html"]
+    assert '<img src=x onerror="alert(1)">' not in html
+    assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in html
+
+
 def test_send_reset_email_builds_resend_payload(monkeypatch, test_settings):
     sent = []
     settings = test_settings.model_copy(

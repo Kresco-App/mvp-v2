@@ -5,7 +5,7 @@ from pathlib import Path
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -57,6 +57,11 @@ from app.schemas.professor import (
 )
 from app.services.access import FeatureAccessRequirement, build_access_context
 from app.services.ably import live_session_channel_name, publish_ably_message
+from app.services.image_uploads import (
+    allowed_image_extension,
+    image_matches_mime_type,
+    normalize_image_mime_type,
+)
 from app.services.professor_chat_access import (
     professor_chat_eligibility,
     professor_chat_offering_mismatch_reason,
@@ -77,12 +82,6 @@ LIVE_INTERACTION_BURST_WINDOW = timedelta(seconds=10)
 LIVE_SESSION_ACCESS_REQUIREMENT = FeatureAccessRequirement("live_sessions")
 LIVE_NOTIFICATION_SENT = "sent"
 LIVE_NOTIFICATION_REALTIME_FAILED = "realtime_failed"
-ALLOWED_CHAT_IMAGE_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-}
 MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
 CHAT_MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
 PROFESSOR_MUTATION_BURST_LIMIT = 12
@@ -144,7 +143,6 @@ def _participant_out(user: User) -> ChatParticipantOut:
     return ChatParticipantOut(
         id=user.id,
         full_name=user.full_name,
-        email=user.email,
         avatar_url=user.avatar_url,
         tier=getattr(user, "tier", "basic") or "basic",
     )
@@ -428,8 +426,14 @@ def _ensure_student_matches_offering(student: User, offering: CourseOffering) ->
         raise HTTPException(status_code=403, detail=reason)
 
 
-async def _require_professor_conversation(db: AsyncSession, professor: User, conversation_id: int) -> ProfessorChatConversation:
-    result = await db.execute(
+async def _require_professor_conversation(
+    db: AsyncSession,
+    professor: User,
+    conversation_id: int,
+    *,
+    for_update: bool = False,
+) -> ProfessorChatConversation:
+    stmt = (
         select(ProfessorChatConversation)
         .options(
             selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.subject),
@@ -442,14 +446,23 @@ async def _require_professor_conversation(db: AsyncSession, professor: User, con
             ProfessorChatConversation.professor_user_id == professor.id,
         )
     )
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     conversation = result.scalar_one_or_none()
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
 
 
-async def _require_student_conversation(db: AsyncSession, student: User, conversation_id: int) -> ProfessorChatConversation:
-    result = await db.execute(
+async def _require_student_conversation(
+    db: AsyncSession,
+    student: User,
+    conversation_id: int,
+    *,
+    for_update: bool = False,
+) -> ProfessorChatConversation:
+    stmt = (
         select(ProfessorChatConversation)
         .options(
             selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.subject),
@@ -462,6 +475,9 @@ async def _require_student_conversation(db: AsyncSession, student: User, convers
             ProfessorChatConversation.student_user_id == student.id,
         )
     )
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     conversation = result.scalar_one_or_none()
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -543,6 +559,46 @@ def _touch_conversation(conversation: ProfessorChatConversation, body: str) -> N
     conversation.last_message_preview = body.strip().replace("\n", " ")[:255] or "Image"
     conversation.last_message_at = now
     conversation.updated_at = now
+
+
+async def _apply_professor_sent_message_update(
+    db: AsyncSession,
+    conversation: ProfessorChatConversation,
+    body: str,
+) -> None:
+    _touch_conversation(conversation, body)
+    await db.execute(
+        update(ProfessorChatConversation)
+        .where(ProfessorChatConversation.id == conversation.id)
+        .values(
+            unread_for_student=ProfessorChatConversation.unread_for_student + 1,
+            unread_for_professor=0,
+            last_message_preview=conversation.last_message_preview,
+            last_message_at=conversation.last_message_at,
+            updated_at=conversation.updated_at,
+        )
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def _apply_student_sent_message_update(
+    db: AsyncSession,
+    conversation: ProfessorChatConversation,
+    body: str,
+) -> None:
+    _touch_conversation(conversation, body)
+    await db.execute(
+        update(ProfessorChatConversation)
+        .where(ProfessorChatConversation.id == conversation.id)
+        .values(
+            unread_for_professor=ProfessorChatConversation.unread_for_professor + 1,
+            unread_for_student=0,
+            last_message_preview=conversation.last_message_preview,
+            last_message_at=conversation.last_message_at,
+            updated_at=conversation.updated_at,
+        )
+        .execution_options(synchronize_session=False)
+    )
 
 
 def _chat_datetime(value: datetime) -> datetime:
@@ -628,7 +684,8 @@ def _message_out(message: ProfessorChatMessage, sender_role: str) -> ProfessorCh
 
 
 async def _save_chat_image(conversation_id: int, file: UploadFile) -> tuple[str, str, str, int]:
-    extension = ALLOWED_CHAT_IMAGE_TYPES.get(file.content_type or "")
+    mime_type = normalize_image_mime_type(file.content_type)
+    extension = allowed_image_extension(mime_type)
     if extension is None:
         raise HTTPException(status_code=400, detail="Upload a JPG, PNG, WEBP, or GIF image")
 
@@ -637,6 +694,8 @@ async def _save_chat_image(conversation_id: int, file: UploadFile) -> tuple[str,
         raise HTTPException(status_code=400, detail="Upload a non-empty image")
     if len(content) > MAX_CHAT_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
+    if not image_matches_mime_type(content, mime_type):
+        raise HTTPException(status_code=400, detail="Upload a valid JPG, PNG, WEBP, or GIF image")
 
     media_root = Path("media") / "professor-chat" / str(conversation_id)
     media_root.mkdir(parents=True, exist_ok=True)
@@ -645,7 +704,7 @@ async def _save_chat_image(conversation_id: int, file: UploadFile) -> tuple[str,
     (media_root / filename).write_bytes(content)
     return (
         f"/media/professor-chat/{conversation_id}/{filename}",
-        file.content_type or "",
+        mime_type,
         safe_original,
         len(content),
     )
@@ -1644,7 +1703,7 @@ async def list_professor_messages(
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
 ):
-    conversation = await _require_professor_conversation(db, professor, conversation_id)
+    conversation = await _require_professor_conversation(db, professor, conversation_id, for_update=True)
     conversation.unread_for_professor = 0
     await db.commit()
     return await _messages_for_conversation(db, conversation_id)
@@ -1659,13 +1718,11 @@ async def send_professor_message(
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    conversation = await _require_professor_conversation(db, professor, conversation_id)
+    conversation = await _require_professor_conversation(db, professor, conversation_id, for_update=True)
     await _enforce_professor_mutation_rate_limit(db, professor, request)
     message = ProfessorChatMessage(conversation_id=conversation.id, sender_user_id=professor.id, body=body.body)
-    conversation.unread_for_student += 1
-    conversation.unread_for_professor = 0
-    _touch_conversation(conversation, body.body)
     db.add(message)
+    await _apply_professor_sent_message_update(db, conversation, body.body)
     await db.flush()
     _record_professor_audit(
         db,
@@ -1698,7 +1755,7 @@ async def send_professor_image_message(
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    conversation = await _require_professor_conversation(db, professor, conversation_id)
+    conversation = await _require_professor_conversation(db, professor, conversation_id, for_update=True)
     await _enforce_professor_mutation_rate_limit(db, professor, request)
     attachment_url, attachment_mime_type, attachment_name, attachment_size = await _save_chat_image(conversation.id, file)
     clean_body = body.strip()[:1000]
@@ -1711,10 +1768,8 @@ async def send_professor_image_message(
         attachment_name=attachment_name,
         attachment_size=attachment_size,
     )
-    conversation.unread_for_student += 1
-    conversation.unread_for_professor = 0
-    _touch_conversation(conversation, clean_body or "Image")
     db.add(message)
+    await _apply_professor_sent_message_update(db, conversation, clean_body or "Image")
     await db.flush()
     _record_professor_audit(
         db,
@@ -1815,7 +1870,7 @@ async def patch_professor_conversation(
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
 ):
-    conversation = await _require_professor_conversation(db, professor, conversation_id)
+    conversation = await _require_professor_conversation(db, professor, conversation_id, for_update=True)
     await _enforce_professor_mutation_rate_limit(db, professor, request)
     if body.is_pinned_by_professor is not None:
         conversation.is_pinned_by_professor = body.is_pinned_by_professor
@@ -1931,7 +1986,7 @@ async def list_student_messages(
     user: User = Depends(get_current_user),
 ):
     _ensure_student_professor_chat_access(user)
-    conversation = await _require_student_conversation(db, user, conversation_id)
+    conversation = await _require_student_conversation(db, user, conversation_id, for_update=True)
     conversation.unread_for_student = 0
     await db.commit()
     return await _messages_for_conversation(db, conversation_id)
@@ -1946,12 +2001,10 @@ async def send_student_message(
     settings: Settings = Depends(get_settings),
 ):
     _ensure_student_professor_chat_access(user)
-    conversation = await _require_student_conversation(db, user, conversation_id)
+    conversation = await _require_student_conversation(db, user, conversation_id, for_update=True)
     message = ProfessorChatMessage(conversation_id=conversation.id, sender_user_id=user.id, body=body.body)
-    conversation.unread_for_professor += 1
-    conversation.unread_for_student = 0
-    _touch_conversation(conversation, body.body)
     db.add(message)
+    await _apply_student_sent_message_update(db, conversation, body.body)
     await db.commit()
     await db.refresh(message)
     await publish_ably_message(
@@ -1973,7 +2026,7 @@ async def send_student_image_message(
     settings: Settings = Depends(get_settings),
 ):
     _ensure_student_professor_chat_access(user)
-    conversation = await _require_student_conversation(db, user, conversation_id)
+    conversation = await _require_student_conversation(db, user, conversation_id, for_update=True)
     attachment_url, attachment_mime_type, attachment_name, attachment_size = await _save_chat_image(conversation.id, file)
     clean_body = body.strip()[:1000]
     message = ProfessorChatMessage(
@@ -1985,10 +2038,8 @@ async def send_student_image_message(
         attachment_name=attachment_name,
         attachment_size=attachment_size,
     )
-    conversation.unread_for_professor += 1
-    conversation.unread_for_student = 0
-    _touch_conversation(conversation, clean_body or "Image")
     db.add(message)
+    await _apply_student_sent_message_update(db, conversation, clean_body or "Image")
     await db.commit()
     await db.refresh(message)
     await publish_ably_message(

@@ -14,7 +14,7 @@ import {
 } from '@/lib/courseFilters'
 import { canonicalSubjectTitle as canonicalSubjectLabel, subjectKey } from '@/lib/subjectIdentity'
 import { FigmaCourseSearchControls, type FigmaCourseStatusFilter, type FigmaCourseSubjectOption } from '@/components/figma/course-search-controls'
-import { FigmaCourseCardSkeleton, FigmaSubjectCourseCard, type FigmaSubjectCourseCardState, PermanentSidebar } from '@/components/figma'
+import { FigmaCourseCardSkeleton, FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
 
 interface TopicCard {
   id: number
@@ -127,9 +127,8 @@ export default function CoursesPage() {
   const groupedSections = useMemo(() => groupTopicsBySubject(filtered), [filtered])
 
   return (
-    <div className="figma-courses-container">
-      <div className="figma-courses-grid">
-        <main className="pt-[44px]">
+    <>
+      <main className="pt-[44px]">
           <div className="mb-[64px] flex h-[18px] items-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">
             <span>2éme Bac</span>
             <span className="ml-[3.5px]">/ Sciences Math A</span>
@@ -197,13 +196,10 @@ export default function CoursesPage() {
               </div>
             </section>
           )}
-        </main>
-
-        <PermanentSidebar sections={['quests', 'leaderboard']} />
-      </div>
+      </main>
 
       {previewTopic && <LockedTopicPreview topic={previewTopic} onClose={() => setPreviewTopic(null)} />}
-    </div>
+    </>
   )
 }
 
@@ -247,12 +243,12 @@ function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () 
   const requirements = accessSummary(topic)
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#18181b]/35 px-4 backdrop-blur-[2px]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#18181b]/35 px-4 backdrop-blur-[2px]" role="presentation">
+      <button type="button" className="absolute inset-0 cursor-default border-0 bg-transparent p-0" onClick={onClose} aria-label="Close locked topic preview" />
       <section
         aria-modal="true"
-        className="w-full max-w-[520px] rounded-[16px] border-2 border-[#e4e4e7] bg-white p-6 shadow-[0_24px_80px_rgba(24,24,27,.18)]"
+        className="relative w-full max-w-[520px] rounded-[16px] border-2 border-[#e4e4e7] bg-white p-6 shadow-[0_24px_80px_rgba(24,24,27,.18)]"
         role="dialog"
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
           <div>

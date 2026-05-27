@@ -54,3 +54,15 @@ def test_upload_profile_banner_rejects_non_image(app_client, auth_token):
     )
 
     assert response.status_code == 400
+
+
+def test_upload_profile_avatar_rejects_mismatched_image_signature(app_client, auth_token):
+    token, _ = auth_token(email="profile-avatar-signature@example.com")
+
+    response = app_client.post(
+        "/api/profile/me/media/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("avatar.png", b"<script>alert(1)</script>", "image/png")},
+    )
+
+    assert response.status_code == 400

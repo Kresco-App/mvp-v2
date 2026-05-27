@@ -183,7 +183,6 @@ def test_resource_and_tab_projection_redacts_nested_locked_resource():
         config_json={"solution": "A"},
         renderer_key="quiz",
         order=1,
-        is_recommended=False,
         concept_slugs=[],
         resource=resource,
         required_tier="pro",
@@ -223,7 +222,9 @@ def test_topic_item_projection_applies_access_progress_and_published_tab_filter(
         completion_policy="manual",
         is_free_preview=False,
         concept_slugs=["limits"],
+        primary_resource_id=None,
         primary_resource=None,
+        primary_tab_content_id=None,
         tabs=[
             SimpleNamespace(
                 id=31,
@@ -233,7 +234,7 @@ def test_topic_item_projection_applies_access_progress_and_published_tab_filter(
                 config_json={},
                 renderer_key="",
                 order=1,
-                is_recommended=False,
+                resource_id=None,
                 concept_slugs=[],
                 resource=None,
                 required_tier="",
@@ -248,7 +249,7 @@ def test_topic_item_projection_applies_access_progress_and_published_tab_filter(
                 config_json={},
                 renderer_key="",
                 order=2,
-                is_recommended=False,
+                resource_id=None,
                 concept_slugs=[],
                 resource=None,
                 required_tier="",
@@ -270,6 +271,94 @@ def test_topic_item_projection_applies_access_progress_and_published_tab_filter(
     assert out.progress_status == "completed"
     assert out.best_score == 90
     assert [tab.label for tab in out.tabs] == ["Published"]
+    assert out.primary_tab_content_id == 31
+    assert out.primary_tab is not None
+    assert out.primary_tab.label == "Published"
+
+
+def test_topic_item_projection_uses_explicit_primary_tab_over_video_resource():
+    video_resource = SimpleNamespace(
+        id=41,
+        title="Intro video",
+        resource_type="video",
+        provider="youtube",
+        provider_resource_id="abc123",
+        url="",
+        summary="Video",
+        metadata_json={},
+        is_free_preview=False,
+        required_tier="",
+        required_feature_key="",
+    )
+    video_tab = SimpleNamespace(
+        id=42,
+        label="Video",
+        tab_type="video",
+        content="",
+        config_json={},
+        renderer_key="youtube_embed",
+        order=1,
+        resource_id=video_resource.id,
+        concept_slugs=[],
+        resource=video_resource,
+        required_tier="",
+        required_feature_key="",
+        status="published",
+    )
+    notes_tab = SimpleNamespace(
+        id=43,
+        label="Course notes",
+        tab_type="course",
+        content="Read this first.",
+        config_json={},
+        renderer_key="",
+        order=2,
+        resource_id=None,
+        concept_slugs=[],
+        resource=None,
+        required_tier="",
+        required_feature_key="",
+        status="published",
+    )
+    comments_tab = SimpleNamespace(
+        id=44,
+        label="Discussion",
+        tab_type="comments",
+        content="",
+        config_json={},
+        renderer_key="",
+        order=3,
+        resource_id=None,
+        concept_slugs=[],
+        resource=None,
+        required_tier="",
+        required_feature_key="",
+        status="published",
+    )
+    item = SimpleNamespace(
+        id=40,
+        topic_id=3,
+        section_id=4,
+        title="Item",
+        description="Description",
+        item_type="lesson",
+        renderer_key="",
+        duration_seconds=120,
+        order=1,
+        completion_policy="manual",
+        is_free_preview=False,
+        concept_slugs=[],
+        primary_resource_id=video_resource.id,
+        primary_resource=video_resource,
+        primary_tab_content_id=notes_tab.id,
+        tabs=[video_tab, notes_tab, comments_tab],
+    )
+
+    out = topic_item_out(item, progress_by_item={})
+
+    assert out.primary_tab_content_id == notes_tab.id
+    assert out.primary_tab is not None
+    assert out.primary_tab.label == "Course notes"
 
 
 def test_chapter_section_projection_redacts_locked_section_payload():

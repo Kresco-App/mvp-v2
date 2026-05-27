@@ -5,6 +5,8 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 
 type Theme = 'light' | 'dark';
+const DEFAULT_THEME: Theme = 'dark';
+const THEME_STORAGE_KEY = 'theme';
 
 interface ThemeContextType {
     theme: Theme;
@@ -14,15 +16,20 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-    // Default to dark mode for a premium tech feel, but respect system preference if possible
-    const [theme, setTheme] = useState<Theme>(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('theme') as Theme;
-            if (saved) return saved;
-            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
+    const [isHydrated, setIsHydrated] = useState(false);
+
+    useEffect(() => {
+        const saved = localStorage.getItem(THEME_STORAGE_KEY);
+        if (saved === 'light' || saved === 'dark') {
+            setTheme(saved);
+        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            setTheme('dark');
+        } else {
+            setTheme('light');
         }
-        return 'dark';
-    });
+        setIsHydrated(true);
+    }, []);
 
     useEffect(() => {
         const root = window.document.documentElement;
@@ -31,8 +38,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         } else {
             root.classList.remove('dark');
         }
-        localStorage.setItem('theme', theme);
-    }, [theme]);
+        if (isHydrated) localStorage.setItem(THEME_STORAGE_KEY, theme);
+    }, [isHydrated, theme]);
 
     const toggleTheme = () => {
         setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -48,7 +55,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function useTheme() {
     const context = useContext(ThemeContext);
     if (context === undefined) {
-        return { theme: 'dark' as Theme, toggleTheme: () => undefined };
+        return { theme: DEFAULT_THEME, toggleTheme: () => undefined };
     }
     return context;
 }

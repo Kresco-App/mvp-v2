@@ -1,6 +1,8 @@
+import logging
+from urllib.parse import quote
+
 import httpx
 from fastapi import HTTPException
-from urllib.parse import quote
 
 from app.config import Settings
 
@@ -15,6 +17,8 @@ SENSITIVE_PROVIDER_KEYS = {
     "stream_key",
     "token",
 }
+
+logger = logging.getLogger(__name__)
 
 
 def _first_string(data: dict, keys: tuple[str, ...]) -> str:
@@ -40,6 +44,15 @@ def sanitize_provider_payload(value):
     return value
 
 
+def _provider_error_extra(response: httpx.Response) -> dict:
+    log_extra = {"provider_status_code": response.status_code}
+    try:
+        log_extra["provider_response"] = sanitize_provider_payload(response.json())
+    except ValueError:
+        log_extra["provider_response_length"] = len(response.text or "")
+    return log_extra
+
+
 async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
     video_id = vdocipher_id.strip()
     if not video_id:
@@ -59,10 +72,15 @@ async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
         )
 
     if response.status_code != 200:
+        logger.warning("vdocipher_otp_failed", extra=_provider_error_extra(response))
         raise HTTPException(status_code=502, detail="Failed to get video OTP from VdoCipher")
 
-    data = response.json()
-    return {"otp": data["otp"], "playback_info": data["playbackInfo"]}
+    try:
+        data = response.json()
+        return {"otp": data["otp"], "playback_info": data["playbackInfo"]}
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning("vdocipher_otp_malformed_response")
+        raise HTTPException(status_code=502, detail="Invalid VdoCipher OTP response") from exc
 
 
 async def create_live_stream(title: str, settings: Settings, *, chat_mode: str = "off") -> dict:
@@ -92,18 +110,14 @@ async def create_live_stream(title: str, settings: Settings, *, chat_mode: str =
         )
 
     if response.status_code >= 400:
-        detail = "Failed to create VdoCipher live stream"
-        try:
-            data = response.json()
-            provider_detail = data.get("message") or data.get("detail") or data.get("error")
-            if provider_detail:
-                detail = f"{detail}: {provider_detail}"
-        except ValueError:
-            if response.text:
-                detail = f"{detail}: {response.text[:160]}"
-        raise HTTPException(status_code=502, detail=detail)
+        logger.warning("vdocipher_live_create_failed", extra=_provider_error_extra(response))
+        raise HTTPException(status_code=502, detail="Failed to create VdoCipher live stream")
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        logger.warning("vdocipher_live_create_malformed_response")
+        raise HTTPException(status_code=502, detail="Invalid VdoCipher live stream response") from exc
     live_id = _first_string(data, ("liveId", "live_id", "id", "streamId", "stream_id"))
     if not live_id:
         raise HTTPException(status_code=502, detail="VdoCipher did not return a live stream ID")

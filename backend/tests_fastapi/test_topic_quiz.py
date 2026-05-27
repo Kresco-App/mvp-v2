@@ -2,11 +2,12 @@ from app.database import get_session_factory
 from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
 from app.models.quizzes import Question, QuestionSet
-from sqlalchemy import select
+from app.models.users import UserSubjectEntitlement
+from sqlalchemy import func, select
 
 
 def test_tab_quiz_grades_required_question_types(app_client, auth_token, run_db):
-    token, _ = auth_token(email="quiz-types@example.com", is_pro=True)
+    token, user_id = auth_token(email="quiz-types@example.com", is_pro=True)
 
     async def _seed():
         session_factory = get_session_factory()
@@ -45,6 +46,7 @@ def test_tab_quiz_grades_required_question_types(app_client, auth_token, run_db)
                 },
             )
             db.add(tab)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
             await db.commit()
             await db.refresh(tab)
             return tab.id
@@ -93,8 +95,79 @@ def test_tab_quiz_grades_required_question_types(app_client, auth_token, run_db)
     run_db(_assert_tracking())
 
 
+def test_tab_quiz_reuses_identical_submission(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="quiz-idempotency@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Idempotent Quiz Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="idempotent-quiz-topic", title="Idempotent Quiz", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Lessons", section_type="lessons", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(topic_id=topic.id, section_id=section.id, title="Quiz item", item_type="checkpoint_quiz", order=1)
+            db.add(item)
+            await db.flush()
+            tab = TabContent(
+                topic_item_id=item.id,
+                label="Quiz",
+                tab_type="quiz",
+                order=1,
+                config_json={
+                    "pass_score": 70,
+                    "questions": [
+                        {"id": "mc", "type": "multiple_choice", "prompt": "Pick A", "options": ["A", "B"], "answer": "A"},
+                    ],
+                },
+            )
+            db.add(tab)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            await db.commit()
+            await db.refresh(tab)
+            return tab.id
+
+    tab_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"answers": {"mc": "A"}}
+    variant_payload = {"answers": {"mc": " a ", "ignored": "attacker-controlled-junk"}}
+
+    first = app_client.post(f"/api/courses/tabs/{tab_id}/quiz/submit", headers=headers, json=payload)
+    duplicate = app_client.post(f"/api/courses/tabs/{tab_id}/quiz/submit", headers=headers, json=variant_payload)
+
+    assert first.status_code == 200
+    assert first.json()["xp_earned"] == 25
+    assert duplicate.status_code == 200
+    assert duplicate.json()["xp_earned"] == 0
+    assert duplicate.json()["grading"] == first.json()["grading"]
+
+    async def _assert_single_submission():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            question_set = (await db.execute(select(QuestionSet).where(QuestionSet.tab_content_id == tab_id))).scalar_one()
+            attempts = (
+                await db.execute(select(QuizAttempt).where(QuizAttempt.user_id == user_id, QuizAttempt.question_set_id == question_set.id))
+            ).scalars().all()
+            assert len(attempts) == 1
+            question_attempt_count = await db.scalar(
+                select(func.count()).select_from(QuestionAttempt).where(QuestionAttempt.quiz_attempt_id == attempts[0].id)
+            )
+            xp_count = await db.scalar(
+                select(func.count()).select_from(XPTransaction).where(XPTransaction.quiz_attempt_id == attempts[0].id)
+            )
+            assert len(attempts[0].submission_hash or "") == 64
+            assert question_attempt_count == 1
+            assert xp_count == 2
+
+    run_db(_assert_single_submission())
+
+
 def test_topic_item_completion_awards_xp_once_with_context(app_client, auth_token, run_db):
-    token, _ = auth_token(email="topic-complete-xp@example.com", is_pro=True)
+    token, user_id = auth_token(email="topic-complete-xp@example.com", is_pro=True)
 
     async def _seed():
         session_factory = get_session_factory()
@@ -110,6 +183,7 @@ def test_topic_item_completion_awards_xp_once_with_context(app_client, auth_toke
             await db.flush()
             item = TopicItem(topic_id=topic.id, section_id=section.id, title="Completion video", item_type="video", order=1)
             db.add(item)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
             await db.commit()
             return subject.id, topic.id, section.id, item.id
 
@@ -142,7 +216,7 @@ def test_topic_item_completion_awards_xp_once_with_context(app_client, auth_toke
 
 
 def test_tab_quiz_tracks_figma_audit_primitives(app_client, auth_token, run_db):
-    token, _ = auth_token(email="quiz-figma-primitives@example.com", is_pro=True)
+    token, user_id = auth_token(email="quiz-figma-primitives@example.com", is_pro=True)
 
     async def _seed():
         session_factory = get_session_factory()
@@ -178,6 +252,7 @@ def test_tab_quiz_tracks_figma_audit_primitives(app_client, auth_token, run_db):
                 },
             )
             db.add(tab)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
             await db.commit()
             await db.refresh(tab)
             return tab.id

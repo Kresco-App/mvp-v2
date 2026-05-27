@@ -4,12 +4,21 @@ from app.services.access import AccessContext, effective_user_tier
 from app.models.users import User
 
 
-def access_context(*, tier: str = "basic", subjects: set[int] | None = None) -> AccessContext:
+def access_context(
+    *,
+    tier: str = "basic",
+    subjects: set[int] | None = None,
+    has_subject_entitlement_rows: bool | None = None,
+) -> AccessContext:
+    subject_ids = subjects or set()
     return AccessContext(
         user_id=1,
         effective_tier=tier,
         feature_keys=frozenset(),
-        active_subject_ids=frozenset(subjects or set()),
+        active_subject_ids=frozenset(subject_ids),
+        has_subject_entitlement_rows=bool(subject_ids)
+        if has_subject_entitlement_rows is None
+        else has_subject_entitlement_rows,
     )
 
 
@@ -46,6 +55,40 @@ def test_free_preview_child_does_not_bypass_parent_subject_lock():
     assert parent.reason == "subject_access_required"
     assert child.can_access is False
     assert child.reason == "subject_access_required"
+
+
+def test_paid_tier_without_subjects_enforces_subject_scope():
+    context = access_context(tier="pro", subjects=set())
+    decision = context.decide_for(SimpleNamespace(required_tier="pro"), subject_id=10)
+
+    assert decision.can_access is False
+    assert decision.reason == "subject_access_required"
+    assert decision.subject_scope_enforced is True
+
+
+def test_inactive_subject_rows_do_not_disable_subject_scope():
+    context = access_context(
+        tier="basic",
+        subjects=set(),
+        has_subject_entitlement_rows=True,
+    )
+    decision = context.decide_for(SimpleNamespace(), subject_id=10)
+
+    assert decision.can_access is False
+    assert decision.reason == "subject_access_required"
+    assert decision.subject_scope_enforced is True
+
+
+def test_basic_user_without_entitlement_rows_keeps_seed_data_fallback():
+    context = access_context(
+        tier="basic",
+        subjects=set(),
+        has_subject_entitlement_rows=False,
+    )
+    decision = context.decide_for(SimpleNamespace(), subject_id=10)
+
+    assert decision.can_access is True
+    assert decision.subject_scope_enforced is False
 
 
 def test_effective_user_tier_prefers_explicit_paid_tier_over_legacy_pro_flag():

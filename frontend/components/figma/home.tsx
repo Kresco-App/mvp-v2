@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import {
   Atom,
   BookOpen,
@@ -214,7 +215,7 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
           <div className={`absolute inset-0 ${isMathCard ? 'bg-[#eef1ff]' : 'bg-[#e6f9ef]'}`} />
           {isMathCard ? (
             <div className="absolute bottom-[-4px] left-[9px] right-[-8px] top-[7px]">
-              <img alt="" className="absolute inset-0 block h-full w-full max-w-none" src="/figma-assets/home-continue-book.svg" />
+              <Image alt="" className="block max-w-none object-fill" fill sizes="132px" src="/figma-assets/home-continue-book.svg" />
             </div>
           ) : (
             <div className="absolute bottom-[-2px] right-[8px] grid h-[84px] w-[84px] place-items-center rounded-full bg-[#40cf5b] text-[#2387d9]">

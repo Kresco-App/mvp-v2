@@ -1,8 +1,12 @@
+from types import SimpleNamespace
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import Response
+
 from app.database import get_session_factory
 from app.models.users import User
 from app.services.email import generate_reset_token, generate_verification_token
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def _failing_send_email(*args, **kwargs):
@@ -62,12 +66,16 @@ def test_signup_verify_and_login_flow(app_client, test_settings):
     verify_token = generate_verification_token(email, test_settings)
     verify = app_client.post("/api/auth/verify-email", json={"token": verify_token})
     assert verify.status_code == 200
-    assert "access_token" in verify.json()
+    verify_body = verify.json()
+    assert "access_token" not in verify_body
+    assert verify_body["user"]["email"] == email
     assert "HttpOnly" in verify.headers["set-cookie"]
 
     login = app_client.post("/api/auth/login", json={"email": email, "password": password})
     assert login.status_code == 200
-    assert "access_token" in login.json()
+    login_body = login.json()
+    assert "access_token" not in login_body
+    assert login_body["user"]["email"] == email
     assert login.cookies.get("kresco_token")
 
 
@@ -88,7 +96,7 @@ def test_google_login_happy_path(app_client, monkeypatch):
     response = app_client.post("/api/google-login", json={"credential": "fake-credential"})
     assert response.status_code == 200
     body = response.json()
-    assert "access_token" in body
+    assert "access_token" not in body
     assert body["user"]["email"] == "googleuser@example.com"
     assert response.cookies.get("kresco_token")
 
@@ -180,10 +188,11 @@ def test_demo_login_endpoint_is_removed(app_client):
     assert "access_token" not in response.text
 
 
-def test_signup_does_not_block_when_verification_email_fails(app_client, monkeypatch):
+def test_signup_does_not_block_when_verification_email_fails(app_client, monkeypatch, caplog):
     import app.routers.users as users_router
 
     monkeypatch.setattr(users_router, "send_verification_email", _failing_send_email)
+    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post(
         "/api/auth/signup",
@@ -192,30 +201,47 @@ def test_signup_does_not_block_when_verification_email_fails(app_client, monkeyp
 
     assert response.status_code == 202
     assert response.json()["email"] == "email-failure@example.com"
+    assert any(
+        record.message == "auth_email_dispatch_failed"
+        and getattr(record, "flow", "") == "signup_verification"
+        for record in caplog.records
+    )
 
 
-def test_resend_verification_does_not_block_when_email_fails(app_client, monkeypatch, run_db):
+def test_resend_verification_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
     import app.routers.users as users_router
 
     run_db(_seed_user("resend-failure@example.com", is_email_verified=False))
     monkeypatch.setattr(users_router, "send_verification_email", _failing_send_email)
+    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post("/api/auth/resend-verification", json={"email": "resend-failure@example.com"})
 
     assert response.status_code == 200
     assert "un email a ete envoye" in response.json()["message"]
+    assert any(
+        record.message == "auth_email_dispatch_failed"
+        and getattr(record, "flow", "") == "resend_verification"
+        for record in caplog.records
+    )
 
 
-def test_forgot_password_does_not_block_when_email_fails(app_client, monkeypatch, run_db):
+def test_forgot_password_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
     import app.routers.users as users_router
 
     run_db(_seed_user("forgot-failure@example.com", is_email_verified=True))
     monkeypatch.setattr(users_router, "send_reset_email", _failing_send_email)
+    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post("/api/auth/forgot-password", json={"email": "forgot-failure@example.com"})
 
     assert response.status_code == 200
     assert "email de reinitialisation" in response.json()["message"]
+    assert any(
+        record.message == "auth_email_dispatch_failed"
+        and getattr(record, "flow", "") == "forgot_password"
+        for record in caplog.records
+    )
 
 
 def test_reset_password_token_is_single_use(app_client, test_settings, run_db):
@@ -238,7 +264,8 @@ def test_reset_password_token_is_single_use(app_client, test_settings, run_db):
 
     login = app_client.post("/api/auth/login", json={"email": email, "password": "new-strong-pass-123"})
     assert login.status_code == 200
-    assert "access_token" in login.json()
+    assert "access_token" not in login.json()
+    assert login.cookies.get("kresco_token")
 
 
 def test_profile_accepts_auth_cookie(app_client, run_db):
@@ -254,13 +281,33 @@ def test_profile_accepts_auth_cookie(app_client, run_db):
     assert profile.json()["email"] == email
 
 
+def test_production_auth_cookie_is_secure_and_cross_site_ready(test_settings):
+    import app.routers.users as users_router
+
+    settings = test_settings.model_copy(update={"environment": "production"})
+    response = Response()
+
+    users_router._set_auth_cookies(response, "jwt-token", SimpleNamespace(role="student"), settings)
+
+    cookies = [
+        value.decode("latin-1")
+        for name, value in response.raw_headers
+        if name.lower() == b"set-cookie"
+    ]
+    auth_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_token="))
+    assert "HttpOnly" in auth_cookie
+    assert "Secure" in auth_cookie
+    assert "samesite=none" in auth_cookie.lower()
+
+
 def test_password_reset_revokes_existing_bearer_tokens(app_client, test_settings, run_db):
     email = "reset-revokes-token@example.com"
     run_db(_seed_user(email, is_email_verified=True))
 
     login = app_client.post("/api/auth/login", json={"email": email, "password": "strong-pass-123"})
     assert login.status_code == 200
-    old_token = login.json()["access_token"]
+    old_token = login.cookies.get("kresco_token")
+    assert old_token
 
     reset_token = generate_reset_token(email, test_settings, token_version=0)
     reset = app_client.post(
@@ -275,7 +322,8 @@ def test_password_reset_revokes_existing_bearer_tokens(app_client, test_settings
 
     new_login = app_client.post("/api/auth/login", json={"email": email, "password": "new-strong-pass-123"})
     assert new_login.status_code == 200
-    new_token = new_login.json()["access_token"]
+    new_token = new_login.cookies.get("kresco_token")
+    assert new_token
     profile = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {new_token}"})
     assert profile.status_code == 200
     assert profile.json()["email"] == email
