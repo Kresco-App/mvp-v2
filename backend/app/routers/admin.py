@@ -412,8 +412,8 @@ async def get_admin_overview(
             "implemented_feature_keys_by_tier": {
                 tier: sorted(keys) for tier, keys in FEATURES_BY_TIER.items()
             },
-            "subject_scope_rule": "enforced_for_users_with_entitlement_rows",
-            "fallback_without_entitlements": "subject_unrestricted_for_seed_data",
+            "subject_scope_rule": "enforced_for_users_with_active_entitlements",
+            "fallback_without_active_entitlements": "subject_unrestricted_for_seed_data",
         },
         "gated_content": gated_content,
         "gated_content_by_required_tier": gated_content_by_required_tier,

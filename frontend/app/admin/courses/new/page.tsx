@@ -17,6 +17,7 @@ interface SubjectForm {
 }
 
 interface ChapterForm {
+  id: string
   title: string
   order: number
 }
@@ -43,7 +44,7 @@ export default function NewCoursePage() {
     title: '', description: '', niveau: '2bac', filiere: 'PC'
   })
   const [chapters, setChapters] = useState<ChapterForm[]>([
-    { title: '', order: 1 }
+    { id: 'chapter-1', title: '', order: 1 }
   ])
   const [creating, setCreating] = useState(false)
 
@@ -84,7 +85,7 @@ export default function NewCoursePage() {
       <div className="min-h-screen bg-slate-950">
         {/* Top bar */}
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
-          <button
+          <button type="button"
             onClick={() => step > 1 ? setStep(s => s - 1) : router.push('/admin')}
             className="text-slate-400 hover:text-white transition"
           >
@@ -94,10 +95,10 @@ export default function NewCoursePage() {
         </div>
 
         {/* Stepper */}
-        <div className="flex items-center justify-center gap-0 py-8 px-6">
+        <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-8 sm:flex-nowrap sm:gap-0 sm:px-6">
           {STEPS.map((s, i) => (
             <div key={s.id} className="flex items-center">
-              <div className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition ${
+              <div className={`flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition sm:px-4 ${
                 step === s.id
                   ? 'bg-indigo-600 text-white'
                   : step > s.id
@@ -108,7 +109,7 @@ export default function NewCoursePage() {
                 {s.label}
               </div>
               {i < STEPS.length - 1 && (
-                <div className={`w-8 h-px mx-1 ${step > s.id ? 'bg-green-600/30' : 'bg-slate-800'}`} />
+                <div className={`mx-1 hidden h-px w-8 sm:block ${step > s.id ? 'bg-green-600/30' : 'bg-slate-800'}`} />
               )}
             </div>
           ))}
@@ -121,8 +122,10 @@ export default function NewCoursePage() {
               <h2 className="text-white font-bold text-lg">Informations sur la matière</h2>
 
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Titre de la matière *</label>
+                <label htmlFor="new-course-title" className="block text-slate-300 text-sm font-medium mb-2">Titre de la matière *</label>
                 <input
+                  id="new-course-title"
+                  aria-label="Titre de la matière"
                   value={subject.title}
                   onChange={e => setSubject(s => ({ ...s, title: e.target.value }))}
                   placeholder="ex: Physique-Chimie 2Bac"
@@ -131,8 +134,10 @@ export default function NewCoursePage() {
               </div>
 
               <div>
-                <label className="block text-slate-300 text-sm font-medium mb-2">Description</label>
+                <label htmlFor="new-course-description" className="block text-slate-300 text-sm font-medium mb-2">Description</label>
                 <textarea
+                  id="new-course-description"
+                  aria-label="Description"
                   value={subject.description}
                   onChange={e => setSubject(s => ({ ...s, description: e.target.value }))}
                   placeholder="Description du cours (optionnel)"
@@ -143,8 +148,10 @@ export default function NewCoursePage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-300 text-sm font-medium mb-2">Niveau</label>
+                  <label htmlFor="new-course-level" className="block text-slate-300 text-sm font-medium mb-2">Niveau</label>
                   <select
+                    id="new-course-level"
+                    aria-label="Niveau"
                     value={subject.niveau}
                     onChange={e => setSubject(s => ({ ...s, niveau: e.target.value }))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -153,8 +160,10 @@ export default function NewCoursePage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-300 text-sm font-medium mb-2">Filière</label>
+                  <label htmlFor="new-course-track" className="block text-slate-300 text-sm font-medium mb-2">Filière</label>
                   <select
+                    id="new-course-track"
+                    aria-label="Filière"
                     value={subject.filiere}
                     onChange={e => setSubject(s => ({ ...s, filiere: e.target.value }))}
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -164,7 +173,7 @@ export default function NewCoursePage() {
                 </div>
               </div>
 
-              <button
+              <button type="button"
                 onClick={() => { if (!subject.title.trim()) { toast.error('Titre requis'); return }; setStep(2) }}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2"
               >
@@ -181,9 +190,10 @@ export default function NewCoursePage() {
 
               <div className="space-y-3">
                 {chapters.map((ch, i) => (
-                  <div key={i} className="flex items-center gap-3">
+                  <div key={ch.id} className="flex items-center gap-3">
                     <span className="text-slate-400 text-sm font-mono w-6 text-center">{i + 1}</span>
                     <input
+                      aria-label={`Titre du chapitre ${i + 1}`}
                       value={ch.title}
                       onChange={e => {
                         const next = [...chapters]
@@ -194,7 +204,7 @@ export default function NewCoursePage() {
                       className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-600"
                     />
                     {chapters.length > 1 && (
-                      <button
+                      <button type="button"
                         onClick={() => setChapters(prev => prev.filter((_, j) => j !== i).map((c, j) => ({ ...c, order: j + 1 })))}
                         className="text-slate-400 hover:text-red-400 transition"
                       >
@@ -205,21 +215,21 @@ export default function NewCoursePage() {
                 ))}
               </div>
 
-              <button
-                onClick={() => setChapters(prev => [...prev, { title: '', order: prev.length + 1 }])}
+              <button type="button"
+                onClick={() => setChapters(prev => [...prev, { id: `chapter-${Date.now()}-${prev.length + 1}`, title: '', order: prev.length + 1 }])}
                 className="text-indigo-400 hover:text-indigo-300 text-sm font-medium flex items-center gap-1 transition"
               >
                 + Ajouter un chapitre
               </button>
 
               <div className="flex gap-3 pt-2">
-                <button
+                <button type="button"
                   onClick={() => setStep(1)}
                   className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-3 rounded-xl transition"
                 >
                   Retour
                 </button>
-                <button
+                <button type="button"
                   onClick={() => setStep(3)}
                   className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2"
                 >
@@ -250,7 +260,7 @@ export default function NewCoursePage() {
                   <p className="text-slate-500 text-xs uppercase tracking-wide mb-2">Chapitres ({chapters.filter(c => c.title.trim()).length})</p>
                   <ol className="space-y-1">
                     {chapters.filter(c => c.title.trim()).map((ch, i) => (
-                      <li key={i} className="text-slate-300 text-sm flex items-center gap-2">
+                      <li key={ch.id} className="text-slate-300 text-sm flex items-center gap-2">
                         <span className="text-slate-400 text-xs font-mono">{i + 1}.</span>
                         {ch.title}
                       </li>
@@ -260,13 +270,13 @@ export default function NewCoursePage() {
               </div>
 
               <div className="flex gap-3">
-                <button
+                <button type="button"
                   onClick={() => setStep(2)}
                   className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold py-3 rounded-xl transition"
                 >
                   Retour
                 </button>
-                <button
+                <button type="button"
                   onClick={handleCreate}
                   disabled={creating}
                   className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition flex items-center justify-center gap-2"

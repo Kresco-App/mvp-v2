@@ -9,7 +9,7 @@ export const DiffractionSimulator: React.FC = () => {
   const [wavelength, setWavelength] = useState(40); // px
   const [gapSize, setGapSize] = useState(40); // px
   const timeRef = useRef(0);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
 
   const draw = () => {
     if (!canvasRef.current) return;
@@ -159,7 +159,7 @@ export const DiffractionSimulator: React.FC = () => {
                 Huygens-Fresnel
             </span>
         </h3>
-        <button onClick={() => { setWavelength(40); setGapSize(40); }} className="text-slate-400 hover:text-slate-600 transition-colors">
+        <button type="button" onClick={() => { setWavelength(40); setGapSize(40); }} className="text-slate-400 hover:text-slate-600 transition-colors">
             <RefreshCw size={18}/>
         </button>
       </div>

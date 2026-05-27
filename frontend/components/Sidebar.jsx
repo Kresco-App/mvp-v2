@@ -86,7 +86,7 @@ export default function Sidebar() {
               <p className="text-xs text-slate-400 truncate">{user.email}</p>
             </div>
           </div>
-          <button
+          <button type="button"
             onClick={handleLogout}
             className="mt-2 w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
           >

@@ -1,16 +1,18 @@
 import hashlib
 import hmac
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.config import Settings, get_settings
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_current_user, get_db, require_professor_active_offering
 from app.models.gamification import UserXP
 from app.models.users import User
 from app.rate_limit import limiter
@@ -19,7 +21,7 @@ from app.schemas.users import (
     ProfileMediaOut, ResetPasswordIn, SignupIn, SignupPendingOut, TokenOut, UserOut, UserUpdateIn,
     VerifyEmailIn,
 )
-from app.services.auth import create_token, verify_google_token
+from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_google_token
 from app.services.email import (
     generate_reset_token, generate_verification_token,
     send_reset_email, send_verification_email,
@@ -27,6 +29,7 @@ from app.services.email import (
 )
 
 router = APIRouter(tags=["Auth & Users"])
+logger = logging.getLogger("kresco.auth")
 
 ALLOWED_PROFILE_MEDIA_TYPES = {
     "image/jpeg": ".jpg",
@@ -54,30 +57,60 @@ def _verify_password(plain: str, stored: str) -> bool:
         return False
 
 
-def _is_local_request(request: Request, settings: Settings) -> bool:
-    if settings.is_lambda:
-        return False
+def _auth_cookie_secure(settings: Settings) -> bool:
+    return settings.is_production_like
 
-    client_host = request.client.host if request.client else ""
-    if client_host in {"127.0.0.1", "::1", "localhost"}:
-        return True
 
-    origin = request.headers.get("origin", "")
-    return (
-        origin.startswith("http://localhost:")
-        or origin.startswith("http://127.0.0.1:")
-        or origin in settings.cors_origins_list
+def _set_auth_cookies(response: Response, token: str, user: User, settings: Settings) -> None:
+    max_age = max(int(settings.jwt_expire_minutes) * 60, 0)
+    secure = _auth_cookie_secure(settings)
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        token,
+        max_age=max_age,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+    response.set_cookie(
+        AUTH_ROLE_COOKIE_NAME,
+        user.role or "",
+        max_age=max_age,
+        httponly=False,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_auth_cookies(response: Response, settings: Settings) -> None:
+    secure = _auth_cookie_secure(settings)
+    response.delete_cookie(
+        AUTH_COOKIE_NAME,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="lax",
+    )
+    response.delete_cookie(
+        AUTH_ROLE_COOKIE_NAME,
+        path="/",
+        secure=secure,
+        httponly=False,
+        samesite="lax",
     )
 
 
 @router.post("/google-login", response_model=TokenOut)
 async def google_login(
     body: GoogleLoginIn,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     try:
-        payload = verify_google_token(body.credential, settings.google_client_id)
+        payload = await run_in_threadpool(verify_google_token, body.credential, settings.google_client_id)
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Google credential")
 
@@ -100,6 +133,9 @@ async def google_login(
         await db.commit()
         await db.refresh(user)
     else:
+        if user.role == "professor":
+            await require_professor_active_offering(db, user)
+
         changed = False
         if not user.is_email_verified:
             user.is_email_verified = True
@@ -117,52 +153,13 @@ async def google_login(
             try:
                 await db.commit()
                 await db.refresh(user)
-            except Exception:
+            except Exception as exc:
                 await db.rollback()
+                logger.exception("google_login_persistence_failed email=%s", email)
+                raise HTTPException(status_code=503, detail="Could not complete Google login.") from exc
 
-    token = create_token(user.id, settings)
-    return TokenOut(access_token=token, user=UserOut.model_validate(user))
-
-
-@router.post("/auth/demo-login", response_model=TokenOut)
-async def demo_login(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    if not _is_local_request(request, settings):
-        raise HTTPException(status_code=404, detail="Not found")
-
-    email = "student@kresco.local"
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        now = datetime.now(timezone.utc)
-        user = User(email=email, created_at=now, updated_at=now)
-        db.add(user)
-        await db.flush()
-
-    user.full_name = "Kresco Student"
-    user.password = _hash_password("kresco123")
-    user.is_email_verified = True
-    user.is_active = True
-    user.is_pro = True
-    user.role = "student"
-    user.niveau = "2bac"
-    user.filiere = "Bac Sciences Physiques"
-
-    now = datetime.now(timezone.utc)
-    user.updated_at = now
-
-    xp = (await db.execute(select(UserXP).where(UserXP.user_id == user.id))).scalar_one_or_none()
-    if xp is None:
-        db.add(UserXP(user_id=user.id, total_xp=0, streak_days=0, updated_at=now))
-
-    await db.commit()
-    await db.refresh(user)
-
-    token = create_token(user.id, settings)
+    token = create_token(user, settings)
+    _set_auth_cookies(response, token, user, settings)
     return TokenOut(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -216,6 +213,7 @@ async def signup(
 @router.post("/auth/verify-email", response_model=TokenOut)
 async def verify_email(
     body: VerifyEmailIn,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -228,12 +226,16 @@ async def verify_email(
     if user is None:
         raise HTTPException(status_code=404, detail="Compte introuvable")
 
+    if user.role == "professor":
+        await require_professor_active_offering(db, user)
+
     if not user.is_email_verified:
         user.is_email_verified = True
         await db.commit()
         await db.refresh(user)
 
-    token = create_token(user.id, settings)
+    token = create_token(user, settings)
+    _set_auth_cookies(response, token, user, settings)
     return TokenOut(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -265,6 +267,7 @@ async def resend_verification(
 async def login(
     request: Request,
     body: LoginIn,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -281,9 +284,21 @@ async def login(
             status_code=403,
             detail="Veuillez verifier votre email avant de vous connecter",
         )
+    if user.role == "professor":
+        await require_professor_active_offering(db, user)
 
-    token = create_token(user.id, settings)
+    token = create_token(user, settings)
+    _set_auth_cookies(response, token, user, settings)
     return TokenOut(access_token=token, user=UserOut.model_validate(user))
+
+
+@router.post("/auth/logout", response_model=MessageOut)
+async def logout(
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    _clear_auth_cookies(response, settings)
+    return MessageOut(message="Deconnecte.")
 
 
 @router.post("/auth/forgot-password", response_model=MessageOut)
@@ -301,7 +316,7 @@ async def forgot_password(
     user = result.scalar_one_or_none()
 
     if user and user.is_email_verified and user.password != "!":
-        token = generate_reset_token(email, settings)
+        token = generate_reset_token(email, settings, token_version=user.auth_token_version or 0)
         try:
             await send_reset_email(email, token, settings)
         except Exception:
@@ -320,16 +335,20 @@ async def reset_password(
     if len(body.password) < 6:
         raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caracteres")
 
-    email = verify_reset_token(body.token, settings)
-    if email is None:
+    reset_payload = verify_reset_token(body.token, settings)
+    if reset_payload is None:
         raise HTTPException(status_code=400, detail="Lien de reinitialisation invalide ou expire")
 
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(User.email == reset_payload.email))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Compte introuvable")
+    if (user.auth_token_version or 0) != reset_payload.token_version:
+        raise HTTPException(status_code=400, detail="Lien de reinitialisation invalide ou expire")
 
     user.password = _hash_password(body.password)
+    user.auth_token_version = (user.auth_token_version or 0) + 1
+    user.password_changed_at = datetime.now(timezone.utc)
     await db.commit()
     return MessageOut(message="Mot de passe reinitialise avec succes.")
 

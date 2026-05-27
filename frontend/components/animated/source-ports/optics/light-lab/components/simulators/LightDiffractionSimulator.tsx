@@ -156,7 +156,7 @@ export const LightDiffractionSimulator: React.FC = () => {
                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                     <Maximize2 size={20} className="text-indigo-500" /> Diffraction de la Lumière
                 </h3>
-                <button onClick={() => { setWavelength(650); setSlitWidth(50); setDistance(2); }} className="text-slate-400 hover:text-slate-600">
+                <button type="button" onClick={() => { setWavelength(650); setSlitWidth(50); setDistance(2); }} className="text-slate-400 hover:text-slate-600">
                     <RefreshCw size={16} />
                 </button>
             </div>

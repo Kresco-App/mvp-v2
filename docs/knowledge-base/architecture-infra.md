@@ -27,6 +27,7 @@ Deployment work is paused during product implementation. Use local validation un
 - Lambda adapter: `backend/app_handler.py`
 - Backend config: `backend/app/config.py`
 - Database engine/session setup: `backend/app/database.py`
+- Backend liveness/readiness: `/health` is cheap liveness; `/ready` checks config policy and database connectivity.
 - API routers: `backend/app/routers/**`
 - SQLAdmin registry: `backend/app/admin/views.py`
 - Alembic migrations: `backend/alembic/versions/**`
@@ -63,6 +64,7 @@ Backend:
 ```bash
 cd backend
 python -m pytest tests_fastapi
+python -m pytest tests_fastapi/test_readiness.py
 ```
 
 Frontend:

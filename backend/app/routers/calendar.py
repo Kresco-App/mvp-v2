@@ -1,12 +1,13 @@
 from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_current_user, get_db
 from app.models.calendar import CalendarEvent
+from app.models.professor import CourseOffering, LiveSession, ProgramTrack
 from app.models.users import User
 from app.schemas.calendar import CalendarEventDetailOut, CalendarEventOut
 
@@ -55,7 +56,6 @@ async def list_calendar_events(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    del user
     if start is None or end is None:
         default_start, default_end = _current_week_range()
         start = start or default_start
@@ -63,8 +63,11 @@ async def list_calendar_events(
     if end < start:
         raise HTTPException(status_code=400, detail="end must be on or after start")
 
-    result = await db.execute(
+    stmt = (
         select(CalendarEvent)
+        .outerjoin(LiveSession, LiveSession.calendar_event_id == CalendarEvent.id)
+        .outerjoin(CourseOffering, CourseOffering.id == LiveSession.course_offering_id)
+        .outerjoin(ProgramTrack, ProgramTrack.id == CourseOffering.track_id)
         .options(selectinload(CalendarEvent.subject), selectinload(CalendarEvent.topic))
         .where(
             CalendarEvent.status != "cancelled",
@@ -73,6 +76,14 @@ async def list_calendar_events(
         )
         .order_by(CalendarEvent.starts_at, CalendarEvent.id)
     )
+    if user.role == "student":
+        stmt = stmt.where(
+            or_(
+                LiveSession.id.is_(None),
+                and_(ProgramTrack.niveau == user.niveau, ProgramTrack.filiere == user.filiere),
+            )
+        )
+    result = await db.execute(stmt)
     return [_event_out(event) for event in result.scalars().all()]
 
 
@@ -82,12 +93,22 @@ async def get_calendar_event(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    del user
-    result = await db.execute(
+    stmt = (
         select(CalendarEvent)
+        .outerjoin(LiveSession, LiveSession.calendar_event_id == CalendarEvent.id)
+        .outerjoin(CourseOffering, CourseOffering.id == LiveSession.course_offering_id)
+        .outerjoin(ProgramTrack, ProgramTrack.id == CourseOffering.track_id)
         .options(selectinload(CalendarEvent.subject), selectinload(CalendarEvent.topic))
         .where(CalendarEvent.id == event_id)
     )
+    if user.role == "student":
+        stmt = stmt.where(
+            or_(
+                LiveSession.id.is_(None),
+                and_(ProgramTrack.niveau == user.niveau, ProgramTrack.filiere == user.filiere),
+            )
+        )
+    result = await db.execute(stmt)
     event = result.scalar_one_or_none()
     if event is None:
         raise HTTPException(status_code=404, detail="Calendar event not found")

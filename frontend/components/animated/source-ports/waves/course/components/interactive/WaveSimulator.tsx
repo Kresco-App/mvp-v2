@@ -9,7 +9,7 @@ export const WaveSimulator: React.FC = () => {
   return (
     <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden my-8">
       <div className="bg-slate-50 p-4 border-b border-slate-100 flex items-center justify-center gap-4">
-        <button
+        <button type="button"
           onClick={() => setActiveTab('transverse')}
           className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
             activeTab === 'transverse'
@@ -19,7 +19,7 @@ export const WaveSimulator: React.FC = () => {
         >
           Transversale
         </button>
-        <button
+        <button type="button"
           onClick={() => setActiveTab('longitudinal')}
           className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
             activeTab === 'longitudinal'

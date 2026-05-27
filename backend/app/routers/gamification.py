@@ -1,7 +1,7 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,8 @@ from app.models.courses import Chapter, ChapterSection, Lesson, Subject, VideoQu
 from app.models.gamification import (
     ContentProgress, DailyQuest, LessonProgress, QuizResult, UserXP, XPTransaction,
 )
-from app.models.quizzes import Quiz
+from app.models.professor import CourseOffering, LiveSession, ProgramTrack
+from app.models.quizzes import Quiz, QuizQuestion
 from app.models.users import User
 from app.schemas.gamification import (
     DailyQuestOut, LessonAccessOut, LessonProgressOut, SectionAccessOut,
@@ -19,15 +20,28 @@ from app.schemas.gamification import (
     ProgressUpdateIn, ProgressCompleteIn, LeaderboardEntryOut, SidebarSummaryOut,
 )
 from app.schemas.courses import VideoQuizTriggerOut
+from app.schemas.quizzes import QuizResultOut, QuizSubmitIn
 from app.services.access import build_access_context
+from app.services.course_access import require_lesson_access
+from app.services.quiz_scoring import score_quiz_answers
 from app.services.xp import award_xp, calculate_level, generate_daily_quests
 
 router = APIRouter(tags=["Progress & Gamification"])
 
 
-def _sidebar_calendar_days() -> list[dict[str, int | str | bool]]:
-    days = [("Mon", 8), ("Tue", 9), ("Wed", 10), ("Thu", 11), ("Fri", 12), ("Sat", 13), ("Sun", 14)]
-    return [{"label": label, "value": value, "active": label == "Wed"} for label, value in days]
+def _sidebar_calendar_days(today: date | None = None) -> list[dict[str, int | str | bool]]:
+    active_date = today or datetime.now(timezone.utc).date()
+    start_date = active_date - timedelta(days=7)
+    weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    return [
+        {
+            "id": current_date.isoformat(),
+            "label": weekday_labels[current_date.weekday()],
+            "value": current_date.day,
+            "active": current_date == active_date,
+        }
+        for current_date in (start_date + timedelta(days=offset) for offset in range(21))
+    ]
 
 
 def _sidebar_strike_days(streak_days: int) -> list[dict[str, str | bool]]:
@@ -50,47 +64,40 @@ def _format_sidebar_start(starts_at: datetime) -> str:
     return f"{prefix} {value.strftime('%H:%M')}"
 
 
-async def _sidebar_live_events(db: AsyncSession) -> list[dict[str, int | str]]:
-    result = await db.execute(
+async def _sidebar_live_events(db: AsyncSession, user: User) -> list[dict[str, int | str]]:
+    now = datetime.now(timezone.utc)
+    stmt = (
         select(CalendarEvent)
+        .outerjoin(LiveSession, LiveSession.calendar_event_id == CalendarEvent.id)
+        .outerjoin(CourseOffering, CourseOffering.id == LiveSession.course_offering_id)
+        .outerjoin(ProgramTrack, ProgramTrack.id == CourseOffering.track_id)
         .where(
             CalendarEvent.event_type == "live_session",
             CalendarEvent.status.in_(["scheduled", "live"]),
-            CalendarEvent.ends_at >= datetime.now(timezone.utc),
+            CalendarEvent.ends_at >= now,
         )
         .order_by(CalendarEvent.starts_at, CalendarEvent.id)
         .limit(2)
     )
+    if user.role == "student":
+        stmt = stmt.where(
+            or_(
+                LiveSession.id.is_(None),
+                and_(ProgramTrack.niveau == user.niveau, ProgramTrack.filiere == user.filiere),
+            )
+        )
+    result = await db.execute(stmt)
     events = result.scalars().all()
-    if events:
-        return [
-            {
-                "id": event.id,
-                "title": event.title,
-                "starts_at": _format_sidebar_start(event.starts_at),
-                "subject": event.subtitle or event.teacher_name or "Live session",
-                "href": f"/calendar?event={event.id}",
-                "status": "upcoming" if event.status == "scheduled" else event.status,
-            }
-            for event in events
-        ]
     return [
         {
-            "id": "math-live",
-            "title": "Continuity clinic",
-            "starts_at": "Today 18:30",
-            "subject": "Mathematics",
-            "href": "/calendar",
-            "status": "upcoming",
-        },
-        {
-            "id": "physics-live",
-            "title": "Wave speed review",
-            "starts_at": "Tomorrow 19:00",
-            "subject": "Physique-Chimie",
-            "href": "/calendar",
-            "status": "upcoming",
-        },
+            "id": event.id,
+            "title": event.title,
+            "starts_at": _format_sidebar_start(event.starts_at),
+            "subject": event.subtitle or event.teacher_name or "Live session",
+            "href": f"/calendar?event={event.id}",
+            "status": "upcoming" if event.status == "scheduled" else event.status,
+        }
+        for event in events
     ]
 
 
@@ -204,7 +211,14 @@ async def update_progress(
     if lesson.duration_seconds > 0 and progress.watched_seconds >= lesson.duration_seconds * 0.9:
         if progress.status != "completed":
             progress.status = "completed"
-            await award_xp(user.id, "lesson_complete", f"Lesson {lesson.id} completed", db)
+            await award_xp(
+                user.id,
+                "lesson_complete",
+                f"Lesson {lesson.id} completed",
+                db,
+                subject_id=subject_id,
+                idempotency_key=f"lesson_complete:user:{user.id}:lesson:{lesson.id}",
+            )
 
     await db.commit()
     await db.refresh(progress)
@@ -289,11 +303,32 @@ async def complete_section(
         db.add(cp)
 
         if section.section_type == "video":
-            xp_earned = await award_xp(user.id, "video_complete", f"Section {section.id} video", db)
+            xp_earned = await award_xp(
+                user.id,
+                "video_complete",
+                f"Section {section.id} video",
+                db,
+                subject_id=subject_id,
+                idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:video",
+            )
         elif section.section_type == "activity":
-            xp_earned = await award_xp(user.id, "lab_complete", f"Section {section.id} activity", db)
+            xp_earned = await award_xp(
+                user.id,
+                "lab_complete",
+                f"Section {section.id} activity",
+                db,
+                subject_id=subject_id,
+                idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:activity",
+            )
         elif section.section_type == "quiz" and body.score >= (section.pass_score or 70):
-            xp_earned = await award_xp(user.id, "quiz_pass", f"Section {section.id} quiz passed", db)
+            xp_earned = await award_xp(
+                user.id,
+                "quiz_pass",
+                f"Section {section.id} quiz passed",
+                db,
+                subject_id=subject_id,
+                idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:quiz",
+            )
 
     await db.commit()
     return {"xp_earned": xp_earned}
@@ -364,6 +399,7 @@ async def get_quiz_triggers(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    await require_lesson_access(db, user, lesson_id)
     result = await db.execute(
         select(VideoQuizTrigger)
         .where(VideoQuizTrigger.lesson_id == lesson_id)
@@ -372,17 +408,19 @@ async def get_quiz_triggers(
     return [VideoQuizTriggerOut.model_validate(t) for t in result.scalars().all()]
 
 
-@router.post("/quiz-result")
+@router.post("/quiz-result", response_model=QuizResultOut)
 async def record_quiz_result(
     quiz_id: int,
-    score: int,
-    passed: bool,
+    body: QuizSubmitIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     quiz_result = await db.execute(
         select(Quiz)
-        .options(selectinload(Quiz.lesson).selectinload(Lesson.chapter))
+        .options(
+            selectinload(Quiz.lesson).selectinload(Lesson.chapter),
+            selectinload(Quiz.questions).selectinload(QuizQuestion.options),
+        )
         .where(Quiz.id == quiz_id)
     )
     quiz = quiz_result.scalar_one_or_none()
@@ -396,8 +434,7 @@ async def record_quiz_result(
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
 
-    normalized_score = max(0, min(score, 100))
-    server_passed = normalized_score >= quiz.pass_score
+    scored = score_quiz_answers(quiz, body.answers)
     prior_passed_result = await db.execute(
         select(QuizResult.id)
         .where(
@@ -409,13 +446,28 @@ async def record_quiz_result(
     )
     already_passed = prior_passed_result.scalar_one_or_none() is not None
 
-    qr = QuizResult(user_id=user.id, quiz_id=quiz_id, score=normalized_score, passed=server_passed)
+    qr = QuizResult(user_id=user.id, quiz_id=quiz_id, score=scored.score, passed=scored.passed)
     db.add(qr)
     xp_earned = 0
-    if server_passed and not already_passed:
-        xp_earned = await award_xp(user.id, "quiz_pass", f"Quiz {quiz_id} passed", db, dedupe=True)
+    if scored.passed and not already_passed:
+        xp_earned = await award_xp(
+            user.id,
+            "quiz_pass",
+            f"Quiz {quiz_id} passed",
+            db,
+            dedupe=True,
+            subject_id=subject_id,
+            idempotency_key=f"quiz_pass:user:{user.id}:quiz:{quiz_id}",
+        )
     await db.commit()
-    return {"score": normalized_score, "passed": server_passed, "xp_earned": xp_earned}
+    return QuizResultOut(
+        score=scored.score,
+        passed=scored.passed,
+        correct=scored.correct,
+        total=scored.total,
+        pass_score=quiz.pass_score,
+        xp_earned=xp_earned,
+    )
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntryOut])
@@ -467,6 +519,7 @@ async def get_daily_quests(
     user: User = Depends(get_current_user),
 ):
     quests = await generate_daily_quests(user.id, db)
+    await db.commit()
     return [DailyQuestOut.model_validate(q) for q in quests]
 
 
@@ -480,9 +533,10 @@ async def get_sidebar_summary(
     streak_days = xp_record.streak_days if xp_record else 0
 
     quests = await generate_daily_quests(user.id, db)
+    await db.commit()
     leaderboard = await get_leaderboard(limit=10, offset=0, search="", db=db, user=user)
 
-    live_events = await _sidebar_live_events(db)
+    live_events = await _sidebar_live_events(db, user)
 
     return SidebarSummaryOut(
         chrono_units=[
@@ -518,16 +572,17 @@ async def claim_daily_quest(
         raise HTTPException(status_code=400, detail="Quest not yet completed")
 
     quest.completed = True
-    from app.models.gamification import XPTransaction, UserXP
-    result2 = await db.execute(select(UserXP).where(UserXP.user_id == user.id))
-    xp_rec = result2.scalar_one_or_none()
-    if xp_rec:
-        xp_rec.total_xp += quest.xp_reward
-    else:
-        db.add(UserXP(user_id=user.id, total_xp=quest.xp_reward))
-    db.add(XPTransaction(user_id=user.id, amount=quest.xp_reward, reason="daily_quest", description=quest.title))
+    xp_awarded = await award_xp(
+        user.id,
+        "daily_quest",
+        quest.title,
+        db,
+        amount_override=quest.xp_reward,
+        idempotency_key=f"daily_quest_claim:user:{user.id}:quest:{quest.id}",
+        update_daily_quests=False,
+    )
     await db.commit()
-    return {"success": True, "xp_awarded": quest.xp_reward}
+    return {"success": True, "xp_awarded": xp_awarded}
 
 
 @router.get("/stats", response_model=UserStatsOut)

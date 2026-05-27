@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_current_user, get_db
+from app.models.gamification import ActivityEvent
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.users import User
 from app.schemas.interactions import (
     CommentAuthorOut, CommentCreateIn, CommentOut, NoteCreateIn, NoteOut,
     SavedItemCreateIn, SavedItemOut,
 )
+from app.services.interaction_context import activity_metadata, infer_interaction_context
 
 router = APIRouter(tags=["Interactions"])
 
@@ -86,12 +88,15 @@ async def create_comment(
 
 @router.get("/notes", response_model=list[NoteOut])
 async def list_notes(
+    subject_id: int | None = None,
     topic_id: int | None = None,
     topic_item_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     stmt = select(UserNote).where(UserNote.user_id == user.id)
+    if subject_id is not None:
+        stmt = stmt.where(UserNote.subject_id == subject_id)
     if topic_id is not None:
         stmt = stmt.where(UserNote.topic_id == topic_id)
     if topic_item_id is not None:
@@ -106,14 +111,32 @@ async def create_note(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    note = UserNote(
-        user_id=user.id,
+    context = await infer_interaction_context(
+        db,
+        subject_id=body.subject_id,
         topic_id=body.topic_id,
         topic_item_id=body.topic_item_id,
         tab_content_id=body.tab_content_id,
+    )
+    note = UserNote(
+        user_id=user.id,
+        subject_id=context.get("subject_id"),
+        topic_id=context.get("topic_id"),
+        topic_item_id=context.get("topic_item_id"),
+        tab_content_id=context.get("tab_content_id"),
         body=body.body,
     )
     db.add(note)
+    await db.flush()
+    db.add(ActivityEvent(
+        user_id=user.id,
+        event_type="note_created",
+        target_type="user_note",
+        target_id=note.id,
+        topic_id=note.topic_id,
+        topic_item_id=note.topic_item_id,
+        metadata_json=activity_metadata(subject_id=note.subject_id, tab_content_id=note.tab_content_id),
+    ))
     await db.commit()
     await db.refresh(note)
     return NoteOut.model_validate(note)
@@ -121,14 +144,20 @@ async def create_note(
 
 @router.get("/saves", response_model=list[SavedItemOut])
 async def list_saves(
+    subject_id: int | None = None,
+    topic_id: int | None = None,
+    topic_item_id: int | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(SavedItem)
-        .where(SavedItem.user_id == user.id)
-        .order_by(SavedItem.created_at.desc())
-    )
+    stmt = select(SavedItem).where(SavedItem.user_id == user.id)
+    if subject_id is not None:
+        stmt = stmt.where(SavedItem.subject_id == subject_id)
+    if topic_id is not None:
+        stmt = stmt.where(SavedItem.topic_id == topic_id)
+    if topic_item_id is not None:
+        stmt = stmt.where(SavedItem.topic_item_id == topic_item_id)
+    result = await db.execute(stmt.order_by(SavedItem.created_at.desc()))
     return [SavedItemOut.model_validate(save) for save in result.scalars().all()]
 
 
@@ -140,6 +169,14 @@ async def save_item(
 ):
     if body.target_type not in ALLOWED_TARGET_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid target_type. Use one of: {ALLOWED_TARGET_TYPES}")
+    context = await infer_interaction_context(
+        db,
+        subject_id=body.subject_id,
+        topic_id=body.topic_id,
+        topic_item_id=body.topic_item_id,
+        target_type=body.target_type,
+        target_id=body.target_id,
+    )
     existing = await db.execute(
         select(SavedItem).where(
             SavedItem.user_id == user.id,
@@ -148,16 +185,37 @@ async def save_item(
         )
     )
     save = existing.scalar_one_or_none()
+    created = False
     if save is None:
         save = SavedItem(
             user_id=user.id,
             target_type=body.target_type,
             target_id=body.target_id,
-            topic_id=body.topic_id,
-            topic_item_id=body.topic_item_id,
+            subject_id=context.get("subject_id"),
+            topic_id=context.get("topic_id"),
+            topic_item_id=context.get("topic_item_id"),
             label=body.label,
         )
         db.add(save)
-        await db.commit()
-        await db.refresh(save)
+        await db.flush()
+        created = True
+    else:
+        save.subject_id = save.subject_id if save.subject_id is not None else context.get("subject_id")
+        save.topic_id = save.topic_id if save.topic_id is not None else context.get("topic_id")
+        save.topic_item_id = save.topic_item_id if save.topic_item_id is not None else context.get("topic_item_id")
+        if body.label and body.label != save.label:
+            save.label = body.label
+
+    if created:
+        db.add(ActivityEvent(
+            user_id=user.id,
+            event_type="saved_item_created",
+            target_type=save.target_type,
+            target_id=save.target_id,
+            topic_id=save.topic_id,
+            topic_item_id=save.topic_item_id,
+            metadata_json=activity_metadata(saved_item_id=save.id, subject_id=save.subject_id),
+        ))
+    await db.commit()
+    await db.refresh(save)
     return SavedItemOut.model_validate(save)

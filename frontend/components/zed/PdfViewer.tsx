@@ -254,10 +254,12 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
           {documents.length > 0 && (
             <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-left">
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <label htmlFor="local-pdf-select" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Documents locaux
               </label>
               <select
+                id="local-pdf-select"
+                aria-label="Documents locaux"
                 value={activeDocumentId ?? ''}
                 onChange={(event) => setActiveDocumentId(event.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
@@ -275,7 +277,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           <label className="mt-5 inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-within:ring-2 focus-within:ring-indigo-200">
             <Upload size={16} />
             Importer un PDF
-            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" />
+            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Importer un PDF" />
           </label>
         </div>
       </div>
@@ -310,7 +312,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
         <div className="flex flex-shrink-0 items-center gap-1">
 
-          <button
+          <button type="button"
             onClick={handlePinText}
             className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
             title="Epingler du texte"
@@ -319,7 +321,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
             <Pin size={14} />
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setIsSnipping(!isSnipping)}
             className={`inline-flex h-9 w-9 items-center justify-center rounded-md border transition ${
               isSnipping
@@ -333,7 +335,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           </button>
 
           {isSnipping && (
-            <button
+            <button type="button"
               onClick={() => { setIsSnipping(false); setSnipRect(null) }}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
               title="Annuler la capture"
@@ -348,7 +350,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           </label>
 
           {activeDocumentId && (
-            <button
+            <button type="button"
               onClick={() => removeDocument(activeDocumentId)}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
               title="Supprimer du stockage local"
@@ -364,6 +366,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           ref={iframeRef}
           src={pdfUrl}
           className="h-full w-full border-0 bg-white"
+          sandbox="allow-downloads"
           title="PDF Viewer"
         />
 

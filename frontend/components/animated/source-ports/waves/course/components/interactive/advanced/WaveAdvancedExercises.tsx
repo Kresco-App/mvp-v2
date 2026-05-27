@@ -168,7 +168,7 @@ const SonarChallenge = () => {
                                 className="flex-1 border-2 border-slate-200 rounded-lg px-3 py-2 focus:border-indigo-500 outline-none font-bold"
                                 placeholder="Ex: 45.2"
                             />
-                            <button onClick={validate} className="bg-indigo-600 text-white px-6 rounded-lg font-bold hover:bg-indigo-700">
+                            <button type="button" onClick={validate} className="bg-indigo-600 text-white px-6 rounded-lg font-bold hover:bg-indigo-700">
                                 Vérifier
                             </button>
                         </div>
@@ -271,7 +271,7 @@ const DiffractionChallenge = () => {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <button
+                        <button type="button"
                             onClick={() => check(true)}
                             className={`p-4 rounded-xl border-2 font-bold transition-all ${selectedAnswer === true
                                 ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
@@ -279,7 +279,7 @@ const DiffractionChallenge = () => {
                         >
                             OUI
                         </button>
-                        <button
+                        <button type="button"
                             onClick={() => check(false)}
                             className={`p-4 rounded-xl border-2 font-bold transition-all ${selectedAnswer === false
                                 ? 'border-rose-600 bg-rose-50 text-rose-700'
@@ -368,7 +368,7 @@ const SeismicChallenge = () => {
                                 className="flex-1 p-2 border border-amber-300 rounded font-bold outline-none focus:border-amber-500"
                                 placeholder="Distance en km"
                             />
-                            <button onClick={validate} className="bg-amber-600 text-white px-4 py-2 rounded font-bold hover:bg-amber-700 transition">
+                            <button type="button" onClick={validate} className="bg-amber-600 text-white px-4 py-2 rounded font-bold hover:bg-amber-700 transition">
                                 Valider
                             </button>
                         </div>

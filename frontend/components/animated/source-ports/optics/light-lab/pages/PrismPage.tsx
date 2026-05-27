@@ -312,7 +312,7 @@ export default function PrismPage({
             <section className={`${cardBg} rounded-2xl p-4 space-y-3 border ${borderColor}`}>
                 <h3 className="text-xs font-semibold text-purple-500 uppercase tracking-wider">Mode Source</h3>
                 <div className="grid grid-cols-3 gap-1">
-                    <button
+                    <button type="button"
                         onClick={() => setSourceMode('white')}
                         className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
                             sourceMode === 'white' ? 'bg-blue-500 text-white shadow-sm' : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
@@ -320,7 +320,7 @@ export default function PrismPage({
                     >
                         <Sun size={14} /> Soleil
                     </button>
-                    <button
+                    <button type="button"
                         onClick={() => setSourceMode('single')}
                         className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
                             sourceMode === 'single' ? 'bg-amber-500 text-white shadow-sm' : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
@@ -328,7 +328,7 @@ export default function PrismPage({
                     >
                         <Droplet size={14} /> 1 Laser
                     </button>
-                    <button
+                    <button type="button"
                         onClick={() => setSourceMode('double')}
                         className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
                             sourceMode === 'double' ? 'bg-emerald-500 text-white shadow-sm' : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
@@ -404,7 +404,7 @@ export default function PrismPage({
 
                 {sourceMode === 'single' && (
                     <div className="pt-2 border-t border-purple-500/10">
-                        <button
+                        <button type="button"
                             onClick={() => setShowAngles(!showAngles)}
                             className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${
                                 showAngles 
@@ -503,7 +503,7 @@ export default function PrismPage({
             controlsContent={controlsContent}
             accentColor="purple"
             headerActions={
-                <button 
+                <button type="button" 
                     onClick={() => {
                         setIncidentAngle(45);
                         setPrismAngle(60);

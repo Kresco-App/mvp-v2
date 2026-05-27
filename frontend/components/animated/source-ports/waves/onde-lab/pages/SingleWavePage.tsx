@@ -103,40 +103,40 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
     return (
         <div className={`flex flex-col h-screen ${bg}`}>
             {/* Header */}
-            <header className={`flex items-center justify-between px-6 py-3 ${headerBg} border-b ${borderColor} shadow-sm`}>
-                <div className="flex items-center gap-4">
+            <header className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 ${headerBg} border-b ${borderColor} shadow-sm`}>
+                <div className="flex min-w-0 flex-1 items-center gap-4">
                     <h1 className={`text-xl font-bold ${accentLight}`}>
                         Labo Ondes
                     </h1>
                     
                     {/* Tab Navigation - Pill Style */}
                     <div className={`flex ${isDark ? 'bg-[#334155]' : 'bg-[#F1F5F9]'} rounded-full p-1 gap-1`}>
-                        <button className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${accentBg} text-white shadow-sm`}>
+                        <button type="button" className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${accentBg} text-white shadow-sm`}>
                             Onde Simple
                         </button>
-                        <button onClick={() => onNavigate('interference')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('interference')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
                             Collision
                         </button>
-                        <button onClick={() => onNavigate('longitudinal')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
                             Longitudinale
                         </button>
-                        <button onClick={() => onNavigate('multimedium')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('multimedium')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
                             Milieux
                         </button>
-                        <button onClick={() => onNavigate('circular')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('circular')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
                             Circulaire
                         </button>
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <button
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button type="button"
                         onClick={toggleTheme}
                         className={`px-3 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
                         title={isDark ? 'Mode clair' : 'Mode sombre'}
                     >
                         {isDark ? 'Clair' : 'Sombre'}
                     </button>
-                    <button
+                    <button type="button"
                         onClick={() => setIsPlaying(!isPlaying)}
                         className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${
                             isPlaying 
@@ -146,7 +146,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                     >
                         {isPlaying ? 'Pause' : 'Lecture'}
                     </button>
-                    <button onClick={handleRestart} className={`px-4 py-2 rounded-full transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>
+                    <button type="button" onClick={handleRestart} className={`px-4 py-2 rounded-full transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>
                         Reset
                     </button>
                 </div>
@@ -211,7 +211,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                     <section className={`${isDark ? 'bg-[#334155]/50' : 'bg-[#FFF9EB]'} rounded-2xl p-4 space-y-3 border ${isDark ? 'border-[#475569]' : 'border-[#FBAE17]/20'}`}>
                         <h3 className={`text-xs font-semibold uppercase tracking-wider ${accentLight}`}>Source d'Onde</h3>
                         <div className="flex gap-2">
-                            <button
+                            <button type="button"
                                 onClick={() => setWaveMode('manual')}
                                 className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
                                     waveMode === 'manual' 
@@ -221,7 +221,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                             >
                                 Manuel
                             </button>
-                            <button
+                            <button type="button"
                                 onClick={() => setWaveMode('oscillate')}
                                 className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
                                     waveMode === 'oscillate' 
@@ -233,7 +233,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                             </button>
                         </div>
                         {waveMode === 'manual' && (
-                            <button
+                            <button type="button"
                                 onClick={handlePulse}
                                 className="w-full py-3 rounded-full bg-[#FBAE17] text-white font-semibold hover:bg-[#E09A00] transition-all"
                             >
@@ -324,7 +324,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                         <h3 className={`text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>Extrémité</h3>
                         <div className="grid grid-cols-3 gap-2">
                             {(['fixed', 'loose', 'none'] as EndCondition[]).map((bc) => (
-                                <button
+                                <button type="button"
                                     key={bc}
                                     onClick={() => setEndCondition(bc)}
                                     className={`py-2 px-2 rounded-full text-xs font-medium transition-all ${
@@ -353,7 +353,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                                 { key: 'info', label: 'Infos', state: showWaveInfo, set: setShowWaveInfo },
                                 { key: 'graph', label: 'Graphe', state: showGraph, set: setShowGraph },
                             ].map(({ key, label, state, set }) => (
-                                <button
+                                <button type="button"
                                     key={key}
                                     onClick={() => set(!state)}
                                     className={`py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
@@ -377,7 +377,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                     <section className={`${isDark ? 'bg-[#334155]/50' : 'bg-white'} rounded-2xl p-4 space-y-3 border ${borderColor}`}>
                         <h3 className={`text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>Vitesse</h3>
                         <div className="flex gap-2">
-                            <button
+                            <button type="button"
                                 onClick={() => setSpeedMode('normal')}
                                 className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
                                     speedMode === 'normal' 
@@ -387,7 +387,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                             >
                                 Normale
                             </button>
-                            <button
+                            <button type="button"
                                 onClick={() => setSpeedMode('slow')}
                                 className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
                                     speedMode === 'slow' 

@@ -1,19 +1,12 @@
 import axios from 'axios'
+import { getApiBaseUrl } from './apiConfig'
+import { clearStoredAuthSession } from './authSession'
+import { getUnauthorizedDestination } from './authPolicy'
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/',
+  baseURL: getApiBaseUrl(),
   timeout: 15000,
-})
-
-// Inject JWT token into every request
-api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('kresco_token')
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
-  }
-  return config
+  withCredentials: true,
 })
 
 // Global error handler
@@ -22,9 +15,8 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('kresco_token')
-        localStorage.removeItem('kresco_user')
-        window.location.href = '/'
+        clearStoredAuthSession()
+        window.location.href = getUnauthorizedDestination(window.location.pathname)
       }
     }
     return Promise.reject(error)

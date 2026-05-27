@@ -23,6 +23,16 @@ interface Section {
   is_locked?: boolean
 }
 
+interface TopicCard {
+  id: number
+  title: string
+  description: string
+  item_count: number
+  completed_count: number
+  progress_pct: number
+  can_access?: boolean
+}
+
 interface Chapter {
   id: number
   title: string
@@ -47,17 +57,27 @@ export default function SubjectDetailPage() {
   const [loading, setLoading] = useState(true)
   const [chapterSections, setChapterSections] = useState<Record<number, Section[]>>({})
   const [progressSummary, setProgressSummary] = useState<SubjectProgressSummary | null>(null)
+  const [topics, setTopics] = useState<TopicCard[]>([])
 
   const isPro = user?.is_pro
 
   useEffect(() => {
     async function load() {
       try {
-        const [subjectRes, subjectPlan] = await Promise.all([
+        const [subjectRes, subjectPlan, topicsRes] = await Promise.all([
           api.get(`/courses/subjects/${subjectId}`),
           fetchSubjectPlan(subjectId).catch(() => null),
+          api.get(`/courses/subjects/${subjectId}/topics`).catch(() => ({ data: [] })),
         ])
         setSubject(subjectRes.data)
+
+        const subjectTopics = Array.isArray(topicsRes.data) ? topicsRes.data : []
+        setTopics(subjectTopics)
+        if (subjectTopics.length > 0) {
+          setChapterSections({})
+          setProgressSummary(null)
+          return
+        }
 
         const completedSectionIds = new Set(subjectPlan?.completed_section_ids ?? [])
         const totalLessonCount = subjectRes.data.chapters.reduce(
@@ -102,8 +122,17 @@ export default function SubjectDetailPage() {
   const allSections = Object.values(chapterSections).flat()
   const totalSections = allSections.length
   const completedCount = allSections.filter((section) => section.is_completed).length
-  const percentage = progressSummary?.percentage ?? (totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0)
+  const hasTopicWorkspace = topics.length > 0
+  const topicItemTotal = topics.reduce((total, topic) => total + topic.item_count, 0)
+  const topicCompletedCount = topics.reduce((total, topic) => total + topic.completed_count, 0)
+  const totalCount = hasTopicWorkspace ? topicItemTotal : totalSections
+  const completedTotal = hasTopicWorkspace ? topicCompletedCount : completedCount
+  const percentage = hasTopicWorkspace
+    ? (topicItemTotal > 0 ? Math.round((topicCompletedCount / topicItemTotal) * 100) : 0)
+    : progressSummary?.percentage ?? (totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0)
   const nextSection = allSections.find((section) => !section.is_completed && canAccessSection(section, isPro))
+  const nextTopic = topics.find((topic) => topic.can_access !== false && topic.completed_count < topic.item_count) || topics.find((topic) => topic.can_access !== false)
+  const continueHref = hasTopicWorkspace ? (nextTopic ? `/topics/${nextTopic.id}` : undefined) : (nextSection ? `/watch/${nextSection.id}` : undefined)
   const activeChapterId = subject.chapters.find((chapter) => (chapterSections[chapter.id] || []).some((section) => section.id === nextSection?.id))?.id
 
   return (
@@ -129,7 +158,7 @@ export default function SubjectDetailPage() {
                 <p className="m-0 mt-2 max-w-[620px] text-[15px] font-semibold leading-relaxed text-[#71717b]">{subject.description}</p>
                 <div className="mt-5">
                   <div className="mb-2 flex justify-between text-[13px] font-bold text-[#71717b]">
-                    <span>{completedCount} / {totalSections} sections completed</span>
+                    <span>{completedTotal} / {totalCount} {hasTopicWorkspace ? 'items' : 'sections'} completed</span>
                     <span className="text-[#453dee]">{percentage}%</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-[#f4f4f5]">
@@ -139,11 +168,11 @@ export default function SubjectDetailPage() {
               </div>
             </div>
 
-            {nextSection && (
+            {continueHref && (
               <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[#e4e4e7] pt-5">
-                <Link href={`/watch/${nextSection.id}`} className="inline-flex h-12 items-center gap-2 rounded-xl bg-[#453dee] px-5 text-[14px] font-bold text-white no-underline shadow-none transition hover:-translate-y-0.5">
+                <Link href={continueHref} className="inline-flex h-12 items-center gap-2 rounded-xl bg-[#453dee] px-5 text-[14px] font-bold text-white no-underline shadow-none transition hover:-translate-y-0.5">
                   <Play size={15} fill="currentColor" />
-                  {completedCount === 0 ? 'Start course' : 'Continue'}
+                  {completedTotal === 0 ? 'Start course' : 'Continue'}
                 </Link>
                 <Link href={`/exam/${subjectId}`} className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#e4e4e7] bg-white px-5 text-[14px] font-bold text-[#52525c] no-underline transition hover:border-[#453dee] hover:text-[#453dee]">
                   <ClipboardCheck size={15} />
@@ -155,12 +184,24 @@ export default function SubjectDetailPage() {
 
           <section className="pb-20">
             <div className="mb-5">
-              <h2 className="m-0 text-[25px] font-bold leading-none tracking-normal text-[#3f3f46]">Chapters</h2>
-              <p className="m-0 mt-2 text-[16px] font-bold leading-none tracking-normal text-[#a1a1aa]">Choose the next chapter to continue.</p>
+              <h2 className="m-0 text-[25px] font-bold leading-none tracking-normal text-[#3f3f46]">{hasTopicWorkspace ? 'Topics' : 'Chapters'}</h2>
+              <p className="m-0 mt-2 text-[16px] font-bold leading-none tracking-normal text-[#a1a1aa]">
+                {hasTopicWorkspace ? 'Choose the next topic to continue.' : 'Choose the next chapter to continue.'}
+              </p>
             </div>
 
-            <div className="grid grid-cols-[repeat(3,344.33px)] gap-[14px] max-[1140px]:grid-cols-[repeat(2,344.33px)] max-[760px]:grid-cols-[344.33px] max-[420px]:grid-cols-1">
-              {subject.chapters.map((chapter, chapterIdx) => {
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-[14px]">
+              {hasTopicWorkspace ? topics.map((topic, topicIdx) => (
+                <FigmaSubjectCourseCard
+                  key={topic.id}
+                  index={topicIdx}
+                  title={topic.title}
+                  description={`${topic.completed_count} of ${topic.item_count} items complete`}
+                  progress={topic.progress_pct}
+                  state={getTopicCardState(topic)}
+                  href={`/topics/${topic.id}`}
+                />
+              )) : subject.chapters.map((chapter, chapterIdx) => {
                 const sections = chapterSections[chapter.id] || []
                 const lessonCount = Math.max(sections.length, chapter.lessons?.length ?? 0, 1)
 
@@ -212,6 +253,14 @@ function getChapterCardState(sections: Section[], isActive: boolean, isPro?: boo
   const hasAccessible = sections.some((section) => canAccessSection(section, isPro))
   if (!hasAccessible) return 'locked'
   if (isActive || completed > 0) return 'current'
+  return 'available'
+}
+
+function getTopicCardState(topic: TopicCard): FigmaSubjectCourseCardState {
+  if (topic.can_access === false) return 'locked'
+  if (topic.item_count <= 0) return 'upcoming'
+  if (topic.progress_pct >= 100 || topic.completed_count >= topic.item_count) return 'completed'
+  if (topic.progress_pct > 0 || topic.completed_count > 0) return 'current'
   return 'available'
 }
 

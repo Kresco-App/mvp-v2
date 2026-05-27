@@ -1,4 +1,3 @@
-import ssl
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -7,6 +6,8 @@ from sqlalchemy.pool import NullPool
 _engine = None
 _session_factory = None
 _engine_cache_key = None
+
+_POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
 
 def _build_async_url(url: str) -> tuple[str, dict]:
@@ -17,15 +18,17 @@ def _build_async_url(url: str) -> tuple[str, dict]:
         parsed = urlparse(url)
         qs = parse_qs(parsed.query)
 
-        # asyncpg expects SSL configuration in connect_args, not the URL.
-        # libpq sslmode=require encrypts the connection without validating the
-        # certificate chain; asyncpg ssl=True uses default CA verification.
+        # SQLAlchemy's asyncpg dialect forwards query params as keyword args,
+        # while asyncpg expects libpq-style ssl modes in the `ssl` argument.
         sslmode = qs.pop("sslmode", [None])[0]
-        if sslmode == "require":
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            connect_args["ssl"] = ssl_context
+        if sslmode:
+            sslmode = sslmode.lower()
+            if sslmode not in _POSTGRES_SSLMODES:
+                supported = ", ".join(sorted(_POSTGRES_SSLMODES))
+                raise ValueError(
+                    f"Unsupported PostgreSQL sslmode '{sslmode}'. Expected one of: {supported}."
+                )
+            connect_args["ssl"] = sslmode
 
         clean_query = urlencode({k: v[0] for k, v in qs.items()})
         clean_parsed = parsed._replace(

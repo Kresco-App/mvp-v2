@@ -1,9 +1,17 @@
 import asyncio
+from dataclasses import dataclass
+
 from itsdangerous import URLSafeTimedSerializer
 
 import resend as resend_sdk
 
 from app.config import Settings
+
+
+@dataclass(frozen=True)
+class ResetTokenPayload:
+    email: str
+    token_version: int
 
 
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
@@ -21,15 +29,35 @@ def verify_verification_token(token: str, settings: Settings, max_age: int = 864
         return None
 
 
-def generate_reset_token(email: str, settings: Settings) -> str:
-    return _serializer(settings).dumps(email, salt="password-reset")
+def generate_reset_token(email: str, settings: Settings, *, token_version: int = 0) -> str:
+    return _serializer(settings).dumps(
+        {"email": email, "token_version": token_version},
+        salt="password-reset",
+    )
 
 
-def verify_reset_token(token: str, settings: Settings, max_age: int = 3600) -> str | None:
+def verify_reset_token(token: str, settings: Settings, max_age: int = 3600) -> ResetTokenPayload | None:
     try:
-        return _serializer(settings).loads(token, salt="password-reset", max_age=max_age)
+        payload = _serializer(settings).loads(token, salt="password-reset", max_age=max_age)
     except Exception:
         return None
+
+    if isinstance(payload, str):
+        return ResetTokenPayload(email=payload, token_version=0)
+
+    if not isinstance(payload, dict):
+        return None
+
+    email = payload.get("email")
+    if not isinstance(email, str) or not email:
+        return None
+
+    try:
+        token_version = int(payload.get("token_version", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+    return ResetTokenPayload(email=email, token_version=token_version)
 
 
 def _send_email_sync(api_key: str, params: dict) -> None:

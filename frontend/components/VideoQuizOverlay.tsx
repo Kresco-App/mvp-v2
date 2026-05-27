@@ -75,11 +75,9 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
   async function handleSubmit() {
     if (!quiz || !activeTrigger) return
     try {
-      const res = await api.post('/progress/quiz-result', null, {
+      const res = await api.post('/progress/quiz-result', { answers }, {
         params: {
           quiz_id: quiz.id,
-          score: Math.round((Object.keys(answers).length / quiz.questions.length) * 100),
-          passed: Object.keys(answers).length === quiz.questions.length,
         }
       })
       setResult(res.data)
@@ -130,7 +128,7 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
 
                 <div className="space-y-2 mb-5">
                   {quiz.questions[currentQ].options.map(opt => (
-                    <button
+                    <button type="button"
                       key={opt.id}
                       onClick={() => selectAnswer(quiz.questions[currentQ].id, opt.id)}
                       className={`w-full text-left text-sm px-3 py-2.5 rounded-xl border-2 transition ${
@@ -146,7 +144,7 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
 
                 <div className="flex gap-2">
                   {currentQ < quiz.questions.length - 1 ? (
-                    <button
+                    <button type="button"
                       onClick={() => setCurrentQ(i => i + 1)}
                       disabled={!answers[quiz.questions[currentQ].id]}
                       className="flex-1 bg-kresco text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed hover:bg-kresco/90 transition"
@@ -154,7 +152,7 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
                       Suivant
                     </button>
                   ) : (
-                    <button
+                    <button type="button"
                       onClick={handleSubmit}
                       disabled={!answers[quiz.questions[currentQ].id]}
                       className="flex-1 bg-kresco text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed hover:bg-kresco/90 transition"
@@ -163,7 +161,7 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
                     </button>
                   )}
                   {!activeTrigger.is_blocking && (
-                    <button onClick={handleDismiss} className="text-slate-400 text-sm px-3 hover:text-slate-400">
+                    <button type="button" onClick={handleDismiss} className="text-slate-400 text-sm px-3 hover:text-slate-400">
                       Passer
                     </button>
                   )}
@@ -188,7 +186,7 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
                 +{result.xp_earned} XP gagnes !
               </div>
             )}
-            <button
+            <button type="button"
               onClick={handleDismiss}
               className="w-full bg-kresco text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-kresco/90 transition"
             >

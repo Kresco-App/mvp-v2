@@ -146,7 +146,7 @@ export const AtomComposition: React.FC = () => {
                     <span className="text-xs font-mono bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{protons}</span>
                 </div>
                 <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border border-purple-100 shadow-sm">
-                    <button 
+                    <button type="button" 
                         onClick={() => setProtons(Math.max(1, protons - 1))}
                         className="w-8 h-8 flex items-center justify-center bg-purple-50 hover:bg-purple-100 text-purple-600 rounded-lg font-bold transition-colors border border-purple-100 touch-manipulation"
                     >-</button>
@@ -155,7 +155,7 @@ export const AtomComposition: React.FC = () => {
                         onChange={(e) => setProtons(parseInt(e.target.value))}
                         className="flex-1 accent-purple-600 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer"
                     />
-                    <button 
+                    <button type="button" 
                         onClick={() => setProtons(Math.min(10, protons + 1))}
                         className="w-8 h-8 flex items-center justify-center bg-purple-50 hover:bg-purple-100 text-purple-600 rounded-lg font-bold transition-colors border border-purple-100 touch-manipulation"
                     >+</button>
@@ -169,7 +169,7 @@ export const AtomComposition: React.FC = () => {
                     <span className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{neutrons}</span>
                 </div>
                 <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm">
-                    <button 
+                    <button type="button" 
                         onClick={() => setNeutrons(Math.max(0, neutrons - 1))}
                         className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg font-bold transition-colors border border-slate-100 touch-manipulation"
                     >-</button>
@@ -178,7 +178,7 @@ export const AtomComposition: React.FC = () => {
                         onChange={(e) => setNeutrons(parseInt(e.target.value))}
                         className="flex-1 accent-slate-600 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer"
                     />
-                    <button 
+                    <button type="button" 
                         onClick={() => setNeutrons(Math.min(15, neutrons + 1))}
                         className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg font-bold transition-colors border border-slate-100 touch-manipulation"
                     >+</button>

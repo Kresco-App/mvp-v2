@@ -7,6 +7,7 @@ notifications, and comments to exercise the main Kresco components.
 Usage:
     cd backend
     set DATABASE_URL=sqlite+aiosqlite:///./db.sqlite3
+    set KRESCO_CONFIRM_DESTRUCTIVE_SEED=seed_burner_data.py:sqlite+aiosqlite:///./db.sqlite3
     python seed_burner_data.py
 """
 
@@ -41,6 +42,7 @@ from app.models.gamification import ActivityEvent, DailyQuest, QuizAttempt, Topi
 from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
 from app.models.users import User
+from seed_safety import require_destructive_seed_database_url, require_destructive_seed_session
 
 
 DEMO_EMAIL = "student@kresco.local"
@@ -795,7 +797,12 @@ async def seed_calendar_events(db: AsyncSession, topics: list[Topic]) -> None:
     db.add_all(events)
 
 
-async def seed_all(db: AsyncSession) -> None:
+async def seed_all(db: AsyncSession, *, destructive_confirmed: bool = False) -> None:
+    require_destructive_seed_session(
+        db,
+        "seed_burner_data.seed_all",
+        confirmed=destructive_confirmed,
+    )
     demo = await get_or_create_user(db, DEMO_EMAIL, "Kresco Student", total_xp=1840, streak_days=6, is_demo=True)
     await seed_leaderboard(db)
 
@@ -835,13 +842,14 @@ async def seed_all(db: AsyncSession) -> None:
 
 async def main() -> None:
     database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./db.sqlite3")
+    require_destructive_seed_database_url(database_url, "seed_burner_data.py")
     async_url, connect_args = _build_async_url(database_url)
     engine = create_async_engine(async_url, poolclass=NullPool, connect_args=connect_args)
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with session_factory() as db:
-        await seed_all(db)
+        await seed_all(db, destructive_confirmed=True)
     await engine.dispose()
     print("Burner data seeded.")
     print("Login: student@kresco.local / kresco123")

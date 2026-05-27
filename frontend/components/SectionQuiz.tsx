@@ -105,7 +105,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
             {!finalPassed && ` — Il faut ${passScore}% pour reussir.`}
           </p>
           {!finalPassed && (
-            <button
+            <button type="button"
               onClick={handleRetry}
               className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
             >
@@ -160,8 +160,8 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
             }
 
             return (
-              <button
-                key={optIdx}
+              <button type="button"
+                key={`${currentQuestion.text}-${option.text}-${option.is_correct ? 'correct' : 'incorrect'}`}
                 onClick={() => handleSelect(optIdx)}
                 disabled={submitted}
                 className={cn(
@@ -181,7 +181,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
         {/* Action button */}
         <div className="mt-8 flex justify-end">
           {!submitted ? (
-            <button
+            <button type="button"
               onClick={handleSubmitAnswer}
               disabled={selectedOption === null}
               className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
@@ -189,7 +189,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
               Verifier
             </button>
           ) : (
-            <button
+            <button type="button"
               onClick={handleNext}
               className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
             >

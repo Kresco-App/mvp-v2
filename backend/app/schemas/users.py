@@ -15,6 +15,8 @@ class UserOut(BaseModel):
     avatar_url: str
     banner_url: str = ""
     role: str
+    tier: str = "basic"
+    is_staff: bool = False
     is_pro: bool
     niveau: str
     filiere: str

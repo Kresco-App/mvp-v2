@@ -17,7 +17,15 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import {
+  dailyQuestDefaults,
+  getQuestProgressPercent,
+  getQuestTone,
+  type FigmaDailyQuest,
+} from '@/lib/permanentSidebarViewModel'
 import { FigmaContinueTopicSkeleton, FigmaSubjectShortcutSkeleton } from './skeletons'
+
+export type { FigmaDailyQuest } from '@/lib/permanentSidebarViewModel'
 
 export type FigmaStat = {
   label: string
@@ -28,16 +36,6 @@ export type FigmaStudyDay = {
   day: string
   date: number | string
   active?: boolean
-}
-
-export type FigmaDailyQuest = {
-  id: number | string
-  quest_type?: string
-  title: string
-  target: number
-  progress: number
-  xp_reward?: number
-  completed?: boolean
 }
 
 export type FigmaHomeSubject = {
@@ -82,17 +80,24 @@ export function FigmaHomeMain({
         </div>
 
         {loading ? (
-          <div className="grid max-w-[984px] gap-[24px] min-[960px]:grid-cols-[repeat(2,480px)]">
+          <div className="grid max-w-[984px] grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[24px]">
             {Array.from({ length: 2 }).map((_, index) => (
               <FigmaContinueTopicSkeleton key={index} />
             ))}
           </div>
-        ) : (
-          <div className="grid max-w-[984px] gap-[24px] min-[960px]:grid-cols-[repeat(2,480px)]">
+        ) : continueTopics.length > 0 ? (
+          <div className="grid max-w-[984px] grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[24px]">
             {continueTopics.slice(0, 2).map((topic, index) => (
               <FigmaContinueTopicCard key={topic.id} topic={topic} index={index} />
             ))}
           </div>
+        ) : (
+          <FigmaHomeEmptyState
+            title="No lessons in progress"
+            copy="Start a course and your active lessons will appear here."
+            href="/courses"
+            action="Browse courses"
+          />
         )}
       </section>
 
@@ -103,20 +108,54 @@ export function FigmaHomeMain({
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-[repeat(5,176px)] gap-[20px] max-[1180px]:grid-cols-[repeat(auto-fit,176px)]">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-[20px]">
             {Array.from({ length: 5 }).map((_, index) => (
               <FigmaSubjectShortcutSkeleton key={index} />
             ))}
           </div>
-        ) : (
-          <div className="grid grid-cols-[repeat(5,176px)] gap-[20px] max-[1180px]:grid-cols-[repeat(auto-fit,176px)]">
+        ) : subjects.length > 0 ? (
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-[20px]">
             {subjects.map((subject, index) => (
               <FigmaSubjectShortcutCard key={subject.id} subject={subject} index={index} />
             ))}
           </div>
+        ) : (
+          <FigmaHomeEmptyState
+            title="No subjects available"
+            copy="Subjects will appear after the course catalog is loaded."
+            href="/courses"
+            action="Open courses"
+          />
         )}
       </section>
     </div>
+  )
+}
+
+function FigmaHomeEmptyState({
+  title,
+  copy,
+  href,
+  action,
+}: {
+  title: string
+  copy: string
+  href: string
+  action: string
+}) {
+  return (
+    <section className="grid min-h-[110px] max-w-[984px] place-items-center rounded-[16px] border-2 border-dashed border-[#e4e4e7] bg-white px-6 py-7 text-center">
+      <div>
+        <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">{title}</p>
+        <p className="m-0 mt-2 text-[14px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">{copy}</p>
+        <Link
+          href={href}
+          className="mt-4 inline-flex h-[40px] items-center justify-center rounded-[12px] bg-[#5b60f9] px-5 text-[14px] font-bold leading-none text-white no-underline"
+        >
+          {action}
+        </Link>
+      </div>
+    </section>
   )
 }
 
@@ -163,7 +202,7 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
           <p className="m-0 mt-[4px] line-clamp-2 max-w-[300px] text-[14px] font-semibold leading-[1.1] tracking-[0.21px] text-[#71717b]">
             {topic.description || topic.subject_title}
           </p>
-          <div className="absolute left-[16px] top-[82px] h-[10px] w-[300px] overflow-hidden rounded-[4.286px] bg-[#f4f4f5]">
+          <div className="absolute left-[16px] top-[82px] h-[10px] w-[calc(100%-32px)] max-w-[300px] overflow-hidden rounded-[4.286px] bg-[#f4f4f5]">
             <span
               className="kresco-progress-fill block h-full rounded-[4.286px] shadow-[inset_0_2.857px_2.857px_rgba(255,255,255,0.4),inset_0_-2.857px_2.857px_rgba(0,0,0,0.08)]"
               style={{ backgroundColor: progressTone, width: `${Math.max(14, progress)}%` }}
@@ -193,8 +232,8 @@ function FigmaSubjectShortcutCard({ subject, index }: { subject: FigmaHomeSubjec
   const href = subject.href ?? `/home/${subject.id}`
 
   return (
-    <Link href={href} className="group block no-underline">
-      <article className="kresco-enter grid h-[194px] w-[176px] place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)]" style={{ animationDelay: `${index * 45}ms` }}>
+    <Link href={href} className="group block min-w-0 no-underline">
+      <article className="kresco-enter grid h-[194px] w-full min-w-0 place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)]" style={{ animationDelay: `${index * 45}ms` }}>
         <div className="relative grid h-[68px] w-[78px] place-items-center">
           <SubjectIconScene icon={Icon} index={index} />
         </div>
@@ -296,7 +335,7 @@ export function FigmaDailyQuestsCard({
 }: {
   quests: FigmaDailyQuest[]
 }) {
-  const safeQuests = quests.length > 0 ? quests : fallbackQuests
+  const safeQuests = quests.length > 0 ? quests : dailyQuestDefaults
 
   return (
     <section className="w-full rounded-[24px] border-[3px] border-[#e4e4e7] bg-white px-[24px] py-[24px] text-[#3d3d46] shadow-none">
@@ -307,9 +346,9 @@ export function FigmaDailyQuestsCard({
 
       <div className="grid gap-7">
         {safeQuests.map((quest, index) => {
-          const tone = questTone(quest.quest_type, index)
+          const tone = getQuestTone(quest.quest_type, index, 'home')
           const Icon = questIcon(quest.quest_type)
-          const pct = Math.max(0, Math.min(100, Math.round((quest.progress / Math.max(quest.target, 1)) * 100)))
+          const pct = getQuestProgressPercent(quest)
 
           return (
             <div className="grid grid-cols-[49px_1fr] items-center gap-[23px]" style={{ color: tone }} key={quest.id}>
@@ -381,13 +420,6 @@ function questIcon(type?: string) {
   return BookOpen
 }
 
-function questTone(type: string | undefined, index: number) {
-  if (type?.includes('lesson')) return '#ff8a00'
-  if (type?.includes('quiz') || type?.includes('exercise')) return '#5c5bff'
-  if (type?.includes('time') || type?.includes('study')) return '#2e86ff'
-  return ['#ff8a00', '#5c5bff', '#2e86ff'][index % 3]
-}
-
 const defaultStudyDays: FigmaStudyDay[] = [
   { date: 10, day: 'Mon' },
   { date: 11, day: 'Tue' },
@@ -396,8 +428,3 @@ const defaultStudyDays: FigmaStudyDay[] = [
   { date: 14, day: 'Fri' },
 ]
 
-const fallbackQuests: FigmaDailyQuest[] = [
-  { id: 'lesson', quest_type: 'lesson', title: 'Complete 1 Mathematics Lesson', progress: 3, target: 4 },
-  { id: 'quiz', quest_type: 'quiz', title: 'Score 14/20 or higher in 2 exercises', progress: 1, target: 5 },
-  { id: 'study', quest_type: 'study_time', title: 'Spend 15min In studying Physics', progress: 2, target: 6 },
-]

@@ -69,7 +69,7 @@ export const DecayLawGraph: React.FC = () => {
       {/* Controls Header */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-purple-50 p-4 rounded-lg">
         <div className="flex items-center gap-4 w-full md:w-auto">
-          <button
+          <button type="button"
             onClick={togglePlay}
             className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-white transition-all shadow-md ${
               isPlaying ? 'bg-yellow-500 hover:bg-yellow-600 text-purple-900' : 'bg-purple-600 hover:bg-purple-700'
@@ -77,7 +77,7 @@ export const DecayLawGraph: React.FC = () => {
           >
             {isPlaying ? <><Pause size={18} /> Pause</> : <><Play size={18} /> Simuler</>}
           </button>
-          <button
+          <button type="button"
             onClick={reset}
             className="p-2 rounded-full bg-white text-purple-600 border border-purple-200 hover:bg-purple-100 transition-colors"
             title="Réinitialiser"

@@ -18,6 +18,16 @@ from app.models.gamification import (
 )
 from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
+from app.models.professor import (
+    CourseOffering,
+    LiveSession,
+    LiveSessionCheckpoint,
+    LiveSessionInteraction,
+    ProfessorChangeRequest,
+    ProfessorChatConversation,
+    ProfessorChatMessage,
+    ProgramTrack,
+)
 from app.models.quizzes import Question, QuestionSet, Quiz, QuizOption, QuizQuestion
 from app.models.users import User, UserSubjectEntitlement
 
@@ -74,9 +84,9 @@ class UserAdmin(PowerModelView, model=User):
     name = "User"
     name_plural = "Users"
     icon = "fa-solid fa-user"
-    column_list = [User.id, User.email, User.full_name, User.role, User.is_pro, User.niveau, User.filiere, User.is_active, User.is_email_verified, User.created_at]
+    column_list = [User.id, User.email, User.full_name, User.role, User.tier, User.is_pro, User.niveau, User.filiere, User.is_active, User.is_email_verified, User.created_at]
     column_searchable_list = [User.email, User.full_name]
-    column_sortable_list = [User.created_at, User.is_pro, User.role]
+    column_sortable_list = [User.created_at, User.is_pro, User.role, User.tier]
     form_excluded_columns = ["password", "last_login", "lesson_progress", "content_progress",
                              "xp", "xp_transactions", "quiz_results", "daily_quests", "comments", "notifications",
                              "subject_entitlements"]
@@ -380,7 +390,7 @@ class TopicAdmin(PowerModelView, model=Topic):
     ]
     column_searchable_list = [Topic.title, Topic.slug]
     column_sortable_list = [Topic.order, Topic.created_at]
-    form_excluded_columns = ["subject", "sections", "resources"]
+    form_excluded_columns = ["subject", "course_offering", "sections", "resources"]
     can_create = True
     can_edit = True
     can_delete = True
@@ -602,6 +612,133 @@ class NotificationAdmin(PowerModelView, model=Notification):
     can_view_details = True
 
 
+class ProgramTrackAdmin(PowerModelView, model=ProgramTrack):
+    name = "Program Track"
+    name_plural = "Program Tracks"
+    icon = "fa-solid fa-route"
+    column_list = [ProgramTrack.id, ProgramTrack.niveau, ProgramTrack.filiere, ProgramTrack.title, ProgramTrack.status]
+    column_searchable_list = [ProgramTrack.niveau, ProgramTrack.filiere, ProgramTrack.title]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class CourseOfferingAdmin(PowerModelView, model=CourseOffering):
+    name = "Course Offering"
+    name_plural = "Course Offerings"
+    icon = "fa-solid fa-chalkboard-user"
+    column_list = [CourseOffering.id, CourseOffering.subject_id, CourseOffering.track_id, CourseOffering.professor_user_id, CourseOffering.title, CourseOffering.status]
+    column_searchable_list = [CourseOffering.title]
+    form_excluded_columns = ["subject", "track", "professor"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class LiveSessionAdmin(PowerModelView, model=LiveSession):
+    name = "Live Session"
+    name_plural = "Live Sessions"
+    icon = "fa-solid fa-tower-broadcast"
+    column_list = [
+        LiveSession.id,
+        LiveSession.course_offering_id,
+        LiveSession.professor_user_id,
+        LiveSession.title,
+        LiveSession.starts_at,
+        LiveSession.status,
+        LiveSession.notification_status,
+        LiveSession.vdocipher_live_id,
+        LiveSession.stream_ingest_url,
+        LiveSession.stream_key,
+    ]
+    column_searchable_list = [LiveSession.title, LiveSession.description, LiveSession.vdocipher_live_id, LiveSession.stream_ingest_url, LiveSession.stream_key]
+    form_excluded_columns = ["course_offering", "professor", "calendar_event", "recording_resource"]
+    can_create = True
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class LiveSessionInteractionAdmin(PowerModelView, model=LiveSessionInteraction):
+    name = "Live Interaction"
+    name_plural = "Live Interactions"
+    icon = "fa-solid fa-circle-question"
+    column_list = [
+        LiveSessionInteraction.id,
+        LiveSessionInteraction.live_session_id,
+        LiveSessionInteraction.student_user_id,
+        LiveSessionInteraction.kind,
+        LiveSessionInteraction.status,
+        LiveSessionInteraction.created_at,
+    ]
+    column_searchable_list = [LiveSessionInteraction.body, LiveSessionInteraction.answer]
+    form_excluded_columns = ["live_session", "course_offering", "professor", "student", "answered_by"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class LiveSessionCheckpointAdmin(PowerModelView, model=LiveSessionCheckpoint):
+    name = "Live Checkpoint"
+    name_plural = "Live Checkpoints"
+    icon = "fa-solid fa-list-check"
+    column_list = [
+        LiveSessionCheckpoint.id,
+        LiveSessionCheckpoint.live_session_id,
+        LiveSessionCheckpoint.professor_user_id,
+        LiveSessionCheckpoint.title,
+        LiveSessionCheckpoint.checkpoint_type,
+        LiveSessionCheckpoint.status,
+        LiveSessionCheckpoint.created_at,
+    ]
+    column_searchable_list = [LiveSessionCheckpoint.title, LiveSessionCheckpoint.prompt]
+    form_excluded_columns = ["live_session", "course_offering", "professor"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ProfessorChangeRequestAdmin(PowerModelView, model=ProfessorChangeRequest):
+    name = "Professor Change Request"
+    name_plural = "Professor Change Requests"
+    icon = "fa-solid fa-pen-to-square"
+    column_list = [ProfessorChangeRequest.id, ProfessorChangeRequest.course_offering_id, ProfessorChangeRequest.professor_user_id, ProfessorChangeRequest.target_type, ProfessorChangeRequest.target_id, ProfessorChangeRequest.status, ProfessorChangeRequest.created_at]
+    form_excluded_columns = ["course_offering", "professor", "admin"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ProfessorChatConversationAdmin(PowerModelView, model=ProfessorChatConversation):
+    name = "Professor Chat Conversation"
+    name_plural = "Professor Chat Conversations"
+    icon = "fa-solid fa-comments"
+    column_list = [ProfessorChatConversation.id, ProfessorChatConversation.course_offering_id, ProfessorChatConversation.professor_user_id, ProfessorChatConversation.student_user_id, ProfessorChatConversation.unread_for_professor, ProfessorChatConversation.is_pinned_by_professor, ProfessorChatConversation.last_message_at]
+    form_excluded_columns = ["course_offering", "professor", "student", "messages"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+
+class ProfessorChatMessageAdmin(PowerModelView, model=ProfessorChatMessage):
+    name = "Professor Chat Message"
+    name_plural = "Professor Chat Messages"
+    icon = "fa-solid fa-message"
+    column_list = [ProfessorChatMessage.id, ProfessorChatMessage.conversation_id, ProfessorChatMessage.sender_user_id, ProfessorChatMessage.status, ProfessorChatMessage.created_at]
+    column_searchable_list = [ProfessorChatMessage.body]
+    form_excluded_columns = ["conversation", "sender"]
+    can_create = False
+    can_edit = False
+    can_delete = True
+    can_view_details = True
+
+
 class AdminAuditLogAdmin(PowerModelView, model=AdminAuditLog):
     name = "Admin Audit Log"
     name_plural = "Admin Audit Logs"
@@ -620,7 +757,10 @@ ALL_VIEWS = [
     TopicAdmin, TopicSectionAdmin, TopicItemAdmin, ResourceAdmin, TabContentAdmin,
     ConceptTagAdmin, ExamAdmin, ExamProblemAdmin, UserNoteAdmin, SavedItemAdmin,
     ActivityEventAdmin, TopicItemProgressAdmin, QuizAttemptAdmin, QuestionAttemptAdmin, CommentAdmin,
-    NotificationAdmin, AdminAuditLogAdmin,
+    NotificationAdmin, ProgramTrackAdmin, CourseOfferingAdmin, LiveSessionAdmin,
+    LiveSessionInteractionAdmin, LiveSessionCheckpointAdmin,
+    ProfessorChangeRequestAdmin, ProfessorChatConversationAdmin, ProfessorChatMessageAdmin,
+    AdminAuditLogAdmin,
 ]
 
 
@@ -643,6 +783,7 @@ TRACKING_COLUMN_NAMES = {
     "is_staff",
     "is_superuser",
     "is_email_verified",
+    "is_pinned_by_professor",
     "passed",
     "completed",
     "score",

@@ -415,8 +415,8 @@ export function FormulaPanel({
 
       {variables && variables.length > 0 && (
         <dl className="mt-4 grid gap-2 sm:grid-cols-2">
-          {variables.map((variable, index) => (
-            <div key={index} className="rounded-xl border border-[#e4e4e7] bg-[#fbfbfc] px-3 py-2">
+          {variables.map((variable) => (
+            <div key={`${String(variable.symbol)}-${String(variable.label)}`} className="rounded-xl border border-[#e4e4e7] bg-[#fbfbfc] px-3 py-2">
               <dt className={cn('text-sm font-black', styles.text)}>{variable.symbol}</dt>
               <dd className="mt-0.5 text-sm font-semibold text-[#52525c]">{variable.label}</dd>
             </div>
@@ -659,6 +659,7 @@ export function AnimatedSlider({
   const boundedValue = Math.max(min, Math.min(max, value))
   const range = max - min
   const percentage = range === 0 ? 0 : ((boundedValue - min) / range) * 100
+  const ariaLabel = typeof label === 'string' ? label : 'Slider value'
 
   return (
     <div className={cn('rounded-2xl border border-[#e4e4e7] bg-white p-4 shadow-[0_8px_20px_rgba(24,24,27,0.055)]', className)}>
@@ -676,6 +677,7 @@ export function AnimatedSlider({
       </div>
 
       <input
+        aria-label={ariaLabel}
         type="range"
         min={min}
         max={max}

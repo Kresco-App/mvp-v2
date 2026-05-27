@@ -23,7 +23,7 @@ export default function AdminCoursesPage() {
     <AuthGuard>
       <div className="min-h-screen bg-slate-950">
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
-          <button onClick={() => router.push('/admin')} className="text-slate-400 hover:text-white transition">
+          <button type="button" onClick={() => router.push('/admin')} className="text-slate-400 hover:text-white transition">
             <ArrowLeft size={18} />
           </button>
           <h1 className="text-white font-semibold">Gestion des cours</h1>

@@ -75,7 +75,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
                     { id: 'R*+', label: 'ℝ*⁺ (Réels strictement positifs)', desc: 'Nombres > 0' },
                     { id: 'R*-', label: 'ℝ*⁻ (Réels strictement négatifs)', desc: 'Nombres < 0' },
                 ].map(variation => (
-                    <button
+                    <button type="button"
                         key={variation.id}
                         onClick={() => setSelectedVariation(variation.id)}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all border ${selectedVariation === variation.id
@@ -114,14 +114,14 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
             </div>
 
             <div className="flex justify-center gap-3 pt-4 border-t border-amber-500/10">
-                <button
+                <button type="button"
                     onClick={() => setPascalPlaying(!pascalPlaying)}
                     className={`p-3 rounded-full transition-all ${isDark ? 'bg-[#0F172A] text-amber-400 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 shadow-sm'}`}
                     title={pascalPlaying ? "Pause" : "Lecture automatique"}
                 >
                     {pascalPlaying ? <Pause size={20} /> : <Play size={20} />}
                 </button>
-                <button
+                <button type="button"
                     onClick={() => {
                         setPascalPlaying(false);
                         setPascalStep(s => s + 1);
@@ -131,7 +131,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
                 >
                     <StepForward size={20} />
                 </button>
-                <button
+                <button type="button"
                     onClick={() => {
                         setPascalPlaying(false);
                         setPascalRows(r => {
@@ -186,7 +186,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
             controlsContent={initialMode === 'inclusion' ? renderInclusionControls() : initialMode === 'pascal' ? renderPascalControls() : renderVariationsControls()}
             accentColor={initialMode === 'inclusion' ? 'blue' : initialMode === 'pascal' ? 'amber' : 'emerald'}
             headerActions={
-                <button
+                <button type="button"
                     onClick={() => {
                         setAnimationSpeed(1);
                         setSelectedVariation('R');

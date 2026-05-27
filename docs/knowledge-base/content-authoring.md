@@ -50,6 +50,8 @@ Current seed entry points:
 - `backend/seed_kresco_v1.py`: lightweight local Bac starter content.
 - `backend/seed_burner_data.py`: richer demo/workspace content with progress surfaces.
 
+Both scripts are local-only and require `KRESCO_CONFIRM_DESTRUCTIVE_SEED` for CLI runs because they replace local content surfaces.
+
 ## Adding a new topic
 
 Create or update these records together:

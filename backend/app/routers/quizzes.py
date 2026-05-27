@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,9 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_current_user, get_db
 from app.models.courses import Lesson
 from app.models.gamification import QuizResult
-from app.models.quizzes import Quiz, QuizOption, QuizQuestion
+from app.models.quizzes import Quiz, QuizQuestion
+from app.rate_limit import limiter
 from app.models.users import User
 from app.schemas.quizzes import QuizOut, QuizResultOut, QuizSubmitIn
+from app.services.course_access import require_lesson_access
+from app.services.quiz_scoring import score_quiz_answers
 from app.services.xp import award_xp
 
 router = APIRouter(tags=["Quizzes"])
@@ -28,11 +31,14 @@ async def get_quiz(
     quiz = result.scalar_one_or_none()
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found")
+    await _ensure_lesson_quiz_access(db, user, quiz.lesson_id)
     return QuizOut.model_validate(quiz)
 
 
 @router.post("/lessons/{lesson_id}/quiz/submit", response_model=QuizResultOut)
+@limiter.limit("20/minute")
 async def submit_quiz(
+    request: Request,
     lesson_id: int,
     body: QuizSubmitIn,
     db: AsyncSession = Depends(get_db),
@@ -40,41 +46,69 @@ async def submit_quiz(
 ):
     result = await db.execute(
         select(Quiz)
-        .options(selectinload(Quiz.questions).selectinload(QuizQuestion.options))
+        .options(
+            selectinload(Quiz.lesson).selectinload(Lesson.chapter),
+            selectinload(Quiz.questions).selectinload(QuizQuestion.options),
+        )
         .where(Quiz.lesson_id == lesson_id)
     )
     quiz = result.scalar_one_or_none()
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found for this lesson")
+    await _ensure_lesson_quiz_access(db, user, lesson_id)
 
-    # Build a map of question_id → correct option_id
-    correct_map: dict[int, int] = {}
-    for question in quiz.questions:
-        for option in question.options:
-            if option.is_correct:
-                correct_map[question.id] = option.id
-                break
-
-    total = len(quiz.questions)
-    correct = sum(
-        1 for qid, oid in body.answers.items()
-        if correct_map.get(int(qid)) == int(oid)
+    scored = score_quiz_answers(quiz, body.answers)
+    already_passed = await db.scalar(
+        select(QuizResult.id)
+        .where(
+            QuizResult.user_id == user.id,
+            QuizResult.quiz_id == quiz.id,
+            QuizResult.passed == True,  # noqa: E712
+        )
+        .limit(1)
     )
-    score = round((correct / total) * 100) if total > 0 else 0
-    passed = score >= quiz.pass_score
 
-    quiz_result = QuizResult(user_id=user.id, quiz_id=quiz.id, score=score, passed=passed)
+    if already_passed is not None:
+        return QuizResultOut(
+            score=scored.score,
+            passed=scored.passed,
+            correct=scored.correct,
+            total=scored.total,
+            pass_score=quiz.pass_score,
+            xp_earned=0,
+        )
+
+    quiz_result = QuizResult(user_id=user.id, quiz_id=quiz.id, score=scored.score, passed=scored.passed)
     db.add(quiz_result)
 
     xp_earned = 0
-    if passed:
-        xp_earned += await award_xp(user.id, "quiz_pass", f"Quiz {quiz.id} passed", db)
-        if score == 100:
-            xp_earned += await award_xp(user.id, "quiz_perfect", f"Quiz {quiz.id} perfect score", db)
+    subject_id = quiz.lesson.chapter.subject_id if quiz.lesson and quiz.lesson.chapter else None
+    if scored.passed:
+        xp_earned += await award_xp(
+            user.id,
+            "quiz_pass",
+            f"Quiz {quiz.id} passed",
+            db,
+            subject_id=subject_id,
+            idempotency_key=f"legacy_quiz_pass:user:{user.id}:quiz:{quiz.id}",
+        )
+        if scored.score == 100:
+            xp_earned += await award_xp(
+                user.id,
+                "quiz_perfect",
+                f"Quiz {quiz.id} perfect score",
+                db,
+                subject_id=subject_id,
+                idempotency_key=f"legacy_quiz_perfect:user:{user.id}:quiz:{quiz.id}",
+            )
 
     await db.commit()
 
     return QuizResultOut(
-        score=score, passed=passed, correct=correct, total=total,
+        score=scored.score, passed=scored.passed, correct=scored.correct, total=scored.total,
         pass_score=quiz.pass_score, xp_earned=xp_earned,
     )
+
+
+async def _ensure_lesson_quiz_access(db: AsyncSession, user: User, lesson_id: int) -> None:
+    await require_lesson_access(db, user, lesson_id)

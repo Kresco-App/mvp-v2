@@ -10,7 +10,7 @@ export const SoundWaveSimulator: React.FC = () => {
   const [frequency, setFrequency] = useState(2); // Hz
   const [amplitude, setAmplitude] = useState(10); // px
   
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
   const timeRef = useRef(0);
   
   // Particle System Configuration
@@ -175,7 +175,7 @@ export const SoundWaveSimulator: React.FC = () => {
           Simulateur : Onde Sonore (Longitudinale)
         </h3>
         <div className="flex gap-2">
-          <button
+          <button type="button"
             onClick={() => setIsPlaying(!isPlaying)}
             className={`p-2 rounded-lg transition-colors flex items-center gap-2 px-4 font-bold text-sm ${
               isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
@@ -183,7 +183,7 @@ export const SoundWaveSimulator: React.FC = () => {
           >
             {isPlaying ? <><Pause size={18} /> PAUSE</> : <><Play size={18} /> ANIMER</>}
           </button>
-          <button
+          <button type="button"
             onClick={reset}
             className="p-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
             title="Réinitialiser"

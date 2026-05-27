@@ -18,13 +18,13 @@ export const CapacitorAssociation: React.FC = () => {
       <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
         <h3 className="text-xl font-bold">Calculateur de Capacité Équivalente</h3>
         <div className="flex bg-slate-800 rounded-lg p-1">
-          <button
+          <button type="button"
             onClick={() => setMode('parallel')}
             className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${mode === 'parallel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
           >
             En Parallèle
           </button>
-          <button
+          <button type="button"
             onClick={() => setMode('series')}
             className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${mode === 'series' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
           >

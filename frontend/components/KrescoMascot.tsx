@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import Image from 'next/image'
 
 export type MascotMood = 'happy' | 'love' | 'angry' | 'sad' | 'idle'
 
@@ -40,6 +41,7 @@ export default function KrescoMascot({
   const [msgIdx, setMsgIdx] = useState(0)
   const [prevMood, setPrevMood] = useState(mood)
   const [transitioning, setTransitioning] = useState(false)
+  const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const msgs = MESSAGES_FR[mood]
@@ -65,18 +67,30 @@ export default function KrescoMascot({
     }
   }, [mood, prevMood])
 
+  useEffect(() => {
+    const bubbleTimer = bubbleTimerRef.current
+    return () => {
+      if (bubbleTimer) clearTimeout(bubbleTimer)
+    }
+  }, [])
+
   // Show bubble on mood change or message change
   useEffect(() => {
     if (message) {
+      if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
       setShowBubble(true)
-      const t = setTimeout(() => setShowBubble(false), 5000)
-      return () => clearTimeout(t)
+      const hideTimer = setTimeout(() => setShowBubble(false), 5000)
+      bubbleTimerRef.current = hideTimer
+      return () => {
+        clearTimeout(hideTimer)
+      }
     }
   }, [message, mood])
 
   const handleClick = useCallback(() => {
+    if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
     setShowBubble(true)
-    setTimeout(() => setShowBubble(false), 4000)
+    bubbleTimerRef.current = setTimeout(() => setShowBubble(false), 4000)
     onClick?.()
   }, [onClick])
 
@@ -149,11 +163,14 @@ export default function KrescoMascot({
           style={{ width: size, height: size }}
           onClick={handleClick}
         >
-          <img
+          <Image
             src={MOOD_IMAGES[transitioning ? prevMood : mood]}
             alt={`Kresco fox - ${mood}`}
+            width={size}
+            height={size}
             className={`w-full h-full object-contain drop-shadow-md transition-opacity duration-200 ${transitioning ? 'opacity-0' : 'opacity-100'}`}
             draggable={false}
+            priority={false}
           />
         </div>
       </div>
@@ -167,6 +184,7 @@ export function FloatingMascot() {
   const [message, setMessage] = useState<string | undefined>(undefined)
   const [visible, setVisible] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const eventResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), 2000)
@@ -176,15 +194,19 @@ export function FloatingMascot() {
   // Listen for custom events from quiz/lesson completions
   useEffect(() => {
     function handleMascotEvent(e: CustomEvent) {
+      if (eventResetTimerRef.current) clearTimeout(eventResetTimerRef.current)
       setMood(e.detail.mood ?? 'happy')
       setMessage(e.detail.message)
-      setTimeout(() => {
+      eventResetTimerRef.current = setTimeout(() => {
         setMessage(undefined)
         setMood('idle') // Reset to idle after event message disappears
       }, 5000)
     }
     window.addEventListener('kresco-mascot' as any, handleMascotEvent as any)
-    return () => window.removeEventListener('kresco-mascot' as any, handleMascotEvent as any)
+    return () => {
+      window.removeEventListener('kresco-mascot' as any, handleMascotEvent as any)
+      if (eventResetTimerRef.current) clearTimeout(eventResetTimerRef.current)
+    }
   }, [])
 
   if (!visible) return null
@@ -196,19 +218,19 @@ export function FloatingMascot() {
         <div className="bubble-in bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-4 w-64 mb-2">
           <p className="font-bold text-white text-sm mb-2">Besoin d&apos;aide ?</p>
           <div className="space-y-2">
-            <button
+            <button type="button"
               onClick={() => { setMessage('Clique sur une matiere pour commencer !'); setMood('happy'); setExpanded(false) }}
               className="w-full text-left text-xs text-slate-400 hover:bg-slate-950 px-3 py-2 rounded-lg transition"
             >
               Comment commencer ?
             </button>
-            <button
+            <button type="button"
               onClick={() => { setMessage('Regarde la video, puis passe le quiz avec 80% !'); setMood('idle'); setExpanded(false) }}
               className="w-full text-left text-xs text-slate-400 hover:bg-slate-950 px-3 py-2 rounded-lg transition"
             >
               Comment debloquer une lecon ?
             </button>
-            <button
+            <button type="button"
               onClick={() => { setMessage('Complete des lecons et des quiz pour gagner de l\'XP !'); setMood('love'); setExpanded(false) }}
               className="w-full text-left text-xs text-slate-400 hover:bg-slate-950 px-3 py-2 rounded-lg transition"
             >
@@ -231,9 +253,3 @@ export function FloatingMascot() {
   )
 }
 
-// Helper to trigger mascot events from anywhere
-export function triggerMascot(mood: MascotMood, message: string) {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('kresco-mascot', { detail: { mood, message } }))
-  }
-}

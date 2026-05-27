@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
@@ -20,46 +21,77 @@ import {
   Send,
   StickyNote,
   Trash2,
+  type LucideIcon,
 } from 'lucide-react'
 import api from '@/lib/axios'
 import { useAuthStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import VideoPlayer from '@/components/VideoPlayer'
-import ChapterSidebar from '@/components/ChapterSidebar'
 import AuthGuard from '@/components/AuthGuard'
-import VideoQuizOverlay from '@/components/VideoQuizOverlay'
-import SectionQuiz from '@/components/SectionQuiz'
-import { triggerMascot } from '@/components/KrescoMascot'
-import InteractiveActivityRenderer from '@/components/activities/InteractiveActivityRenderer'
+import { sanitizeHtml } from '@/lib/sanitizeHtml'
+import { triggerMascot } from '@/lib/mascotEvents'
+import {
+  buildWatchChapterSections,
+  buildWatchCommentsParams,
+  buildWatchSectionCompletePayload,
+  buildWatchTabs,
+  getCurrentWatchChapter,
+  getNextWatchDestination,
+  getWatchCompletionFeedback,
+  getWatchDocumentTitle,
+  getWatchNotesKey,
+  getWatchSectionId,
+  getWatchSectionProgressLabel,
+  getWatchTextHtml,
+  normalizeWatchTab,
+  shouldLoadWatchPdfs,
+  toWatchChapterInfo,
+  type WatchChapter,
+  type WatchChapterInfo,
+  type WatchContext,
+  type WatchSection,
+  type WatchTab,
+} from '@/lib/watchViewModel'
 
-interface SectionData {
-  id: number
-  title: string
-  section_type: 'video' | 'quiz' | 'activity' | 'text'
-  activity_type?: string
-  order: number
-  duration_seconds?: number
-  is_free_preview?: boolean
-  is_completed?: boolean
-  is_locked?: boolean
-  video_url?: string
-  text_content?: string
-  quiz_data?: { questions: { text: string; options: { text: string; is_correct: boolean }[] }[] }
-  pass_score?: number
-  activity_data?: any
-  chapter_id: number
+const VideoPlayer = dynamic(() => import('@/components/VideoPlayer'), {
+  loading: () => <WatchPaneLoading label="Chargement de la video..." />,
+  ssr: false,
+})
+
+const VideoQuizOverlay = dynamic(() => import('@/components/VideoQuizOverlay'), {
+  loading: () => null,
+  ssr: false,
+})
+
+const SectionQuiz = dynamic(() => import('@/components/SectionQuiz'), {
+  loading: () => <WatchPaneLoading label="Chargement du quiz..." />,
+  ssr: false,
+})
+
+const InteractiveActivityRenderer = dynamic(() => import('@/components/activities/InteractiveActivityRenderer'), {
+  loading: () => <WatchPaneLoading label="Chargement de l'activite..." />,
+  ssr: false,
+})
+
+const ChapterSidebar = dynamic(() => import('@/components/ChapterSidebar'), {
+  loading: () => <WatchPaneLoading label="Chargement du chapitre..." />,
+  ssr: false,
+})
+
+const watchTabIcons: Record<WatchTab, LucideIcon> = {
+  overview: BookOpen,
+  lab: FlaskConical,
+  notes: StickyNote,
+  support: FileText,
+  comments: MessageSquare,
 }
 
-interface ChapterInfo {
-  id: number
-  title: string
-  subject_id: number
-  subject_title: string
+function WatchPaneLoading({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/70 text-sm font-semibold text-slate-400">
+      {label}
+    </div>
+  )
 }
-
-type Tab = 'overview' | 'comments' | 'notes' | 'support' | 'lab'
-
-const NOTES_KEY = (sectionId: string) => `kresco_notes_${sectionId}`
 
 export default function WatchPage() {
   const { lessonId } = useParams<{ lessonId: string }>()
@@ -67,12 +99,13 @@ export default function WatchPage() {
   const router = useRouter()
   const { user } = useAuthStore()
 
-  const [section, setSection] = useState<SectionData | null>(null)
-  const [allSections, setAllSections] = useState<SectionData[]>([])
-  const [chapterInfo, setChapterInfo] = useState<ChapterInfo | null>(null)
-  const [chapters, setChapters] = useState<any[]>([])
+  const [section, setSection] = useState<WatchSection | null>(null)
+  const [allSections, setAllSections] = useState<WatchSection[]>([])
+  const [chapterInfo, setChapterInfo] = useState<WatchChapterInfo | null>(null)
+  const [chapters, setChapters] = useState<WatchChapter[]>([])
+  const [chapterSections, setChapterSections] = useState<Record<number, WatchSection[]>>({})
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [activeTab, setActiveTab] = useState<WatchTab>('overview')
   const [isCompleted, setIsCompleted] = useState(false)
   const [comments, setComments] = useState<any[]>([])
   const [newComment, setNewComment] = useState('')
@@ -85,20 +118,20 @@ export default function WatchPage() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(NOTES_KEY(sectionId))
+      const saved = localStorage.getItem(getWatchNotesKey(sectionId))
       if (saved) setNotes(saved)
     }
   }, [sectionId])
 
   function saveNotes() {
-    localStorage.setItem(NOTES_KEY(sectionId), notes)
+    localStorage.setItem(getWatchNotesKey(sectionId), notes)
     setNotesSaved(true)
     toast.success('Notes sauvegardees !')
   }
 
   function clearNotes() {
     if (!confirm('Supprimer toutes les notes de cette section ?')) return
-    localStorage.removeItem(NOTES_KEY(sectionId))
+    localStorage.removeItem(getWatchNotesKey(sectionId))
     setNotes('')
     setNotesSaved(true)
   }
@@ -107,55 +140,18 @@ export default function WatchPage() {
     async function loadSection() {
       setLoading(true)
       try {
-        const subjectsRes = await api.get('/courses/subjects')
-        let foundSection: SectionData | null = null
-        let foundChapterInfo: ChapterInfo | null = null
-        let foundChapters: any[] = []
-        let foundAllSections: SectionData[] = []
+        const { data } = await api.get<WatchContext>(`/courses/sections/${getWatchSectionId(sectionId)}/watch-context`)
+        const currentChapter = getCurrentWatchChapter(data)
 
-        for (const subject of subjectsRes.data) {
-          const subjectDetail = await api.get(`/courses/subjects/${subject.id}`)
-
-          for (const chapter of subjectDetail.data.chapters) {
-            try {
-              const sectionsRes = await api.get(`/courses/chapters/${chapter.id}/sections`)
-              const sections: SectionData[] = sectionsRes.data
-              const match = sections.find((item) => item.id === parseInt(sectionId))
-
-              if (!match) continue
-
-              foundSection = { ...match, chapter_id: chapter.id }
-              foundChapterInfo = {
-                id: chapter.id,
-                title: chapter.title,
-                subject_id: subject.id,
-                subject_title: subject.title,
-              }
-              foundChapters = subjectDetail.data.chapters
-              foundAllSections = sections
-              break
-            } catch {
-              // Ignore chapters without section data.
-            }
-          }
-
-          if (foundSection) break
-        }
-
-        if (!foundSection || !foundChapterInfo) {
-          toast.error('Section introuvable.')
-          router.push('/home')
-          return
-        }
-
-        setSection(foundSection)
-        setChapterInfo(foundChapterInfo)
-        setChapters(foundChapters)
-        setAllSections(foundAllSections)
-        setIsCompleted(foundSection.is_completed ?? false)
+        setSection(data.section)
+        setChapterInfo(toWatchChapterInfo(data))
+        setChapters(data.chapters)
+        setAllSections(currentChapter.sections)
+        setChapterSections(buildWatchChapterSections(data.chapters))
+        setIsCompleted(data.section.is_completed ?? false)
 
         try {
-          const accessRes = await api.get(`/progress/sections/${parseInt(sectionId)}/access`)
+          const accessRes = await api.get(`/progress/sections/${getWatchSectionId(sectionId)}/access`)
           if (!accessRes.data.can_access) {
             toast.error("Cette section est verrouillee. Completez la precedente d'abord.")
             router.push('/home')
@@ -165,18 +161,20 @@ export default function WatchPage() {
           // Allow access if the compatibility endpoint fails.
         }
 
-        if (foundSection.section_type === 'video') {
+        if (shouldLoadWatchPdfs(data.section)) {
           try {
             const pdfsRes = await api.get(`/courses/lessons/${sectionId}/pdfs`)
             setPdfs(pdfsRes.data)
           } catch {
             setPdfs([])
           }
+        } else {
+          setPdfs([])
         }
 
         try {
           const commentsRes = await api.get('/interactions/comments', {
-            params: { content_type: 'section', object_id: sectionId },
+            params: buildWatchCommentsParams(sectionId),
           })
           setComments(commentsRes.data)
         } catch {
@@ -195,22 +193,15 @@ export default function WatchPage() {
 
   useEffect(() => {
     if (section) {
-      document.title = `${section.title} - Kresco`
+      document.title = getWatchDocumentTitle(section)
     }
   }, [section])
 
-  const hasLab = section?.section_type === 'video' && Boolean(section.activity_type)
-  const hasSupport = section?.section_type === 'video'
-
   useEffect(() => {
     if (!section) return
-    if (activeTab === 'lab' && !hasLab) {
-      setActiveTab('overview')
-    }
-    if (activeTab === 'support' && !hasSupport) {
-      setActiveTab('overview')
-    }
-  }, [activeTab, hasLab, hasSupport, section])
+    const nextTab = normalizeWatchTab(activeTab, section)
+    if (nextTab !== activeTab) setActiveTab(nextTab)
+  }, [activeTab, section])
 
   const markSectionComplete = useCallback(async (opts?: {
     score?: number
@@ -221,21 +212,17 @@ export default function WatchPage() {
 
     setCompletingSection(true)
     try {
-      const { data } = await api.post('/progress/section-complete', {
-        section_id: parseInt(sectionId),
-        score: opts?.score ?? 0,
-        correct_answers: opts?.correct_answers ?? 0,
-        total_questions: opts?.total_questions ?? 0,
-      })
+      const { data } = await api.post('/progress/section-complete', buildWatchSectionCompletePayload(sectionId, opts))
       setIsCompleted(true)
       const xpEarned = data?.xp_earned ?? 0
+      const feedback = getWatchCompletionFeedback(xpEarned)
 
       if (xpEarned > 0) {
         toast.success(`+${xpEarned} XP ! Section terminee !`, { icon: '⚡' })
-        triggerMascot('love', `+${xpEarned} XP !`)
+        triggerMascot(feedback.mascotMood, feedback.mascotMessage)
       } else {
-        toast.success('Section terminee ! Excellent travail.')
-        triggerMascot('happy', 'Bravo ! Section terminee !')
+        toast.success(feedback.toastMessage)
+        triggerMascot(feedback.mascotMood, feedback.mascotMessage)
       }
     } catch {
       toast.error("Impossible d'enregistrer la progression de cette section.")
@@ -249,17 +236,11 @@ export default function WatchPage() {
   }, [markSectionComplete])
 
   function navigateToNextSection() {
-    if (!section || allSections.length === 0) return
+    const destination = getNextWatchDestination(section, allSections, chapterInfo)
+    if (!destination) return
 
-    const currentIndex = allSections.findIndex((item) => item.id === section.id)
-    if (currentIndex < allSections.length - 1) {
-      const next = allSections[currentIndex + 1]
-      router.push(`/watch/${next.id}`)
-      return
-    }
-
-    if (chapterInfo) {
-      router.push(`/home/${chapterInfo.subject_id}`)
+    router.push(destination.href)
+    if (destination.kind === 'subject') {
       toast.success('Chapitre termine !')
     }
   }
@@ -272,7 +253,7 @@ export default function WatchPage() {
       const { data } = await api.post('/interactions/comments', {
         body: newComment.trim(),
         content_type: 'section',
-        object_id: parseInt(sectionId),
+        object_id: getWatchSectionId(sectionId),
       })
       setComments((prev) => [...prev, data])
       setNewComment('')
@@ -284,8 +265,7 @@ export default function WatchPage() {
     }
   }
 
-  const currentSectionIndex = allSections.findIndex((item) => item.id === parseInt(sectionId))
-  const sectionProgress = allSections.length > 0 ? `Section ${currentSectionIndex + 1}/${allSections.length}` : ''
+  const sectionProgress = getWatchSectionProgressLabel(allSections, sectionId)
 
   if (loading) {
     return (
@@ -302,13 +282,10 @@ export default function WatchPage() {
 
   if (!section || !chapterInfo) return null
 
-  const tabs: { id: Tab; label: string; icon: any }[] = [
-    { id: 'overview', label: 'Apercu', icon: BookOpen },
-    ...(hasLab ? [{ id: 'lab' as Tab, label: 'Lab', icon: FlaskConical }] : []),
-    { id: 'notes', label: 'Mes notes', icon: StickyNote },
-    ...(hasSupport ? [{ id: 'support' as Tab, label: 'Support du cours', icon: FileText }] : []),
-    { id: 'comments', label: `Discussion (${comments.length})`, icon: MessageSquare },
-  ]
+  const tabs = buildWatchTabs(section, comments.length).map((tab) => ({
+    ...tab,
+    icon: watchTabIcons[tab.id],
+  }))
 
   function renderSectionContent() {
     if (!section) return null
@@ -317,13 +294,13 @@ export default function WatchPage() {
         return (
           <div className="relative">
             <VideoPlayer
-              lessonId={parseInt(sectionId)}
+              lessonId={getWatchSectionId(sectionId)}
               durationSeconds={section.duration_seconds || 0}
               onComplete={handleVideoComplete}
               onProgress={(time: number) => setCurrentTime(time)}
             />
             <VideoQuizOverlay
-              lessonId={parseInt(sectionId)}
+              lessonId={getWatchSectionId(sectionId)}
               currentTime={currentTime}
               onPause={() => undefined}
               onResume={() => undefined}
@@ -382,7 +359,8 @@ export default function WatchPage() {
               <div className="bg-slate-900 rounded-2xl border border-slate-800 p-8">
                 <div
                   className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: section.text_content || '<p>Aucun contenu disponible.</p>' }}
+                  // oxlint-disable-next-line react-doctor/no-danger -- section HTML is sanitized immediately before rendering.
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(getWatchTextHtml(section)) }}
                 />
               </div>
             </div>
@@ -457,7 +435,7 @@ export default function WatchPage() {
 
               <div className="flex items-center gap-3 mb-6">
                 {!isCompleted && section.section_type === 'text' && (
-                  <button
+                  <button type="button"
                     onClick={() => markSectionComplete()}
                     disabled={completingSection}
                     className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
@@ -467,7 +445,7 @@ export default function WatchPage() {
                   </button>
                 )}
                 {isCompleted && (
-                  <button
+                  <button type="button"
                     onClick={navigateToNextSection}
                     className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
                   >
@@ -479,7 +457,7 @@ export default function WatchPage() {
 
               <div className="flex gap-1 border-b border-slate-800 mb-6 overflow-x-auto">
                 {tabs.map(({ id, label, icon: Icon }) => (
-                  <button
+                  <button type="button"
                     key={id}
                     onClick={() => setActiveTab(id)}
                     className={cn(
@@ -523,7 +501,7 @@ export default function WatchPage() {
                   <div className="flex items-center justify-between">
                     <p className="text-slate-300 text-sm">Vos notes personnelles pour cette section :</p>
                     <div className="flex gap-2">
-                      <button
+                      <button type="button"
                         onClick={saveNotes}
                         className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition"
                       >
@@ -531,7 +509,7 @@ export default function WatchPage() {
                         Sauvegarder
                       </button>
                       {notes && (
-                        <button
+                        <button type="button"
                           onClick={clearNotes}
                           className="flex items-center gap-1.5 text-red-400 hover:text-red-300 text-xs px-2 py-1.5 rounded-lg transition"
                         >
@@ -541,6 +519,7 @@ export default function WatchPage() {
                     </div>
                   </div>
                   <textarea
+                    aria-label="Notes personnelles"
                     value={notes}
                     onChange={(event) => {
                       setNotes(event.target.value)
@@ -602,6 +581,7 @@ export default function WatchPage() {
 
                     <div className="flex-1">
                       <textarea
+                        aria-label="Commentaire"
                         value={newComment}
                         onChange={(event) => setNewComment(event.target.value)}
                         placeholder="Posez une question ou partagez vos reflexions..."
@@ -609,7 +589,7 @@ export default function WatchPage() {
                         rows={3}
                       />
                       <div className="flex justify-end mt-2">
-                        <button
+                        <button type="button"
                           onClick={postComment}
                           disabled={postingComment || !newComment.trim()}
                           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
@@ -662,8 +642,9 @@ export default function WatchPage() {
           <div className="w-80 flex-shrink-0 border-l border-slate-800 overflow-hidden hidden lg:block">
             <ChapterSidebar
               chapters={chapters}
-              currentSectionId={parseInt(sectionId)}
+              currentSectionId={getWatchSectionId(sectionId)}
               chapterInfo={chapterInfo}
+              chapterSections={chapterSections}
             />
           </div>
         </div>

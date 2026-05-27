@@ -33,7 +33,7 @@ export default function PomodoroTimer({ engine }: Props) {
     <div className="flex items-center gap-3">
       {/* Preset selector */}
       <div className="relative">
-        <button
+        <button type="button"
           onClick={() => !isActive && setShowPresets(!showPresets)}
           disabled={isActive}
           className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-white disabled:cursor-default disabled:hover:text-slate-400 transition px-2 py-1 rounded-lg hover:bg-slate-800"
@@ -51,7 +51,7 @@ export default function PomodoroTimer({ engine }: Props) {
               className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden min-w-[140px]"
             >
               {(Object.entries(PRESETS) as [FocusPreset, typeof PRESETS.sprint][]).map(([key, val]) => (
-                <button
+                <button type="button"
                   key={key}
                   onClick={() => { selectPreset(key as FocusPreset); setShowPresets(false) }}
                   className={`w-full text-left px-3 py-2 text-xs transition ${
@@ -95,22 +95,22 @@ export default function PomodoroTimer({ engine }: Props) {
       {/* Controls */}
       <div className="flex items-center gap-1">
         {state === 'idle' && (
-          <button onClick={start} className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition">
+          <button type="button" onClick={start} className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition">
             <Play size={12} className="ml-0.5" />
           </button>
         )}
         {state === 'running' && (
-          <button onClick={pause} className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition">
+          <button type="button" onClick={pause} className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition">
             <Pause size={12} />
           </button>
         )}
         {state === 'paused' && (
-          <button onClick={resume} className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition">
+          <button type="button" onClick={resume} className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition">
             <Play size={12} className="ml-0.5" />
           </button>
         )}
         {(isActive || state === 'finished') && (
-          <button onClick={reset} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition">
+          <button type="button" onClick={reset} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition">
             <RotateCcw size={12} />
           </button>
         )}
@@ -132,7 +132,7 @@ export default function PomodoroTimer({ engine }: Props) {
       )}
 
       {/* Mute toggle */}
-      <button onClick={toggleMute} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-500 hover:text-white transition">
+      <button type="button" onClick={toggleMute} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-500 hover:text-white transition">
         {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
       </button>
     </div>

@@ -308,13 +308,13 @@ export const RCSimulator: React.FC = () => {
                         
                         {/* Playback Controls */}
                         <div className="flex gap-2">
-                             <button 
+                             <button type="button" 
                                 onClick={togglePlay}
                                 className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${isPlaying ? 'bg-amber-100 text-amber-600' : 'bg-slate-900 text-white hover:scale-105 shadow-md'}`}
                              >
                                 {isPlaying ? <Pause size={18} /> : <Play size={18} className="ml-1" />}
                              </button>
-                             <button 
+                             <button type="button" 
                                 onClick={handleReset}
                                 className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
                              >
@@ -374,13 +374,13 @@ export const RCSimulator: React.FC = () => {
 
                         {/* Mode Switcher */}
                         <div className="bg-slate-100 p-1 rounded-xl flex mt-4">
-                            <button 
+                            <button type="button" 
                                 onClick={() => { setIsCharging(true); handleReset(); }}
                                 className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${isCharging ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
                                 <Zap size={16} /> Position 1 : Charge
                             </button>
-                            <button 
+                            <button type="button" 
                                 onClick={() => { setIsCharging(false); handleReset(); }}
                                 className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${!isCharging ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
@@ -412,13 +412,13 @@ export const RCSimulator: React.FC = () => {
 
                 {/* Toggles for Analysis */}
                 <div className="flex gap-2 mb-4">
-                    <button 
+                    <button type="button" 
                         onClick={() => setShowTangent(!showTangent)}
                         className={`flex-1 py-2 rounded-lg text-xs font-bold border flex items-center justify-center gap-2 ${showTangent ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500'}`}
                     >
                         <TrendingUp size={14} /> {showTangent ? 'Masquer Tangente' : 'Voir Tangente'}
                     </button>
-                    <button 
+                    <button type="button" 
                         onClick={() => setShowEnergy(!showEnergy)}
                         className={`flex-1 py-2 rounded-lg text-xs font-bold border flex items-center justify-center gap-2 ${showEnergy ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-white border-slate-200 text-slate-500'}`}
                     >

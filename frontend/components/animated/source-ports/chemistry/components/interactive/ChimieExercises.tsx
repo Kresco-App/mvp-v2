@@ -75,7 +75,7 @@ const PHCalculationExercise = () => {
             animate={status === 'incorrect' ? { x: [0, -5, 5, -5, 5, 0] } : { x: 0 }}
             transition={{ duration: 0.3 }}
         />
-        <button onClick={checkAnswer} className="bg-purple-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="bg-purple-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm">
             Vérifier
         </button>
       </div>

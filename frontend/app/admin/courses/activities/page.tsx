@@ -38,10 +38,10 @@ export default function ActivityBuilderPage() {
   // MCQ state
   const [mcqQuestion, setMcqQuestion] = useState('')
   const [mcqOptions, setMcqOptions] = useState([
-    { text: '', is_correct: true },
-    { text: '', is_correct: false },
-    { text: '', is_correct: false },
-    { text: '', is_correct: false },
+    { id: 'option-1', text: '', is_correct: true },
+    { id: 'option-2', text: '', is_correct: false },
+    { id: 'option-3', text: '', is_correct: false },
+    { id: 'option-4', text: '', is_correct: false },
   ])
 
   // True/False state
@@ -87,7 +87,10 @@ export default function ActivityBuilderPage() {
   function buildActivityData(): any {
     switch (selectedType) {
       case 'multiple_choice':
-        return { question: mcqQuestion, options: mcqOptions }
+        return {
+          question: mcqQuestion,
+          options: mcqOptions.map(({ text, is_correct }) => ({ text, is_correct })),
+        }
       case 'true_false':
         return { statement: tfStatement, correct: tfAnswer, explanation: tfExplanation || undefined }
       case 'fill_in_blank':
@@ -128,7 +131,7 @@ export default function ActivityBuilderPage() {
       <div className="min-h-screen bg-slate-950">
         {/* Top bar */}
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
-          <button onClick={() => router.push('/admin')} className="text-slate-400 hover:text-white transition">
+          <button type="button" onClick={() => router.push('/admin')} className="text-slate-400 hover:text-white transition">
             <ArrowLeft size={18} />
           </button>
           <h1 className="text-white font-semibold">Créateur d&apos;activités</h1>
@@ -142,7 +145,7 @@ export default function ActivityBuilderPage() {
               <h2 className="text-white font-semibold mb-3">Type d&apos;activité</h2>
               <div className="grid grid-cols-2 gap-2">
                 {ACTIVITY_TYPES.map(t => (
-                  <button
+                  <button type="button"
                     key={t.id}
                     onClick={() => { setSelectedType(t.id); setOutput(null) }}
                     className={cn(
@@ -232,7 +235,7 @@ export default function ActivityBuilderPage() {
                 />
               )}
 
-              <button
+              <button type="button"
                 onClick={handleGenerate}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition mt-2"
               >
@@ -246,7 +249,7 @@ export default function ActivityBuilderPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-white font-semibold">JSON généré</h2>
               {output && (
-                <button
+                <button type="button"
                   onClick={handleCopy}
                   className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition"
                 >
@@ -295,6 +298,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <input
+      aria-label={placeholder ?? 'Text input'}
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
@@ -312,14 +316,16 @@ function MCQBuilder({ question, options, onQuestionChange, onOptionsChange }: an
       <Field label="Options (cochez la bonne réponse)">
         <div className="space-y-2">
           {options.map((opt: any, i: number) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={opt.id} className="flex items-center gap-2">
               <input
+                aria-label={`Bonne réponse option ${i + 1}`}
                 type="radio"
                 checked={opt.is_correct}
                 onChange={() => onOptionsChange(options.map((o: any, j: number) => ({ ...o, is_correct: j === i })))}
                 className="text-indigo-500"
               />
               <input
+                aria-label={`Option ${i + 1}`}
                 value={opt.text}
                 onChange={e => onOptionsChange(options.map((o: any, j: number) => j === i ? { ...o, text: e.target.value } : o))}
                 placeholder={`Option ${i + 1}`}
@@ -342,7 +348,7 @@ function TrueFalseBuilder({ statement, answer, explanation, onStatementChange, o
       <Field label="Réponse correcte">
         <div className="flex gap-3">
           {[true, false].map(v => (
-            <button
+            <button type="button"
               key={String(v)}
               onClick={() => onAnswerChange(v)}
               className={cn(
@@ -389,8 +395,9 @@ function MatchingBuilder({ question, pairs, onQuestionChange, onPairsChange }: a
       <Field label="Paires">
         <div className="space-y-2">
           {pairs.map((p: any, i: number) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={p.id} className="flex items-center gap-2">
               <input
+                aria-label={`Gauche paire ${i + 1}`}
                 value={p.left}
                 onChange={e => onPairsChange(pairs.map((x: any, j: number) => j === i ? { ...x, left: e.target.value } : x))}
                 placeholder="Gauche"
@@ -398,6 +405,7 @@ function MatchingBuilder({ question, pairs, onQuestionChange, onPairsChange }: a
               />
               <span className="text-slate-400">↔</span>
               <input
+                aria-label={`Droite paire ${i + 1}`}
                 value={p.right}
                 onChange={e => onPairsChange(pairs.map((x: any, j: number) => j === i ? { ...x, right: e.target.value } : x))}
                 placeholder="Droite"
@@ -405,7 +413,7 @@ function MatchingBuilder({ question, pairs, onQuestionChange, onPairsChange }: a
               />
             </div>
           ))}
-          <button
+          <button type="button"
             onClick={() => onPairsChange([...pairs, { id: String.fromCharCode(97 + pairs.length), left: '', right: '' }])}
             className="text-indigo-400 hover:text-indigo-300 text-xs transition"
           >
@@ -426,9 +434,10 @@ function OrderingBuilder({ question, items, onQuestionChange, onItemsChange }: a
       <Field label="Éléments (dans le bon ordre)">
         <div className="space-y-2">
           {items.map((item: any, i: number) => (
-            <div key={i} className="flex items-center gap-2">
+            <div key={item.id} className="flex items-center gap-2">
               <span className="text-slate-400 text-xs font-mono w-4">{i + 1}</span>
               <input
+                aria-label={`Élément ${i + 1}`}
                 value={item.label}
                 onChange={e => onItemsChange(items.map((x: any, j: number) => j === i ? { ...x, label: e.target.value } : x))}
                 placeholder={`Étape ${i + 1}`}
@@ -436,7 +445,7 @@ function OrderingBuilder({ question, items, onQuestionChange, onItemsChange }: a
               />
             </div>
           ))}
-          <button
+          <button type="button"
             onClick={() => onItemsChange([...items, { id: String(items.length + 1), label: '' }])}
             className="text-indigo-400 hover:text-indigo-300 text-xs transition"
           >
@@ -458,7 +467,8 @@ function DragDropBuilder({ question, items, zones, onQuestionChange, onItemsChan
         <div className="space-y-1.5">
           {items.map((item: any, i: number) => (
             <input
-              key={i}
+              aria-label={`Élément ${item.id}`}
+              key={item.id}
               value={item.label}
               onChange={e => onItemsChange(items.map((x: any, j: number) => j === i ? { ...x, label: e.target.value } : x))}
               placeholder={`Élément ${item.id}`}
@@ -470,14 +480,16 @@ function DragDropBuilder({ question, items, zones, onQuestionChange, onItemsChan
       <Field label="Zones">
         <div className="space-y-1.5">
           {zones.map((zone: any, i: number) => (
-            <div key={i} className="flex gap-2">
+            <div key={zone.id} className="flex gap-2">
               <input
+                aria-label={`Zone ${i + 1}`}
                 value={zone.label}
                 onChange={e => onZonesChange(zones.map((x: any, j: number) => j === i ? { ...x, label: e.target.value } : x))}
                 placeholder={`Zone ${zone.id}`}
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
               />
               <select
+                aria-label={`Bonne réponse zone ${i + 1}`}
                 value={zone.correctItemId}
                 onChange={e => onZonesChange(zones.map((x: any, j: number) => j === i ? { ...x, correctItemId: e.target.value } : x))}
                 className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"

@@ -194,7 +194,7 @@ export default function DescartesBasicsSimulator() {
     <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-slate-100">Reflexion et refraction</h3>
-        <button
+        <button type="button"
           onClick={() => {
             setAngleDeg(45)
             setN1(1.0)
@@ -227,6 +227,7 @@ export default function DescartesBasicsSimulator() {
                 <span className="text-amber-400 font-mono font-medium">{angleDeg}&deg;</span>
               </div>
               <input
+                aria-label="Angle d'incidence"
                 type="range"
                 min="0"
                 max="90"
@@ -243,6 +244,7 @@ export default function DescartesBasicsSimulator() {
                 <span className="text-blue-400 font-mono font-medium">{n1.toFixed(2)}</span>
               </div>
               <input
+                aria-label="Indice milieu 1"
                 type="range"
                 min="1.0"
                 max="2.5"
@@ -259,6 +261,7 @@ export default function DescartesBasicsSimulator() {
                 <span className="text-cyan-400 font-mono font-medium">{n2.toFixed(2)}</span>
               </div>
               <input
+                aria-label="Indice milieu 2"
                 type="range"
                 min="1.0"
                 max="2.5"
@@ -270,7 +273,7 @@ export default function DescartesBasicsSimulator() {
             </div>
 
             <div className="pt-2 border-t border-amber-500/10">
-              <button
+              <button type="button"
                 onClick={() => setShowAngles(!showAngles)}
                 className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${showAngles ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-800 text-slate-200 border border-slate-600'}`}
               >

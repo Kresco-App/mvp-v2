@@ -90,7 +90,7 @@ export default function AdminSubjectPage() {
       <div className="min-h-screen bg-slate-950">
         {/* Header */}
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
-          <button onClick={() => router.push('/admin/courses')} className="text-slate-400 hover:text-white transition">
+          <button type="button" onClick={() => router.push('/admin/courses')} className="text-slate-400 hover:text-white transition">
             <ArrowLeft size={18} />
           </button>
           <div>
@@ -104,7 +104,7 @@ export default function AdminSubjectPage() {
           {chapters.map(chapter => (
             <div key={chapter.id} className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
               {/* Chapter header */}
-              <button
+              <button type="button"
                 onClick={() => toggleChapter(chapter.id)}
                 className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-800/40 transition text-left"
               >

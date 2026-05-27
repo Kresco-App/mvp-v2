@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Integer, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -43,6 +43,7 @@ class UserNote(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    subject_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -62,6 +63,7 @@ class SavedItem(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     target_type: Mapped[str] = mapped_column(String(30))
     target_id: Mapped[int] = mapped_column(Integer)
+    subject_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     label: Mapped[str] = mapped_column(String(255), default="")

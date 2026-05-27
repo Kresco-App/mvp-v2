@@ -99,6 +99,7 @@ class SidebarCountdownUnitOut(BaseModel):
 
 
 class SidebarCalendarDayOut(BaseModel):
+    id: str
     value: int | str
     label: str
     active: bool = False

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import api from '@/lib/axios'
 import { getMyProfile, updateMyProfile, uploadProfileMedia, type ProfileUser } from '@/lib/profile'
 import { useAuthStore } from '@/lib/store'
+import { subjectKey } from '@/lib/subjectIdentity'
 import {
   FigmaProfile,
   toProfileSubject,
@@ -237,19 +238,4 @@ function getErrorMessage(error: unknown, fallback: string) {
   if (maybeError?.response?.status) return `${fallback} (${maybeError.response.status})`
   if (error instanceof Error && error.message) return error.message
   return fallback
-}
-
-function subjectKey(title: string) {
-  const normalized = title
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-  if (normalized.includes('math')) return 'math'
-  if (normalized.includes('phys')) return 'physics'
-  if (normalized.includes('chem') || normalized.includes('chim')) return 'chemistry'
-  if (normalized.includes('geo')) return 'geography'
-  if (normalized.includes('bio') || normalized.includes('svt')) return 'biology'
-  if (normalized.includes('philo')) return 'philosophy'
-  if (normalized.includes('english') || normalized.includes('anglais')) return 'english'
-  return normalized.replace(/\W+/g, '-')
 }

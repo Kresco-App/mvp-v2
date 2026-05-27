@@ -228,7 +228,7 @@ export function FigmaSubjectDetailSkeleton() {
           <section className="pb-20">
             <SkeletonBlock className="h-7 w-32 rounded-[8px]" />
             <SkeletonBlock className="mt-3 h-4 w-60 rounded-[6px]" />
-            <div className="mt-5 grid grid-cols-[repeat(3,344.33px)] gap-[14px] max-[1140px]:grid-cols-[repeat(2,344.33px)] max-[760px]:grid-cols-[344.33px] max-[420px]:grid-cols-1">
+            <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-[14px]">
               {Array.from({ length: 6 }).map((_, index) => <FigmaCourseCardSkeleton key={index} />)}
             </div>
           </section>
@@ -246,9 +246,9 @@ export function FigmaVideoWorkspaceSkeleton() {
         <SkeletonBlock className="h-[18px] w-[360px] max-w-full rounded-[6px]" />
         <SkeletonBlock className="mt-3 h-8 w-[520px] max-w-full rounded-[8px]" />
       </header>
-      <div className="grid grid-cols-[minmax(720px,1057px)_351px] justify-between max-[1100px]:grid-cols-1">
+      <div className="grid grid-cols-[minmax(0,1fr)_351px] gap-[32px] max-[1100px]:grid-cols-1">
         <main className="min-w-0 overflow-hidden pb-[160px] pt-[48px]">
-          <div className="kresco-skeleton-card relative h-[596px] w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] bg-[#f7f8fb] max-[1100px]:h-auto max-[1100px]:w-full max-[1100px]:aspect-[1057/596]">
+          <div className="kresco-skeleton-card relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] bg-[#f7f8fb]">
             <div className="kresco-skeleton kresco-skeleton-media absolute inset-0" />
             <span className="absolute left-1/2 top-1/2 grid h-[64px] w-[64px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white/80 shadow-[0_10px_30px_rgba(24,24,27,.08)]">
               <span className="ml-1 h-0 w-0 border-y-[11px] border-l-[17px] border-y-transparent border-l-[#d8dce7]" />
@@ -265,7 +265,7 @@ export function FigmaVideoWorkspaceSkeleton() {
             <SkeletonBlock className="mt-6 h-[44px] w-[142px] rounded-[14px]" />
           </article>
         </main>
-        <div className="pt-[44px]">
+        <div className="min-w-0 pt-[44px]">
           <aside className="grid w-[351px] gap-[30px] max-[1100px]:w-full">
             <div>
               <SkeletonBlock className="h-[18px] w-32 rounded-[6px]" />
@@ -295,14 +295,14 @@ export function FigmaDashboardSkeleton() {
               <SkeletonBlock className="h-7 w-40 rounded-lg" />
               <SkeletonBlock className="mt-3 h-4 w-72 rounded-md" />
             </div>
-            <div className="grid max-w-[984px] gap-[24px] min-[960px]:grid-cols-[repeat(2,480px)]">
+            <div className="grid max-w-[984px] grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[24px]">
               {Array.from({ length: 2 }).map((_, index) => <FigmaContinueTopicSkeleton key={index} />)}
             </div>
           </section>
           <section>
             <SkeletonBlock className="h-6 w-28 rounded-lg" />
             <SkeletonBlock className="mt-3 h-4 w-48 rounded-md" />
-            <div className="mt-[22px] grid grid-cols-[repeat(5,176px)] gap-[20px] max-[1180px]:grid-cols-[repeat(auto-fit,176px)]">
+            <div className="mt-[22px] grid grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-[20px]">
               {Array.from({ length: 5 }).map((_, index) => <FigmaSubjectShortcutSkeleton key={index} />)}
             </div>
           </section>

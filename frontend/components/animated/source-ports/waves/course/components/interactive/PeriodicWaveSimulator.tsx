@@ -146,16 +146,16 @@ export const PeriodicWaveSimulator: React.FC = () => {
                 <div className="lg:col-span-1 mt-6 lg:mt-0 space-y-6">
                     <div className="flex justify-between items-center">
                         <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Waves size={20} /> Simulateur d'Onde</h3>
-                        <button onClick={() => setIsPlaying(!isPlaying)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-700" title={isPlaying ? "Pause" : "Lecture"}>
+                        <button type="button" onClick={() => setIsPlaying(!isPlaying)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-700" title={isPlaying ? "Pause" : "Lecture"}>
                             {isPlaying ? <Pause size={20} /> : <Play size={20} />}
                         </button>
                     </div>
 
                     <div className="flex bg-slate-100 p-1 rounded-lg">
-                        <button onClick={() => setViewMode('spatial')} className={`w-1/2 px-3 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'spatial' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
+                        <button type="button" onClick={() => setViewMode('spatial')} className={`w-1/2 px-3 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'spatial' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
                             <Ruler size={16} /> Spatiale
                         </button>
-                        <button onClick={() => setViewMode('temporal')} className={`w-1/2 px-3 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'temporal' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500'}`}>
+                        <button type="button" onClick={() => setViewMode('temporal')} className={`w-1/2 px-3 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'temporal' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500'}`}>
                             <Clock size={16} /> Temporelle
                         </button>
                     </div>

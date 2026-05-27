@@ -1,8 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+
+from sqlalchemy import delete
 
 from app.database import get_session_factory
 from app.models.calendar import CalendarEvent
 from app.models.courses import Subject, Topic
+from app.routers.gamification import _sidebar_calendar_days
 
 
 def test_calendar_events_filter_and_serialize_types(app_client, auth_token, run_db):
@@ -18,6 +21,7 @@ def test_calendar_events_filter_and_serialize_types(app_client, auth_token, run_
             db.add(topic)
             await db.flush()
             start = datetime(2026, 5, 11, 9, 0, tzinfo=timezone.utc)
+            outside_range = datetime(2026, 1, 1, 9, 0, tzinfo=timezone.utc)
             db.add_all([
                 CalendarEvent(
                     event_type="live_session",
@@ -44,8 +48,8 @@ def test_calendar_events_filter_and_serialize_types(app_client, auth_token, run_
                 CalendarEvent(
                     event_type="live_session",
                     title="Outside range",
-                    starts_at=start + timedelta(days=10),
-                    ends_at=start + timedelta(days=10, hours=1),
+                    starts_at=outside_range,
+                    ends_at=outside_range + timedelta(hours=1),
                 ),
             ])
             await db.commit()
@@ -82,6 +86,16 @@ def test_calendar_events_defaults_to_current_week(app_client, auth_token):
     assert isinstance(response.json(), list)
 
 
+def test_sidebar_calendar_days_roll_around_today():
+    days = _sidebar_calendar_days(date(2026, 5, 26))
+    active_days = [day for day in days if day["active"]]
+
+    assert len(days) == 21
+    assert active_days == [{"id": "2026-05-26", "label": "Tue", "value": 26, "active": True}]
+    assert days[0]["id"] == "2026-05-19"
+    assert days[-1]["id"] == "2026-06-08"
+
+
 def test_sidebar_summary_uses_upcoming_calendar_live_event(app_client, auth_token, run_db):
     token, _ = auth_token(email="sidebar-calendar@example.com", is_pro=True)
 
@@ -109,3 +123,21 @@ def test_sidebar_summary_uses_upcoming_calendar_live_event(app_client, auth_toke
     live_events = response.json()["live_events"]
     assert live_events[0]["title"] == "Upcoming live from calendar"
     assert live_events[0]["href"].startswith("/calendar?event=")
+
+
+def test_sidebar_summary_does_not_return_demo_live_events(app_client, auth_token, run_db):
+    token, _ = auth_token(email="sidebar-calendar-empty@example.com", is_pro=True)
+
+    async def _clear_events():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(CalendarEvent))
+            await db.commit()
+
+    run_db(_clear_events())
+    response = app_client.get(
+        "/api/progress/sidebar-summary",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["live_events"] == []

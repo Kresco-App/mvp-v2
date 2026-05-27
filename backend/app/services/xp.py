@@ -1,8 +1,9 @@
 import math
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import DailyQuest, UserXP, XPTransaction
@@ -31,6 +32,10 @@ DAILY_QUEST_TEMPLATES = [
     {"quest_type": "pass_quiz", "title": "Réussir 1 quiz", "target": 1, "xp_reward": 50},
     {"quest_type": "earn_xp", "title": "Gagner 100 XP aujourd'hui", "target": 100, "xp_reward": 25},
 ]
+
+
+def _current_utc_date() -> date:
+    return datetime.now(timezone.utc).date()
 
 
 def calculate_level(total_xp: int) -> dict:
@@ -89,23 +94,17 @@ async def award_xp(
     quiz_attempt_id: Optional[int] = None,
     question_attempt_id: Optional[int] = None,
     idempotency_key: Optional[str] = None,
+    active_date: Optional[date] = None,
+    amount_override: Optional[int] = None,
+    update_daily_quests: bool = True,
 ) -> int:
-    amount = XP_REWARDS.get(reason, 0)
+    amount = amount_override if amount_override is not None else XP_REWARDS.get(reason, 0)
     if amount == 0:
         return 0
     if dedupe and await has_xp_award(user_id, reason, description, db):
         return 0
     if idempotency_key and await has_xp_idempotency_key(user_id, idempotency_key, db):
         return 0
-
-    result = await db.execute(select(UserXP).where(UserXP.user_id == user_id))
-    xp_record = result.scalar_one_or_none()
-
-    if xp_record is None:
-        xp_record = UserXP(user_id=user_id, total_xp=amount)
-        db.add(xp_record)
-    else:
-        xp_record.total_xp += amount
 
     transaction = XPTransaction(
         user_id=user_id,
@@ -122,7 +121,32 @@ async def award_xp(
         question_attempt_id=question_attempt_id,
         idempotency_key=idempotency_key,
     )
-    db.add(transaction)
+
+    if idempotency_key:
+        try:
+            async with db.begin_nested():
+                db.add(transaction)
+                await db.flush()
+        except IntegrityError:
+            return 0
+    else:
+        db.add(transaction)
+        await db.flush()
+
+    result = await db.execute(select(UserXP).where(UserXP.user_id == user_id))
+    xp_record = result.scalar_one_or_none()
+
+    if xp_record is None:
+        xp_record = UserXP(user_id=user_id, total_xp=amount)
+        db.add(xp_record)
+    else:
+        xp_record.total_xp += amount
+
+    if not update_daily_quests:
+        await db.flush()
+        return amount
+
+    quest_date = active_date or _current_utc_date()
 
     # Update earn_xp daily quest progress
     await db.execute(
@@ -130,7 +154,7 @@ async def award_xp(
         .where(
             DailyQuest.user_id == user_id,
             DailyQuest.quest_type == "earn_xp",
-            DailyQuest.date == date.today(),
+            DailyQuest.date == quest_date,
             DailyQuest.completed == False,  # noqa: E712
         )
         .values(progress=DailyQuest.progress + amount)
@@ -142,7 +166,7 @@ async def award_xp(
             .where(
                 DailyQuest.user_id == user_id,
                 DailyQuest.quest_type == quest_type,
-                DailyQuest.date == date.today(),
+                DailyQuest.date == quest_date,
                 DailyQuest.completed == False,  # noqa: E712
             )
             .values(progress=DailyQuest.progress + 1)
@@ -151,8 +175,8 @@ async def award_xp(
     return amount
 
 
-async def generate_daily_quests(user_id: int, db: AsyncSession) -> list[DailyQuest]:
-    today = date.today()
+async def generate_daily_quests(user_id: int, db: AsyncSession, *, quest_date: Optional[date] = None) -> list[DailyQuest]:
+    today = quest_date or _current_utc_date()
     result = await db.execute(
         select(DailyQuest).where(DailyQuest.user_id == user_id, DailyQuest.date == today)
     )
@@ -162,12 +186,5 @@ async def generate_daily_quests(user_id: int, db: AsyncSession) -> list[DailyQue
 
     quests = [DailyQuest(user_id=user_id, date=today, **t) for t in DAILY_QUEST_TEMPLATES]
     db.add_all(quests)
-    try:
-        await db.flush()
-    except Exception:
-        await db.rollback()
-        result = await db.execute(
-            select(DailyQuest).where(DailyQuest.user_id == user_id, DailyQuest.date == today)
-        )
-        return result.scalars().all()
+    await db.flush()
     return quests

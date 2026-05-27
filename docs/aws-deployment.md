@@ -10,6 +10,8 @@ Production deployment work is currently paused. This file records the current im
 - Lambda adapter present: `backend/app_handler.py`.
 - Zappa settings file present: `backend/zappa_settings.json`.
 - Database migrations: Alembic.
+- Liveness endpoint: `/health`.
+- Readiness endpoint: `/ready`, which checks production config policy and database connectivity.
 
 ## Current Production Shape
 
@@ -23,6 +25,7 @@ Vercel Frontend
 ```
 
 Deployment configuration should not be changed during normal product implementation unless the task is explicitly deployment-focused.
+Backend deploy requires a `BACKEND_READY_URL` repository variable that points at the deployed `/ready` URL for the production stage.
 
 ## Current Validation Rule
 
@@ -49,3 +52,4 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 See `docs/knowledge-base/local-validation-only.md` for the active validation policy.
+See `docs/manual-operations.md` for the current credential-dependent manual operations.

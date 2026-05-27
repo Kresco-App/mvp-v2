@@ -9,7 +9,7 @@ export const SuperpositionSimulator: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [mode, setMode] = useState<'constructive' | 'destructive'>('constructive');
   const timeRef = useRef(0);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
   const pauseRef = useRef(0);
   const hasPausedRef = useRef(false);
 
@@ -168,7 +168,7 @@ export const SuperpositionSimulator: React.FC = () => {
         </h3>
         
         <div className="flex gap-2">
-            <button
+            <button type="button"
                 onClick={() => { setMode('constructive'); timeRef.current = 0; }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${
                     mode === 'constructive' ? 'bg-violet-100 text-violet-700 ring-2 ring-violet-500 ring-offset-1' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -176,7 +176,7 @@ export const SuperpositionSimulator: React.FC = () => {
             >
                 <Activity size={14} /> CONSTRUCTIVE
             </button>
-            <button
+            <button type="button"
                 onClick={() => { setMode('destructive'); timeRef.current = 0; }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${
                     mode === 'destructive' ? 'bg-rose-100 text-rose-700 ring-2 ring-rose-500 ring-offset-1' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -187,7 +187,7 @@ export const SuperpositionSimulator: React.FC = () => {
         </div>
 
         <div className="flex gap-2">
-          <button
+          <button type="button"
             onClick={() => setIsPlaying(!isPlaying)}
             className={`p-2 rounded-lg transition-colors ${
               isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
@@ -195,7 +195,7 @@ export const SuperpositionSimulator: React.FC = () => {
           >
             {isPlaying ? <Pause size={20} /> : <Play size={20} />}
           </button>
-          <button
+          <button type="button"
             onClick={reset}
             className="p-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
           >

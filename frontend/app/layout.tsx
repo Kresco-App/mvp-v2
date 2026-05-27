@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
-import { Toaster } from 'sonner'
+import AppToaster from '@/components/AppToaster'
 import './globals.css'
 
 const sunghyunSans = localFont({
@@ -67,14 +67,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="fr">
       <body className={`${sfProRounded.variable} ${sunghyunSans.variable} antialiased`}>
         {children}
-        <Toaster
-          position="top-right"
-          richColors
-          closeButton
-          toastOptions={{ duration: 3000 }}
-          expand={false}
-          visibleToasts={3}
-        />
+        <AppToaster />
       </body>
     </html>
   )

@@ -140,7 +140,7 @@ export const HalfLifeExplanation: React.FC = () => {
 
             {/* Controls */}
             <div className="flex gap-3 mt-auto">
-                <button 
+                <button type="button" 
                     onClick={nextStep}
                     disabled={elapsedHalfLives >= 4}
                     className="flex-1 bg-purple-600 text-white py-2.5 md:py-3 px-4 rounded-xl font-bold shadow-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-sm md:text-base"
@@ -148,7 +148,7 @@ export const HalfLifeExplanation: React.FC = () => {
                     <Clock size={18} />
                     {elapsedHalfLives < 4 ? "Attendre t(1/2)" : "Terminé"}
                 </button>
-                <button 
+                <button type="button" 
                     onClick={reset}
                     className="w-10 md:w-12 flex items-center justify-center bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors border border-slate-200"
                     title="Réinitialiser"

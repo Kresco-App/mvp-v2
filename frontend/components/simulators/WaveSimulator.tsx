@@ -135,10 +135,10 @@ export default function WaveSimulator() {
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-bold text-slate-200">Onde Transversale Progressive</h3>
         <div className="flex gap-2">
-          <button onClick={() => setIsPlaying(!isPlaying)} className="text-slate-400 hover:text-slate-400">
+          <button type="button" onClick={() => setIsPlaying(!isPlaying)} className="text-slate-400 hover:text-slate-400">
             {isPlaying ? <Pause size={16} /> : <Play size={16} />}
           </button>
-          <button onClick={() => { setAmplitude(60); setFrequency(2); setWavelength(200); timeRef.current = 0 }} className="text-slate-400 hover:text-slate-400">
+          <button type="button" onClick={() => { setAmplitude(60); setFrequency(2); setWavelength(200); timeRef.current = 0 }} className="text-slate-400 hover:text-slate-400">
             <RefreshCw size={16} />
           </button>
         </div>

@@ -82,7 +82,7 @@ const DatingChallenge = () => {
                                 className="flex-1 border-2 border-slate-200 rounded-lg p-3 font-bold text-lg outline-none focus:border-indigo-500"
                                 placeholder="Ex: 5000"
                             />
-                            <button onClick={check} className="bg-indigo-600 text-white px-6 rounded-lg font-bold hover:bg-indigo-700">
+                            <button type="button" onClick={check} className="bg-indigo-600 text-white px-6 rounded-lg font-bold hover:bg-indigo-700">
                                 Valider
                             </button>
                         </div>
@@ -226,7 +226,7 @@ const StabilityChallenge = () => {
                                 className="border-2 border-slate-200 rounded-lg p-3 w-full font-bold focus:border-indigo-500 outline-none"
                                 placeholder="E libérée = ?"
                             />
-                            <button onClick={check} className="bg-indigo-600 text-white px-6 rounded-lg font-bold hover:bg-indigo-700 whitespace-nowrap">
+                            <button type="button" onClick={check} className="bg-indigo-600 text-white px-6 rounded-lg font-bold hover:bg-indigo-700 whitespace-nowrap">
                                 Vérifier
                             </button>
                         </div>

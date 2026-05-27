@@ -22,7 +22,7 @@ export const WaveLab: React.FC = () => {
     const uRef = useRef(new Float32Array(GRID_SIZE * GRID_SIZE)); // Current state
     const uPrevRef = useRef(new Float32Array(GRID_SIZE * GRID_SIZE)); // Previous state
     const wallsRef = useRef(new Uint8Array(GRID_SIZE * GRID_SIZE)); // 1 = water, 0 = wall
-    const animationRef = useRef<number>();
+    const animationRef = useRef<number | null>(null);
     const timeRef = useRef(0);
 
     // --- Initialization ---
@@ -264,13 +264,13 @@ export const WaveLab: React.FC = () => {
 
                     {/* Play Controls Overlay */}
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                        <button
+                        <button type="button"
                             onClick={() => setIsRunning(!isRunning)}
                             className="bg-white/90 hover:bg-white text-indigo-900 p-3 rounded-full shadow-lg backdrop-blur-sm transition-all"
                         >
                             {isRunning ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
                         </button>
-                        <button
+                        <button type="button"
                             onClick={() => {
                                 timeRef.current = 0;
                                 uRef.current.fill(0);
@@ -347,7 +347,7 @@ export const WaveLab: React.FC = () => {
                             <div className="absolute top-0 bottom-0 left-0 w-[20%] border-r-2 border-emerald-500/50 bg-emerald-500/10 pointer-events-none"></div>
                         </div>
 
-                        <button
+                        <button type="button"
                             onClick={checkMission}
                             className={`w-full py-3 rounded-xl font-bold transition-all shadow-md ${missionStatus === 'success'
                                     ? 'bg-emerald-500 hover:bg-emerald-600 text-white'

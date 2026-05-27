@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, inspect, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload, with_loader_criteria
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,121 +17,26 @@ from app.models.quizzes import Question, QuestionSet
 from app.models.users import User
 from app.schemas.courses import (
     ActivityEventIn,
-    ActivityOut, ChapterOut, ChapterSectionOut, CoursePDFOut,
-    ExamOut, ExamProblemOut, LessonDetailOut, ResourceOut, StreamOut,
-    SubjectDetailOut, SubjectListOut, TabContentOut, TabQuizResultOut, TabQuizSubmitIn,
-    TopicCardOut, TopicItemCompleteIn, TopicItemOut, TopicSectionOut, TopicWorkspaceOut,
+    ActivityOut, ChapterOut, ChapterSectionOut, ChapterWithSectionsOut, CoursePDFOut,
+    ExamOut, LessonDetailOut, StreamOut,
+    SectionWatchContextOut, SubjectDetailOut, SubjectListOut, TabQuizResultOut, TabQuizSubmitIn,
+    TopicCardOut, TopicItemCompleteIn, TopicSectionOut, TopicWorkspaceOut,
     VideoQuizTriggerOut,
 )
-from app.services.access import AccessContext, AccessDecision, build_access_context
+from app.services.access import AccessDecision, build_access_context
+from app.services.course_access import (
+    access_for_tab,
+    access_for_topic_item,
+    chapter_section_out,
+    exam_out,
+    require_lesson_access,
+    store_access_decision,
+    topic_item_out,
+)
 from app.services.xp import award_xp
 from app.services.vdocipher import get_video_otp
 
 router = APIRouter(tags=["Courses"])
-
-
-def _apply_access(out, decision: AccessDecision):
-    out.can_access = decision.can_access
-    out.locked_reason = decision.locked_reason
-    out.required_tier = decision.required_tier
-    out.required_feature_key = decision.required_feature_key
-    if hasattr(out, "required_subject_id"):
-        out.required_subject_id = decision.required_subject_id
-    if hasattr(out, "access_reason"):
-        out.access_reason = decision.reason
-    return out
-
-
-def _shape_locked_resource(out: ResourceOut) -> ResourceOut:
-    if not out.can_access:
-        out.provider_resource_id = ""
-        out.url = ""
-        out.metadata_json = {}
-    return out
-
-
-def _shape_locked_tab(out: TabContentOut) -> TabContentOut:
-    if not out.can_access:
-        out.content = ""
-        out.config_json = {}
-    return out
-
-
-def _shape_locked_exam_problem(out: ExamProblemOut) -> ExamProblemOut:
-    if not out.can_access:
-        out.written_solution = ""
-        out.written_solution_url = ""
-    return out
-
-
-def _store_access(target: dict[int, AccessDecision], key: int, decision: AccessDecision) -> None:
-    current = target.get(key)
-    if current is None or (decision.can_access and not current.can_access):
-        target[key] = decision
-
-
-def _loaded_relationship(obj, name: str):
-    return None if name in inspect(obj).unloaded else getattr(obj, name)
-
-
-def _resource_out(resource: Resource, resource_access: dict[int, AccessDecision] | None = None) -> ResourceOut:
-    out = ResourceOut.model_validate(resource)
-    access = resource_access.get(resource.id) if resource_access else None
-    if access:
-        _apply_access(out, access)
-        _shape_locked_resource(out)
-    return out
-
-
-def _tab_out(
-    tab: TabContent,
-    tab_access: dict[int, AccessDecision] | None = None,
-    resource_access: dict[int, AccessDecision] | None = None,
-) -> TabContentOut:
-    out = TabContentOut.model_validate(tab)
-    access = tab_access.get(tab.id) if tab_access else None
-    if access:
-        _apply_access(out, access)
-    if out.resource and resource_access:
-        resource_decision = resource_access.get(out.resource.id)
-        if resource_decision:
-            _apply_access(out.resource, resource_decision)
-            _shape_locked_resource(out.resource)
-    if access:
-        _shape_locked_tab(out)
-    return out
-
-
-def _item_out(
-    item: TopicItem,
-    progress_by_item: dict[int, TopicItemProgress],
-    item_access: dict[int, AccessDecision] | None = None,
-    tab_access: dict[int, AccessDecision] | None = None,
-    resource_access: dict[int, AccessDecision] | None = None,
-) -> TopicItemOut:
-    progress = progress_by_item.get(item.id)
-    access = item_access.get(item.id) if item_access else None
-    out = TopicItemOut(
-        id=item.id,
-        topic_id=item.topic_id,
-        section_id=item.section_id,
-        title=item.title,
-        description=item.description,
-        item_type=item.item_type,
-        renderer_key=item.renderer_key,
-        duration_seconds=item.duration_seconds,
-        order=item.order,
-        completion_policy=item.completion_policy,
-        is_free_preview=item.is_free_preview,
-        concept_slugs=item.concept_slugs or [],
-        primary_resource=_resource_out(item.primary_resource, resource_access) if item.primary_resource else None,
-        tabs=[_tab_out(t, tab_access, resource_access) for t in item.tabs if t.status == "published"],
-        progress_status=progress.status if progress else "not_started",
-        best_score=progress.best_score if progress else None,
-    )
-    if access:
-        _apply_access(out, access)
-    return out
 
 
 def _matches_item(item: TopicItem, query: str, notes_by_item: dict[int, list[str]] | None = None) -> bool:
@@ -146,39 +51,6 @@ def _matches_item(item: TopicItem, query: str, notes_by_item: dict[int, list[str
         *(tab.label + " " + (tab.content or "") + " " + " ".join(tab.concept_slugs or []) for tab in item.tabs),
     ]).lower()
     return query.lower() in haystack
-
-
-async def _access_for_topic_item(db: AsyncSession, user: User, item: TopicItem) -> AccessDecision:
-    topic = _loaded_relationship(item, "topic")
-    if topic is None:
-        topic = await db.scalar(select(Topic).where(Topic.id == item.topic_id))
-    access_context = await build_access_context(db, user)
-    if topic is None:
-        return access_context.decide_for(item)
-    topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
-    return access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
-
-
-async def _access_for_tab(db: AsyncSession, user: User, tab: TabContent) -> AccessDecision:
-    item = _loaded_relationship(tab, "topic_item")
-    if item is None:
-        item = await db.scalar(
-            select(TopicItem)
-            .options(selectinload(TopicItem.topic))
-            .where(TopicItem.id == tab.topic_item_id)
-        )
-    access_context = await build_access_context(db, user)
-    if item is None:
-        return access_context.decide_for(tab)
-    topic = _loaded_relationship(item, "topic")
-    if topic is None:
-        topic = await db.scalar(select(Topic).where(Topic.id == item.topic_id))
-    if topic is None:
-        item_access = access_context.decide_for(item)
-        return access_context.decide_child(item_access, tab)
-    topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
-    item_access = access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
-    return access_context.decide_child(item_access, tab, subject_id=topic.subject_id)
 
 
 def _normalize_answer(value) -> str:
@@ -520,7 +392,7 @@ async def get_topic_workspace(
     resource_access: dict[int, AccessDecision] = {}
     for resource in topic.resources:
         if resource.status == "published":
-            _store_access(
+            store_access_decision(
                 resource_access,
                 resource.id,
                 access_context.decide_child(topic_access, resource, subject_id=topic.subject_id),
@@ -528,7 +400,7 @@ async def get_topic_workspace(
     for item in items:
         current_item_access = item_access[item.id]
         if item.primary_resource:
-            _store_access(
+            store_access_decision(
                 resource_access,
                 item.primary_resource.id,
                 access_context.decide_child(current_item_access, item.primary_resource, subject_id=topic.subject_id),
@@ -539,7 +411,7 @@ async def get_topic_workspace(
             current_tab_access = access_context.decide_child(current_item_access, tab, subject_id=topic.subject_id)
             tab_access[tab.id] = current_tab_access
             if tab.resource:
-                _store_access(
+                store_access_decision(
                     resource_access,
                     tab.resource.id,
                     access_context.decide_child(current_tab_access, tab.resource, subject_id=topic.subject_id),
@@ -561,7 +433,7 @@ async def get_topic_workspace(
             title=section.title,
             section_type=section.section_type,
             order=section.order,
-            items=[_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in section.items if item.status == "published"],
+            items=[topic_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in section.items if item.status == "published"],
         )
         for section in topic.sections
     ]
@@ -579,7 +451,7 @@ async def get_topic_workspace(
         if note.topic_item_id:
             notes_by_item.setdefault(note.topic_item_id, []).append(note.body)
 
-    search_results = [_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in items if q and _matches_item(item, q, notes_by_item)]
+    search_results = [topic_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in items if q and _matches_item(item, q, notes_by_item)]
 
     return TopicWorkspaceOut(
         id=topic.id,
@@ -599,7 +471,7 @@ async def get_topic_workspace(
         required_feature_key=topic_access.required_feature_key,
         active_item_id=active_item.id if active_item else None,
         sections=sections,
-        active_item=_item_out(active_item, progress_by_item, item_access, tab_access, resource_access) if active_item else None,
+        active_item=topic_item_out(active_item, progress_by_item, item_access, tab_access, resource_access) if active_item else None,
         search_results=search_results,
     )
 
@@ -619,7 +491,7 @@ async def record_topic_event(
     item = result.scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="Topic item not found")
-    access = await _access_for_topic_item(db, user, item)
+    access = await access_for_topic_item(db, user, item)
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
     db.add(ActivityEvent(
@@ -659,7 +531,7 @@ async def complete_topic_item(
     item = result.scalar_one_or_none()
     if item is None:
         raise HTTPException(status_code=404, detail="Topic item not found")
-    access = await _access_for_topic_item(db, user, item)
+    access = await access_for_topic_item(db, user, item)
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
     progress_result = await db.execute(
@@ -669,6 +541,7 @@ async def complete_topic_item(
         )
     )
     progress = progress_result.scalar_one_or_none()
+    was_completed = progress.status == "completed" if progress else False
     if progress is None:
         progress = TopicItemProgress(user_id=user.id, topic_id=item.topic_id, topic_item_id=item.id)
         db.add(progress)
@@ -688,7 +561,19 @@ async def complete_topic_item(
         metadata_json={"score": body.score, "watched_seconds": body.watched_seconds},
     ))
     xp_reason = "quiz_pass" if item.item_type == "checkpoint_quiz" else "video_complete" if "video" in item.item_type else "lab_complete" if "interactive" in item.item_type else "lesson_complete"
-    xp_earned = await award_xp(user.id, xp_reason, f"TopicItem {item.id} completed", db)
+    xp_earned = 0
+    if not was_completed:
+        xp_earned = await award_xp(
+            user.id,
+            xp_reason,
+            f"TopicItem {item.id} completed",
+            db,
+            subject_id=item.topic.subject_id if item.topic else None,
+            topic_id=item.topic_id,
+            topic_section_id=item.section_id,
+            topic_item_id=item.id,
+            idempotency_key=f"topic_item_complete:user:{user.id}:item:{item.id}",
+        )
     await db.commit()
     return {"ok": True, "xp_earned": xp_earned}
 
@@ -711,7 +596,7 @@ async def submit_tab_quiz(
     tab = result.scalar_one_or_none()
     if tab is None:
         raise HTTPException(status_code=404, detail="Quiz tab not found")
-    access = await _access_for_tab(db, user, tab)
+    access = await access_for_tab(db, user, tab)
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
     question_set, questions_by_external_id = await _ensure_question_set_for_tab(db, tab)
@@ -896,34 +781,7 @@ async def get_exam_bank(
         if topic_id or q:
             if not problems:
                 continue
-        exam_access = access_context.decide_for(exam, subject_id=exam.subject_id)
-        problem_out = []
-        for problem in problems:
-            problem_access = access_context.decide_child(exam_access, problem, subject_id=exam.subject_id)
-            item = ExamProblemOut.model_validate(problem)
-            _apply_access(item, problem_access)
-            _shape_locked_exam_problem(item)
-            if item.video_resource:
-                video_access = access_context.decide_child(problem_access, problem.video_resource, subject_id=exam.subject_id)
-                _apply_access(item.video_resource, video_access)
-                _shape_locked_resource(item.video_resource)
-            problem_out.append(item)
-        out.append(ExamOut(
-            id=exam.id,
-            subject_id=exam.subject_id,
-            subject_title=exam.subject.title if exam.subject else "",
-            title=exam.title,
-            year=exam.year,
-            session=exam.session,
-            statement_url=exam.statement_url,
-            can_access=exam_access.can_access,
-            locked_reason=exam_access.locked_reason,
-            access_reason=exam_access.reason,
-            required_subject_id=exam_access.required_subject_id,
-            required_tier=exam_access.required_tier,
-            required_feature_key=exam_access.required_feature_key,
-            problems=problem_out,
-        ))
+        out.append(exam_out(exam, problems, access_context))
     return out
 
 
@@ -962,7 +820,11 @@ async def get_chapter(chapter_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/lessons/{lesson_id}", response_model=LessonDetailOut)
-async def get_lesson(lesson_id: int, db: AsyncSession = Depends(get_db)):
+async def get_lesson(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = await db.execute(
         select(Lesson)
         .options(selectinload(Lesson.chapter).selectinload(Chapter.subject))
@@ -974,8 +836,10 @@ async def get_lesson(lesson_id: int, db: AsyncSession = Depends(get_db)):
 
     chapter = lesson.chapter
     subject = chapter.subject if chapter else None
+    access_context = await build_access_context(db, user)
+    access = access_context.decide_for(lesson, subject_id=subject.id if subject else None, fallback_required_tier="pro")
     return LessonDetailOut(
-        id=lesson.id, title=lesson.title, vdocipher_id=lesson.vdocipher_id,
+        id=lesson.id, title=lesson.title, vdocipher_id=lesson.vdocipher_id if access.can_access else "",
         duration_seconds=lesson.duration_seconds, is_free_preview=lesson.is_free_preview,
         order=lesson.order, chapter_id=chapter.id if chapter else 0,
         chapter_title=chapter.title if chapter else "",
@@ -985,7 +849,12 @@ async def get_lesson(lesson_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/lessons/{lesson_id}/activities", response_model=list[ActivityOut])
-async def get_lesson_activities(lesson_id: int, db: AsyncSession = Depends(get_db)):
+async def get_lesson_activities(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_lesson_access(db, user, lesson_id)
     result = await db.execute(
         select(Activity).where(Activity.lesson_id == lesson_id).order_by(Activity.order)
     )
@@ -999,25 +868,18 @@ async def get_lesson_stream(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    result = await db.execute(
-        select(Lesson)
-        .options(selectinload(Lesson.chapter))
-        .where(Lesson.id == lesson_id)
-    )
-    lesson = result.scalar_one_or_none()
-    if lesson is None:
-        raise HTTPException(status_code=404, detail="Lesson not found")
-    access_context = await build_access_context(db, user)
-    subject_id = lesson.chapter.subject_id if lesson.chapter else None
-    access = access_context.decide_for(lesson, subject_id=subject_id, fallback_required_tier="pro")
-    if not access.can_access:
-        raise HTTPException(status_code=403, detail=access.locked_reason)
+    lesson = await require_lesson_access(db, user, lesson_id)
     otp_data = await get_video_otp(lesson.vdocipher_id, settings)
     return StreamOut(**otp_data)
 
 
 @router.get("/lessons/{lesson_id}/pdfs", response_model=list[CoursePDFOut])
-async def get_lesson_pdfs(lesson_id: int, db: AsyncSession = Depends(get_db)):
+async def get_lesson_pdfs(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await require_lesson_access(db, user, lesson_id)
     result = await db.execute(
         select(CoursePDF).where(CoursePDF.lesson_id == lesson_id).order_by(CoursePDF.order)
     )
@@ -1025,24 +887,83 @@ async def get_lesson_pdfs(lesson_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/chapters/{chapter_id}/sections", response_model=list[ChapterSectionOut])
-async def get_chapter_sections(chapter_id: int, db: AsyncSession = Depends(get_db)):
+async def get_chapter_sections(
+    chapter_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     result = await db.execute(
         select(ChapterSection)
+        .options(selectinload(ChapterSection.chapter))
         .where(ChapterSection.chapter_id == chapter_id)
         .order_by(ChapterSection.order)
     )
     sections = result.scalars().all()
+    access_context = await build_access_context(db, user)
     return [
-        ChapterSectionOut(
-            id=s.id, title=s.title, section_type=s.section_type, order=s.order,
-            is_gating=s.is_gating, is_free_preview=s.is_free_preview,
-            vdocipher_id=s.vdocipher_id, duration_seconds=s.duration_seconds,
-            content=s.content, quiz_data=s.quiz_data, pass_score=s.pass_score,
-            activity_type=s.activity_type, activity_data=s.activity_data,
-            chapter_id=s.chapter_id,
-        )
+        chapter_section_out(s, access_context)
         for s in sections
     ]
+
+
+@router.get("/sections/{section_id}/watch-context", response_model=SectionWatchContextOut)
+async def get_section_watch_context(
+    section_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    section = await db.scalar(
+        select(ChapterSection)
+        .options(selectinload(ChapterSection.chapter).selectinload(Chapter.subject))
+        .where(ChapterSection.id == section_id)
+    )
+    if section is None or section.chapter is None:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    chapter = section.chapter
+    subject = chapter.subject
+    if subject is None:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    chapters_result = await db.execute(
+        select(Chapter)
+        .options(selectinload(Chapter.sections))
+        .where(Chapter.subject_id == subject.id)
+        .order_by(Chapter.order)
+    )
+    chapters = chapters_result.scalars().all()
+    access_context = await build_access_context(db, user)
+
+    chapter_outputs = [
+        ChapterWithSectionsOut(
+            id=item.id,
+            title=item.title,
+            description=item.description,
+            order=item.order,
+            sections=[
+                chapter_section_out(child, access_context, fallback_subject_id=subject.id)
+                for child in item.sections
+            ],
+        )
+        for item in chapters
+    ]
+    current_chapter = next((item for item in chapter_outputs if item.id == chapter.id), None)
+    if current_chapter is None:
+        current_chapter = ChapterWithSectionsOut(
+            id=chapter.id,
+            title=chapter.title,
+            description=chapter.description,
+            order=chapter.order,
+            sections=[chapter_section_out(section, access_context, fallback_subject_id=subject.id)],
+        )
+
+    return SectionWatchContextOut(
+        section=chapter_section_out(section, access_context, fallback_subject_id=subject.id),
+        chapter=current_chapter,
+        subject_id=subject.id,
+        subject_title=subject.title,
+        chapters=chapter_outputs,
+    )
 
 
 @router.get("/sections/{section_id}/stream", response_model=StreamOut)

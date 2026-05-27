@@ -1,6 +1,5 @@
-import type {
-  ComponentType,
-} from 'react'
+import dynamic from 'next/dynamic'
+import type { ComponentType } from 'react'
 import type {
   AnimatedLessonConfig,
   AnimatedRendererComponent,
@@ -8,14 +7,6 @@ import type {
   AnimatedRendererProps,
   AnimatedRendererRegistry,
 } from './types'
-import ChemistrySourceRenderer from './renderers/ChemistrySourceRenderer'
-import MathSourceRenderer from './renderers/MathSourceRenderer'
-import NucleusCompositionRenderer from './renderers/NucleusCompositionRenderer'
-import NuclearSourceRenderer from './renderers/NuclearSourceRenderer'
-import OpticsSourceRenderer from './renderers/OpticsSourceRenderer'
-import RcCapacitorSourceRenderer from './renderers/RcCapacitorSourceRenderer'
-import WaveSourceRenderer from './renderers/WaveSourceRenderer'
-import WavePeriodicityRenderer from './renderers/WavePeriodicityRenderer'
 
 export const ANIMATED_FALLBACK_RENDERER_KEY = 'fallback'
 
@@ -63,6 +54,36 @@ function adaptAnimatedRenderer(Renderer: ComponentType<any>): AnimatedRendererCo
     )
   }
 }
+
+function lazyRenderer(loader: () => Promise<{ default: ComponentType<any> }>): AnimatedRendererComponent {
+  const Renderer = dynamic(async () => {
+    const mod = await loader()
+    return adaptAnimatedRenderer(mod.default)
+  }, {
+    loading: () => <FallbackAnimatedRenderer className="animate-pulse" />,
+    ssr: false,
+  }) as AnimatedRendererComponent
+
+  return Renderer
+}
+
+function lazyDirectRenderer(loader: () => Promise<{ default: AnimatedRendererComponent }>): AnimatedRendererComponent {
+  const Renderer = dynamic(loader, {
+    loading: () => <FallbackAnimatedRenderer className="animate-pulse" />,
+    ssr: false,
+  }) as AnimatedRendererComponent
+
+  return Renderer
+}
+
+const ChemistrySourceRenderer = lazyDirectRenderer(() => import('./renderers/ChemistrySourceRenderer'))
+const MathSourceRenderer = lazyDirectRenderer(() => import('./renderers/MathSourceRenderer'))
+const NucleusCompositionRenderer = lazyRenderer(() => import('./renderers/NucleusCompositionRenderer'))
+const NuclearSourceRenderer = lazyDirectRenderer(() => import('./renderers/NuclearSourceRenderer'))
+const OpticsSourceRenderer = lazyDirectRenderer(() => import('./renderers/OpticsSourceRenderer'))
+const RcCapacitorSourceRenderer = lazyDirectRenderer(() => import('./renderers/RcCapacitorSourceRenderer'))
+const WaveSourceRenderer = lazyDirectRenderer(() => import('./renderers/WaveSourceRenderer'))
+const WavePeriodicityRenderer = lazyRenderer(() => import('./renderers/WavePeriodicityRenderer'))
 
 export function FallbackAnimatedRenderer(props: AnimatedRendererProps) {
   const config = resolveConfig(props)

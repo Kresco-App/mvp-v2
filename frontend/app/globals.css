@@ -513,9 +513,15 @@ body {
 .figma-courses-grid,
 .figma-dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, var(--figma-main-column)) var(--figma-sidebar-width);
+  grid-template-columns: minmax(0, 1fr) var(--figma-sidebar-width);
   gap: var(--figma-sidebar-gap);
   align-items: start;
+}
+
+@media (max-width: 1440px) {
+  .calendar-page-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .figma-card {

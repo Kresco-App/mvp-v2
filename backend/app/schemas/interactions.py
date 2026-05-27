@@ -24,6 +24,7 @@ class CommentOut(BaseModel):
 
 
 class NoteCreateIn(BaseModel):
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
     tab_content_id: int | None = None
@@ -32,6 +33,7 @@ class NoteCreateIn(BaseModel):
 
 class NoteOut(BaseModel):
     id: int
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
     tab_content_id: int | None = None
@@ -45,6 +47,7 @@ class NoteOut(BaseModel):
 class SavedItemCreateIn(BaseModel):
     target_type: str
     target_id: int
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
     label: str = ""
@@ -54,6 +57,7 @@ class SavedItemOut(BaseModel):
     id: int
     target_type: str
     target_id: int
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
     label: str

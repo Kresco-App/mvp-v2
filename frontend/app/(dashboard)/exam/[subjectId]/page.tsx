@@ -152,13 +152,13 @@ export default function ExamPage() {
           <li>Minimum 80% pour reussir</li>
         </ul>
         <div className="flex gap-3">
-          <button
+          <button type="button"
             onClick={() => router.back()}
             className="flex-1 border border-slate-700 text-slate-400 font-semibold py-3 rounded-xl hover:bg-slate-950 transition"
           >
             Annuler
           </button>
-          <button
+          <button type="button"
             onClick={() => setStarted(true)}
             className="flex-1 bg-kresco text-white font-semibold py-3 rounded-xl hover:bg-kresco/90 transition"
           >
@@ -189,13 +189,13 @@ export default function ExamPage() {
           <p className="text-indigo-600 text-xs font-semibold mb-6">+{result.xp_earned} XP gagnes !</p>
         )}
         <div className="flex gap-3 mt-6">
-          <button
+          <button type="button"
             onClick={() => router.push('/home')}
             className="flex-1 border border-slate-700 text-slate-400 font-semibold py-3 rounded-xl hover:bg-slate-950 transition"
           >
             Retour a l&apos;accueil
           </button>
-          <button
+          <button type="button"
             onClick={() => {
               setSubmitted(false)
               setAnswers({})
@@ -253,7 +253,7 @@ export default function ExamPage() {
         <div className="w-20 bg-slate-800 border-r border-slate-700 p-3 overflow-y-auto">
           <div className="grid grid-cols-2 gap-1.5">
             {quiz.questions.map((q, i) => (
-              <button
+              <button type="button"
                 key={q.id}
                 onClick={() => setCurrentIdx(i)}
                 className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
@@ -277,7 +277,7 @@ export default function ExamPage() {
 
             <div className="space-y-3 mb-8">
               {question.options.map(opt => (
-                <button
+                <button type="button"
                   key={opt.id}
                   onClick={() => setAnswers(a => ({ ...a, [question.id]: opt.id }))}
                   className={`w-full text-left px-5 py-4 rounded-xl border-2 transition text-sm ${
@@ -292,7 +292,7 @@ export default function ExamPage() {
             </div>
 
             <div className="flex justify-between">
-              <button
+              <button type="button"
                 onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
                 disabled={currentIdx === 0}
                 className="text-slate-400 text-sm hover:text-white transition disabled:opacity-30"
@@ -300,14 +300,14 @@ export default function ExamPage() {
                 Precedent
               </button>
               {currentIdx < total - 1 ? (
-                <button
+                <button type="button"
                   onClick={() => setCurrentIdx(i => i + 1)}
                   className="flex items-center gap-2 bg-kresco text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-kresco/90 transition"
                 >
                   Suivant <ArrowRight size={14} />
                 </button>
               ) : (
-                <button
+                <button type="button"
                   onClick={handleSubmit}
                   className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-green-700 transition"
                 >

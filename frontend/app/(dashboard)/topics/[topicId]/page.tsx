@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
 import {
@@ -16,232 +16,49 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import api from '@/lib/axios'
-import { AnimatedContentRenderer, type AnimatedCompletionEvent, type AnimatedLessonConfig, type AnimatedRendererProps } from '@/components/animated'
+import {
+  activeSectionIdForWorkspace,
+  animatedConfigForTab,
+  buildRailSections,
+  buildTopicLookups,
+  formatTopicItemDuration,
+  isAnimatedTab,
+  lockedContentReason,
+  lockedVideoSrcDoc,
+  missingVideoSrcDoc,
+  normalizeOptionKey,
+  parseTopicWorkspaceQuery,
+  resolveAnimatedRendererKey,
+  resolveTabForSlot,
+  selectTopicWorkspaceQueryState,
+  splitOrderingInput,
+  topicWorkspaceQueryTargetsFromItemId,
+  toggleMultiAnswer,
+  workspaceTabSlotSpecs,
+  youtubeSrcDoc,
+  youtubeVideoId,
+  type TabContent,
+  type TopicItem,
+  type TopicWorkspace,
+  type WorkspaceTabSlot,
+} from '@/lib/topicWorkspaceViewModel'
+import { AnimatedContentRenderer } from '@/components/animated/registry'
+import type { AnimatedCompletionEvent, AnimatedRendererProps } from '@/components/animated/types'
 import { LessonBody, VideoLearningWorkspace, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
 
-interface Resource {
-  id: number
-  title: string
-  resource_type: string
-  provider: string
-  provider_resource_id: string
-  url: string
-  summary: string
-  can_access?: boolean
-  locked_reason?: string
+const workspaceTabIcons: Record<WorkspaceTabSlot, LucideIcon> = {
+  course: BookOpen,
+  lab: Beaker,
+  quiz: ListChecks,
+  resources: FileText,
+  notes: StickyNote,
 }
 
-interface TabContent {
-  id: number
-  label: string
-  tab_type: string
-  content: string
-  config_json: any
-  renderer_key: string
-  order: number
-  can_access?: boolean
-  locked_reason?: string
-  resource?: Resource | null
-}
-
-interface TopicItem {
-  id: number
-  topic_id: number
-  section_id: number
-  title: string
-  description: string
-  item_type: string
-  renderer_key: string
-  duration_seconds: number
-  progress_status: string
-  can_access?: boolean
-  locked_reason?: string
-  primary_resource?: Resource | null
-  tabs: TabContent[]
-}
-
-interface TopicSection {
-  id: number
-  title: string
-  section_type: string
-  order: number
-  items: TopicItem[]
-}
-
-interface TopicWorkspace {
-  id: number
-  subject_title: string
-  title: string
-  description: string
-  progress_pct: number
-  completed_count: number
-  item_count: number
-  active_item_id: number | null
-  sections: TopicSection[]
-  active_item: TopicItem | null
-  search_results: TopicItem[]
-  can_access?: boolean
-  locked_reason?: string
-  access_reason?: string
-}
-
-type WorkspaceTabSlot = 'course' | 'lab' | 'quiz' | 'resources' | 'notes'
-
-const workspaceTabSlots: { id: WorkspaceTabSlot; label: string; icon: LucideIcon; tabTypes: string[] }[] = [
-  { id: 'course', label: 'Course', icon: BookOpen, tabTypes: ['course', 'summary', 'transcript', 'formula', 'definitions', 'vocabulary', 'methods', 'mistakes', 'text'] },
-  { id: 'lab', label: 'Lab', icon: Beaker, tabTypes: ['lab', 'interactive', 'simulator'] },
-  { id: 'quiz', label: 'Quiz', icon: ListChecks, tabTypes: ['quiz', 'checkpoint_quiz', 'questions'] },
-  { id: 'resources', label: 'Resources', icon: FileText, tabTypes: ['resources', 'resource', 'pdf', 'attachment', 'worksheet'] },
-  { id: 'notes', label: 'Notes', icon: StickyNote, tabTypes: ['notes'] },
-]
-
-const animatedTabTypes = new Set([
-  'activity',
-  'animated',
-  'animated_course',
-  'course_animation',
-  'interactive',
-  'interactive_course',
-  'lab',
-  'simulator',
-])
-
-const animatedItemTypes = new Set([
-  'activity',
-  'animated_course',
-  'checkpoint_activity',
-  'interactive',
-  'interactive_course',
-  'lab',
-  'simulator',
-])
-
-const nonAnimatedRendererKeys = new Set(['pdf', 'resource', 'vdocipher', 'video', 'youtube_embed'])
-
-type TopicLookups = {
-  itemById: Map<number, TopicItem>
-}
-
-function duration(seconds: number) {
-  if (!seconds) return ''
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (char) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }[char] ?? char))
-}
-
-function youtubeVideoId(item: TopicItem) {
-  const raw = item.primary_resource?.provider_resource_id || item.primary_resource?.url || ''
-  const match = raw.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{6,})/) || raw.match(/^[A-Za-z0-9_-]{6,}$/)
-  return match?.[1] || match?.[0] || 'dQw4w9WgXcQ'
-}
-
-function youtubeSrcDoc(item: TopicItem, videoId: string) {
-  const title = escapeHtml(item.title)
-  return `
-    <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; overflow: hidden; background: #f4f4f5; font-family: system-ui, sans-serif; }
-      a { position: absolute; inset: 0; display: grid; place-items: center; color: white; text-decoration: none; }
-        img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.88) brightness(1.05); }
-      span { position: absolute; width: 66px; height: 49px; border-radius: 14px; background: rgba(0,0,0,.36); display: grid; place-items: center; }
-      span:before { content: ""; margin-left: 4px; border-left: 17px solid white; border-top: 11px solid transparent; border-bottom: 11px solid transparent; }
-      </style>
-      <a href="https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1" aria-label="Play ${title}">
-        <img src="/figma-assets/course-video-frame.png" alt="${title}" />
-        <span></span>
-      </a>
-    `
-}
-
-function lockedVideoSrcDoc(item: TopicItem) {
-  const title = escapeHtml(item.title || 'Locked lesson')
-  const summary = escapeHtml(item.description || 'Unlock this topic to watch the full lesson and use the attached practice tools.')
-  return `
-    <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f4f5; font-family: system-ui, sans-serif; color: #3f3f46; }
-      article { width: min(560px, calc(100% - 48px)); border: 2px solid #e4e4e7; border-radius: 18px; background: white; padding: 24px; box-shadow: 0 18px 42px rgba(24,24,27,.08); }
-      b { display: block; margin-bottom: 8px; color: #9f9fa9; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-      h2 { margin: 0; font-size: 22px; line-height: 1.2; }
-      p { margin: 12px 0 0; color: #71717b; font-size: 14px; font-weight: 650; line-height: 1.55; }
-    </style>
-    <article aria-label="Locked lesson preview">
-      <b>Locked preview</b>
-      <h2>${title}</h2>
-      <p>${summary}</p>
-    </article>
-  `
-}
-
-function sectionCopy(section: TopicSection) {
-  const key = `${section.title} ${section.section_type}`.toLowerCase()
-  if (key.includes('lesson')) return 'Learn the basics of the subject.'
-  if (key.includes('exercise')) return 'Learn by doing with interactive tasks.'
-  if (key.includes('homework')) return 'Learn by practicing with real-world problems.'
-  if (key.includes('bac') || key.includes('exam')) return 'Get yourself familiarized with the final boss'
-  return section.items?.[0]?.description || 'Keep the flow of knowledge ongoing!'
-}
-
-function railLabel(section: TopicSection, item: TopicItem, index: number) {
-  const base = section.title.replace(/s$/i, '')
-  return item.title?.trim() || `${base} ${index + 1}`
-}
-
-function buildTopicLookups(sections: TopicSection[]): TopicLookups {
-  const itemById = new Map<number, TopicItem>()
-
-  sections.forEach((section) => {
-    section.items?.forEach((item) => {
-      itemById.set(item.id, item)
-    })
-  })
-
-  return { itemById }
-}
-
-function activeSectionIdForWorkspace(workspace: TopicWorkspace, itemId: number | null) {
-  if (!itemId) return workspace.active_item?.section_id ?? null
-
-  for (const section of workspace.sections) {
-    if (section.items?.some((item) => item.id === itemId)) return section.id
-  }
-
-  return workspace.active_item?.section_id ?? null
-}
-
-function buildRailSections(workspace: TopicWorkspace, activeItemId: number | null, openIds: Set<string | number>): FigmaRailSection[] {
-  return workspace.sections.map((section) => ({
-    id: section.id,
-    title: section.title,
-    copy: sectionCopy(section),
-    open: openIds.has(section.id),
-    items: section.items?.map((item, index) => ({
-      id: item.id,
-      label: railLabel(section, item, index),
-      active: item.id === activeItemId,
-      completed: item.progress_status === 'completed',
-      disabled: item.can_access === false,
-      meta: item.can_access === false ? lockedContentReason(item.locked_reason) : undefined,
-    })) ?? [],
-  }))
-}
-
-function lockedContentReason(reason?: string) {
-  if (reason === 'pro_required') return 'Pro required'
-  if (reason === 'vip_required') return 'VIP required'
-  if (reason === 'subject_access_required') return 'Subject locked'
-  if (reason?.startsWith('feature_required:')) return 'Feature locked'
-  return 'Locked'
-}
+const workspaceTabSlots = workspaceTabSlotSpecs.map((slot) => ({
+  ...slot,
+  icon: workspaceTabIcons[slot.id],
+}))
 
 function LockedContentPanel({
   reason,
@@ -271,124 +88,6 @@ function LockedContentPanel({
   )
 }
 
-function tabMatchesSlot(tab: TabContent, slot: WorkspaceTabSlot) {
-  const spec = workspaceTabSlots.find((item) => item.id === slot)
-  if (!spec) return false
-  const type = tab.tab_type.toLowerCase()
-  const label = tab.label.toLowerCase()
-  return spec.tabTypes.some((candidate) => type === candidate || label.includes(candidate))
-}
-
-function fallbackTabForSlot(slot: WorkspaceTabSlot, item: TopicItem): TabContent {
-  const base = workspaceTabSlots.find((entry) => entry.id === slot)!
-  const fallback: TabContent = {
-    id: 0,
-    label: base.label,
-    tab_type: slot,
-    content: '',
-    config_json: {},
-    renderer_key: '',
-    order: 999,
-    resource: null,
-  }
-
-  if (slot === 'course') {
-    return {
-      ...fallback,
-      content: item.description || 'The result is quite intuitive: if a continuous function takes two distinct values on an interval, it necessarily takes all the values between those two.',
-    }
-  }
-
-  if (slot === 'lab') {
-    return {
-      ...fallback,
-      tab_type: 'lab',
-      renderer_key: item.renderer_key || 'interactive_component',
-      content: 'Local registry placeholder. This keeps the Lab tab available while the simulator mapping is hardened.',
-    }
-  }
-
-  if (slot === 'resources') {
-    return {
-      ...fallback,
-      tab_type: 'resources',
-      content: item.primary_resource?.summary || 'No resources attached to this item yet.',
-      resource: item.primary_resource ?? null,
-    }
-  }
-
-  return fallback
-}
-
-function resolveTabForSlot(tabs: TabContent[] = [], slot: WorkspaceTabSlot, item: TopicItem) {
-  return tabs.find((tab) => tabMatchesSlot(tab, slot)) || fallbackTabForSlot(slot, item)
-}
-
-function tabConfig(tab: TabContent): Record<string, any> {
-  return tab.config_json && typeof tab.config_json === 'object' && !Array.isArray(tab.config_json)
-    ? tab.config_json
-    : {}
-}
-
-function normalizeRendererKey(value?: string | null) {
-  const key = value?.trim()
-  if (!key) return ''
-  return key
-}
-
-function isAnimatedTab(tab: TabContent, item: TopicItem) {
-  const config = tabConfig(tab)
-  const type = tab.tab_type.toLowerCase()
-  const itemType = item.item_type.toLowerCase()
-  const rendererKey = normalizeRendererKey(tab.renderer_key)
-  const configRendererKey = normalizeRendererKey(config.renderer_key || config.rendererKey)
-  const itemRendererKey = normalizeRendererKey(item.renderer_key)
-
-  if (rendererKey && !nonAnimatedRendererKeys.has(rendererKey.toLowerCase())) return true
-  if (configRendererKey && !nonAnimatedRendererKeys.has(configRendererKey.toLowerCase())) return true
-  if (animatedTabTypes.has(type)) return true
-  return Boolean(itemRendererKey && animatedItemTypes.has(itemType) && !nonAnimatedRendererKeys.has(itemRendererKey.toLowerCase()))
-}
-
-function resolveAnimatedRendererKey(tab: TabContent, item: TopicItem) {
-  const config = tabConfig(tab)
-  const explicitKey = [
-    tab.renderer_key,
-    config.renderer_key,
-    config.rendererKey,
-  ].find((value) => typeof value === 'string' && value.trim())
-
-  if (explicitKey) return normalizeRendererKey(explicitKey)
-
-  const type = tab.tab_type.toLowerCase()
-  const itemType = item.item_type.toLowerCase()
-  if ((animatedTabTypes.has(type) || animatedItemTypes.has(itemType)) && item.renderer_key) {
-    return normalizeRendererKey(item.renderer_key)
-  }
-
-  if (animatedTabTypes.has(type) || animatedItemTypes.has(itemType)) return 'interactive_component'
-
-  return ''
-}
-
-function animatedConfigForTab(tab: TabContent, item: TopicItem, topicId: number): AnimatedLessonConfig {
-  const config = tabConfig(tab) as AnimatedLessonConfig
-  return {
-    ...config,
-    renderer_key: resolveAnimatedRendererKey(tab, item) || config.renderer_key,
-    title: config.title ?? tab.label ?? item.title,
-    description: config.description ?? tab.content ?? item.description,
-    metadata: {
-      ...(config.metadata ?? {}),
-      topic_id: topicId,
-      topic_item_id: item.id,
-      ...(tab.id ? { tab_content_id: tab.id } : {}),
-      tab_type: tab.tab_type,
-      tab_content: tab.content,
-    },
-  }
-}
-
 function AnimatedTabPanel({
   tab,
   item,
@@ -414,19 +113,6 @@ function AnimatedTabPanel({
   }
 
   return <AnimatedContentRenderer {...rendererProps} />
-}
-
-function normalizeOptionKey(value: unknown) {
-  return String(value ?? '')
-}
-
-function splitOrderingInput(value: string) {
-  return value.split(',').map((item) => item.trim()).filter(Boolean)
-}
-
-function toggleMultiAnswer(current: unknown, option: string) {
-  const values = Array.isArray(current) ? current.map(String) : []
-  return values.includes(option) ? values.filter((value) => value !== option) : [...values, option]
 }
 
 function QuizQuestion({
@@ -489,6 +175,7 @@ function QuizQuestion({
           <label key={pair.left} className="grid gap-1 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-3">
             <span className="text-xs font-black text-[#71717b]">{pair.left}</span>
             <input
+              aria-label={`Match for ${pair.left}`}
               className="figma-input w-full bg-white"
               value={answers[pair.left] || ''}
               onChange={(event) => onChange({ ...answers, [pair.left]: event.target.value })}
@@ -512,6 +199,7 @@ function QuizQuestion({
           </div>
         )}
         <input
+          aria-label="Comma-separated order"
           className="figma-input w-full"
           value={orderingValue}
           onChange={(event) => onChange(splitOrderingInput(event.target.value))}
@@ -531,6 +219,7 @@ function QuizQuestion({
           <label key={item.id} className="grid gap-1 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-3">
             <span className="text-xs font-black text-[#71717b]">{item.label || item.id}</span>
             <select
+              aria-label={`Zone for ${item.label || item.id}`}
               className="figma-input w-full bg-white"
               value={answers[item.id] || ''}
               onChange={(event) => onChange({ ...answers, [item.id]: event.target.value })}
@@ -550,6 +239,7 @@ function QuizQuestion({
 
   return (
     <input
+      aria-label={placeholder}
       className="figma-input w-full"
       value={value || ''}
       onChange={(event) => onChange(event.target.value)}
@@ -560,10 +250,19 @@ function QuizQuestion({
 }
 
 function QuizTab({ tab }: { tab: TabContent }) {
-  const questions = tab.config_json?.questions || []
+  const questions = Array.isArray(tab.config_json?.questions) ? tab.config_json.questions : []
   const [answers, setAnswers] = useState<Record<string, any>>({})
   const [result, setResult] = useState<any>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  if (questions.length === 0) {
+    return (
+      <EmptyTabPanel
+        title="No quiz questions yet"
+        message="This quiz tab is present, but it does not contain any questions."
+      />
+    )
+  }
 
   async function submit() {
     if (!tab.id) return
@@ -610,6 +309,17 @@ function QuizTab({ tab }: { tab: TabContent }) {
   )
 }
 
+function EmptyTabPanel({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="grid min-h-[156px] max-w-[760px] place-items-center rounded-[16px] border border-dashed border-[#d4d4d8] bg-[#f7f8fb] px-6 py-8 text-center">
+      <div>
+        <p className="m-0 text-[16px] font-black text-[#3f3f46]">{title}</p>
+        <p className="m-0 mt-2 text-[13px] font-semibold leading-6 text-[#71717b]">{message}</p>
+      </div>
+    </div>
+  )
+}
+
 function TabPanel({
   tab,
   item,
@@ -631,6 +341,15 @@ function TabPanel({
         reason={item.locked_reason || tab.locked_reason}
         title={item.title}
         summary={item.description || tab.content || tab.resource?.summary}
+      />
+    )
+  }
+
+  if (tab.is_missing) {
+    return (
+      <EmptyTabPanel
+        title={tab.empty_title || 'Content unavailable'}
+        message={tab.empty_message || 'This tab does not have content attached yet.'}
       />
     )
   }
@@ -658,6 +377,7 @@ function TabPanel({
     return (
       <div className="max-w-[760px] rounded-[14px] border border-[#e4e4e7] bg-white">
         <textarea
+          aria-label="Topic note"
           value={note}
           onChange={(event) => setNote(event.target.value)}
           className="min-h-24 w-full resize-y rounded-t-[14px] border-0 bg-white px-4 py-3 text-[14px] font-semibold leading-6 text-[#3f3f46] outline-none placeholder:text-[#a1a1aa]"
@@ -689,9 +409,19 @@ function TabPanel({
     )
   }
 
+  const body = tab.content || tab.resource?.summary
+  if (!body && !tab.resource) {
+    return (
+      <EmptyTabPanel
+        title="No content yet"
+        message="This tab is present, but it does not have displayable content."
+      />
+    )
+  }
+
   return (
     <div>
-      <p className="m-0 whitespace-pre-line text-sm font-semibold leading-7 text-[#52525c]">{tab.content || tab.resource?.summary || 'No content yet.'}</p>
+      {body && <p className="m-0 whitespace-pre-line text-sm font-semibold leading-7 text-[#52525c]">{body}</p>}
       {tab.resource && (
         <div className="mt-4 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-4">
           <p className="m-0 text-sm font-black text-[#3f3f46]">{tab.resource.title}</p>
@@ -786,8 +516,12 @@ function TopicSearchResults({
 
 export default function TopicWorkspacePage() {
   const { topicId } = useParams<{ topicId: string }>()
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const requestedItemId = searchParams.get('item')
+  const workspaceSearchKey = searchParams.toString()
+  const routeQueryTargets = useMemo(() => (
+    parseTopicWorkspaceQuery(new URLSearchParams(workspaceSearchKey))
+  ), [workspaceSearchKey])
   const [workspace, setWorkspace] = useState<TopicWorkspace | null>(null)
   const [activeItemId, setActiveItemId] = useState<number | null>(null)
   const [activeTabSlot, setActiveTabSlot] = useState<WorkspaceTabSlot>('course')
@@ -796,20 +530,22 @@ export default function TopicWorkspacePage() {
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async (
-    itemId?: number | null,
+    targets = topicWorkspaceQueryTargetsFromItemId(null),
     q = '',
     options: { preserveActiveTab?: boolean; preserveOpenSections?: boolean } = {},
   ) => {
+    const itemId = targets.itemId
     const params = new URLSearchParams()
     if (itemId) params.set('item_id', String(itemId))
     if (q.trim()) params.set('q', q.trim())
     const { data } = await api.get<TopicWorkspace>(`/courses/topics/${topicId}/workspace?${params.toString()}`)
-    const nextActiveItemId = data.active_item_id ?? itemId ?? data.active_item?.id ?? null
+    const selection = selectTopicWorkspaceQueryState(data, targets)
+    const nextActiveItemId = selection.activeItemId ?? data.active_item_id ?? itemId ?? data.active_item?.id ?? null
     const nextOpenSectionId = activeSectionIdForWorkspace(data, nextActiveItemId)
 
     setWorkspace(data)
     setActiveItemId(nextActiveItemId)
-    if (!options.preserveActiveTab) setActiveTabSlot('course')
+    if (!options.preserveActiveTab) setActiveTabSlot(selection.activeTabSlot)
     setOpenSectionIds((prev) => {
       if (nextOpenSectionId == null) return options.preserveOpenSections ? prev : new Set()
       if (!options.preserveOpenSections) return new Set([nextOpenSectionId])
@@ -821,10 +557,10 @@ export default function TopicWorkspacePage() {
 
   useEffect(() => {
     setLoading(true)
-    load(requestedItemId ? Number(requestedItemId) : null)
+    load(routeQueryTargets)
       .catch(() => toast.error('Could not load topic workspace.'))
       .finally(() => setLoading(false))
-  }, [load, requestedItemId])
+  }, [load, routeQueryTargets])
 
   const topicLookups = useMemo(() => {
     if (!workspace) return null
@@ -853,13 +589,14 @@ export default function TopicWorkspacePage() {
   }, [activeTabSlot])
   const isActiveItemLocked = activeItem?.can_access === false
   const activeVideoId = useMemo(() => (
-    activeItem && !isActiveItemLocked ? youtubeVideoId(activeItem) : 'dQw4w9WgXcQ'
+    activeItem && !isActiveItemLocked ? youtubeVideoId(activeItem) : null
   ), [activeItem, isActiveItemLocked])
   const activeSrcDoc = useMemo(() => {
     if (!activeItem) return undefined
-    return isActiveItemLocked ? lockedVideoSrcDoc(activeItem) : youtubeSrcDoc(activeItem, activeVideoId)
+    if (isActiveItemLocked) return lockedVideoSrcDoc(activeItem)
+    return activeVideoId ? youtubeSrcDoc(activeItem, activeVideoId) : missingVideoSrcDoc(activeItem)
   }, [activeItem, activeVideoId, isActiveItemLocked])
-  const activeDurationLabel = activeItem ? duration(activeItem.duration_seconds) : ''
+  const activeDurationLabel = activeItem ? formatTopicItemDuration(activeItem.duration_seconds) : ''
 
   const selectItem = useCallback(async (item: TopicItem) => {
     setActiveItemId(item.id)
@@ -871,6 +608,8 @@ export default function TopicWorkspacePage() {
       return
     }
 
+    router.replace(`/topics/${topicId}?item=${item.id}`, { scroll: false })
+
     try {
       await api.post(`/courses/topic-items/${item.id}/event`, {
         event_type: `${item.item_type}_opened`,
@@ -880,12 +619,12 @@ export default function TopicWorkspacePage() {
         topic_item_id: item.id,
       })
     } catch {}
-  }, [workspace?.id])
+  }, [router, topicId, workspace?.id])
 
   const runTopicSearch = useCallback(async () => {
     if (!activeItem) return
     try {
-      await load(activeItem.id, topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
+      await load(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
     } catch {
       toast.error('Topic search failed.')
     }
@@ -920,7 +659,7 @@ export default function TopicWorkspacePage() {
     try {
       const { data } = await api.post(`/courses/topic-items/${activeItem.id}/complete`, { watched_seconds: activeItem.duration_seconds || 0 })
       toast.success(`Progress saved${data.xp_earned ? ` (+${data.xp_earned} XP)` : ''}.`)
-      await load(activeItem.id, topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
+      await load(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
     } catch {
       toast.error('Could not save progress.')
     }
@@ -950,7 +689,7 @@ export default function TopicWorkspacePage() {
     <VideoLearningWorkspace
       breadcrumb={`2eme Bac / ${workspace.subject_title} / ${workspace.title}`}
       title={`${workspace.subject_title}: ${activeItem.title}`}
-      videoId={activeVideoId}
+      videoId={activeVideoId ?? ''}
       srcDoc={activeSrcDoc}
       toolbar={(
         <TopicWorkspaceToolbar
@@ -987,7 +726,7 @@ export default function TopicWorkspacePage() {
                   tab={activeTab}
                   item={activeItem}
                   topicId={workspace.id}
-                  onNoteSaved={() => load(activeItem.id, topicQuery, { preserveActiveTab: true, preserveOpenSections: true })}
+                  onNoteSaved={() => load(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, { preserveActiveTab: true, preserveOpenSections: true })}
                   onItemComplete={completeActive}
                 />
               </motion.div>

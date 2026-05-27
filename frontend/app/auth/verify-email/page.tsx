@@ -14,6 +14,8 @@ function VerifyEmailContent() {
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
+    let cancelled = false
+    let redirectTimer: ReturnType<typeof setTimeout> | null = null
     const token = searchParams.get('token')
     if (!token) {
       setStatus('error')
@@ -23,14 +25,21 @@ function VerifyEmailContent() {
 
     api.post('/auth/verify-email', { token })
       .then(({ data }) => {
-        login(data.access_token, data.user)
+        if (cancelled) return
+        login(data.user)
         setStatus('success')
-        setTimeout(() => router.replace('/'), 1800)
+        redirectTimer = setTimeout(() => router.replace('/'), 1800)
       })
       .catch((err: any) => {
+        if (cancelled) return
         setStatus('error')
         setErrorMsg(err?.response?.data?.detail || 'Lien invalide ou expiré.')
       })
+
+    return () => {
+      cancelled = true
+      if (redirectTimer) clearTimeout(redirectTimer)
+    }
   }, [searchParams, login, router])
 
   const pageStyle: React.CSSProperties = {

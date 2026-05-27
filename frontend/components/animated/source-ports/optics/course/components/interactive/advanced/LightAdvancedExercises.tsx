@@ -93,7 +93,7 @@ const PrismChallenge = () => {
                                 className="border-2 border-slate-200 rounded-lg p-3 w-32 font-bold focus:border-amber-500 outline-none"
                                 placeholder="n = ?"
                             />
-                            <button onClick={check} className="bg-amber-600 text-white px-6 rounded-lg font-bold hover:bg-amber-700 transition-colors">
+                            <button type="button" onClick={check} className="bg-amber-600 text-white px-6 rounded-lg font-bold hover:bg-amber-700 transition-colors">
                                 Vérifier
                             </button>
                         </div>
@@ -219,7 +219,7 @@ const InterferenceChallenge = () => {
                                 onChange={e => setUserLambda(e.target.value)}
                             />
                         </div>
-                        <button onClick={check} className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 h-[52px]">
+                        <button type="button" onClick={check} className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 h-[52px]">
                             Valider
                         </button>
                     </div>

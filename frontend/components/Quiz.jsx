@@ -80,7 +80,7 @@ export default function Quiz({ quiz, lessonId, onPass }) {
                 const selected = answers[question.id] === option.id
                 const submitted = !!result
                 return (
-                  <button
+                  <button type="button"
                     key={option.id}
                     onClick={() => selectOption(question.id, option.id)}
                     disabled={submitted}
@@ -111,7 +111,7 @@ export default function Quiz({ quiz, lessonId, onPass }) {
             <p className="text-slate-500 text-sm">
               {answeredCount}/{totalQuestions} repondu(s)
             </p>
-            <button
+            <button type="button"
               onClick={handleSubmit}
               disabled={submitting || answeredCount < totalQuestions}
               className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-sm font-semibold px-6 py-2.5 rounded-xl transition-colors"
@@ -140,7 +140,7 @@ export default function Quiz({ quiz, lessonId, onPass }) {
               {!result.passed && ` Il faut ${result.pass_score}% pour reussir.`}
             </p>
             {!result.passed && (
-              <button
+              <button type="button"
                 onClick={handleRetry}
                 className="flex items-center gap-2 text-slate-300 hover:text-white text-sm font-medium transition-colors"
               >

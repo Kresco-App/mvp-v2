@@ -22,11 +22,21 @@ export default function XPBar({ compact = false, className = '' }: Props) {
   const [animPct, setAnimPct] = useState(0)
 
   useEffect(() => {
+    let cancelled = false
+    let animationTimer: ReturnType<typeof setTimeout> | null = null
+
     api.get('/progress/xp').then(r => {
+      if (cancelled) return
       setXP(r.data)
-      // Animate bar fill
-      setTimeout(() => setAnimPct(r.data.xp_progress_pct), 100)
+      animationTimer = setTimeout(() => {
+        if (!cancelled) setAnimPct(r.data.xp_progress_pct)
+      }, 100)
     }).catch(() => {})
+
+    return () => {
+      cancelled = true
+      if (animationTimer) clearTimeout(animationTimer)
+    }
   }, [])
 
   if (!xp) return <div className="h-20 bg-slate-950 rounded-xl animate-pulse" />

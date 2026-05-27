@@ -14,6 +14,7 @@ TIER_RANK: dict[str, int] = {
     "basic": 0,
     "pro": 10,
     "vip": 20,
+    "platinum": 30,
 }
 
 # Current compatibility mapping while feature-specific entitlements are not yet
@@ -29,6 +30,17 @@ FEATURES_BY_TIER: dict[str, set[str]] = {
         "simulated_exams",
     },
     "vip": {
+        "advanced_quizzes",
+        "ai_tutor",
+        "downloads",
+        "exam_bank_video_solutions",
+        "forum_posting",
+        "interactive_course",
+        "live_sessions",
+        "simulated_exams",
+        "teacher_chat",
+    },
+    "platinum": {
         "advanced_quizzes",
         "ai_tutor",
         "downloads",
@@ -58,7 +70,9 @@ class AccessDecision:
         return "" if self.can_access else self.reason
 
     def inherit_parent_lock(self, parent: "AccessDecision") -> "AccessDecision":
-        if self.is_free_preview or parent.can_access:
+        if parent.can_access:
+            return self
+        if self.is_free_preview and parent.reason != "subject_access_required":
             return self
         return replace(
             parent,
@@ -69,16 +83,22 @@ class AccessDecision:
 
 
 @dataclass(frozen=True)
+class FeatureAccessRequirement:
+    required_feature_key: str
+    required_tier: str = ""
+    is_free_preview: bool = False
+
+
+@dataclass(frozen=True)
 class AccessContext:
     user_id: int
     effective_tier: str
     feature_keys: frozenset[str]
     active_subject_ids: frozenset[int]
-    has_subject_entitlement_rows: bool
 
     @property
     def subject_scope_enforced(self) -> bool:
-        return self.has_subject_entitlement_rows
+        return bool(self.active_subject_ids)
 
     def decide_for(
         self,
@@ -91,6 +111,17 @@ class AccessContext:
         required_feature_key = _normalize_feature(getattr(obj, "required_feature_key", "") or "")
         is_free_preview = bool(getattr(obj, "is_free_preview", False))
 
+        if subject_id is not None and self.subject_scope_enforced and subject_id not in self.active_subject_ids:
+            return AccessDecision(
+                can_access=False,
+                reason="subject_access_required",
+                required_subject_id=subject_id,
+                required_tier=required_tier,
+                required_feature_key=required_feature_key,
+                effective_tier=self.effective_tier,
+                subject_scope_enforced=True,
+            )
+
         if is_free_preview:
             return AccessDecision(
                 can_access=True,
@@ -101,17 +132,6 @@ class AccessContext:
                 effective_tier=self.effective_tier,
                 is_free_preview=True,
                 subject_scope_enforced=self.subject_scope_enforced,
-            )
-
-        if subject_id is not None and self.subject_scope_enforced and subject_id not in self.active_subject_ids:
-            return AccessDecision(
-                can_access=False,
-                reason="subject_access_required",
-                required_subject_id=subject_id,
-                required_tier=required_tier,
-                required_feature_key=required_feature_key,
-                effective_tier=self.effective_tier,
-                subject_scope_enforced=True,
             )
 
         if required_tier and TIER_RANK.get(self.effective_tier, 0) < TIER_RANK.get(required_tier, 999):
@@ -167,22 +187,22 @@ async def build_access_context(db: AsyncSession, user: User) -> AccessContext:
     )
     entitlements = list(result.scalars().all())
     effective_tier = effective_user_tier(user)
+    active_subject_ids = frozenset(
+        entitlement.subject_id
+        for entitlement in entitlements
+        if _is_active_entitlement(entitlement)
+    )
     return AccessContext(
         user_id=user.id,
         effective_tier=effective_tier,
         feature_keys=frozenset(_feature_keys_for_user(user, effective_tier)),
-        active_subject_ids=frozenset(
-            entitlement.subject_id
-            for entitlement in entitlements
-            if _is_active_entitlement(entitlement)
-        ),
-        has_subject_entitlement_rows=bool(entitlements),
+        active_subject_ids=active_subject_ids,
     )
 
 
 def effective_user_tier(user: User) -> str:
     explicit_tier = _normalize_tier(str(getattr(user, "tier", "") or ""))
-    if explicit_tier:
+    if explicit_tier and explicit_tier != "basic":
         return explicit_tier
     return "pro" if bool(getattr(user, "is_pro", False)) else "basic"
 

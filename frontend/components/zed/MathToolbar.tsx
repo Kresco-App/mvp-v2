@@ -82,7 +82,7 @@ export default function MathToolbar({ onInsert }: Props) {
       {/* Group tabs */}
       <div className="flex gap-0.5 px-3 pt-2">
         {MATH_GROUPS.map((group, i) => (
-          <button
+          <button type="button"
             key={group.label}
             onClick={() => setActiveGroup(i)}
             className={`px-3 py-1.5 text-[11px] font-medium rounded-t-lg transition ${
@@ -98,7 +98,7 @@ export default function MathToolbar({ onInsert }: Props) {
       {/* Symbols */}
       <div className="flex flex-wrap gap-1 px-3 py-2 bg-slate-800/40">
         {MATH_GROUPS[activeGroup].symbols.map((sym) => (
-          <button
+          <button type="button"
             key={sym.label}
             onClick={() => onInsert(sym.latex)}
             title={sym.latex}

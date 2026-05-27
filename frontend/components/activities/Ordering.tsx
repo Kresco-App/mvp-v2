@@ -83,14 +83,14 @@ export default function Ordering({ question, items: initialItems, correctOrder, 
 
       <div className="flex gap-3">
         {!submitted ? (
-          <button
+          <button type="button"
             onClick={handleSubmit}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition"
           >
             Verifier
           </button>
         ) : (
-          <button
+          <button type="button"
             onClick={() => { setItems([...initialItems].sort(() => Math.random() - 0.5)); setSubmitted(false) }}
             className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
           >

@@ -102,7 +102,7 @@ export default function EnsemblesLab({
           <p className="text-white text-xl font-bold">{perfect ? 'Classification parfaite' : 'Serie terminee'}</p>
           <p className="text-slate-400 mt-1">{correctCount} / {exercises.length} bonnes reponses</p>
         </div>
-        <button
+        <button type="button"
           onClick={reset}
           className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
         >
@@ -138,7 +138,7 @@ export default function EnsemblesLab({
           const wrongChoice = submitted && active && option.id !== current.correctSet
 
           return (
-            <button
+            <button type="button"
               key={option.id}
               onClick={() => !submitted && setSelected(option.id)}
               className={[
@@ -169,7 +169,7 @@ export default function EnsemblesLab({
 
       <div className="flex gap-3">
         {!submitted ? (
-          <button
+          <button type="button"
             onClick={submit}
             disabled={!selected}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
@@ -177,7 +177,7 @@ export default function EnsemblesLab({
             Verifier
           </button>
         ) : (
-          <button
+          <button type="button"
             onClick={next}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition"
           >

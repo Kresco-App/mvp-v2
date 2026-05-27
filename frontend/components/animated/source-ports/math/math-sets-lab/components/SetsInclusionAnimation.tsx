@@ -1,4 +1,5 @@
 /* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react/display-name, prefer-const, @typescript-eslint/no-unused-expressions */
+/* oxlint-disable react-doctor/effect-needs-cleanup -- D3 handlers are attached to generated SVG nodes and removed during effect cleanup. */
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -271,7 +272,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             if (resizeObserver) {
                 resizeObserver.disconnect();
             }
-            d3.select(containerRef.current).selectAll('.absolute.z-10.pointer-events-none').remove();
+            d3.select(containerRef.current).selectAll('*').interrupt().remove();
         };
     }, [isDark, speed, selectedSet]);
 

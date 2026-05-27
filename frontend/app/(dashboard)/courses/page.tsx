@@ -1,9 +1,18 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/lib/axios'
+import {
+  courseFiltersEqual,
+  courseFiltersToSearchParams,
+  defaultCourseFilters,
+  parseCourseFilters,
+  type CourseFilters,
+} from '@/lib/courseFilters'
+import { canonicalSubjectTitle as canonicalSubjectLabel, subjectKey } from '@/lib/subjectIdentity'
 import { FigmaCourseSearchControls, type FigmaCourseStatusFilter, type FigmaCourseSubjectOption } from '@/components/figma/course-search-controls'
 import { FigmaCourseCardSkeleton, FigmaSubjectCourseCard, type FigmaSubjectCourseCardState, PermanentSidebar } from '@/components/figma'
 
@@ -38,12 +47,16 @@ type TopicView = TopicCard & {
 const MAX_TOPICS_PER_SECTION = 72
 
 export default function CoursesPage() {
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const searchKey = searchParams.toString()
+  const routeFilters = useMemo(() => parseCourseFilters(new URLSearchParams(searchKey)), [searchKey])
   const [topics, setTopics] = useState<TopicCard[]>([])
   const [loading, setLoading] = useState(true)
-  const [query, setQuery] = useState('')
-  const [subjectFilter, setSubjectFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState<FigmaCourseStatusFilter>('all')
+  const [filters, setFilters] = useState<CourseFilters>(routeFilters)
   const [previewTopic, setPreviewTopic] = useState<TopicCard | null>(null)
+  const { query, subject: subjectFilter, status: statusFilter } = filters
 
   useEffect(() => { document.title = 'Courses - Kresco' }, [])
 
@@ -69,14 +82,19 @@ export default function CoursesPage() {
   }, [])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const incomingSubject = params.get('subject') ?? ''
-    const incomingQuery = params.get('q') ?? params.get('search') ?? ''
-    const incomingStatus = parseStatusFilter(params.get('status') ?? params.get('filter'))
-    setSubjectFilter(incomingSubject)
-    if (incomingQuery) setQuery(incomingQuery)
-    if (incomingStatus) setStatusFilter(incomingStatus)
-  }, [])
+    setFilters((current) => courseFiltersEqual(current, routeFilters) ? current : routeFilters)
+  }, [routeFilters])
+
+  const applyFilters = useCallback((nextFilters: CourseFilters) => {
+    setFilters((current) => courseFiltersEqual(current, nextFilters) ? current : nextFilters)
+    const params = courseFiltersToSearchParams(nextFilters, new URLSearchParams(searchKey))
+    const queryString = params.toString()
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
+  }, [pathname, router, searchKey])
+
+  const updateFilters = useCallback((patch: Partial<CourseFilters>) => {
+    applyFilters({ ...filters, ...patch })
+  }, [applyFilters, filters])
 
   const topicViews = useMemo<TopicView[]>(() => topics.map(toTopicView), [topics])
 
@@ -122,9 +140,9 @@ export default function CoursesPage() {
             subject={subjectFilter}
             status={statusFilter}
             subjects={subjectOptions}
-            onQueryChange={setQuery}
-            onSubjectChange={setSubjectFilter}
-            onStatusChange={setStatusFilter}
+            onQueryChange={(value) => updateFilters({ query: value })}
+            onSubjectChange={(value) => updateFilters({ subject: value })}
+            onStatusChange={(value) => updateFilters({ status: value })}
           />
 
           {loading ? (
@@ -172,11 +190,7 @@ export default function CoursesPage() {
                 <button
                   className="mt-5 h-[44px] rounded-[12px] bg-[#5b60f9] px-[34px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white"
                   type="button"
-                  onClick={() => {
-                    setQuery('')
-                    setSubjectFilter('')
-                    setStatusFilter('all')
-                  }}
+                  onClick={() => applyFilters(defaultCourseFilters)}
                 >
                   Reset filters
                 </button>
@@ -383,12 +397,6 @@ function toTopicView(topic: TopicCard): TopicView {
   }
 }
 
-function parseStatusFilter(value: string | null): FigmaCourseStatusFilter | null {
-  const normalized = value?.trim().toLowerCase().replace(/[-\s]+/g, '_')
-  if (normalized === 'unlocked' || normalized === 'locked' || normalized === 'in_progress' || normalized === 'completed' || normalized === 'all') return normalized
-  return null
-}
-
 function normalizedTopicKey(title: string) {
   return title
     .normalize('NFD')
@@ -399,36 +407,10 @@ function normalizedTopicKey(title: string) {
     .trim()
 }
 
-function subjectKey(title: string) {
-  const normalized = title
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[-_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  if (['math', 'maths', 'mathematics', 'mathematiques'].includes(normalized)) return 'math'
-  if (normalized.includes('physique') || normalized.includes('physics') || normalized.includes('chimie') || normalized.includes('chemistry')) return 'physics'
-  if (normalized.includes('philosophy') || normalized.includes('philosophie')) return 'philosophy'
-  if (normalized.includes('biology') || normalized.includes('sciences de la vie') || normalized === 'svt') return 'biology'
-  if (normalized.includes('english') || normalized.includes('anglais')) return 'english'
-  return normalized
-}
-
-function canonicalSubjectLabel(title: string) {
-  const key = subjectKey(title)
-  if (key === 'math') return 'Math'
-  if (key === 'physics') return 'Physics'
-  if (key === 'philosophy') return 'Philosophy'
-  if (key === 'biology') return 'Biology'
-  if (key === 'english') return 'English'
-  return title
-}
-
 const courseSubjectSections = [
   { key: 'math', title: 'Mathematics', subtitle: 'The science that loves to calculate things.' },
   { key: 'physics', title: 'Physics', subtitle: 'The science that loves to calculate things.' },
+  { key: 'chemistry', title: 'Chemistry', subtitle: 'Explore matter, reactions, and lab reasoning.' },
   { key: 'philosophy', title: 'Philosophy', subtitle: 'Reason through ideas, arguments, and meaning.' },
   { key: 'biology', title: 'Biology', subtitle: 'Explore living systems and how they work.' },
   { key: 'english', title: 'English', subtitle: 'Practice language, reading, and communication.' },

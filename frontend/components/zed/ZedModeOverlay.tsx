@@ -176,40 +176,42 @@ export default function ZedModeOverlay({ onClose }: Props) {
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-slate-50 font-rounded text-slate-900"
     >
-      <div className="flex min-h-14 flex-shrink-0 items-center justify-between gap-2 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 shadow-sm sm:px-4">
-        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-4">
+      <div className="flex min-h-14 flex-shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-slate-200 bg-white px-3 py-2 shadow-sm sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
             <Moon size={16} className="text-indigo-600" />
             <span className="text-sm font-bold text-slate-900">Zed Mode</span>
           </div>
-          <div className="h-5 w-px bg-slate-200" />
-          <PomodoroTimer engine={engine} />
+          <div className="hidden h-5 w-px bg-slate-200 min-[430px]:block" />
+          <div className="hidden min-[430px]:block">
+            <PomodoroTimer engine={engine} />
+          </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-          <button
+        <div className="flex shrink-0 items-center gap-1 sm:gap-3">
+          <button type="button"
             onClick={() => setIsFullscreenPdf(current => !current)}
             className={`rounded-lg p-1.5 text-sm transition ${isFullscreenPdf ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
             title={isFullscreenPdf ? 'Afficher le panneau droit' : 'PDF plein ecran'}
           >
             {isFullscreenPdf ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
-          <button
+          <button type="button"
             onClick={() => setShowCalculator(current => !current)}
             title="Calculatrice scientifique"
             className={`rounded-lg p-1.5 text-sm transition ${showCalculator ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
           >
             <Calculator size={15} />
           </button>
-          <button
+          <button type="button"
             onClick={openRappelsRail}
             title="Rappels de cours"
             className={`rounded-lg p-1.5 text-sm transition ${rightTab === 'rappels' && !isFullscreenPdf ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
           >
             <BookOpen size={15} />
           </button>
-          <div className="h-5 w-px bg-slate-200" />
-          <div className="origin-right scale-75">
+          <div className="hidden h-5 w-px bg-slate-200 sm:block" />
+          <div className="hidden origin-right scale-75 sm:block">
             <KrescoMascot
               mood={mascotMood}
               size={40}
@@ -223,15 +225,15 @@ export default function ZedModeOverlay({ onClose }: Props) {
               }
             />
           </div>
-          <button
+          <button type="button"
             onClick={requestExit}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 sm:px-3"
             title="Retour a l'accueil"
           >
             <House size={14} />
             <span className="hidden sm:inline">Accueil</span>
           </button>
-          <button
+          <button type="button"
             onClick={requestExit}
             className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
             title="Quitter Zed Mode (Echap)"
@@ -267,7 +269,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
           >
             <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {RIGHT_TABS.map(({ id, label, icon: Icon }) => (
-                <button
+                <button type="button"
                   key={id}
                   onClick={() => setRightTab(id)}
                   className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${rightTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
@@ -313,13 +315,13 @@ export default function ZedModeOverlay({ onClose }: Props) {
                 Etes-vous sur de vouloir quitter le Zed Mode et retourner a l&apos;accueil ? Toutes les annotations locales non sauvegardees seront perdues.
               </p>
               <div className="flex justify-end gap-3">
-                <button
+                <button type="button"
                   onClick={() => setShowHomeConfirm(false)}
                   className="rounded-xl px-4 py-2 font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
                 >
                   Annuler
                 </button>
-                <button
+                <button type="button"
                   onClick={() => {
                     setShowHomeConfirm(false)
                     onClose()

@@ -422,7 +422,7 @@ export default function DiffractionSimulator() {
     <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-slate-100">Diffraction</h3>
-        <button
+        <button type="button"
           onClick={() => {
             setWavelength(400)
             setSlitWidth(100)
@@ -470,6 +470,7 @@ export default function DiffractionSimulator() {
                 <span className="font-mono" style={{ color: getWavelengthColor(wavelength) }}>{wavelength} nm</span>
               </div>
               <input
+                aria-label="Longueur d'onde"
                 type="range"
                 min="380"
                 max="750"
@@ -486,6 +487,7 @@ export default function DiffractionSimulator() {
                 <span className="text-emerald-400 font-mono">{slitWidth} um</span>
               </div>
               <input
+                aria-label="Largeur fente"
                 type="range"
                 min="20"
                 max="200"

@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 import api from '@/lib/axios'
+import { resolveAuthSuccess } from '@/lib/authPolicy'
 import KrescoLogo from '@/components/KrescoLogo'
 import { ArrowLeft, Check, Eye, EyeOff, Mail } from 'lucide-react'
 
@@ -108,7 +109,7 @@ function SocialBtn({
   icon, label, onClick, disabled = false,
 }: { icon: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean }) {
   return (
-    <button
+    <button type="button"
       onClick={onClick}
       disabled={disabled}
       title={label}
@@ -152,23 +153,26 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [pendingEmail, setPendingEmail] = useState('')
   const [googleReady, setGoogleReady] = useState(false)
-  const [isLocalhost, setIsLocalhost] = useState(true)
+
+  const handleAuthResolution = useCallback((nextUser: unknown, mode: 'push' | 'replace' = 'push') => {
+    const resolution = resolveAuthSuccess(nextUser as { role?: string; niveau?: string; filiere?: string })
+    if (resolution.action === 'onboarding') {
+      setStep(resolution.step)
+      return
+    }
+
+    if (mode === 'replace') router.replace(resolution.destination)
+    else router.push(resolution.destination)
+  }, [router])
 
   useEffect(() => { hydrate() }, [hydrate])
-  useEffect(() => {
-    setIsLocalhost(
-      ['localhost', '127.0.0.1'].includes(window.location.hostname)
-      || window.location.hostname.endsWith('.ngrok-free.dev')
-    )
-  }, [])
 
   useEffect(() => {
     if (!isHydrated) return
     if (token && user) {
-      if (!user.niveau || !user.filiere) setStep(user.niveau ? 'filiere' : 'niveau')
-      else router.replace('/home')
+      handleAuthResolution(user, 'replace')
     }
-  }, [isHydrated, token, user, router])
+  }, [handleAuthResolution, isHydrated, token, user])
 
   /* ── Load Google Identity Services once ── */
   useEffect(() => {
@@ -176,11 +180,9 @@ export default function AuthPage() {
       setLoading(true)
       try {
         const { data } = await api.post('/google-login', { credential: response.credential })
-        login(data.access_token, data.user)
+        login(data.user)
         toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
-        if (!data.user.niveau) setStep('niveau')
-        else if (!data.user.filiere) setStep('filiere')
-        else router.push('/home')
+        handleAuthResolution(data.user)
       } catch (err: any) {
         toast.error(err?.response?.data?.detail || 'Connexion échouée.')
       } finally {
@@ -205,7 +207,7 @@ export default function AuthPage() {
     }
     document.head.appendChild(script)
     return () => { try { document.head.removeChild(script) } catch {} }
-  }, [login, router])
+  }, [handleAuthResolution, login])
 
   function triggerGoogle() {
     if (!googleReady) return
@@ -238,11 +240,9 @@ export default function AuthPage() {
     setLoading(true)
     try {
       const { data } = await api.post('/auth/login', { email, password })
-      login(data.access_token, data.user)
+      login(data.user)
       toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
-      if (!data.user.niveau) setStep('niveau')
-      else if (!data.user.filiere) setStep('filiere')
-      else router.push('/home')
+      handleAuthResolution(data.user)
     } catch (err: any) {
       if (err?.response?.status === 403) {
         setPendingEmail(email); setAuthMode('verify-pending')
@@ -250,17 +250,6 @@ export default function AuthPage() {
       } else {
         toast.error(err?.response?.data?.detail || 'Email ou mot de passe incorrect.')
       }
-    } finally { setLoading(false) }
-  }
-
-  async function handleDemoLogin() {
-    setLoading(true)
-    try {
-      const { data } = await api.post('/auth/demo-login')
-      login(data.access_token, data.user)
-      router.push('/home')
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Demo login unavailable. Start the local backend on port 8000.')
     } finally { setLoading(false) }
   }
 
@@ -314,7 +303,7 @@ export default function AuthPage() {
 
         {/* Back */}
         {canGoBack && (
-          <button onClick={() => {
+          <button type="button" onClick={() => {
             if (step === 'filiere') setStep('niveau')
             else if (authMode === 'login' || authMode === 'signup') { setAuthMode('options'); resetForm() }
             else if (authMode === 'forgot') { setAuthMode('login'); resetForm() }
@@ -355,15 +344,10 @@ export default function AuthPage() {
                   <div style={{ flex: 1, height: 1, background: C.divider }} />
                 </div>
 
-                <button onClick={() => { setAuthMode('signup'); resetForm() }} style={outlineBtn}>
+                <button type="button" onClick={() => { setAuthMode('signup'); resetForm() }} style={outlineBtn}>
                   Créer un compte
                 </button>
-                {isLocalhost && (
-                  <button onClick={handleDemoLogin} disabled={loading} style={{ ...outlineBtn, marginTop: 10, borderColor: C.primary, color: C.primary, opacity: loading ? 0.6 : 1 }}>
-                    Local demo login
-                  </button>
-                )}
-                <button onClick={() => { setAuthMode('login'); resetForm() }}
+                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', marginTop: 14, fontSize: 14, color: C.muted }}>
                   Déjà un compte ? <span style={{ color: C.primary, fontWeight: 600 }}>Se connecter</span>
                 </button>
@@ -391,25 +375,25 @@ export default function AuthPage() {
 
                 <form onSubmit={handleSignup} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div>
-                    <label style={labelStyle}>Nom complet</label>
-                    <input type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Ahmed Benali" required
+                    <label htmlFor="signup-full-name" style={labelStyle}>Nom complet</label>
+                    <input id="signup-full-name" aria-label="Nom complet" type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Ahmed Benali" required
                       style={inputStyle}
                       onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Email</label>
-                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
+                    <label htmlFor="signup-email" style={labelStyle}>Email</label>
+                    <input id="signup-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
                       style={inputStyle}
                       onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Mot de passe</label>
+                    <label htmlFor="signup-password" style={labelStyle}>Mot de passe</label>
                     <div style={{ position: 'relative' }}>
-                      <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                      <input id="signup-password" aria-label="Mot de passe" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                         placeholder="Min. 6 caractères" required minLength={6}
                         style={{ ...inputStyle, paddingRight: 44 }}
                         onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
-                      <button type="button" onClick={() => setShowPassword(v => !v)}
+                      <button type="button" aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'} onClick={() => setShowPassword(v => !v)}
                         style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }}>
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
@@ -421,7 +405,7 @@ export default function AuthPage() {
                 </form>
                 <p style={{ marginTop: 18, fontSize: 14, color: C.muted }}>
                   Déjà un compte ?{' '}
-                  <button onClick={() => { setAuthMode('login'); resetForm() }}
+                  <button type="button" onClick={() => { setAuthMode('login'); resetForm() }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, fontWeight: 600, fontSize: 14 }}>
                     Se connecter
                   </button>
@@ -440,10 +424,10 @@ export default function AuthPage() {
                   Nous avons envoyé un lien à <strong style={{ color: C.text }}>{pendingEmail}</strong>.
                   <br />Cliquez dessus pour activer votre compte.
                 </p>
-                <button onClick={handleResend} disabled={loading} style={{ ...outlineBtn, marginBottom: 14, opacity: loading ? 0.6 : 1 }}>
+                <button type="button" onClick={handleResend} disabled={loading} style={{ ...outlineBtn, marginBottom: 14, opacity: loading ? 0.6 : 1 }}>
                   {loading ? 'Envoi...' : 'Renvoyer l\'email'}
                 </button>
-                <button onClick={() => { setAuthMode('options'); resetForm() }}
+                <button type="button" onClick={() => { setAuthMode('options'); resetForm() }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: C.muted }}>
                   Retour à l&apos;accueil
                 </button>
@@ -471,25 +455,25 @@ export default function AuthPage() {
 
                 <form onSubmit={handleLogin} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div>
-                    <label style={labelStyle}>Email</label>
-                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
+                    <label htmlFor="login-email" style={labelStyle}>Email</label>
+                    <input id="login-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
                       style={inputStyle}
                       onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
                   </div>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <label style={{ ...labelStyle, marginBottom: 0 }}>Mot de passe</label>
+                      <label htmlFor="login-password" style={{ ...labelStyle, marginBottom: 0 }}>Mot de passe</label>
                       <button type="button" onClick={() => { setAuthMode('forgot'); resetForm() }}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 500 }}>
                         Mot de passe oublié ?
                       </button>
                     </div>
                     <div style={{ position: 'relative' }}>
-                      <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                      <input id="login-password" aria-label="Mot de passe" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                         placeholder="Votre mot de passe" required
                         style={{ ...inputStyle, paddingRight: 44 }}
                         onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
-                      <button type="button" onClick={() => setShowPassword(v => !v)}
+                      <button type="button" aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'} onClick={() => setShowPassword(v => !v)}
                         style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }}>
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
@@ -502,7 +486,7 @@ export default function AuthPage() {
 
                 <p style={{ marginTop: 18, fontSize: 14, color: C.muted }}>
                   Pas encore de compte ?{' '}
-                  <button onClick={() => { setAuthMode('signup'); resetForm() }}
+                  <button type="button" onClick={() => { setAuthMode('signup'); resetForm() }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, fontWeight: 600, fontSize: 14 }}>
                     Créer un compte
                   </button>
@@ -519,8 +503,8 @@ export default function AuthPage() {
                 </p>
                 <form onSubmit={handleForgot} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div>
-                    <label style={labelStyle}>Email</label>
-                    <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
+                    <label htmlFor="forgot-email" style={labelStyle}>Email</label>
+                    <input id="forgot-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
                       style={inputStyle}
                       onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
                   </div>
@@ -528,7 +512,7 @@ export default function AuthPage() {
                     {loading ? 'Envoi...' : 'Envoyer le lien'}
                   </button>
                 </form>
-                <button onClick={() => { setAuthMode('login'); resetForm() }}
+                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }}
                   style={{ marginTop: 18, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: C.primary, fontWeight: 500 }}>
                   Retour à la connexion
                 </button>
@@ -547,7 +531,7 @@ export default function AuthPage() {
                 <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 28 }}>
                   Si un compte existe avec cette adresse, vous recevrez un lien sous peu.
                 </p>
-                <button onClick={() => { setAuthMode('login'); resetForm() }} style={primaryBtn}>
+                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }} style={primaryBtn}>
                   Retour à la connexion
                 </button>
               </div>
@@ -562,7 +546,7 @@ export default function AuthPage() {
             <p style={{ fontSize: 14, color: C.muted, marginBottom: 28, textAlign: 'center' }}>Cela nous aide à personnaliser votre expérience.</p>
             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 28 }}>
               {NIVEAUX.map(n => (
-                <button key={n.id} onClick={() => setSelectedLevel(n.id)} style={{
+                <button type="button" key={n.id} onClick={() => setSelectedLevel(n.id)} style={{
                   width: '100%', textAlign: 'left', padding: '16px 20px', borderRadius: 14, cursor: 'pointer',
                   border: `2px solid ${selectedLevel === n.id ? C.selBorder : C.inputBorder}`,
                   background: selectedLevel === n.id ? C.selBg : 'transparent',
@@ -574,7 +558,7 @@ export default function AuthPage() {
                 </button>
               ))}
             </div>
-            <button onClick={() => selectedLevel && setStep('filiere')} disabled={!selectedLevel}
+            <button type="button" onClick={() => selectedLevel && setStep('filiere')} disabled={!selectedLevel}
               style={{ ...primaryBtn, opacity: selectedLevel ? 1 : 0.4 }}>
               Continuer
             </button>
@@ -588,7 +572,7 @@ export default function AuthPage() {
             <p style={{ fontSize: 14, color: C.muted, marginBottom: 20, textAlign: 'center' }}>Sélectionnez votre spécialité du Bac.</p>
             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto', marginBottom: 24, paddingRight: 4 }}>
               {SPECIALITES.map(spec => (
-                <button key={spec} onClick={() => setSelectedSpec(spec)} style={{
+                <button type="button" key={spec} onClick={() => setSelectedSpec(spec)} style={{
                   width: '100%', textAlign: 'left', padding: '13px 16px', borderRadius: 12, cursor: 'pointer', flexShrink: 0,
                   border: `2px solid ${selectedSpec === spec ? C.selBorder : C.inputBorder}`,
                   background: selectedSpec === spec ? C.selBg : 'transparent',
@@ -601,7 +585,7 @@ export default function AuthPage() {
                 </button>
               ))}
             </div>
-            <button onClick={saveOnboarding} disabled={!selectedSpec || loading}
+            <button type="button" onClick={saveOnboarding} disabled={!selectedSpec || loading}
               style={{ ...primaryBtn, opacity: !selectedSpec || loading ? 0.4 : 1 }}>
               {loading ? 'Sauvegarde...' : 'Commencer'}
             </button>

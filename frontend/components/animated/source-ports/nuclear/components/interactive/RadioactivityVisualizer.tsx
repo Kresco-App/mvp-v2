@@ -22,7 +22,7 @@ export const RadioactivityVisualizer: React.FC = () => {
     <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
       <div className="flex flex-wrap gap-2 mb-8 justify-center md:justify-start">
         {TYPES.map(t => (
-            <button
+            <button type="button"
                 key={t.id}
                 onClick={() => { setActiveType(t.id); setKey(k => k+1); }}
                 className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${ 
@@ -88,7 +88,7 @@ export const RadioactivityVisualizer: React.FC = () => {
             </motion.div>
          </AnimatePresence>
 
-         <button 
+         <button type="button" 
             onClick={() => setKey(k => k+1)}
             className="absolute bottom-4 right-4 p-2 bg-white rounded-full shadow text-indigo-600 hover:bg-indigo-50 transition-colors"
          >

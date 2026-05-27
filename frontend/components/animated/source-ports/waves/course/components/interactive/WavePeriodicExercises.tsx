@@ -113,7 +113,7 @@ export const WavePeriodicExercises: React.FC = () => {
 
             <div className="grid grid-cols-1 gap-3 mb-6">
                 {questions[currentQuestion].options.map((opt, idx) => (
-                    <button
+                    <button type="button"
                         key={idx}
                         onClick={() => !showFeedback && handleAnswer(idx)}
                         disabled={showFeedback}
@@ -148,7 +148,7 @@ export const WavePeriodicExercises: React.FC = () => {
 
             <div className="flex justify-end">
                 {showFeedback ? (
-                    <button 
+                    <button type="button" 
                         onClick={nextQuestion}
                         className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors shadow-lg shadow-indigo-200"
                     >
@@ -170,7 +170,7 @@ export const WavePeriodicExercises: React.FC = () => {
             </p>
             
             <div className="flex justify-center gap-4">
-                <button 
+                <button type="button" 
                     onClick={resetQuiz}
                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors"
                 >

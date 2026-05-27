@@ -1,4 +1,5 @@
 import os
+import hmac
 import logging
 import time
 import uuid
@@ -7,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqladmin import Admin
@@ -14,11 +16,11 @@ from sqladmin.authentication import AuthenticationBackend
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.admin.views import register_admin_views
-from app.config import Settings, get_settings
+from app.config import Settings, get_settings, validate_production_settings
 from app.database import init_engine
 from app.rate_limit import limiter
 from app.routers import admin as admin_api
-from app.routers import calendar, courses, gamification, interactions, notifications, payments, quizzes, users
+from app.routers import calendar, courses, gamification, interactions, notifications, payments, professor, quizzes, realtime, users
 
 logger = logging.getLogger("kresco.api")
 if not logging.getLogger().handlers:
@@ -35,7 +37,8 @@ class AdminAuth(AuthenticationBackend):
 
     async def login(self, request: Request) -> bool:
         form = await request.form()
-        if form.get("password") == self._password:
+        candidate = form.get("password")
+        if isinstance(candidate, str) and hmac.compare_digest(candidate.encode(), self._password.encode()):
             request.session["admin_authenticated"] = True
             return True
         return False
@@ -52,6 +55,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = get_settings()
 
+    validate_production_settings(settings)
+
     # Initialize DB engine at startup (module-level reuse within warm Lambda container)
     engine, _ = init_engine(settings.database_url, settings.is_lambda)
 
@@ -67,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Store settings on app state for access in dependencies
     app.state.settings = settings
+    app.state.db_engine = engine
     app.dependency_overrides[get_settings] = lambda: settings
 
     # Rate limiting
@@ -95,6 +101,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(interactions.router, prefix="/api/interactions")
     app.include_router(payments.router, prefix="/api/payments")
     app.include_router(notifications.router, prefix="/api/notifications")
+    app.include_router(realtime.router, prefix="/api/realtime")
+    app.include_router(professor.router, prefix="/api/professor")
     app.include_router(admin_api.router, prefix="/api/admin")
 
     os.makedirs("media", exist_ok=True)
@@ -104,7 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     admin_password = os.environ.get("ADMIN_PASSWORD") or settings.admin_password
     if not admin_password:
         raise ValueError("ADMIN_PASSWORD environment variable is required to start the admin panel.")
-    
+
     auth_backend = AdminAuth(
         secret_key=settings.jwt_secret_key,
         admin_password=admin_password,
@@ -160,5 +168,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     async def health():
         return {"status": "ok", "version": "2.0.0"}
+
+    @app.get("/ready")
+    async def ready():
+        checks = {
+            "configuration": "ok",
+            "database": "ok",
+        }
+        errors: list[str] = []
+
+        config_errors = settings.production_config_errors()
+        if config_errors:
+            checks["configuration"] = "error"
+            errors.append("configuration")
+
+        try:
+            async with app.state.db_engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+        except Exception as exc:
+            checks["database"] = "error"
+            errors.append("database")
+            logger.warning("readiness_database_failed error_type=%s", type(exc).__name__)
+
+        if errors:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "version": "2.0.0",
+                    "checks": checks,
+                    "errors": errors,
+                },
+            )
+
+        return {
+            "status": "ready",
+            "version": "2.0.0",
+            "checks": checks,
+        }
 
     return app

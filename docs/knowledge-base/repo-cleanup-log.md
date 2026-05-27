@@ -63,3 +63,31 @@ Goal: make Markdown files reflect the current implementation only.
 
 - Searched Markdown, excluding this audit log, for stale planning terms and obsolete Study Tools/Django/Figma references.
 - Remaining flagged Markdown term is `course-card-placeholder.png`, which is an actual current asset filename referenced by the design-token doc.
+
+## 2026-05-27 - Repository hygiene gate
+
+Goal: prevent local runtime artifacts and local environment files from re-entering tracked source.
+
+### Machine gate
+
+- Added `scripts/check_repo_hygiene.py`.
+- Backend CI, Backend deploy, Frontend CI, and Frontend deploy now run the hygiene gate.
+- The gate rejects tracked OS artifacts, local SQLite/database files, package tarballs, generated output directories, and non-example `.env` files.
+
+### Artifact cleanup
+
+- Deleted `.DS_Store` from the working tree.
+- Deleted `backend/.DS_Store` from the working tree.
+- Deleted tracked `.codex-logs` dev log files from the working tree.
+- Deleted tracked backend `.next` trace files from the working tree.
+- Deleted tracked validation SQLite files from the working tree.
+- Backed up `backend/db.sqlite3` to ignored `.codex-logs/local-artifact-backups/backend-db.sqlite3.before-hygiene.sqlite3`.
+- Stopped the local FastAPI dev server processes that held `backend/db.sqlite3` open and deleted the tracked runtime copy from the working tree.
+- Deleted `frontend/es-toolkit-1.46.1.tgz` from the working tree.
+- Added `*.tgz` to the root `.gitignore`.
+- Moved the root `TODO-MANUAL.md` content into `docs/manual-operations.md` and deleted the root TODO file.
+
+### Verification
+
+- `python scripts/check_repo_hygiene.py`
+- `python -m py_compile scripts/check_repo_hygiene.py`

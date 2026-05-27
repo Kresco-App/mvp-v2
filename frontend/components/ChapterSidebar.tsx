@@ -31,6 +31,7 @@ interface Props {
   chapters: any[]
   currentSectionId: number
   chapterInfo: ChapterInfo
+  chapterSections?: Record<number, Section[]>
 }
 
 function getSectionIcon(section: Section, isCurrent: boolean) {
@@ -60,14 +61,17 @@ function getSectionTypeLabel(type: string) {
   }
 }
 
-export default function ChapterSidebar({ chapters, currentSectionId, chapterInfo }: Props) {
-  const [chapterSections, setChapterSections] = useState<Record<number, Section[]>>({})
+export default function ChapterSidebar({ chapters, currentSectionId, chapterInfo, chapterSections: providedChapterSections }: Props) {
+  const [loadedChapterSections, setLoadedChapterSections] = useState<Record<number, Section[]>>({})
   const [expanded, setExpanded] = useState<Set<unknown>>(() => {
     // Auto-expand the current chapter
     return new Set([chapterInfo.id])
   })
+  const chapterSections = providedChapterSections ?? loadedChapterSections
 
   useEffect(() => {
+    if (providedChapterSections) return
+
     async function loadSections() {
       const sectionsMap: Record<number, Section[]> = {}
       await Promise.all(
@@ -80,10 +84,10 @@ export default function ChapterSidebar({ chapters, currentSectionId, chapterInfo
           }
         })
       )
-      setChapterSections(sectionsMap)
+      setLoadedChapterSections(sectionsMap)
     }
     loadSections()
-  }, [chapters])
+  }, [chapters, providedChapterSections])
 
   function toggle(id: number) {
     setExpanded(prev => {
@@ -129,7 +133,7 @@ export default function ChapterSidebar({ chapters, currentSectionId, chapterInfo
 
           return (
             <div key={chapter.id}>
-              <button
+              <button type="button"
                 onClick={() => toggle(chapter.id)}
                 className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-800/50 transition-colors text-left"
               >

@@ -78,7 +78,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
-            <button 
+            <button type="button" 
                 onClick={prevExample}
                 className="p-1.5 hover:bg-white hover:shadow-sm rounded-md transition-all text-slate-500"
                 title="Exemple précédent"
@@ -88,7 +88,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
             <span className="text-xs font-mono font-bold text-slate-400 px-2">
                 {exampleIndex + 1}/{EXAMPLES.length}
             </span>
-            <button 
+            <button type="button" 
                 onClick={nextExample}
                 className="p-1.5 hover:bg-white hover:shadow-sm rounded-md transition-all text-slate-500"
                 title="Exemple suivant"
@@ -97,7 +97,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
             </button>
         </div>
 
-        <button 
+        <button type="button" 
             onClick={() => setDisintegrated(!disintegrated)}
             className="w-full md:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg text-xs md:text-sm font-bold hover:bg-purple-700 transition-colors shadow-sm"
         >

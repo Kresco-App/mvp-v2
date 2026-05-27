@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Trophy, Search, Crown, Medal, ChevronLeft, ChevronRight, Zap, ArrowUp, ArrowDown } from 'lucide-react'
+import Image from 'next/image'
 import api from '@/lib/axios'
 import { LeaderboardPageSkeleton, SkeletonBlock } from '@/components/figma/skeletons'
 import {
@@ -54,6 +55,10 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
       .finally(() => setLoading(false))
   }, [])
 
+  const top = useMemo(() => entries.filter(e => !e.is_current_user || e.rank <= 5).slice(0, 5), [entries])
+  const currentUser = useMemo(() => entries.find(e => e.is_current_user), [entries])
+  const currentUserInTop = useMemo(() => top.some(e => e.is_current_user), [top])
+
   if (loading) {
     return (
       <div className="card kresco-skeleton-card space-y-3 p-5">
@@ -69,10 +74,6 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
     )
   }
 
-  const top = entries.filter(e => !e.is_current_user || e.rank <= 5).slice(0, 5)
-  const currentUser = entries.find(e => e.is_current_user)
-  const currentUserInTop = top.some(e => e.is_current_user)
-
   return (
     <div className="card p-5">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -81,7 +82,7 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
           <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Classement</span>
         </div>
         {onExpand && (
-          <button onClick={onExpand} style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
+          <button type="button" onClick={onExpand} style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
             Voir tout
           </button>
         )}
@@ -135,17 +136,40 @@ export function LeaderboardPage() {
     setSearchInput('')
   }
 
-  const displayEntries = entries.length > 0 ? entries : lastNonEmptyEntries
-  const normalizedSearch = searchInput.trim().toLowerCase()
-  const instantEntries = normalizedSearch
-    ? displayEntries.filter((entry) => entry.full_name.toLowerCase().includes(normalizedSearch))
-    : displayEntries
-  const visibleEntries = normalizedSearch && instantEntries.length === 0 ? displayEntries : instantEntries
+  const displayEntries = useMemo(
+    () => (entries.length > 0 ? entries : lastNonEmptyEntries),
+    [entries, lastNonEmptyEntries],
+  )
+  const normalizedSearch = useMemo(() => searchInput.trim().toLowerCase(), [searchInput])
+  const instantEntries = useMemo(
+    () => (
+      normalizedSearch
+        ? displayEntries.filter((entry) => entry.full_name.toLowerCase().includes(normalizedSearch))
+        : displayEntries
+    ),
+    [displayEntries, normalizedSearch],
+  )
+  const visibleEntries = useMemo(
+    () => (normalizedSearch && instantEntries.length === 0 ? displayEntries : instantEntries),
+    [displayEntries, instantEntries, normalizedSearch],
+  )
   const hasMore = entries.length === PAGE_SIZE
-  const headerSourceEntries = entries.length > 0 ? entries : lastNonEmptyEntries
-  const currentUser = headerSourceEntries.find((e) => e.is_current_user) ?? headerSourceEntries[0]
-  const currentLeague = currentUser?.leagueKey ? getLeagueInfoByKey(currentUser.leagueKey) : null
-  const leagueStrip = currentLeague ? getMajorLeagueStrip(currentLeague.key) : []
+  const headerSourceEntries = useMemo(
+    () => (entries.length > 0 ? entries : lastNonEmptyEntries),
+    [entries, lastNonEmptyEntries],
+  )
+  const currentUser = useMemo(
+    () => headerSourceEntries.find((e) => e.is_current_user) ?? headerSourceEntries[0],
+    [headerSourceEntries],
+  )
+  const currentLeague = useMemo(
+    () => (currentUser?.leagueKey ? getLeagueInfoByKey(currentUser.leagueKey) : null),
+    [currentUser],
+  )
+  const leagueStrip = useMemo(
+    () => (currentLeague ? getMajorLeagueStrip(currentLeague.key) : []),
+    [currentLeague],
+  )
 
   if (loading && lastNonEmptyEntries.length === 0) {
     return <LeaderboardPageSkeleton />
@@ -162,8 +186,8 @@ export function LeaderboardPage() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 10, flexWrap: 'wrap' }}>
-              {leagueStrip.map((league) => (
-                <LeagueMarker key={league.key} league={league} active={league.key === currentLeague?.key} />
+              {leagueStrip.map((league, index) => (
+                <LeagueMarker key={`${league.key}-${index}`} league={league} active={league.key === currentLeague?.key} />
               ))}
             </div>
 
@@ -182,6 +206,7 @@ export function LeaderboardPage() {
           <div style={{ position: 'relative', marginBottom: 16 }}>
             <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }} />
             <input
+              aria-label="Rechercher un joueur"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               placeholder="Rechercher un joueur..."
@@ -189,7 +214,7 @@ export function LeaderboardPage() {
               style={{ width: '100%', paddingLeft: 42, paddingRight: 40, paddingTop: 11, paddingBottom: 11, fontSize: 14 }}
             />
             {searchInput && (
-              <button
+              <button type="button"
                 onClick={clearSearch}
                 style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}
               >
@@ -263,7 +288,7 @@ export function LeaderboardPage() {
 
           {(page > 1 || hasMore) && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 }}>
-              <button
+              <button type="button"
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'var(--surface-hover)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: page === 1 ? 0.4 : 1 }}
@@ -272,7 +297,7 @@ export function LeaderboardPage() {
                 Precedent
               </button>
               <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 600 }}>Page {page}</span>
-              <button
+              <button type="button"
                 onClick={() => setPage(p => p + 1)}
                 disabled={!hasMore}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'var(--surface-hover)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: !hasMore ? 0.4 : 1 }}
@@ -343,9 +368,11 @@ function ZoneDivider({ zone }: { zone: "promotion" | "demotion" }) {
 function LeagueMarker({ league, active }: { league: ReturnType<typeof getLeagueInfoByKey>, active: boolean }) {
   return (
     <div style={{ width: active ? 106 : 74, height: active ? 106 : 74, borderRadius: '50%', border: active ? `3px solid ${league.color}` : '1px solid var(--border)', background: active ? `${league.color}20` : 'var(--surface-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <img
+      <Image
         src={league.emblemAsset}
         alt={league.label}
+        width={active ? 76 : 48}
+        height={active ? 76 : 48}
         style={{ width: active ? 76 : 48, height: active ? 76 : 48, objectFit: 'contain' }}
         onError={(e) => {
           e.currentTarget.style.display = 'none'

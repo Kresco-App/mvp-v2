@@ -308,7 +308,7 @@ export default function GeometricOpticsPage({
                 </div>
 
                 <div className="pt-2 border-t border-amber-500/10">
-                    <button
+                    <button type="button"
                         onClick={() => setShowAngles(!showAngles)}
                         className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${
                             showAngles 
@@ -357,7 +357,7 @@ export default function GeometricOpticsPage({
             controlsContent={controlsContent}
             accentColor="amber"
             headerActions={
-                <button 
+                <button type="button" 
                     onClick={() => { setAngleDeg(45); setN1(1.0); setN2(1.5); }}
                     className={`px-4 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'} text-sm`}
                 >

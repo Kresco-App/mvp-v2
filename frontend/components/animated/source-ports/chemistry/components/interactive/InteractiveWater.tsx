@@ -35,14 +35,14 @@ export const InteractiveWater: React.FC = () => {
         </div>
         
         <div className="flex space-x-2 w-full md:w-auto">
-            <button 
+            <button type="button" 
                 onClick={() => setKey(prev => prev + 1)}
                 className="p-3 bg-slate-50 rounded-xl hover:bg-slate-100 text-slate-600 transition-colors border border-slate-200"
                 title="Rejouer"
             >
                 <RotateCcw size={20} />
             </button>
-            <button 
+            <button type="button" 
                 onClick={() => setIsPlaying(!isPlaying)}
                 className="flex-1 md:flex-none justify-center flex items-center space-x-2 px-6 py-3 bg-[#4c1d95] rounded-xl shadow-lg shadow-purple-900/20 text-white font-bold text-sm hover:bg-[#3b0764] transition-all transform active:scale-95"
             >

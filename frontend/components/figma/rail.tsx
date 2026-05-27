@@ -195,13 +195,12 @@ function RailItemRow({
   const isWorkspace = size === 'workspace'
 
   return (
-    <button
+    <button type="button"
       className={`flex w-full items-center border-0 bg-transparent p-0 text-left ${
         isWorkspace ? 'gap-[20px]' : 'gap-[8px]'
       } ${isLocked ? 'cursor-pointer opacity-75 hover:translate-x-0.5' : 'cursor-pointer hover:translate-x-0.5'} transition-transform duration-150`}
       aria-label={isLocked ? `${item.label} locked preview` : undefined}
       onClick={() => onSelect?.(item)}
-      type="button"
     >
       <span
         className={`grid shrink-0 place-items-center rounded-full ${isWorkspace ? 'h-[36px] w-[36px]' : 'h-[24px] w-[24px]'} ${

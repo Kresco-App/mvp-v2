@@ -1,12 +1,26 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
+import { getKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
 import api from '@/lib/axios'
+import {
+  addDays,
+  addMonths,
+  buildMonthGrid,
+  dateForCalendarEvent,
+  eventsForWeek,
+  findCalendarEventById,
+  formatCalendarDate,
+  isSameCalendarDay,
+  parseCalendarEventId,
+  startOfDay,
+  startOfWeek,
+} from '@/lib/calendarViewModel'
 import { useAuthStore } from '@/lib/store'
 import { PermanentSidebarPanelTitle } from '@/components/figma'
 import { CalendarPageSkeleton } from '@/components/figma/skeletons'
@@ -34,11 +48,12 @@ const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const miniDayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const hours = Array.from({ length: 24 }, (_, index) => index)
 const hourHeight = 80
-const dayWidth = 220
-const timeWidth = 100
+const timeWidth = 56
 
 export default function CalendarPage() {
   const searchParams = useSearchParams()
+  const searchKey = searchParams.toString()
+  const requestedEventId = useMemo(() => parseCalendarEventId(new URLSearchParams(searchKey)), [searchKey])
   const { user } = useAuthStore()
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()))
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -52,29 +67,66 @@ export default function CalendarPage() {
   useEffect(() => { document.title = 'Calendar - Kresco' }, [])
 
   useEffect(() => {
+    if (!requestedEventId) return
     let alive = true
-    setLoading(true)
-    api.get('/calendar/events', {
-      params: {
-        start: formatDate(selectedWeekStart),
-        end: formatDate(addDays(selectedWeekStart, 6)),
-      },
-    })
+
+    api.get<CalendarEvent>(`/calendar/events/${requestedEventId}`)
       .then((res) => {
         if (!alive) return
-        setEvents(res.data)
-        const eventId = Number(searchParams.get('event'))
-        if (eventId) {
-          const match = res.data.find((event: CalendarEvent) => event.id === eventId)
-          if (match) setSelectedEvent(match)
-        }
+        const event = res.data
+        setSelectedEvent(event)
+        const eventDate = dateForCalendarEvent(event)
+        if (eventDate) setSelectedDate(eventDate)
       })
-      .catch(() => toast.error('Could not load calendar events.'))
-      .finally(() => {
-        if (alive) setLoading(false)
+      .catch(() => {
+        if (!alive) return
+        setSelectedEvent(null)
       })
+
+    return () => {
+      alive = false
+    }
+  }, [requestedEventId])
+
+  const loadEventsForWeek = useCallback(async (alive: () => boolean) => {
+    setLoading(true)
+    try {
+      const res = await api.get('/calendar/events', {
+        params: {
+          start: formatCalendarDate(selectedWeekStart),
+          end: formatCalendarDate(addDays(selectedWeekStart, 6)),
+        },
+      })
+      if (!alive()) return
+      const nextEvents = Array.isArray(res.data) ? res.data : []
+      setEvents(nextEvents)
+      if (requestedEventId) {
+        setSelectedEvent(findCalendarEventById(nextEvents, requestedEventId))
+      }
+    } catch {
+      toast.error('Could not load calendar events.')
+    } finally {
+      if (alive()) setLoading(false)
+    }
+  }, [requestedEventId, selectedWeekStart])
+
+  useEffect(() => {
+    let alive = true
+    void loadEventsForWeek(() => alive)
     return () => { alive = false }
-  }, [selectedWeekStart, searchParams])
+  }, [loadEventsForWeek])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const realtime = getKrescoRealtime()
+    if (!realtime) return
+    const channel = realtime.channels.get(userNotificationsChannelName(user.id))
+    const refresh = () => void loadEventsForWeek(() => true)
+    void channel.subscribe(refresh)
+    return () => {
+      void channel.unsubscribe(refresh)
+    }
+  }, [loadEventsForWeek, user?.id])
 
   function moveWeek(direction: -1 | 1) {
     setSelectedDate((current) => addDays(current, direction * 7))
@@ -86,7 +138,7 @@ export default function CalendarPage() {
 
   return (
     <div className="figma-container pb-[120px]">
-      <div className="figma-dashboard-grid">
+      <div className="figma-dashboard-grid calendar-page-grid">
         <main className="min-w-0 pt-11">
           <header className="mb-8">
             <h1 className="m-0 text-[24px] font-bold leading-[1.4] tracking-[0.24px] text-[#3f3f46]">
@@ -97,7 +149,7 @@ export default function CalendarPage() {
             </p>
           </header>
 
-          <section className="w-full overflow-hidden bg-white" aria-label="Weekly calendar">
+          <section className="w-full bg-white" aria-label="Weekly calendar">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b]">
                 {formatWeekRange(weekDays)}
@@ -115,28 +167,28 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            <div className="w-full overflow-x-auto overflow-y-hidden">
-              <div className="relative" style={{ width: timeWidth + dayWidth * 7 }}>
+            <div className="w-full overflow-hidden">
+              <div className="relative w-full min-w-0">
                 <div className="sticky top-0 z-10 flex bg-white">
                   <div className="h-11 shrink-0 border-2 border-[#e4e4e7]" style={{ width: timeWidth }} />
                   {dayNames.map((day) => (
-                    <div key={day} className="-ml-0.5 flex h-11 shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-3 py-1.5" style={{ width: dayWidth }}>
-                      <span className="text-center text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b]">{day}</span>
+                    <div key={day} className="-ml-0.5 flex h-11 shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-1 py-1.5" style={{ width: `calc((100% - ${timeWidth}px) / 7)` }}>
+                      <span className="text-center text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b] max-[480px]:text-[12px]">{day.slice(0, 3)}</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="relative flex">
+                <div className="relative flex max-h-[calc(100vh-260px)] min-h-[420px] overflow-y-auto overflow-x-hidden max-[760px]:max-h-[560px] max-[480px]:min-h-[360px]">
                   <div className="shrink-0" style={{ width: timeWidth }}>
                     {hours.map((hour) => (
-                      <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-3 pb-1.5">
-                        <span className="text-[14px] font-bold leading-[1.2] tracking-[0.14px] text-[#71717b]">{formatHour(hour)}</span>
+                      <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-1.5 pb-1.5">
+                        <span className="text-[14px] font-bold leading-[1.2] tracking-[0.14px] text-[#71717b] max-[480px]:text-[11px]">{formatHour(hour)}</span>
                       </div>
                     ))}
                   </div>
-                  <div className="relative flex">
+                  <div className="relative flex min-w-0 flex-1">
                     {weekDays.map((day) => (
-                      <div key={day.toISOString()} className="-ml-0.5 shrink-0" style={{ width: dayWidth }}>
+                      <div key={day.toISOString()} className="-ml-0.5 shrink-0" style={{ width: 'calc(100% / 7)' }}>
                         {hours.map((hour) => (
                           <div key={hour} className="-mt-0.5 h-20 border-2 border-[#e4e4e7]" />
                         ))}
@@ -162,7 +214,7 @@ export default function CalendarPage() {
           </section>
         </main>
 
-        <aside className="flex w-[351px] shrink-0 flex-col gap-[14px] pb-[120px] pt-32 max-[1180px]:mt-8 max-[1180px]:w-full max-[1180px]:pt-0">
+        <aside className="flex w-[351px] shrink-0 flex-col gap-[14px] pb-[120px] pt-32 max-[1440px]:mt-8 max-[1440px]:w-full max-[1440px]:pt-0">
           <MiniCalendarCard selectedDate={selectedDate} onSelectDate={setSelectedDate} />
           {selectedEvent && <EventDetailCard event={selectedEvent} onClose={() => setSelectedEvent(null)} />}
         </aside>
@@ -171,7 +223,15 @@ export default function CalendarPage() {
   )
 }
 
-function CalendarEventBlock({ event, weekStart, onSelect }: { event: CalendarEvent; weekStart: Date; onSelect: (event: CalendarEvent) => void }) {
+function CalendarEventBlock({
+  event,
+  weekStart,
+  onSelect,
+}: {
+  event: CalendarEvent
+  weekStart: Date
+  onSelect: (event: CalendarEvent) => void
+}) {
   const start = new Date(event.starts_at)
   const end = new Date(event.ends_at)
   const dayIndex = Math.max(0, Math.min(6, Math.floor((startOfDay(start).getTime() - weekStart.getTime()) / 86400000)))
@@ -186,7 +246,13 @@ function CalendarEventBlock({ event, weekStart, onSelect }: { event: CalendarEve
       type="button"
       onClick={() => onSelect(event)}
       className="absolute z-20 flex flex-col items-start justify-between overflow-hidden rounded-[6px] border-0 px-2 py-1.5 text-left font-bold leading-[1.2] shadow-none"
-      style={{ left: dayIndex * dayWidth + 2, top, width: dayWidth - 4, height, background: color }}
+      style={{
+        left: `calc(${dayIndex} * (100% / 7) + 2px)`,
+        top,
+        width: 'calc((100% / 7) - 4px)',
+        height,
+        background: color,
+      }}
     >
       <span className="line-clamp-2 w-full text-[14px] tracking-[0.14px] text-white">{event.title}</span>
       <span className="w-full truncate text-[12px] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</span>
@@ -225,7 +291,7 @@ function MiniCalendarCard({ selectedDate, onSelectDate }: { selectedDate: Date; 
           </div>
         ))}
         {days.map((day) => {
-          const isSelected = isSameDay(day.date, selectedDate)
+          const isSelected = isSameCalendarDay(day.date, selectedDate)
           const isCurrentMonth = day.date.getMonth() === visibleMonth.getMonth()
           return (
             <button
@@ -326,41 +392,6 @@ function InfoRow({ label, value, index = 0 }: { label: string; value: string; in
   )
 }
 
-function eventsForWeek(events: CalendarEvent[], weekStart: Date) {
-  const weekEnd = addDays(weekStart, 7)
-  return events.filter((event) => {
-    const starts = new Date(event.starts_at)
-    return starts >= weekStart && starts < weekEnd
-  })
-}
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-}
-
-function startOfWeek(date: Date) {
-  const day = date.getDay()
-  const mondayOffset = day === 0 ? -6 : 1 - day
-  return startOfDay(addDays(date, mondayOffset))
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
-}
-
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1)
-}
-
-function formatDate(date: Date) {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
 function formatHour(hour: number) {
   return `${String(hour).padStart(2, '0')}:00`
 }
@@ -383,14 +414,3 @@ function formatWeekRange(days: Date[]) {
   return `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
-
-function buildMonthGrid(month: Date) {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1)
-  const firstDay = first.getDay()
-  const mondayOffset = firstDay === 0 ? -6 : 1 - firstDay
-  const start = addDays(first, mondayOffset)
-  return Array.from({ length: 42 }, (_, index) => ({ date: addDays(start, index) }))
-}

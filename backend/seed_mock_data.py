@@ -6,10 +6,11 @@ import asyncio, os, random
 from datetime import date, datetime, timedelta, timezone
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
+from seed_safety import require_local_seed_database_url, require_local_seed_session
 
 load_dotenv()
 
-DATABASE_URL = os.environ["DATABASE_URL"]
+DEFAULT_DATABASE_URL = "sqlite+aiosqlite:///./db.sqlite3"
 
 # ── async bootstrap ─────────────────────────────────────────────
 async def main():
@@ -19,7 +20,8 @@ async def main():
     # Import all models so metadata is populated
     from app.models import users, courses, quizzes, gamification, interactions  # noqa
 
-    url = DATABASE_URL
+    url = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    require_local_seed_database_url(url, "seed_mock_data.py")
     connect_args = {}
     if url.startswith("postgresql://"):
         from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
@@ -201,6 +203,8 @@ MOCK_USERS = [
 
 async def seed_all(db: AsyncSession):
     from sqlalchemy import select, text
+
+    require_local_seed_session(db, "seed_mock_data.seed_all")
 
     # Check if already seeded
     result = await db.execute(select(Subject))

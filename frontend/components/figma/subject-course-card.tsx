@@ -40,11 +40,6 @@ export function FigmaSubjectCourseCard({
 
   const borderColor = isCompleted ? '#fcc94d' : isCurrent ? '#5b60f9' : '#e4e4e7'
   const imageBorderColor = isCompleted ? '#fcc94d' : isCurrent ? '#5b60f9' : '#d4d4d8'
-  const outerBackground = isCompleted
-    ? '#f5900b'
-    : isCurrent
-      ? 'linear-gradient(90deg, rgba(0,0,0,.2), rgba(0,0,0,.2)), #5b60f9'
-      : 'linear-gradient(90deg, rgba(0,0,0,.12), rgba(0,0,0,.12)), #f3f4f6'
   const badgeClass = isCompleted
     ? 'border-[#fbae17] bg-[#f5900b] text-white'
     : isCurrent
@@ -55,22 +50,22 @@ export function FigmaSubjectCourseCard({
 
   const card = (
     <article
-      className={`group kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-hidden rounded-[16px] ${isUnavailable ? 'opacity-80' : ''}`}
-      style={{ background: outerBackground, animationDelay: `${Math.min(index * 45, 220)}ms` }}
+      className={`group kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${isUnavailable ? 'opacity-80' : ''}`}
+      style={{
+        background: borderColor,
+        animationDelay: `${Math.min(index * 45, 220)}ms`,
+        boxShadow: isCompleted
+          ? '0 3.75px 0 #f5900b'
+          : isCurrent
+            ? '0 3.75px 0 #383dc7'
+            : '0 3.75px 0 #d9dadd',
+      }}
     >
       <div
-        className={`absolute left-0 right-[0.33px] top-[-3.75px] flex h-[327.5px] flex-col overflow-hidden rounded-[16px] border-2 transition duration-200 group-hover:top-[-5px] ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
-        style={{
-          borderColor,
-          boxShadow: isCompleted
-            ? '0 3.75px 0 #f5900b'
-            : isCurrent
-              ? '0 3.75px 0 #383dc7'
-              : '0 3.75px 0 #d9dadd',
-        }}
+        className={`flex h-full flex-col overflow-hidden rounded-[14px] transition duration-200 ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
       >
         <div
-          className="relative h-[193.5px] w-full overflow-hidden border-2 p-[12px]"
+          className="relative h-[193.5px] w-full overflow-hidden border-b-2 p-[12px]"
           style={{ borderColor: imageBorderColor }}
         >
           <img alt="" className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]" src={imageUrl ?? PLACEHOLDER_IMAGE} />

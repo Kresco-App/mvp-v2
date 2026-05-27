@@ -87,7 +87,7 @@ export default function OndeCaracteristiques({ questions, onComplete }: Props) {
         {allCorrect ? <CheckCircle2 size={40} className="text-green-400 mx-auto" /> : <XCircle size={40} className="text-red-400 mx-auto" />}
         <p className="text-white text-xl font-bold">{allCorrect ? 'Parfait !' : 'Continuez à travailler'}</p>
         <p className="text-slate-400">{score} / {qs.length} correctes</p>
-        <button
+        <button type="button"
           onClick={() => { setIdx(0); setInputs(qs.map(() => '')); setSubmitted(qs.map(() => false)); setScore(0); setDone(false) }}
           className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
         >
@@ -108,7 +108,8 @@ export default function OndeCaracteristiques({ questions, onComplete }: Props) {
       <div className="text-white text-base leading-relaxed flex flex-wrap items-center gap-1.5 bg-slate-800/60 rounded-xl p-5">
         <span>{parts[0]}</span>
         <input
-          key={idx}
+          aria-label="Réponse formule"
+          key={current.sentence}
           value={inputs[idx]}
           onChange={e => {
             if (submitted[idx]) return
@@ -140,7 +141,7 @@ export default function OndeCaracteristiques({ questions, onComplete }: Props) {
 
       <div className="flex justify-between">
         {!submitted[idx] ? (
-          <button
+          <button type="button"
             onClick={submit}
             disabled={!inputs[idx].trim()}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
@@ -148,7 +149,7 @@ export default function OndeCaracteristiques({ questions, onComplete }: Props) {
             Vérifier
           </button>
         ) : (
-          <button
+          <button type="button"
             onClick={next}
             className="inline-flex items-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition"
           >

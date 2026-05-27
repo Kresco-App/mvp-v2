@@ -122,9 +122,11 @@ function ResetPasswordContent() {
 
             <form onSubmit={handleSubmit} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label style={labelStyle}>Nouveau mot de passe</label>
+                <label htmlFor="reset-password" style={labelStyle}>Nouveau mot de passe</label>
                 <div style={{ position: 'relative' }}>
                   <input
+                    id="reset-password"
+                    aria-label="Nouveau mot de passe"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
@@ -137,6 +139,7 @@ function ResetPasswordContent() {
                   />
                   <button
                     type="button"
+                    aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
                     onClick={() => setShowPassword(v => !v)}
                     style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--auth-text-muted)', display: 'flex' }}
                   >
@@ -146,8 +149,10 @@ function ResetPasswordContent() {
               </div>
 
               <div>
-                <label style={labelStyle}>Confirmer le mot de passe</label>
+                <label htmlFor="reset-password-confirm" style={labelStyle}>Confirmer le mot de passe</label>
                 <input
+                  id="reset-password-confirm"
+                  aria-label="Confirmer le mot de passe"
                   type={showPassword ? 'text' : 'password'}
                   value={confirm}
                   onChange={e => setConfirm(e.target.value)}

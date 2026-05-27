@@ -55,21 +55,21 @@ export default function LabLayout({
 
                     {/* Tab Navigation - Pill Style */}
                     <div className={`flex ${isDark ? 'bg-[#334155]' : 'bg-[#F1F5F9]'} rounded-full p-1 gap-1`}>
-                        <button
+                        <button type="button"
                             onClick={() => onNavigate('inclusion')}
                             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${currentPage === 'inclusion' ? 'bg-blue-500 text-white shadow-sm' : `${textSecondary} hover:${textPrimary}`
                                 }`}
                         >
                             Inclusion des Ensembles
                         </button>
-                        <button
+                        <button type="button"
                             onClick={() => onNavigate('variations')}
                             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${currentPage === 'variations' ? 'bg-emerald-500 text-white shadow-sm' : `${textSecondary} hover:${textPrimary}`
                                 }`}
                         >
                             Variations de ℝ
                         </button>
-                        <button
+                        <button type="button"
                             onClick={() => onNavigate('pascal')}
                             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${currentPage === 'pascal' ? 'bg-amber-500 text-white shadow-sm' : `${textSecondary} hover:${textPrimary}`
                                 }`}
@@ -81,7 +81,7 @@ export default function LabLayout({
 
                 {/* Header Actions */}
                 <div className="flex items-center gap-2">
-                    <button
+                    <button type="button"
                         onClick={toggleTheme}
                         className={`px-3 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
                         title={isDark ? 'Mode clair' : 'Mode sombre'}

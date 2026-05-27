@@ -69,6 +69,16 @@ class ChapterOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChapterWithSectionsOut(BaseModel):
+    id: int
+    title: str
+    description: str = ""
+    order: int
+    sections: list[ChapterSectionOut] = []
+
+    model_config = {"from_attributes": True}
+
+
 class SubjectListOut(BaseModel):
     id: int
     title: str
@@ -96,6 +106,14 @@ class SubjectDetailOut(BaseModel):
 class StreamOut(BaseModel):
     otp: str
     playback_info: str
+
+
+class SectionWatchContextOut(BaseModel):
+    section: ChapterSectionOut
+    chapter: ChapterWithSectionsOut
+    subject_id: int
+    subject_title: str
+    chapters: list[ChapterWithSectionsOut] = []
 
 
 class CoursePDFOut(BaseModel):

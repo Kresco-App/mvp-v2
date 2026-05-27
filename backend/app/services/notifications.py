@@ -10,10 +10,11 @@ async def create_notification(
     body: str,
     db: AsyncSession,
 ) -> Notification:
-    """Create and persist a notification for a user.
+    """Create a notification in the caller's transaction.
 
     Can be called from any router after an XP award, quest completion,
     badge unlock, streak update, or system event.
+    The caller owns the surrounding commit or rollback.
 
     Example::
 
@@ -29,5 +30,5 @@ async def create_notification(
     """
     notif = Notification(user_id=user_id, type=type, title=title, body=body)
     db.add(notif)
-    await db.commit()
+    await db.flush()
     return notif

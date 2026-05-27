@@ -102,7 +102,7 @@ export default function LimitesContinuiteLab({
           <p className="text-white text-xl font-bold">{perfect ? 'Excellent' : 'Lab termine'}</p>
           <p className="text-slate-400 mt-1">{correctCount} / {items.length} bonnes reponses</p>
         </div>
-        <button
+        <button type="button"
           onClick={reset}
           className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
         >
@@ -138,7 +138,7 @@ export default function LimitesContinuiteLab({
           const wrongChoice = submitted && active && option !== current.correctOption
 
           return (
-            <button
+            <button type="button"
               key={option}
               onClick={() => !submitted && setSelected(option)}
               className={[
@@ -169,7 +169,7 @@ export default function LimitesContinuiteLab({
 
       <div className="flex gap-3">
         {!submitted ? (
-          <button
+          <button type="button"
             onClick={submit}
             disabled={!selected}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
@@ -177,7 +177,7 @@ export default function LimitesContinuiteLab({
             Verifier
           </button>
         ) : (
-          <button
+          <button type="button"
             onClick={next}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition"
           >

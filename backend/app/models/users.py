@@ -23,6 +23,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="student")
     niveau: Mapped[str] = mapped_column(String(10), default="")
     filiere: Mapped[str] = mapped_column(String(100), default="")
+    tier: Mapped[str] = mapped_column(String(30), default="basic")
     is_pro: Mapped[bool] = mapped_column(Boolean, default=False)
     stripe_customer_id: Mapped[str] = mapped_column(String(255), default="")
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
@@ -30,6 +31,8 @@ class User(Base):
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_staff: Mapped[bool] = mapped_column(Boolean, default=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
+    auth_token_version: Mapped[int] = mapped_column(Integer, default=0)
+    password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     # Django AbstractBaseUser columns — kept so SQLAlchemy doesn't error on existing RDS schema
     password: Mapped[str] = mapped_column(String(128), default="!")
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

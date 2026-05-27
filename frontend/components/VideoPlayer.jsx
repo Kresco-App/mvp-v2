@@ -1,9 +1,12 @@
 'use client'
 
+/* oxlint-disable react-doctor/effect-needs-cleanup -- VdoCipher exposes player events asynchronously; this file cleans them through the resolved effect cleanup. */
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle, Play } from 'lucide-react'
 import api from '@/lib/axios'
+import { isLocalDemoVideoStream } from '@/lib/devFeatures'
 
 const VDO_API_SRC = 'https://player.vdocipher.com/v2/api.js'
 
@@ -71,6 +74,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   const [streamData, setStreamData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [isPlaying, setIsPlaying] = useState(false)
   const lastSavedRef = useRef(0)
 
   const clearProgressInterval = useCallback(() => {
@@ -95,6 +99,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     if (completionReportedRef.current) return
 
     completionReportedRef.current = true
+    setIsPlaying(false)
     clearProgressInterval()
     void saveProgress(durationSeconds)
     onCompleteRef.current?.()
@@ -106,17 +111,22 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   }, [onComplete, onProgress])
 
   useEffect(() => {
+    let cancelled = false
+
     async function fetchStream() {
       setLoading(true)
       setError(null)
       try {
         const { data } = await api.get(`/courses/sections/${lessonId}/stream`)
+        if (cancelled) return
         setStreamData(data)
       } catch (err) {
+        if (cancelled) return
         const msg = err?.response?.data?.detail || 'Erreur de chargement de la video.'
         setError(msg)
         toast.error(msg)
       } finally {
+        if (cancelled) return
         setLoading(false)
       }
     }
@@ -124,6 +134,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     fetchStream()
 
     return () => {
+      cancelled = true
       clearProgressInterval()
     }
   }, [clearProgressInterval, lessonId])
@@ -131,17 +142,18 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   useEffect(() => {
     if (!streamData || !iframeRef.current) return
 
-    if (streamData.otp === 'mock-otp-token') return
+    if (isLocalDemoVideoStream(streamData)) return
 
     let cancelled = false
     let cleanupVideoEvents = null
+    let activePlayer = null
 
     lastSavedRef.current = 0
     completionReportedRef.current = false
     clearProgressInterval()
 
     const syncProgress = () => {
-      const current = playerRef.current?.video?.currentTime ?? 0
+      const current = activePlayer?.video?.currentTime ?? 0
       const pct = durationSeconds > 0 ? current / durationSeconds : 0
 
       onProgressRef.current?.(current, pct)
@@ -163,21 +175,14 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
         }
 
         playerRef.current = player
+        activePlayer = player
 
         const handlePlay = () => {
-          if (progressIntervalRef.current) return
-
-          progressIntervalRef.current = setInterval(() => {
-            const current = Math.round(playerRef.current?.video?.currentTime ?? 0)
-            if (current !== lastSavedRef.current) {
-              lastSavedRef.current = current
-              void saveProgress(current)
-            }
-          }, 30000)
+          setIsPlaying(true)
         }
 
         const handlePause = () => {
-          clearProgressInterval()
+          setIsPlaying(false)
         }
 
         const handleEnded = () => {
@@ -208,7 +213,6 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
       cancelled = true
       cleanupVideoEvents?.()
       clearProgressInterval()
-      playerRef.current = null
     }
   }, [
     clearProgressInterval,
@@ -217,6 +221,29 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     saveProgress,
     streamData,
   ])
+
+  useEffect(() => {
+    if (!isPlaying) {
+      clearProgressInterval()
+      return
+    }
+
+    const intervalId = setInterval(() => {
+      const current = Math.round(playerRef.current?.video?.currentTime ?? 0)
+      if (current !== lastSavedRef.current) {
+        lastSavedRef.current = current
+        void saveProgress(current)
+      }
+    }, 30000)
+    progressIntervalRef.current = intervalId
+
+    return () => {
+      clearInterval(intervalId)
+      if (progressIntervalRef.current === intervalId) {
+        progressIntervalRef.current = null
+      }
+    }
+  }, [clearProgressInterval, isPlaying, saveProgress])
 
   if (loading) {
     return (
@@ -241,7 +268,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     )
   }
 
-  if (streamData?.otp === 'mock-otp-token') {
+  if (isLocalDemoVideoStream(streamData)) {
     return (
       <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/30 to-slate-950" />
@@ -256,6 +283,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
             </p>
           </div>
           <button
+            type="button"
             onClick={() => {
               void saveProgress(durationSeconds)
               toast.success('Lecon marquee comme terminee !')
@@ -279,6 +307,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
         src={iframeSrc}
         allow="encrypted-media"
         allowFullScreen
+        sandbox="allow-scripts allow-presentation"
         className="w-full h-full"
         style={{ border: 'none' }}
       />

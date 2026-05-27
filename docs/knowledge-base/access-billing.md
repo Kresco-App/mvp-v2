@@ -27,7 +27,7 @@ Access checks apply to:
 - Lessons and sections on compatibility routes.
 - Exams and ExamProblems.
 
-Locked API responses must keep the learning structure visible while hiding protected payloads such as provider IDs, URLs, quiz configs, and written solutions.
+Locked API responses must keep the learning structure visible while hiding protected payloads such as provider IDs, URLs, quiz configs, and written solutions. Course response projection and locked-payload redaction live in `backend/app/services/course_access.py`.
 
 ## Current Billing Surface
 
@@ -35,6 +35,7 @@ Stripe payment integration lives in:
 
 - `backend/app/routers/payments.py`
 - `backend/app/services/stripe_service.py`
+- `backend/app/services/payment_entitlements.py`
 
 Current endpoints:
 
@@ -42,7 +43,7 @@ Current endpoints:
 - `GET /api/payments/verify-session`
 - `POST /api/payments/webhook`
 
-Successful payment marks `User.is_pro=true`.
+The current billing model is a one-time `pro` Checkout payment. Successful payment marks `User.is_pro=true` through the shared payment entitlement service; the app does not currently create Stripe subscriptions or model recurring billing periods.
 
 ## Current Preview Rule
 

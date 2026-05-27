@@ -13,7 +13,7 @@ export const StroboscopeSimulator: React.FC = () => {
   const [freqFlash, setFreqFlash] = useState(19); // Default to slight offset (slow motion)
   
   const timeRef = useRef(0);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
 
   const draw = () => {
     if (!canvasRef.current) return;
@@ -214,16 +214,16 @@ export const StroboscopeSimulator: React.FC = () => {
       </div>
       
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <button onClick={() => { setFreqReal(20); setFreqFlash(20); }} className="px-3 py-2 bg-green-50 text-green-700 text-xs font-bold rounded border border-green-200 hover:bg-green-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(20); }} className="px-3 py-2 bg-green-50 text-green-700 text-xs font-bold rounded border border-green-200 hover:bg-green-100 transition-colors">
               Immobilité (f = fe)
           </button>
-          <button onClick={() => { setFreqReal(40); setFreqFlash(20); }} className="px-3 py-2 bg-green-50 text-green-700 text-xs font-bold rounded border border-green-200 hover:bg-green-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(40); setFreqFlash(20); }} className="px-3 py-2 bg-green-50 text-green-700 text-xs font-bold rounded border border-green-200 hover:bg-green-100 transition-colors">
               Immobilité (f = 2*fe)
           </button>
-          <button onClick={() => { setFreqReal(20); setFreqFlash(19); }} className="px-3 py-2 bg-blue-50 text-blue-700 text-xs font-bold rounded border border-blue-200 hover:bg-blue-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(19); }} className="px-3 py-2 bg-blue-50 text-blue-700 text-xs font-bold rounded border border-blue-200 hover:bg-blue-100 transition-colors">
               Ralenti Avant (fe &lt; f)
           </button>
-          <button onClick={() => { setFreqReal(20); setFreqFlash(21); }} className="px-3 py-2 bg-orange-50 text-orange-700 text-xs font-bold rounded border border-orange-200 hover:bg-orange-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(21); }} className="px-3 py-2 bg-orange-50 text-orange-700 text-xs font-bold rounded border border-orange-200 hover:bg-orange-100 transition-colors">
               Ralenti Arrière (fe &gt; f)
           </button>
       </div>

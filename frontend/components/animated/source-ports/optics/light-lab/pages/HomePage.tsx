@@ -17,7 +17,7 @@ export default function HomePage({ onNavigate }: { onNavigate: (page: string) =>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Module 1: Réflexion & Réfraction */}
-                <button 
+                <button type="button" 
                     onClick={() => onNavigate('optics')}
                     className="group relative p-6 bg-slate-800 rounded-2xl border border-slate-700 hover:border-amber-500/50 transition-all hover:shadow-2xl hover:shadow-amber-500/10 text-left overflow-hidden"
                 >
@@ -31,7 +31,7 @@ export default function HomePage({ onNavigate }: { onNavigate: (page: string) =>
                 </button>
 
                 {/* Module 2: Diffraction */}
-                <button 
+                <button type="button" 
                     onClick={() => onNavigate('diffraction')}
                     className="group relative p-6 bg-slate-800 rounded-2xl border border-slate-700 hover:border-cyan-500/50 transition-all hover:shadow-2xl hover:shadow-cyan-500/10 text-left overflow-hidden"
                 >
@@ -45,7 +45,7 @@ export default function HomePage({ onNavigate }: { onNavigate: (page: string) =>
                 </button>
 
                 {/* Module 3: Prisme */}
-                <button 
+                <button type="button" 
                     onClick={() => onNavigate('prism')}
                     className="group relative p-6 bg-slate-800 rounded-2xl border border-slate-700 hover:border-purple-500/50 transition-all hover:shadow-2xl hover:shadow-purple-500/10 text-left overflow-hidden"
                 >

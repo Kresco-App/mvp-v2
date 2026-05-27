@@ -10,6 +10,7 @@ from app.config import Settings
 from app.database import get_session_factory, init_engine, reset_engine
 from app.main import create_app
 from app.models.base import Base
+from app.rate_limit import limiter
 from app.services.auth import create_token
 
 
@@ -18,11 +19,19 @@ def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
     db_path: Path = tmp_path_factory.mktemp("db") / "test.sqlite3"
     return Settings(
         database_url=f"sqlite+aiosqlite:///{db_path}",
-        jwt_secret_key="test-secret",
+        jwt_secret_key="test-secret-key-for-ci-32-bytes-minimum",
         google_client_id="test-google-client-id",
+        vdocipher_api_secret="",
+        vdocipher_api_base_url="",
+        vdocipher_live_create_url="",
+        stripe_sk="",
+        stripe_pk="",
+        stripe_product_id="",
         stripe_webhook_secret="",
+        frontend_url="http://localhost:3000",
         resend_api_key="",
         admin_password="test-admin-password",
+        ably_api_key="",
         debug=True,
     )
 
@@ -49,6 +58,12 @@ def run_db():
     def _run(coro):
         return asyncio.run(coro)
     return _run
+
+
+@pytest.fixture(autouse=True)
+def reset_client_request_state(app_client: TestClient):
+    app_client.cookies.clear()
+    limiter.reset()
 
 
 @pytest.fixture

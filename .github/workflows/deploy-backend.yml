@@ -7,11 +7,29 @@ on:
       - master
     paths:
       - 'backend/**'
+      - 'scripts/**'
+      - '.gitignore'
       - '.github/workflows/deploy-backend.yml'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      CI_POSTGRES_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_deploy_check
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: kresco_deploy_check
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kresco_deploy_check"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout Code
@@ -21,6 +39,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Check repository hygiene
+        run: python scripts/check_repo_hygiene.py
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -36,20 +57,35 @@ jobs:
           source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
-          pip install zappa
+          pip install pytest==8.4.2 zappa==0.62.1
+
+      - name: Run Alembic migration check on Postgres
+        run: |
+          cd backend
+          source venv/bin/activate
+          DATABASE_URL="$CI_POSTGRES_DATABASE_URL" alembic upgrade head
+
+      - name: Run data integrity audit on Postgres
+        run: |
+          cd backend
+          source venv/bin/activate
+          DATABASE_URL="$CI_POSTGRES_DATABASE_URL" python scripts/audit_data_integrity.py
 
       - name: Backend startup check
         run: |
           cd backend
           source venv/bin/activate
           python -c "from app.main import create_app; app = create_app(); print(app.title)"
+        env:
+          ADMIN_PASSWORD: test-admin-password
+          JWT_SECRET_KEY: test-secret-key-for-ci-32-bytes-minimum
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
 
       - name: Run backend tests
         run: |
           cd backend
           source venv/bin/activate
-          pytest -q
+          python -m pytest -q
 
       - name: Run Alembic Migrations
         run: |
@@ -59,8 +95,33 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      - name: Render Zappa production environment
+        run: |
+          cd backend
+          source venv/bin/activate
+          python scripts/render_zappa_settings.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          VDOCIPHER_API_SECRET: ${{ secrets.VDOCIPHER_API_SECRET }}
+          VDOCIPHER_API_BASE_URL: ${{ secrets.VDOCIPHER_API_BASE_URL }}
+          VDOCIPHER_LIVE_CREATE_URL: ${{ secrets.VDOCIPHER_LIVE_CREATE_URL }}
+          STRIPE_SK: ${{ secrets.STRIPE_SK }}
+          STRIPE_PRODUCT_ID: ${{ secrets.STRIPE_PRODUCT_ID }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          CORS_ALLOW_ORIGIN_REGEX: ${{ vars.CORS_ALLOW_ORIGIN_REGEX }}
+
       - name: Deploy to Lambda
         run: |
           cd backend
           source venv/bin/activate
           zappa deploy production || zappa update production
+
+      - name: Post-deploy readiness check
+        run: python scripts/check_http_readiness.py "${{ vars.BACKEND_READY_URL }}"

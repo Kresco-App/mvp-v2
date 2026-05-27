@@ -111,7 +111,7 @@ const UraniumExercise = () => {
 
             <div className="flex justify-end">
                 {status === 'idle' && (
-                    <button onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-sm">
+                    <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-sm">
                         Vérifier mes réponses
                     </button>
                 )}
@@ -144,7 +144,7 @@ const UraniumExercise = () => {
                             {!examMode && <p>Vérifiez N = A - Z. Pour l'énergie, n'oubliez pas de multiplier le défaut de masse par 931.5.</p>}
                         </div>
                     </div>
-                    <button onClick={() => setStatus('idle')} className="text-rose-600 font-bold hover:underline text-xs bg-white px-3 py-2 rounded border border-rose-200">Réessayer</button>
+                    <button type="button" onClick={() => setStatus('idle')} className="text-rose-600 font-bold hover:underline text-xs bg-white px-3 py-2 rounded border border-rose-200">Réessayer</button>
                 </motion.div>
             )}
         </div>
@@ -196,7 +196,7 @@ const FissionExercise = () => {
                     value={xVal}
                     onChange={e => setXVal(e.target.value)}
                 />
-                <button onClick={check} className="bg-orange-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-orange-700 transition-colors shadow-sm">
+                <button type="button" onClick={check} className="bg-orange-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-orange-700 transition-colors shadow-sm">
                     Valider
                 </button>
             </div>
@@ -268,7 +268,7 @@ const DecayExercise = () => {
 
             <div className="grid grid-cols-1 gap-3">
                 {options.map(opt => (
-                    <button
+                    <button type="button"
                         key={opt.id}
                         onClick={() => handleSelect(opt.id, opt.correct)}
                         className={`p - 4 rounded - lg text - left font - medium border - 2 transition - all flex justify - between items - center ${choice === opt.id
@@ -394,7 +394,7 @@ const EnergyExercise = () => {
                             value={energy}
                             onChange={e => setEnergy(e.target.value)}
                         />
-                        <button onClick={checkAnswer} className="bg-sky-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-sky-700 transition-colors shadow-sm">
+                        <button type="button" onClick={checkAnswer} className="bg-sky-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-sky-700 transition-colors shadow-sm">
                             Vérifier
                         </button>
                     </div>
@@ -427,7 +427,7 @@ const EnergyExercise = () => {
                             {!examMode && <p>Avez-vous bien soustrait la masse des produits à celle des réactifs ? (m_avant - m_après)</p>}
                         </div>
                     </div>
-                    <button onClick={() => setStatus('idle')} className="text-rose-600 font-bold hover:underline text-xs bg-white px-3 py-2 rounded border border-rose-200">Réessayer</button>
+                    <button type="button" onClick={() => setStatus('idle')} className="text-rose-600 font-bold hover:underline text-xs bg-white px-3 py-2 rounded border border-rose-200">Réessayer</button>
                 </motion.div>
             )}
         </div>

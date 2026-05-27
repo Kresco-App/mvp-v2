@@ -2,65 +2,37 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { motion } from 'framer-motion'
 import { Check, ChevronLeft, ChevronRight, Clock3, Trophy, Zap } from 'lucide-react'
 import api from '@/lib/axios'
-import type { FigmaDailyQuest } from './home'
+import {
+  buildPermanentSidebarCalendarDays,
+  buildStrikeDays,
+  getCalendarDayKey,
+  getCalendarStart,
+  getCalendarWindow,
+  getLeaderboardAvatarSrc,
+  getQuestProgressPercent,
+  getQuestTone,
+  normalizeQuests,
+  permanentSidebarCalendarDefaults,
+  permanentSidebarCountdownDefaults,
+  permanentSidebarDefaultSections,
+  permanentSidebarLeaderboardDefaults,
+  permanentSidebarLiveEventDefaults,
+  permanentSidebarQuestDefaults,
+  permanentSidebarStrikeDefaults,
+  toClientSidebarData,
+  wrapIndex,
+  type FigmaDailyQuest,
+  type PermanentSidebarCalendarDay,
+  type PermanentSidebarCountdownUnit,
+  type PermanentSidebarData,
+  type PermanentSidebarLeaderboardEntry,
+  type PermanentSidebarLiveEvent,
+  type PermanentSidebarSection,
+  type PermanentSidebarStrikeDay,
+} from '@/lib/permanentSidebarViewModel'
 import { FigmaSidebarSkeleton } from './skeletons'
-
-export type PermanentSidebarLeaderboardEntry = {
-  rank: number
-  user_id: number
-  full_name: string
-  avatar_url?: string
-  total_xp: number
-  level?: number
-  is_current_user?: boolean
-  href?: string
-}
-
-export type PermanentSidebarCountdownUnit = {
-  value: number | string
-  label: string
-}
-
-export type PermanentSidebarCalendarDay = {
-  id?: number | string
-  value: number | string
-  label: string
-  active?: boolean
-}
-
-export type PermanentSidebarLiveEvent = {
-  id: number | string
-  title: string
-  startsAt?: string
-  starts_at?: string
-  subject: string
-  href?: string
-  status?: string
-}
-
-export type PermanentSidebarStrikeDay = {
-  label: string
-  done?: boolean
-}
-
-export type PermanentSidebarData = {
-  chronoUnits?: PermanentSidebarCountdownUnit[]
-  chrono_units?: PermanentSidebarCountdownUnit[]
-  calendarDays?: PermanentSidebarCalendarDay[]
-  calendar_days?: PermanentSidebarCalendarDay[]
-  liveEvents?: PermanentSidebarLiveEvent[]
-  live_events?: PermanentSidebarLiveEvent[]
-  strikeDays?: PermanentSidebarStrikeDay[]
-  strike_days?: PermanentSidebarStrikeDay[]
-  quests?: FigmaDailyQuest[]
-  leaderboardEntries?: PermanentSidebarLeaderboardEntry[]
-  leaderboard_entries?: PermanentSidebarLeaderboardEntry[]
-}
-
-export type PermanentSidebarSection = 'chrono' | 'calendar' | 'strike' | 'quests' | 'leaderboard'
 
 export type PermanentSidebarProps = {
   data?: PermanentSidebarData
@@ -82,67 +54,6 @@ export type PermanentSidebarProps = {
   sections?: PermanentSidebarSection[]
   className?: string
 }
-
-export const permanentSidebarCountdownDefaults: PermanentSidebarCountdownUnit[] = [
-  { value: 8, label: 'Month' },
-  { value: 3, label: 'Week' },
-  { value: 14, label: 'Day' },
-  { value: 16, label: 'Hour' },
-  { value: 45, label: 'Minute' },
-]
-
-export const permanentSidebarCalendarDefaults: PermanentSidebarCalendarDay[] = [
-  { value: 8, label: 'Mon' },
-  { value: 9, label: 'Tue' },
-  { value: 10, label: 'Wed', active: true },
-  { value: 11, label: 'Thu' },
-  { value: 12, label: 'Fri' },
-  { value: 13, label: 'Sat' },
-  { value: 14, label: 'Sun' },
-  { value: 15, label: 'Mon' },
-  { value: 16, label: 'Tue' },
-  { value: 17, label: 'Wed' },
-  { value: 18, label: 'Thu' },
-  { value: 19, label: 'Fri' },
-  { value: 20, label: 'Sat' },
-  { value: 21, label: 'Sun' },
-]
-
-export const permanentSidebarStrikeDefaults: PermanentSidebarStrikeDay[] = [
-  { label: 'Mon', done: true },
-  { label: 'Tue', done: true },
-  { label: 'Wed' },
-  { label: 'Thu' },
-  { label: 'Fri' },
-  { label: 'Sat' },
-  { label: 'Sun' },
-]
-
-export const permanentSidebarQuestDefaults: FigmaDailyQuest[] = [
-  { id: 'lesson', quest_type: 'lesson', title: 'Complete 1 Mathematics Lesson', progress: 3, target: 4 },
-  { id: 'quiz', quest_type: 'quiz', title: 'Score 14/20 or higher in 2 exercises', progress: 1, target: 5 },
-  { id: 'study', quest_type: 'study_time', title: 'Spend 15min In studying Physics', progress: 2, target: 6 },
-]
-
-export const permanentSidebarLiveEventDefaults: PermanentSidebarLiveEvent[] = [
-  { id: 'math-live', title: 'Continuity clinic', startsAt: 'Today 18:30', subject: 'Mathematics', href: '/live', status: 'upcoming' },
-  { id: 'physics-live', title: 'Wave speed review', startsAt: 'Tomorrow 19:00', subject: 'Physique-Chimie', href: '/live', status: 'upcoming' },
-]
-
-export const permanentSidebarLeaderboardDefaults: PermanentSidebarLeaderboardEntry[] = [
-  { rank: 1, user_id: 1, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 2, user_id: 2, full_name: 'Fatima Ansari', total_xp: 541135 },
-  { rank: 3, user_id: 3, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 4, user_id: 4, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 5, user_id: 5, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 6, user_id: 6, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 7, user_id: 7, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 8, user_id: 8, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 9, user_id: 9, full_name: 'Ahmed Malik', total_xp: 542541 },
-  { rank: 10, user_id: 10, full_name: 'Ahmed Malik', total_xp: 542541 },
-]
-
-const permanentSidebarDefaultSections: PermanentSidebarSection[] = ['chrono', 'calendar', 'strike', 'quests', 'leaderboard']
 
 export function PermanentSidebar({
   data,
@@ -188,10 +99,11 @@ export function PermanentSidebar({
         ]).then(([questResult, leaderboardResult, xpResult]) => {
           if (!alive) return
           setLoadedData({
+            calendarDays: buildPermanentSidebarCalendarDays(),
             quests: questResult.status === 'fulfilled' ? questResult.value.data : [],
             leaderboardEntries: leaderboardResult.status === 'fulfilled' ? leaderboardResult.value.data : [],
             strikeDays: xpResult.status === 'fulfilled' ? buildStrikeDays(xpResult.value.data?.streak_days ?? 0) : permanentSidebarStrikeDefaults,
-            liveEvents: permanentSidebarLiveEventDefaults,
+            liveEvents: [],
           })
         })
       })
@@ -316,7 +228,6 @@ export function CalendarCard({
   const initialActiveIndex = Math.max(0, safeDays.findIndex((day) => day.active))
   const [activeIndex, setActiveIndex] = useState(initialActiveIndex)
   const [windowStart, setWindowStart] = useState(getCalendarStart(initialActiveIndex, safeDays.length, windowSize))
-  const [slideDirection, setSlideDirection] = useState<1 | -1>(1)
   const visibleDays = getCalendarWindow(safeDays, windowStart, windowSize)
 
   useEffect(() => {
@@ -328,7 +239,6 @@ export function CalendarCard({
   }, [days, onWindowChange, safeDays, windowSize])
 
   function moveWindow(direction: -1 | 1) {
-    setSlideDirection(direction)
     setWindowStart((current) => {
       const next = wrapIndex(current + direction, safeDays.length)
       onWindowChange?.(getCalendarWindow(safeDays, next, windowSize))
@@ -347,12 +257,9 @@ export function CalendarCard({
       <div className="mt-6 flex w-full items-center gap-2">
         <CalendarArrow direction="left" onClick={() => moveWindow(-1)} />
         <div className="relative h-12 min-w-0 flex-1 overflow-hidden text-center text-[14px] font-bold leading-[1.1] tracking-[0.21px]">
-            <motion.div
+            <div
               key={visibleDays.map(getCalendarDayKey).join('|')}
-              initial={{ x: slideDirection * 10, opacity: 0.92 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
-              className="absolute inset-0 flex items-center gap-1.5"
+              className="absolute inset-0 flex items-center gap-1.5 transition-opacity duration-150"
             >
               {visibleDays.map((day) => {
                 const isActive = safeDays[activeIndex] && getCalendarDayKey(safeDays[activeIndex]) === getCalendarDayKey(day)
@@ -370,12 +277,12 @@ export function CalendarCard({
                   </button>
                 )
               })}
-            </motion.div>
+            </div>
         </div>
         <CalendarArrow direction="right" onClick={() => moveWindow(1)} />
       </div>
       <div className="mt-8 grid gap-2">
-        {events.slice(0, 2).map((event) => (
+        {events.length > 0 ? events.slice(0, 2).map((event) => (
           <a
             className="kresco-hover-lift grid min-h-[62px] grid-cols-[1fr_auto] items-center gap-3 rounded-lg bg-[#f4f4f5] px-3 text-left no-underline hover:bg-[#eef2ff]"
             href={event.href || liveHref}
@@ -387,7 +294,11 @@ export function CalendarCard({
             </span>
             <span className="whitespace-nowrap text-[12px] font-bold leading-none tracking-[0.18px] text-[#453dee]">{event.startsAt || event.starts_at}</span>
           </a>
-        ))}
+        )) : (
+          <div className="grid min-h-[132px] place-items-center rounded-lg bg-[#f4f4f5] px-4 text-center text-[13px] font-bold leading-[1.2] tracking-[0.18px] text-[#71717b]">
+            No upcoming live sessions
+          </div>
+        )}
       </div>
     </PermanentSidebarCard>
   )
@@ -456,9 +367,9 @@ export function DailyQuestPanel({
     <PermanentSidebarCard title={title} subtitle={subtitle} height={305}>
       <div className="mt-8 grid w-full gap-6">
         {visibleQuests.slice(0, 3).map((quest, index) => {
-          const tone = questTone(quest.quest_type, index)
+          const tone = getQuestTone(quest.quest_type, index, 'sidebar')
           const Icon = questIcon(quest.quest_type)
-          const pct = Math.max(0, Math.min(100, Math.round((quest.progress / Math.max(quest.target, 1)) * 100)))
+          const pct = getQuestProgressPercent(quest)
           return (
             <button
               className={`grid w-full grid-cols-[32px_1fr] gap-4 border-0 bg-transparent p-0 text-left transition-transform duration-150 hover:translate-x-0.5 ${index === 1 ? 'min-h-14' : 'min-h-[41px]'}`}
@@ -532,8 +443,7 @@ export function RankMarker({ rank }: { rank: number }) {
 }
 
 export function LeaderboardAvatar({ entry, index }: { entry: PermanentSidebarLeaderboardEntry; index: number }) {
-  const fallbackSrc = index === 1 ? '/figma-assets/sidebar-avatar-fatima.png' : '/figma-assets/sidebar-avatar-ahmed.png'
-  const src = entry.avatar_url || fallbackSrc
+  const src = getLeaderboardAvatarSrc(entry, index)
 
   return (
     <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[12.727px] bg-[#e4e4e7]">
@@ -543,66 +453,8 @@ export function LeaderboardAvatar({ entry, index }: { entry: PermanentSidebarLea
   )
 }
 
-function normalizeQuests(quests: FigmaDailyQuest[]) {
-  const source = quests.length > 0 ? quests : permanentSidebarQuestDefaults
-  const labels = [
-    'Complete 1 Mathematics Lesson',
-    'Score 14/20 or higher in 2 exercises',
-    'Spend 15min In studying Physics',
-  ]
-
-  return source.slice(0, 3).map((quest, index) => ({
-    ...quest,
-    title: labels[index] ?? quest.title,
-  }))
-}
-
-function toClientSidebarData(raw: PermanentSidebarData): PermanentSidebarData {
-  return {
-    chronoUnits: raw.chronoUnits ?? raw.chrono_units ?? permanentSidebarCountdownDefaults,
-    calendarDays: raw.calendarDays ?? raw.calendar_days ?? permanentSidebarCalendarDefaults,
-    liveEvents: raw.liveEvents ?? raw.live_events ?? permanentSidebarLiveEventDefaults,
-    strikeDays: raw.strikeDays ?? raw.strike_days ?? permanentSidebarStrikeDefaults,
-    quests: raw.quests ?? [],
-    leaderboardEntries: raw.leaderboardEntries ?? raw.leaderboard_entries ?? [],
-  }
-}
-
-function buildStrikeDays(streakDays: number): PermanentSidebarStrikeDay[] {
-  return permanentSidebarStrikeDefaults.map((day, index) => ({
-    ...day,
-    done: index < Math.max(0, Math.min(streakDays, permanentSidebarStrikeDefaults.length)),
-  }))
-}
-
-function getCalendarStart(activeIndex: number, total: number, windowSize: number) {
-  if (total <= 0) return 0
-  return wrapIndex(activeIndex - Math.floor(Math.min(windowSize, total) / 2), total)
-}
-
-function getCalendarWindow(days: PermanentSidebarCalendarDay[], start: number, windowSize: number) {
-  if (days.length === 0) return []
-  return Array.from({ length: Math.min(windowSize, days.length) }, (_, index) => days[wrapIndex(start + index, days.length)])
-}
-
-function wrapIndex(index: number, length: number) {
-  if (length <= 0) return 0
-  return ((index % length) + length) % length
-}
-
-function getCalendarDayKey(day: PermanentSidebarCalendarDay) {
-  return `${day.id ?? day.value}-${day.label}`
-}
-
 function questIcon(type?: string) {
   if (type?.includes('quiz') || type?.includes('exercise')) return Trophy
   if (type?.includes('time') || type?.includes('study')) return Clock3
   return Zap
-}
-
-function questTone(type: string | undefined, index: number) {
-  if (type?.includes('lesson')) return '#f5900b'
-  if (type?.includes('quiz') || type?.includes('exercise')) return '#5b60f9'
-  if (type?.includes('time') || type?.includes('study')) return '#2e86ff'
-  return ['#f5900b', '#5b60f9', '#2e86ff'][index % 3]
 }

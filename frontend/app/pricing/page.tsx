@@ -6,6 +6,7 @@ import { CheckCircle2, Crown, Zap, BookOpen, Award, ArrowLeft } from 'lucide-rea
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 import api from '@/lib/axios'
+import { createProCheckoutSession } from '@/lib/payments'
 import AuthGuard from '@/components/AuthGuard'
 
 const GRATUIT_FEATURES = [
@@ -29,18 +30,13 @@ export default function PricingPage() {
 
   useEffect(() => { document.title = 'Tarifs \u2014 Kresco' }, [])
 
-  async function handleCheckout(plan: 'monthly' | 'yearly') {
-    try {
-      const res = await api.post('/payments/create-checkout-session', null, {
-        params: { plan }
-      })
-      if (res.data.checkout_url) {
-        window.location.href = res.data.checkout_url
-      }
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || 'Erreur lors de la creation du paiement.'
-      toast.error(msg)
+  async function handleCheckout() {
+    const result = await createProCheckoutSession(api)
+    if (result.status === 'success') {
+      window.location.href = result.checkoutUrl
+      return
     }
+    toast.error(result.message)
   }
 
   return (
@@ -67,7 +63,7 @@ export default function PricingPage() {
               Tarification simple et transparente
             </h1>
             <p className="text-slate-500 text-lg max-w-md mx-auto leading-relaxed">
-              Un seul plan. Tout le contenu. Annulez a tout moment.
+              Un paiement unique pour debloquer Kresco Pro.
             </p>
           </div>
 
@@ -81,7 +77,6 @@ export default function PricingPage() {
                 <h2 className="text-xl font-bold text-white mb-1">Gratuit</h2>
                 <div className="flex items-baseline gap-1">
                   <span className="text-4xl font-bold text-white">0 MAD</span>
-                  <span className="text-slate-400 text-sm">/mois</span>
                 </div>
                 <p className="text-slate-500 text-sm mt-2">Commencez avec les lecons en apercu.</p>
               </div>
@@ -95,7 +90,7 @@ export default function PricingPage() {
                 ))}
               </ul>
 
-              <button
+              <button type="button"
                 disabled
                 className="w-full py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-semibold cursor-not-allowed"
               >
@@ -105,7 +100,6 @@ export default function PricingPage() {
 
             {/* Pro */}
             <div className="bg-slate-950 rounded-2xl p-8 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-600/10 rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
               <div className="relative">
                 <div className="mb-6">
                   <div className="w-10 h-10 bg-indigo-600/20 rounded-xl flex items-center justify-center mb-4">
@@ -119,9 +113,9 @@ export default function PricingPage() {
                   </div>
                   <div className="flex items-baseline gap-1">
                     <span className="text-4xl font-bold text-white">99 MAD</span>
-                    <span className="text-slate-500 text-sm">/mois</span>
+                    <span className="text-slate-500 text-sm">une fois</span>
                   </div>
-                  <p className="text-slate-500 text-xs mt-1">ou 799 MAD/an (economisez 33%)</p>
+                  <p className="text-slate-500 text-xs mt-1">Acces Pro active apres confirmation Stripe.</p>
                   <p className="text-slate-400 text-sm mt-2">Tout ce qu&apos;il faut pour reussir votre Bac.</p>
                 </div>
 
@@ -141,24 +135,18 @@ export default function PricingPage() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <button
-                      onClick={() => handleCheckout('monthly')}
+                    <button type="button"
+                      onClick={() => handleCheckout()}
                       className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
                     >
                       <Zap size={16} />
-                      S&apos;abonner — 99 MAD/mois
-                    </button>
-                    <button
-                      onClick={() => handleCheckout('yearly')}
-                      className="w-full py-3 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-sm font-semibold transition-colors"
-                    >
-                      Annuel — 799 MAD/an
+                      Acheter l&apos;acces Pro - 99 MAD
                     </button>
                   </div>
                 )}
 
                 <p className="text-slate-400 text-xs text-center mt-4">
-                  Paiement securise via Stripe · Annulez quand vous voulez
+                  Paiement unique securise via Stripe
                 </p>
               </div>
             </div>
@@ -166,9 +154,9 @@ export default function PricingPage() {
 
           <div className="mt-10 grid grid-cols-3 gap-6 text-center">
             {[
-              { icon: Award, value: '500+', label: 'Lecons' },
-              { icon: Crown, value: '2 400+', label: 'Membres Pro' },
-              { icon: CheckCircle2, value: '98%', label: 'Satisfaction' },
+              { icon: Award, value: 'Unique', label: 'Paiement' },
+              { icon: Crown, value: 'Pro', label: 'Acces' },
+              { icon: CheckCircle2, value: 'Stripe', label: 'Checkout' },
             ].map(({ icon: Icon, value, label }) => (
               <div key={label} className="bg-slate-900 rounded-2xl border border-slate-800 p-5 shadow-sm">
                 <Icon size={20} className="text-indigo-600 mx-auto mb-2" />

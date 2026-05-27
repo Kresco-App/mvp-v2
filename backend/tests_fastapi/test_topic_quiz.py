@@ -93,6 +93,54 @@ def test_tab_quiz_grades_required_question_types(app_client, auth_token, run_db)
     run_db(_assert_tracking())
 
 
+def test_topic_item_completion_awards_xp_once_with_context(app_client, auth_token, run_db):
+    token, _ = auth_token(email="topic-complete-xp@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Completion Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="completion-topic", title="Completion Topic", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Lessons", section_type="lessons", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(topic_id=topic.id, section_id=section.id, title="Completion video", item_type="video", order=1)
+            db.add(item)
+            await db.commit()
+            return subject.id, topic.id, section.id, item.id
+
+    subject_id, topic_id, section_id, item_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = app_client.post(f"/api/courses/topic-items/{item_id}/complete", headers=headers, json={"watched_seconds": 120})
+    duplicate = app_client.post(f"/api/courses/topic-items/{item_id}/complete", headers=headers, json={"watched_seconds": 180})
+
+    assert first.status_code == 200
+    assert first.json()["xp_earned"] == 10
+    assert duplicate.status_code == 200
+    assert duplicate.json()["xp_earned"] == 0
+
+    async def _assert_xp():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            xp_rows = (
+                await db.execute(select(XPTransaction).where(XPTransaction.topic_item_id == item_id))
+            ).scalars().all()
+            assert len(xp_rows) == 1
+            row = xp_rows[0]
+            assert row.reason == "video_complete"
+            assert row.subject_id == subject_id
+            assert row.topic_id == topic_id
+            assert row.topic_section_id == section_id
+            assert row.idempotency_key == f"topic_item_complete:user:{row.user_id}:item:{item_id}"
+
+    run_db(_assert_xp())
+
+
 def test_tab_quiz_tracks_figma_audit_primitives(app_client, auth_token, run_db):
     token, _ = auth_token(email="quiz-figma-primitives@example.com", is_pro=True)
 

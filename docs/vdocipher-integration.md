@@ -20,6 +20,7 @@ Set this in the backend environment:
 
 ```text
 VDOCIPHER_API_SECRET=
+VDOCIPHER_API_BASE_URL=https://dev.vdocipher.com/api
 ```
 
 Do not expose this value to the frontend.
@@ -29,7 +30,7 @@ Do not expose this value to the frontend.
 `get_video_otp(vdocipher_id, settings)`:
 
 - Rejects missing video ids with `404`.
-- Calls `https://dev.vdocipher.com/api/videos/{id}/otp`.
+- Calls `${VDOCIPHER_API_BASE_URL}/videos/{id}/otp`.
 - Uses `ttl=300`.
 - Returns:
 

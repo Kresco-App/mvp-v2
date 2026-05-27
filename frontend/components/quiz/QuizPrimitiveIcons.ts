@@ -1,0 +1,31 @@
+import {
+  CircleDot,
+  Equal,
+  FileText,
+  GripVertical,
+  Image as ImageIcon,
+  ListChecks,
+  MousePointer2,
+  MoveRight,
+  PenLine,
+  Sigma,
+  SlidersHorizontal,
+  type LucideIcon,
+} from 'lucide-react'
+
+export const quizPrimitiveTypeIcons: Record<string, LucideIcon> = {
+  multiple_choice: ImageIcon,
+  numeric_approximation: Sigma,
+  slider_estimation: SlidersHorizontal,
+  exact_match: Equal,
+  fill_in_blank: PenLine,
+  multi_select: ListChecks,
+  ordering: MoveRight,
+  matching: SlidersHorizontal,
+  formula_builder: Equal,
+  error_spotting: FileText,
+  drag_and_drop: GripVertical,
+  image_hotspot: MousePointer2,
+  short_answer: FileText,
+  true_false: CircleDot,
+}

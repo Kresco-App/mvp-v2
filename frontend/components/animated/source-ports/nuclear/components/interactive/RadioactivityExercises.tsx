@@ -72,7 +72,7 @@ const HalfLifeExercise = () => {
             value={lambdaInput}
             onChange={e => setLambdaInput(e.target.value)}
         />
-        <button onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
             Vérifier
         </button>
       </div>
@@ -155,7 +155,7 @@ const DatingExercise = () => {
             value={ageInput}
             onChange={e => setAgeInput(e.target.value)}
         />
-        <button onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
             Vérifier
         </button>
       </div>
@@ -235,7 +235,7 @@ const ActivityCalculationExercise = () => {
             value={activityInput}
             onChange={e => setActivityInput(e.target.value)}
         />
-        <button onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
             Vérifier
         </button>
       </div>

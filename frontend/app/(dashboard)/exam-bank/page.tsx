@@ -106,7 +106,7 @@ export default function ExamBankPage() {
         </div>
         <div className="relative w-full lg:w-[380px]">
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#a1a1aa]" />
-          <input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} className="figma-input w-full pl-11" placeholder="Search year, topic, concept..." />
+          <input aria-label="Search exam bank" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} className="figma-input w-full pl-11" placeholder="Search year, topic, concept..." />
         </div>
       </header>
 

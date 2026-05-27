@@ -32,105 +32,21 @@ import {
   Wand2,
 } from 'lucide-react'
 import api from '@/lib/axios'
+import { getAdminRootUrl } from '@/lib/apiConfig'
+import {
+  DOMAIN_LABELS,
+  EMPTY_OVERVIEW,
+  filterCrudCatalog,
+  formatNumber,
+  groupByDomain,
+  numberValue,
+  percent,
+  publishedRatio,
+  sumValues,
+  type AdminOverview,
+  type LoadState,
+} from '@/lib/adminOverview'
 import AuthGuard from '@/components/AuthGuard'
-
-type CrudActions = {
-  create: boolean
-  read: boolean
-  update: boolean
-  delete: boolean
-}
-
-type CrudCatalogItem = {
-  domain: string
-  slug: string
-  name: string
-  name_plural: string
-  model: string
-  admin_url: string
-  actions: CrudActions
-}
-
-type AdminOverview = {
-  generated_at: string
-  totals: Record<string, number>
-  content_status: Record<string, Record<string, number>>
-  access_billing: Record<string, any>
-  ops_readiness: Record<string, any>
-  progress_xp: Record<string, any>
-  exam_bank: Record<string, any>
-  calendar: Record<string, any>
-  engagement: Record<string, any>
-  interactions: Record<string, any>
-  notifications: Record<string, any>
-  admin_audit?: Record<string, any>
-  crud_catalog: CrudCatalogItem[]
-}
-
-type LoadState = 'loading' | 'ready' | 'fallback' | 'forbidden' | 'error'
-
-const FALLBACK_CRUD: CrudCatalogItem[] = [
-  crud('knowledge-base', 'subject', 'Subject', 'Subjects', 'Subject'),
-  crud('knowledge-base', 'topic', 'Topic', 'Topics', 'Topic'),
-  crud('knowledge-base', 'topic-section', 'Topic Section', 'Topic Sections', 'TopicSection'),
-  crud('knowledge-base', 'topic-item', 'Topic Item', 'Topic Items', 'TopicItem'),
-  crud('resources', 'resource', 'Resource', 'Resources', 'Resource'),
-  crud('knowledge-base', 'tab-content', 'Tab Content', 'Tab Contents', 'TabContent'),
-  crud('knowledge-base', 'concept-tag', 'Concept Tag', 'Concept Tags', 'ConceptTag'),
-  crud('quiz', 'quiz', 'Quiz', 'Quizzes', 'Quiz'),
-  crud('quiz', 'quiz-question', 'Quiz Question', 'Quiz Questions', 'QuizQuestion'),
-  crud('quiz', 'quiz-option', 'Quiz Option', 'Quiz Options', 'QuizOption'),
-  crud('quiz', 'question-set', 'Question Set', 'Question Sets', 'QuestionSet'),
-  crud('quiz', 'question', 'Question', 'Questions', 'Question'),
-  crud('exam-bank', 'exam', 'Exam', 'Exams', 'Exam'),
-  crud('exam-bank', 'exam-problem', 'Exam Problem', 'Exam Problems', 'ExamProblem'),
-  crud('users-access', 'user', 'User', 'Users', 'User'),
-  crud('access-billing', 'user-subject-entitlement', 'Subject Entitlement', 'Subject Entitlements', 'UserSubjectEntitlement'),
-  crud('progress-xp', 'activity-event', 'Activity Event', 'Activity Events', 'ActivityEvent', false),
-  crud('progress-xp', 'topic-item-progress', 'Topic Item Progress', 'Topic Item Progress', 'TopicItemProgress', false),
-  crud('progress-xp', 'quiz-attempt', 'Quiz Attempt', 'Quiz Attempts', 'QuizAttempt', false),
-  crud('progress-xp', 'question-attempt', 'Question Attempt', 'Question Attempts', 'QuestionAttempt', false),
-  crud('progress-xp', 'user-xp', 'User XP', 'User XP Records', 'UserXP', false),
-  crud('notes-saves-comments', 'user-note', 'User Note', 'User Notes', 'UserNote', false),
-  crud('notes-saves-comments', 'saved-item', 'Saved Item', 'Saved Items', 'SavedItem', false),
-  crud('notes-saves-comments', 'comment', 'Comment', 'Comments', 'Comment', false),
-  crud('calendar', 'calendar-event', 'Calendar Event', 'Calendar Events', 'CalendarEvent'),
-  crud('notifications', 'notification', 'Notification', 'Notifications', 'Notification'),
-  crud('admin-audit', 'admin-audit-log', 'Admin Audit Log', 'Admin Audit Logs', 'AdminAuditLog', false),
-]
-
-const EMPTY_OVERVIEW: AdminOverview = {
-  generated_at: '',
-  totals: {},
-  content_status: {},
-  access_billing: {},
-  ops_readiness: {},
-  progress_xp: {},
-  exam_bank: {},
-  calendar: {},
-  engagement: {},
-  interactions: {},
-  notifications: {},
-  admin_audit: {},
-  crud_catalog: FALLBACK_CRUD,
-}
-
-const DOMAIN_LABELS: Record<string, string> = {
-  'knowledge-base': 'Knowledge base',
-  resources: 'Resources',
-  quiz: 'Quizzes',
-  'exam-bank': 'Exam bank',
-  'users-access': 'Users',
-  'access-billing': 'Access',
-  'progress-xp': 'Progress and XP',
-  engagement: 'Engagement',
-  'notes-saves-comments': 'Community data',
-  calendar: 'Calendar',
-  notifications: 'Notifications',
-  'admin-audit': 'Admin audit',
-  'legacy-course': 'Legacy course',
-  'learning-activities': 'Legacy activities',
-}
 
 const DOMAIN_ICONS: Record<string, any> = {
   'knowledge-base': LibraryBig,
@@ -149,63 +65,8 @@ const DOMAIN_ICONS: Record<string, any> = {
   'learning-activities': Puzzle,
 }
 
-function crud(
-  domain: string,
-  slug: string,
-  name: string,
-  namePlural: string,
-  model: string,
-  canCreate = true,
-): CrudCatalogItem {
-  return {
-    domain,
-    slug,
-    name,
-    name_plural: namePlural,
-    model,
-    admin_url: `/admin/${slug}/list`,
-    actions: { create: canCreate, read: true, update: true, delete: true },
-  }
-}
-
-function numberValue(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
-}
-
-function formatNumber(value: unknown): string {
-  return numberValue(value).toLocaleString()
-}
-
-function percent(value: unknown): string {
-  return `${numberValue(value).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`
-}
-
-function sumValues(values?: Record<string, unknown>): number {
-  return Object.values(values ?? {}).reduce<number>((sum, value) => sum + numberValue(value), 0)
-}
-
 function adminRoot(): string {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/'
-  return base.replace(/\/api\/?$/, '').replace(/\/$/, '') + '/admin'
-}
-
-function statusTotal(statuses?: Record<string, number>): number {
-  return Object.values(statuses ?? {}).reduce((sum, value) => sum + numberValue(value), 0)
-}
-
-function publishedRatio(statuses?: Record<string, number>): number {
-  const total = statusTotal(statuses)
-  if (!total) return 0
-  const ready = numberValue(statuses?.published) + numberValue(statuses?.active) + numberValue(statuses?.scheduled)
-  return Math.round((ready / total) * 100)
-}
-
-function groupByDomain(items: CrudCatalogItem[]) {
-  return items.reduce<Record<string, CrudCatalogItem[]>>((acc, item) => {
-    acc[item.domain] = acc[item.domain] ?? []
-    acc[item.domain].push(item)
-    return acc
-  }, {})
+  return getAdminRootUrl()
 }
 
 export default function AdminDashboard() {
@@ -235,17 +96,7 @@ export default function AdminDashboard() {
   }, [])
 
   const filteredCrud = useMemo(() => {
-    const text = query.trim().toLowerCase()
-    const items = overview.crud_catalog?.length ? overview.crud_catalog : FALLBACK_CRUD
-    if (!text) return items
-    return items.filter((item) => {
-      return [
-        item.name,
-        item.name_plural,
-        item.model,
-        DOMAIN_LABELS[item.domain] ?? item.domain,
-      ].join(' ').toLowerCase().includes(text)
-    })
+    return filterCrudCatalog(overview.crud_catalog, query)
   }, [overview.crud_catalog, query])
 
   const groupedCrud = useMemo(() => groupByDomain(filteredCrud), [filteredCrud])
@@ -486,6 +337,7 @@ export default function AdminDashboard() {
                 <div className="relative w-full lg:w-80">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
                   <input
+                    aria-label="Search models"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search models"

@@ -153,6 +153,7 @@ class Topic(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"))
+    course_offering_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="SET NULL"), nullable=True, index=True)
     slug: Mapped[str] = mapped_column(String(160), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -165,6 +166,7 @@ class Topic(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     subject: Mapped["Subject"] = relationship("Subject")
+    course_offering = relationship("CourseOffering")
     sections: Mapped[list["TopicSection"]] = relationship("TopicSection", back_populates="topic", order_by="TopicSection.order")
     resources: Mapped[list["Resource"]] = relationship("Resource", back_populates="topic")
 

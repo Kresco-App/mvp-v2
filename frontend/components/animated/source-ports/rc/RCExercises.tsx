@@ -8,7 +8,7 @@ import { Check, X, ArrowRight, RefreshCw, Calculator, ListChecks, HelpCircle } f
 // --- Shared Components ---
 
 const TabButton = ({ active, onClick, label, icon: Icon }: any) => (
-  <button
+  <button type="button"
     onClick={onClick}
     className={`flex items-center gap-2 px-3 md:px-4 py-3 rounded-lg font-bold transition-all flex-1 md:flex-none justify-center text-sm md:text-base ${
       active 
@@ -99,7 +99,7 @@ const CalcExercise = () => {
 
        <AnimatePresence mode="wait">
         {feedback === 'idle' && (
-           <button onClick={checkAnswer} className="bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors w-full">
+           <button type="button" onClick={checkAnswer} className="bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors w-full">
              Valider
            </button>
         )}
@@ -110,11 +110,11 @@ const CalcExercise = () => {
              </div>
              <p className="text-emerald-600 mb-4">{question.explanation}</p>
              {qIndex < CALC_QUESTIONS.length - 1 ? (
-               <button onClick={next} className="bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 w-full">
+               <button type="button" onClick={next} className="bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 w-full">
                  Suivant <ArrowRight className="inline ml-1" size={16} />
                </button>
              ) : (
-               <button onClick={reset} className="bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 w-full">
+               <button type="button" onClick={reset} className="bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 w-full">
                  <RefreshCw className="inline mr-1" size={16} /> Recommencer
                </button>
              )}
@@ -125,7 +125,7 @@ const CalcExercise = () => {
              <div className="flex items-center gap-2 font-bold text-rose-700 mb-2">
                <X /> Incorrect
              </div>
-             <button onClick={() => setFeedback('idle')} className="bg-white text-rose-600 font-bold py-2 px-4 rounded-lg border border-rose-200 hover:bg-rose-50 w-full">
+             <button type="button" onClick={() => setFeedback('idle')} className="bg-white text-rose-600 font-bold py-2 px-4 rounded-lg border border-rose-200 hover:bg-rose-50 w-full">
                Réessayer
              </button>
            </motion.div>
@@ -210,7 +210,7 @@ const QCMExercise = () => {
              else style = "opacity-50";
            }
            return (
-             <button 
+             <button type="button" 
                key={i} 
                onClick={() => handleSelect(i)}
                disabled={isAnswered}
@@ -231,9 +231,9 @@ const QCMExercise = () => {
                  <p className="font-bold mb-1">{isCorrect ? "Correct !" : "Incorrect"}</p>
                  <p className="text-sm mb-3">{q.expl}</p>
                  {qIndex < QCM_QUESTIONS.length - 1 ? (
-                   <button onClick={next} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700">Suivant</button>
+                   <button type="button" onClick={next} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700">Suivant</button>
                  ) : (
-                   <button onClick={reset} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700">Recommencer</button>
+                   <button type="button" onClick={reset} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700">Recommencer</button>
                  )}
                </div>
              </div>

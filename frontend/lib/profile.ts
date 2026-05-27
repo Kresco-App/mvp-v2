@@ -7,6 +7,7 @@ export type ProfileUser = {
   avatar_url: string
   banner_url?: string
   role: string
+  is_staff: boolean
   is_pro: boolean
   niveau: string
   filiere: string

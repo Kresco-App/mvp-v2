@@ -67,7 +67,7 @@ export default function Matching({ question, pairs, onComplete }: Props) {
             const isCorrect = submitted && matchedRightId === pair.id + '_right'
             const isWrong = submitted && matchedRightId && matchedRightId !== pair.id + '_right'
             return (
-              <button
+              <button type="button"
                 key={pair.id}
                 onClick={() => matchedRightId ? removeMatch(pair.id) : selectLeft(pair.id)}
                 className={`w-full text-left text-sm px-4 py-3 rounded-xl border-2 transition font-medium ${
@@ -99,7 +99,7 @@ export default function Matching({ question, pairs, onComplete }: Props) {
             const isCorrect = submitted && matchedLeftId === pair.id
             const isWrong = submitted && isMatched && matchedLeftId !== pair.id
             return (
-              <button
+              <button type="button"
                 key={rightId}
                 onClick={() => selectRight(rightId)}
                 disabled={isMatched}
@@ -131,7 +131,7 @@ export default function Matching({ question, pairs, onComplete }: Props) {
 
       <div className="flex gap-3">
         {!submitted ? (
-          <button
+          <button type="button"
             onClick={handleSubmit}
             disabled={!allMatched}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
@@ -139,7 +139,7 @@ export default function Matching({ question, pairs, onComplete }: Props) {
             Verifier
           </button>
         ) : (
-          <button
+          <button type="button"
             onClick={() => { setMatches({}); setSubmitted(false) }}
             className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
           >

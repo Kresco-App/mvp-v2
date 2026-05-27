@@ -46,7 +46,7 @@ export const IsotopeComparator: React.FC = () => {
       <div className="flex justify-center mb-8">
         <div className="bg-slate-100 p-1.5 rounded-full flex gap-2 shadow-inner border border-slate-200/60 relative z-0">
             {(['Cu63', 'Cu65'] as const).map((iso) => (
-                <button
+                <button type="button"
                     key={iso}
                     onClick={() => setActiveIsotope(iso)}
                     className={`relative px-6 py-2.5 rounded-full font-bold text-sm md:text-base transition-colors duration-200 z-10 outline-none flex items-center gap-2 ${

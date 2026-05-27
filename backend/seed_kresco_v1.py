@@ -2,6 +2,8 @@
 
 Usage:
     cd backend
+    set DATABASE_URL=sqlite+aiosqlite:///./db.sqlite3
+    set KRESCO_CONFIRM_DESTRUCTIVE_SEED=seed_kresco_v1.py:sqlite+aiosqlite:///./db.sqlite3
     python seed_kresco_v1.py
 
 The script is intentionally local-friendly: it defaults to SQLite and uses
@@ -9,7 +11,6 @@ placeholder provider IDs instead of requiring VdoCipher/Stripe/email secrets.
 """
 import asyncio
 import hashlib
-import hmac
 import os
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
@@ -28,6 +29,7 @@ from app.models.courses import (
 )
 from app.models.gamification import UserXP
 from app.models.users import User
+from seed_safety import require_destructive_seed_database_url, require_destructive_seed_session
 
 
 def hash_password(plain: str) -> str:
@@ -468,7 +470,12 @@ async def ensure_animated_course_tab(db: AsyncSession, topic: Topic) -> None:
     target.concept_slugs = intro.concept_slugs
 
 
-async def seed_all(db: AsyncSession) -> None:
+async def seed_all(db: AsyncSession, *, destructive_confirmed: bool = False) -> None:
+    require_destructive_seed_session(
+        db,
+        "seed_kresco_v1.seed_all",
+        confirmed=destructive_confirmed,
+    )
     await get_or_create_user(db)
     await db.execute(update(Subject).values(is_published=False))
     subjects = [
@@ -642,13 +649,14 @@ async def seed_calendar_events(db: AsyncSession, topics: list[Topic]) -> None:
 
 async def main() -> None:
     database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./db.sqlite3")
+    require_destructive_seed_database_url(database_url, "seed_kresco_v1.py")
     async_url, connect_args = _build_async_url(database_url)
     engine = create_async_engine(async_url, poolclass=NullPool, connect_args=connect_args)
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with session_factory() as db:
-        await seed_all(db)
+        await seed_all(db, destructive_confirmed=True)
     await engine.dispose()
     print("Kresco v1 local seed complete.")
     print("Login: student@kresco.local / kresco123")

@@ -18,8 +18,9 @@ Design file key:
 2. `docs/knowledge-base/product-model.md`
 3. `docs/knowledge-base/content-authoring.md`
 4. `docs/knowledge-base/topic-workspace.md`
-5. `docs/knowledge-base/architecture-infra.md`
-6. `docs/knowledge-base/current-implementation-status.md`
+5. `docs/knowledge-base/professor-platform.md`
+6. `docs/knowledge-base/architecture-infra.md`
+7. `docs/knowledge-base/current-implementation-status.md`
 
 Read the remaining files only when working on the related area.
 
@@ -31,6 +32,7 @@ Read the remaining files only when working on the related area.
 | `docs/knowledge-base/product-model.md` | Core product semantics: Bac-first, subjects, topics, items, tabs, resources, tags. |
 | `docs/knowledge-base/content-authoring.md` | How to add or modify student-facing knowledge-base content through SQLAdmin or seed scripts. |
 | `docs/knowledge-base/topic-workspace.md` | Main learning UX: video-first workspace, path rail, final revision, tabs, search, resume. |
+| `docs/knowledge-base/professor-platform.md` | Professor role, course offering scope, pending edit requests, announcements, live sessions, and future VIP speak flow. |
 | `docs/knowledge-base/progress-xp-leaderboard.md` | Progress, XP, event logging, anti-farming, leaderboard model. |
 | `docs/knowledge-base/exam-bank.md` | Bac exam bank, topic-relevant exam problems, written/video solutions. |
 | `docs/knowledge-base/access-billing.md` | Subject access, global tiers, feature gates, free previews. |
@@ -40,6 +42,7 @@ Read the remaining files only when working on the related area.
 | `docs/knowledge-base/local-validation-only.md` | Current operational mode: skip production deployment and validate locally only. |
 | `docs/knowledge-base/repo-cleanup-log.md` | Traceability log for repository cleanup decisions and verification. |
 | `docs/knowledge-base/current-implementation-status.md` | Current implementation status and compatibility surfaces. |
+| `docs/manual-operations.md` | Credential-dependent local runtime and hand-off operations that should not live as a root TODO file. |
 
 ## Current product decision in one paragraph
 

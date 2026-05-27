@@ -72,7 +72,7 @@ export default function OndeTrueFalse({ statements, onComplete }: Props) {
       <div className="bg-slate-900 rounded-2xl border border-slate-800 p-8 text-center space-y-3">
         <p className="text-white text-xl font-bold">{score === qs.length ? 'Parfait !' : 'Série terminée'}</p>
         <p className="text-slate-400">{score} / {qs.length} correctes</p>
-        <button
+        <button type="button"
           onClick={() => { setIdx(0); setScore(0); setDone(false) }}
           className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
         >
@@ -92,7 +92,7 @@ export default function OndeTrueFalse({ statements, onComplete }: Props) {
         <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${(idx / qs.length) * 100}%` }} />
       </div>
       <TrueFalse
-        key={idx}
+        key={qs[idx].statement}
         statement={qs[idx].statement}
         isTrue={qs[idx].isTrue}
         explanation={qs[idx].explanation}

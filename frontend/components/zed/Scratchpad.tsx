@@ -72,7 +72,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
           </div>
         </div>
         {history.length > 0 && (
-          <button
+          <button type="button"
             onClick={clearHistory}
             className="rounded-md p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
             title="Effacer"
@@ -109,7 +109,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
                     {snippet.content}
                   </div>
                 )}
-                <button
+                <button type="button"
                   onClick={() => onRemoveSnippet(snippet.id)}
                   className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-400 opacity-0 shadow-sm ring-1 ring-stone-200 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus:opacity-100"
                   title="Retirer l'epingle"
@@ -174,7 +174,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
             <p className="min-w-0 text-[11px] leading-snug text-slate-500">
               sqrt, sin, cos, tan, ln, log, pi, e, ^ supportes
             </p>
-            <button
+            <button type="button"
               onClick={handleSubmit}
               disabled={!hasInput}
               className="flex h-8 min-w-12 items-center justify-center gap-1 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"
