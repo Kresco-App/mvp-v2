@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
@@ -16,16 +16,20 @@ import {
   HelpCircle,
   Play,
   Puzzle,
+  RotateCcw,
   Save,
   StickyNote,
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import api from '@/lib/axios'
+import { apiDataErrorMessage } from '@/lib/apiData'
 import { cn } from '@/lib/utils'
 import AuthGuard from '@/components/AuthGuard'
-import { sanitizeHtml } from '@/lib/sanitizeHtml'
+import RouteErrorState from '@/components/RouteErrorState'
+import SafeRichText from '@/components/SafeRichText'
 import { triggerMascot } from '@/lib/mascotEvents'
+import { useWatchData } from '@/lib/watchData'
 import {
   buildWatchChapterSections,
   buildWatchSectionCompletePayload,
@@ -39,12 +43,7 @@ import {
   getWatchSectionProgressLabel,
   getWatchTextHtml,
   normalizeWatchTab,
-  shouldLoadWatchPdfs,
   toWatchChapterInfo,
-  type WatchChapter,
-  type WatchChapterInfo,
-  type WatchContext,
-  type WatchSection,
   type WatchTab,
 } from '@/lib/watchViewModel'
 
@@ -93,24 +92,36 @@ export default function WatchPage() {
   const sectionId = lessonId
   const router = useRouter()
 
-  const [section, setSection] = useState<WatchSection | null>(null)
-  const [allSections, setAllSections] = useState<WatchSection[]>([])
-  const [chapterInfo, setChapterInfo] = useState<WatchChapterInfo | null>(null)
-  const [chapters, setChapters] = useState<WatchChapter[]>([])
-  const [chapterSections, setChapterSections] = useState<Record<number, WatchSection[]>>({})
-  const [loading, setLoading] = useState(true)
+  const {
+    context,
+    contextError,
+    loading,
+    isValidating,
+    access,
+    pdfs,
+    mutateContext,
+  } = useWatchData(sectionId)
+  const section = context?.section ?? null
+  const chapterInfo = useMemo(() => (context ? toWatchChapterInfo(context) : null), [context])
+  const chapters = useMemo(() => context?.chapters ?? [], [context])
+  const currentChapter = useMemo(() => (context ? getCurrentWatchChapter(context) : null), [context])
+  const allSections = currentChapter?.sections ?? []
+  const chapterSections = useMemo(() => buildWatchChapterSections(chapters), [chapters])
+  const loadError = contextError ? apiDataErrorMessage(contextError, 'Erreur de chargement.') : ''
+  const lastWatchErrorToastRef = useRef('')
+  const lastAccessDeniedRef = useRef('')
   const [activeTab, setActiveTab] = useState<WatchTab>('overview')
   const [isCompleted, setIsCompleted] = useState(false)
   const [notes, setNotes] = useState('')
   const [notesSaved, setNotesSaved] = useState(true)
-  const [pdfs, setPdfs] = useState<{ id: number; title: string; file_url: string; order: number }[]>([])
   const [currentTime, setCurrentTime] = useState(0)
   const [completingSection, setCompletingSection] = useState(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(getWatchNotesKey(sectionId))
-      if (saved) setNotes(saved)
+      setNotes(saved ?? '')
+      setNotesSaved(true)
     }
   }, [sectionId])
 
@@ -128,51 +139,35 @@ export default function WatchPage() {
   }
 
   useEffect(() => {
-    async function loadSection() {
-      setLoading(true)
-      try {
-        const { data } = await api.get<WatchContext>(`/courses/sections/${getWatchSectionId(sectionId)}/watch-context`)
-        const currentChapter = getCurrentWatchChapter(data)
+    if (!section) return
+    setIsCompleted(section.is_completed ?? false)
+  }, [section])
 
-        setSection(data.section)
-        setChapterInfo(toWatchChapterInfo(data))
-        setChapters(data.chapters)
-        setAllSections(currentChapter.sections)
-        setChapterSections(buildWatchChapterSections(data.chapters))
-        setIsCompleted(data.section.is_completed ?? false)
-
-        try {
-          const accessRes = await api.get(`/progress/sections/${getWatchSectionId(sectionId)}/access`)
-          if (!accessRes.data.can_access) {
-            toast.error("Cette section est verrouillee. Completez la precedente d'abord.")
-            router.push('/home')
-            return
-          }
-        } catch {
-          // Allow access if the compatibility endpoint fails.
-        }
-
-        if (shouldLoadWatchPdfs(data.section)) {
-          try {
-            const pdfsRes = await api.get(`/courses/lessons/${sectionId}/pdfs`)
-            setPdfs(pdfsRes.data)
-          } catch {
-            setPdfs([])
-          }
-        } else {
-          setPdfs([])
-        }
-
-      } catch {
-        toast.error('Erreur de chargement.')
-        router.push('/home')
-      } finally {
-        setLoading(false)
-      }
+  useEffect(() => {
+    if (!contextError) {
+      lastWatchErrorToastRef.current = ''
+      return
     }
+    if (loadError === lastWatchErrorToastRef.current) return
+    lastWatchErrorToastRef.current = loadError
+    toast.error(loadError)
+  }, [contextError, loadError])
 
-    loadSection()
-  }, [router, sectionId])
+  useEffect(() => {
+    if (access?.can_access !== false) return
+    if (lastAccessDeniedRef.current === sectionId) return
+    lastAccessDeniedRef.current = sectionId
+    toast.error("Cette section est verrouillee. Completez la precedente d'abord.")
+    router.push('/home')
+  }, [access?.can_access, router, sectionId])
+
+  const retryWatchData = useCallback(async () => {
+    try {
+      await mutateContext()
+    } catch {
+      // SWR owns the latest error state; the effect above owns user-visible reporting.
+    }
+  }, [mutateContext])
 
   useEffect(() => {
     if (section) {
@@ -190,29 +185,35 @@ export default function WatchPage() {
     score?: number
     correct_answers?: number
     total_questions?: number
+    answers?: Record<string, number>
   }) => {
-    if (isCompleted || completingSection) return
+    if (isCompleted || completingSection) return null
 
     setCompletingSection(true)
     try {
       const { data } = await api.post('/progress/section-complete', buildWatchSectionCompletePayload(sectionId, opts))
-      setIsCompleted(true)
+      if (data.passed !== false) {
+        setIsCompleted(true)
+        void mutateContext()
+      }
       const xpEarned = data?.xp_earned ?? 0
       const feedback = getWatchCompletionFeedback(xpEarned)
 
       if (xpEarned > 0) {
         toast.success(`+${xpEarned} XP ! Section terminee !`, { icon: '⚡' })
         triggerMascot(feedback.mascotMood, feedback.mascotMessage)
-      } else {
+      } else if (data.passed !== false) {
         toast.success(feedback.toastMessage)
         triggerMascot(feedback.mascotMood, feedback.mascotMessage)
       }
+      return data
     } catch {
       toast.error("Impossible d'enregistrer la progression de cette section.")
+      return null
     } finally {
       setCompletingSection(false)
     }
-  }, [completingSection, isCompleted, sectionId])
+  }, [completingSection, isCompleted, mutateContext, sectionId])
 
   const handleVideoComplete = useCallback(() => {
     void markSectionComplete()
@@ -230,7 +231,7 @@ export default function WatchPage() {
 
   const sectionProgress = getWatchSectionProgressLabel(allSections, sectionId)
 
-  if (loading) {
+  if (loading && !section) {
     return (
       <AuthGuard>
         <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -243,7 +244,21 @@ export default function WatchPage() {
     )
   }
 
-  if (!section || !chapterInfo) return null
+  if (!section || !chapterInfo) {
+    return (
+      <AuthGuard>
+        <RouteErrorState
+          eyebrow="Section unavailable"
+          title="This lesson could not be loaded."
+          message={loadError || 'The watch context was empty or incomplete. Retry the request or go back home.'}
+          fullScreen
+          homeHref="/home"
+          homeLabel="Back home"
+          onRetry={() => void retryWatchData()}
+        />
+      </AuthGuard>
+    )
+  }
 
   const tabs = buildWatchTabs(section).map((tab) => ({
     ...tab,
@@ -286,13 +301,14 @@ export default function WatchPage() {
             <SectionQuiz
               data={section.quiz_data}
               passScore={section.pass_score ?? 70}
-              onComplete={(score, passed, correctCount, totalCount) => {
-                if (passed) {
-                  markSectionComplete({
-                    score,
-                    correct_answers: correctCount,
-                    total_questions: totalCount,
-                  })
+              onComplete={async (answers) => {
+                const data = await markSectionComplete({ answers })
+                if (!data) return { score: 0, passed: false, correctCount: 0, totalCount: 0 }
+                return {
+                  score: data.score ?? 0,
+                  passed: data.passed ?? false,
+                  correctCount: data.correct_answers ?? 0,
+                  totalCount: data.total_questions ?? 0,
                 }
               }}
             />
@@ -320,11 +336,9 @@ export default function WatchPage() {
           <div className="p-6">
             <div className="max-w-2xl mx-auto">
               <div className="bg-slate-900 rounded-2xl border border-slate-800 p-8">
-                <div
-                  className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed"
-                  // oxlint-disable-next-line react-doctor/no-danger -- section HTML is sanitized immediately before rendering.
-                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(getWatchTextHtml(section)) }}
-                />
+                <div className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed">
+                  <SafeRichText html={getWatchTextHtml(section)} fallbackText="Aucun contenu disponible." />
+                </div>
               </div>
             </div>
           </div>
@@ -385,6 +399,24 @@ export default function WatchPage() {
             )}
           </div>
         </div>
+
+        {loadError && (
+          <section role="alert" className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-950/40 px-5 py-4">
+            <div>
+              <p className="m-0 text-sm font-bold text-amber-100">Lesson data could not be refreshed.</p>
+              <p className="m-0 mt-1 text-xs font-semibold text-amber-200/80">Cached watch data stays visible while you retry.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void retryWatchData()}
+              disabled={isValidating}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-amber-500 px-4 text-xs font-bold text-slate-950 disabled:opacity-60"
+            >
+              <RotateCcw size={15} />
+              {isValidating ? 'Retrying...' : 'Retry lesson data'}
+            </button>
+          </section>
+        )}
 
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 overflow-y-auto">

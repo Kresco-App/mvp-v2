@@ -12,7 +12,7 @@ from app.models.users import User
 from app.schemas.quizzes import QuizOut, QuizResultOut, QuizSubmitIn
 from app.services.course_access import require_lesson_access
 from app.services.quiz_scoring import score_quiz_answers
-from app.services.xp import award_xp
+from app.services.xp import XPAward, award_xp_bulk
 
 router = APIRouter(tags=["Quizzes"])
 
@@ -97,25 +97,22 @@ async def submit_quiz(
         existing_result.passed = scored.passed
         should_commit = True
 
-    xp_earned = 0
+    xp_awards: list[XPAward] = []
     if scored.passed:
-        xp_earned += await award_xp(
-            user_id,
-            "quiz_pass",
-            f"Quiz {quiz_id} passed",
-            db,
+        xp_awards.append(XPAward(
+            reason="quiz_pass",
+            description=f"Quiz {quiz_id} passed",
             subject_id=subject_id,
             idempotency_key=f"legacy_quiz_pass:user:{user_id}:quiz:{quiz_id}",
-        )
+        ))
         if scored.score == 100:
-            xp_earned += await award_xp(
-                user_id,
-                "quiz_perfect",
-                f"Quiz {quiz_id} perfect score",
-                db,
+            xp_awards.append(XPAward(
+                reason="quiz_perfect",
+                description=f"Quiz {quiz_id} perfect score",
                 subject_id=subject_id,
                 idempotency_key=f"legacy_quiz_perfect:user:{user_id}:quiz:{quiz_id}",
-            )
+            ))
+    xp_earned = await award_xp_bulk(user_id, xp_awards, db)
 
     if should_commit:
         await db.commit()

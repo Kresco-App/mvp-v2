@@ -72,6 +72,7 @@ describe('watch view model', () => {
       score: 80,
       correct_answers: 4,
       total_questions: 5,
+      answers: {},
     })
   })
 
@@ -99,6 +100,7 @@ describe('watch view model', () => {
     expect(getWatchCompletionFeedback(25)).toMatchObject({ mascotMood: 'love', mascotMessage: '+25 XP !' })
     expect(getWatchCompletionFeedback(0)).toMatchObject({ mascotMood: 'happy' })
     expect(getWatchDocumentTitle(videoSection)).toBe('Wave lesson - Kresco')
+    expect(getWatchTextHtml({ ...quizSection, content: '<p>Backend text</p>' })).toBe('<p>Backend text</p>')
     expect(getWatchTextHtml({ ...quizSection, text_content: '' })).toBe('<p>Aucun contenu disponible.</p>')
   })
 })

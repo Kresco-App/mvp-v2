@@ -1,5 +1,4 @@
 import os
-import hmac
 import logging
 import time
 import uuid
@@ -13,15 +12,15 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqladmin import Admin
-from sqladmin.authentication import AuthenticationBackend
-from starlette.middleware.sessions import SessionMiddleware
 
+from app.admin.auth import StaffAdminAuth
 from app.admin.views import register_admin_views
 from app.config import Settings, get_settings, validate_production_settings
 from app.database import init_engine
 from app.rate_limit import limiter
 from app.routers import admin as admin_api
-from app.routers import calendar, courses, gamification, interactions, notifications, payments, professor, quizzes, realtime, users
+from app.routers import calendar, courses, gamification, interactions, internal, notifications, payments, professor, quizzes, realtime, users
+from app.security.csrf import csrf_failure_reason
 
 logger = logging.getLogger("kresco.api")
 if not logging.getLogger().handlers:
@@ -44,27 +43,6 @@ def _apply_security_headers(response: Response) -> Response:
     return response
 
 
-class AdminAuth(AuthenticationBackend):
-    def __init__(self, secret_key: str, admin_password: str):
-        super().__init__(secret_key=secret_key)
-        self._password = admin_password
-
-    async def login(self, request: Request) -> bool:
-        form = await request.form()
-        candidate = form.get("password")
-        if isinstance(candidate, str) and hmac.compare_digest(candidate.encode(), self._password.encode()):
-            request.session["admin_authenticated"] = True
-            return True
-        return False
-
-    async def logout(self, request: Request) -> bool:
-        request.session.clear()
-        return True
-
-    async def authenticate(self, request: Request) -> bool:
-        return request.session.get("admin_authenticated", False)
-
-
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = get_settings()
@@ -72,7 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     validate_production_settings(settings)
 
     # Initialize DB engine at startup (module-level reuse within warm Lambda container)
-    engine, _ = init_engine(settings.database_url, settings.is_lambda)
+    engine, _ = init_engine(settings.database_url, settings.is_lambda, settings.pgsslrootcert)
 
     root_path = "/production" if settings.is_lambda else ""
 
@@ -93,9 +71,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(SlowAPIMiddleware)
-
-    # Sessions (required by SQLAdmin auth)
-    app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret_key, max_age=86400)
 
     # CORS
     app.add_middleware(
@@ -119,18 +94,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(realtime.router, prefix="/api/realtime")
     app.include_router(professor.router, prefix="/api/professor")
     app.include_router(admin_api.router, prefix="/api/admin")
+    app.include_router(internal.router, prefix="/api/internal")
 
-    os.makedirs("media", exist_ok=True)
-    app.mount("/media", StaticFiles(directory="media"), name="media")
+    if not settings.is_production_like:
+        os.makedirs("media", exist_ok=True)
+        app.mount("/media", StaticFiles(directory="media"), name="media")
 
     # SQLAdmin panel
-    admin_password = os.environ.get("ADMIN_PASSWORD") or settings.admin_password
-    if not admin_password:
-        raise ValueError("ADMIN_PASSWORD environment variable is required to start the admin panel.")
-
-    auth_backend = AdminAuth(
+    auth_backend = StaffAdminAuth(
         secret_key=settings.jwt_secret_key,
-        admin_password=admin_password,
+        https_only=settings.is_production_like,
     )
     admin = Admin(
         app,
@@ -140,6 +113,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         authentication_backend=auth_backend,
     )
     register_admin_views(admin)
+
+    @app.middleware("http")
+    async def csrf_middleware(request: Request, call_next):
+        reason = csrf_failure_reason(request, settings)
+        if reason:
+            return _apply_security_headers(JSONResponse(status_code=403, content={"detail": reason}))
+        return await call_next(request)
 
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next):

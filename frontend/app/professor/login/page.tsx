@@ -16,6 +16,7 @@ type LoginResponse = {
     role: string
     tier?: string
   }
+  csrf_token?: string
 }
 
 export default function ProfessorLoginPage() {
@@ -48,7 +49,7 @@ export default function ProfessorLoginPage() {
         setError('This login is only for professor accounts.')
         return
       }
-      login(data.user)
+      login(data.user, data.csrf_token)
       router.replace(AUTH_ROUTES.professorHome)
     } catch (caught) {
       setError(errorMessage(caught, 'Could not sign in.'))

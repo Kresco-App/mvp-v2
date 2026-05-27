@@ -1,89 +1,94 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { BellRing, Check, HelpCircle, MessageCircle, MessageSquare, Play, RotateCcw, Square } from 'lucide-react'
+import { BellRing, Check, Eye, HelpCircle, MessageCircle, MessageSquare, Play, RotateCcw, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime } from '@/lib/ably'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import {
+  updateLiveInteractionsEnvelope,
+  useProfessorLiveControlData,
+} from '@/lib/liveSessionData'
 import { liveInteractionInitials, liveMessages, liveQuestions, mergeLiveInteraction } from '@/lib/liveInteractions'
 import {
   endProfessorLiveSession,
-  getProfessorLiveEmbed,
-  listProfessorLiveInteractions,
-  listProfessorLiveSessions,
   notifyProfessorLiveSession,
   patchProfessorLiveInteraction,
+  revealProfessorLiveStreamCredentials,
   startProfessorLiveSession,
-  type LiveSessionEmbed,
   type LiveSessionInteraction,
-  type ProfessorLiveSession,
+  type LiveSessionStreamCredentials,
 } from '@/lib/professor'
 
 export default function ProfessorLiveControlRoomPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
-  const numericSessionId = Number(sessionId)
-  const [session, setSession] = useState<ProfessorLiveSession | null>(null)
-  const [embed, setEmbed] = useState<LiveSessionEmbed | null>(null)
-  const [interactions, setInteractions] = useState<LiveSessionInteraction[]>([])
-  const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [sessionBusy, setSessionBusy] = useState(false)
+  const [revealingCredentials, setRevealingCredentials] = useState(false)
+  const [streamCredentials, setStreamCredentials] = useState<LiveSessionStreamCredentials | null>(null)
   const [activePanel, setActivePanel] = useState<'question' | 'message'>('question')
-  const [loadError, setLoadError] = useState('')
+  const {
+    sessionId: numericSessionId,
+    session,
+    embed,
+    interactions,
+    loading,
+    error,
+    mutateAll,
+    mutateSessions,
+    mutateInteractions,
+  } = useProfessorLiveControlData(sessionId)
 
-  const load = useCallback(async () => {
-    if (!Number.isFinite(numericSessionId) || numericSessionId <= 0) {
-      setLoading(false)
-      setLoadError('Live session link is invalid.')
-      return
-    }
-    setLoading(true)
-    setLoadError('')
-    try {
-      const [sessions, nextEmbed, nextInteractions] = await Promise.all([
-        listProfessorLiveSessions(),
-        getProfessorLiveEmbed(numericSessionId),
-        listProfessorLiveInteractions(numericSessionId),
-      ])
-      const nextSession = sessions.find((item) => item.id === numericSessionId) ?? null
-      setSession(nextSession)
-      setEmbed(nextEmbed)
-      setInteractions(nextInteractions)
-      document.title = `${nextSession?.title ?? nextEmbed.title} - Live Control`
-    } catch (error) {
-      const message = apiError(error, 'Could not load the live control room.')
-      setLoadError(message)
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }, [numericSessionId])
+  const loadError = useMemo(() => {
+    if (!numericSessionId) return 'Live session link is invalid.'
+    if (error) return apiDataErrorMessage(error, 'Could not load the live control room.')
+    if (!loading && !session && !embed) return 'Live session not found.'
+    return ''
+  }, [embed, error, loading, numericSessionId, session])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    const title = session?.title ?? embed?.title
+    if (title) document.title = `${title} - Live Control`
+  }, [embed?.title, session?.title])
 
   useEffect(() => {
-    if (!Number.isFinite(numericSessionId) || numericSessionId <= 0) return
+    if (!session?.has_stream_credentials) setStreamCredentials(null)
+  }, [session?.has_stream_credentials])
+
+  useEffect(() => {
+    if (error) toast.error(apiDataErrorMessage(error, 'Could not load the live control room.'))
+  }, [error])
+
+  useEffect(() => {
+    if (!numericSessionId) return
 
     const handleEvent = (message: { name?: string; data?: unknown }) => {
       if (message.name?.startsWith('live.session.')) {
-        void load()
+        void mutateAll()
         return
       }
       if (message.name?.startsWith('live.interaction.') && isLiveInteraction(message.data)) {
         const interaction = message.data
-        setInteractions((current) => mergeLiveInteraction(current, interaction))
+        void mutateInteractions(
+          (current) => updateLiveInteractionsEnvelope(current, numericSessionId, (items) => mergeLiveInteraction(items, interaction)),
+          { revalidate: false },
+        )
       }
     }
     return subscribeKrescoRealtime({
       channelName: liveSessionChannelName(numericSessionId),
       onMessage: handleEvent,
       beforeSubscribe: refreshKrescoRealtimeAuthorization,
-      fallback: { intervalMs: 5000, poll: load },
+      fallback: {
+        intervalMs: 5000,
+        poll: async () => {
+          await mutateAll()
+        },
+      },
     })
-  }, [load, numericSessionId])
+  }, [mutateAll, mutateInteractions, numericSessionId])
 
   const chatMessages = useMemo(() => liveMessages(interactions), [interactions])
   const questions = useMemo(() => liveQuestions(interactions), [interactions])
@@ -100,9 +105,9 @@ export default function ProfessorLiveControlRoomPage() {
     try {
       await action()
       toast.success(success)
-      await load()
+      await mutateAll()
     } catch (error) {
-      toast.error(apiError(error, 'Action failed.'))
+      toast.error(apiDataErrorMessage(error, 'Action failed.'))
     } finally {
       setSessionBusy(false)
     }
@@ -112,12 +117,31 @@ export default function ProfessorLiveControlRoomPage() {
     setBusyId(id)
     try {
       const updated = await action()
-      setInteractions((current) => mergeLiveInteraction(current, updated))
+      if (numericSessionId) {
+        await mutateInteractions(
+          (current) => updateLiveInteractionsEnvelope(current, numericSessionId, (items) => mergeLiveInteraction(items, updated)),
+          { revalidate: false },
+        )
+        await mutateSessions()
+      }
       toast.success(success)
     } catch (error) {
-      toast.error(apiError(error, 'Action failed.'))
+      toast.error(apiDataErrorMessage(error, 'Action failed.'))
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function revealCredentials() {
+    if (!session) return
+    setRevealingCredentials(true)
+    try {
+      setStreamCredentials(await revealProfessorLiveStreamCredentials(session.id))
+      toast.success('Stream credentials revealed.')
+    } catch (error) {
+      toast.error(apiDataErrorMessage(error, 'Could not reveal stream credentials.'))
+    } finally {
+      setRevealingCredentials(false)
     }
   }
 
@@ -132,24 +156,24 @@ export default function ProfessorLiveControlRoomPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {session && !isCompleted && !isCancelled && (
-              <button className="professor-control-button border-[#453dee] bg-[#453dee] text-white disabled:opacity-50" disabled={sessionBusy} type="button" onClick={() => runSessionAction(() => notifyProfessorLiveSession(numericSessionId), 'Students notified.')}>
+              <button className="professor-control-button border-[#453dee] bg-[#453dee] text-white disabled:opacity-50" disabled={sessionBusy || !numericSessionId} type="button" onClick={() => runSessionAction(() => notifyProfessorLiveSession(numericSessionId!), 'Students notified.')}>
                 <BellRing size={15} />
                 Notify
               </button>
             )}
             {session && !isLive && !isCompleted && !isCancelled && (
-              <button className="professor-control-button border-[#f5900b] bg-white text-[#f5900b] disabled:opacity-50" disabled={sessionBusy} type="button" onClick={() => runSessionAction(() => startProfessorLiveSession(numericSessionId), 'Live session started.')}>
+              <button className="professor-control-button border-[#f5900b] bg-white text-[#f5900b] disabled:opacity-50" disabled={sessionBusy || !numericSessionId} type="button" onClick={() => runSessionAction(() => startProfessorLiveSession(numericSessionId!), 'Live session started.')}>
                 <Play size={15} />
                 Start
               </button>
             )}
             {session && isLive && (
-              <button className="professor-control-button border-[#e4e4e7] bg-white text-[#52525c] disabled:opacity-50" disabled={sessionBusy} type="button" onClick={() => runSessionAction(() => endProfessorLiveSession(numericSessionId), 'Live session ended.')}>
+              <button className="professor-control-button border-[#e4e4e7] bg-white text-[#52525c] disabled:opacity-50" disabled={sessionBusy || !numericSessionId} type="button" onClick={() => runSessionAction(() => endProfessorLiveSession(numericSessionId!), 'Live session ended.')}>
                 <Square size={14} />
                 End
               </button>
             )}
-            <button className="professor-control-button border-[#e4e4e7] bg-white text-[#52525c]" type="button" onClick={() => void load()}>
+            <button className="professor-control-button border-[#e4e4e7] bg-white text-[#52525c]" type="button" onClick={() => void mutateAll()}>
               <RotateCcw size={15} />
               Refresh
             </button>
@@ -160,7 +184,7 @@ export default function ProfessorLiveControlRoomPage() {
           <section className="mb-5 rounded-[18px] border-2 border-[#fee2e2] bg-[#fef2f2] p-5">
             <h2 className="m-0 text-[18px] font-black text-[#991b1b]">Live control unavailable</h2>
             <p className="m-0 mt-2 text-[14px] font-bold leading-6 text-[#b91c1c]">{loadError}</p>
-            <button className="professor-control-button mt-4 border-[#991b1b] bg-white text-[#991b1b]" type="button" onClick={() => void load()}>
+            <button className="professor-control-button mt-4 border-[#991b1b] bg-white text-[#991b1b]" type="button" onClick={() => void mutateAll()}>
               <RotateCcw size={15} />
               Retry
             </button>
@@ -169,23 +193,31 @@ export default function ProfessorLiveControlRoomPage() {
 
         <section className="grid h-[calc(100vh-165px)] min-h-[720px] gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
           <div className="grid min-h-0 grid-rows-[210px_minmax(0,1fr)] gap-5">
-            {session && (session.stream_ingest_url || session.stream_key) && (
+            {session?.has_stream_credentials && (
               <div className="grid content-start gap-3 rounded-[18px] border-2 border-[#e4e4e7] bg-white p-5 md:grid-cols-2">
-                {session.stream_ingest_url && (
+                {streamCredentials ? (
+                  <>
+                    <div className="min-w-0">
+                      <p className="m-0 text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">OBS URL</p>
+                      <p className="m-0 mt-1 truncate text-[13px] font-bold text-[#3f3f46]">{streamCredentials.stream_ingest_url || 'No OBS URL saved'}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="m-0 text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">Stream key</p>
+                      <p className="m-0 mt-1 truncate text-[13px] font-bold text-[#3f3f46]">{streamCredentials.stream_key || 'No stream key saved'}</p>
+                    </div>
+                  </>
+                ) : (
                   <div className="min-w-0">
-                    <p className="m-0 text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">OBS URL</p>
-                    <p className="m-0 mt-1 truncate text-[13px] font-bold text-[#3f3f46]">{session.stream_ingest_url}</p>
-                  </div>
-                )}
-                {session.stream_key && (
-                  <div className="min-w-0">
-                    <p className="m-0 text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">Stream key</p>
-                    <p className="m-0 mt-1 truncate text-[13px] font-bold text-[#3f3f46]">{session.stream_key}</p>
+                    <p className="m-0 text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">Stream credentials</p>
+                    <button className="professor-control-button mt-2 border-[#e4e4e7] bg-white text-[#52525c] disabled:opacity-50" disabled={revealingCredentials} type="button" onClick={() => void revealCredentials()}>
+                      <Eye size={14} />
+                      {revealingCredentials ? 'Revealing...' : 'Reveal'}
+                    </button>
                   </div>
                 )}
               </div>
             )}
-            {!session || (!session.stream_ingest_url && !session.stream_key) ? <div /> : null}
+            {!session?.has_stream_credentials ? <div /> : null}
             <div className="relative min-h-0 overflow-hidden rounded-[18px] border-2 border-[#e4e4e7] bg-[#050505]">
               {loading ? (
                 <div className="absolute inset-0 grid place-items-center text-[14px] font-black text-white">Opening player...</div>
@@ -197,7 +229,6 @@ export default function ProfessorLiveControlRoomPage() {
                   allowFullScreen
                   sandbox="allow-scripts allow-forms allow-popups allow-presentation"
                   scrolling="no"
-                  style={{ overflow: 'hidden' }}
                   title="Professor live player"
                 />
               ) : (
@@ -290,20 +321,6 @@ export default function ProfessorLiveControlRoomPage() {
         </section>
       </main>
 
-      <style jsx global>{`
-        .professor-control-button {
-          display: inline-flex;
-          min-height: 40px;
-          align-items: center;
-          gap: 8px;
-          border-width: 2px;
-          border-radius: 12px;
-          padding: 0 13px;
-          font-size: 13px;
-          font-weight: 900;
-          line-height: 1;
-        }
-      `}</style>
     </ProfessorShell>
   )
 }
@@ -318,12 +335,4 @@ function formatShortTime(value: string) {
 
 function isLiveInteraction(value: unknown): value is LiveSessionInteraction {
   return Boolean(value && typeof value === 'object' && 'id' in value && 'kind' in value && 'body' in value)
-}
-
-function apiError(error: unknown, fallback: string) {
-  if (typeof error === 'object' && error && 'response' in error) {
-    const response = (error as { response?: { data?: { detail?: string } } }).response
-    return response?.data?.detail || fallback
-  }
-  return fallback
 }

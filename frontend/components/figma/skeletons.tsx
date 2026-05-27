@@ -81,8 +81,7 @@ export function FigmaSidebarSkeleton({
     <aside className="flex w-[351px] shrink-0 flex-col items-start gap-[14px] pb-[120px] pt-11 max-[1180px]:hidden" aria-label="Loading sidebar">
       {visibleSections.map((section, index) => (
         <section
-          className="kresco-skeleton-card w-[351px] rounded-2xl border-2 bg-white px-[18px] pb-6 pt-[18px]"
-          style={{ height: sidebarSkeletonHeight(section) }}
+          className={`kresco-skeleton-card w-[351px] rounded-2xl border-2 bg-white px-[18px] pb-6 pt-[18px] ${sidebarSkeletonHeightClass(section)}`}
           key={`${section}-${index}`}
         >
           <SkeletonBlock className="h-[16px] w-28 rounded-[6px]" />
@@ -164,11 +163,11 @@ function CalendarSidebarSkeletonBody() {
 
 const defaultSidebarSkeletonSections: SidebarSkeletonSection[] = ['chrono', 'calendar', 'strike', 'quests']
 
-function sidebarSkeletonHeight(section: SidebarSkeletonSection) {
-  if (section === 'calendar') return 415
-  if (section === 'quests') return 305
-  if (section === 'leaderboard') return 663
-  return 157
+function sidebarSkeletonHeightClass(section: SidebarSkeletonSection) {
+  if (section === 'calendar') return 'h-[415px]'
+  if (section === 'quests') return 'h-[305px]'
+  if (section === 'leaderboard') return 'h-[663px]'
+  return 'h-[157px]'
 }
 
 export function FigmaCoursesSkeleton() {
@@ -400,14 +399,14 @@ export function FigmaProfileSkeleton() {
         </main>
 
         <aside className="figma-profile-rail" aria-label="Loading profile sidebar">
-          <section className="kresco-skeleton-card w-[351px] rounded-2xl border-2 bg-white px-[18px] pb-6 pt-[18px]" style={{ height: 157 }}>
+          <section className="kresco-skeleton-card h-[157px] w-[351px] rounded-2xl border-2 bg-white px-[18px] pb-6 pt-[18px]">
             <SkeletonBlock className="h-[16px] w-28 rounded-[6px]" />
             <SkeletonBlock className="mt-2 h-[13px] w-44 rounded-[6px]" />
             <div className="mt-7">
               <ChronoSidebarSkeletonBody />
             </div>
           </section>
-          <section className="kresco-skeleton-card w-[351px] rounded-2xl border-2 bg-white px-[18px] pb-6 pt-[18px]" style={{ height: 415 }}>
+          <section className="kresco-skeleton-card h-[415px] w-[351px] rounded-2xl border-2 bg-white px-[18px] pb-6 pt-[18px]">
             <SkeletonBlock className="h-[16px] w-28 rounded-[6px]" />
             <SkeletonBlock className="mt-2 h-[13px] w-44 rounded-[6px]" />
             <div className="mt-7">
@@ -441,7 +440,7 @@ export function FigmaProfileSkeleton() {
 
 export function LeaderboardPageSkeleton() {
   return (
-    <div className="kresco-shell" style={{ maxWidth: 980, margin: '0 auto' }}>
+    <div className="kresco-shell mx-auto max-w-[980px]">
       <div className="grid gap-5 lg:grid-cols-[1fr_300px]">
         <main>
           <section className="card kresco-skeleton-card mb-4 p-5">
@@ -521,18 +520,18 @@ export function CalendarPageSkeleton() {
             </div>
 
             <div className="w-full overflow-hidden">
-              <div className="relative" style={{ width: 100 + 220 * 7 }}>
+              <div className="relative w-[1640px]">
                 <div className="flex bg-white">
-                  <div className="h-11 shrink-0 border-2 border-[#e4e4e7]" style={{ width: 100 }} />
+                  <div className="h-11 w-[100px] shrink-0 border-2 border-[#e4e4e7]" />
                   {Array.from({ length: 7 }).map((_, index) => (
-                    <div key={index} className="-ml-0.5 flex h-11 shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-3 py-1.5" style={{ width: 220 }}>
+                    <div key={index} className="-ml-0.5 flex h-11 w-[220px] shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-3 py-1.5">
                       <SkeletonBlock className="h-[16px] w-[82px] rounded-[6px]" />
                     </div>
                   ))}
                 </div>
 
                 <div className="relative flex">
-                  <div className="shrink-0" style={{ width: 100 }}>
+                  <div className="w-[100px] shrink-0">
                     {Array.from({ length: 10 }).map((_, hour) => (
                       <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-3 pb-1.5">
                         <SkeletonBlock className="h-[14px] w-[46px] rounded-[6px]" />
@@ -541,7 +540,7 @@ export function CalendarPageSkeleton() {
                   </div>
                   <div className="relative flex">
                     {Array.from({ length: 7 }).map((_, day) => (
-                      <div key={day} className="-ml-0.5 shrink-0" style={{ width: 220 }}>
+                      <div key={day} className="-ml-0.5 w-[220px] shrink-0">
                         {Array.from({ length: 10 }).map((__, hour) => (
                           <div key={hour} className="-mt-0.5 h-20 border-2 border-[#e4e4e7]" />
                         ))}

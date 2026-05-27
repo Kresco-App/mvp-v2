@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
-import { getKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
+import { listKrescoRealtimeSubscriptions, subscribeKrescoRealtimeChannels, userNotificationsChannelName } from '@/lib/ably'
 import api from '@/lib/axios'
 import {
   addDays,
@@ -48,7 +48,7 @@ const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const miniDayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const hours = Array.from({ length: 24 }, (_, index) => index)
 const hourHeight = 80
-const timeWidth = 56
+const calendarColumnWidth = 100 / 7
 
 export default function CalendarPage() {
   const searchParams = useSearchParams()
@@ -118,13 +118,27 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (!user?.id) return
-    const realtime = getKrescoRealtime()
-    if (!realtime) return
-    const channel = realtime.channels.get(userNotificationsChannelName(user.id))
+    let cleanup = () => {}
+    let stopped = false
     const refresh = () => void loadEventsForWeek(() => true)
-    void channel.subscribe(refresh)
+    void listKrescoRealtimeSubscriptions()
+      .then(({ notification_channels }) => {
+        if (stopped) return
+        cleanup = subscribeKrescoRealtimeChannels({
+          channelNames: notification_channels,
+          onMessage: refresh,
+        })
+      })
+      .catch(() => {
+        if (stopped) return
+        cleanup = subscribeKrescoRealtimeChannels({
+          channelNames: [userNotificationsChannelName(user.id)],
+          onMessage: refresh,
+        })
+      })
     return () => {
-      void channel.unsubscribe(refresh)
+      stopped = true
+      cleanup()
     }
   }, [loadEventsForWeek, user?.id])
 
@@ -170,16 +184,16 @@ export default function CalendarPage() {
             <div className="w-full overflow-hidden">
               <div className="relative w-full min-w-0">
                 <div className="sticky top-0 z-10 flex bg-white">
-                  <div className="h-11 shrink-0 border-2 border-[#e4e4e7]" style={{ width: timeWidth }} />
+                  <div className="h-11 w-14 shrink-0 border-2 border-[#e4e4e7]" />
                   {dayNames.map((day) => (
-                    <div key={day} className="-ml-0.5 flex h-11 shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-1 py-1.5" style={{ width: `calc((100% - ${timeWidth}px) / 7)` }}>
+                    <div key={day} className="-ml-0.5 flex h-11 w-[calc((100%_-_56px)_/_7)] shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-1 py-1.5">
                       <span className="text-center text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b] max-[480px]:text-[12px]">{day.slice(0, 3)}</span>
                     </div>
                   ))}
                 </div>
 
                 <div className="relative flex max-h-[calc(100vh-260px)] min-h-[420px] overflow-y-auto overflow-x-hidden max-[760px]:max-h-[560px] max-[480px]:min-h-[360px]">
-                  <div className="shrink-0" style={{ width: timeWidth }}>
+                  <div className="w-14 shrink-0">
                     {hours.map((hour) => (
                       <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-1.5 pb-1.5">
                         <span className="text-[14px] font-bold leading-[1.2] tracking-[0.14px] text-[#71717b] max-[480px]:text-[11px]">{formatHour(hour)}</span>
@@ -188,7 +202,7 @@ export default function CalendarPage() {
                   </div>
                   <div className="relative flex min-w-0 flex-1">
                     {weekDays.map((day) => (
-                      <div key={day.toISOString()} className="-ml-0.5 shrink-0" style={{ width: 'calc(100% / 7)' }}>
+                      <div key={day.toISOString()} className="-ml-0.5 w-[calc(100%_/_7)] shrink-0">
                         {hours.map((hour) => (
                           <div key={hour} className="-mt-0.5 h-20 border-2 border-[#e4e4e7]" />
                         ))}
@@ -239,24 +253,21 @@ function CalendarEventBlock({
   const durationMinutes = Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000))
   const top = (minutesFromStart / 60) * hourHeight
   const height = Math.max(62, (durationMinutes / 60) * hourHeight - 2)
-  const color = event.color || (event.event_type === 'study_block' ? '#29aee4' : '#5b60f9')
+  const left = `${dayIndex * calendarColumnWidth}%`
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(event)}
-      className="absolute z-20 flex flex-col items-start justify-between overflow-hidden rounded-[6px] border-0 px-2 py-1.5 text-left font-bold leading-[1.2] shadow-none"
-      style={{
-        left: `calc(${dayIndex} * (100% / 7) + 2px)`,
-        top,
-        width: 'calc((100% / 7) - 4px)',
-        height,
-        background: color,
-      }}
-    >
-      <span className="line-clamp-2 w-full text-[14px] tracking-[0.14px] text-white">{event.title}</span>
-      <span className="w-full truncate text-[12px] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</span>
-    </button>
+    <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible">
+      <foreignObject x={left} y={top} width={`${calendarColumnWidth}%`} height={height} className="pointer-events-none overflow-visible">
+        <button
+          type="button"
+          onClick={() => onSelect(event)}
+          className={`pointer-events-auto mx-0.5 flex h-full w-[calc(100%-4px)] flex-col items-start justify-between overflow-hidden rounded-[6px] border-0 px-2 py-1.5 text-left font-bold leading-[1.2] shadow-none ${calendarEventToneClass(event)}`}
+        >
+          <span className="line-clamp-2 w-full text-[14px] tracking-[0.14px] text-white">{event.title}</span>
+          <span className="w-full truncate text-[12px] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</span>
+        </button>
+      </foreignObject>
+    </svg>
   )
 }
 
@@ -330,8 +341,7 @@ function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: ()
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, delay: 0.04, ease: [0.2, 0.8, 0.2, 1] }}
-        className="mt-6 rounded-lg p-3 text-white"
-        style={{ background: event.color || '#5b60f9' }}
+        className={`mt-6 rounded-lg p-3 text-white ${calendarEventToneClass(event)}`}
       >
         <div className="mb-2 flex items-center gap-2 text-[12px] font-bold text-[#c4d1ff]">
           <Video size={14} />
@@ -376,6 +386,13 @@ function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: ()
       </div>
     </motion.section>
   )
+}
+
+function calendarEventToneClass(event: CalendarEvent) {
+  const color = event.color?.toLowerCase()
+  if (event.event_type === 'study_block' || color === '#29aee4') return 'calendar-event-tone-sky'
+  if (event.status === 'live') return 'calendar-event-tone-amber'
+  return 'calendar-event-tone-purple'
 }
 
 function InfoRow({ label, value, index = 0 }: { label: string; value: string; index?: number }) {

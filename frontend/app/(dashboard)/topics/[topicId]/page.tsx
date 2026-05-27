@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -13,12 +13,20 @@ import {
   FileText,
   ListChecks,
   MessageSquare,
+  RotateCcw,
   Search,
   Send,
   StickyNote,
   type LucideIcon,
 } from 'lucide-react'
 import api from '@/lib/axios'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import {
+  defaultTopicWorkspaceDataRequest,
+  topicWorkspaceSWRKey,
+  useTopicWorkspaceData,
+  type TopicWorkspaceDataRequest,
+} from '@/lib/topicWorkspaceData'
 import {
   activeSectionIdForWorkspace,
   animatedConfigForTab,
@@ -54,6 +62,7 @@ import { AnimatedContentRenderer } from '@/components/animated/registry'
 import type { AnimatedCompletionEvent, AnimatedRendererProps } from '@/components/animated/types'
 import { LessonBody, PrimaryContentFrame, VideoLearningWorkspace, VideoPlayerFrame, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
+import RouteErrorState from '@/components/RouteErrorState'
 
 const workspaceTabIcons: Record<WorkspaceTabSlot, LucideIcon> = {
   course: BookOpen,
@@ -651,40 +660,93 @@ export default function TopicWorkspacePage() {
   const [activeTabSlot, setActiveTabSlot] = useState<WorkspaceTabSlot>('course')
   const [topicQuery, setTopicQuery] = useState('')
   const [openSectionIds, setOpenSectionIds] = useState<Set<string | number>>(new Set())
-  const [loading, setLoading] = useState(true)
+  const [workspaceRequest, setWorkspaceRequest] = useState<TopicWorkspaceDataRequest>(() => ({
+    ...defaultTopicWorkspaceDataRequest(),
+    targets: routeQueryTargets,
+  }))
+  const lastWorkspaceErrorToastRef = useRef('')
+  const previousTopicIdRef = useRef(topicId)
+  const {
+    key: workspaceKey,
+    workspace: fetchedWorkspace,
+    error: workspaceError,
+    loading,
+    isValidating,
+    mutate: mutateWorkspace,
+  } = useTopicWorkspaceData(topicId, workspaceRequest)
+  const loadError = workspaceError ? apiDataErrorMessage(workspaceError, 'Could not load topic workspace.') : ''
 
-  const load = useCallback(async (
-    targets = topicWorkspaceQueryTargetsFromItemId(null),
-    q = '',
-    options: { preserveActiveTab?: boolean; preserveOpenSections?: boolean } = {},
-  ) => {
-    const itemId = targets.itemId
-    const params = new URLSearchParams()
-    if (itemId) params.set('item_id', String(itemId))
-    if (q.trim()) params.set('q', q.trim())
-    const { data } = await api.get<TopicWorkspace>(`/courses/topics/${topicId}/workspace?${params.toString()}`)
-    const selection = selectTopicWorkspaceQueryState(data, targets)
-    const nextActiveItemId = selection.activeItemId ?? data.active_item_id ?? itemId ?? data.active_item?.id ?? null
-    const nextOpenSectionId = activeSectionIdForWorkspace(data, nextActiveItemId)
+  useEffect(() => {
+    const topicChanged = previousTopicIdRef.current !== topicId
+    previousTopicIdRef.current = topicId
+    setWorkspaceRequest({
+      ...defaultTopicWorkspaceDataRequest(),
+      targets: routeQueryTargets,
+    })
+    if (!topicChanged) return
+    setWorkspace(null)
+    setActiveItemId(null)
+    setActiveTabSlot('course')
+    setOpenSectionIds(new Set())
+  }, [routeQueryTargets, topicId])
 
-    setWorkspace(data)
+  useEffect(() => {
+    if (!fetchedWorkspace) return
+    const numericTopicId = Number(topicId)
+    if (Number.isFinite(numericTopicId) && fetchedWorkspace.id !== numericTopicId) return
+
+    const selection = selectTopicWorkspaceQueryState(fetchedWorkspace, workspaceRequest.targets)
+    const nextActiveItemId = selection.activeItemId
+      ?? fetchedWorkspace.active_item_id
+      ?? workspaceRequest.targets.itemId
+      ?? fetchedWorkspace.active_item?.id
+      ?? null
+    const nextOpenSectionId = activeSectionIdForWorkspace(fetchedWorkspace, nextActiveItemId)
+
+    setWorkspace(fetchedWorkspace)
     setActiveItemId(nextActiveItemId)
-    if (!options.preserveActiveTab) setActiveTabSlot(selection.activeTabSlot)
+    if (!workspaceRequest.preserveActiveTab) setActiveTabSlot(selection.activeTabSlot)
     setOpenSectionIds((prev) => {
-      if (nextOpenSectionId == null) return options.preserveOpenSections ? prev : new Set()
-      if (!options.preserveOpenSections) return new Set([nextOpenSectionId])
+      if (nextOpenSectionId == null) return workspaceRequest.preserveOpenSections ? prev : new Set()
+      if (!workspaceRequest.preserveOpenSections) return new Set([nextOpenSectionId])
       const next = new Set(prev)
       next.add(nextOpenSectionId)
       return next
     })
-  }, [topicId])
+  }, [fetchedWorkspace, topicId, workspaceRequest])
 
   useEffect(() => {
-    setLoading(true)
-    load(routeQueryTargets)
-      .catch(() => toast.error('Could not load topic workspace.'))
-      .finally(() => setLoading(false))
-  }, [load, routeQueryTargets])
+    if (!workspaceError) {
+      lastWorkspaceErrorToastRef.current = ''
+      return
+    }
+    if (loadError === lastWorkspaceErrorToastRef.current) return
+    lastWorkspaceErrorToastRef.current = loadError
+    toast.error(loadError)
+  }, [loadError, workspaceError])
+
+  const requestWorkspace = useCallback((
+    targets = topicWorkspaceQueryTargetsFromItemId(null),
+    q = '',
+    options: Pick<TopicWorkspaceDataRequest, 'preserveActiveTab' | 'preserveOpenSections'> = {},
+  ) => {
+    setWorkspaceRequest({
+      targets,
+      q,
+      ...options,
+    })
+    if (topicWorkspaceSWRKey(topicId, targets, q) === workspaceKey) {
+      void mutateWorkspace()
+    }
+  }, [mutateWorkspace, topicId, workspaceKey])
+
+  const retryWorkspace = useCallback(async () => {
+    try {
+      await mutateWorkspace()
+    } catch {
+      // SWR exposes the latest error through state; the effect above owns reporting.
+    }
+  }, [mutateWorkspace])
 
   const topicLookups = useMemo(() => {
     if (!workspace) return null
@@ -754,14 +816,13 @@ export default function TopicWorkspacePage() {
     } catch {}
   }, [router, topicId, workspace?.id])
 
-  const runTopicSearch = useCallback(async () => {
+  const runTopicSearch = useCallback(() => {
     if (!activeItem) return
-    try {
-      await load(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
-    } catch {
-      toast.error('Topic search failed.')
-    }
-  }, [activeItem, load, topicQuery])
+    requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
+      preserveActiveTab: true,
+      preserveOpenSections: true,
+    })
+  }, [activeItem, requestWorkspace, topicQuery])
 
   const toggleSection = useCallback((section: FigmaRailSection) => {
     setOpenSectionIds((prev) => {
@@ -793,11 +854,14 @@ export default function TopicWorkspacePage() {
     try {
       const { data } = await api.post(`/courses/topic-items/${activeItem.id}/complete`, { watched_seconds: activeItem.duration_seconds || 0 })
       toast.success(`Progress saved${data.xp_earned ? ` (+${data.xp_earned} XP)` : ''}.`)
-      await load(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, { preserveActiveTab: true, preserveOpenSections: true })
+      requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
+        preserveActiveTab: true,
+        preserveOpenSections: true,
+      })
     } catch {
       toast.error('Could not save progress.')
     }
-  }, [activeItem, load, topicQuery])
+  }, [activeItem, requestWorkspace, topicQuery])
 
   const saveActive = useCallback(async () => {
     if (!activeItem || !workspace) return
@@ -828,20 +892,36 @@ export default function TopicWorkspacePage() {
             tab={activePrimaryTab}
             item={activeItem}
             topicId={workspace?.id ?? Number(topicId)}
-            onNoteSaved={() => load(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, { preserveActiveTab: true, preserveOpenSections: true })}
+            onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
+              preserveActiveTab: true,
+              preserveOpenSections: true,
+            })}
             onItemComplete={completeActive}
           />
         </PrimaryContentFrame>
       )
     }
     return <VideoPlayerFrame videoId="" srcDoc={missingVideoSrcDoc(activeItem)} />
-  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, load, topicId, topicQuery, workspace?.id])
+  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, requestWorkspace, topicId, topicQuery, workspace?.id])
 
-  if (loading) {
+  if (loading && !workspace) {
     return <FigmaVideoWorkspaceSkeleton />
   }
 
-  if (!workspace || !activeItem) return null
+  if (!workspace || !activeItem) {
+    return (
+      <main className="grid min-h-[520px] place-items-center py-12">
+        <RouteErrorState
+          eyebrow="Topic unavailable"
+          title="This topic workspace could not be loaded."
+          message={loadError || 'The topic data was empty or incomplete. Retry the request or go back home.'}
+          homeHref="/home"
+          homeLabel="Back home"
+          onRetry={() => void retryWorkspace()}
+        />
+      </main>
+    )
+  }
 
   return (
     <VideoLearningWorkspace
@@ -869,6 +949,23 @@ export default function TopicWorkspacePage() {
     >
       <LessonBody>
         <div className="grid gap-[24px]">
+          {loadError && (
+            <section role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-[#fde68a] bg-[#fffbeb] px-5 py-4">
+              <div>
+                <p className="m-0 text-[14px] font-black text-[#92400e]">Topic workspace could not be refreshed.</p>
+                <p className="m-0 mt-1 text-[13px] font-bold text-[#b45309]">Cached topic data stays visible while you retry.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void retryWorkspace()}
+                disabled={isValidating}
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#92400e] px-4 text-[13px] font-black text-white disabled:opacity-60"
+              >
+                <RotateCcw size={15} />
+                {isValidating ? 'Retrying...' : 'Retry topic data'}
+              </button>
+            </section>
+          )}
           <TopicSearchResults query={topicQuery} items={workspace.search_results} onSelect={selectItem} />
           <AnimatePresence mode="wait" initial={false}>
             {activeTab && (
@@ -883,7 +980,10 @@ export default function TopicWorkspacePage() {
                   tab={activeTab}
                   item={activeItem}
                   topicId={workspace.id}
-                  onNoteSaved={() => load(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, { preserveActiveTab: true, preserveOpenSections: true })}
+                  onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
+                    preserveActiveTab: true,
+                    preserveOpenSections: true,
+                  })}
                   onItemComplete={completeActive}
                 />
               </motion.div>

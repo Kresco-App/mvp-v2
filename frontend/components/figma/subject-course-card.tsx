@@ -36,10 +36,13 @@ export function FigmaSubjectCourseCard({
   const isUpcoming = state === 'upcoming'
   const isUnavailable = isLocked || isUpcoming
   const label = isCompleted ? 'Well Done' : isCurrent ? 'Continue' : isLocked ? 'Locked' : isUpcoming ? 'Coming soon' : 'Start the lesson'
-  const progressWidth = Math.max(24, Math.round((safeProgress / 100) * 320))
-
-  const borderColor = isCompleted ? '#fcc94d' : isCurrent ? '#5b60f9' : '#e4e4e7'
-  const imageBorderColor = isCompleted ? '#fcc94d' : isCurrent ? '#5b60f9' : '#d4d4d8'
+  const progressWidthClassName = progressWidthClass(Math.max(8, safeProgress))
+  const cardChromeClass = isCompleted
+    ? 'bg-[#fcc94d] shadow-[0_3.75px_0_#f5900b]'
+    : isCurrent
+      ? 'bg-[#5b60f9] shadow-[0_3.75px_0_#383dc7]'
+      : 'bg-[#e4e4e7] shadow-[0_3.75px_0_#d9dadd]'
+  const imageBorderClass = isCompleted ? 'border-[#fcc94d]' : isCurrent ? 'border-[#5b60f9]' : 'border-[#d4d4d8]'
   const badgeClass = isCompleted
     ? 'border-[#fbae17] bg-[#f5900b] text-white'
     : isCurrent
@@ -50,23 +53,13 @@ export function FigmaSubjectCourseCard({
 
   const card = (
     <article
-      className={`kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${isUnavailable ? 'opacity-80' : ''}`}
-      style={{
-        background: borderColor,
-        animationDelay: `${Math.min(index * 45, 220)}ms`,
-        boxShadow: isCompleted
-          ? '0 3.75px 0 #f5900b'
-          : isCurrent
-            ? '0 3.75px 0 #383dc7'
-            : '0 3.75px 0 #d9dadd',
-      }}
+      className={`kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${cardChromeClass} ${isUnavailable ? 'opacity-80' : ''}`}
     >
       <div
         className={`flex h-full flex-col overflow-hidden rounded-[14px] transition duration-200 ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
       >
         <div
-          className="relative h-[193.5px] w-full overflow-hidden border-b-2 p-[12px]"
-          style={{ borderColor: imageBorderColor }}
+          className={`relative h-[193.5px] w-full overflow-hidden border-b-2 p-[12px] ${imageBorderClass}`}
         >
           <Image
             alt=""
@@ -91,8 +84,7 @@ export function FigmaSubjectCourseCard({
             <div className={`h-[10px] w-full overflow-hidden rounded-[4.286px] ${isCompleted ? 'bg-transparent' : 'bg-[#f4f4f5]'}`}>
               {!isCompleted && !isUnavailable && (
                 <span
-                  className="kresco-progress-fill block h-full rounded-[4.286px] bg-[#5b60f9] shadow-[inset_0px_2.857px_2.857px_rgba(255,255,255,.4),inset_0px_-2.857px_2.857px_rgba(0,0,0,.08)]"
-                  style={{ width: `${progressWidth}px` }}
+                  className={`kresco-progress-fill block h-full rounded-[4.286px] bg-[#5b60f9] shadow-[inset_0px_2.857px_2.857px_rgba(255,255,255,.4),inset_0px_-2.857px_2.857px_rgba(0,0,0,.08)] ${progressWidthClassName}`}
                 />
               )}
             </div>
@@ -138,4 +130,31 @@ export function FigmaSubjectCourseCard({
       {card}
     </Link>
   )
+}
+
+function progressWidthClass(value: number) {
+  const bucket = Math.max(0, Math.min(100, Math.round(value / 5) * 5))
+  switch (bucket) {
+    case 0: return 'w-0'
+    case 5: return 'w-[5%]'
+    case 10: return 'w-[10%]'
+    case 15: return 'w-[15%]'
+    case 20: return 'w-[20%]'
+    case 25: return 'w-1/4'
+    case 30: return 'w-[30%]'
+    case 35: return 'w-[35%]'
+    case 40: return 'w-[40%]'
+    case 45: return 'w-[45%]'
+    case 50: return 'w-1/2'
+    case 55: return 'w-[55%]'
+    case 60: return 'w-[60%]'
+    case 65: return 'w-[65%]'
+    case 70: return 'w-[70%]'
+    case 75: return 'w-3/4'
+    case 80: return 'w-4/5'
+    case 85: return 'w-[85%]'
+    case 90: return 'w-[90%]'
+    case 95: return 'w-[95%]'
+    default: return 'w-full'
+  }
 }

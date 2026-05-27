@@ -1,23 +1,22 @@
 'use client'
 
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { BellRing, CalendarPlus, ExternalLink, MonitorCog, MoreHorizontal, Pencil, Play, Radio, RotateCcw, Save, Square, Trash2, X } from 'lucide-react'
+import { BellRing, CalendarPlus, Eye, ExternalLink, MonitorCog, MoreHorizontal, Pencil, Play, Radio, RotateCcw, Save, Square, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import { useProfessorLiveScheduleData } from '@/lib/liveSessionData'
 import {
   cancelProfessorLiveSession,
   createProfessorLiveSession,
   deleteProfessorLiveSession,
   endProfessorLiveSession,
-  getProfessorLiveProviderConfig,
-  listProfessorOfferings,
-  listProfessorLiveSessions,
   notifyProfessorLiveSession,
+  revealProfessorLiveStreamCredentials,
   startProfessorLiveSession,
   updateProfessorLiveSession,
-  type CourseOffering,
-  type LiveProviderConfig,
+  type LiveSessionStreamCredentials,
   type LiveSessionInput,
   type ProfessorLiveSession,
 } from '@/lib/professor'
@@ -36,42 +35,45 @@ type LiveForm = {
 }
 
 export default function ProfessorLivePage() {
-  const [sessions, setSessions] = useState<ProfessorLiveSession[]>([])
-  const [offerings, setOfferings] = useState<CourseOffering[]>([])
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [revealingId, setRevealingId] = useState<number | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
+  const [revealedCredentials, setRevealedCredentials] = useState<Record<number, LiveSessionStreamCredentials>>({})
   const [showAdvancedForm, setShowAdvancedForm] = useState(false)
   const [form, setForm] = useState<LiveForm>(() => defaultLiveForm())
-  const [providerConfig, setProviderConfig] = useState<LiveProviderConfig | null>(null)
+  const loadErrorRef = useRef<unknown>(null)
+  const {
+    sessions,
+    offerings,
+    providerConfig,
+    loading,
+    error,
+    mutateAll,
+  } = useProfessorLiveScheduleData()
 
   useEffect(() => {
     document.title = 'Live Sessions - Kresco Professor'
-    void load()
   }, [])
 
-  async function load() {
-    setLoading(true)
-    try {
-      const [nextOfferings, nextSessions, nextProviderConfig] = await Promise.all([
-        listProfessorOfferings(),
-        listProfessorLiveSessions(),
-        getProfessorLiveProviderConfig(),
-      ])
-      setOfferings(nextOfferings)
-      setSessions(nextSessions)
-      setProviderConfig(nextProviderConfig)
-      setForm((current) => ({
-        ...current,
-        course_offering_id: current.course_offering_id || String(nextOfferings[0]?.id ?? ''),
-      }))
-    } catch (error) {
-      toast.error(apiError(error, 'Could not load live sessions.'))
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    if (offerings.length === 0) return
+    setForm((current) => ({
+      ...current,
+      course_offering_id: current.course_offering_id || String(offerings[0]?.id ?? ''),
+    }))
+  }, [offerings])
+
+  useEffect(() => {
+    if (!error) {
+      loadErrorRef.current = null
+      return
     }
-  }
+    if (loadErrorRef.current !== error) {
+      loadErrorRef.current = error
+      toast.error(apiDataErrorMessage(error, 'Could not load live sessions.'))
+    }
+  }, [error])
 
   async function submitLiveSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -101,6 +103,12 @@ export default function ProfessorLivePage() {
       auto_create_vdocipher: form.auto_create_vdocipher,
       chat_mode: 'off',
     }
+    if (form.id && !form.stream_ingest_url.trim()) {
+      delete payload.stream_ingest_url
+    }
+    if (form.id && !form.stream_key.trim()) {
+      delete payload.stream_key
+    }
 
     setSaving(true)
     try {
@@ -112,9 +120,9 @@ export default function ProfessorLivePage() {
         toast.success('Live session created.')
       }
       resetForm(offerings)
-      await load()
+      await mutateAll()
     } catch (error) {
-      toast.error(apiError(error, form.auto_create_vdocipher ? 'Stream generation is not configured yet.' : 'Could not save live session.'))
+      toast.error(apiDataErrorMessage(error, form.auto_create_vdocipher ? 'Stream generation is not configured yet.' : 'Could not save live session.'))
     } finally {
       setSaving(false)
     }
@@ -131,11 +139,24 @@ export default function ProfessorLivePage() {
       await action()
       toast.success(label)
       setOpenMenuId(null)
-      await load()
+      await mutateAll()
     } catch (error) {
-      toast.error(apiError(error, 'Action failed.'))
+      toast.error(apiDataErrorMessage(error, 'Action failed.'))
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function revealCredentials(session: ProfessorLiveSession) {
+    setRevealingId(session.id)
+    try {
+      const credentials = await revealProfessorLiveStreamCredentials(session.id)
+      setRevealedCredentials((current) => ({ ...current, [session.id]: credentials }))
+      toast.success('Stream credentials revealed.')
+    } catch (error) {
+      toast.error(apiDataErrorMessage(error, 'Could not reveal stream credentials.'))
+    } finally {
+      setRevealingId(null)
     }
   }
 
@@ -151,7 +172,7 @@ export default function ProfessorLivePage() {
             <h1 className="m-0 mt-1 text-[30px] font-black leading-tight text-[#3f3f46]">Live Sessions</h1>
             <p className="m-0 mt-2 text-[14px] font-bold text-[#71717b]">Schedule sessions and open the control room when it is time to go live.</p>
           </div>
-          <button className="professor-live-button border-[#e4e4e7] bg-white text-[#52525c]" type="button" onClick={() => void load()}>
+          <button className="professor-live-button border-[#e4e4e7] bg-white text-[#52525c]" type="button" onClick={() => void mutateAll()}>
             <RotateCcw size={15} />
             Refresh
           </button>
@@ -288,6 +309,18 @@ export default function ProfessorLivePage() {
               <div className="grid gap-3 p-5">
                 {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-[88px] animate-pulse rounded-[12px] bg-[#f4f4f5]" />)}
               </div>
+            ) : error && sortedSessions.length === 0 ? (
+              <div className="grid min-h-[360px] place-items-center p-6 text-center">
+                <div>
+                  <VideoIcon />
+                  <h3 className="m-0 mt-4 text-[20px] font-black text-[#3f3f46]">Could not load sessions</h3>
+                  <p className="m-0 mt-2 text-[14px] font-bold text-[#71717b]">{apiDataErrorMessage(error, 'Could not load live sessions.')}</p>
+                  <button className="professor-live-button mt-4 border-[#453dee] bg-[#453dee] text-white" type="button" onClick={() => void mutateAll()}>
+                    <RotateCcw size={15} />
+                    Retry
+                  </button>
+                </div>
+              </div>
             ) : sortedSessions.length === 0 ? (
               <div className="grid min-h-[360px] place-items-center p-6 text-center">
                 <div>
@@ -315,6 +348,9 @@ export default function ProfessorLivePage() {
                     onEnd={() => runAction(session, 'Live session ended.', () => endProfessorLiveSession(session.id))}
                     onCancel={() => runAction(session, 'Live session cancelled.', () => cancelProfessorLiveSession(session.id))}
                     onDelete={() => runAction(session, 'Live session deleted.', () => deleteProfessorLiveSession(session.id))}
+                    onRevealCredentials={() => revealCredentials(session)}
+                    revealedCredentials={revealedCredentials[session.id] ?? null}
+                    revealing={revealingId === session.id}
                   />
                 ))}
               </div>
@@ -323,57 +359,6 @@ export default function ProfessorLivePage() {
         </section>
       </main>
 
-      <style jsx global>{`
-        .professor-live-button {
-          display: inline-flex;
-          min-height: 40px;
-          align-items: center;
-          gap: 8px;
-          border-width: 2px;
-          border-radius: 12px;
-          padding: 0 13px;
-          font-size: 13px;
-          font-weight: 900;
-          line-height: 1;
-        }
-        .professor-live-field {
-          display: grid;
-          gap: 6px;
-          font-size: 12px;
-          font-weight: 900;
-          color: #52525c;
-        }
-        .professor-live-input {
-          min-height: 42px;
-          border-radius: 12px;
-          border: 2px solid #e4e4e7;
-          background: #fff;
-          padding: 0 12px;
-          color: #3f3f46;
-          font-size: 14px;
-          font-weight: 800;
-          outline: none;
-        }
-        .professor-live-input:focus { border-color: #453dee; }
-        .professor-live-menu-item {
-          display: flex;
-          min-height: 36px;
-          align-items: center;
-          gap: 9px;
-          border: 0;
-          border-radius: 10px;
-          background: transparent;
-          padding: 0 10px;
-          font-size: 13px;
-          font-weight: 900;
-          text-align: left;
-        }
-        .professor-live-menu-item:hover { background: #f4f4f5; }
-        .professor-live-menu-item:disabled {
-          cursor: not-allowed;
-          opacity: 0.5;
-        }
-      `}</style>
     </ProfessorShell>
   )
 }
@@ -389,6 +374,9 @@ function SessionRow({
   onEnd,
   onCancel,
   onDelete,
+  onRevealCredentials,
+  revealedCredentials,
+  revealing,
 }: {
   session: ProfessorLiveSession
   busy: boolean
@@ -400,6 +388,9 @@ function SessionRow({
   onEnd: () => void
   onCancel: () => void
   onDelete: () => void
+  onRevealCredentials: () => void
+  revealedCredentials: LiveSessionStreamCredentials | null
+  revealing: boolean
 }) {
   const live = session.status === 'live'
   const completed = session.status === 'completed'
@@ -421,10 +412,14 @@ function SessionRow({
         <h3 className="m-0 truncate text-[18px] font-black text-[#3f3f46]">{session.title}</h3>
         <p className="m-0 mt-1 text-[13px] font-bold text-[#71717b]">{formatDateTime(session.starts_at)} - {formatDateTime(session.ends_at)}</p>
         <p className="m-0 mt-1 truncate text-[12px] font-bold text-[#9f9fa9]">{session.vdocipher_live_id || 'No stream ID'}</p>
-        {(session.stream_ingest_url || session.stream_key) && (
-          <p className="m-0 mt-1 truncate text-[12px] font-bold text-[#71717b]">
-            {session.stream_ingest_url || 'OBS URL ready'} {session.stream_key ? '/ stream key saved' : ''}
-          </p>
+        {session.has_stream_credentials && !revealedCredentials && (
+          <p className="m-0 mt-1 truncate text-[12px] font-bold text-[#71717b]">Stream credentials saved</p>
+        )}
+        {revealedCredentials && (
+          <div className="mt-2 grid gap-1 rounded-[10px] border border-[#e4e4e7] bg-[#fafafa] p-3">
+            <p className="m-0 truncate text-[12px] font-bold text-[#3f3f46]">{revealedCredentials.stream_ingest_url || 'No OBS URL saved'}</p>
+            <p className="m-0 truncate text-[12px] font-bold text-[#3f3f46]">{revealedCredentials.stream_key || 'No stream key saved'}</p>
+          </div>
         )}
       </div>
 
@@ -453,6 +448,12 @@ function SessionRow({
               <button className="professor-live-menu-item text-[#453dee]" disabled={busy} type="button" onClick={onNotify}>
                 <BellRing size={14} />
                 Notify students
+              </button>
+            )}
+            {session.has_stream_credentials && (
+              <button className="professor-live-menu-item text-[#52525c]" disabled={busy || revealing} type="button" onClick={onRevealCredentials}>
+                <Eye size={14} />
+                {revealing ? 'Revealing...' : revealedCredentials ? 'Refresh credentials' : 'Reveal credentials'}
               </button>
             )}
             {!live && !completed && !cancelled && (
@@ -527,8 +528,8 @@ function formFromSession(session: ProfessorLiveSession): LiveForm {
     starts_at: toDatetimeLocal(new Date(session.starts_at)),
     ends_at: toDatetimeLocal(new Date(session.ends_at)),
     vdocipher_live_id: session.vdocipher_live_id,
-    stream_ingest_url: session.stream_ingest_url,
-    stream_key: session.stream_key,
+    stream_ingest_url: '',
+    stream_key: '',
     auto_create_vdocipher: false,
   }
 }
@@ -551,12 +552,4 @@ function compareLiveSessions(a: ProfessorLiveSession, b: ProfessorLiveSession) {
   const aTime = new Date(a.starts_at).getTime()
   const bTime = new Date(b.starts_at).getTime()
   return left <= 1 ? aTime - bTime : bTime - aTime
-}
-
-function apiError(error: unknown, fallback: string) {
-  if (typeof error === 'object' && error && 'response' in error) {
-    const response = (error as { response?: { data?: { detail?: string } } }).response
-    return response?.data?.detail || fallback
-  }
-  return fallback
 }

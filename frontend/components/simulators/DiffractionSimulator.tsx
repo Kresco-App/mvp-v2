@@ -67,7 +67,7 @@ export default function DiffractionSimulator() {
 
     if (Math.abs(x - screenX) < 30) {
       isDraggingRef.current = true
-      document.body.style.cursor = 'ew-resize'
+      document.body.classList.add('kresco-ew-resize')
     }
   }
 
@@ -83,7 +83,7 @@ export default function DiffractionSimulator() {
     const handlePointerUp = () => {
       if (isDraggingRef.current) {
         isDraggingRef.current = false
-        document.body.style.cursor = 'default'
+        document.body.classList.remove('kresco-ew-resize')
       }
     }
 
@@ -97,6 +97,7 @@ export default function DiffractionSimulator() {
       window.removeEventListener('mouseup', handlePointerUp)
       window.removeEventListener('touchmove', handlePointerMove)
       window.removeEventListener('touchend', handlePointerUp)
+      document.body.classList.remove('kresco-ew-resize')
     }
   }, [])
 

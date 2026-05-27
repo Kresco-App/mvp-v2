@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
+import { connection } from 'next/server'
 import AppToaster from '@/components/AppToaster'
+import ApiDataProvider from '@/components/ApiDataProvider'
 import './globals.css'
 
 const sunghyunSans = localFont({
@@ -28,27 +30,27 @@ const sunghyunSans = localFont({
 const sfProRounded = localFont({
   src: [
     {
-      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Regular.otf',
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Regular.woff2',
       weight: '400',
       style: 'normal',
     },
     {
-      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Medium.otf',
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Medium.woff2',
       weight: '500',
       style: 'normal',
     },
     {
-      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Semibold.otf',
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Semibold.woff2',
       weight: '600',
       style: 'normal',
     },
     {
-      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Bold.otf',
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Bold.woff2',
       weight: '700',
       style: 'normal',
     },
     {
-      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Heavy.otf',
+      path: './fonts/sf-pro-rounded/SF-Pro-Rounded-Heavy.woff2',
       weight: '800',
       style: 'normal',
     },
@@ -62,11 +64,15 @@ export const metadata: Metadata = {
   description: 'Preparez votre Bac avec des cours video, des quiz interactifs et un suivi personnalise.',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection()
+
   return (
     <html lang="fr">
       <body className={`${sfProRounded.variable} ${sunghyunSans.variable} antialiased`}>
-        {children}
+        <ApiDataProvider>
+          {children}
+        </ApiDataProvider>
         <AppToaster />
       </body>
     </html>

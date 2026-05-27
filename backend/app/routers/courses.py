@@ -3,9 +3,10 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, insert, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload, with_loader_criteria
+from sqlalchemy.orm import joinedload, selectinload, with_loader_criteria
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -37,7 +38,8 @@ from app.services.course_access import (
     store_access_decision,
     topic_item_out,
 )
-from app.services.xp import award_xp
+from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
+from app.services.xp import XPAward, award_xp, award_xp_bulk
 from app.services.vdocipher import get_video_otp
 
 router = APIRouter(tags=["Courses"])
@@ -362,8 +364,14 @@ async def list_topics(
     )
     if subject_id is not None:
         stmt = stmt.where(Topic.subject_id == subject_id)
+    q = normalize_substring_search(q)
     if q:
-        stmt = stmt.where(or_(Topic.title.ilike(f"%{q}%"), Topic.description.ilike(f"%{q}%"), Topic.slug.ilike(f"%{q}%")))
+        needle = substring_search_pattern(q)
+        stmt = stmt.where(or_(
+            Topic.title.ilike(needle, escape=LIKE_ESCAPE),
+            Topic.description.ilike(needle, escape=LIKE_ESCAPE),
+            Topic.slug.ilike(needle, escape=LIKE_ESCAPE),
+        ))
     result = await db.execute(stmt)
     topics = result.scalars().unique().all()
     access_context = await build_access_context(db, user)
@@ -426,32 +434,59 @@ async def get_topic_workspace(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Topic)
-        .options(
-            selectinload(Topic.subject),
-            selectinload(Topic.sections)
-                .selectinload(TopicSection.items)
-                .selectinload(TopicItem.primary_resource),
-            selectinload(Topic.sections)
-                .selectinload(TopicSection.items)
-                .selectinload(TopicItem.tabs)
-                .selectinload(TabContent.resource),
-            selectinload(Topic.resources),
-            with_loader_criteria(TopicItem, TopicItem.status == "published"),
-            with_loader_criteria(TabContent, TabContent.status == "published"),
-            with_loader_criteria(Resource, Resource.status == "published"),
+    topic_row = (
+        await db.execute(
+            select(Topic, Subject.title)
+            .join(Subject, Subject.id == Topic.subject_id)
+            .where(Topic.id == topic_id, Topic.status == "published")
         )
-        .where(Topic.id == topic_id, Topic.status == "published")
-    )
-    topic = result.scalar_one_or_none()
-    if topic is None:
+    ).first()
+    if topic_row is None:
         raise HTTPException(status_code=404, detail="Topic not found")
+    topic, subject_title = topic_row
     access_context = await build_access_context(db, user)
     topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
 
-    items = [item for section in topic.sections for item in section.items if item.status == "published"]
+    section_rows = list((await db.execute(
+        select(TopicSection)
+        .where(TopicSection.topic_id == topic.id)
+        .order_by(TopicSection.order, TopicSection.id)
+    )).scalars().all())
+    section_ids = [section.id for section in section_rows]
+
+    items: list[TopicItem] = []
+    if section_ids:
+        items = list((await db.execute(
+            select(TopicItem)
+            .options(
+                joinedload(TopicItem.primary_resource),
+                with_loader_criteria(Resource, Resource.status == "published"),
+            )
+            .where(
+                TopicItem.topic_id == topic.id,
+                TopicItem.section_id.in_(section_ids),
+                TopicItem.status == "published",
+            )
+            .order_by(TopicItem.section_id, TopicItem.order, TopicItem.id)
+        )).scalars().all())
+
     item_ids = [item.id for item in items]
+    tabs_by_item: dict[int, list[TabContent]] = {item.id: [] for item in items}
+    if item_ids:
+        tab_rows = (await db.execute(
+            select(TabContent)
+            .options(
+                joinedload(TabContent.resource),
+                with_loader_criteria(Resource, Resource.status == "published"),
+            )
+            .where(TabContent.topic_item_id.in_(item_ids), TabContent.status == "published")
+            .order_by(TabContent.topic_item_id, TabContent.order, TabContent.id)
+        )).scalars().all()
+        for tab in tab_rows:
+            tabs_by_item.setdefault(tab.topic_item_id, []).append(tab)
+    for item in items:
+        set_committed_value(item, "tabs", tabs_by_item.get(item.id, []))
+
     progress_by_item = {}
     if item_ids:
         progress_result = await db.execute(
@@ -469,13 +504,6 @@ async def get_topic_workspace(
 
     tab_access: dict[int, AccessDecision] = {}
     resource_access: dict[int, AccessDecision] = {}
-    for resource in topic.resources:
-        if resource.status == "published":
-            store_access_decision(
-                resource_access,
-                resource.id,
-                access_context.decide_child(topic_access, resource, subject_id=topic.subject_id),
-            )
     for item in items:
         current_item_access = item_access[item.id]
         if item.primary_resource:
@@ -506,36 +534,41 @@ async def get_topic_workspace(
     if active_item is None:
         active_item = next((item for item in accessible_items if progress_by_item.get(item.id, None) is None), None) or (accessible_items[0] if accessible_items else (items[0] if items else None))
 
-    sections = [
+    section_outputs = [
         TopicSectionOut(
             id=section.id,
             title=section.title,
             section_type=section.section_type,
             order=section.order,
-            items=[topic_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in section.items if item.status == "published"],
+            items=[
+                topic_item_out(item, progress_by_item, item_access, tab_access, resource_access)
+                for item in items
+                if item.section_id == section.id
+            ],
         )
-        for section in topic.sections
+        for section in section_rows
     ]
     completed_count = len([item for item in accessible_items if progress_by_item.get(item.id) and progress_by_item[item.id].status == "completed"])
     progress_pct = round((completed_count / len(accessible_items)) * 100) if accessible_items else 0
 
-    notes_result = await db.execute(
-        select(UserNote)
-        .where(UserNote.user_id == user.id, UserNote.topic_id == topic.id)
-        .order_by(UserNote.updated_at.desc())
-    )
-    note_rows = notes_result.scalars().all()
     notes_by_item: dict[int, list[str]] = {}
-    for note in note_rows:
-        if note.topic_item_id:
-            notes_by_item.setdefault(note.topic_item_id, []).append(note.body)
+    if q:
+        notes_result = await db.execute(
+            select(UserNote)
+            .where(UserNote.user_id == user.id, UserNote.topic_id == topic.id)
+            .order_by(UserNote.updated_at.desc())
+        )
+        note_rows = notes_result.scalars().all()
+        for note in note_rows:
+            if note.topic_item_id:
+                notes_by_item.setdefault(note.topic_item_id, []).append(note.body)
 
     search_results = [topic_item_out(item, progress_by_item, item_access, tab_access, resource_access) for item in items if q and _matches_item(item, q, notes_by_item)]
 
     return TopicWorkspaceOut(
         id=topic.id,
         subject_id=topic.subject_id,
-        subject_title=topic.subject.title if topic.subject else "",
+        subject_title=subject_title,
         slug=topic.slug,
         title=topic.title,
         description=topic.description,
@@ -549,7 +582,7 @@ async def get_topic_workspace(
         required_tier=topic_access.required_tier,
         required_feature_key=topic_access.required_feature_key,
         active_item_id=active_item.id if active_item else None,
-        sections=sections,
+        sections=section_outputs,
         active_item=topic_item_out(active_item, progress_by_item, item_access, tab_access, resource_access) if active_item else None,
         search_results=search_results,
     )
@@ -785,36 +818,63 @@ async def submit_tab_quiz(
             raise
         await db.rollback()
         return TabQuizResultOut(**result_payload, xp_earned=0)
-    for question_attempt in question_attempt_rows:
-        question_attempt.quiz_attempt_id = attempt.id
-    db.add_all(question_attempt_rows)
-    await db.flush()
-
-    xp_earned = 0
-    for question_attempt in question_attempt_rows:
-        if not question_attempt.is_correct:
-            continue
-        xp_earned += await award_xp(
-            user.id,
-            "quiz_correct",
-            f"Question {question_attempt.question_id} first correct",
-            db,
-            subject_id=question_attempt.subject_id,
-            topic_id=question_attempt.topic_id,
-            topic_section_id=question_attempt.topic_section_id,
-            topic_item_id=question_attempt.topic_item_id,
-            question_set_id=question_set.id,
-            question_id=question_attempt.question_id,
-            quiz_attempt_id=attempt.id,
-            question_attempt_id=question_attempt.id,
-            idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt.question_id}",
+    inserted_question_attempts: list[dict] = []
+    if question_attempt_rows:
+        question_attempt_payloads = [
+            {
+                "quiz_attempt_id": attempt.id,
+                "question_id": question_attempt.question_id,
+                "user_id": question_attempt.user_id,
+                "subject_id": question_attempt.subject_id,
+                "topic_id": question_attempt.topic_id,
+                "topic_section_id": question_attempt.topic_section_id,
+                "topic_item_id": question_attempt.topic_item_id,
+                "tab_content_id": question_attempt.tab_content_id,
+                "selected_answer_json": question_attempt.selected_answer_json,
+                "correct_answer_json": question_attempt.correct_answer_json,
+                "is_correct": question_attempt.is_correct,
+                "score_awarded": question_attempt.score_awarded,
+                "max_score": question_attempt.max_score,
+                "grading_json": question_attempt.grading_json,
+            }
+            for question_attempt in question_attempt_rows
+        ]
+        inserted_result = await db.execute(
+            insert(QuestionAttempt)
+            .returning(
+                QuestionAttempt.id,
+                QuestionAttempt.question_id,
+                QuestionAttempt.subject_id,
+                QuestionAttempt.topic_id,
+                QuestionAttempt.topic_section_id,
+                QuestionAttempt.topic_item_id,
+                QuestionAttempt.is_correct,
+            ),
+            question_attempt_payloads,
         )
+        inserted_question_attempts = [dict(row) for row in inserted_result.mappings().all()]
+
+    xp_awards: list[XPAward] = []
+    for question_attempt in inserted_question_attempts:
+        if not question_attempt["is_correct"]:
+            continue
+        xp_awards.append(XPAward(
+            reason="quiz_correct",
+            description=f"Question {question_attempt['question_id']} first correct",
+            subject_id=question_attempt["subject_id"],
+            topic_id=question_attempt["topic_id"],
+            topic_section_id=question_attempt["topic_section_id"],
+            topic_item_id=question_attempt["topic_item_id"],
+            question_set_id=question_set.id,
+            question_id=question_attempt["question_id"],
+            quiz_attempt_id=attempt.id,
+            question_attempt_id=question_attempt["id"],
+            idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt['question_id']}",
+        ))
     if passed:
-        xp_earned += await award_xp(
-            user.id,
-            "quiz_pass",
-            f"QuestionSet {question_set.id} passed",
-            db,
+        xp_awards.append(XPAward(
+            reason="quiz_pass",
+            description=f"QuestionSet {question_set.id} passed",
             subject_id=question_set.subject_id,
             topic_id=question_set.topic_id,
             topic_section_id=question_set.topic_section_id,
@@ -822,7 +882,8 @@ async def submit_tab_quiz(
             question_set_id=question_set.id,
             quiz_attempt_id=attempt.id,
             idempotency_key=f"quiz_pass:user:{user.id}:question_set:{question_set.id}",
-        )
+        ))
+    xp_earned = await award_xp_bulk(user.id, xp_awards, db)
     if passed:
         progress_result = await db.execute(
             select(TopicItemProgress).where(

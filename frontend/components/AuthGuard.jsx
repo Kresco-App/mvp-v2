@@ -21,6 +21,56 @@ function LoadingScreen({ message }) {
   )
 }
 
+function AccessDeniedScreen({ requireRole, requireStaff }) {
+  const title = requireStaff
+    ? 'Staff access required'
+    : requireRole === 'professor'
+      ? 'Professor access required'
+      : 'Access denied'
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6">
+      <section className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-7">
+        <h1 className="text-xl font-bold text-white">{title}</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-400">
+          Your account is signed in, but it does not have permission to open this area.
+        </p>
+        <a
+          href={getAccessDeniedDestination({ role: requireRole, staff: requireStaff }, typeof window !== 'undefined' ? window.location.pathname : '')}
+          className="mt-6 inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+        >
+          Back to app
+        </a>
+      </section>
+    </div>
+  )
+}
+
+function VerificationErrorScreen({ onRetry }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6">
+      <section className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-slate-900 p-7">
+        <h1 className="text-xl font-bold text-white">We could not verify your session</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-400">
+          The backend did not confirm your account status. Your session was kept intact so you can retry.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-6 inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+        >
+          Retry verification
+        </button>
+      </section>
+    </div>
+  )
+}
+
+function isUnauthorizedError(error) {
+  const status = error?.response?.status
+  return status === 401 || status === 403
+}
+
 /**
  * @param {{
  *   children: import('react').ReactNode,
@@ -29,10 +79,23 @@ function LoadingScreen({ message }) {
  * }} props
  */
 export default function AuthGuard({ children, requireRole = null, requireStaff = false }) {
-  const { token, user, hydrate, isHydrated, login, updateUser, logout } = useAuthStore()
+  const token = useAuthStore((state) => state.token)
+  const user = useAuthStore((state) => state.user)
+  const hydrate = useAuthStore((state) => state.hydrate)
+  const isHydrated = useAuthStore((state) => state.isHydrated)
+  const login = useAuthStore((state) => state.login)
+  const updateUser = useAuthStore((state) => state.updateUser)
+  const logout = useAuthStore((state) => state.logout)
   const [accessState, setAccessState] = useState('pending')
+  const [retryCount, setRetryCount] = useState(0)
   const verificationStateRef = useRef('idle')
   const needsServerProfile = Boolean(requireRole || requireStaff || !user || !token)
+
+  function retryVerification() {
+    verificationStateRef.current = 'idle'
+    setAccessState('pending')
+    setRetryCount((value) => value + 1)
+  }
 
   useEffect(() => {
     hydrate()
@@ -63,27 +126,39 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
         const requirement = { role: requireRole, staff: requireStaff }
         if (!hasRequiredAuthAccess(profile, requirement)) {
           verificationStateRef.current = 'denied'
-          setAccessState('denied')
-          replaceBrowserLocation(getAccessDeniedDestination(requirement, window.location.pathname))
+          setAccessState('forbidden')
           return
         }
 
         verificationStateRef.current = 'idle'
         setAccessState('ready')
       })
-      .catch(() => {
-      if (cancelled) return
-      verificationStateRef.current = 'denied'
-      setAccessState('denied')
-      logout()
-      replaceBrowserLocation(getUnauthorizedDestination(window.location.pathname))
-    })
+      .catch((error) => {
+        if (cancelled) return
+        if (isUnauthorizedError(error)) {
+          verificationStateRef.current = 'denied'
+          setAccessState('denied')
+          logout()
+          replaceBrowserLocation(getUnauthorizedDestination(window.location.pathname))
+          return
+        }
+        verificationStateRef.current = 'error'
+        setAccessState('error')
+      })
 
     return () => { cancelled = true }
-  }, [isHydrated, token, needsServerProfile, requireRole, requireStaff, login, updateUser, logout])
+  }, [isHydrated, token, needsServerProfile, requireRole, requireStaff, login, updateUser, logout, retryCount])
 
   if (!isHydrated) {
     return <LoadingScreen message="Loading Kresco..." />
+  }
+
+  if (accessState === 'forbidden') {
+    return <AccessDeniedScreen requireRole={requireRole} requireStaff={requireStaff} />
+  }
+
+  if (accessState === 'error') {
+    return <VerificationErrorScreen onRetry={retryVerification} />
   }
 
   if (accessState !== 'ready') {

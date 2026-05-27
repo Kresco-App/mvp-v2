@@ -48,6 +48,10 @@ jobs:
         working-directory: .
         run: python scripts/check_repo_hygiene.py
 
+      - name: Check secret hygiene
+        working-directory: .
+        run: python scripts/check_secret_hygiene.py
+
       - name: Install dependencies
         run: npm ci
 
@@ -62,6 +66,9 @@ jobs:
 
       - name: Run lint
         run: npm run lint
+
+      - name: Audit CSP inline style policy
+        run: npm run audit:csp-styles
 
       - name: Run typecheck
         run: npm run typecheck

@@ -1,46 +1,64 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { ArrowRight, CalendarDays, Radio } from 'lucide-react'
 import { toast } from 'sonner'
-import { getKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
-import { listStudentLiveSessions, type StudentLiveSession } from '@/lib/professor'
+import { listKrescoRealtimeSubscriptions, subscribeKrescoRealtimeChannels, userNotificationsChannelName } from '@/lib/ably'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import { useStudentLiveScheduleData } from '@/lib/liveSessionData'
 import { useAuthStore } from '@/lib/store'
 
 export default function LivePage() {
   const { user } = useAuthStore()
-  const [sessions, setSessions] = useState<StudentLiveSession[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const loadLiveSessions = useCallback(async () => {
-    try {
-      const data = await listStudentLiveSessions()
-      const sorted = data.sort(compareSessions)
-      setSessions(sorted)
-    } catch {
-      toast.error('Could not load live sessions.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const loadErrorRef = useRef<unknown>(null)
+  const {
+    sessions,
+    loading,
+    error,
+    mutateSessions,
+  } = useStudentLiveScheduleData()
 
   useEffect(() => {
     document.title = 'Live Sessions - Kresco'
-    void loadLiveSessions()
-  }, [loadLiveSessions])
+  }, [])
+
+  useEffect(() => {
+    if (!error) {
+      loadErrorRef.current = null
+      return
+    }
+    if (loadErrorRef.current !== error) {
+      loadErrorRef.current = error
+      toast.error(apiDataErrorMessage(error, 'Could not load live sessions.'))
+    }
+  }, [error])
 
   useEffect(() => {
     if (!user?.id) return
-    const realtime = getKrescoRealtime()
-    if (!realtime) return
-    const channel = realtime.channels.get(userNotificationsChannelName(user.id))
-    const refresh = () => void loadLiveSessions()
-    void channel.subscribe(refresh)
+    let cleanup = () => {}
+    let stopped = false
+    const refresh = () => void mutateSessions()
+    void listKrescoRealtimeSubscriptions()
+      .then(({ notification_channels }) => {
+        if (stopped) return
+        cleanup = subscribeKrescoRealtimeChannels({
+          channelNames: notification_channels,
+          onMessage: refresh,
+        })
+      })
+      .catch(() => {
+        if (stopped) return
+        cleanup = subscribeKrescoRealtimeChannels({
+          channelNames: [userNotificationsChannelName(user.id)],
+          onMessage: refresh,
+        })
+      })
     return () => {
-      void channel.unsubscribe(refresh)
+      stopped = true
+      cleanup()
     }
-  }, [loadLiveSessions, user?.id])
+  }, [mutateSessions, user?.id])
 
   return (
     <section className="kresco-shell w-full max-w-[860px]">
@@ -55,6 +73,15 @@ export default function LivePage() {
           <div className="grid gap-4">
             {loading ? (
               Array.from({ length: 3 }).map((_, index) => <LiveSkeleton key={index} />)
+            ) : error && sessions.length === 0 ? (
+              <article className="rounded-2xl border-2 border-[#fee2e2] bg-[#fef2f2] p-6">
+                <CalendarDays className="text-[#991b1b]" size={28} />
+                <h2 className="mt-4 text-[22px] font-bold leading-tight tracking-normal text-[#991b1b]">Could not load live sessions</h2>
+                <p className="mt-2 text-[15px] font-semibold leading-relaxed text-[#b91c1c]">{apiDataErrorMessage(error, 'Could not load live sessions.')}</p>
+                <button className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-[#991b1b] px-4 text-sm font-bold text-white" type="button" onClick={() => void mutateSessions()}>
+                  Retry
+                </button>
+              </article>
             ) : sessions.length === 0 ? (
               <article className="rounded-2xl border-2 border-[#e4e4e7] bg-white p-6">
                 <CalendarDays className="text-[#71717b]" size={28} />
@@ -112,14 +139,6 @@ function LiveSkeleton() {
       <div className="mt-3 h-4 w-44 rounded bg-[#f4f4f5]" />
     </div>
   )
-}
-
-function compareSessions(a: StudentLiveSession, b: StudentLiveSession) {
-  const statusOrder: Record<string, number> = { live: 0, scheduled: 1, completed: 2, cancelled: 3 }
-  const left = statusOrder[a.status] ?? 3
-  const right = statusOrder[b.status] ?? 3
-  if (left !== right) return left - right
-  return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
 }
 
 function formatDateTime(value: string) {

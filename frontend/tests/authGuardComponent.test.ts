@@ -48,6 +48,10 @@ const professorUser = {
   is_staff: false,
 }
 
+function axiosLikeError(status: number) {
+  return { response: { status } }
+}
+
 let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
 beforeEach(() => {
@@ -91,7 +95,7 @@ describe('AuthGuard component behavior', () => {
 
   it('redirects unauthenticated users to the route-specific login destination', async () => {
     window.history.pushState({}, '', '/professor/chat')
-    getMyProfileMock.mockRejectedValueOnce(new Error('not authenticated'))
+    getMyProfileMock.mockRejectedValueOnce(axiosLikeError(401) as never)
 
     const { container } = renderComponent(
       React.createElement(AuthGuardForTest, { requireRole: 'professor' }, React.createElement('main', null, 'Professor child')),
@@ -143,14 +147,15 @@ describe('AuthGuard component behavior', () => {
     )
 
     await waitFor(() => {
-      expect(replaceBrowserLocationMock).toHaveBeenCalledWith('/home')
+      expect(container.textContent).toContain('Professor access required')
     })
     expect(container.textContent).not.toContain('Professor child')
+    expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
   })
 
-  it('logs out and redirects when server profile hydration fails', async () => {
+  it('logs out and redirects when server profile hydration is unauthorized', async () => {
     localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
-    getMyProfileMock.mockRejectedValueOnce(new Error('profile failed'))
+    getMyProfileMock.mockRejectedValueOnce(axiosLikeError(401) as never)
 
     renderComponent(
       React.createElement(AuthGuardForTest, { requireStaff: true }, React.createElement('main', null, 'Admin child')),
@@ -161,6 +166,34 @@ describe('AuthGuard component behavior', () => {
     })
     expect(useAuthStore.getState().token).toBeNull()
     expect(useAuthStore.getState().user).toBeNull()
+  })
+
+  it('keeps the session and offers retry when server profile verification fails', async () => {
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
+    getMyProfileMock
+      .mockRejectedValueOnce(axiosLikeError(500) as never)
+      .mockResolvedValueOnce({ ...studentUser, is_staff: true } as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuardForTest, { requireStaff: true }, React.createElement('main', null, 'Admin child')),
+    )
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('We could not verify your session')
+    })
+    expect(useAuthStore.getState().user).toMatchObject(studentUser)
+    expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
+
+    const retry = container.querySelector('button')
+    expect(retry?.textContent).toContain('Retry verification')
+    await act(async () => {
+      retry?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Admin child')
+    })
+    expect(getMyProfileMock).toHaveBeenCalledTimes(2)
   })
 })
 

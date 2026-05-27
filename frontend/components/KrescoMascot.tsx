@@ -104,50 +104,6 @@ export default function KrescoMascot({
 
   return (
     <>
-      <style jsx global>{`
-        @keyframes mascot-float {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-6px); }
-        }
-        @keyframes mascot-bounce {
-          0%, 100% { transform: translateY(0) scale(1); }
-          25% { transform: translateY(-10px) scale(1.05); }
-          50% { transform: translateY(0) scale(1); }
-          75% { transform: translateY(-5px) scale(1.02); }
-        }
-        @keyframes mascot-pulse {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.08); }
-        }
-        @keyframes mascot-shake {
-          0%, 100% { transform: translateX(0) rotate(0deg); }
-          20% { transform: translateX(-3px) rotate(-2deg); }
-          40% { transform: translateX(3px) rotate(2deg); }
-          60% { transform: translateX(-2px) rotate(-1deg); }
-          80% { transform: translateX(2px) rotate(1deg); }
-        }
-        @keyframes mascot-droop {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          50% { transform: translateY(3px) rotate(-2deg); }
-        }
-        @keyframes mascot-pop-in {
-          0% { transform: scale(0); opacity: 0; }
-          70% { transform: scale(1.1); opacity: 1; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes bubble-in {
-          0% { transform: scale(0.8) translateY(4px); opacity: 0; }
-          100% { transform: scale(1) translateY(0); opacity: 1; }
-        }
-        .mascot-float { animation: mascot-float 3s ease-in-out infinite; }
-        .mascot-bounce { animation: mascot-bounce 0.8s ease-in-out infinite; }
-        .mascot-pulse { animation: mascot-pulse 1.5s ease-in-out infinite; }
-        .mascot-shake { animation: mascot-shake 0.5s ease-in-out infinite; }
-        .mascot-droop { animation: mascot-droop 2.5s ease-in-out infinite; }
-        .mascot-pop-in { animation: mascot-pop-in 0.4s ease-out forwards; }
-        .bubble-in { animation: bubble-in 0.25s ease-out forwards; }
-      `}</style>
-
       <div className="relative inline-flex flex-col items-center select-none">
         {/* Speech bubble */}
         {showBubble && (
@@ -159,8 +115,7 @@ export default function KrescoMascot({
 
         {/* Fox mascot */}
         <div
-          className={`cursor-pointer transition-transform duration-200 hover:scale-110 ${floating ? animationClass : ''}`}
-          style={{ width: size, height: size }}
+          className={`cursor-pointer transition-transform duration-200 hover:scale-110 ${mascotSizeClass(size)} ${floating ? animationClass : ''}`}
           onClick={handleClick}
         >
           <Image
@@ -176,6 +131,12 @@ export default function KrescoMascot({
       </div>
     </>
   )
+}
+
+function mascotSizeClass(size: number) {
+  if (size <= 40) return 'size-10'
+  if (size <= 72) return 'size-[72px]'
+  return 'size-20'
 }
 
 // Global floating companion

@@ -93,7 +93,7 @@ export default function DiffractionPage({
         
         if (Math.abs(x - screenX) < 30) {
             isDraggingRef.current = true;
-            document.body.style.cursor = 'ew-resize';
+            document.body.classList.add('kresco-ew-resize');
         }
     };
 
@@ -116,7 +116,7 @@ export default function DiffractionPage({
         const handleMouseUp = () => {
             if (isDraggingRef.current) {
                 isDraggingRef.current = false;
-                document.body.style.cursor = 'default';
+                document.body.classList.remove('kresco-ew-resize');
             }
         };
         window.addEventListener('mousemove', handleMouseMove);
@@ -128,6 +128,7 @@ export default function DiffractionPage({
             window.removeEventListener('mouseup', handleMouseUp);
             window.removeEventListener('touchmove', handleMouseMove);
             window.removeEventListener('touchend', handleMouseUp);
+            document.body.classList.remove('kresco-ew-resize');
         };
     }, []);
 

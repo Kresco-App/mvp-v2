@@ -8,6 +8,10 @@ export type AblyTokenResponse = {
   capability: Record<string, string[]>
 }
 
+export type RealtimeSubscriptionsResponse = {
+  notification_channels: string[]
+}
+
 let realtimeClient: Ably.Realtime | null = null
 
 type RealtimeFallback = {
@@ -154,6 +158,48 @@ export function subscribeKrescoRealtime({
   }
 }
 
+export async function listKrescoRealtimeSubscriptions() {
+  const { data } = await api.get<RealtimeSubscriptionsResponse>('/realtime/subscriptions')
+  return data
+}
+
+export function subscribeKrescoRealtimeChannels({
+  channelNames,
+  onMessage,
+  beforeSubscribe,
+}: {
+  channelNames: string[]
+  onMessage: (message: Ably.InboundMessage) => void
+  beforeSubscribe?: () => void | Promise<void>
+}) {
+  let stopped = false
+  const subscribedChannels: Array<{ unsubscribe: (listener?: (message: Ably.InboundMessage) => void) => void }> = []
+  const uniqueChannelNames = Array.from(new Set(channelNames.map((name) => name.trim()).filter(Boolean)))
+  const realtime = getKrescoRealtime()
+
+  if (!realtime || uniqueChannelNames.length === 0) {
+    return () => {
+      stopped = true
+    }
+  }
+
+  void (async () => {
+    await beforeSubscribe?.()
+    if (stopped) return
+    for (const channelName of uniqueChannelNames) {
+      if (stopped) return
+      const channel = realtime.channels.get(channelName)
+      await channel.subscribe(onMessage)
+      subscribedChannels.push(channel)
+    }
+  })().catch(() => undefined)
+
+  return () => {
+    stopped = true
+    subscribedChannels.forEach((channel) => channel.unsubscribe(onMessage))
+  }
+}
+
 export function userNotificationsChannelName(userId: number | string) {
   return `kresco:user:${userId}:notifications`
 }
@@ -164,6 +210,10 @@ export function userPresenceChannelName(userId: number | string) {
 
 export function professorInboxChannelName(professorUserId: number | string) {
   return `kresco:professor:${professorUserId}:inbox`
+}
+
+export function offeringNotificationsChannelName(courseOfferingId: number | string) {
+  return `kresco:offering:${courseOfferingId}:notifications`
 }
 
 export function liveSessionChannelName(liveSessionId: number | string) {

@@ -22,10 +22,7 @@ target_metadata = Base.metadata
 
 def get_url_and_connect_args() -> tuple[str, dict]:
     raw = os.environ.get("DATABASE_URL", "")
-    url, connect_args = _build_async_url(raw or "sqlite+aiosqlite:///./db.sqlite3")
-    if not connect_args and "rds.amazonaws.com" in raw:
-        connect_args["ssl"] = "require"
-    return url, connect_args
+    return _build_async_url(raw or "sqlite+aiosqlite:///./db.sqlite3", os.environ.get("PGSSLROOTCERT"))
 
 
 def run_migrations_offline() -> None:

@@ -13,6 +13,7 @@ export interface WatchSection {
   is_locked?: boolean
   video_url?: string
   text_content?: string
+  content?: string
   quiz_data?: { questions: { text: string; options: { text: string; is_correct: boolean }[] }[] }
   pass_score?: number
   activity_data?: any
@@ -46,6 +47,7 @@ export type WatchCompletionOptions = {
   score?: number
   correct_answers?: number
   total_questions?: number
+  answers?: Record<string, number>
 }
 
 export type WatchTabDescriptor = {
@@ -139,6 +141,7 @@ export function buildWatchSectionCompletePayload(sectionId: string | number, opt
     score: opts?.score ?? 0,
     correct_answers: opts?.correct_answers ?? 0,
     total_questions: opts?.total_questions ?? 0,
+    answers: opts?.answers ?? {},
   }
 }
 
@@ -163,5 +166,5 @@ export function getWatchDocumentTitle(section: WatchSection) {
 }
 
 export function getWatchTextHtml(section: WatchSection) {
-  return section.text_content || '<p>Aucun contenu disponible.</p>'
+  return section.text_content || section.content || '<p>Aucun contenu disponible.</p>'
 }

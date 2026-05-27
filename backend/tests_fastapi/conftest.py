@@ -1,8 +1,11 @@
 import asyncio
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.models  # noqa: F401
@@ -30,7 +33,6 @@ def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
         stripe_webhook_secret="",
         frontend_url="http://localhost:3000",
         resend_api_key="",
-        admin_password="test-admin-password",
         ably_api_key="",
         debug=True,
     )
@@ -87,3 +89,43 @@ def auth_token(test_settings: Settings, run_db):
             return create_token(user.id, test_settings), user.id
 
     return lambda email="student@example.com", is_pro=False: run_db(_create_user(email, is_pro))
+
+
+@dataclass
+class CapturedQueries:
+    statements: list[str] = field(default_factory=list)
+
+    @property
+    def count(self) -> int:
+        return len(self.statements)
+
+
+@pytest.fixture
+def query_counter(app_client: TestClient):
+    engine = app_client.app.state.db_engine.sync_engine
+
+    @contextmanager
+    def _capture():
+        captured = CapturedQueries()
+
+        def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            del conn, cursor, parameters, context, executemany
+            normalized = statement.strip().upper()
+            if normalized.startswith((
+                "PRAGMA ",
+                "BEGIN",
+                "COMMIT",
+                "ROLLBACK",
+                "SAVEPOINT",
+                "RELEASE SAVEPOINT",
+            )):
+                return
+            captured.statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", _before_cursor_execute)
+        try:
+            yield captured
+        finally:
+            event.remove(engine, "before_cursor_execute", _before_cursor_execute)
+
+    return _capture

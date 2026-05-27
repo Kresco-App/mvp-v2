@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { ArrowLeft, BookOpen, ClipboardCheck, Play } from 'lucide-react'
@@ -10,6 +10,7 @@ import { buildSubjectProgressSummary, fetchSubjectPlan, type SubjectProgressSumm
 import { useAuthStore } from '@/lib/store'
 import { FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
 import { FigmaSubjectDetailSkeleton } from '@/components/figma/skeletons'
+import RouteErrorState from '@/components/RouteErrorState'
 
 interface Section {
   id: number
@@ -39,6 +40,7 @@ interface Chapter {
   order: number
   lessons: unknown[]
   blocks: unknown[]
+  sections?: Section[]
 }
 
 interface Subject {
@@ -51,25 +53,29 @@ interface Subject {
 
 export default function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
-  const router = useRouter()
   const { user } = useAuthStore()
   const [subject, setSubject] = useState<Subject | null>(null)
   const [loading, setLoading] = useState(true)
   const [chapterSections, setChapterSections] = useState<Record<number, Section[]>>({})
   const [progressSummary, setProgressSummary] = useState<SubjectProgressSummary | null>(null)
   const [topics, setTopics] = useState<TopicCard[]>([])
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   const isPro = user?.is_pro
 
   useEffect(() => {
     async function load() {
+      setLoading(true)
+      setLoadError('')
       try {
         const [subjectRes, subjectPlan, topicsRes] = await Promise.all([
           api.get(`/courses/subjects/${subjectId}`),
           fetchSubjectPlan(subjectId).catch(() => null),
           api.get(`/courses/subjects/${subjectId}/topics`).catch(() => ({ data: [] })),
         ])
-        setSubject(subjectRes.data)
+        const subjectData = subjectRes.data as Subject
+        setSubject(subjectData)
 
         const subjectTopics = Array.isArray(topicsRes.data) ? topicsRes.data : []
         setTopics(subjectTopics)
@@ -80,44 +86,53 @@ export default function SubjectDetailPage() {
         }
 
         const completedSectionIds = new Set(subjectPlan?.completed_section_ids ?? [])
-        const totalLessonCount = subjectRes.data.chapters.reduce(
+        const totalLessonCount = subjectData.chapters.reduce(
           (count: number, chapter: Chapter) => count + (chapter.lessons?.length ?? 0),
           0,
         )
 
-        const sectionsMap: Record<number, Section[]> = {}
-        await Promise.all(
-          subjectRes.data.chapters.map(async (chapter: Chapter) => {
-            try {
-              const res = await api.get(`/courses/chapters/${chapter.id}/sections`)
-              sectionsMap[chapter.id] = res.data.map((section: Section) => ({
-                ...section,
-                is_completed: completedSectionIds.has(section.id),
-              }))
-            } catch {
-              sectionsMap[chapter.id] = []
-            }
-          }),
-        )
+        const sectionsMap: Record<number, Section[]> = Object.fromEntries(
+          subjectData.chapters.map((chapter) => [
+            chapter.id,
+            (chapter.sections ?? []).map((section) => ({
+              ...section,
+              is_completed: completedSectionIds.has(section.id),
+            })),
+          ]),
+        ) as Record<number, Section[]>
         setChapterSections(sectionsMap)
 
-        if (subjectPlan) setProgressSummary(buildSubjectProgressSummary(subjectPlan, totalLessonCount))
+        setProgressSummary(subjectPlan ? buildSubjectProgressSummary(subjectPlan, totalLessonCount) : null)
       } catch {
-        toast.error('Could not load this subject.')
-        router.push('/home')
+        const message = 'Could not load this subject.'
+        setLoadError(message)
+        toast.error(message)
       } finally {
         setLoading(false)
       }
     }
 
     load()
-  }, [router, subjectId])
+  }, [reloadKey, subjectId])
 
   if (loading) {
     return <FigmaSubjectDetailSkeleton />
   }
 
-  if (!subject) return null
+  if (!subject) {
+    return (
+      <main className="grid min-h-[420px] place-items-center py-12">
+        <RouteErrorState
+          eyebrow="Subject unavailable"
+          title="This subject could not be loaded."
+          message={loadError || 'The course data did not return a usable subject. Retry the request or go back home.'}
+          homeHref="/home"
+          homeLabel="Back home"
+          onRetry={() => setReloadKey((value) => value + 1)}
+        />
+      </main>
+    )
+  }
 
   const allSections = Object.values(chapterSections).flat()
   const totalSections = allSections.length

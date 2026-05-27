@@ -40,12 +40,6 @@ const youtubeSrcDoc = `
 export default function FigmaAuditPage() {
   return (
     <main className="min-h-screen bg-white font-rounded text-[#3f3f46]">
-      <style jsx global>{`
-        body:has(.audit-catalog) > button[aria-label*='mode'] {
-          display: none;
-        }
-      `}</style>
-
       <div className="audit-catalog">
         <AuditIntro />
 

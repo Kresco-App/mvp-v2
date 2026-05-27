@@ -21,10 +21,10 @@ class Comment(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    topic_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"))
+    topic_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"), index=True)
     body: Mapped[str] = mapped_column(Text)
     parent_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True
+        BigInteger, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -43,11 +43,14 @@ class Comment(Base):
 
 class UserNote(Base):
     __tablename__ = "user_notes"
+    __table_args__ = (
+        Index("ix_user_notes_user_topic_updated", "user_id", "topic_id", "updated_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
-    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     body: Mapped[str] = mapped_column(Text)
@@ -63,11 +66,11 @@ class SavedItem(Base):
     __tablename__ = "saved_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     target_type: Mapped[str] = mapped_column(String(30))
     target_id: Mapped[int] = mapped_column(Integer)
-    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
-    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
     topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     label: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -20,6 +20,8 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), default="")
     avatar_url: Mapped[str] = mapped_column(String(500), default="")
     banner_url: Mapped[str] = mapped_column(String(500), default="")
+    avatar_media_size: Mapped[int] = mapped_column(Integer, default=0)
+    banner_media_size: Mapped[int] = mapped_column(Integer, default=0)
     role: Mapped[str] = mapped_column(String(20), default="student")
     niveau: Mapped[str] = mapped_column(String(10), default="")
     filiere: Mapped[str] = mapped_column(String(100), default="")

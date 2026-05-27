@@ -16,17 +16,15 @@ def require_local_seed_database_url(database_url: str, script_name: str) -> None
     if is_local_seed_database_url(database_url):
         return
 
-    redacted_url = redact_database_url(database_url)
     raise UnsafeSeedDatabaseError(
-        f"{script_name} is local/demo-only and refuses DATABASE_URL={redacted_url}. "
+        f"{script_name} is local/demo-only and refuses DATABASE_URL={redact_database_url(database_url)}. "
         "Use a sqlite:/// or sqlite+aiosqlite:/// local database for seed scripts."
     )
 
 
 def require_local_seed_session(db, script_name: str) -> None:
     bind = db.get_bind()
-    database_url = str(getattr(bind, "url", ""))
-    require_local_seed_database_url(database_url, script_name)
+    require_local_seed_database_url(str(getattr(bind, "url", "")), script_name)
 
 
 def require_destructive_seed_database_url(database_url: str, script_name: str, *, confirmed: bool = False) -> None:
@@ -47,8 +45,7 @@ def require_destructive_seed_database_url(database_url: str, script_name: str, *
 
 def require_destructive_seed_session(db, script_name: str, *, confirmed: bool = False) -> None:
     bind = db.get_bind()
-    database_url = str(getattr(bind, "url", ""))
-    require_destructive_seed_database_url(database_url, script_name, confirmed=confirmed)
+    require_destructive_seed_database_url(str(getattr(bind, "url", "")), script_name, confirmed=confirmed)
 
 
 def destructive_seed_confirmation_value(script_name: str, database_url: str) -> str:
@@ -60,10 +57,7 @@ def is_local_seed_database_url(database_url: str) -> bool:
         return False
 
     parsed = urlparse(database_url)
-    if parsed.scheme not in LOCAL_SQLITE_SCHEMES:
-        return False
-
-    return parsed.netloc in {"", "localhost"}
+    return parsed.scheme in LOCAL_SQLITE_SCHEMES and parsed.netloc in {"", "localhost"}
 
 
 def redact_database_url(database_url: str) -> str:

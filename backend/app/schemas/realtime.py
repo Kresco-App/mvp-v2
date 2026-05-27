@@ -8,3 +8,7 @@ class AblyTokenOut(BaseModel):
     client_id: str
     expires_at: datetime
     capability: dict[str, list[str]]
+
+
+class RealtimeSubscriptionsOut(BaseModel):
+    notification_channels: list[str]

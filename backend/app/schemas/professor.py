@@ -41,6 +41,11 @@ class LiveSessionOut(BaseModel):
 
 
 class ProfessorLiveSessionOut(LiveSessionOut):
+    has_stream_credentials: bool = False
+
+
+class LiveSessionStreamCredentialsOut(BaseModel):
+    id: int
     stream_ingest_url: str = ""
     stream_key: str = ""
 

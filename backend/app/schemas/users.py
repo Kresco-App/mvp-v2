@@ -28,6 +28,11 @@ class UserOut(BaseModel):
 
 class AuthSessionOut(BaseModel):
     user: UserOut
+    csrf_token: str = ""
+
+
+class CsrfOut(BaseModel):
+    csrf_token: str
 
 
 class SignupPendingOut(BaseModel):

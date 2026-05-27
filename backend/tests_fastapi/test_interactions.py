@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from app.database import get_session_factory
 from app.models.courses import Chapter, ChapterSection, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.gamification import ActivityEvent
+from app.models.interactions import Comment
 from app.models.quizzes import QuestionSet, Quiz
 from app.models.users import UserSubjectEntitlement
 
@@ -416,3 +417,61 @@ def test_topic_item_comments_require_comments_tab_and_use_topic_key(app_client, 
     )
     assert listed.status_code == 200
     assert [item["body"] for item in listed.json()] == ["This belongs to the topic item."]
+
+
+def test_topic_item_comments_are_limit_offset_paginated(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interaction-topic-comments-page@example.com", is_pro=False)
+    seeded = run_db(_seed_topic_context("interaction-topic-comments-page"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async def _enable_comments_and_seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=seeded["subject_id"],
+                source="test",
+                status="active",
+            ))
+            db.add(TabContent(
+                topic_item_id=seeded["topic_item_id"],
+                label="Discussion",
+                tab_type="comments",
+                content="",
+                status="published",
+            ))
+            await db.flush()
+
+            comments = []
+            for index in range(8):
+                comment = Comment(
+                    user_id=user_id,
+                    topic_item_id=seeded["topic_item_id"],
+                    body=f"comment {index}",
+                )
+                db.add(comment)
+                comments.append(comment)
+            await db.flush()
+            db.add(Comment(
+                user_id=user_id,
+                topic_item_id=seeded["topic_item_id"],
+                parent_id=comments[3].id,
+                body="reply to comment 3",
+            ))
+            await db.commit()
+
+    run_db(_enable_comments_and_seed())
+
+    page = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}&limit=3&offset=2",
+        headers=headers,
+    )
+    assert page.status_code == 200
+    assert [item["body"] for item in page.json()] == ["comment 2", "comment 3", "comment 4"]
+    assert page.json()[1]["reply_count"] == 1
+
+    invalid = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}&limit=101",
+        headers=headers,
+    )
+    assert invalid.status_code == 422

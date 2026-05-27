@@ -1,12 +1,68 @@
 import axios from 'axios'
-import { getApiBaseUrl } from './apiConfig'
-import { clearStoredAuthSession } from './authSession'
+import { getApiBaseUrl, getBackendUrl } from './apiConfig'
+import { KRESCO_CSRF_HEADER, clearStoredAuthSession, readCsrfToken, writeCsrfToken } from './authSession'
 import { getUnauthorizedDestination } from './authPolicy'
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
   timeout: 15000,
   withCredentials: true,
+})
+
+const UNSAFE_METHODS = new Set(['post', 'put', 'patch', 'delete'])
+const CSRF_EXEMPT_PATHS = new Set([
+  '/google-login',
+  '/auth/signup',
+  '/auth/verify-email',
+  '/auth/resend-verification',
+  '/auth/login',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/logout',
+])
+let csrfRefreshPromise = null
+
+function isCsrfExemptRequest(config) {
+  const url = config.url || ''
+  try {
+    const parsed = new URL(url, 'http://kresco.local')
+    return CSRF_EXEMPT_PATHS.has(parsed.pathname.replace(/^\/api/, ''))
+  } catch {
+    return false
+  }
+}
+
+async function refreshCsrfToken() {
+  if (csrfRefreshPromise) return csrfRefreshPromise
+
+  csrfRefreshPromise = fetch(getBackendUrl('/api/auth/csrf'), {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
+    .then(async (response) => {
+      if (!response.ok) return null
+      const body = await response.json().catch(() => null)
+      const token = typeof body?.csrf_token === 'string' ? body.csrf_token : null
+      writeCsrfToken(token)
+      return token
+    })
+    .catch(() => null)
+    .finally(() => {
+      csrfRefreshPromise = null
+    })
+
+  return csrfRefreshPromise
+}
+
+api.interceptors.request.use(async (config) => {
+  const method = (config.method || 'get').toLowerCase()
+  const needsCsrf = UNSAFE_METHODS.has(method) && !isCsrfExemptRequest(config)
+  const csrfToken = needsCsrf ? readCsrfToken() || await refreshCsrfToken() : null
+  if (csrfToken) {
+    config.headers = config.headers || {}
+    config.headers[KRESCO_CSRF_HEADER] = csrfToken
+  }
+  return config
 })
 
 // Global error handler

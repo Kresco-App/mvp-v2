@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProgressUpdateIn(BaseModel):
@@ -19,6 +19,7 @@ class SectionCompleteIn(BaseModel):
     score: int = 0
     correct_answers: int = 0
     total_questions: int = 0
+    answers: dict[str, int] = Field(default_factory=dict)
 
 
 class LessonProgressOut(BaseModel):

@@ -5,13 +5,16 @@ from uuid import uuid4
 
 import httpx
 import jwt
+from sqlalchemy import delete
 
+from app import scheduled
 from app.database import get_session_factory
 from app.models.courses import Subject
-from app.models.professor import CourseOffering, LiveSession, ProgramTrack
+from app.models.professor import CourseOffering, LiveSession, ProgramTrack, RealtimeOutbox
 from app.models.users import User, UserSubjectEntitlement
 from app.services import ably
 from app.services.auth import create_token
+from app.services import realtime_outbox
 
 
 async def _seed_live_session_for_realtime(test_settings, *, student_tier: str = "vip"):
@@ -62,7 +65,7 @@ async def _seed_live_session_for_realtime(test_settings, *, student_tier: str = 
         )
         db.add(live)
         await db.commit()
-        return create_token(student.id, test_settings), live.id
+        return create_token(student.id, test_settings), live.id, offering.id
 
 
 def test_ably_token_requires_authentication(app_client):
@@ -117,8 +120,8 @@ def test_ably_token_returns_user_scoped_jwt(app_client, auth_token, test_setting
     assert json.loads(decoded["x-ably-capability"]) == body["capability"]
 
 
-def test_ably_token_includes_accessible_live_session_channel(app_client, run_db, test_settings):
-    token, live_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="vip"))
+def test_ably_token_includes_accessible_live_session_and_offering_channels(app_client, run_db, test_settings):
+    token, live_id, offering_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="vip"))
     old_key = test_settings.ably_api_key
     test_settings.ably_api_key = "test.key:ably-test-secret"
     try:
@@ -130,7 +133,23 @@ def test_ably_token_includes_accessible_live_session_channel(app_client, run_db,
         test_settings.ably_api_key = old_key
 
     assert response.status_code == 200
-    assert response.json()["capability"][f"kresco:live:{live_id}"] == ["subscribe"]
+    capability = response.json()["capability"]
+    assert capability[f"kresco:live:{live_id}"] == ["subscribe"]
+    assert capability[f"kresco:offering:{offering_id}:notifications"] == ["subscribe"]
+
+
+def test_realtime_subscriptions_include_user_and_accessible_offering_channels(app_client, run_db, test_settings):
+    token, _live_id, offering_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="vip"))
+
+    response = app_client.get(
+        "/api/realtime/subscriptions",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    channels = response.json()["notification_channels"]
+    assert any(channel.startswith("kresco:user:") and channel.endswith(":notifications") for channel in channels)
+    assert f"kresco:offering:{offering_id}:notifications" in channels
 
 
 async def _seed_live_session_limit_scope_regression(test_settings):
@@ -210,7 +229,7 @@ async def _seed_live_session_limit_scope_regression(test_settings):
             locked_session_ids.append(live.id)
 
         await db.commit()
-        return create_token(student.id, test_settings), accessible_live.id, locked_session_ids
+        return create_token(student.id, test_settings), accessible_live.id, allowed_offering.id, locked_offering.id, locked_session_ids
 
 
 async def _seed_live_session_window_regression(test_settings):
@@ -291,11 +310,11 @@ async def _seed_live_session_window_regression(test_settings):
             excluded_sessions.append(live.id)
 
         await db.commit()
-        return create_token(student.id, test_settings), active_live.id, excluded_sessions
+        return create_token(student.id, test_settings), active_live.id, offering.id, excluded_sessions
 
 
 def test_ably_token_filters_subject_scope_before_live_session_limit(app_client, run_db, test_settings):
-    token, accessible_live_id, locked_session_ids = run_db(_seed_live_session_limit_scope_regression(test_settings))
+    token, accessible_live_id, allowed_offering_id, locked_offering_id, locked_session_ids = run_db(_seed_live_session_limit_scope_regression(test_settings))
     old_key = test_settings.ably_api_key
     test_settings.ably_api_key = "test.key:ably-test-secret"
     try:
@@ -309,11 +328,13 @@ def test_ably_token_filters_subject_scope_before_live_session_limit(app_client, 
     assert response.status_code == 200
     capability = response.json()["capability"]
     assert capability[f"kresco:live:{accessible_live_id}"] == ["subscribe"]
+    assert capability[f"kresco:offering:{allowed_offering_id}:notifications"] == ["subscribe"]
+    assert f"kresco:offering:{locked_offering_id}:notifications" not in capability
     assert not any(f"kresco:live:{live_id}" in capability for live_id in locked_session_ids)
 
 
 def test_ably_token_filters_inactive_and_far_future_live_sessions(app_client, run_db, test_settings):
-    token, active_live_id, excluded_session_ids = run_db(_seed_live_session_window_regression(test_settings))
+    token, active_live_id, offering_id, excluded_session_ids = run_db(_seed_live_session_window_regression(test_settings))
     old_key = test_settings.ably_api_key
     test_settings.ably_api_key = "test.key:ably-test-secret"
     try:
@@ -327,6 +348,7 @@ def test_ably_token_filters_inactive_and_far_future_live_sessions(app_client, ru
     assert response.status_code == 200
     capability = response.json()["capability"]
     assert capability[f"kresco:live:{active_live_id}"] == ["subscribe"]
+    assert capability[f"kresco:offering:{offering_id}:notifications"] == ["subscribe"]
     assert not any(f"kresco:live:{live_id}" in capability for live_id in excluded_session_ids)
 
 
@@ -389,8 +411,224 @@ def test_publish_ably_message_returns_false_when_unconfigured(test_settings):
     assert result is False
 
 
+def test_realtime_outbox_processes_pending_events(run_db, monkeypatch, test_settings):
+    published: list[tuple[str, str, dict, object]] = []
+
+    async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
+        published.append((channel, name, data, http_client))
+        return True
+
+    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            event = await realtime_outbox.enqueue_realtime_event(
+                db,
+                channel="kresco:user:1:notifications",
+                event_name="test.event",
+                payload={"ok": True},
+            )
+            second = await realtime_outbox.enqueue_realtime_event(
+                db,
+                channel="kresco:user:2:notifications",
+                event_name="test.second",
+                payload={"ok": "second"},
+            )
+            await db.commit()
+            event_ids = [event.id, second.id]
+
+        async with session_factory() as db:
+            result = await realtime_outbox.process_realtime_outbox(db, test_settings, retry_base_seconds=0)
+            stored = [
+                await db.get(RealtimeOutbox, event_id)
+                for event_id in event_ids
+            ]
+            return result, stored
+
+    result, stored = run_db(_case())
+
+    assert result == {"claimed": 2, "published": 2, "retry": 0, "dead": 0}
+    assert all(row.status == realtime_outbox.OUTBOX_PUBLISHED for row in stored)
+    assert all(row.published_at is not None for row in stored)
+    assert [(channel, name, data) for channel, name, data, _ in published] == [
+        ("kresco:user:1:notifications", "test.event", {"ok": True}),
+        ("kresco:user:2:notifications", "test.second", {"ok": "second"}),
+    ]
+    assert len({id(http_client) for _, _, _, http_client in published}) == 1
+
+
+def test_realtime_outbox_retries_and_dead_letters(run_db, monkeypatch, test_settings):
+    async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
+        return False
+
+    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            retry_event = await realtime_outbox.enqueue_realtime_event(
+                db,
+                channel="kresco:user:2:notifications",
+                event_name="retry.event",
+                payload={"ok": False},
+            )
+            dead_event = RealtimeOutbox(
+                channel="kresco:user:3:notifications",
+                event_name="dead.event",
+                payload_json={"ok": False},
+                attempts=7,
+            )
+            db.add(dead_event)
+            await db.commit()
+            retry_id = retry_event.id
+            dead_id = dead_event.id
+
+        async with session_factory() as db:
+            result = await realtime_outbox.process_realtime_outbox(
+                db,
+                test_settings,
+                max_attempts=8,
+                retry_base_seconds=0,
+            )
+            retry_row = await db.get(RealtimeOutbox, retry_id)
+            dead_row = await db.get(RealtimeOutbox, dead_id)
+            return result, retry_row, dead_row
+
+    result, retry_row, dead_row = run_db(_case())
+
+    assert result == {"claimed": 2, "published": 0, "retry": 1, "dead": 1}
+    assert retry_row.status == realtime_outbox.OUTBOX_RETRY
+    assert retry_row.attempts == 1
+    assert dead_row.status == realtime_outbox.OUTBOX_DEAD
+    assert dead_row.attempts == 8
+
+
+def test_realtime_outbox_retries_unexpected_publish_exception(run_db, monkeypatch, test_settings):
+    async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
+        raise RuntimeError("unexpected publish failure")
+
+    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            event = await realtime_outbox.enqueue_realtime_event(
+                db,
+                channel="kresco:user:4:notifications",
+                event_name="exception.event",
+                payload={"ok": False},
+            )
+            await db.commit()
+            event_id = event.id
+
+        async with session_factory() as db:
+            result = await realtime_outbox.process_realtime_outbox(db, test_settings, retry_base_seconds=0)
+            stored = await db.get(RealtimeOutbox, event_id)
+            return result, stored
+
+    result, stored = run_db(_case())
+
+    assert result == {"claimed": 1, "published": 0, "retry": 1, "dead": 0}
+    assert stored.status == realtime_outbox.OUTBOX_RETRY
+    assert stored.locked_at is None
+    assert "RuntimeError" in stored.last_error
+
+
+def test_scheduled_realtime_outbox_event_drains_queue(app_client, run_db, monkeypatch, test_settings):
+    del app_client
+    published: list[str] = []
+
+    async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
+        del settings, name, data, attempts, retry_delay_seconds, http_client
+        published.append(channel)
+        return True
+
+    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            first = await realtime_outbox.enqueue_realtime_event(
+                db,
+                channel="kresco:offering:1:notifications",
+                event_name="live.updated",
+                payload={"id": 1},
+            )
+            second = await realtime_outbox.enqueue_realtime_event(
+                db,
+                channel="kresco:live:1",
+                event_name="checkpoint.created",
+                payload={"id": 2},
+            )
+            third = await realtime_outbox.enqueue_realtime_event(
+                db,
+                channel="kresco:user:1:notifications",
+                event_name="chat.message",
+                payload={"id": 3},
+            )
+            await db.commit()
+            event_ids = [first.id, second.id, third.id]
+
+        result = await scheduled.process_realtime_outbox_once(
+            {"detail": {"limit": "2"}},
+            settings=test_settings,
+        )
+
+        async with session_factory() as db:
+            stored = [await db.get(RealtimeOutbox, event_id) for event_id in event_ids]
+            return result, stored
+
+    result, stored = run_db(_case())
+
+    assert result == {"ok": True, "claimed": 2, "published": 2, "retry": 0, "dead": 0}
+    assert published == ["kresco:offering:1:notifications", "kresco:live:1"]
+    assert [row.status for row in stored] == [
+        realtime_outbox.OUTBOX_PUBLISHED,
+        realtime_outbox.OUTBOX_PUBLISHED,
+        realtime_outbox.OUTBOX_PENDING,
+    ]
+
+
+def test_scheduled_realtime_outbox_limit_parsing():
+    assert scheduled._outbox_limit_from_event({}) == scheduled.DEFAULT_OUTBOX_LIMIT
+    assert scheduled._outbox_limit_from_event({"limit": "7"}) == 7
+    assert scheduled._outbox_limit_from_event({"detail": {"limit": 3}}) == 3
+    assert scheduled._outbox_limit_from_event({"limit": "not-a-number"}) == scheduled.DEFAULT_OUTBOX_LIMIT
+    assert scheduled._outbox_limit_from_event({"limit": 0}) == 1
+    assert scheduled._outbox_limit_from_event({"limit": 9999}) == scheduled.MAX_OUTBOX_LIMIT
+
+
+def test_internal_process_outbox_requires_worker_secret(app_client, monkeypatch, test_settings):
+    async def fake_process(db, settings, *, limit):
+        return {"claimed": limit, "published": 0, "retry": 0, "dead": 0}
+
+    monkeypatch.setattr("app.routers.internal.process_realtime_outbox", fake_process)
+    old_secret = test_settings.realtime_outbox_secret
+    test_settings.realtime_outbox_secret = "test-internal-worker-secret-32-bytes"
+    try:
+        forbidden = app_client.post(
+            "/api/internal/realtime/process-outbox",
+            headers={"x-kresco-internal-secret": "wrong"},
+        )
+        ok = app_client.post(
+            "/api/internal/realtime/process-outbox?limit=7",
+            headers={"x-kresco-internal-secret": test_settings.realtime_outbox_secret},
+        )
+    finally:
+        test_settings.realtime_outbox_secret = old_secret
+
+    assert forbidden.status_code == 403
+    assert ok.status_code == 200
+    assert ok.json() == {"ok": True, "claimed": 7, "published": 0, "retry": 0, "dead": 0}
+
+
 def test_ably_token_omits_live_session_channel_without_live_session_feature(app_client, run_db, test_settings):
-    token, live_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="basic"))
+    token, live_id, offering_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="basic"))
     old_key = test_settings.ably_api_key
     test_settings.ably_api_key = "test.key:ably-test-secret"
     try:
@@ -403,3 +641,4 @@ def test_ably_token_omits_live_session_channel_without_live_session_feature(app_
 
     assert response.status_code == 200
     assert f"kresco:live:{live_id}" not in response.json()["capability"]
+    assert f"kresco:offering:{offering_id}:notifications" not in response.json()["capability"]

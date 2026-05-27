@@ -1,10 +1,11 @@
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
 from app.models.calendar import CalendarEvent
 from app.models.courses import Chapter, ChapterSection, Lesson, Subject, VideoQuizTrigger
@@ -23,10 +24,38 @@ from app.schemas.courses import VideoQuizTriggerOut
 from app.schemas.quizzes import QuizResultOut, QuizSubmitIn
 from app.services.access import build_access_context
 from app.services.course_access import require_lesson_access
+from app.services.media_storage import media_url
 from app.services.quiz_scoring import score_quiz_answers
+from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
 from app.services.xp import award_xp, calculate_level, generate_daily_quests
 
 router = APIRouter(tags=["Progress & Gamification"])
+
+
+def _grade_section_quiz(section: ChapterSection, answers: dict[str, int]) -> tuple[int, bool, int, int]:
+    quiz_data = section.quiz_data if isinstance(section.quiz_data, dict) else {}
+    questions = quiz_data.get("questions", [])
+    if not isinstance(questions, list):
+        questions = []
+
+    correct = 0
+    for index, question in enumerate(questions):
+        if not isinstance(question, dict):
+            continue
+        options = question.get("options", [])
+        if not isinstance(options, list):
+            continue
+        submitted = answers.get(str(index))
+        if type(submitted) is not int or submitted < 0 or submitted >= len(options):
+            continue
+        option = options[submitted]
+        if isinstance(option, dict) and option.get("is_correct"):
+            correct += 1
+
+    total = len(questions)
+    score = round((correct / total) * 100) if total else 0
+    passed = total > 0 and score >= (section.pass_score or 70)
+    return score, passed, correct, total
 
 
 def _sidebar_calendar_days(today: date | None = None) -> list[dict[str, int | str | bool]]:
@@ -235,6 +264,28 @@ async def mark_complete(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Validate the referenced item exists and the user has access
+    from app.services.course_access import require_topic_item_access
+    if body.item_type in ("block", "quiz", "section"):
+        # These legacy types reference ChapterSection / ChapterBlock / Quiz by item_id.
+        # The section-complete endpoint already enforces access; this path is a
+        # lightweight fallback so we at least verify the section exists.
+        from app.models.courses import ChapterSection
+        section = await db.scalar(
+            select(ChapterSection)
+            .options(selectinload(ChapterSection.chapter))
+            .where(ChapterSection.id == body.item_id)
+        )
+        if section is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        access_context = await build_access_context(db, user)
+        subject_id = section.chapter.subject_id if section.chapter else None
+        access = access_context.decide_for(section, subject_id=subject_id, fallback_required_tier="pro")
+        if not access.can_access:
+            raise HTTPException(status_code=403, detail=access.locked_reason)
+    elif body.item_type == "topic_item":
+        await require_topic_item_access(db, user, body.item_id)
+
     existing = await db.execute(
         select(ContentProgress).where(
             ContentProgress.user_id == user.id,
@@ -290,37 +341,21 @@ async def complete_section(
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
 
-    existing = await db.execute(
+    existing_result = await db.execute(
         select(ContentProgress).where(
             ContentProgress.user_id == user.id,
             ContentProgress.item_type == "section",
             ContentProgress.item_id == body.section_id,
         )
     )
+    existing_progress = existing_result.scalar_one_or_none()
     xp_earned = 0
-    if existing.scalar_one_or_none() is None:
-        cp = ContentProgress(user_id=user.id, item_type="section", item_id=body.section_id)
-        db.add(cp)
 
-        if section.section_type == "video":
-            xp_earned = await award_xp(
-                user.id,
-                "video_complete",
-                f"Section {section.id} video",
-                db,
-                subject_id=subject_id,
-                idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:video",
-            )
-        elif section.section_type == "activity":
-            xp_earned = await award_xp(
-                user.id,
-                "lab_complete",
-                f"Section {section.id} activity",
-                db,
-                subject_id=subject_id,
-                idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:activity",
-            )
-        elif section.section_type == "quiz" and body.score >= (section.pass_score or 70):
+    if section.section_type == "quiz":
+        body.score, passed, body.correct_answers, body.total_questions = _grade_section_quiz(section, body.answers)
+        if passed:
+            if existing_progress is None:
+                db.add(ContentProgress(user_id=user.id, item_type="section", item_id=body.section_id))
             xp_earned = await award_xp(
                 user.id,
                 "quiz_pass",
@@ -329,9 +364,38 @@ async def complete_section(
                 subject_id=subject_id,
                 idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:quiz",
             )
+    else:
+        passed = True
+        if existing_progress is None:
+            db.add(ContentProgress(user_id=user.id, item_type="section", item_id=body.section_id))
+            if section.section_type == "video":
+                xp_earned = await award_xp(
+                    user.id,
+                    "video_complete",
+                    f"Section {section.id} video",
+                    db,
+                    subject_id=subject_id,
+                    idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:video",
+                )
+            elif section.section_type == "activity":
+                xp_earned = await award_xp(
+                    user.id,
+                    "lab_complete",
+                    f"Section {section.id} activity",
+                    db,
+                    subject_id=subject_id,
+                    idempotency_key=f"section_complete:user:{user.id}:section:{section.id}:activity",
+                )
 
     await db.commit()
-    return {"xp_earned": xp_earned}
+
+    return {
+        "xp_earned": xp_earned,
+        "score": body.score,
+        "passed": passed,
+        "correct_answers": body.correct_answers,
+        "total_questions": body.total_questions,
+    }
 
 
 @router.get("/sections/{section_id}/access", response_model=SectionAccessOut)
@@ -381,6 +445,8 @@ async def get_xp(
 
 @router.get("/xp/history", response_model=list[XPTransactionOut])
 async def get_xp_history(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -388,7 +454,8 @@ async def get_xp_history(
         select(XPTransaction)
         .where(XPTransaction.user_id == user.id)
         .order_by(XPTransaction.created_at.desc())
-        .limit(50)
+        .offset(offset)
+        .limit(limit)
     )
     return [XPTransactionOut.model_validate(t) for t in result.scalars().all()]
 
@@ -477,13 +544,14 @@ async def get_leaderboard(
     search: str = "",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     from sqlalchemy import func as sqlfunc
     from app.models.users import User as UserModel
 
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
-    search = search.strip()[:80]
+    search = normalize_substring_search(search)
 
     rank_col = sqlfunc.rank().over(order_by=UserXP.total_xp.desc()).label("rank")
     stmt = (
@@ -492,7 +560,7 @@ async def get_leaderboard(
         .where(UserModel.is_active == True)  # noqa: E712
     )
     if search:
-        stmt = stmt.where(UserModel.full_name.ilike(f"%{search}%"))
+        stmt = stmt.where(UserModel.full_name.ilike(substring_search_pattern(search), escape=LIKE_ESCAPE))
     stmt = stmt.order_by(UserXP.total_xp.desc()).offset(offset).limit(limit)
 
     result = await db.execute(stmt)
@@ -505,7 +573,7 @@ async def get_leaderboard(
             rank=rank,
             user_id=u.id,
             full_name=u.full_name,
-            avatar_url=u.avatar_url or "",
+            avatar_url=media_url(u.avatar_url, settings),
             total_xp=xp_rec.total_xp,
             level=level_data["level"],
             is_current_user=u.id == user.id,
@@ -527,6 +595,7 @@ async def get_daily_quests(
 async def get_sidebar_summary(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     xp_result = await db.execute(select(UserXP).where(UserXP.user_id == user.id))
     xp_record = xp_result.scalar_one_or_none()
@@ -534,7 +603,7 @@ async def get_sidebar_summary(
 
     quests = await generate_daily_quests(user.id, db)
     await db.commit()
-    leaderboard = await get_leaderboard(limit=10, offset=0, search="", db=db, user=user)
+    leaderboard = await get_leaderboard(limit=10, offset=0, search="", db=db, user=user, settings=settings)
 
     live_events = await _sidebar_live_events(db, user)
 
@@ -568,6 +637,9 @@ async def claim_daily_quest(
         raise HTTPException(status_code=404, detail="Quest not found")
     if quest.completed:
         raise HTTPException(status_code=400, detail="Quest already claimed")
+    today = datetime.now(timezone.utc).date()
+    if quest.date != today:
+        raise HTTPException(status_code=410, detail="Quest has expired")
     if quest.progress < quest.target:
         raise HTTPException(status_code=400, detail="Quest not yet completed")
 

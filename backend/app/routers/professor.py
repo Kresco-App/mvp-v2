@@ -1,10 +1,7 @@
-import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
-from pathlib import Path
-import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -41,6 +38,7 @@ from app.schemas.professor import (
     LiveSessionInteractionOut,
     LiveSessionInteractionPatchIn,
     LiveSessionOut,
+    LiveSessionStreamCredentialsOut,
     LiveSessionUpdateIn,
     LiveSessionViewerOut,
     LiveProviderConfigOut,
@@ -56,16 +54,18 @@ from app.schemas.professor import (
     StudentStartConversationIn,
 )
 from app.services.access import FeatureAccessRequirement, build_access_context
-from app.services.ably import live_session_channel_name, publish_ably_message
+from app.services.ably import live_session_channel_name, offering_notifications_channel_name
 from app.services.image_uploads import (
     allowed_image_extension,
     image_matches_mime_type,
     normalize_image_mime_type,
 )
+from app.services.media_storage import get_media_storage, media_url, professor_chat_media_key, safe_original_filename
 from app.services.professor_chat_access import (
     professor_chat_eligibility,
     professor_chat_offering_mismatch_reason,
 )
+from app.services.realtime_outbox import enqueue_realtime_event
 from app.services.vdocipher import create_live_stream, get_live_embed_url, sanitize_provider_payload
 
 router = APIRouter(tags=["Professor"])
@@ -139,11 +139,11 @@ def _record_professor_audit(
     )
 
 
-def _participant_out(user: User) -> ChatParticipantOut:
+def _participant_out(user: User, settings: Settings) -> ChatParticipantOut:
     return ChatParticipantOut(
         id=user.id,
         full_name=user.full_name,
-        avatar_url=user.avatar_url,
+        avatar_url=media_url(user.avatar_url, settings),
         tier=getattr(user, "tier", "basic") or "basic",
     )
 
@@ -176,8 +176,6 @@ def _live_viewer_out(session: LiveSession) -> LiveSessionViewerOut:
         status=session.status,
         join_url=session.join_url,
         vdocipher_live_id=session.vdocipher_live_id,
-        stream_ingest_url=session.stream_ingest_url,
-        stream_key=session.stream_key,
         notification_status=session.notification_status,
         created_at=session.created_at,
         offering_title=offering.title if offering else "",
@@ -187,6 +185,23 @@ def _live_viewer_out(session: LiveSession) -> LiveSessionViewerOut:
         teacher_name=session.professor.full_name if session.professor else "",
         viewer_url=f"/live/{session.id}",
         can_join=_live_session_is_joinable(session),
+    )
+
+
+def _professor_live_session_out(session: LiveSession) -> ProfessorLiveSessionOut:
+    return ProfessorLiveSessionOut(
+        id=session.id,
+        course_offering_id=session.course_offering_id,
+        title=session.title,
+        description=session.description,
+        starts_at=session.starts_at,
+        ends_at=session.ends_at,
+        status=session.status,
+        join_url=session.join_url,
+        vdocipher_live_id=session.vdocipher_live_id,
+        notification_status=session.notification_status,
+        created_at=session.created_at,
+        has_stream_credentials=bool(session.stream_ingest_url or session.stream_key),
     )
 
 
@@ -220,26 +235,17 @@ def _live_session_realtime_payload(session: LiveSession) -> dict:
     }
 
 
-async def _publish_live_session_event(settings: Settings, live_session_id: int, event_name: str, payload: dict) -> bool:
-    return await publish_ably_message(settings, live_session_channel_name(live_session_id), event_name, payload)
-
-
-async def _publish_live_session_event_and_track(
-    db: AsyncSession,
-    settings: Settings,
-    session: LiveSession,
-    event_name: str,
-) -> None:
-    published = await _publish_live_session_event(settings, session.id, event_name, _live_session_realtime_payload(session))
-    if published:
-        return
-    logger.warning(
-        "Live session realtime event was not delivered",
-        extra={"live_session_id": session.id, "event": event_name},
+async def _enqueue_live_session_event(db: AsyncSession, live_session_id: int, event_name: str, payload: dict) -> None:
+    await enqueue_realtime_event(
+        db,
+        channel=live_session_channel_name(live_session_id),
+        event_name=event_name,
+        payload=payload,
     )
-    session.notification_status = LIVE_NOTIFICATION_REALTIME_FAILED
-    await db.commit()
-    await db.refresh(session)
+
+
+async def _enqueue_live_session_event_and_track(db: AsyncSession, session: LiveSession, event_name: str) -> None:
+    await _enqueue_live_session_event(db, session.id, event_name, _live_session_realtime_payload(session))
 
 
 def _clean_live_interaction_body(body: str) -> str:
@@ -271,7 +277,7 @@ async def _enforce_live_interaction_burst_limit(db: AsyncSession, live_session_i
         raise HTTPException(status_code=429, detail="Slow down before sending another live message")
 
 
-def _conversation_out(conversation: ProfessorChatConversation) -> ProfessorChatConversationOut:
+def _conversation_out(conversation: ProfessorChatConversation, settings: Settings) -> ProfessorChatConversationOut:
     offering = conversation.course_offering
     subject_title = offering.subject.title if offering and offering.subject else ""
     track = offering.track if offering else None
@@ -282,8 +288,8 @@ def _conversation_out(conversation: ProfessorChatConversation) -> ProfessorChatC
         subject_title=subject_title,
         niveau=track.niveau if track else "",
         filiere=track.filiere if track else "",
-        professor=_participant_out(conversation.professor),
-        student=_participant_out(conversation.student),
+        professor=_participant_out(conversation.professor, settings),
+        student=_participant_out(conversation.student, settings),
         status=conversation.status,
         last_message_preview=conversation.last_message_preview,
         unread_for_professor=conversation.unread_for_professor,
@@ -316,6 +322,7 @@ async def _student_teacher_threads(
     db: AsyncSession,
     offerings: list[CourseOffering],
     conversations: list[ProfessorChatConversation],
+    settings: Settings,
 ) -> list[StudentProfessorThreadOut]:
     conversations_by_offering = {conversation.course_offering_id: conversation for conversation in conversations}
     last_sender_roles = await _conversation_last_sender_role(db, [conversation.id for conversation in conversations])
@@ -324,7 +331,7 @@ async def _student_teacher_threads(
     for offering in offerings:
         conversation = conversations_by_offering.get(offering.id)
         track = offering.track
-        conversation_out = _conversation_out(conversation) if conversation else None
+        conversation_out = _conversation_out(conversation, settings) if conversation else None
         threads.append(
             StudentProfessorThreadOut(
                 course_offering_id=offering.id,
@@ -332,7 +339,7 @@ async def _student_teacher_threads(
                 subject_title=offering.subject.title if offering.subject else "",
                 niveau=track.niveau if track else "",
                 filiere=track.filiere if track else "",
-                professor=_participant_out(offering.professor),
+                professor=_participant_out(offering.professor, settings),
                 conversation=conversation_out,
                 last_message_preview=conversation.last_message_preview if conversation else "",
                 last_message_sender_role=last_sender_roles.get(conversation.id, "") if conversation else "",
@@ -541,16 +548,28 @@ async def _require_professor_live_checkpoint(db: AsyncSession, professor: User, 
     return checkpoint
 
 
-async def _messages_for_conversation(db: AsyncSession, conversation_id: int) -> list[ProfessorChatMessageOut]:
-    result = await db.execute(
+async def _messages_for_conversation(
+    db: AsyncSession,
+    conversation_id: int,
+    settings: Settings,
+    *,
+    limit: int = 100,
+    before_id: int | None = None,
+) -> list[ProfessorChatMessageOut]:
+    stmt = (
         select(ProfessorChatMessage, User.role)
         .join(User, User.id == ProfessorChatMessage.sender_user_id)
         .where(ProfessorChatMessage.conversation_id == conversation_id)
-        .order_by(ProfessorChatMessage.created_at, ProfessorChatMessage.id)
     )
+    if before_id is not None:
+        stmt = stmt.where(ProfessorChatMessage.id < before_id)
+    stmt = stmt.order_by(ProfessorChatMessage.created_at.desc(), ProfessorChatMessage.id.desc()).limit(limit)
+    result = await db.execute(stmt)
+    rows = list(result.all())
+    rows.reverse()
     return [
-        _message_out(message, role)
-        for message, role in result.all()
+        _message_out(message, role, settings)
+        for message, role in rows
     ]
 
 
@@ -646,7 +665,7 @@ async def _require_owned_chat_message(
 
 
 async def publish_chat_message_change(
-    settings: Settings,
+    db: AsyncSession,
     conversation: ProfessorChatConversation,
     user: User,
     event_name: str,
@@ -663,17 +682,17 @@ async def publish_chat_message_change(
             "student_user_id": user.id,
             "preview": conversation.last_message_preview,
         }
-    await publish_ably_message(settings, channel, event_name, payload)
+    await enqueue_realtime_event(db, channel=channel, event_name=event_name, payload=payload)
 
 
-def _message_out(message: ProfessorChatMessage, sender_role: str) -> ProfessorChatMessageOut:
+def _message_out(message: ProfessorChatMessage, sender_role: str, settings: Settings) -> ProfessorChatMessageOut:
     return ProfessorChatMessageOut(
         id=message.id,
         conversation_id=message.conversation_id,
         sender_user_id=message.sender_user_id,
         sender_role=sender_role,
         body=message.body,
-        attachment_url=message.attachment_url or "",
+        attachment_url=media_url(message.attachment_url, settings),
         attachment_mime_type=message.attachment_mime_type or "",
         attachment_name=message.attachment_name or "",
         attachment_size=message.attachment_size or 0,
@@ -683,7 +702,18 @@ def _message_out(message: ProfessorChatMessage, sender_role: str) -> ProfessorCh
     )
 
 
-async def _save_chat_image(conversation_id: int, file: UploadFile) -> tuple[str, str, str, int]:
+async def _chat_media_used_bytes(db: AsyncSession, conversation_id: int) -> int:
+    used = await db.scalar(
+        select(func.coalesce(func.sum(ProfessorChatMessage.attachment_size), 0))
+        .where(
+            ProfessorChatMessage.conversation_id == conversation_id,
+            ProfessorChatMessage.attachment_size > 0,
+        )
+    )
+    return int(used or 0)
+
+
+async def _save_chat_image(db: AsyncSession, settings: Settings, conversation_id: int, file: UploadFile) -> tuple[str, str, str, int]:
     mime_type = normalize_image_mime_type(file.content_type)
     extension = allowed_image_extension(mime_type)
     if extension is None:
@@ -696,14 +726,18 @@ async def _save_chat_image(conversation_id: int, file: UploadFile) -> tuple[str,
         raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
     if not image_matches_mime_type(content, mime_type):
         raise HTTPException(status_code=400, detail="Upload a valid JPG, PNG, WEBP, or GIF image")
+    used_bytes = await _chat_media_used_bytes(db, conversation_id)
+    if used_bytes + len(content) > int(settings.media_chat_conversation_quota_bytes):
+        raise HTTPException(status_code=413, detail="Conversation media quota exceeded")
 
-    media_root = Path("media") / "professor-chat" / str(conversation_id)
-    media_root.mkdir(parents=True, exist_ok=True)
-    safe_original = Path(file.filename or "chat-image").name[:120]
-    filename = f"{uuid.uuid4().hex}{extension}"
-    (media_root / filename).write_bytes(content)
+    safe_original = safe_original_filename(file.filename, "chat-image")
+    stored = await get_media_storage(settings).put_object(
+        key=professor_chat_media_key(conversation_id, extension),
+        content=content,
+        content_type=mime_type,
+    )
     return (
-        f"/media/professor-chat/{conversation_id}/{filename}",
+        stored.reference,
         mime_type,
         safe_original,
         len(content),
@@ -772,7 +806,6 @@ async def _students_for_offering(db: AsyncSession, offering: CourseOffering) -> 
 
 async def _notify_students_for_live(
     db: AsyncSession,
-    settings: Settings,
     session: LiveSession,
     offering: CourseOffering,
     event_name: str,
@@ -788,29 +821,19 @@ async def _notify_students_for_live(
 
     payload = {
         "live_session_id": session.id,
+        "course_offering_id": session.course_offering_id,
         "calendar_event_id": session.calendar_event_id,
         "title": session.title,
         "starts_at": session.starts_at.isoformat(),
         "status": session.status,
     }
-    results = await asyncio.gather(
-        *[
-            publish_ably_message(settings, f"kresco:user:{student.id}:notifications", event_name, payload)
-            for student in students
-        ]
+    await enqueue_realtime_event(
+        db,
+        channel=offering_notifications_channel_name(offering.id),
+        event_name=event_name,
+        payload=payload,
     )
-    delivered = sum(1 for result in results if result)
-    if delivered != len(results):
-        logger.warning(
-            "Live session student realtime notifications were not fully delivered",
-            extra={
-                "live_session_id": session.id,
-                "event": event_name,
-                "delivered": delivered,
-                "expected": len(results),
-            },
-        )
-    return delivered == len(results)
+    return True
 
 
 def _notification_status_from_realtime(delivered: bool) -> str:
@@ -865,7 +888,7 @@ async def get_professor_dashboard(
     return ProfessorDashboardOut(
         offerings=[_offering_out(offering) for offering in offerings],
         active_offering=_offering_out(offerings[0]) if offerings else None,
-        upcoming_live_sessions=[ProfessorLiveSessionOut.model_validate(session) for session in live_sessions],
+        upcoming_live_sessions=[_professor_live_session_out(session) for session in live_sessions],
         pending_change_requests=[ProfessorChangeRequestOut.model_validate(request) for request in change_requests],
         chat_unread_count=chat_unread_count,
         chat_pinned_count=chat_pinned_count,
@@ -902,6 +925,8 @@ async def get_live_provider_config(
 @router.get("/live-sessions", response_model=list[ProfessorLiveSessionOut])
 async def list_live_sessions(
     course_offering_id: int | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
 ):
@@ -917,9 +942,10 @@ async def list_live_sessions(
         select(LiveSession)
         .where(LiveSession.course_offering_id.in_(allowed_ids))
         .order_by(LiveSession.starts_at.desc())
-        .limit(50)
+        .offset(offset)
+        .limit(limit)
     )
-    return [ProfessorLiveSessionOut.model_validate(session) for session in result.scalars().all()]
+    return [_professor_live_session_out(session) for session in result.scalars().all()]
 
 
 @router.get("/live-sessions/{live_session_id}/embed", response_model=LiveSessionEmbedOut)
@@ -936,6 +962,39 @@ async def get_professor_live_embed(
         embed_url=get_live_embed_url(session.vdocipher_live_id),
         chat_embed_url="",
         vdocipher_live_id=session.vdocipher_live_id,
+    )
+
+
+@router.post("/live-sessions/{live_session_id}/stream-credentials/reveal", response_model=LiveSessionStreamCredentialsOut)
+async def reveal_professor_live_stream_credentials(
+    live_session_id: int,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    professor: User = Depends(get_current_professor_user),
+):
+    session = await _require_professor_live_session(db, professor, live_session_id)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    _record_professor_audit(
+        db,
+        professor=professor,
+        request=request,
+        action="professor_reveal",
+        model_name="LiveSessionStreamCredentials",
+        object_pk=session.id,
+        object_repr=session.title,
+        changed_data={
+            "live_session_id": session.id,
+            "has_stream_ingest_url": bool(session.stream_ingest_url),
+            "has_stream_key": bool(session.stream_key),
+        },
+    )
+    await db.commit()
+    return LiveSessionStreamCredentialsOut(
+        id=session.id,
+        stream_ingest_url=session.stream_ingest_url,
+        stream_key=session.stream_key,
     )
 
 
@@ -987,7 +1046,6 @@ async def create_live_session(
 
     notification_delivered = await _notify_students_for_live(
         db,
-        settings,
         session,
         offering,
         "live.session.created",
@@ -1005,10 +1063,10 @@ async def create_live_session(
         object_repr=session.title,
         changed_data={"course_offering_id": session.course_offering_id, "status": session.status},
     )
+    await _enqueue_live_session_event_and_track(db, session, "live.session.created")
     await db.commit()
     await db.refresh(session)
-    await _publish_live_session_event_and_track(db, settings, session, "live.session.created")
-    return ProfessorLiveSessionOut.model_validate(session)
+    return _professor_live_session_out(session)
 
 
 @router.delete("/live-sessions/{live_session_id}")
@@ -1068,7 +1126,6 @@ async def update_live_session(
         _sync_calendar_event_from_live_session(session.calendar_event, session, offering, professor)
     notification_delivered = await _notify_students_for_live(
         db,
-        settings,
         session,
         offering,
         "live.session.updated",
@@ -1086,10 +1143,10 @@ async def update_live_session(
         object_repr=session.title,
         changed_data=body.model_dump(exclude_unset=True, mode="json"),
     )
+    await _enqueue_live_session_event_and_track(db, session, "live.session.updated")
     await db.commit()
     await db.refresh(session)
-    await _publish_live_session_event_and_track(db, settings, session, "live.session.updated")
-    return ProfessorLiveSessionOut.model_validate(session)
+    return _professor_live_session_out(session)
 
 
 @router.post("/live-sessions/{live_session_id}/cancel", response_model=ProfessorLiveSessionOut)
@@ -1109,7 +1166,6 @@ async def cancel_live_session(
         _sync_calendar_event_from_live_session(session.calendar_event, session, session.course_offering, professor)
     notification_delivered = await _notify_students_for_live(
         db,
-        settings,
         session,
         session.course_offering,
         "live.session.cancelled",
@@ -1127,14 +1183,16 @@ async def cancel_live_session(
         object_repr=session.title,
         changed_data={"status": "cancelled"},
     )
+    await _enqueue_live_session_event_and_track(db, session, "live.session.cancelled")
     await db.commit()
     await db.refresh(session)
-    await _publish_live_session_event_and_track(db, settings, session, "live.session.cancelled")
-    return ProfessorLiveSessionOut.model_validate(session)
+    return _professor_live_session_out(session)
 
 
 @router.get("/student-live-sessions", response_model=list[LiveSessionViewerOut])
 async def list_student_live_sessions(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1154,7 +1212,8 @@ async def list_student_live_sessions(
             ProgramTrack.filiere == user.filiere,
         )
         .order_by(LiveSession.starts_at.desc())
-        .limit(50)
+        .offset(offset)
+        .limit(limit)
     )
     return [
         _live_viewer_out(session)
@@ -1265,10 +1324,12 @@ async def update_professor_live_interaction(
         object_repr=interaction.body,
         changed_data=body.model_dump(exclude_unset=True, mode="json"),
     )
-    await db.commit()
+    await db.flush()
     interaction = await _require_professor_live_interaction(db, professor, interaction_id)
     payload = _live_interaction_out(interaction).model_dump(mode="json")
-    await _publish_live_session_event(settings, interaction.live_session_id, "live.interaction.updated", payload)
+    await _enqueue_live_session_event(db, interaction.live_session_id, "live.interaction.updated", payload)
+    await db.commit()
+    interaction = await _require_professor_live_interaction(db, professor, interaction_id)
     return _live_interaction_out(interaction)
 
 
@@ -1293,10 +1354,12 @@ async def delete_professor_live_interaction(
         object_pk=interaction.id,
         object_repr=interaction.body,
     )
-    await db.commit()
+    await db.flush()
     interaction = await _require_professor_live_interaction(db, professor, interaction_id)
     payload = _live_interaction_out(interaction).model_dump(mode="json")
-    await _publish_live_session_event(settings, interaction.live_session_id, "live.interaction.deleted", payload)
+    await _enqueue_live_session_event(db, interaction.live_session_id, "live.interaction.deleted", payload)
+    await db.commit()
+    interaction = await _require_professor_live_interaction(db, professor, interaction_id)
     return _live_interaction_out(interaction)
 
 
@@ -1359,14 +1422,14 @@ async def create_student_live_interaction(
     db.add(interaction)
     await db.flush()
     interaction_id = interaction.id
-    await db.commit()
     interaction = (await db.execute(
         select(LiveSessionInteraction)
         .options(selectinload(LiveSessionInteraction.student))
         .where(LiveSessionInteraction.id == interaction_id)
     )).scalar_one()
     payload = _live_interaction_out(interaction).model_dump(mode="json")
-    await _publish_live_session_event(settings, interaction.live_session_id, "live.interaction.created", payload)
+    await _enqueue_live_session_event(db, interaction.live_session_id, "live.interaction.created", payload)
+    await db.commit()
     return _live_interaction_out(interaction)
 
 
@@ -1420,10 +1483,11 @@ async def create_professor_live_checkpoint(
         object_repr=checkpoint.title,
         changed_data={"live_session_id": checkpoint.live_session_id, "checkpoint_type": checkpoint.checkpoint_type},
     )
+    await db.flush()
+    payload = LiveSessionCheckpointOut.model_validate(checkpoint).model_dump(mode="json")
+    await _enqueue_live_session_event(db, checkpoint.live_session_id, "live.checkpoint.created", payload)
     await db.commit()
     await db.refresh(checkpoint)
-    payload = LiveSessionCheckpointOut.model_validate(checkpoint).model_dump(mode="json")
-    await _publish_live_session_event(settings, checkpoint.live_session_id, "live.checkpoint.created", payload)
     return LiveSessionCheckpointOut.model_validate(checkpoint)
 
 
@@ -1453,10 +1517,11 @@ async def update_professor_live_checkpoint(
         object_repr=checkpoint.title,
         changed_data=body.model_dump(exclude_unset=True, mode="json"),
     )
+    await db.flush()
+    payload = LiveSessionCheckpointOut.model_validate(checkpoint).model_dump(mode="json")
+    await _enqueue_live_session_event(db, checkpoint.live_session_id, "live.checkpoint.updated", payload)
     await db.commit()
     await db.refresh(checkpoint)
-    payload = LiveSessionCheckpointOut.model_validate(checkpoint).model_dump(mode="json")
-    await _publish_live_session_event(settings, checkpoint.live_session_id, "live.checkpoint.updated", payload)
     return LiveSessionCheckpointOut.model_validate(checkpoint)
 
 
@@ -1491,7 +1556,6 @@ async def notify_live_session(
     await _enforce_professor_mutation_rate_limit(db, professor, request)
     notification_delivered = await _notify_students_for_live(
         db,
-        settings,
         session,
         session.course_offering,
         "live.session.notify",
@@ -1509,10 +1573,10 @@ async def notify_live_session(
         object_repr=session.title,
         changed_data={"notification_status": session.notification_status},
     )
+    await _enqueue_live_session_event_and_track(db, session, "live.session.notified")
     await db.commit()
     await db.refresh(session)
-    await _publish_live_session_event_and_track(db, settings, session, "live.session.notified")
-    return ProfessorLiveSessionOut.model_validate(session)
+    return _professor_live_session_out(session)
 
 
 @router.post("/live-sessions/{live_session_id}/start", response_model=ProfessorLiveSessionOut)
@@ -1530,7 +1594,6 @@ async def start_live_session(
         _sync_calendar_event_from_live_session(session.calendar_event, session, session.course_offering, professor)
     notification_delivered = await _notify_students_for_live(
         db,
-        settings,
         session,
         session.course_offering,
         "live.session.started",
@@ -1548,10 +1611,10 @@ async def start_live_session(
         object_repr=session.title,
         changed_data={"status": "live"},
     )
+    await _enqueue_live_session_event_and_track(db, session, "live.session.started")
     await db.commit()
     await db.refresh(session)
-    await _publish_live_session_event_and_track(db, settings, session, "live.session.started")
-    return ProfessorLiveSessionOut.model_validate(session)
+    return _professor_live_session_out(session)
 
 
 @router.post("/live-sessions/{live_session_id}/end", response_model=ProfessorLiveSessionOut)
@@ -1569,7 +1632,6 @@ async def end_live_session(
         _sync_calendar_event_from_live_session(session.calendar_event, session, session.course_offering, professor)
     notification_delivered = await _notify_students_for_live(
         db,
-        settings,
         session,
         session.course_offering,
         "live.session.completed",
@@ -1587,10 +1649,10 @@ async def end_live_session(
         object_repr=session.title,
         changed_data={"status": "completed"},
     )
+    await _enqueue_live_session_event_and_track(db, session, "live.session.completed")
     await db.commit()
     await db.refresh(session)
-    await _publish_live_session_event_and_track(db, settings, session, "live.session.completed")
-    return ProfessorLiveSessionOut.model_validate(session)
+    return _professor_live_session_out(session)
 
 
 @router.get("/change-requests", response_model=list[ProfessorChangeRequestOut])
@@ -1663,8 +1725,11 @@ async def list_professor_conversations(
     q: str = "",
     unread: bool = False,
     pinned: bool = False,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
+    settings: Settings = Depends(get_settings),
 ):
     stmt = (
         select(ProfessorChatConversation)
@@ -1692,21 +1757,24 @@ async def list_professor_conversations(
     stmt = stmt.order_by(
         ProfessorChatConversation.is_pinned_by_professor.desc(),
         ProfessorChatConversation.last_message_at.desc(),
-    )
+    ).offset(offset).limit(limit)
     result = await db.execute(stmt)
-    return [_conversation_out(conversation) for conversation in result.scalars().all()]
+    return [_conversation_out(conversation, settings) for conversation in result.scalars().all()]
 
 
 @router.get("/chat/conversations/{conversation_id}/messages", response_model=list[ProfessorChatMessageOut])
 async def list_professor_messages(
     conversation_id: int,
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=100, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
+    settings: Settings = Depends(get_settings),
 ):
     conversation = await _require_professor_conversation(db, professor, conversation_id, for_update=True)
     conversation.unread_for_professor = 0
     await db.commit()
-    return await _messages_for_conversation(db, conversation_id)
+    return await _messages_for_conversation(db, conversation_id, settings, limit=limit, before_id=before_id)
 
 
 @router.post("/chat/conversations/{conversation_id}/messages", response_model=ProfessorChatMessageOut, status_code=201)
@@ -1734,15 +1802,15 @@ async def send_professor_message(
         object_repr=conversation.last_message_preview,
         changed_data={"conversation_id": conversation.id},
     )
+    await enqueue_realtime_event(
+        db,
+        channel=f"kresco:user:{conversation.student_user_id}:notifications",
+        event_name="professor.chat.message",
+        payload={"conversation_id": conversation.id, "message_id": message.id, "preview": conversation.last_message_preview},
+    )
     await db.commit()
     await db.refresh(message)
-    await publish_ably_message(
-        settings,
-        f"kresco:user:{conversation.student_user_id}:notifications",
-        "professor.chat.message",
-        {"conversation_id": conversation.id, "message_id": message.id, "preview": conversation.last_message_preview},
-    )
-    return _message_out(message, professor.role)
+    return _message_out(message, professor.role, settings)
 
 
 @router.post("/chat/conversations/{conversation_id}/images", response_model=ProfessorChatMessageOut, status_code=201)
@@ -1757,7 +1825,7 @@ async def send_professor_image_message(
 ):
     conversation = await _require_professor_conversation(db, professor, conversation_id, for_update=True)
     await _enforce_professor_mutation_rate_limit(db, professor, request)
-    attachment_url, attachment_mime_type, attachment_name, attachment_size = await _save_chat_image(conversation.id, file)
+    attachment_url, attachment_mime_type, attachment_name, attachment_size = await _save_chat_image(db, settings, conversation.id, file)
     clean_body = body.strip()[:1000]
     message = ProfessorChatMessage(
         conversation_id=conversation.id,
@@ -1781,15 +1849,15 @@ async def send_professor_image_message(
         object_repr=conversation.last_message_preview,
         changed_data={"conversation_id": conversation.id, "attachment_mime_type": attachment_mime_type},
     )
+    await enqueue_realtime_event(
+        db,
+        channel=f"kresco:user:{conversation.student_user_id}:notifications",
+        event_name="professor.chat.message",
+        payload={"conversation_id": conversation.id, "message_id": message.id, "preview": conversation.last_message_preview},
+    )
     await db.commit()
     await db.refresh(message)
-    await publish_ably_message(
-        settings,
-        f"kresco:user:{conversation.student_user_id}:notifications",
-        "professor.chat.message",
-        {"conversation_id": conversation.id, "message_id": message.id, "preview": conversation.last_message_preview},
-    )
-    return _message_out(message, professor.role)
+    return _message_out(message, professor.role, settings)
 
 
 @router.patch("/chat/messages/{message_id}", response_model=ProfessorChatMessageOut)
@@ -1825,10 +1893,10 @@ async def update_chat_message(
             object_repr=conversation.last_message_preview,
             changed_data={"conversation_id": conversation.id},
         )
+    await publish_chat_message_change(db, conversation, user, "professor.chat.message.updated", message.id)
     await db.commit()
     await db.refresh(message)
-    await publish_chat_message_change(settings, conversation, user, "professor.chat.message.updated", message.id)
-    return _message_out(message, user.role)
+    return _message_out(message, user.role, settings)
 
 
 @router.delete("/chat/messages/{message_id}")
@@ -1857,8 +1925,8 @@ async def delete_chat_message(
             object_repr=conversation.last_message_preview,
             changed_data={"conversation_id": conversation.id},
         )
+    await publish_chat_message_change(db, conversation, user, "professor.chat.message.deleted", message_id)
     await db.commit()
-    await publish_chat_message_change(settings, conversation, user, "professor.chat.message.deleted", message_id)
     return {"ok": True}
 
 
@@ -1869,6 +1937,7 @@ async def patch_professor_conversation(
     request: Request,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
+    settings: Settings = Depends(get_settings),
 ):
     conversation = await _require_professor_conversation(db, professor, conversation_id, for_update=True)
     await _enforce_professor_mutation_rate_limit(db, professor, request)
@@ -1888,13 +1957,14 @@ async def patch_professor_conversation(
     )
     await db.commit()
     await db.refresh(conversation)
-    return _conversation_out(conversation)
+    return _conversation_out(conversation, settings)
 
 
 @router.get("/student-chat", response_model=StudentProfessorChatStatusOut)
 async def get_student_professor_chat(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     eligibility = professor_chat_eligibility(user)
     offerings = await _student_offerings(db, user) if eligibility.eligible else []
@@ -1910,12 +1980,12 @@ async def get_student_professor_chat(
         .order_by(ProfessorChatConversation.last_message_at.desc())
     )
     conversations = list(result.scalars().all()) if eligibility.eligible else []
-    teacher_threads = await _student_teacher_threads(db, offerings, conversations) if eligibility.eligible else []
+    teacher_threads = await _student_teacher_threads(db, offerings, conversations, settings) if eligibility.eligible else []
     return StudentProfessorChatStatusOut(
         eligible=eligibility.eligible,
         reason=eligibility.reason,
         offerings=[_offering_out(offering) for offering in offerings],
-        conversations=[_conversation_out(conversation) for conversation in conversations],
+        conversations=[_conversation_out(conversation, settings) for conversation in conversations],
         teacher_threads=teacher_threads,
     )
 
@@ -1958,6 +2028,12 @@ async def start_student_conversation(
     db.add(conversation)
     await db.flush()
     db.add(ProfessorChatMessage(conversation_id=conversation.id, sender_user_id=user.id, body=body.body))
+    await enqueue_realtime_event(
+        db,
+        channel=f"kresco:professor:{conversation.professor_user_id}:inbox",
+        event_name="professor.chat.started",
+        payload={"conversation_id": conversation.id, "student_user_id": user.id, "preview": conversation.last_message_preview},
+    )
     await db.commit()
     result = await db.execute(
         select(ProfessorChatConversation)
@@ -1970,26 +2046,23 @@ async def start_student_conversation(
         .where(ProfessorChatConversation.id == conversation.id)
     )
     conversation_out = result.scalar_one()
-    await publish_ably_message(
-        settings,
-        f"kresco:professor:{conversation_out.professor_user_id}:inbox",
-        "professor.chat.started",
-        {"conversation_id": conversation_out.id, "student_user_id": user.id, "preview": conversation_out.last_message_preview},
-    )
-    return _conversation_out(conversation_out)
+    return _conversation_out(conversation_out, settings)
 
 
 @router.get("/student-chat/conversations/{conversation_id}/messages", response_model=list[ProfessorChatMessageOut])
 async def list_student_messages(
     conversation_id: int,
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=100, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     _ensure_student_professor_chat_access(user)
     conversation = await _require_student_conversation(db, user, conversation_id, for_update=True)
     conversation.unread_for_student = 0
     await db.commit()
-    return await _messages_for_conversation(db, conversation_id)
+    return await _messages_for_conversation(db, conversation_id, settings, limit=limit, before_id=before_id)
 
 
 @router.post("/student-chat/conversations/{conversation_id}/messages", response_model=ProfessorChatMessageOut, status_code=201)
@@ -2005,15 +2078,16 @@ async def send_student_message(
     message = ProfessorChatMessage(conversation_id=conversation.id, sender_user_id=user.id, body=body.body)
     db.add(message)
     await _apply_student_sent_message_update(db, conversation, body.body)
+    await db.flush()
+    await enqueue_realtime_event(
+        db,
+        channel=f"kresco:professor:{conversation.professor_user_id}:inbox",
+        event_name="professor.chat.message",
+        payload={"conversation_id": conversation.id, "message_id": message.id, "student_user_id": user.id, "preview": conversation.last_message_preview},
+    )
     await db.commit()
     await db.refresh(message)
-    await publish_ably_message(
-        settings,
-        f"kresco:professor:{conversation.professor_user_id}:inbox",
-        "professor.chat.message",
-        {"conversation_id": conversation.id, "message_id": message.id, "student_user_id": user.id, "preview": conversation.last_message_preview},
-    )
-    return _message_out(message, user.role)
+    return _message_out(message, user.role, settings)
 
 
 @router.post("/student-chat/conversations/{conversation_id}/images", response_model=ProfessorChatMessageOut, status_code=201)
@@ -2027,7 +2101,7 @@ async def send_student_image_message(
 ):
     _ensure_student_professor_chat_access(user)
     conversation = await _require_student_conversation(db, user, conversation_id, for_update=True)
-    attachment_url, attachment_mime_type, attachment_name, attachment_size = await _save_chat_image(conversation.id, file)
+    attachment_url, attachment_mime_type, attachment_name, attachment_size = await _save_chat_image(db, settings, conversation.id, file)
     clean_body = body.strip()[:1000]
     message = ProfessorChatMessage(
         conversation_id=conversation.id,
@@ -2040,12 +2114,13 @@ async def send_student_image_message(
     )
     db.add(message)
     await _apply_student_sent_message_update(db, conversation, clean_body or "Image")
+    await db.flush()
+    await enqueue_realtime_event(
+        db,
+        channel=f"kresco:professor:{conversation.professor_user_id}:inbox",
+        event_name="professor.chat.message",
+        payload={"conversation_id": conversation.id, "message_id": message.id, "student_user_id": user.id, "preview": conversation.last_message_preview},
+    )
     await db.commit()
     await db.refresh(message)
-    await publish_ably_message(
-        settings,
-        f"kresco:professor:{conversation.professor_user_id}:inbox",
-        "professor.chat.message",
-        {"conversation_id": conversation.id, "message_id": message.id, "student_user_id": user.id, "preview": conversation.last_message_preview},
-    )
-    return _message_out(message, user.role)
+    return _message_out(message, user.role, settings)

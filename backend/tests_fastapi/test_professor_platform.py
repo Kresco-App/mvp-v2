@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -9,9 +10,10 @@ from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import Subject, Topic, TopicItem, TopicSection
-from app.models.professor import CourseOffering, LiveSession, ProgramTrack
+from app.models.professor import CourseOffering, LiveSession, ProfessorChatConversation, ProfessorChatMessage, ProgramTrack, RealtimeOutbox
 from app.models.users import User, UserSubjectEntitlement
-from app.services.auth import create_token
+from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
+from app.services.auth import AUTH_COOKIE_NAME, create_token
 
 
 async def _seed_professor_platform(test_settings):
@@ -128,10 +130,15 @@ async def _seed_professor_platform(test_settings):
         await db.commit()
         return {
             "professor_token": create_token(professor.id, test_settings),
+            "professor_id": professor.id,
             "other_professor_token": create_token(other_professor.id, test_settings),
+            "other_professor_id": other_professor.id,
             "vip_student_token": create_token(vip_student.id, test_settings),
+            "vip_student_id": vip_student.id,
             "basic_student_token": create_token(basic_student.id, test_settings),
+            "basic_student_id": basic_student.id,
             "wrong_track_student_token": create_token(wrong_track_student.id, test_settings),
+            "wrong_track_student_id": wrong_track_student.id,
             "offering_id": offering.id,
             "second_offering_id": second_offering.id,
             "other_professor_offering_id": other_professor_offering.id,
@@ -178,6 +185,17 @@ async def _audit_log_for(model_name: str, object_pk: int | str) -> AdminAuditLog
             .order_by(AdminAuditLog.id.desc())
         )
         return result.scalars().first()
+
+
+def _install_cookie_session(app_client, test_settings, user_id: int, *, with_csrf: bool) -> str:
+    app_client.cookies.set(AUTH_COOKIE_NAME, create_token(user_id, test_settings))
+    if not with_csrf:
+        app_client.cookies.set(CSRF_COOKIE_NAME, "")
+        return ""
+
+    csrf_token = csrf_token_for_user(SimpleNamespace(id=user_id, auth_token_version=0), test_settings)
+    app_client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
+    return csrf_token
 
 
 def test_professor_dashboard_requires_professor_and_returns_scope(app_client, run_db, test_settings):
@@ -261,11 +279,30 @@ def test_professor_live_sessions_are_scoped_to_owned_offering(app_client, run_db
     assert created.status_code == 201
     live_id = created.json()["id"]
     assert created.json()["join_url"] == "https://live.example/session"
+    assert created.json()["has_stream_credentials"] is False
+    assert "stream_ingest_url" not in created.json()
+    assert "stream_key" not in created.json()
     audit = run_db(_audit_log_for("LiveSession", live_id))
     assert audit is not None
     assert audit.action == "professor_create"
     assert audit.request_path == "/api/professor/live-sessions"
     assert audit.changed_data["course_offering_id"] == seeded["offering_id"]
+
+    professor_sessions = app_client.get(
+        "/api/professor/live-sessions?limit=1&offset=0",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert professor_sessions.status_code == 200
+    assert len(professor_sessions.json()) == 1
+    assert professor_sessions.json()[0]["has_stream_credentials"] is False
+    assert "stream_ingest_url" not in professor_sessions.json()[0]
+    assert "stream_key" not in professor_sessions.json()[0]
+
+    invalid_professor_sessions = app_client.get(
+        "/api/professor/live-sessions?limit=0",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert invalid_professor_sessions.status_code == 422
 
     async def _calendar_event_id():
         session_factory = get_session_factory()
@@ -306,6 +343,13 @@ def test_professor_live_sessions_are_scoped_to_owned_offering(app_client, run_db
     assert student_live["can_join"] is False
     assert "stream_key" not in student_live
     assert "stream_ingest_url" not in student_live
+
+    paged_student_sessions = app_client.get(
+        "/api/professor/student-live-sessions?limit=1&offset=0",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert paged_student_sessions.status_code == 200
+    assert len(paged_student_sessions.json()) <= 1
 
     basic_student_sessions = app_client.get(
         "/api/professor/student-live-sessions",
@@ -551,6 +595,161 @@ def test_professor_live_sessions_are_scoped_to_owned_offering(app_client, run_db
     assert run_db(_deleted_calendar_status()) == "cancelled"
 
 
+def test_cookie_live_and_chat_mutations_require_and_accept_csrf(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    origin = "http://localhost:3000"
+    live_payload = {
+        "course_offering_id": seeded["offering_id"],
+        "title": "Cookie CSRF live",
+        "description": "",
+        "starts_at": starts_at.isoformat(),
+        "ends_at": (starts_at + timedelta(hours=1)).isoformat(),
+        "vdocipher_live_id": "live_cookie_csrf",
+        "stream_ingest_url": "rtmp://cookie.example/live",
+        "stream_key": "cookie-key",
+    }
+
+    _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=False)
+    missing_live_create = app_client.post(
+        "/api/professor/live-sessions",
+        json=live_payload,
+        headers={"Origin": origin},
+    )
+    assert missing_live_create.status_code == 403
+
+    professor_csrf = _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=True)
+    created_live = app_client.post(
+        "/api/professor/live-sessions",
+        json=live_payload,
+        headers={"Origin": origin, CSRF_HEADER_NAME: professor_csrf},
+    )
+    assert created_live.status_code == 201
+    live_id = created_live.json()["id"]
+
+    _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=False)
+    missing_live_update = app_client.patch(
+        f"/api/professor/live-sessions/{live_id}",
+        json={"title": "Should not persist"},
+        headers={"Origin": origin},
+    )
+    assert missing_live_update.status_code == 403
+
+    professor_csrf = _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=True)
+    updated_live = app_client.patch(
+        f"/api/professor/live-sessions/{live_id}",
+        json={"title": "Cookie CSRF live updated"},
+        headers={"Origin": origin, CSRF_HEADER_NAME: professor_csrf},
+    )
+    assert updated_live.status_code == 200
+    assert updated_live.json()["title"] == "Cookie CSRF live updated"
+
+    _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=False)
+    missing_reveal = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/stream-credentials/reveal",
+        headers={"Origin": origin},
+    )
+    assert missing_reveal.status_code == 403
+
+    professor_csrf = _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=True)
+    revealed = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/stream-credentials/reveal",
+        headers={"Origin": origin, CSRF_HEADER_NAME: professor_csrf},
+    )
+    assert revealed.status_code == 200
+    assert revealed.json()["stream_key"] == "cookie-key"
+
+    started = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/start",
+        headers={"Origin": origin, CSRF_HEADER_NAME: professor_csrf},
+    )
+    assert started.status_code == 200
+
+    _install_cookie_session(app_client, test_settings, seeded["vip_student_id"], with_csrf=False)
+    missing_live_interaction = app_client.post(
+        f"/api/professor/student-live-sessions/{live_id}/interactions",
+        json={"kind": "message", "body": "Missing CSRF"},
+        headers={"Origin": origin},
+    )
+    assert missing_live_interaction.status_code == 403
+
+    student_csrf = _install_cookie_session(app_client, test_settings, seeded["vip_student_id"], with_csrf=True)
+    live_interaction = app_client.post(
+        f"/api/professor/student-live-sessions/{live_id}/interactions",
+        json={"kind": "message", "body": "CSRF accepted"},
+        headers={"Origin": origin, CSRF_HEADER_NAME: student_csrf},
+    )
+    assert live_interaction.status_code == 201
+
+    _install_cookie_session(app_client, test_settings, seeded["vip_student_id"], with_csrf=False)
+    missing_conversation = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Missing CSRF"},
+        headers={"Origin": origin},
+    )
+    assert missing_conversation.status_code == 403
+
+    student_csrf = _install_cookie_session(app_client, test_settings, seeded["vip_student_id"], with_csrf=True)
+    conversation = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "CSRF accepted"},
+        headers={"Origin": origin, CSRF_HEADER_NAME: student_csrf},
+    )
+    assert conversation.status_code == 201
+    conversation_id = conversation.json()["id"]
+
+    _install_cookie_session(app_client, test_settings, seeded["vip_student_id"], with_csrf=False)
+    missing_student_message = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        json={"body": "Missing CSRF"},
+        headers={"Origin": origin},
+    )
+    assert missing_student_message.status_code == 403
+
+    student_csrf = _install_cookie_session(app_client, test_settings, seeded["vip_student_id"], with_csrf=True)
+    student_message = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        json={"body": "CSRF accepted message"},
+        headers={"Origin": origin, CSRF_HEADER_NAME: student_csrf},
+    )
+    assert student_message.status_code == 201
+
+    _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=False)
+    missing_professor_message = app_client.post(
+        f"/api/professor/chat/conversations/{conversation_id}/messages",
+        json={"body": "Missing CSRF"},
+        headers={"Origin": origin},
+    )
+    assert missing_professor_message.status_code == 403
+
+    professor_csrf = _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=True)
+    professor_message = app_client.post(
+        f"/api/professor/chat/conversations/{conversation_id}/messages",
+        json={"body": "CSRF accepted reply"},
+        headers={"Origin": origin, CSRF_HEADER_NAME: professor_csrf},
+    )
+    assert professor_message.status_code == 201
+
+    _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=False)
+    missing_professor_image = app_client.post(
+        f"/api/professor/chat/conversations/{conversation_id}/images",
+        data={"body": "Missing CSRF"},
+        files={"file": ("work.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", "image/png")},
+        headers={"Origin": origin},
+    )
+    assert missing_professor_image.status_code == 403
+
+    professor_csrf = _install_cookie_session(app_client, test_settings, seeded["professor_id"], with_csrf=True)
+    professor_image = app_client.post(
+        f"/api/professor/chat/conversations/{conversation_id}/images",
+        data={"body": "CSRF accepted image"},
+        files={"file": ("work.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", "image/png")},
+        headers={"Origin": origin, CSRF_HEADER_NAME: professor_csrf},
+    )
+    assert professor_image.status_code == 201
+    assert professor_image.json()["attachment_mime_type"] == "image/png"
+
+
 def test_professor_live_session_can_be_generated_from_provider(app_client, run_db, test_settings, monkeypatch):
     seeded = run_db(_seed_professor_platform(test_settings))
     starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
@@ -583,8 +782,28 @@ def test_professor_live_session_can_be_generated_from_provider(app_client, run_d
     assert created.status_code == 201
     body = created.json()
     assert body["vdocipher_live_id"] == "generated_live_123"
-    assert body["stream_ingest_url"] == "rtmp://ingest.example/live"
-    assert body["stream_key"] == "secret-stream-key"
+    assert body["has_stream_credentials"] is True
+    assert "stream_ingest_url" not in body
+    assert "stream_key" not in body
+
+    revealed = app_client.post(
+        f"/api/professor/live-sessions/{body['id']}/stream-credentials/reveal",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert revealed.status_code == 200
+    assert revealed.headers["cache-control"] == "no-store"
+    assert revealed.headers["pragma"] == "no-cache"
+    assert revealed.json()["stream_ingest_url"] == "rtmp://ingest.example/live"
+    assert revealed.json()["stream_key"] == "secret-stream-key"
+    audit = run_db(_audit_log_for("LiveSessionStreamCredentials", body["id"]))
+    assert audit is not None
+    assert audit.action == "professor_reveal"
+    assert audit.request_path == f"/api/professor/live-sessions/{body['id']}/stream-credentials/reveal"
+    assert audit.changed_data == {
+        "live_session_id": body["id"],
+        "has_stream_ingest_url": True,
+        "has_stream_key": True,
+    }
 
     async def _provider_payload():
         session_factory = get_session_factory()
@@ -657,14 +876,6 @@ def test_live_interactions_are_trimmed_rate_limited_and_published(app_client, ru
     assert created.status_code == 201
     live_id = created.json()["id"]
 
-    published: list[tuple[str, str, dict]] = []
-
-    async def fake_publish(settings, channel, name, data):
-        published.append((channel, name, data))
-        return True
-
-    monkeypatch.setattr(professor_router, "publish_ably_message", fake_publish)
-
     started = app_client.post(
         f"/api/professor/live-sessions/{live_id}/start",
         headers={"Authorization": f"Bearer {seeded['professor_token']}"},
@@ -685,11 +896,20 @@ def test_live_interactions_are_trimmed_rate_limited_and_published(app_client, ru
     )
     assert first.status_code == 201
     assert first.json()["body"] == "Audio is clear."
-    assert published[-1] == (
-        f"kresco:live:{live_id}",
-        "live.interaction.created",
-        first.json(),
-    )
+
+    async def _latest_interaction_outbox():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            return await db.scalar(
+                select(RealtimeOutbox)
+                .where(RealtimeOutbox.event_name == "live.interaction.created")
+                .order_by(RealtimeOutbox.id.desc())
+                .limit(1)
+            )
+
+    outbox_event = run_db(_latest_interaction_outbox())
+    assert outbox_event.channel == f"kresco:live:{live_id}"
+    assert outbox_event.payload_json == first.json()
 
     for index in range(professor_router.LIVE_INTERACTION_BURST_LIMIT - 1):
         response = app_client.post(
@@ -705,6 +925,87 @@ def test_live_interactions_are_trimmed_rate_limited_and_published(app_client, ru
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
     assert rate_limited.status_code == 429
+
+
+def test_live_session_notifications_use_single_offering_realtime_event(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+
+    async def _add_students():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            for index in range(50):
+                db.add(User(
+                    email=f"live-fanout-{seeded['offering_id']}-{index}@example.com",
+                    full_name=f"Live Fanout {index}",
+                    role="student",
+                    tier="vip",
+                    niveau="2BAC",
+                    filiere=seeded["filiere"],
+                    is_active=True,
+                    is_email_verified=True,
+                    password="!",
+                ))
+            await db.commit()
+
+    run_db(_add_students())
+
+    starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    created = app_client.post(
+        "/api/professor/live-sessions",
+        json={
+            "course_offering_id": seeded["offering_id"],
+            "title": "Broadcast fanout live",
+            "description": "",
+            "starts_at": starts_at.isoformat(),
+            "ends_at": (starts_at + timedelta(hours=1)).isoformat(),
+            "vdocipher_live_id": "live_broadcast_fanout",
+        },
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert created.status_code == 201
+    live_id = created.json()["id"]
+
+    started = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/start",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert started.status_code == 200
+
+    async def _started_outbox_channels():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            result = await db.execute(
+                select(RealtimeOutbox).where(RealtimeOutbox.event_name == "live.session.started")
+            )
+            rows = [
+                row
+                for row in result.scalars().all()
+                if row.payload_json.get("live_session_id") == live_id
+            ]
+            return [(row.channel, row.payload_json) for row in rows]
+
+    outbox = run_db(_started_outbox_channels())
+
+    by_channel = {channel: payload for channel, payload in outbox}
+    assert set(by_channel) == {
+        f"kresco:offering:{seeded['offering_id']}:notifications",
+        f"kresco:live:{live_id}",
+    }
+    offering_payload = by_channel[f"kresco:offering:{seeded['offering_id']}:notifications"]
+    assert offering_payload["live_session_id"] == live_id
+    assert offering_payload["course_offering_id"] == seeded["offering_id"]
+    assert offering_payload["calendar_event_id"]
+    assert offering_payload["title"] == "Broadcast fanout live"
+    assert offering_payload["starts_at"] == started.json()["starts_at"]
+    assert offering_payload["status"] == "live"
+    assert by_channel[f"kresco:live:{live_id}"] == {
+        "live_session_id": live_id,
+        "title": "Broadcast fanout live",
+        "status": "live",
+        "starts_at": started.json()["starts_at"],
+        "ends_at": started.json()["ends_at"],
+    }
+    assert not any(channel.startswith("kresco:user:") for channel, _payload in outbox)
 
 
 def test_professor_live_session_update_can_reassign_owned_offering(app_client, run_db, test_settings):
@@ -727,8 +1028,43 @@ def test_professor_live_session_update_can_reassign_owned_offering(app_client, r
     assert created.status_code == 201
     created_body = created.json()
     live_id = created_body["id"]
-    assert created_body["stream_ingest_url"] == "rtmp://manual.example/live"
-    assert created_body["stream_key"] == "manual-key"
+    assert created_body["has_stream_credentials"] is True
+    assert "stream_ingest_url" not in created_body
+    assert "stream_key" not in created_body
+
+    listed = app_client.get(
+        "/api/professor/live-sessions",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert listed.status_code == 200
+    listed_session = next(item for item in listed.json() if item["id"] == live_id)
+    assert listed_session["has_stream_credentials"] is True
+    assert "stream_ingest_url" not in listed_session
+    assert "stream_key" not in listed_session
+
+    dashboard = app_client.get(
+        "/api/professor/dashboard",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert dashboard.status_code == 200
+    dashboard_session = next(item for item in dashboard.json()["upcoming_live_sessions"] if item["id"] == live_id)
+    assert dashboard_session["has_stream_credentials"] is True
+    assert "stream_ingest_url" not in dashboard_session
+    assert "stream_key" not in dashboard_session
+
+    forbidden_reveal = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/stream-credentials/reveal",
+        headers={"Authorization": f"Bearer {seeded['other_professor_token']}"},
+    )
+    assert forbidden_reveal.status_code == 404
+
+    revealed = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/stream-credentials/reveal",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert revealed.status_code == 200
+    assert revealed.json()["stream_ingest_url"] == "rtmp://manual.example/live"
+    assert revealed.json()["stream_key"] == "manual-key"
 
     reassigned = app_client.patch(
         f"/api/professor/live-sessions/{live_id}",
@@ -743,8 +1079,17 @@ def test_professor_live_session_update_can_reassign_owned_offering(app_client, r
     assert reassigned.status_code == 200
     assert reassigned.json()["course_offering_id"] == seeded["second_offering_id"]
     assert reassigned.json()["title"] == "Reassigned offering"
-    assert reassigned.json()["stream_ingest_url"] == "rtmp://manual.example/updated"
-    assert reassigned.json()["stream_key"] == "updated-key"
+    assert reassigned.json()["has_stream_credentials"] is True
+    assert "stream_ingest_url" not in reassigned.json()
+    assert "stream_key" not in reassigned.json()
+
+    updated_reveal = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/stream-credentials/reveal",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert updated_reveal.status_code == 200
+    assert updated_reveal.json()["stream_ingest_url"] == "rtmp://manual.example/updated"
+    assert updated_reveal.json()["stream_key"] == "updated-key"
 
     invalid_status = app_client.patch(
         f"/api/professor/live-sessions/{live_id}",
@@ -1007,3 +1352,209 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
         headers={"Authorization": f"Bearer {seeded['other_professor_token']}"},
     )
     assert blocked_reply.status_code == 404
+
+
+def test_professor_chat_image_upload_enforces_conversation_quota(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    original_quota = test_settings.media_chat_conversation_quota_bytes
+    test_settings.media_chat_conversation_quota_bytes = 30
+    png_20 = b"\x89PNG\r\n\x1a\n" + b"a" * 12
+    try:
+        created = app_client.post(
+            "/api/professor/student-chat/conversations",
+            json={"course_offering_id": seeded["offering_id"], "body": "Quota check"},
+            headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+        )
+        assert created.status_code == 201
+        conversation_id = created.json()["id"]
+
+        first_image = app_client.post(
+            f"/api/professor/student-chat/conversations/{conversation_id}/images",
+            data={"body": "First image"},
+            files={"file": ("first.png", png_20, "image/png")},
+            headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+        )
+        assert first_image.status_code == 201
+        assert first_image.json()["attachment_size"] == len(png_20)
+
+        over_quota_reply = app_client.post(
+            f"/api/professor/chat/conversations/{conversation_id}/images",
+            data={"body": "Reply image"},
+            files={"file": ("reply.png", png_20, "image/png")},
+            headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+        )
+        assert over_quota_reply.status_code == 413
+        assert over_quota_reply.json()["detail"] == "Conversation media quota exceeded"
+    finally:
+        test_settings.media_chat_conversation_quota_bytes = original_quota
+
+
+def test_professor_chat_conversations_are_bounded_and_offset_paginated(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+
+    async def _seed_conversations():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            base_time = datetime.now(timezone.utc) - timedelta(minutes=30)
+            for index in range(5):
+                student = User(
+                    email=f"chat-page-student-{uuid4().hex[:8]}@example.com",
+                    full_name=f"Chat Page Student {index}",
+                    role="student",
+                    tier="vip",
+                    niveau="2BAC",
+                    filiere=seeded["filiere"],
+                    is_active=True,
+                    is_email_verified=True,
+                    password="!",
+                )
+                db.add(student)
+                await db.flush()
+                db.add(ProfessorChatConversation(
+                    course_offering_id=seeded["offering_id"],
+                    professor_user_id=seeded["professor_id"],
+                    student_user_id=student.id,
+                    last_message_preview=f"thread {index}",
+                    last_message_at=base_time + timedelta(minutes=index),
+                ))
+            await db.commit()
+
+    run_db(_seed_conversations())
+
+    first_page = app_client.get(
+        "/api/professor/chat/conversations?limit=2",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert first_page.status_code == 200
+    assert [item["last_message_preview"] for item in first_page.json()] == ["thread 4", "thread 3"]
+
+    second_page = app_client.get(
+        "/api/professor/chat/conversations?limit=2&offset=2",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert second_page.status_code == 200
+    assert [item["last_message_preview"] for item in second_page.json()] == ["thread 2", "thread 1"]
+
+    invalid = app_client.get(
+        "/api/professor/chat/conversations?limit=101",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert invalid.status_code == 422
+
+
+def test_professor_chat_messages_are_cursor_paginated(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    created = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Initial question"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert created.status_code == 201
+    conversation_id = created.json()["id"]
+
+    async def _seed_messages():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            for index in range(12):
+                sender_id = seeded["professor_id"] if index % 2 else seeded["vip_student_id"]
+                db.add(ProfessorChatMessage(
+                    conversation_id=conversation_id,
+                    sender_user_id=sender_id,
+                    body=f"page-message-{index}",
+                ))
+            conversation = await db.get(ProfessorChatConversation, conversation_id)
+            conversation.unread_for_professor = 4
+            conversation.unread_for_student = 3
+            await db.commit()
+
+    run_db(_seed_messages())
+
+    professor_page = app_client.get(
+        f"/api/professor/chat/conversations/{conversation_id}/messages?limit=5",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert professor_page.status_code == 200
+    assert [item["body"] for item in professor_page.json()] == [f"page-message-{index}" for index in range(7, 12)]
+    before_id = professor_page.json()[0]["id"]
+
+    older_page = app_client.get(
+        f"/api/professor/chat/conversations/{conversation_id}/messages?limit=5&before_id={before_id}",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert older_page.status_code == 200
+    assert [item["body"] for item in older_page.json()] == [f"page-message-{index}" for index in range(2, 7)]
+
+    student_page = app_client.get(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages?limit=3",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert student_page.status_code == 200
+    assert [item["body"] for item in student_page.json()] == [f"page-message-{index}" for index in range(9, 12)]
+
+    invalid = app_client.get(
+        f"/api/professor/chat/conversations/{conversation_id}/messages?limit=201",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert invalid.status_code == 422
+
+    async def _conversation_unread_counts():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            conversation = await db.get(ProfessorChatConversation, conversation_id)
+            return conversation.unread_for_professor, conversation.unread_for_student
+
+    assert run_db(_conversation_unread_counts()) == (0, 0)
+
+
+def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db, test_settings, monkeypatch):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    started = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Can you check this?"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert started.status_code == 201
+    conversation_id = started.json()["id"]
+    calls = []
+
+    class _Storage:
+        async def put_object(self, *, key: str, content: bytes, content_type: str):
+            calls.append({"key": key, "content": content, "content_type": content_type})
+            return SimpleNamespace(
+                key=f"test-prefix/{key}",
+                reference=f"s3://kresco-media/test-prefix/{key}",
+                url=f"https://signed.example.com/test-prefix/{key}?signature=upload",
+            )
+
+    monkeypatch.setattr("app.routers.professor.get_media_storage", lambda settings: _Storage())
+    monkeypatch.setattr(
+        "app.routers.professor.media_url",
+        lambda reference, settings: f"https://signed.example.com/{reference.removeprefix('s3://kresco-media/')}?signature=read"
+        if str(reference).startswith("s3://")
+        else reference,
+    )
+
+    image = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/images",
+        data={"body": "Here is my work"},
+        files={"file": ("work.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", "image/png")},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+
+    assert image.status_code == 201
+    assert image.json()["attachment_url"].startswith(
+        f"https://signed.example.com/test-prefix/professor-chat/{conversation_id}/"
+    )
+    assert image.json()["attachment_url"].endswith("?signature=read")
+    assert calls[0]["key"].startswith(f"professor-chat/{conversation_id}/")
+    assert calls[0]["content_type"] == "image/png"
+
+    async def _stored_message_attachment():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            message = await db.get(ProfessorChatMessage, image.json()["id"])
+            return message.attachment_url
+
+    assert run_db(_stored_message_attachment()).startswith(
+        f"s3://kresco-media/test-prefix/professor-chat/{conversation_id}/"
+    )

@@ -58,7 +58,7 @@ class ProfessorChangeRequest(Base):
     proposed_patch_json: Mapped[dict] = mapped_column(JSON, default=dict)
     current_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
-    admin_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    admin_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     admin_note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -79,7 +79,7 @@ class LiveSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     course_offering_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="CASCADE"), index=True)
     professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
-    calendar_event_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("calendar_events.id", ondelete="SET NULL"), nullable=True)
+    calendar_event_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("calendar_events.id", ondelete="SET NULL"), nullable=True, index=True)
     vdocipher_live_id: Mapped[str] = mapped_column(String(255), default="")
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -91,7 +91,7 @@ class LiveSession(Base):
     stream_key: Mapped[str] = mapped_column(String(500), default="")
     provider_payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
     notification_status: Mapped[str] = mapped_column(String(30), default="not_sent")
-    recording_resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True)
+    recording_resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -157,7 +157,7 @@ class LiveSessionInteraction(Base):
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     answer: Mapped[str] = mapped_column(Text, default="")
-    answered_by_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    answered_by_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     answered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -221,3 +221,24 @@ class ProfessorChatMessage(Base):
 
     conversation: Mapped["ProfessorChatConversation"] = relationship("ProfessorChatConversation", back_populates="messages")
     sender = relationship("User", foreign_keys=[sender_user_id])
+
+
+class RealtimeOutbox(Base):
+    __tablename__ = "realtime_outbox"
+    __table_args__ = (
+        Index("ix_realtime_outbox_status_available", "status", "available_at", "id"),
+        Index("ix_realtime_outbox_channel_created", "channel", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(255), index=True)
+    event_name: Mapped[str] = mapped_column(String(120), index=True)
+    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -33,6 +33,11 @@ export type LiveSession = {
 }
 
 export type ProfessorLiveSession = LiveSession & {
+  has_stream_credentials: boolean
+}
+
+export type LiveSessionStreamCredentials = {
+  id: number
   stream_ingest_url: string
   stream_key: string
 }
@@ -257,6 +262,11 @@ export async function getProfessorLiveEmbed(id: number) {
   return data
 }
 
+export async function revealProfessorLiveStreamCredentials(id: number) {
+  const { data } = await api.post<LiveSessionStreamCredentials>(`/professor/live-sessions/${id}/stream-credentials/reveal`)
+  return data
+}
+
 export async function listStudentLiveSessions() {
   const { data } = await api.get<StudentLiveSession[]>('/professor/student-live-sessions')
   return data
@@ -324,13 +334,16 @@ export async function listProfessorChangeRequests(status = 'pending') {
   return data
 }
 
-export async function listProfessorConversations(params: { q?: string; unread?: boolean; pinned?: boolean } = {}) {
+type OffsetPageParams = { limit?: number; offset?: number }
+type CursorPageParams = { limit?: number; before_id?: number }
+
+export async function listProfessorConversations(params: { q?: string; unread?: boolean; pinned?: boolean } & OffsetPageParams = {}) {
   const { data } = await api.get<ProfessorConversation[]>('/professor/chat/conversations', { params })
   return data
 }
 
-export async function listProfessorMessages(conversationId: number) {
-  const { data } = await api.get<ProfessorMessage[]>(`/professor/chat/conversations/${conversationId}/messages`)
+export async function listProfessorMessages(conversationId: number, params: CursorPageParams = {}) {
+  const { data } = await api.get<ProfessorMessage[]>(`/professor/chat/conversations/${conversationId}/messages`, { params })
   return data
 }
 
@@ -376,8 +389,8 @@ export async function startStudentProfessorConversation(courseOfferingId: number
   return data
 }
 
-export async function listStudentProfessorMessages(conversationId: number) {
-  const { data } = await api.get<ProfessorMessage[]>(`/professor/student-chat/conversations/${conversationId}/messages`)
+export async function listStudentProfessorMessages(conversationId: number, params: CursorPageParams = {}) {
+  const { data } = await api.get<ProfessorMessage[]>(`/professor/student-chat/conversations/${conversationId}/messages`, { params })
   return data
 }
 

@@ -1,34 +1,49 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { BellRing, CheckCircle2, ClipboardList, Clock3, LockKeyhole, MessageCircle, Radio } from 'lucide-react'
+import { BellRing, CheckCircle2, ClipboardList, Clock3, LockKeyhole, MessageCircle, Radio, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
+import RouteErrorState from '@/components/RouteErrorState'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import { useProfessorDashboardData } from '@/lib/professorDashboardData'
 import {
-  getProfessorDashboard,
   notifyProfessorLiveSession,
   startProfessorLiveSession,
   type CourseOffering,
-  type ProfessorDashboard,
 } from '@/lib/professor'
 
 export default function ProfessorDashboardPage() {
-  const [dashboard, setDashboard] = useState<ProfessorDashboard | null>(null)
-  const [loading, setLoading] = useState(true)
+  const {
+    dashboard,
+    error,
+    loading,
+    isValidating,
+    mutate,
+  } = useProfessorDashboardData()
+  const loadError = error ? apiDataErrorMessage(error, 'Could not load professor dashboard.') : ''
+  const lastToastErrorRef = useRef('')
 
   useEffect(() => {
     document.title = 'Professor Dashboard - Kresco'
-    void load()
   }, [])
 
-  async function load() {
+  useEffect(() => {
+    if (!loadError) {
+      lastToastErrorRef.current = ''
+      return
+    }
+    if (loadError === lastToastErrorRef.current) return
+    lastToastErrorRef.current = loadError
+    toast.error(loadError)
+  }, [loadError])
+
+  async function retryDashboard() {
     try {
-      setDashboard(await getProfessorDashboard())
+      await mutate()
     } catch {
-      toast.error('Could not load professor dashboard.')
-    } finally {
-      setLoading(false)
+      // SWR owns the latest error state; the effect above owns user-visible reporting.
     }
   }
 
@@ -36,6 +51,23 @@ export default function ProfessorDashboardPage() {
   const live = dashboard?.upcoming_live_sessions?.[0] ?? null
   const pending = dashboard?.pending_change_requests ?? []
   const title = activeOffering ? offeringTitle(activeOffering) : 'No active offering'
+
+  if (!dashboard && !loading) {
+    return (
+      <ProfessorShell>
+        <main className="grid min-h-[520px] place-items-center px-6 py-12">
+          <RouteErrorState
+            eyebrow="Professor dashboard unavailable"
+            title="This professor dashboard could not be loaded."
+            message={loadError || 'The dashboard data was empty or incomplete. Retry the request.'}
+            homeHref="/professor/live"
+            homeLabel="Open live sessions"
+            onRetry={() => void retryDashboard()}
+          />
+        </main>
+      </ProfessorShell>
+    )
+  }
 
   return (
     <ProfessorShell>
@@ -52,6 +84,24 @@ export default function ProfessorDashboardPage() {
             Live sessions
           </Link>
         </section>
+
+        {loadError && (
+          <section role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-[#fde68a] bg-[#fffbeb] px-5 py-4">
+            <div>
+              <p className="m-0 text-[14px] font-black text-[#92400e]">Professor dashboard could not be refreshed.</p>
+              <p className="m-0 mt-1 text-[13px] font-bold text-[#b45309]">Cached dashboard data stays visible while you retry.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void retryDashboard()}
+              disabled={isValidating}
+              className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#92400e] px-4 text-[13px] font-black text-white disabled:opacity-60"
+            >
+              <RotateCcw size={15} />
+              {isValidating ? 'Retrying...' : 'Retry dashboard data'}
+            </button>
+          </section>
+        )}
 
         <div className="grid gap-5 lg:grid-cols-[1fr_351px]">
           <section className="grid gap-5">
@@ -77,9 +127,13 @@ export default function ProfessorDashboardPage() {
                   disabled={!live || loading}
                   onClick={async () => {
                     if (!live) return
-                    await notifyProfessorLiveSession(live.id)
-                    toast.success('Live notification marked as sent.')
-                    await load()
+                    try {
+                      await notifyProfessorLiveSession(live.id)
+                      toast.success('Live notification marked as sent.')
+                      await mutate()
+                    } catch {
+                      toast.error('Could not notify students.')
+                    }
                   }}
                   className="inline-flex h-11 items-center gap-2 rounded-[14px] border-0 bg-[#453dee] px-4 text-[14px] font-black text-white disabled:opacity-40"
                 >
@@ -91,9 +145,13 @@ export default function ProfessorDashboardPage() {
                   disabled={!live || live.status === 'live'}
                   onClick={async () => {
                     if (!live) return
-                    await startProfessorLiveSession(live.id)
-                    toast.success('Live session started.')
-                    await load()
+                    try {
+                      await startProfessorLiveSession(live.id)
+                      toast.success('Live session started.')
+                      await mutate()
+                    } catch {
+                      toast.error('Could not start live session.')
+                    }
                   }}
                   className="inline-flex h-11 items-center gap-2 rounded-[14px] border-[2px] border-[#f5900b] bg-white px-4 text-[14px] font-black text-[#f5900b] disabled:opacity-40"
                 >

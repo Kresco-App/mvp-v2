@@ -2,20 +2,24 @@
 name: Deploy FastAPI to AWS Lambda
 
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'backend/**'
-      - 'scripts/**'
-      - '.gitignore'
-      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Zappa stage to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.stage }}
     env:
       CI_POSTGRES_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_deploy_check
+      ZAPPA_STAGE: ${{ inputs.stage }}
     services:
       postgres:
         image: postgres:16
@@ -42,6 +46,13 @@ jobs:
 
       - name: Check repository hygiene
         run: python scripts/check_repo_hygiene.py
+
+      - name: Check secret hygiene
+        run: python scripts/check_secret_hygiene.py
+
+      - name: Enforce production launch gate
+        if: ${{ env.ZAPPA_STAGE == 'production' }}
+        run: python scripts/check_production_launch_gate.py
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -71,13 +82,18 @@ jobs:
           source venv/bin/activate
           DATABASE_URL="$CI_POSTGRES_DATABASE_URL" python scripts/audit_data_integrity.py
 
+      - name: Run query plan audit on Postgres
+        run: |
+          cd backend
+          source venv/bin/activate
+          DATABASE_URL="$CI_POSTGRES_DATABASE_URL" python scripts/audit_query_plans.py
+
       - name: Backend startup check
         run: |
           cd backend
           source venv/bin/activate
           python -c "from app.main import create_app; app = create_app(); print(app.title)"
         env:
-          ADMIN_PASSWORD: test-admin-password
           JWT_SECRET_KEY: test-secret-key-for-ci-32-bytes-minimum
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
 
@@ -94,14 +110,18 @@ jobs:
           DATABASE_URL="${{ secrets.DATABASE_URL }}" alembic upgrade head
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_CONNECTION_STRATEGY: rds_proxy
+          PGSSLROOTCERT: certs/rds-global-bundle.pem
 
-      - name: Render Zappa production environment
+      - name: Render Zappa environment
         run: |
           cd backend
           source venv/bin/activate
-          python scripts/render_zappa_settings.py
+          python scripts/render_zappa_settings.py zappa_settings.json "$ZAPPA_STAGE"
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_CONNECTION_STRATEGY: rds_proxy
+          PGSSLROOTCERT: certs/rds-global-bundle.pem
           JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           VDOCIPHER_API_SECRET: ${{ secrets.VDOCIPHER_API_SECRET }}
@@ -110,9 +130,10 @@ jobs:
           STRIPE_SK: ${{ secrets.STRIPE_SK }}
           STRIPE_PRODUCT_ID: ${{ secrets.STRIPE_PRODUCT_ID }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
+          REALTIME_OUTBOX_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+          MEDIA_S3_BUCKET: ${{ secrets.MEDIA_S3_BUCKET }}
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           CORS_ALLOW_ORIGIN_REGEX: ${{ vars.CORS_ALLOW_ORIGIN_REGEX }}
@@ -121,7 +142,15 @@ jobs:
         run: |
           cd backend
           source venv/bin/activate
-          zappa deploy production || zappa update production
+          zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"
 
-      - name: Post-deploy readiness check
-        run: python scripts/check_http_readiness.py "${{ vars.BACKEND_READY_URL }}"
+      - name: Schedule realtime outbox worker
+        run: |
+          cd backend
+          source venv/bin/activate
+          zappa schedule "$ZAPPA_STAGE"
+
+      - name: Post-deploy staging runtime verification
+        run: python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"
+        env:
+          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}

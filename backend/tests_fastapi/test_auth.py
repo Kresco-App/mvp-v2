@@ -287,7 +287,12 @@ def test_production_auth_cookie_is_secure_and_cross_site_ready(test_settings):
     settings = test_settings.model_copy(update={"environment": "production"})
     response = Response()
 
-    users_router._set_auth_cookies(response, "jwt-token", SimpleNamespace(role="student"), settings)
+    users_router._set_auth_cookies(
+        response,
+        "jwt-token",
+        SimpleNamespace(id=1, role="student", auth_token_version=0),
+        settings,
+    )
 
     cookies = [
         value.decode("latin-1")

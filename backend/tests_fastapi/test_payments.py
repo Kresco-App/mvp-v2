@@ -1,8 +1,11 @@
+from types import SimpleNamespace
+
 from sqlalchemy import select
 
 from app.database import get_session_factory
 from app.models.users import User
-from app.services.auth import create_token
+from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
+from app.services.auth import AUTH_COOKIE_NAME, create_token
 
 
 def test_webhook_requires_secret(app_client):
@@ -42,6 +45,17 @@ async def _get_user(user_id: int) -> User:
         return result.scalar_one()
 
 
+def _install_cookie_session(app_client, test_settings, token: str, user_id: int, *, with_csrf: bool) -> str:
+    app_client.cookies.set(AUTH_COOKIE_NAME, token)
+    if not with_csrf:
+        app_client.cookies.set(CSRF_COOKIE_NAME, "")
+        return ""
+
+    csrf_token = csrf_token_for_user(SimpleNamespace(id=user_id, auth_token_version=0), test_settings)
+    app_client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
+    return csrf_token
+
+
 def test_create_checkout_session_persists_new_customer_id(app_client, auth_token, monkeypatch, run_db):
     import app.routers.payments as payments_router
 
@@ -63,6 +77,40 @@ def test_create_checkout_session_persists_new_customer_id(app_client, auth_token
     assert response.json() == {"checkout_url": "https://checkout.example/router-created"}
     assert calls == [{"user_id": user_id, "plan": "pro"}]
     assert run_db(_get_user(user_id)).stripe_customer_id == "cus_router_created"
+
+
+def test_cookie_checkout_session_requires_and_accepts_csrf_token(app_client, auth_token, test_settings, monkeypatch):
+    import app.routers.payments as payments_router
+
+    token, user_id = auth_token(email="checkout-router-csrf@example.com")
+    calls = []
+
+    async def fake_create_checkout_session(user, plan, settings):
+        del settings
+        calls.append({"user_id": user.id, "plan": plan})
+        return "https://checkout.example/csrf"
+
+    monkeypatch.setattr(payments_router, "create_checkout_session", fake_create_checkout_session)
+    _install_cookie_session(app_client, test_settings, token, user_id, with_csrf=False)
+
+    missing = app_client.post(
+        "/api/payments/create-checkout-session?plan=pro",
+        headers={"Origin": "http://localhost:3000"},
+    )
+
+    assert missing.status_code == 403
+    assert missing.json()["detail"] == "CSRF token is required for cookie-authenticated writes"
+    assert calls == []
+
+    csrf_token = _install_cookie_session(app_client, test_settings, token, user_id, with_csrf=True)
+    accepted = app_client.post(
+        "/api/payments/create-checkout-session?plan=pro",
+        headers={"Origin": "http://localhost:3000", CSRF_HEADER_NAME: csrf_token},
+    )
+
+    assert accepted.status_code == 200
+    assert accepted.json() == {"checkout_url": "https://checkout.example/csrf"}
+    assert calls == [{"user_id": user_id, "plan": "pro"}]
 
 
 def test_create_checkout_session_reuses_existing_customer_id(app_client, test_settings, monkeypatch, run_db):

@@ -1,0 +1,52 @@
+// @vitest-environment jsdom
+
+import React, { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { VideoLearningWorkspace, VideoPlayerFrame } from '@/components/figma/workspace'
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
+
+afterEach(() => {
+  for (const { root, container } of mountedRoots) {
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  }
+  mountedRoots = []
+})
+
+describe('Figma workspace video placeholders', () => {
+  it('does not default generic workspaces to a hardcoded demo YouTube video', () => {
+    const { container } = renderComponent(React.createElement(VideoLearningWorkspace))
+    const iframe = container.querySelector('iframe')
+
+    expect(iframe?.getAttribute('src')).toBe('about:blank')
+    expect(iframe?.getAttribute('src')).not.toContain('dQw4w9WgXcQ')
+    expect(iframe?.getAttribute('srcdoc')).toContain('Video unavailable')
+  })
+
+  it('uses the caller-provided video id when a real source is configured', () => {
+    const { container } = renderComponent(React.createElement(VideoPlayerFrame, { videoId: 'abc123' }))
+    const iframe = container.querySelector('iframe')
+
+    expect(iframe?.getAttribute('src')).toBe('https://www.youtube-nocookie.com/embed/abc123?rel=0&modestbranding=1')
+  })
+})
+
+function renderComponent(element: React.ReactElement) {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  mountedRoots.push({ root, container })
+
+  act(() => {
+    root.render(element)
+  })
+
+  return { container, root }
+}

@@ -20,62 +20,53 @@ type Step = 'auth' | 'niveau' | 'filiere'
 type AuthMode = 'options' | 'login' | 'signup' | 'verify-pending' | 'forgot' | 'forgot-sent'
 
 const NIVEAUX = [
-  { id: '1bac', label: '1ère Bac' },
-  { id: '2bac', label: '2ème Bac' },
+  { id: '1bac', label: '1\u00e8re Bac' },
+  { id: '2bac', label: '2\u00e8me Bac' },
 ]
 
 const SPECIALITES = [
-  'Bac Sciences Mathématiques A',
-  'Bac Sciences Mathématiques B',
+  'Bac Sciences Math\u00e9matiques A',
+  'Bac Sciences Math\u00e9matiques B',
   'Bac Sciences Physiques',
   'Bac SVT',
   'Bac Sciences Et Technologies Electriques',
-  'Bac Sciences Et Technologies Mécaniques',
-  'Bac Sciences Économiques',
-  'Bac Techniques De Gestion Et Comptabilité',
+  'Bac Sciences Et Technologies M\u00e9caniques',
+  'Bac Sciences \u00c9conomiques',
+  'Bac Techniques De Gestion Et Comptabilit\u00e9',
   'Bac Sciences Agronomiques',
   'Bac Lettres',
   'Langue Arabe',
   'Sciences De La Chariaa',
-  'Arts Appliqués',
+  'Arts Appliqu\u00e9s',
   'Autre',
 ]
 
-/* ── Figma design tokens ────────────────────── */
-const C = {
-  bg: 'var(--auth-bg)',
-  inputBg: 'var(--auth-input-bg)',
-  inputBorder: 'var(--auth-input-border)',
-  inputFocus: 'var(--auth-input-border-focus)',
-  text: 'var(--auth-text)',
-  muted: 'var(--auth-text-muted)',
-  hint: 'var(--auth-text-hint)',
-  divider: 'var(--auth-divider)',
-  primary: 'var(--auth-primary)',
-  selBg: 'var(--auth-card-selected-bg)',
-  selBorder: 'var(--auth-card-selected-border)',
-  outlineBorder: 'var(--auth-outline-border)',
+const pageClass = 'relative flex min-h-screen flex-col items-center justify-center bg-[var(--auth-bg)] px-5 py-6'
+const panelClass = 'flex w-full max-w-[380px] flex-col items-center'
+const titleClass = 'mb-1 text-center text-[24px] font-bold text-[var(--auth-text)]'
+const sectionTitleClass = 'mb-1.5 text-center text-[22px] font-bold text-[var(--auth-text)]'
+const bodyClass = 'text-center text-[14px] leading-normal text-[var(--auth-text-muted)]'
+const bodySpaciousClass = 'text-center text-[14px] leading-[1.5] text-[var(--auth-text-muted)]'
+const inputClass = 'w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-colors focus:border-[var(--auth-input-border-focus)]'
+const labelClass = 'mb-1.5 block text-[13px] font-medium text-[var(--auth-text-hint)]'
+const primaryButtonClass = 'w-full rounded-[14px] border-0 bg-[var(--auth-primary)] p-[14px] text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-[0.4]'
+const outlineButtonClass = 'w-full rounded-[14px] border border-[var(--auth-outline-border)] bg-transparent p-[13px] text-[14px] font-medium text-[var(--auth-text)]'
+const ghostButtonClass = 'border-0 bg-transparent text-[14px] text-[var(--auth-text-muted)]'
+const linkButtonClass = 'border-0 bg-transparent text-[14px] font-semibold text-[var(--auth-primary)]'
+const formClass = 'flex w-full flex-col gap-3.5'
+const socialRowClass = 'flex w-full gap-[11px]'
+const progressTrackClass = 'mb-7 h-[3px] w-full overflow-hidden rounded-full bg-[var(--auth-divider)]'
+const progressFillClass = 'h-full rounded-full bg-[var(--auth-primary)] transition-[width] duration-500 ease-out'
+const hiddenGoogleClass = 'pointer-events-none absolute -left-[9999px] -top-[9999px] w-px overflow-hidden opacity-0'
+const circleIconClass = 'mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--auth-card-selected-bg)]'
+const optionBaseClass = 'flex w-full shrink-0 cursor-pointer items-center justify-between text-left'
+const selectedOptionClass = 'border-[var(--auth-card-selected-border)] bg-[var(--auth-card-selected-bg)] text-[var(--auth-primary)]'
+const unselectedOptionClass = 'border-[var(--auth-input-border)] bg-transparent text-[var(--auth-text)]'
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(' ')
 }
 
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '13px 16px', borderRadius: 14,
-  background: C.inputBg, border: `1px solid ${C.inputBorder}`,
-  color: C.text, fontSize: 14, outline: 'none', transition: 'border-color 150ms',
-}
-const labelStyle: React.CSSProperties = {
-  display: 'block', fontSize: 13, fontWeight: 500, color: C.hint, marginBottom: 6,
-}
-const primaryBtn: React.CSSProperties = {
-  width: '100%', padding: '14px', borderRadius: 14, background: C.primary,
-  color: '#fff', fontSize: 15, fontWeight: 600, border: 'none', cursor: 'pointer',
-}
-const outlineBtn: React.CSSProperties = {
-  width: '100%', padding: '13px', borderRadius: 14, background: 'transparent',
-  color: C.text, fontSize: 14, fontWeight: 500,
-  border: `1px solid ${C.outlineBorder}`, cursor: 'pointer',
-}
-
-/* ── Google G SVG ── */
 function GoogleIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -104,37 +95,32 @@ function AppleIcon() {
   )
 }
 
-/* ── Social button (Figma style: shadow + white base) ── */
 function SocialBtn({
   icon, label, onClick, disabled = false,
 }: { icon: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean }) {
   return (
-    <button type="button"
+    <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       title={label}
-      style={{
-        position: 'relative', flex: 1, height: 44, borderRadius: 14,
-        border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
-        background: 'transparent', padding: 0,
-        opacity: disabled ? 0.45 : 1,
-      }}
+      className="relative h-11 flex-1 rounded-[14px] border-0 bg-transparent p-0 disabled:cursor-not-allowed disabled:opacity-[0.45]"
     >
-      {/* shadow layer */}
-      <div style={{
-        position: 'absolute', inset: 0, borderRadius: 14,
-        background: '#f4f4f5',
-      }} />
-      {/* base layer */}
-      <div style={{
-        position: 'absolute', inset: 0, top: 0, borderRadius: 14,
-        background: '#ffffff',
-        border: '1px solid #e4e4e7',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
+      <div className="absolute inset-0 rounded-[14px] bg-[#f4f4f5]" />
+      <div className="absolute inset-0 flex items-center justify-center rounded-[14px] border border-[#e4e4e7] bg-white">
         {icon}
       </div>
     </button>
+  )
+}
+
+function OrDivider({ className = '' }: { className?: string }) {
+  return (
+    <div className={cx('flex w-full items-center gap-3', className)}>
+      <div className="h-px flex-1 bg-[var(--auth-divider)]" />
+      <span className="text-[16px] font-bold text-[var(--auth-divider)]">or</span>
+      <div className="h-px flex-1 bg-[var(--auth-divider)]" />
+    </div>
   )
 }
 
@@ -174,17 +160,16 @@ export default function AuthPage() {
     }
   }, [handleAuthResolution, isHydrated, token, user])
 
-  /* ── Load Google Identity Services once ── */
   useEffect(() => {
     window.handleGoogleCredential = async (response: any) => {
       setLoading(true)
       try {
         const { data } = await api.post('/google-login', { credential: response.credential })
-        login(data.user)
+        login(data.user, data.csrf_token)
         toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
         handleAuthResolution(data.user)
       } catch (err: any) {
-        toast.error(err?.response?.data?.detail || 'Connexion échouée.')
+        toast.error(err?.response?.data?.detail || 'Connexion \u00e9chou\u00e9e.')
       } finally {
         setLoading(false)
       }
@@ -217,21 +202,24 @@ export default function AuthPage() {
   }
 
   function resetForm() {
-    setEmail(''); setPassword(''); setFullName(''); setShowPassword(false)
+    setEmail('')
+    setPassword('')
+    setFullName('')
+    setShowPassword(false)
   }
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
     if (!fullName.trim()) return toast.error('Entrez votre nom complet')
-    if (password.length < 6) return toast.error('Mot de passe trop court (min. 6 caractères)')
+    if (password.length < 6) return toast.error('Mot de passe trop court (min. 6 caract\u00e8res)')
     setLoading(true)
     try {
       const { data } = await api.post('/auth/signup', { email, password, full_name: fullName })
       setPendingEmail(data.email)
       setAuthMode('verify-pending')
-      toast.success('Email de vérification envoyé !')
+      toast.success('Email de v\u00e9rification envoy\u00e9 !')
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Erreur lors de la création du compte.')
+      toast.error(err?.response?.data?.detail || 'Erreur lors de la cr\u00e9ation du compte.')
     } finally { setLoading(false) }
   }
 
@@ -240,13 +228,14 @@ export default function AuthPage() {
     setLoading(true)
     try {
       const { data } = await api.post('/auth/login', { email, password })
-      login(data.user)
+      login(data.user, data.csrf_token)
       toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
       handleAuthResolution(data.user)
     } catch (err: any) {
       if (err?.response?.status === 403) {
-        setPendingEmail(email); setAuthMode('verify-pending')
-        toast.error('Vérifiez votre email avant de vous connecter.')
+        setPendingEmail(email)
+        setAuthMode('verify-pending')
+        toast.error('V\u00e9rifiez votre email avant de vous connecter.')
       } else {
         toast.error(err?.response?.data?.detail || 'Email ou mot de passe incorrect.')
       }
@@ -266,7 +255,7 @@ export default function AuthPage() {
     setLoading(true)
     try {
       await api.post('/auth/resend-verification', { email: pendingEmail })
-      toast.success('Email renvoyé !')
+      toast.success('Email renvoy\u00e9 !')
     } catch { toast.error('Impossible d\'envoyer l\'email.') }
     setLoading(false)
   }
@@ -283,322 +272,287 @@ export default function AuthPage() {
 
   const canGoBack = step !== 'auth' || !['options', 'verify-pending', 'forgot-sent'].includes(authMode)
   const stepNum = step === 'auth' ? 1 : step === 'niveau' ? 2 : 3
-  const pageStyle: React.CSSProperties = {
-    minHeight: '100vh', background: C.bg,
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    padding: '24px 20px',
-  }
+  const progressWidthClass = stepNum === 1 ? 'w-1/3' : stepNum === 2 ? 'w-2/3' : 'w-full'
 
   return (
-    <div style={pageStyle}>
-      {/* Hidden GSI button */}
-      <div ref={hiddenGoogleRef} style={{ position: 'absolute', left: -9999, top: -9999, width: 1, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }} />
+    <div className={pageClass}>
+      <div ref={hiddenGoogleRef} className={hiddenGoogleClass} />
 
-      <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-
-        {/* Progress bar */}
-        <div style={{ width: '100%', height: 3, background: C.divider, borderRadius: 99, overflow: 'hidden', marginBottom: 28 }}>
-          <div style={{ height: '100%', background: C.primary, borderRadius: 99, width: `${(stepNum / 3) * 100}%`, transition: 'width .5s ease' }} />
+      <div className={panelClass}>
+        <div className={progressTrackClass}>
+          <div className={cx(progressFillClass, progressWidthClass)} />
         </div>
 
-        {/* Back */}
         {canGoBack && (
-          <button type="button" onClick={() => {
-            if (step === 'filiere') setStep('niveau')
-            else if (authMode === 'login' || authMode === 'signup') { setAuthMode('options'); resetForm() }
-            else if (authMode === 'forgot') { setAuthMode('login'); resetForm() }
-            else setStep('auth')
-          }} style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 6, color: C.muted, fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', marginBottom: 16 }}>
+          <button
+            type="button"
+            onClick={() => {
+              if (step === 'filiere') setStep('niveau')
+              else if (authMode === 'login' || authMode === 'signup') { setAuthMode('options'); resetForm() }
+              else if (authMode === 'forgot') { setAuthMode('login'); resetForm() }
+              else setStep('auth')
+            }}
+            className="mb-4 flex items-center gap-1.5 self-start border-0 bg-transparent text-[14px] text-[var(--auth-text-muted)]"
+          >
             <ArrowLeft size={15} /> Retour
           </button>
         )}
 
         <KrescoLogo size={52} className="mb-5" />
 
-        {/* ── AUTH STEP ── */}
         {step === 'auth' && (
           <>
-            {/* ── Options ── */}
             {authMode === 'options' && (
               <>
-                <h1 style={{ fontSize: 24, fontWeight: 700, color: C.text, margin: '0 0 4px', textAlign: 'center' }}>
-                  Bienvenue sur Kresco
-                </h1>
-                <p style={{ fontSize: 14, color: C.muted, marginBottom: 28, textAlign: 'center', lineHeight: 1.5 }}>
-                  Connectez-vous pour accéder à vos cours du Bac.
+                <h1 className={titleClass}>Bienvenue sur Kresco</h1>
+                <p className={cx(bodySpaciousClass, 'mb-7')}>
+                  Connectez-vous pour acc&eacute;der &agrave; vos cours du Bac.
                 </p>
 
-                {/* Figma 3 social buttons */}
-                <div style={{ width: '100%', display: 'flex', gap: 11, marginBottom: 4 }}>
+                <div className={cx(socialRowClass, 'mb-1')}>
                   <SocialBtn icon={<GoogleIcon />} label="Continuer avec Google" onClick={triggerGoogle} disabled={!googleReady || loading} />
-                  <SocialBtn icon={<FacebookIcon />} label="Facebook (bientôt)" disabled />
-                  <SocialBtn icon={<AppleIcon />} label="Apple (bientôt)" disabled />
+                  <SocialBtn icon={<FacebookIcon />} label="Facebook (bient\u00f4t)" disabled />
+                  <SocialBtn icon={<AppleIcon />} label="Apple (bient\u00f4t)" disabled />
                 </div>
 
-                {loading && <p style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>Connexion...</p>}
+                {loading && <p className="mt-1.5 text-[12px] text-[var(--auth-text-muted)]">Connexion...</p>}
 
-                {/* OR divider */}
-                <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
-                  <div style={{ flex: 1, height: 1, background: C.divider }} />
-                  <span style={{ fontSize: 16, fontWeight: 700, color: C.divider }}>or</span>
-                  <div style={{ flex: 1, height: 1, background: C.divider }} />
-                </div>
+                <OrDivider className="my-5" />
 
-                <button type="button" onClick={() => { setAuthMode('signup'); resetForm() }} style={outlineBtn}>
-                  Créer un compte
+                <button type="button" onClick={() => { setAuthMode('signup'); resetForm() }} className={outlineButtonClass}>
+                  Cr&eacute;er un compte
                 </button>
-                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', marginTop: 14, fontSize: 14, color: C.muted }}>
-                  Déjà un compte ? <span style={{ color: C.primary, fontWeight: 600 }}>Se connecter</span>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('login'); resetForm() }}
+                  className={cx(ghostButtonClass, 'mt-3.5')}
+                >
+                  D&eacute;j&agrave; un compte ? <span className="font-semibold text-[var(--auth-primary)]">Se connecter</span>
                 </button>
               </>
             )}
 
-            {/* ── Sign up ── */}
             {authMode === 'signup' && (
               <>
-                <h1 style={{ fontSize: 24, fontWeight: 700, color: C.text, margin: '0 0 4px', textAlign: 'center' }}>Sign up</h1>
-                <p style={{ fontSize: 14, color: C.muted, marginBottom: 24, textAlign: 'center' }}>Rejoignez Kresco gratuitement.</p>
+                <h1 className={titleClass}>Sign up</h1>
+                <p className={cx(bodyClass, 'mb-6')}>Rejoignez Kresco gratuitement.</p>
 
-                {/* Social row on signup too */}
-                <div style={{ width: '100%', display: 'flex', gap: 11, marginBottom: 20 }}>
+                <div className={cx(socialRowClass, 'mb-5')}>
                   <SocialBtn icon={<GoogleIcon />} label="Google" onClick={triggerGoogle} disabled={!googleReady || loading} />
                   <SocialBtn icon={<FacebookIcon />} label="Facebook" disabled />
                   <SocialBtn icon={<AppleIcon />} label="Apple" disabled />
                 </div>
 
-                <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                  <div style={{ flex: 1, height: 1, background: C.divider }} />
-                  <span style={{ fontSize: 16, fontWeight: 700, color: C.divider }}>or</span>
-                  <div style={{ flex: 1, height: 1, background: C.divider }} />
-                </div>
+                <OrDivider className="mb-5" />
 
-                <form onSubmit={handleSignup} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <form onSubmit={handleSignup} className={formClass}>
                   <div>
-                    <label htmlFor="signup-full-name" style={labelStyle}>Nom complet</label>
-                    <input id="signup-full-name" aria-label="Nom complet" type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Ahmed Benali" required
-                      style={inputStyle}
-                      onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
+                    <label htmlFor="signup-full-name" className={labelClass}>Nom complet</label>
+                    <input id="signup-full-name" aria-label="Nom complet" type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Ahmed Benali" required className={inputClass} />
                   </div>
                   <div>
-                    <label htmlFor="signup-email" style={labelStyle}>Email</label>
-                    <input id="signup-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
-                      style={inputStyle}
-                      onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
+                    <label htmlFor="signup-email" className={labelClass}>Email</label>
+                    <input id="signup-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required className={inputClass} />
                   </div>
                   <div>
-                    <label htmlFor="signup-password" style={labelStyle}>Mot de passe</label>
-                    <div style={{ position: 'relative' }}>
+                    <label htmlFor="signup-password" className={labelClass}>Mot de passe</label>
+                    <div className="relative">
                       <input id="signup-password" aria-label="Mot de passe" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-                        placeholder="Min. 6 caractères" required minLength={6}
-                        style={{ ...inputStyle, paddingRight: 44 }}
-                        onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
+                        placeholder={'Min. 6 caract\u00e8res'} required minLength={6}
+                        className={cx(inputClass, 'pr-11')} />
                       <button type="button" aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'} onClick={() => setShowPassword(v => !v)}
-                        style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }}>
+                        className="absolute right-3.5 top-1/2 flex -translate-y-1/2 border-0 bg-transparent text-[var(--auth-text-muted)]">
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
                   </div>
-                  <button type="submit" disabled={loading} style={{ ...primaryBtn, marginTop: 4, opacity: loading ? 0.6 : 1 }}>
-                    {loading ? 'Création...' : 'Créer mon compte'}
+                  <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
+                    {loading ? 'Cr\u00e9ation...' : 'Cr\u00e9er mon compte'}
                   </button>
                 </form>
-                <p style={{ marginTop: 18, fontSize: 14, color: C.muted }}>
-                  Déjà un compte ?{' '}
-                  <button type="button" onClick={() => { setAuthMode('login'); resetForm() }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, fontWeight: 600, fontSize: 14 }}>
+                <p className="mt-[18px] text-[14px] text-[var(--auth-text-muted)]">
+                  D&eacute;j&agrave; un compte ?{' '}
+                  <button type="button" onClick={() => { setAuthMode('login'); resetForm() }} className={linkButtonClass}>
                     Se connecter
                   </button>
                 </p>
               </>
             )}
 
-            {/* ── Verify pending ── */}
             {authMode === 'verify-pending' && (
-              <div style={{ textAlign: 'center', width: '100%' }}>
-                <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.selBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-                  <Mail size={28} color={C.primary} />
+              <div className="w-full text-center">
+                <div className={circleIconClass}>
+                  <Mail size={28} color="var(--auth-primary)" />
                 </div>
-                <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: '0 0 10px' }}>Vérifiez votre email</h1>
-                <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 28 }}>
-                  Nous avons envoyé un lien à <strong style={{ color: C.text }}>{pendingEmail}</strong>.
+                <h1 className={cx(sectionTitleClass, 'mb-2.5')}>V&eacute;rifiez votre email</h1>
+                <p className="mb-7 text-[14px] leading-[1.6] text-[var(--auth-text-muted)]">
+                  Nous avons envoy&eacute; un lien &agrave; <strong className="text-[var(--auth-text)]">{pendingEmail}</strong>.
                   <br />Cliquez dessus pour activer votre compte.
                 </p>
-                <button type="button" onClick={handleResend} disabled={loading} style={{ ...outlineBtn, marginBottom: 14, opacity: loading ? 0.6 : 1 }}>
+                <button type="button" onClick={handleResend} disabled={loading} className={cx(outlineButtonClass, 'mb-3.5 disabled:opacity-[0.6]')}>
                   {loading ? 'Envoi...' : 'Renvoyer l\'email'}
                 </button>
-                <button type="button" onClick={() => { setAuthMode('options'); resetForm() }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: C.muted }}>
-                  Retour à l&apos;accueil
+                <button type="button" onClick={() => { setAuthMode('options'); resetForm() }} className={ghostButtonClass}>
+                  Retour &agrave; l&apos;accueil
                 </button>
               </div>
             )}
 
-            {/* ── Login ── */}
             {authMode === 'login' && (
               <>
-                <h1 style={{ fontSize: 24, fontWeight: 700, color: C.text, margin: '0 0 4px', textAlign: 'center' }}>Log in</h1>
-                <p style={{ fontSize: 14, color: C.muted, marginBottom: 24, textAlign: 'center' }}>Content de vous revoir !</p>
+                <h1 className={titleClass}>Log in</h1>
+                <p className={cx(bodyClass, 'mb-6')}>Content de vous revoir !</p>
 
-                {/* Social row on login too */}
-                <div style={{ width: '100%', display: 'flex', gap: 11, marginBottom: 20 }}>
+                <div className={cx(socialRowClass, 'mb-5')}>
                   <SocialBtn icon={<GoogleIcon />} label="Google" onClick={triggerGoogle} disabled={!googleReady || loading} />
                   <SocialBtn icon={<FacebookIcon />} label="Facebook" disabled />
                   <SocialBtn icon={<AppleIcon />} label="Apple" disabled />
                 </div>
 
-                <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-                  <div style={{ flex: 1, height: 1, background: C.divider }} />
-                  <span style={{ fontSize: 16, fontWeight: 700, color: C.divider }}>or</span>
-                  <div style={{ flex: 1, height: 1, background: C.divider }} />
-                </div>
+                <OrDivider className="mb-5" />
 
-                <form onSubmit={handleLogin} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <form onSubmit={handleLogin} className={formClass}>
                   <div>
-                    <label htmlFor="login-email" style={labelStyle}>Email</label>
-                    <input id="login-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
-                      style={inputStyle}
-                      onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
+                    <label htmlFor="login-email" className={labelClass}>Email</label>
+                    <input id="login-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required className={inputClass} />
                   </div>
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <label htmlFor="login-password" style={{ ...labelStyle, marginBottom: 0 }}>Mot de passe</label>
-                      <button type="button" onClick={() => { setAuthMode('forgot'); resetForm() }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.primary, fontWeight: 500 }}>
-                        Mot de passe oublié ?
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <label htmlFor="login-password" className="block text-[13px] font-medium text-[var(--auth-text-hint)]">Mot de passe</label>
+                      <button type="button" onClick={() => { setAuthMode('forgot'); resetForm() }} className="border-0 bg-transparent text-[12px] font-medium text-[var(--auth-primary)]">
+                        Mot de passe oubli&eacute; ?
                       </button>
                     </div>
-                    <div style={{ position: 'relative' }}>
+                    <div className="relative">
                       <input id="login-password" aria-label="Mot de passe" type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                         placeholder="Votre mot de passe" required
-                        style={{ ...inputStyle, paddingRight: 44 }}
-                        onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
+                        className={cx(inputClass, 'pr-11')} />
                       <button type="button" aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'} onClick={() => setShowPassword(v => !v)}
-                        style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: C.muted, display: 'flex' }}>
+                        className="absolute right-3.5 top-1/2 flex -translate-y-1/2 border-0 bg-transparent text-[var(--auth-text-muted)]">
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
                   </div>
-                  <button type="submit" disabled={loading} style={{ ...primaryBtn, marginTop: 4, opacity: loading ? 0.6 : 1 }}>
+                  <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
                     {loading ? 'Connexion...' : 'Se connecter'}
                   </button>
                 </form>
 
-                <p style={{ marginTop: 18, fontSize: 14, color: C.muted }}>
+                <p className="mt-[18px] text-[14px] text-[var(--auth-text-muted)]">
                   Pas encore de compte ?{' '}
-                  <button type="button" onClick={() => { setAuthMode('signup'); resetForm() }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.primary, fontWeight: 600, fontSize: 14 }}>
-                    Créer un compte
+                  <button type="button" onClick={() => { setAuthMode('signup'); resetForm() }} className={linkButtonClass}>
+                    Cr&eacute;er un compte
                   </button>
                 </p>
               </>
             )}
 
-            {/* ── Forgot password ── */}
             {authMode === 'forgot' && (
               <>
-                <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: '0 0 6px', textAlign: 'center' }}>Mot de passe oublié</h1>
-                <p style={{ fontSize: 14, color: C.muted, marginBottom: 24, textAlign: 'center', lineHeight: 1.5 }}>
-                  Entrez votre email, nous vous enverrons un lien de réinitialisation.
+                <h1 className={sectionTitleClass}>Mot de passe oubli&eacute;</h1>
+                <p className={cx(bodySpaciousClass, 'mb-6')}>
+                  Entrez votre email, nous vous enverrons un lien de r&eacute;initialisation.
                 </p>
-                <form onSubmit={handleForgot} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <form onSubmit={handleForgot} className={formClass}>
                   <div>
-                    <label htmlFor="forgot-email" style={labelStyle}>Email</label>
-                    <input id="forgot-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required
-                      style={inputStyle}
-                      onFocus={e => (e.target.style.borderColor = C.inputFocus)} onBlur={e => (e.target.style.borderColor = C.inputBorder)} />
+                    <label htmlFor="forgot-email" className={labelClass}>Email</label>
+                    <input id="forgot-email" aria-label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="vous@exemple.com" required className={inputClass} />
                   </div>
-                  <button type="submit" disabled={loading} style={{ ...primaryBtn, marginTop: 4, opacity: loading ? 0.6 : 1 }}>
+                  <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
                     {loading ? 'Envoi...' : 'Envoyer le lien'}
                   </button>
                 </form>
-                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }}
-                  style={{ marginTop: 18, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: C.primary, fontWeight: 500 }}>
-                  Retour à la connexion
+                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }} className={cx(linkButtonClass, 'mt-[18px] font-medium')}>
+                  Retour &agrave; la connexion
                 </button>
               </>
             )}
 
-            {/* ── Forgot sent ── */}
             {authMode === 'forgot-sent' && (
-              <div style={{ textAlign: 'center', width: '100%' }}>
-                <div style={{ width: 64, height: 64, borderRadius: '50%', background: C.selBg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+              <div className="w-full text-center">
+                <div className={circleIconClass}>
                   <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                    <path d="M5 13l4 4L19 7" stroke={C.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M5 13l4 4L19 7" stroke="var(--auth-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </div>
-                <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: '0 0 10px' }}>Email envoyé !</h1>
-                <p style={{ fontSize: 14, color: C.muted, lineHeight: 1.6, marginBottom: 28 }}>
+                <h1 className={cx(sectionTitleClass, 'mb-2.5')}>Email envoy&eacute; !</h1>
+                <p className="mb-7 text-[14px] leading-[1.6] text-[var(--auth-text-muted)]">
                   Si un compte existe avec cette adresse, vous recevrez un lien sous peu.
                 </p>
-                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }} style={primaryBtn}>
-                  Retour à la connexion
+                <button type="button" onClick={() => { setAuthMode('login'); resetForm() }} className={primaryButtonClass}>
+                  Retour &agrave; la connexion
                 </button>
               </div>
             )}
           </>
         )}
 
-        {/* ── NIVEAU ── */}
         {step === 'niveau' && (
           <>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: '0 0 6px', textAlign: 'center' }}>Quel est votre niveau ?</h1>
-            <p style={{ fontSize: 14, color: C.muted, marginBottom: 28, textAlign: 'center' }}>Cela nous aide à personnaliser votre expérience.</p>
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 28 }}>
-              {NIVEAUX.map(n => (
-                <button type="button" key={n.id} onClick={() => setSelectedLevel(n.id)} style={{
-                  width: '100%', textAlign: 'left', padding: '16px 20px', borderRadius: 14, cursor: 'pointer',
-                  border: `2px solid ${selectedLevel === n.id ? C.selBorder : C.inputBorder}`,
-                  background: selectedLevel === n.id ? C.selBg : 'transparent',
-                  color: selectedLevel === n.id ? C.primary : C.text,
-                  fontSize: 15, fontWeight: 500, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}>
-                  {n.label}
-                  {selectedLevel === n.id && <Check size={16} />}
-                </button>
-              ))}
+            <h1 className={sectionTitleClass}>Quel est votre niveau ?</h1>
+            <p className={cx(bodyClass, 'mb-7')}>Cela nous aide &agrave; personnaliser votre exp&eacute;rience.</p>
+            <div className="mb-7 flex w-full flex-col gap-3">
+              {NIVEAUX.map(n => {
+                const selected = selectedLevel === n.id
+                return (
+                  <button
+                    type="button"
+                    key={n.id}
+                    onClick={() => setSelectedLevel(n.id)}
+                    className={cx(
+                      optionBaseClass,
+                      'rounded-[14px] border-2 px-5 py-4 text-[15px] font-medium',
+                      selected ? selectedOptionClass : unselectedOptionClass,
+                    )}
+                  >
+                    {n.label}
+                    {selected && <Check size={16} />}
+                  </button>
+                )
+              })}
             </div>
-            <button type="button" onClick={() => selectedLevel && setStep('filiere')} disabled={!selectedLevel}
-              style={{ ...primaryBtn, opacity: selectedLevel ? 1 : 0.4 }}>
+            <button type="button" onClick={() => selectedLevel && setStep('filiere')} disabled={!selectedLevel} className={primaryButtonClass}>
               Continuer
             </button>
           </>
         )}
 
-        {/* ── FILIERE ── */}
         {step === 'filiere' && (
           <>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: C.text, margin: '0 0 6px', textAlign: 'center' }}>Quelle est votre filière ?</h1>
-            <p style={{ fontSize: 14, color: C.muted, marginBottom: 20, textAlign: 'center' }}>Sélectionnez votre spécialité du Bac.</p>
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto', marginBottom: 24, paddingRight: 4 }}>
-              {SPECIALITES.map(spec => (
-                <button type="button" key={spec} onClick={() => setSelectedSpec(spec)} style={{
-                  width: '100%', textAlign: 'left', padding: '13px 16px', borderRadius: 12, cursor: 'pointer', flexShrink: 0,
-                  border: `2px solid ${selectedSpec === spec ? C.selBorder : C.inputBorder}`,
-                  background: selectedSpec === spec ? C.selBg : 'transparent',
-                  color: selectedSpec === spec ? C.primary : C.text,
-                  fontSize: 14, fontWeight: selectedSpec === spec ? 600 : 400,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}>
-                  {spec}
-                  {selectedSpec === spec && <Check size={14} style={{ flexShrink: 0 }} />}
-                </button>
-              ))}
+            <h1 className={sectionTitleClass}>Quelle est votre fili&egrave;re ?</h1>
+            <p className={cx(bodyClass, 'mb-5')}>S&eacute;lectionnez votre sp&eacute;cialit&eacute; du Bac.</p>
+            <div className="mb-6 flex max-h-[360px] w-full flex-col gap-2 overflow-y-auto pr-1">
+              {SPECIALITES.map(spec => {
+                const selected = selectedSpec === spec
+                return (
+                  <button
+                    type="button"
+                    key={spec}
+                    onClick={() => setSelectedSpec(spec)}
+                    className={cx(
+                      optionBaseClass,
+                      'rounded-xl border-2 px-4 py-[13px] text-[14px]',
+                      selected ? cx(selectedOptionClass, 'font-semibold') : cx(unselectedOptionClass, 'font-normal'),
+                    )}
+                  >
+                    {spec}
+                    {selected && <Check size={14} className="shrink-0" />}
+                  </button>
+                )
+              })}
             </div>
-            <button type="button" onClick={saveOnboarding} disabled={!selectedSpec || loading}
-              style={{ ...primaryBtn, opacity: !selectedSpec || loading ? 0.4 : 1 }}>
+            <button type="button" onClick={saveOnboarding} disabled={!selectedSpec || loading} className={primaryButtonClass}>
               {loading ? 'Sauvegarde...' : 'Commencer'}
             </button>
           </>
         )}
       </div>
 
-      {/* Footer */}
-      <p style={{ position: 'absolute', bottom: 20, fontSize: 12, color: C.muted, textAlign: 'center', padding: '0 16px' }}>
+      <p className="absolute bottom-5 px-4 text-center text-[12px] text-[var(--auth-text-muted)]">
         By using Kresco services, you agree to our{' '}
-        <a href="#" style={{ color: C.hint, textDecoration: 'underline' }}>Terms</a>
+        <a href="#" className="text-[var(--auth-text-hint)] underline">Terms</a>
         {' '}and{' '}
-        <a href="#" style={{ color: C.hint, textDecoration: 'underline' }}>Privacy</a>.
+        <a href="#" className="text-[var(--auth-text-hint)] underline">Privacy</a>.
       </p>
     </div>
   )

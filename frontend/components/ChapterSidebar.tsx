@@ -7,8 +7,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDuration } from '@/lib/utils'
-import { useState, useEffect } from 'react'
-import api from '@/lib/axios'
+import { useMemo, useState } from 'react'
 
 interface Section {
   id: number
@@ -27,8 +26,14 @@ interface ChapterInfo {
   subject_title: string
 }
 
+interface Chapter {
+  id: number
+  title: string
+  sections?: Section[]
+}
+
 interface Props {
-  chapters: any[]
+  chapters: Chapter[]
   currentSectionId: number
   chapterInfo: ChapterInfo
   chapterSections?: Record<number, Section[]>
@@ -62,32 +67,14 @@ function getSectionTypeLabel(type: string) {
 }
 
 export default function ChapterSidebar({ chapters, currentSectionId, chapterInfo, chapterSections: providedChapterSections }: Props) {
-  const [loadedChapterSections, setLoadedChapterSections] = useState<Record<number, Section[]>>({})
-  const [expanded, setExpanded] = useState<Set<unknown>>(() => {
+  const [expanded, setExpanded] = useState<Set<number>>(() => {
     // Auto-expand the current chapter
     return new Set([chapterInfo.id])
   })
-  const chapterSections = providedChapterSections ?? loadedChapterSections
-
-  useEffect(() => {
-    if (providedChapterSections) return
-
-    async function loadSections() {
-      const sectionsMap: Record<number, Section[]> = {}
-      await Promise.all(
-        chapters.map(async (chapter: any) => {
-          try {
-            const res = await api.get(`/courses/chapters/${chapter.id}/sections`)
-            sectionsMap[chapter.id] = res.data
-          } catch {
-            sectionsMap[chapter.id] = []
-          }
-        })
-      )
-      setLoadedChapterSections(sectionsMap)
-    }
-    loadSections()
-  }, [chapters, providedChapterSections])
+  const chapterSections = useMemo<Record<number, Section[]>>(
+    () => providedChapterSections ?? Object.fromEntries(chapters.map((chapter) => [chapter.id, chapter.sections ?? []])) as Record<number, Section[]>,
+    [chapters, providedChapterSections],
+  )
 
   function toggle(id: number) {
     setExpanded(prev => {
@@ -126,7 +113,7 @@ export default function ChapterSidebar({ chapters, currentSectionId, chapterInfo
       </div>
 
       <div className="divide-y divide-slate-800">
-        {chapters.map((chapter: any, idx: number) => {
+        {chapters.map((chapter, idx) => {
           const isExpanded = expanded.has(chapter.id)
           const sections = chapterSections[chapter.id] || []
           const chapterDone = sections.length > 0 && sections.every(s => s.is_completed)
@@ -156,7 +143,7 @@ export default function ChapterSidebar({ chapters, currentSectionId, chapterInfo
                 <div className="bg-slate-950/30">
                   {sections.length === 0 ? (
                     <div className="px-5 py-4">
-                      <p className="text-slate-400 text-xs">Chargement...</p>
+                      <p className="text-slate-400 text-xs">Aucune section.</p>
                     </div>
                   ) : (
                     sections.map((section: Section) => {

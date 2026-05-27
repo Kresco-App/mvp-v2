@@ -220,6 +220,17 @@ def exam_out(exam: Exam, problems: list[ExamProblem], access_context: AccessCont
     )
 
 
+import copy
+
+def _scrub_quiz_data(quiz_data: dict | None) -> dict | None:
+    if not quiz_data or not isinstance(quiz_data, dict) or "questions" not in quiz_data:
+        return quiz_data
+    scrubbed = copy.deepcopy(quiz_data)
+    for q in scrubbed.get("questions", []):
+        for opt in q.get("options", []):
+            opt.pop("is_correct", None)
+    return scrubbed
+
 def chapter_section_out(
     section: ChapterSection,
     access_context: AccessContext,
@@ -240,7 +251,7 @@ def chapter_section_out(
         vdocipher_id=section.vdocipher_id if access.can_access else "",
         duration_seconds=section.duration_seconds,
         content=section.content if access.can_access else "",
-        quiz_data=section.quiz_data if access.can_access else None,
+        quiz_data=_scrub_quiz_data(section.quiz_data) if access.can_access else None,
         pass_score=section.pass_score,
         activity_type=section.activity_type,
         activity_data=section.activity_data if access.can_access else None,
@@ -273,3 +284,22 @@ async def require_lesson_access(
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
     return lesson
+
+
+async def require_topic_item_access(
+    db: AsyncSession,
+    user: User,
+    topic_item_id: int,
+) -> TopicItem:
+    """Raise 404/403 if the user cannot access the given topic item."""
+    item = await db.scalar(
+        select(TopicItem)
+        .options(selectinload(TopicItem.topic))
+        .where(TopicItem.id == topic_item_id)
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Topic item not found")
+    decision = await access_for_topic_item(db, user, item)
+    if not decision.can_access:
+        raise HTTPException(status_code=403, detail=decision.locked_reason)
+    return item

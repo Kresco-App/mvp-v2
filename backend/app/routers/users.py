@@ -1,11 +1,7 @@
-import hashlib
-import hmac
 import inspect
 import logging
 import os
-import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from sqlalchemy import select
@@ -17,10 +13,12 @@ from app.models.gamification import UserXP
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.users import (
-    AuthSessionOut, ForgotPasswordIn, GoogleLoginIn, LoginIn, MessageOut, ResendVerificationIn,
+    AuthSessionOut, CsrfOut, ForgotPasswordIn, GoogleLoginIn, LoginIn, MessageOut, ResendVerificationIn,
     ProfileMediaOut, ResetPasswordIn, SignupIn, SignupPendingOut, UserOut, UserUpdateIn,
     VerifyEmailIn,
 )
+from app.security.csrf import clear_csrf_cookie, set_csrf_cookie
+from app.security.passwords import hash_password, verify_password
 from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_google_token
 from app.services.email import (
     generate_reset_token, generate_verification_token,
@@ -32,28 +30,21 @@ from app.services.image_uploads import (
     image_matches_mime_type,
     normalize_image_mime_type,
 )
+from app.services.media_storage import get_media_storage, media_url, profile_media_key
 
 router = APIRouter(tags=["Auth & Users"])
 logger = logging.getLogger("kresco.auth")
 
 MAX_PROFILE_MEDIA_BYTES = 5 * 1024 * 1024
+AUTH_LOGIN_RATE_LIMIT = os.environ.get("KRESCO_AUTH_LOGIN_RATE_LIMIT", "5/minute")
 
 
 def _hash_password(plain: str) -> str:
-    salt = os.urandom(16)
-    dk = hashlib.pbkdf2_hmac("sha256", plain.encode(), salt, 260_000)
-    return salt.hex() + ":" + dk.hex()
+    return hash_password(plain)
 
 
 def _verify_password(plain: str, stored: str) -> bool:
-    try:
-        salt_hex, dk_hex = stored.split(":")
-        salt = bytes.fromhex(salt_hex)
-        dk = bytes.fromhex(dk_hex)
-        new_dk = hashlib.pbkdf2_hmac("sha256", plain.encode(), salt, 260_000)
-        return hmac.compare_digest(dk, new_dk)
-    except Exception:
-        return False
+    return verify_password(plain, stored)
 
 
 def _auth_cookie_secure(settings: Settings) -> bool:
@@ -64,7 +55,7 @@ def _auth_cookie_samesite(settings: Settings) -> str:
     return "none" if settings.is_production_like else "lax"
 
 
-def _set_auth_cookies(response: Response, token: str, user: User, settings: Settings) -> None:
+def _set_auth_cookies(response: Response, token: str, user: User, settings: Settings) -> str:
     max_age = max(int(settings.jwt_expire_minutes) * 60, 0)
     secure = _auth_cookie_secure(settings)
     samesite = _auth_cookie_samesite(settings)
@@ -86,6 +77,7 @@ def _set_auth_cookies(response: Response, token: str, user: User, settings: Sett
         samesite=samesite,
         path="/",
     )
+    return set_csrf_cookie(response, user, settings)
 
 
 def _clear_auth_cookies(response: Response, settings: Settings) -> None:
@@ -105,6 +97,7 @@ def _clear_auth_cookies(response: Response, settings: Settings) -> None:
         httponly=False,
         samesite=samesite,
     )
+    clear_csrf_cookie(response, settings)
 
 
 def _log_email_dispatch_failure(flow: str, exc: Exception) -> None:
@@ -113,6 +106,23 @@ def _log_email_dispatch_failure(flow: str, exc: Exception) -> None:
         extra={"flow": flow, "error_type": type(exc).__name__},
         exc_info=True,
     )
+
+
+def _profile_media_projected_bytes(user: User, kind: str, incoming_bytes: int) -> int:
+    avatar_bytes = int(user.avatar_media_size or 0)
+    banner_bytes = int(user.banner_media_size or 0)
+    if kind == "avatar":
+        avatar_bytes = incoming_bytes
+    else:
+        banner_bytes = incoming_bytes
+    return avatar_bytes + banner_bytes
+
+
+def _user_out(user: User, settings: Settings) -> UserOut:
+    out = UserOut.model_validate(user)
+    out.avatar_url = media_url(user.avatar_url, settings)
+    out.banner_url = media_url(user.banner_url, settings)
+    return out
 
 
 @router.post("/google-login", response_model=AuthSessionOut)
@@ -173,8 +183,8 @@ async def google_login(
                 raise HTTPException(status_code=503, detail="Could not complete Google login.") from exc
 
     token = create_token(user, settings)
-    _set_auth_cookies(response, token, user, settings)
-    return AuthSessionOut(user=UserOut.model_validate(user))
+    csrf_token = _set_auth_cookies(response, token, user, settings)
+    return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
 
 
 @router.post("/auth/signup", response_model=SignupPendingOut, status_code=202)
@@ -249,8 +259,8 @@ async def verify_email(
         await db.refresh(user)
 
     token = create_token(user, settings)
-    _set_auth_cookies(response, token, user, settings)
-    return AuthSessionOut(user=UserOut.model_validate(user))
+    csrf_token = _set_auth_cookies(response, token, user, settings)
+    return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
 
 
 @router.post("/auth/resend-verification", response_model=MessageOut)
@@ -277,7 +287,7 @@ async def resend_verification(
 
 
 @router.post("/auth/login", response_model=AuthSessionOut)
-@limiter.limit("5/minute")
+@limiter.limit(AUTH_LOGIN_RATE_LIMIT)
 async def login(
     request: Request,
     body: LoginIn,
@@ -302,8 +312,8 @@ async def login(
         await require_professor_active_offering(db, user)
 
     token = create_token(user, settings)
-    _set_auth_cookies(response, token, user, settings)
-    return AuthSessionOut(user=UserOut.model_validate(user))
+    csrf_token = _set_auth_cookies(response, token, user, settings)
+    return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
 
 
 @router.post("/auth/logout", response_model=MessageOut)
@@ -313,6 +323,15 @@ async def logout(
 ):
     _clear_auth_cookies(response, settings)
     return MessageOut(message="Deconnecte.")
+
+
+@router.get("/auth/csrf", response_model=CsrfOut)
+async def csrf_token(
+    response: Response,
+    user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+):
+    return CsrfOut(csrf_token=set_csrf_cookie(response, user, settings))
 
 
 @router.post("/auth/forgot-password", response_model=MessageOut)
@@ -368,8 +387,11 @@ async def reset_password(
 
 
 @router.get("/profile/me", response_model=UserOut)
-async def get_profile(user: User = Depends(get_current_user)):
-    return UserOut.model_validate(user)
+async def get_profile(
+    user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+):
+    return _user_out(user, settings)
 
 
 @router.patch("/profile/me", response_model=UserOut)
@@ -377,15 +399,20 @@ async def update_profile(
     body: UserUpdateIn,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     updates = body.model_dump(exclude_none=True)
     if not updates:
-        return UserOut.model_validate(user)
+        return _user_out(user, settings)
+    if "avatar_url" in updates:
+        user.avatar_media_size = 0
+    if "banner_url" in updates:
+        user.banner_media_size = 0
     for field, value in updates.items():
         setattr(user, field, value)
     await db.commit()
     await db.refresh(user)
-    return UserOut.model_validate(user)
+    return _user_out(user, settings)
 
 
 @router.post("/profile/me/media/{kind}", response_model=ProfileMediaOut)
@@ -394,6 +421,7 @@ async def upload_profile_media(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     if kind not in {"avatar", "banner"}:
         raise HTTPException(status_code=404, detail="Unsupported profile media type")
@@ -410,18 +438,21 @@ async def upload_profile_media(
         raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
     if not image_matches_mime_type(content, mime_type):
         raise HTTPException(status_code=400, detail="Upload a valid JPG, PNG, WEBP, or GIF image")
+    if _profile_media_projected_bytes(user, kind, len(content)) > int(settings.media_profile_quota_bytes):
+        raise HTTPException(status_code=413, detail="Profile media quota exceeded")
 
-    media_root = Path("media") / "profile" / str(user.id)
-    media_root.mkdir(parents=True, exist_ok=True)
-    filename = f"{kind}-{uuid.uuid4().hex}{extension}"
-    path = media_root / filename
-    path.write_bytes(content)
-
-    url = f"/media/profile/{user.id}/{filename}"
+    stored = await get_media_storage(settings).put_object(
+        key=profile_media_key(user.id, kind, extension),
+        content=content,
+        content_type=mime_type,
+    )
+    url = stored.url
     if kind == "avatar":
-        user.avatar_url = url
+        user.avatar_url = stored.reference
+        user.avatar_media_size = len(content)
     else:
-        user.banner_url = url
+        user.banner_url = stored.reference
+        user.banner_media_size = len(content)
 
     await db.commit()
     await db.refresh(user)

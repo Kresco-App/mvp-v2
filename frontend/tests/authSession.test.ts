@@ -17,13 +17,21 @@ import {
 import { getAuthRedirect, isProtectedRoute } from '@/lib/authRedirect'
 import {
   KRESCO_COOKIE_SESSION,
+  KRESCO_CSRF_COOKIE,
+  KRESCO_CSRF_KEY,
   KRESCO_TOKEN_KEY,
+  KRESCO_TOKEN_COOKIE,
   KRESCO_USER_KEY,
+  KRESCO_USER_ROLE_COOKIE,
+  clearStoredAuthSession,
   getTokenCookieMaxAgeSeconds,
   isJwtExpired,
+  readCsrfToken,
   readStoredAuthSession,
+  writeCsrfToken,
   writeStoredAuthSession,
 } from '@/lib/authSession'
+import { useAuthStore } from '@/lib/store'
 
 function makeToken(payload: Record<string, unknown>) {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
@@ -140,5 +148,52 @@ describe('auth session JWT helpers', () => {
     expect(localStorage.getItem(KRESCO_TOKEN_KEY)).toBeNull()
     expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toMatchObject(user)
     expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user })
+  })
+
+  it('clears the CSRF token with browser auth session state', () => {
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify({ id: 1, role: 'student' }))
+    document.cookie = `${KRESCO_TOKEN_COOKIE}=session; Path=/`
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+    document.cookie = `${KRESCO_CSRF_COOKIE}=csrf-token; Path=/`
+    writeCsrfToken('csrf-token')
+
+    expect(readCsrfToken()).toBe('csrf-token')
+
+    clearStoredAuthSession()
+
+    expect(localStorage.getItem(KRESCO_USER_KEY)).toBeNull()
+    expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBeNull()
+    expect(readCsrfToken()).toBeNull()
+    expect(document.cookie).not.toContain(KRESCO_TOKEN_COOKIE)
+    expect(document.cookie).not.toContain(KRESCO_USER_ROLE_COOKIE)
+    expect(document.cookie).not.toContain(KRESCO_CSRF_COOKIE)
+  })
+})
+
+describe('auth store session writes', () => {
+  it('stores the user object when login is called with the current user/csrf signature', () => {
+    const user = { id: 1, email: 'student@kresco.local', role: 'student' }
+
+    clearStoredAuthSession()
+    useAuthStore.setState({ token: null, user: null, isHydrated: false })
+    useAuthStore.getState().login(user, 'csrf-token')
+
+    expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
+    expect(useAuthStore.getState().user).toEqual(user)
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(user)
+    expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('csrf-token')
+  })
+
+  it('continues to support the legacy token/user/csrf signature', () => {
+    const user = { id: 2, email: 'vip@kresco.local', role: 'student', tier: 'vip' }
+
+    clearStoredAuthSession()
+    useAuthStore.setState({ token: null, user: null, isHydrated: false })
+    useAuthStore.getState().login('legacy-token', user, 'legacy-csrf-token')
+
+    expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
+    expect(useAuthStore.getState().user).toEqual(user)
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(user)
+    expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('legacy-csrf-token')
   })
 })

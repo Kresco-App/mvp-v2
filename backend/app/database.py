@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+import ssl
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -10,17 +13,18 @@ _engine_cache_key = None
 _POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
 
-def _build_async_url(url: str) -> tuple[str, dict]:
+def _build_async_url(url: str, pgsslrootcert: str | None = None) -> tuple[str, dict]:
     """Convert a standard DB URL to an async SQLAlchemy URL."""
     connect_args: dict = {}
 
-    if url.startswith("postgresql://") or url.startswith("postgres://"):
+    if url.startswith("postgresql://") or url.startswith("postgres://") or url.startswith("postgresql+asyncpg://"):
         parsed = urlparse(url)
         qs = parse_qs(parsed.query)
 
-        # SQLAlchemy's asyncpg dialect forwards query params as keyword args,
-        # while asyncpg expects libpq-style ssl modes in the `ssl` argument.
+        # SQLAlchemy's asyncpg dialect forwards query params as keyword args.
+        # Strip libpq-style SSL keys and translate them into asyncpg's `ssl`.
         sslmode = qs.pop("sslmode", [None])[0]
+        sslrootcert = qs.pop("sslrootcert", [None])[0] or pgsslrootcert or os.environ.get("PGSSLROOTCERT", "")
         if sslmode:
             sslmode = sslmode.lower()
             if sslmode not in _POSTGRES_SSLMODES:
@@ -28,7 +32,7 @@ def _build_async_url(url: str) -> tuple[str, dict]:
                 raise ValueError(
                     f"Unsupported PostgreSQL sslmode '{sslmode}'. Expected one of: {supported}."
                 )
-            connect_args["ssl"] = sslmode
+            connect_args["ssl"] = _ssl_for_postgres(sslmode, sslrootcert)
 
         clean_query = urlencode({k: v[0] for k, v in qs.items()})
         clean_parsed = parsed._replace(
@@ -40,6 +44,26 @@ def _build_async_url(url: str) -> tuple[str, dict]:
     return url, connect_args
 
 
+def _ssl_for_postgres(sslmode: str, sslrootcert: str = "") -> bool | ssl.SSLContext:
+    if sslmode == "disable":
+        return False
+    if sslmode in {"allow", "prefer", "require"}:
+        return True
+
+    cafile = _resolve_sslrootcert(sslrootcert)
+    context = ssl.create_default_context(cafile=str(cafile) if cafile else None)
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.check_hostname = sslmode == "verify-full"
+    return context
+
+
+def _resolve_sslrootcert(value: str) -> Path | None:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    return Path(cleaned).expanduser()
+
+
 def _safe_url_for_error(url: str) -> str:
     parsed = urlparse(url)
     if parsed.password is None:
@@ -48,15 +72,16 @@ def _safe_url_for_error(url: str) -> str:
     return urlunparse(parsed._replace(netloc=netloc))
 
 
-def init_engine(database_url: str, is_lambda: bool = False):
+def init_engine(database_url: str, is_lambda: bool = False, pgsslrootcert: str | None = None):
     global _engine, _session_factory, _engine_cache_key
 
-    async_url, connect_args = _build_async_url(database_url)
-    cache_key = (async_url, is_lambda)
+    async_url, connect_args = _build_async_url(database_url, pgsslrootcert)
+    cache_pgsslrootcert = "" if async_url.startswith("sqlite") else str(pgsslrootcert or os.environ.get("PGSSLROOTCERT", ""))
+    cache_key = (async_url, is_lambda, cache_pgsslrootcert)
     if _engine is not None and _engine_cache_key == cache_key:
         return _engine, _session_factory
     if _engine is not None:
-        current_url, current_is_lambda = _engine_cache_key
+        current_url, current_is_lambda, _current_pgsslrootcert = _engine_cache_key
         raise RuntimeError(
             "Database engine already initialized for "
             f"{_safe_url_for_error(current_url)} (is_lambda={current_is_lambda}); "

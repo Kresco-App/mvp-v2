@@ -5,12 +5,11 @@ import { Check, ImageIcon, Link2, Loader2, LockKeyhole, MessageCircle, MoreHoriz
 import Image from 'next/image'
 import { toast } from 'sonner'
 import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
+import { apiDataErrorMessage } from '@/lib/apiData'
 import { canEditChatMessage, parseChatTimestamp, shouldShowChatTimestamp } from '@/lib/chatTime'
 import {
   chatMediaUrl,
   deleteProfessorChatMessage,
-  getStudentProfessorChat,
-  listStudentProfessorMessages,
   sendStudentProfessorImageMessage,
   sendStudentProfessorMessage,
   startStudentProfessorConversation,
@@ -19,19 +18,19 @@ import {
   type StudentProfessorChatStatus,
 } from '@/lib/professor'
 import { useAuthStore } from '@/lib/store'
+import {
+  updateStudentProfessorMessagesEnvelope,
+  useStudentProfessorChatData,
+} from '@/lib/studentProfessorChatData'
 
 export default function StudentProfessorChatPage() {
   const { user } = useAuthStore()
-  const [status, setStatus] = useState<StudentProfessorChatStatus | null>(null)
   const [activeId, setActiveId] = useState<number | null>(null)
-  const [messages, setMessages] = useState<ProfessorMessage[]>([])
   const [draft, setDraft] = useState('')
   const [newMessage, setNewMessage] = useState('')
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [selectedImagePreview, setSelectedImagePreview] = useState('')
   const [selectedOfferingId, setSelectedOfferingId] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [messagesLoading, setMessagesLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
@@ -40,63 +39,59 @@ export default function StudentProfessorChatPage() {
   const [deletingMessageIds, setDeletingMessageIds] = useState<Set<number>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
-
-  const refreshStatus = useCallback(async () => {
-    const data = await getStudentProfessorChat()
-    setStatus(data)
-    setActiveId((current) => {
-      if (current && data.conversations.some((conversation) => conversation.id === current)) return current
-      return data.teacher_threads?.find((thread) => thread.conversation)?.conversation?.id ?? data.conversations[0]?.id ?? null
-    })
-    setSelectedOfferingId((current) => current ?? data.teacher_threads?.[0]?.course_offering_id ?? data.offerings[0]?.id ?? null)
-    return data
-  }, [])
-
-  const refreshMessages = useCallback(async (conversationId = activeId) => {
-    if (!conversationId) return []
-    const items = await listStudentProfessorMessages(conversationId)
-    setMessages(items)
-    return items
-  }, [activeId])
+  const statusErrorRef = useRef<unknown>(null)
+  const messagesErrorRef = useRef<unknown>(null)
+  const {
+    status,
+    statusError,
+    statusLoading,
+    messages,
+    messagesError,
+    messagesLoading,
+    mutateStatus,
+    mutateMessages,
+  } = useStudentProfessorChatData(activeId)
 
   const refreshChat = useCallback(async () => {
-    await refreshStatus()
-    if (activeId) await refreshMessages(activeId)
-  }, [activeId, refreshMessages, refreshStatus])
+    const refreshes: Promise<unknown>[] = [mutateStatus()]
+    if (activeId) refreshes.push(mutateMessages())
+    await Promise.allSettled(refreshes)
+  }, [activeId, mutateMessages, mutateStatus])
 
   useEffect(() => {
     document.title = 'Professor Chat - Kresco'
-    let alive = true
-    setLoading(true)
-    refreshStatus()
-      .catch(() => toast.error('Could not load professor chat.'))
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
-    return () => {
-      alive = false
-    }
-  }, [refreshStatus])
+  }, [])
 
   useEffect(() => {
-    if (!activeId) {
-      setMessages([])
+    if (!status) return
+    setActiveId((current) => {
+      if (current && status.conversations.some((conversation) => conversation.id === current)) return current
+      return status.teacher_threads?.find((thread) => thread.conversation)?.conversation?.id ?? status.conversations[0]?.id ?? null
+    })
+    setSelectedOfferingId((current) => current ?? status.teacher_threads?.[0]?.course_offering_id ?? status.offerings[0]?.id ?? null)
+  }, [status])
+
+  useEffect(() => {
+    if (!statusError) {
+      statusErrorRef.current = null
       return
     }
-    let alive = true
-    setMessagesLoading(true)
-    refreshMessages(activeId)
-      .then((items) => {
-        if (alive) setMessages(items)
-      })
-      .catch(() => toast.error('Could not load messages.'))
-      .finally(() => {
-        if (alive) setMessagesLoading(false)
-      })
-    return () => {
-      alive = false
+    if (statusErrorRef.current !== statusError) {
+      statusErrorRef.current = statusError
+      toast.error(apiDataErrorMessage(statusError, 'Could not load professor chat.'))
     }
-  }, [activeId, refreshMessages])
+  }, [statusError])
+
+  useEffect(() => {
+    if (!messagesError) {
+      messagesErrorRef.current = null
+      return
+    }
+    if (messagesErrorRef.current !== messagesError) {
+      messagesErrorRef.current = messagesError
+      toast.error(apiDataErrorMessage(messagesError, 'Could not load messages.'))
+    }
+  }, [messagesError])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ block: 'end' })
@@ -130,9 +125,9 @@ export default function StudentProfessorChatPage() {
     event.preventDefault()
     if (!selectedOfferingId || !newMessage.trim()) return
     const conversation = await startStudentProfessorConversation(selectedOfferingId, newMessage.trim())
-    setStatus((current) => current ? {
+    await mutateStatus((current) => current ? {
       ...current,
-      conversations: [conversation, ...current.conversations],
+      conversations: [conversation, ...current.conversations.filter((item) => item.id !== conversation.id)],
       teacher_threads: teacherThreads(current).map((thread) => (
         thread.course_offering_id === conversation.course_offering_id
           ? {
@@ -145,7 +140,7 @@ export default function StudentProfessorChatPage() {
             }
           : thread
       )),
-    } : current)
+    } : current, { revalidate: false })
     setActiveId(conversation.id)
     setNewMessage('')
     toast.success('Conversation started.')
@@ -160,7 +155,6 @@ export default function StudentProfessorChatPage() {
       setActiveId(conversationId)
     } else {
       setActiveId(null)
-      setMessages([])
     }
   }
 
@@ -176,7 +170,11 @@ export default function StudentProfessorChatPage() {
       const message = image
         ? await sendStudentProfessorImageMessage(active.id, image, body)
         : await sendStudentProfessorMessage(active.id, body)
-      setMessages((current) => [...current, message])
+      await mutateMessages(
+        (current) => updateStudentProfessorMessagesEnvelope(current, active.id, (items) => [...items, message]),
+        { revalidate: false },
+      )
+      void mutateStatus()
     } catch {
       setDraft(body)
       if (image) setSelectedImageFile(image)
@@ -219,10 +217,15 @@ export default function StudentProfessorChatPage() {
     setSavingEditId(message.id)
     try {
       const updated = await updateProfessorChatMessage(message.id, body)
-      setMessages((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      await mutateMessages(
+        (current) => updateStudentProfessorMessagesEnvelope(current, message.conversation_id, (items) => (
+          items.map((item) => (item.id === updated.id ? updated : item))
+        )),
+        { revalidate: false },
+      )
       setEditingMessageId(null)
       setEditDraft('')
-      await refreshStatus()
+      await mutateStatus()
     } catch {
       toast.error('Could not edit message.')
     } finally {
@@ -236,12 +239,22 @@ export default function StudentProfessorChatPage() {
     setEditingMessageId((current) => (current === message.id ? null : current))
     setDeletingMessageIds((current) => new Set(current).add(message.id))
     await waitForMessageRemoval()
-    setMessages((current) => current.filter((item) => item.id !== message.id))
+    await mutateMessages(
+      (current) => updateStudentProfessorMessagesEnvelope(current, message.conversation_id, (items) => (
+        items.filter((item) => item.id !== message.id)
+      )),
+      { revalidate: false },
+    )
     try {
       await deleteProfessorChatMessage(message.id)
-      await refreshStatus()
+      await mutateStatus()
+      setDeletingMessageIds((current) => {
+        const next = new Set(current)
+        next.delete(message.id)
+        return next
+      })
     } catch {
-      if (activeId) await refreshMessages(activeId)
+      if (activeId) await mutateMessages()
       setDeletingMessageIds((current) => {
         const next = new Set(current)
         next.delete(message.id)
@@ -253,13 +266,22 @@ export default function StudentProfessorChatPage() {
 
   return (
     <main className="min-h-[calc(100vh-72px)] bg-white px-[var(--figma-shell-gutter)]">
-      {loading ? (
+      {statusLoading ? (
         <div className="mx-auto grid min-h-[680px] w-full max-w-[1180px] place-items-center">
           <div className="inline-flex items-center gap-3 rounded-[12px] border border-[#e4e4e7] bg-[#f4f4f5] px-4 py-3 text-[14px] font-bold text-[#71717b]">
             <Loader2 size={18} className="animate-spin" />
             Loading chat...
           </div>
         </div>
+      ) : statusError && !status ? (
+        <section className="mx-auto mt-10 grid max-w-[720px] place-items-center rounded-[16px] border-[2px] border-[#fee2e2] bg-[#fef2f2] p-10 text-center">
+          <MessageCircle size={38} className="text-[#991b1b]" />
+          <h2 className="m-0 mt-4 text-[21px] font-black text-[#991b1b]">Could not load professor chat</h2>
+          <p className="m-0 mt-2 max-w-[520px] text-[14px] font-bold leading-[1.4] text-[#b91c1c]">{apiDataErrorMessage(statusError, 'Could not load professor chat.')}</p>
+          <button type="button" onClick={() => void mutateStatus()} className="mt-4 h-10 rounded-[12px] border-0 bg-[#991b1b] px-4 text-[13px] font-black text-white">
+            Retry
+          </button>
+        </section>
       ) : !status?.eligible ? (
         <section className="mx-auto mt-10 grid max-w-[720px] place-items-center rounded-[16px] border-[2px] border-[#e4e4e7] bg-white p-10 text-center">
           <LockKeyhole size={38} className="text-[#71717b]" />
@@ -281,6 +303,16 @@ export default function StudentProfessorChatPage() {
                         <div className="inline-flex items-center gap-2 rounded-full border border-[#e4e4e7] bg-[#f4f4f5] px-3 py-2 text-[12px] font-bold text-[#71717b]">
                           <Loader2 size={14} className="animate-spin" />
                           Loading messages...
+                        </div>
+                      </div>
+                    ) : messagesError && messages.length === 0 ? (
+                      <div className="grid min-h-[390px] place-items-center text-center">
+                        <div>
+                          <p className="m-0 text-[20px] font-black leading-[1.4] tracking-[0.24px] text-[#991b1b]">Could not load messages</p>
+                          <p className="m-0 mt-1 text-[14px] font-bold leading-[1.4] text-[#b91c1c]">{apiDataErrorMessage(messagesError, 'Could not load messages.')}</p>
+                          <button type="button" onClick={() => void mutateMessages()} className="mt-4 h-10 rounded-[12px] border-0 bg-[#991b1b] px-4 text-[13px] font-black text-white">
+                            Retry
+                          </button>
                         </div>
                       </div>
                     ) : messages.length === 0 ? (

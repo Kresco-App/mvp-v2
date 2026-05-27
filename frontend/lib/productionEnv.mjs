@@ -20,6 +20,7 @@ export function validateFrontendProductionEnv(env) {
   validateGoogleClientId(env.NEXT_PUBLIC_GOOGLE_CLIENT_ID, errors)
   validateRealtimeToggle(env.NEXT_PUBLIC_ABLY_ENABLED, errors)
   validateLocalRewritePolicy(env, errors)
+  validateLocalDemoFeaturePolicy(env, errors)
 
   return errors
 }
@@ -92,6 +93,16 @@ function validateLocalRewritePolicy(env, errors) {
 
   if (hasValue(env.KRESCO_LOCAL_BACKEND_ORIGIN) && LOCAL_OR_TUNNEL_PATTERN.test(env.KRESCO_LOCAL_BACKEND_ORIGIN)) {
     errors.push('KRESCO_LOCAL_BACKEND_ORIGIN must not point to localhost or tunnel origins in production.')
+  }
+}
+
+function validateLocalDemoFeaturePolicy(env, errors) {
+  if (env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO_VIDEO === 'true') {
+    errors.push('NEXT_PUBLIC_ENABLE_LOCAL_DEMO_VIDEO must not be true in production frontend deployments.')
+  }
+
+  if (env.KRESCO_ENABLE_LOCAL_IMAGE_HOSTS === 'true') {
+    errors.push('KRESCO_ENABLE_LOCAL_IMAGE_HOSTS must not be true in production frontend deployments.')
   }
 }
 

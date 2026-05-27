@@ -197,7 +197,7 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
 
   return (
     <Link href={href} className="group block w-full max-w-[480px] no-underline">
-      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-end justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] pt-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)]" style={{ animationDelay: `${index * 60}ms` }}>
+      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-end justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] pt-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)]">
         <div className="min-w-0 flex-1 self-stretch pr-[18px]">
           <h3 className="m-0 line-clamp-1 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">{topic.title}</h3>
           <p className="m-0 mt-[4px] line-clamp-2 max-w-[300px] text-[14px] font-semibold leading-[1.1] tracking-[0.21px] text-[#71717b]">
@@ -205,8 +205,7 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
           </p>
           <div className="absolute left-[16px] top-[82px] h-[10px] w-[calc(100%-32px)] max-w-[300px] overflow-hidden rounded-[4.286px] bg-[#f4f4f5]">
             <span
-              className="kresco-progress-fill block h-full rounded-[4.286px] shadow-[inset_0_2.857px_2.857px_rgba(255,255,255,0.4),inset_0_-2.857px_2.857px_rgba(0,0,0,0.08)]"
-              style={{ backgroundColor: progressTone, width: `${Math.max(14, progress)}%` }}
+              className={`kresco-progress-fill block h-full rounded-[4.286px] shadow-[inset_0_2.857px_2.857px_rgba(255,255,255,0.4),inset_0_-2.857px_2.857px_rgba(0,0,0,0.08)] ${progressToneClass(progressTone)} ${progressWidthClass(Math.max(14, progress))}`}
             />
           </div>
         </div>
@@ -234,7 +233,7 @@ function FigmaSubjectShortcutCard({ subject, index }: { subject: FigmaHomeSubjec
 
   return (
     <Link href={href} className="group block min-w-0 no-underline">
-      <article className="kresco-enter grid h-[194px] w-full min-w-0 place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)]" style={{ animationDelay: `${index * 45}ms` }}>
+      <article className="kresco-enter grid h-[194px] w-full min-w-0 place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)]">
         <div className="relative grid h-[68px] w-[78px] place-items-center">
           <SubjectIconScene icon={Icon} index={index} />
         </div>
@@ -276,6 +275,44 @@ function subjectIcon(title: string, index: number): LucideIcon {
 
 function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)))
+}
+
+function progressToneClass(tone: string) {
+  if (tone === '#f5900b') return 'bg-[#f5900b]'
+  return 'bg-[#5b60f9]'
+}
+
+function questToneClass(tone: string) {
+  if (tone === '#ff8a00') return 'text-[#ff8a00]'
+  if (tone === '#5c5bff') return 'text-[#5c5bff]'
+  return 'text-[#2e86ff]'
+}
+
+function progressWidthClass(value: number) {
+  const bucket = Math.max(0, Math.min(100, Math.round(value / 5) * 5))
+  switch (bucket) {
+    case 0: return 'w-0'
+    case 5: return 'w-[5%]'
+    case 10: return 'w-[10%]'
+    case 15: return 'w-[15%]'
+    case 20: return 'w-[20%]'
+    case 25: return 'w-1/4'
+    case 30: return 'w-[30%]'
+    case 35: return 'w-[35%]'
+    case 40: return 'w-[40%]'
+    case 45: return 'w-[45%]'
+    case 50: return 'w-1/2'
+    case 55: return 'w-[55%]'
+    case 60: return 'w-[60%]'
+    case 65: return 'w-[65%]'
+    case 70: return 'w-[70%]'
+    case 75: return 'w-3/4'
+    case 80: return 'w-4/5'
+    case 85: return 'w-[85%]'
+    case 90: return 'w-[90%]'
+    case 95: return 'w-[95%]'
+    default: return 'w-full'
+  }
 }
 
 export function FigmaStudyWeekCard({
@@ -352,14 +389,14 @@ export function FigmaDailyQuestsCard({
           const pct = getQuestProgressPercent(quest)
 
           return (
-            <div className="grid grid-cols-[49px_1fr] items-center gap-[23px]" style={{ color: tone }} key={quest.id}>
+            <div className={`grid grid-cols-[49px_1fr] items-center gap-[23px] ${questToneClass(tone)}`} key={quest.id}>
               <span className="grid h-[49px] w-[49px] place-items-center rounded-full border-[3px] border-current">
                 <Icon size={24} strokeWidth={2.8} />
               </span>
               <div className="min-w-0">
                 <strong className="mb-4 block text-[24px] font-bold leading-[1.05] tracking-normal text-[#41424c]">{quest.title}</strong>
                 <span className="block h-[21px] overflow-hidden rounded-[7px] bg-[#f4f4f5]">
-                  <i className="block h-full rounded-[5px] bg-current shadow-[inset_0_-4px_6px_rgba(0,0,0,0.08)]" style={{ width: `${pct}%` }} />
+                  <i className={`block h-full rounded-[5px] bg-current shadow-[inset_0_-4px_6px_rgba(0,0,0,0.08)] ${progressWidthClass(pct)}`} />
                 </span>
               </div>
             </div>

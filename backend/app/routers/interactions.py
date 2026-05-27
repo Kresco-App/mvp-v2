@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.dependencies import get_current_user, get_db
+from app.config import Settings
+from app.dependencies import get_current_user, get_db, get_settings
 from app.models.courses import TabContent, TopicItem
 from app.models.gamification import ActivityEvent
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
@@ -17,8 +18,9 @@ from app.schemas.interactions import (
     SavedItemCreateIn,
     SavedItemOut,
 )
-from app.services.course_access import access_for_tab, access_for_topic_item
+from app.services.course_access import access_for_tab, access_for_topic_item, require_topic_item_access
 from app.services.interaction_context import activity_metadata, infer_interaction_context
+from app.services.media_storage import media_url
 
 router = APIRouter(tags=["Interactions"])
 
@@ -47,7 +49,7 @@ async def _require_comments_enabled_for_topic_item(db: AsyncSession, user: User,
         raise HTTPException(status_code=403, detail="Comments are locked for this item")
 
 
-def _comment_out(comment: Comment) -> CommentOut:
+def _comment_out(comment: Comment, settings: Settings) -> CommentOut:
     return CommentOut(
         id=comment.id,
         topic_item_id=comment.topic_item_id,
@@ -55,7 +57,7 @@ def _comment_out(comment: Comment) -> CommentOut:
         author=CommentAuthorOut(
             id=comment.user.id,
             full_name=comment.user.full_name,
-            avatar_url=comment.user.avatar_url or "",
+            avatar_url=media_url(comment.user.avatar_url, settings),
         ),
         parent_id=comment.parent_id,
         reply_count=len(comment.replies) if "replies" in comment.__dict__ else 0,
@@ -66,8 +68,11 @@ def _comment_out(comment: Comment) -> CommentOut:
 @router.get("/comments", response_model=list[CommentOut])
 async def list_comments(
     topic_item_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     await _require_comments_enabled_for_topic_item(db, _user, topic_item_id)
 
@@ -78,9 +83,11 @@ async def list_comments(
             Comment.topic_item_id == topic_item_id,
             Comment.parent_id == None,  # noqa: E711
         )
-        .order_by(Comment.created_at)
+        .order_by(Comment.created_at, Comment.id)
+        .offset(offset)
+        .limit(limit)
     )
-    return [_comment_out(comment) for comment in result.scalars().all()]
+    return [_comment_out(comment, settings) for comment in result.scalars().all()]
 
 
 def _comment_parent_mismatch(parent: Comment, topic_item_id: int) -> bool:
@@ -92,6 +99,7 @@ async def create_comment(
     body: CommentCreateIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     await _require_comments_enabled_for_topic_item(db, user, body.topic_item_id)
 
@@ -112,7 +120,7 @@ async def create_comment(
     await db.commit()
     await db.refresh(comment)
     comment.user = user
-    return _comment_out(comment)
+    return _comment_out(comment, settings)
 
 
 @router.get("/notes", response_model=list[NoteOut])
@@ -140,6 +148,8 @@ async def create_note(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if body.topic_item_id is not None:
+        await require_topic_item_access(db, user, body.topic_item_id)
     context = await infer_interaction_context(
         db,
         subject_id=body.subject_id,
@@ -200,6 +210,8 @@ async def save_item(
 ):
     if body.target_type not in ALLOWED_TARGET_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid target_type. Use one of: {ALLOWED_TARGET_TYPES}")
+    if body.topic_item_id is not None:
+        await require_topic_item_access(db, user, body.topic_item_id)
     context = await infer_interaction_context(
         db,
         subject_id=body.subject_id,

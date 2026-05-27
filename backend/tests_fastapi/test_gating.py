@@ -4,7 +4,7 @@ from sqlalchemy import select
 
 from app.database import get_session_factory
 from app.models.courses import Activity, Chapter, ChapterSection, CoursePDF, Exam, ExamProblem, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection, VideoQuizTrigger
-from app.models.gamification import QuizResult, XPTransaction
+from app.models.gamification import ContentProgress, QuizResult, XPTransaction
 from app.models.quizzes import Quiz, QuizOption, QuizQuestion
 from app.models.users import UserSubjectEntitlement
 
@@ -453,6 +453,97 @@ def test_legacy_lesson_quiz_submit_reuses_failed_result_row(app_client, auth_tok
             assert result_rows[0].score == 100
 
     run_db(_assert_single_result())
+
+
+def test_section_quiz_failed_submission_does_not_complete_or_trust_client_score(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="section-quiz-failed-score-spoof@example.com")
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Section Quiz Server Grade", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            chapter = Chapter(subject_id=subject.id, title="Chapter", description="", order=1)
+            db.add(chapter)
+            await db.flush()
+            section = ChapterSection(
+                chapter_id=chapter.id,
+                title="Server graded quiz",
+                section_type="quiz",
+                order=1,
+                is_free_preview=True,
+                pass_score=70,
+                quiz_data={
+                    "questions": [
+                        {
+                            "text": "2 + 2?",
+                            "options": [
+                                {"text": "4", "is_correct": True},
+                                {"text": "5", "is_correct": False},
+                            ],
+                        }
+                    ]
+                },
+            )
+            db.add(section)
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
+            await db.commit()
+            return section.id
+
+    section_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    watch_context = app_client.get(f"/api/courses/sections/{section_id}/watch-context", headers=headers)
+    assert watch_context.status_code == 200
+    options = watch_context.json()["section"]["quiz_data"]["questions"][0]["options"]
+    assert all("is_correct" not in option for option in options)
+
+    failed = app_client.post(
+        "/api/progress/section-complete",
+        headers=headers,
+        json={
+            "section_id": section_id,
+            "score": 100,
+            "correct_answers": 1,
+            "total_questions": 1,
+            "answers": {"0": 1},
+        },
+    )
+    assert failed.status_code == 200
+    assert failed.json()["score"] == 0
+    assert failed.json()["passed"] is False
+    assert failed.json()["xp_earned"] == 0
+
+    async def _progress_count():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            return await db.scalar(
+                select(ContentProgress).where(
+                    ContentProgress.user_id == user_id,
+                    ContentProgress.item_type == "section",
+                    ContentProgress.item_id == section_id,
+                )
+            )
+
+    assert run_db(_progress_count()) is None
+
+    passed = app_client.post(
+        "/api/progress/section-complete",
+        headers=headers,
+        json={"section_id": section_id, "answers": {"0": 0}},
+    )
+    assert passed.status_code == 200
+    assert passed.json()["score"] == 100
+    assert passed.json()["passed"] is True
+    assert passed.json()["xp_earned"] > 0
+    assert run_db(_progress_count()) is not None
 
 
 def test_topic_cards_report_pro_access_state(app_client, auth_token, run_db):

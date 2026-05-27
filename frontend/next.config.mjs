@@ -4,18 +4,32 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const emptyCanvasModule = path.join(__dirname, 'lib/empty-canvas.cjs')
 const localBackendOrigin = process.env.KRESCO_LOCAL_BACKEND_ORIGIN ?? 'http://127.0.0.1:8000'
-const enableLocalRewrites = process.env.NODE_ENV !== 'production' || process.env.KRESCO_ENABLE_LOCAL_REWRITES === 'true'
+const enableLocalRewrites = shouldEnableLocalRewrites(process.env.NODE_ENV, process.env.KRESCO_ENABLE_LOCAL_REWRITES)
+
+const productionImageRemotePatterns = [
+  { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+  { protocol: 'https', hostname: '*.googleusercontent.com' },
+  { protocol: 'https', hostname: 'images.unsplash.com' },
+]
+
+const localImageRemotePatterns = [
+  { protocol: 'http', hostname: '127.0.0.1' },
+  { protocol: 'http', hostname: 'localhost' },
+]
+
+export function shouldEnableLocalRewrites(nodeEnv = process.env.NODE_ENV, localRewriteFlag = process.env.KRESCO_ENABLE_LOCAL_REWRITES) {
+  return nodeEnv !== 'production' && localRewriteFlag !== 'false'
+}
+
+export function buildImageRemotePatterns(nodeEnv = process.env.NODE_ENV) {
+  if (nodeEnv === 'production') return productionImageRemotePatterns
+  return [...productionImageRemotePatterns, ...localImageRemotePatterns]
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
-      { protocol: 'https', hostname: '*.googleusercontent.com' },
-      { protocol: 'https', hostname: 'images.unsplash.com' },
-      { protocol: 'http', hostname: '127.0.0.1' },
-      { protocol: 'http', hostname: 'localhost' },
-    ],
+    remotePatterns: buildImageRemotePatterns(),
   },
   turbopack: {
     root: __dirname,

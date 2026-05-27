@@ -25,7 +25,8 @@ Vercel Frontend
 ```
 
 Deployment configuration should not be changed during normal product implementation unless the task is explicitly deployment-focused.
-Backend deploy requires a `BACKEND_READY_URL` repository variable that points at the deployed `/ready` URL for the production stage.
+Backend deploy requires a `BACKEND_READY_URL` repository variable that points at the deployed `/ready` URL for the selected stage. The deploy workflow runs `scripts/check_staging_runtime.py` after Lambda deploy/update and `zappa schedule`; production deploy attempts also run `scripts/check_production_launch_gate.py` before provider credentials are used.
+Operational deploy, rollback, migration rollback, backup/restore, and incident steps live in `docs/production-runbook.md`.
 
 ## Current Validation Rule
 

@@ -1,16 +1,20 @@
 'use client'
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Image from 'next/image'
 import { Check, ImageIcon, Loader2, MessageCircle, MoreHorizontal, Pencil, Pin, Search, Send, Star, Trash2, UserRoundCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { professorInboxChannelName, subscribeKrescoRealtime } from '@/lib/ably'
+import { apiDataErrorMessage } from '@/lib/apiData'
 import { canEditChatMessage, parseChatTimestamp, shouldShowChatTimestamp } from '@/lib/chatTime'
+import {
+  useProfessorChatData,
+  type ProfessorMessagesEnvelope,
+} from '@/lib/professorChatData'
 import {
   chatMediaUrl,
   deleteProfessorChatMessage,
-  listProfessorConversations,
-  listProfessorMessages,
   patchProfessorConversation,
   sendProfessorImageMessage,
   sendProfessorMessage,
@@ -22,16 +26,13 @@ import { useAuthStore } from '@/lib/store'
 
 export default function ProfessorChatPage() {
   const { user } = useAuthStore()
-  const [conversations, setConversations] = useState<ProfessorConversation[]>([])
   const [activeId, setActiveId] = useState<number | null>(null)
-  const [messages, setMessages] = useState<ProfessorMessage[]>([])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'unread' | 'pinned'>('all')
   const [draft, setDraft] = useState('')
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [selectedImagePreview, setSelectedImagePreview] = useState('')
   const [sending, setSending] = useState(false)
-  const [loading, setLoading] = useState(true)
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState('')
@@ -39,62 +40,72 @@ export default function ProfessorChatPage() {
   const [deletingMessageIds, setDeletingMessageIds] = useState<Set<number>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
+  const conversationErrorRef = useRef<unknown>(null)
+  const messageErrorRef = useRef<unknown>(null)
+
+  const {
+    conversations,
+    conversationsError,
+    conversationsLoading,
+    messages,
+    messagesError,
+    messagesLoading,
+    mutateConversations,
+    mutateMessages,
+  } = useProfessorChatData({ q: query, filter }, activeId)
 
   useEffect(() => {
     document.title = 'Professor Chat - Kresco'
   }, [])
 
-  const refreshConversations = useCallback(async () => {
-    const items = await listProfessorConversations({
-      q: query || undefined,
-      unread: filter === 'unread',
-      pinned: filter === 'pinned',
-    })
-    setConversations(items)
-    setActiveId((current) => (items.some((item) => item.id === current) ? current : items[0]?.id ?? null))
-    return items
-  }, [filter, query])
-
-  const refreshActiveMessages = useCallback(async (conversationId = activeId) => {
-    if (!conversationId) return []
-    const items = await listProfessorMessages(conversationId)
-    setMessages(items)
-    return items
-  }, [activeId])
+  const conversationErrorMessage = useMemo(
+    () => conversationsError ? apiDataErrorMessage(conversationsError, 'Could not load conversations.') : '',
+    [conversationsError],
+  )
+  const messageErrorMessage = useMemo(
+    () => messagesError ? apiDataErrorMessage(messagesError, 'Could not load messages.') : '',
+    [messagesError],
+  )
 
   const refreshChat = useCallback(async () => {
-    await refreshConversations()
-    if (activeId) await refreshActiveMessages(activeId)
-  }, [activeId, refreshActiveMessages, refreshConversations])
+    const refreshes: Promise<unknown>[] = [mutateConversations()]
+    if (activeId) refreshes.push(mutateMessages())
+    await Promise.allSettled(refreshes)
+  }, [activeId, mutateConversations, mutateMessages])
 
   useEffect(() => {
-    let alive = true
-    setLoading(true)
-    refreshConversations()
-      .catch(() => toast.error('Could not load conversations.'))
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
-    return () => {
-      alive = false
-    }
-  }, [refreshConversations])
-
-  useEffect(() => {
-    if (!activeId) {
-      setMessages([])
+    if (conversations.length === 0) {
+      setActiveId(null)
       return
     }
-    let alive = true
-    refreshActiveMessages(activeId)
-      .then((items) => {
-        if (alive) setMessages(items)
-      })
-      .catch(() => toast.error('Could not load messages.'))
-    return () => {
-      alive = false
+    setActiveId((current) => (
+      current && conversations.some((conversation) => conversation.id === current)
+        ? current
+        : conversations[0]?.id ?? null
+    ))
+  }, [conversations])
+
+  useEffect(() => {
+    if (!conversationsError) {
+      conversationErrorRef.current = null
+      return
     }
-  }, [activeId, refreshActiveMessages])
+    if (conversationErrorRef.current !== conversationsError) {
+      conversationErrorRef.current = conversationsError
+      toast.error(conversationErrorMessage)
+    }
+  }, [conversationErrorMessage, conversationsError])
+
+  useEffect(() => {
+    if (!messagesError) {
+      messageErrorRef.current = null
+      return
+    }
+    if (messageErrorRef.current !== messagesError) {
+      messageErrorRef.current = messagesError
+      toast.error(messageErrorMessage)
+    }
+  }, [messageErrorMessage, messagesError])
 
   useEffect(() => {
     if (!user?.id) return
@@ -132,8 +143,11 @@ export default function ProfessorChatPage() {
       const sent = image
         ? await sendProfessorImageMessage(active.id, image, body)
         : await sendProfessorMessage(active.id, body)
-      setMessages((current) => [...current, sent])
-      await refreshConversations()
+      await mutateMessages(
+        (current) => updateMessageEnvelope(current, active.id, (items) => [...items, sent]),
+        { revalidate: false },
+      )
+      await mutateConversations()
     } catch {
       setDraft(body)
       if (image) setSelectedImageFile(image)
@@ -144,10 +158,17 @@ export default function ProfessorChatPage() {
   }
 
   async function togglePin(conversation: ProfessorConversation) {
-    const updated = await patchProfessorConversation(conversation.id, {
-      is_pinned_by_professor: !conversation.is_pinned_by_professor,
-    })
-    setConversations((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    try {
+      const updated = await patchProfessorConversation(conversation.id, {
+        is_pinned_by_professor: !conversation.is_pinned_by_professor,
+      })
+      await mutateConversations((current = []) => (
+        current.map((item) => (item.id === updated.id ? updated : item))
+      ), { revalidate: false })
+      await mutateConversations()
+    } catch {
+      toast.error('Could not update conversation.')
+    }
   }
 
   function setSelectedImageFile(file: File) {
@@ -183,10 +204,15 @@ export default function ProfessorChatPage() {
     setSavingEditId(message.id)
     try {
       const updated = await updateProfessorChatMessage(message.id, body)
-      setMessages((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+      await mutateMessages(
+        (current) => updateMessageEnvelope(current, message.conversation_id, (items) => (
+          items.map((item) => (item.id === updated.id ? updated : item))
+        )),
+        { revalidate: false },
+      )
       setEditingMessageId(null)
       setEditDraft('')
-      await refreshConversations()
+      await mutateConversations()
     } catch {
       toast.error('Could not edit message.')
     } finally {
@@ -200,12 +226,22 @@ export default function ProfessorChatPage() {
     setEditingMessageId((current) => (current === message.id ? null : current))
     setDeletingMessageIds((current) => new Set(current).add(message.id))
     await waitForMessageRemoval()
-    setMessages((current) => current.filter((item) => item.id !== message.id))
+    await mutateMessages(
+      (current) => updateMessageEnvelope(current, message.conversation_id, (items) => (
+        items.filter((item) => item.id !== message.id)
+      )),
+      { revalidate: false },
+    )
     try {
       await deleteProfessorChatMessage(message.id)
-      await refreshConversations()
+      await mutateConversations()
+      setDeletingMessageIds((current) => {
+        const next = new Set(current)
+        next.delete(message.id)
+        return next
+      })
     } catch {
-      if (activeId) await refreshActiveMessages(activeId)
+      if (activeId) await mutateMessages()
       setDeletingMessageIds((current) => {
         const next = new Set(current)
         next.delete(message.id)
@@ -251,8 +287,17 @@ export default function ProfessorChatPage() {
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
-              {loading ? (
+              {conversationsLoading ? (
                 <div className="p-4 text-[14px] font-bold text-[#71717b]">Loading inbox...</div>
+              ) : conversationsError && conversations.length === 0 ? (
+                <div className="grid place-items-center gap-3 p-8 text-center">
+                  <MessageCircle size={30} className="text-[#71717b]" />
+                  <p className="m-0 text-[14px] font-black text-[#3f3f46]">Could not load conversations.</p>
+                  <p className="m-0 text-[12px] font-bold text-[#71717b]">{conversationErrorMessage}</p>
+                  <button type="button" onClick={() => void mutateConversations()} className="h-9 rounded-[12px] border-0 bg-[#453dee] px-4 text-[12px] font-black text-white">
+                    Retry
+                  </button>
+                </div>
               ) : conversations.length === 0 ? (
                 <div className="grid place-items-center gap-3 p-8 text-center">
                   <MessageCircle size={30} className="text-[#71717b]" />
@@ -310,6 +355,28 @@ export default function ProfessorChatPage() {
                       <Star size={14} />
                       VIP private thread
                     </div>
+                    {messagesLoading && (
+                      <div className="rounded-[14px] border-[2px] border-[#e4e4e7] bg-white p-4 text-[14px] font-bold text-[#71717b]">
+                        Loading messages...
+                      </div>
+                    )}
+                    {messagesError && messages.length === 0 && !messagesLoading && (
+                      <div className="rounded-[14px] border-[2px] border-[#e4e4e7] bg-white p-4">
+                        <p className="m-0 text-[14px] font-black text-[#3f3f46]">Could not load messages.</p>
+                        <p className="m-0 mt-1 text-[12px] font-bold text-[#71717b]">{messageErrorMessage}</p>
+                        <button type="button" onClick={() => void mutateMessages()} className="mt-3 h-9 rounded-[12px] border-0 bg-[#453dee] px-4 text-[12px] font-black text-white">
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {messagesError && messages.length > 0 && (
+                      <div role="status" className="rounded-[12px] border border-[#fed7aa] bg-[#fff7ed] px-3 py-2 text-[12px] font-black text-[#9a3412]">
+                        Could not refresh messages.
+                        <button type="button" onClick={() => void mutateMessages()} className="ml-2 underline">
+                          Retry
+                        </button>
+                      </div>
+                    )}
                     {messages.map((message, index) => {
                       const mine = isSameUser(message.sender_user_id, user?.id)
                       const showTimestamp = shouldShowChatTimestamp(messages, index)
@@ -370,7 +437,7 @@ export default function ProfessorChatPage() {
                                   {message.body && <p className="m-0 whitespace-pre-wrap text-[14px] font-bold leading-[1.4]">{message.body}</p>}
                                   {message.attachment_url && (
                                     <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[12px] border border-black/10 bg-white/10' : 'block overflow-hidden rounded-[12px] border border-black/10 bg-white/10'}>
-                                      <img src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} className="max-h-[280px] w-full object-cover" />
+                                      <Image src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} width={520} height={280} className="max-h-[280px] w-full object-cover" />
                                     </a>
                                   )}
                                   {showTimestamp && (
@@ -389,7 +456,7 @@ export default function ProfessorChatPage() {
                 <form onSubmit={submit} className="border-t border-[#e4e4e7] bg-white p-4">
                   {selectedImagePreview && (
                     <div className="mb-3 flex items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-[#fbfbfc] p-2">
-                      <img src={selectedImagePreview} alt="" className="h-16 w-16 rounded-[10px] object-cover" />
+                      <Image src={selectedImagePreview} alt="" width={64} height={64} unoptimized className="h-16 w-16 rounded-[10px] object-cover" />
                       <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-[#52525c]">{selectedImage?.name}</span>
                       <button type="button" onClick={clearSelectedImage} className="grid h-9 w-9 place-items-center rounded-[11px] border-0 bg-white text-[#71717b]">
                         <X size={16} />
@@ -461,4 +528,15 @@ function waitForMessageRemoval() {
 
 function isSameUser(senderId: number | string, userId: number | string | undefined | null) {
   return userId !== undefined && userId !== null && String(senderId) === String(userId)
+}
+
+function updateMessageEnvelope(
+  current: ProfessorMessagesEnvelope | undefined,
+  conversationId: number,
+  update: (messages: ProfessorMessage[]) => ProfessorMessage[],
+): ProfessorMessagesEnvelope {
+  return {
+    conversationId,
+    messages: update(current?.conversationId === conversationId ? current.messages : []),
+  }
 }

@@ -1,7 +1,10 @@
 export const KRESCO_TOKEN_KEY = 'kresco_token'
 export const KRESCO_USER_KEY = 'kresco_user'
+export const KRESCO_CSRF_KEY = 'kresco_csrf'
 export const KRESCO_TOKEN_COOKIE = 'kresco_token'
 export const KRESCO_USER_ROLE_COOKIE = 'kresco_user_role'
+export const KRESCO_CSRF_COOKIE = 'kresco_csrf'
+export const KRESCO_CSRF_HEADER = 'x-csrf-token'
 export const KRESCO_COOKIE_SESSION = 'cookie-session'
 
 const DEFAULT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
@@ -11,6 +14,8 @@ export type StoredAuthSession = {
   token: typeof KRESCO_COOKIE_SESSION | null
   user: Record<string, unknown> | null
 }
+
+let csrfTokenCache: string | null = null
 
 function readStoredJson(key: string) {
   if (typeof window === 'undefined') return null
@@ -33,6 +38,23 @@ function readCookie(name: string) {
     .find((part) => part.startsWith(prefix))
 
   return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null
+}
+
+export function readCsrfToken() {
+  if (csrfTokenCache) return csrfTokenCache
+  const cookieToken = readCookie(KRESCO_CSRF_COOKIE)
+  if (cookieToken) return cookieToken
+
+  if (typeof window === 'undefined') return null
+  return sessionStorage.getItem(KRESCO_CSRF_KEY)
+}
+
+export function writeCsrfToken(token?: string | null) {
+  csrfTokenCache = token || null
+  if (typeof window === 'undefined') return
+
+  if (token) sessionStorage.setItem(KRESCO_CSRF_KEY, token)
+  else sessionStorage.removeItem(KRESCO_CSRF_KEY)
 }
 
 function decodeBase64Url(value: string) {
@@ -121,6 +143,8 @@ export function clearAuthCookie() {
   const secure = getCookieSecureAttribute()
   document.cookie = `${KRESCO_TOKEN_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0${secure}`
   document.cookie = `${KRESCO_USER_ROLE_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0${secure}`
+  document.cookie = `${KRESCO_CSRF_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0${secure}`
+  writeCsrfToken(null)
 }
 
 export function clearStoredAuthSession() {
@@ -145,11 +169,12 @@ export function readStoredAuthSession(): StoredAuthSession {
   }
 }
 
-export function writeStoredAuthSession(user: Record<string, unknown>) {
+export function writeStoredAuthSession(user: Record<string, unknown>, csrfToken?: string | null) {
   if (typeof window === 'undefined') return
 
   localStorage.removeItem(KRESCO_TOKEN_KEY)
   localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(user))
+  if (csrfToken !== undefined) writeCsrfToken(csrfToken)
 }
 
 export function updateStoredAuthUser(user: Record<string, unknown>) {

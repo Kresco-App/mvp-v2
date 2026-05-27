@@ -1,20 +1,20 @@
 'use client'
 
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, HelpCircle, ListChecks, MessageCircle, Radio, RotateCcw, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
-import { liveInteractionInitials, liveMessages, liveQuestions, mergeLiveInteraction, sortLiveInteractions } from '@/lib/liveInteractions'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import {
+  updateLiveInteractionsEnvelope,
+  useStudentLiveRoomData,
+} from '@/lib/liveSessionData'
+import { liveInteractionInitials, liveMessages, liveQuestions, mergeLiveInteraction } from '@/lib/liveInteractions'
 import {
   createStudentLiveInteraction,
-  getStudentLiveEmbed,
-  listStudentLiveInteractions,
-  listStudentLiveSessions,
-  type LiveSessionEmbed,
   type LiveSessionInteraction,
-  type StudentLiveSession,
 } from '@/lib/professor'
 import { useAuthStore } from '@/lib/store'
 
@@ -22,121 +22,87 @@ export default function LiveSessionRoomPage() {
   const router = useRouter()
   const { user } = useAuthStore()
   const { sessionId } = useParams<{ sessionId: string }>()
-  const numericSessionId = Number(sessionId)
-  const [session, setSession] = useState<StudentLiveSession | null>(null)
-  const [embed, setEmbed] = useState<LiveSessionEmbed | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [embedLoading, setEmbedLoading] = useState(true)
-  const [interactions, setInteractions] = useState<LiveSessionInteraction[]>([])
   const [interactionBody, setInteractionBody] = useState('')
   const [activePanel, setActivePanel] = useState<'message' | 'question'>('message')
   const [sendingInteraction, setSendingInteraction] = useState(false)
-  const [questionError, setQuestionError] = useState('')
-  const [pageError, setPageError] = useState('')
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const {
+    sessionId: numericSessionId,
+    session,
+    embed,
+    interactions,
+    loading,
+    embedLoading,
+    error,
+    embedError,
+    interactionsError,
+    mutateAll,
+    mutateSessions,
+    mutateInteractions,
+  } = useStudentLiveRoomData(sessionId)
 
-  const loadSession = useCallback(async () => {
-    if (!Number.isFinite(numericSessionId) || numericSessionId <= 0) {
-      setSession(null)
-      setLoading(false)
-      setPageError('Live session link is invalid.')
-      return
-    }
-    setLoading(true)
-    setPageError('')
-    try {
-      const sessions = await listStudentLiveSessions()
-      const nextSession = sessions.find((item) => item.id === numericSessionId) ?? null
-      if (!nextSession) {
-        setSession(null)
-        setPageError('Live session not found for your account.')
-        return
-      }
-      setSession(nextSession)
-      document.title = `${nextSession.title} - Kresco Live`
-    } catch {
-      setPageError('Could not load this live session.')
-    } finally {
-      setLoading(false)
-    }
-  }, [numericSessionId])
+  const pageError = useMemo(() => {
+    if (!numericSessionId) return 'Live session link is invalid.'
+    if (error) return apiDataErrorMessage(error, 'Could not load this live session.')
+    if (!loading && !session) return 'Live session not found for your account.'
+    return ''
+  }, [error, loading, numericSessionId, session])
+
+  const questionError = interactionsError
+    ? apiDataErrorMessage(interactionsError, 'Could not load live chat and Q&A.')
+    : ''
 
   useEffect(() => {
-    void loadSession()
-  }, [loadSession])
+    if (session?.title) document.title = `${session.title} - Kresco Live`
+  }, [session?.title])
+
+  useEffect(() => {
+    if (embedError) toast.error(apiDataErrorMessage(embedError, 'Could not open the VdoCipher live player.'))
+  }, [embedError])
 
   useEffect(() => {
     if (!user?.id) return
-    const refresh = () => void loadSession()
+    const refresh = () => void mutateSessions()
     return subscribeKrescoRealtime({
       channelName: userNotificationsChannelName(user.id),
       onMessage: refresh,
-      fallback: { intervalMs: 5000, poll: loadSession },
+      fallback: {
+        intervalMs: 5000,
+        poll: async () => {
+          await mutateSessions()
+        },
+      },
     })
-  }, [loadSession, user?.id])
+  }, [mutateSessions, user?.id])
 
   useEffect(() => {
-    if (!session?.can_join) {
-      setEmbed(null)
-      setEmbedLoading(false)
-      return
-    }
-
-    let alive = true
-    setEmbedLoading(true)
-    getStudentLiveEmbed(session.id)
-      .then((data) => {
-        if (alive) setEmbed(data)
-      })
-      .catch((error) => {
-        if (!alive) return
-        setEmbed(null)
-        toast.error(error?.response?.data?.detail || 'Could not open the VdoCipher live player.')
-      })
-      .finally(() => {
-        if (alive) setEmbedLoading(false)
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [session])
-
-  const loadInteractions = useCallback(async () => {
-    if (!Number.isFinite(numericSessionId)) return
-    try {
-      setInteractions(sortLiveInteractions(await listStudentLiveInteractions(numericSessionId)))
-      setQuestionError('')
-    } catch {
-      setInteractions([])
-      setQuestionError('Could not load live chat and Q&A.')
-    }
-  }, [numericSessionId])
-
-  useEffect(() => {
-    void loadInteractions()
-  }, [loadInteractions])
-
-  useEffect(() => {
-    if (!Number.isFinite(numericSessionId) || numericSessionId <= 0) return
+    if (!numericSessionId) return
 
     const handleEvent = (message: { name?: string; data?: unknown }) => {
       if (message.name?.startsWith('live.session.')) {
-        void loadSession()
+        void mutateAll()
         return
       }
       if (message.name?.startsWith('live.interaction.') && isLiveInteraction(message.data)) {
         const interaction = message.data
-        setInteractions((current) => mergeLiveInteraction(current, interaction))
+        void mutateInteractions(
+          (current) => updateLiveInteractionsEnvelope(current, numericSessionId, (items) => mergeLiveInteraction(items, interaction)),
+          { revalidate: false },
+        )
       }
     }
     return subscribeKrescoRealtime({
       channelName: liveSessionChannelName(numericSessionId),
       onMessage: handleEvent,
       beforeSubscribe: refreshKrescoRealtimeAuthorization,
-      fallback: { intervalMs: 5000, poll: loadInteractions },
+      fallback: {
+        intervalMs: 5000,
+        poll: async () => {
+          await mutateInteractions()
+        },
+      },
     })
-  }, [loadInteractions, loadSession, numericSessionId])
+  }, [mutateAll, mutateInteractions, numericSessionId])
 
   useEffect(() => {
     if (activePanel === 'message') {
@@ -158,11 +124,14 @@ export default function LiveSessionRoomPage() {
     }
     setSendingInteraction(true)
     try {
-      const created = await createStudentLiveInteraction(numericSessionId, body, activePanel)
-      setInteractions((current) => mergeLiveInteraction(current, created))
+      const created = await createStudentLiveInteraction(numericSessionId!, body, activePanel)
+      await mutateInteractions(
+        (current) => updateLiveInteractionsEnvelope(current, numericSessionId!, (items) => mergeLiveInteraction(items, created)),
+        { revalidate: false },
+      )
       setInteractionBody('')
     } catch (error) {
-      toast.error(apiError(error, activePanel === 'question' ? 'Could not send your question.' : 'Could not send your message.'))
+      toast.error(apiDataErrorMessage(error, activePanel === 'question' ? 'Could not send your question.' : 'Could not send your message.'))
     } finally {
       setSendingInteraction(false)
     }
@@ -235,7 +204,7 @@ export default function LiveSessionRoomPage() {
                     <button
                       className="mt-5 inline-flex h-10 items-center gap-2 rounded-[12px] bg-white px-4 text-[13px] font-black text-[#3f3f46]"
                       type="button"
-                      onClick={() => void loadSession()}
+                      onClick={() => void mutateAll()}
                     >
                       <RotateCcw size={15} />
                       Retry
@@ -340,7 +309,7 @@ export default function LiveSessionRoomPage() {
           <section className="rounded-[18px] border-2 border-[#fee2e2] bg-[#fef2f2] p-5">
             <h2 className="m-0 text-[20px] font-black text-[#991b1b]">Live session unavailable</h2>
             <p className="m-0 mt-2 text-[14px] font-bold leading-6 text-[#b91c1c]">{pageError}</p>
-            <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#991b1b] bg-white px-4 text-[13px] font-black text-[#991b1b]" type="button" onClick={() => void loadSession()}>
+            <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#991b1b] bg-white px-4 text-[13px] font-black text-[#991b1b]" type="button" onClick={() => void mutateAll()}>
               <RotateCcw size={15} />
               Retry
             </button>
@@ -362,12 +331,4 @@ function formatShortTime(value: string) {
 
 function isLiveInteraction(value: unknown): value is LiveSessionInteraction {
   return Boolean(value && typeof value === 'object' && 'id' in value && 'kind' in value && 'body' in value)
-}
-
-function apiError(error: unknown, fallback: string) {
-  if (typeof error === 'object' && error && 'response' in error) {
-    const response = (error as { response?: { data?: { detail?: string } } }).response
-    return response?.data?.detail || fallback
-  }
-  return fallback
 }

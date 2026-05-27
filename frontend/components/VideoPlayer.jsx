@@ -277,9 +277,9 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
             <Play size={28} className="text-white fill-white ml-1" />
           </div>
           <div>
-            <p className="text-white font-semibold mb-1">Lecteur video de demo</p>
+            <p className="text-white font-semibold mb-1">Apercu video local</p>
             <p className="text-slate-400 text-sm">
-              Le lecteur VdoCipher apparaitra ici une fois un vrai ID video configure.
+              Le lecteur VdoCipher apparaitra ici quand la source video sera configuree.
             </p>
           </div>
           <button

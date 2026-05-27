@@ -2,8 +2,10 @@
 import { create } from 'zustand'
 import {
   KRESCO_COOKIE_SESSION,
+  KRESCO_CSRF_HEADER,
   clearStoredAuthSession,
   readStoredAuthSession,
+  readCsrfToken,
   updateStoredAuthUser,
   writeStoredAuthSession,
 } from './authSession'
@@ -19,9 +21,15 @@ export const useAuthStore = create((set, get) => ({
     set({ token, user, isHydrated: true })
   },
 
-  login(tokenOrUser, maybeUser) {
-    const user = maybeUser ?? tokenOrUser
-    writeStoredAuthSession(user)
+  login(tokenOrUser, maybeUser, maybeCsrfToken) {
+    const isLegacyTokenSignature = (
+      typeof tokenOrUser === 'string'
+      && maybeUser
+      && typeof maybeUser === 'object'
+    )
+    const user = isLegacyTokenSignature ? maybeUser : tokenOrUser
+    const csrfToken = isLegacyTokenSignature ? maybeCsrfToken : maybeUser
+    writeStoredAuthSession(user, csrfToken)
     set({ token: KRESCO_COOKIE_SESSION, user })
   },
 
@@ -30,6 +38,9 @@ export const useAuthStore = create((set, get) => ({
       void fetch(getBackendUrl('/api/auth/logout'), {
         method: 'POST',
         credentials: 'include',
+        headers: {
+          [KRESCO_CSRF_HEADER]: readCsrfToken() || '',
+        },
       }).catch(() => {})
     }
     clearStoredAuthSession()

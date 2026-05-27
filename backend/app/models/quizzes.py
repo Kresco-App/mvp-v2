@@ -15,7 +15,7 @@ class Quiz(Base):
     __tablename__ = "quizzes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    lesson_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("lessons.id", ondelete="CASCADE"), unique=True)
+    lesson_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("lessons.id", ondelete="CASCADE"), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     pass_score: Mapped[int] = mapped_column(Integer, default=70)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -29,7 +29,7 @@ class QuizQuestion(Base):
     __tablename__ = "quiz_questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    quiz_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quizzes.id", ondelete="CASCADE"))
+    quiz_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
     text: Mapped[str] = mapped_column(Text)
     order: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -41,7 +41,7 @@ class QuizOption(Base):
     __tablename__ = "quiz_options"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    question_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quiz_questions.id", ondelete="CASCADE"))
+    question_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quiz_questions.id", ondelete="CASCADE"), index=True)
     text: Mapped[str] = mapped_column(String(500))
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -57,11 +57,11 @@ class QuestionSet(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
-    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
-    topic_section_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topic_sections.id", ondelete="SET NULL"), nullable=True)
-    topic_item_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="SET NULL"), nullable=True)
-    tab_content_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("tab_contents.id", ondelete="SET NULL"), nullable=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_section_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topic_sections.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="SET NULL"), nullable=True, index=True)
+    tab_content_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("tab_contents.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     source_type: Mapped[str] = mapped_column(String(40), default="tab")
     pass_score: Mapped[int] = mapped_column(Integer, default=70)
@@ -84,7 +84,7 @@ class Question(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    question_set_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("question_sets.id", ondelete="CASCADE"))
+    question_set_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("question_sets.id", ondelete="CASCADE"), index=True)
     external_id: Mapped[str] = mapped_column(String(120), default="")
     type: Mapped[str] = mapped_column(String(60))
     title: Mapped[str] = mapped_column(String(255), default="")

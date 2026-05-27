@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class LessonOut(BaseModel):
@@ -328,7 +328,6 @@ class ExamProblemOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
-
 class ExamOut(BaseModel):
     id: int
     subject_id: int
@@ -346,3 +345,9 @@ class ExamOut(BaseModel):
     problems: list[ExamProblemOut] = []
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def redact_if_locked(self) -> "ExamOut":
+        if not self.can_access:
+            self.statement_url = ""
+        return self

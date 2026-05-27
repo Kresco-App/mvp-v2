@@ -10,6 +10,8 @@ Target for broad student production: **9/10**.
 
 The production switch is not approved until the non-Stripe gates below are complete.
 
+Executable guard: `python scripts/check_production_launch_gate.py` must pass before any production backend or frontend deploy. It currently fails by design while traceability rows are not `verified` or the readiness score is below target.
+
 ## Required Gates To Reach 9/10
 
 ### Backend-Backed E2E Coverage
@@ -72,6 +74,7 @@ Checklist:
 - Add health checks for backend, database, media provider configuration, and realtime configuration.
 - Define rollback and incident steps for broken watch page, broken login, broken stream access, and broken professor live/chat flows.
 - Run a small load/performance check for topic page, watch page, and live/chat flows with realistic course size.
+- Run `python scripts/audit_query_plans.py` against Postgres after migrations and attach the output to the launch gate.
 
 ## Database TLS Verification
 

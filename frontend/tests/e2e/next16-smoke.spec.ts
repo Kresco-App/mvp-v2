@@ -230,8 +230,7 @@ const professorLiveSessions = [
     status: 'scheduled',
     join_url: 'https://live.kresco.local/demo',
     vdocipher_live_id: 'vdo-demo-scheduled',
-    stream_ingest_url: 'rtmp://ingest.vdocipher.local/live',
-    stream_key: 'scheduled-stream-key',
+    has_stream_credentials: true,
     notification_status: 'sent',
     created_at: new Date().toISOString(),
   },
@@ -245,8 +244,7 @@ const professorLiveSessions = [
     status: 'live',
     join_url: 'https://live.kresco.local/demo',
     vdocipher_live_id: 'vdo-demo-live',
-    stream_ingest_url: 'rtmp://ingest.vdocipher.local/live',
-    stream_key: 'live-stream-key',
+    has_stream_credentials: true,
     notification_status: 'live',
     created_at: new Date().toISOString(),
   },
@@ -260,12 +258,16 @@ const professorLiveSessions = [
     status: 'completed',
     join_url: 'https://live.kresco.local/demo',
     vdocipher_live_id: 'vdo-demo-completed',
-    stream_ingest_url: '',
-    stream_key: '',
+    has_stream_credentials: false,
     notification_status: 'sent',
     created_at: new Date().toISOString(),
   },
 ]
+
+const professorLiveStreamCredentials: Record<number, { id: number; stream_ingest_url: string; stream_key: string }> = {
+  61: { id: 61, stream_ingest_url: 'rtmp://ingest.vdocipher.local/live', stream_key: 'scheduled-stream-key' },
+  62: { id: 62, stream_ingest_url: 'rtmp://ingest.vdocipher.local/live', stream_key: 'live-stream-key' },
+}
 
 const studentLiveSessions = professorLiveSessions.map((session) => ({
   id: session.id,
@@ -560,6 +562,14 @@ async function mockApi(page: Page) {
     const request = route.request()
     const url = new URL(request.url())
     const path = url.pathname.replace(/^\/api/, '')
+
+    if (/^\/professor\/live-sessions\/\d+\/stream-credentials\/reveal$/.test(path)) {
+      const id = Number(path.split('/')[3])
+      await route.fulfill({
+        json: professorLiveStreamCredentials[id] ?? { id, stream_ingest_url: '', stream_key: '' },
+      })
+      return
+    }
 
     if (request.method() === 'POST' || request.method() === 'PATCH') {
       await route.fulfill({ json: { ok: true, xp_earned: 0, is_pro: true } })
@@ -895,7 +905,7 @@ test('topic workspace and watch routes hydrate with mocked course data', async (
 
   await page.goto('/watch/101')
   await expect(page.getByRole('heading', { name: 'Mock limits video' })).toBeVisible()
-  await expect(page.getByText('Lecteur video de demo')).toBeVisible()
+  await expect(page.getByText('Apercu video local')).toBeVisible()
   await expect(page.getByRole('button', { name: /Mes notes/i })).toBeVisible()
 
   browserErrors.assertClean()
@@ -919,6 +929,8 @@ test('professor dashboard, live sessions, change requests, and chat hydrate with
 
   await page.goto('/professor/live/62')
   await expect(page.getByRole('heading', { name: 'Open Q&A: continuity and IVT' })).toBeVisible()
+  await expect(page.getByText('rtmp://ingest.vdocipher.local/live')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reveal' }).click()
   await expect(page.getByText('rtmp://ingest.vdocipher.local/live')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Live room' })).toBeVisible()
   await expect(page.getByText('Can you repeat the IVT proof step?')).toBeVisible()

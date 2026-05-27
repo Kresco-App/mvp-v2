@@ -25,6 +25,8 @@ OPTIONAL_OVERRIDE_KEYS = {
 ENV_TO_SETTINGS_FIELD = {
     "KRESCO_ENV": "environment",
     "DATABASE_URL": "database_url",
+    "DATABASE_CONNECTION_STRATEGY": "database_connection_strategy",
+    "PGSSLROOTCERT": "pgsslrootcert",
     "JWT_SECRET_KEY": "jwt_secret_key",
     "JWT_ALGORITHM": "jwt_algorithm",
     "JWT_EXPIRE_MINUTES": "jwt_expire_minutes",
@@ -39,10 +41,18 @@ ENV_TO_SETTINGS_FIELD = {
     "STRIPE_SK": "stripe_sk",
     "STRIPE_PRODUCT_ID": "stripe_product_id",
     "STRIPE_WEBHOOK_SECRET": "stripe_webhook_secret",
-    "ADMIN_PASSWORD": "admin_password",
     "RESEND_API_KEY": "resend_api_key",
     "ABLY_API_KEY": "ably_api_key",
     "ABLY_TOKEN_TTL_SECONDS": "ably_token_ttl_seconds",
+    "REALTIME_OUTBOX_SECRET": "realtime_outbox_secret",
+    "MEDIA_STORAGE_BACKEND": "media_storage_backend",
+    "MEDIA_S3_BUCKET": "media_s3_bucket",
+    "MEDIA_S3_REGION": "media_s3_region",
+    "MEDIA_S3_PREFIX": "media_s3_prefix",
+    "MEDIA_S3_PRESIGN_TTL_SECONDS": "media_s3_presign_ttl_seconds",
+    "MEDIA_PROFILE_QUOTA_BYTES": "media_profile_quota_bytes",
+    "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "media_chat_conversation_quota_bytes",
+    "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "media_s3_lifecycle_expiration_days",
     "DEBUG": "debug",
 }
 
@@ -54,6 +64,7 @@ class ZappaRenderError(RuntimeError):
 @dataclass(frozen=True)
 class RenderResult:
     path: Path
+    stage: str
     replaced_keys: tuple[str, ...]
     overridden_keys: tuple[str, ...]
 
@@ -61,25 +72,28 @@ class RenderResult:
 def render_zappa_settings(
     settings_path: Path = DEFAULT_SETTINGS_PATH,
     runtime_env: Mapping[str, str] | None = None,
+    stage: str = "production",
 ) -> RenderResult:
     env = runtime_env if runtime_env is not None else os.environ
     settings_doc = json.loads(settings_path.read_text(encoding="utf-8"))
-    production = settings_doc.get("production")
-    if not isinstance(production, dict):
-        raise ZappaRenderError("zappa_settings.json is missing the production stage.")
+    target_stage = stage.strip() or "production"
+    zappa_stage = settings_doc.get(target_stage)
+    if not isinstance(zappa_stage, dict):
+        raise ZappaRenderError(f"zappa_settings.json is missing the {target_stage} stage.")
 
-    zappa_env = production.get("environment_variables")
+    zappa_env = zappa_stage.get("environment_variables")
     if not isinstance(zappa_env, dict):
-        raise ZappaRenderError("zappa_settings.json is missing production.environment_variables.")
+        raise ZappaRenderError(f"zappa_settings.json is missing {target_stage}.environment_variables.")
 
     resolved_env, replaced_keys, overridden_keys = _resolve_environment_variables(zappa_env, env)
-    _validate_rendered_environment(resolved_env)
+    _validate_rendered_environment(resolved_env, target_stage)
 
-    production["environment_variables"] = resolved_env
+    zappa_stage["environment_variables"] = resolved_env
     settings_path.write_text(json.dumps(settings_doc, indent=4) + "\n", encoding="utf-8")
 
     return RenderResult(
         path=settings_path,
+        stage=target_stage,
         replaced_keys=tuple(sorted(replaced_keys)),
         overridden_keys=tuple(sorted(overridden_keys)),
     )
@@ -122,17 +136,19 @@ def _resolve_environment_variables(
     return resolved_env, replaced_keys, overridden_keys
 
 
-def _validate_rendered_environment(rendered_env: Mapping[str, str]) -> None:
+def _validate_rendered_environment(rendered_env: Mapping[str, str], stage: str) -> None:
     settings_kwargs = _settings_kwargs_from_environment(rendered_env)
     settings = Settings(**settings_kwargs)
     errors = settings.production_config_errors()
-    if settings.environment.strip().lower() not in PRODUCTION_ENVIRONMENTS:
-        errors.append("KRESCO_ENV must be set to a production-like value for the Zappa production stage.")
-    if not settings.admin_password.strip():
-        errors.append("ADMIN_PASSWORD must be configured for the admin panel.")
-
+    environment = settings.environment.strip().lower()
+    if environment not in PRODUCTION_ENVIRONMENTS:
+        errors.append("KRESCO_ENV must be set to a production-like value for the Zappa stage.")
+    if stage == "staging" and environment != "staging":
+        errors.append("The Zappa staging stage must render with KRESCO_ENV=staging.")
+    if stage == "production" and environment not in {"production", "prod"}:
+        errors.append("The Zappa production stage must render with KRESCO_ENV=production or prod.")
     if errors:
-        raise ZappaRenderError("Rendered Zappa production environment is invalid: " + " ".join(errors))
+        raise ZappaRenderError(f"Rendered Zappa {stage} environment is invalid: " + " ".join(errors))
 
 
 def _settings_kwargs_from_environment(rendered_env: Mapping[str, str]) -> dict[str, object]:
@@ -147,14 +163,20 @@ def _settings_kwargs_from_environment(rendered_env: Mapping[str, str]) -> dict[s
 
 
 def main() -> None:
+    settings_path = DEFAULT_SETTINGS_PATH
+    stage = os.environ.get("ZAPPA_STAGE", "production")
+    if len(sys.argv) > 1:
+        settings_path = Path(sys.argv[1]).resolve()
+    if len(sys.argv) > 2:
+        stage = sys.argv[2]
+
     try:
-        settings_path = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else DEFAULT_SETTINGS_PATH
-        result = render_zappa_settings(settings_path)
+        result = render_zappa_settings(settings_path, stage=stage)
     except ZappaRenderError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    print(f"Rendered {result.path}")
+    print(f"Rendered {result.stage} stage in {result.path}")
     if result.replaced_keys:
         print("Secrets supplied for: " + ", ".join(result.replaced_keys))
     if result.overridden_keys:

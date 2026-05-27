@@ -63,6 +63,17 @@ describe('frontend production environment validation', () => {
     ]))
   })
 
+  it('rejects local demo media feature flags in production', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_ENABLE_LOCAL_DEMO_VIDEO: 'true',
+      KRESCO_ENABLE_LOCAL_IMAGE_HOSTS: 'true',
+    })).toEqual(expect.arrayContaining([
+      'NEXT_PUBLIC_ENABLE_LOCAL_DEMO_VIDEO must not be true in production frontend deployments.',
+      'KRESCO_ENABLE_LOCAL_IMAGE_HOSTS must not be true in production frontend deployments.',
+    ]))
+  })
+
   it('parses quoted env files without exposing values in validation code', () => {
     expect(parseEnvFile([
       '# pulled by Vercel',

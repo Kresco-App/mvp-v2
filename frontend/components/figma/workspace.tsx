@@ -23,7 +23,7 @@ export function VideoLearningWorkspace({
   breadcrumb = '2eme Bac / Sciences Math A / Mathematics / Limits and Continuity',
   title = 'Mathematics: Continuity at a single point and extension',
   srcDoc,
-  videoId = 'dQw4w9WgXcQ',
+  videoId,
   primaryContent,
   toolbar,
   tabs = figmaWorkspaceTabs,
@@ -73,13 +73,17 @@ export function PrimaryContentFrame({ children }: { children: React.ReactNode })
   )
 }
 
-export function VideoPlayerFrame({ srcDoc, videoId }: { srcDoc?: string; videoId: string }) {
+export function VideoPlayerFrame({ srcDoc, videoId }: { srcDoc?: string; videoId?: string }) {
+  const iframeSrc = videoId
+    ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1`
+    : 'about:blank'
+
   return (
     <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-[#f4f4f5] shadow-none transition-shadow duration-300 hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)]" data-figma-video-frame>
       <iframe
         title="Kresco lesson video"
-        src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1`}
-        srcDoc={srcDoc}
+        src={iframeSrc}
+        srcDoc={srcDoc ?? (!videoId ? missingVideoFrameSrcDoc() : undefined)}
         scrolling="no"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         allowFullScreen
@@ -88,6 +92,22 @@ export function VideoPlayerFrame({ srcDoc, videoId }: { srcDoc?: string; videoId
       />
     </div>
   )
+}
+
+function missingVideoFrameSrcDoc() {
+  return `
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f4f5; font-family: system-ui, sans-serif; color: #3f3f46; }
+      article { width: min(560px, calc(100% - 48px)); border: 2px dashed #d4d4d8; border-radius: 18px; background: white; padding: 24px; text-align: center; }
+      b { display: block; margin-bottom: 8px; color: #9f9fa9; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+      p { margin: 0; color: #71717b; font-size: 14px; font-weight: 650; line-height: 1.55; }
+    </style>
+    <article aria-label="Video unavailable">
+      <b>Video unavailable</b>
+      <p>This lesson does not have a configured video source.</p>
+    </article>
+  `
 }
 
 export function LessonBody({ children }: { children?: React.ReactNode }) {

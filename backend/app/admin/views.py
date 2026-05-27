@@ -52,6 +52,14 @@ def _object_pk(model: Any) -> str:
     return ":".join(str(part) for part in identity)
 
 
+def _admin_audit_note(request) -> str:
+    admin_user_id = None
+    session = getattr(request, "session", None) if request else None
+    if isinstance(session, dict):
+        admin_user_id = session.get("admin_user_id")
+    return f"admin_user_id={admin_user_id}" if admin_user_id else "admin_user_id=unknown"
+
+
 class PowerModelView(ModelView):
     async def _write_audit_log(self, action: str, data: dict, model: Any, request) -> None:
         if model.__class__.__name__ == "AdminAuditLog":
@@ -69,7 +77,7 @@ class PowerModelView(ModelView):
                 changed_data={str(key): _json_safe(value) for key, value in (data or {}).items()},
                 request_path=str(request.url.path) if request else "",
                 client_host=request.client.host if request and request.client else "",
-                note="Recorded from SQLAdmin power admin",
+                note=_admin_audit_note(request),
             ))
             await db.commit()
 

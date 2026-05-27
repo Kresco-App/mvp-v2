@@ -143,4 +143,6 @@ def get_live_embed_url(vdocipher_live_id: str, chat_token: str = "") -> str:
 def get_live_chat_embed_url(vdocipher_live_id: str) -> str:
     if not vdocipher_live_id:
         raise HTTPException(status_code=404, detail="No VdoCipher live ID configured for this session")
-    return f"https://zenstream.chat?liveId={quote(vdocipher_live_id.strip(), safe='')}"
+
+    live_id = quote(vdocipher_live_id.strip(), safe="")
+    return f"https://zenstream.chat?liveId={live_id}"

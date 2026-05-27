@@ -164,11 +164,19 @@ export function PermanentSidebarCard({
   children: ReactNode
 }) {
   return (
-    <section className="kresco-enter w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none" style={{ height }}>
+    <section className={`kresco-enter w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none ${sidebarCardHeightClass(height)}`}>
       <PanelTitle title={title} subtitle={subtitle} />
       {children}
     </section>
   )
+}
+
+function sidebarCardHeightClass(height: number) {
+  if (height === 157) return 'h-[157px]'
+  if (height === 305) return 'h-[305px]'
+  if (height === 415) return 'h-[415px]'
+  if (height === 663) return 'h-[663px]'
+  return 'min-h-[157px]'
 }
 
 function PanelTitle({ title, subtitle }: { title: string; subtitle: string }) {
@@ -373,24 +381,15 @@ export function DailyQuestPanel({
           const Icon = questIcon(quest.quest_type)
           const pct = getQuestProgressPercent(quest)
           return (
-            <button
-              className={`grid w-full grid-cols-[32px_1fr] gap-4 border-0 bg-transparent p-0 text-left transition-transform duration-150 hover:translate-x-0.5 ${index === 1 ? 'min-h-14' : 'min-h-[41px]'}`}
+            <DailyQuestRow
+              Icon={Icon}
+              index={index}
               key={quest.id}
-              type="button"
               onClick={() => onQuestSelect?.(quest)}
-            >
-              <span className="grid h-8 w-8 place-items-center rounded-full border-2 border-current" style={{ color: tone }}>
-                <Icon size={18} strokeWidth={2.6} />
-              </span>
-              <div className="min-w-0">
-                <strong className={`block text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#3f3f46] ${index === 1 ? 'max-w-[210px]' : ''}`}>
-                  {quest.title}
-                </strong>
-                <span className={`${index === 1 ? 'mt-3' : 'mt-3'} block h-[14px] w-full overflow-hidden rounded-[4px] bg-[#f4f4f5]`}>
-                  <i className="kresco-progress-fill block h-full rounded-[4px]" style={{ width: `${pct}%`, backgroundColor: tone }} />
-                </span>
-              </div>
-            </button>
+              pct={pct}
+              quest={quest}
+              tone={tone}
+            />
           )
         })}
       </div>
@@ -452,6 +451,81 @@ export function LeaderboardAvatar({ entry, index }: { entry: PermanentSidebarLea
       <Image className="h-10 w-10 object-cover" src={src} alt="" width={40} height={40} unoptimized referrerPolicy="no-referrer" />
     </span>
   )
+}
+
+function DailyQuestRow({
+  Icon,
+  index,
+  onClick,
+  pct,
+  quest,
+  tone,
+}: {
+  Icon: typeof Trophy
+  index: number
+  onClick: () => void
+  pct: number
+  quest: FigmaDailyQuest
+  tone: string
+}) {
+  return (
+    <button
+      className={`grid w-full grid-cols-[32px_1fr] gap-4 border-0 bg-transparent p-0 text-left transition-transform duration-150 hover:translate-x-0.5 ${index === 1 ? 'min-h-14' : 'min-h-[41px]'}`}
+      type="button"
+      onClick={onClick}
+    >
+      <span className={`grid h-8 w-8 place-items-center rounded-full border-2 border-current ${questToneClass(tone)}`}>
+        <Icon size={18} strokeWidth={2.6} />
+      </span>
+      <div className="min-w-0">
+        <strong className={`block text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#3f3f46] ${index === 1 ? 'max-w-[210px]' : ''}`}>
+          {quest.title}
+        </strong>
+        <span className="mt-3 block h-[14px] w-full overflow-hidden rounded-[4px] bg-[#f4f4f5]">
+          <i className={`kresco-progress-fill block h-full rounded-[4px] ${questFillClass(tone)} ${progressWidthClass(pct)}`} />
+        </span>
+      </div>
+    </button>
+  )
+}
+
+function questToneClass(tone: string) {
+  if (tone === '#f5900b') return 'text-[#f5900b]'
+  if (tone === '#5b60f9') return 'text-[#5b60f9]'
+  return 'text-[#2e86ff]'
+}
+
+function questFillClass(tone: string) {
+  if (tone === '#f5900b') return 'bg-[#f5900b]'
+  if (tone === '#5b60f9') return 'bg-[#5b60f9]'
+  return 'bg-[#2e86ff]'
+}
+
+function progressWidthClass(value: number) {
+  const bucket = Math.max(0, Math.min(100, Math.round(value / 5) * 5))
+  switch (bucket) {
+    case 0: return 'w-0'
+    case 5: return 'w-[5%]'
+    case 10: return 'w-[10%]'
+    case 15: return 'w-[15%]'
+    case 20: return 'w-[20%]'
+    case 25: return 'w-1/4'
+    case 30: return 'w-[30%]'
+    case 35: return 'w-[35%]'
+    case 40: return 'w-[40%]'
+    case 45: return 'w-[45%]'
+    case 50: return 'w-1/2'
+    case 55: return 'w-[55%]'
+    case 60: return 'w-[60%]'
+    case 65: return 'w-[65%]'
+    case 70: return 'w-[70%]'
+    case 75: return 'w-3/4'
+    case 80: return 'w-4/5'
+    case 85: return 'w-[85%]'
+    case 90: return 'w-[90%]'
+    case 95: return 'w-[95%]'
+    default: return 'w-full'
+  }
 }
 
 function questIcon(type?: string) {

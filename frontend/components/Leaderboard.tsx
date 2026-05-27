@@ -52,6 +52,49 @@ function enrichEntry(entry: LeaderboardEntry): LeaderboardEntry {
   }
 }
 
+function leagueTextClass(color: string) {
+  switch (color) {
+    case '#cc6a00':
+      return 'text-[#cc6a00]'
+    case '#9CA3AF':
+      return 'text-[#9CA3AF]'
+    case '#f59e0b':
+      return 'text-amber-500'
+    case '#7284f7':
+      return 'text-[#7284f7]'
+    case '#10b981':
+      return 'text-emerald-500'
+    case '#ef4444':
+      return 'text-red-500'
+    case '#a855f7':
+      return 'text-[#a855f7]'
+    default:
+      return 'text-[color:var(--text-primary)]'
+  }
+}
+
+function leagueRingClasses(color: string, active: boolean) {
+  if (!active) return 'border border-[color:var(--border)] bg-[color:var(--surface-hover)]'
+  switch (color) {
+    case '#cc6a00':
+      return 'border-[3px] border-[#cc6a00] bg-[rgba(204,106,0,0.12)]'
+    case '#9CA3AF':
+      return 'border-[3px] border-[#9CA3AF] bg-[rgba(156,163,175,0.12)]'
+    case '#f59e0b':
+      return 'border-[3px] border-amber-500 bg-[rgba(245,158,11,0.12)]'
+    case '#7284f7':
+      return 'border-[3px] border-[#7284f7] bg-[rgba(114,132,247,0.12)]'
+    case '#10b981':
+      return 'border-[3px] border-emerald-500 bg-[rgba(16,185,129,0.12)]'
+    case '#ef4444':
+      return 'border-[3px] border-red-500 bg-[rgba(239,68,68,0.12)]'
+    case '#a855f7':
+      return 'border-[3px] border-[#a855f7] bg-[rgba(168,85,247,0.12)]'
+    default:
+      return 'border-[3px] border-[color:var(--border)] bg-[color:var(--surface-hover)]'
+  }
+}
+
 export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -84,25 +127,25 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 
   return (
     <div className="card p-5">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Trophy size={15} style={{ color: '#f59e0b' }} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Classement</span>
+      <div className="mb-[14px] flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Trophy size={15} className="text-amber-500" />
+          <span className="text-sm font-bold text-[color:var(--text-primary)]">Classement</span>
         </div>
         {onExpand && (
-          <button type="button" onClick={onExpand} style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
+          <button type="button" onClick={onExpand} className="cursor-pointer border-0 bg-transparent text-xs font-semibold text-[color:var(--primary)]">
             Voir tout
           </button>
         )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className="flex flex-col gap-1">
         {top.map(entry => (
           <LeaderboardRow key={`${entry.user_id}-${entry.rank}`} entry={entry} compact highlight={entry.is_current_user} />
         ))}
         {currentUser && !currentUserInTop && (
           <>
-            <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11, letterSpacing: 2, padding: '2px 0' }}>. . .</div>
+            <div className="py-[2px] text-center text-[11px] tracking-[2px] text-[color:var(--text-tertiary)]">. . .</div>
             <LeaderboardRow entry={currentUser} compact highlight />
           </>
         )}
@@ -194,70 +237,66 @@ export function LeaderboardPage() {
   }
 
   return (
-    <div className="kresco-shell" style={{ maxWidth: 980, margin: '0 auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20 }}>
+    <div className="kresco-shell mx-auto max-w-[980px]">
+      <div className="grid grid-cols-[1fr_300px] gap-5">
         <div>
-          <div className="card" style={{ padding: 20, marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <div className="card mb-4 p-5">
+            <div className="mb-4 flex items-center gap-2.5">
               <Trophy size={20} color="#6366f1" />
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Classement</h1>
+              <h1 className="m-0 text-[22px] font-extrabold text-[color:var(--text-primary)]">Classement</h1>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 10, flexWrap: 'wrap' }}>
+            <div className="mb-2.5 flex flex-wrap items-center justify-center gap-[14px]">
               {leagueStrip.map((league, index) => (
                 <LeagueMarker key={`${league.key}-${index}`} league={league} active={league.key === currentLeague?.key} />
               ))}
             </div>
 
             {currentLeague && (
-              <div style={{ textAlign: 'center' }}>
-                <h2 style={{ fontSize: 42, lineHeight: 1, margin: '8px 0 4px', color: currentLeague.color, fontWeight: 800 }}>
+              <div className="text-center">
+                <h2 className={`mt-[8px] mb-1 text-[42px] font-extrabold leading-none ${leagueTextClass(currentLeague.color)}`}>
                   {currentLeague.label}
                 </h2>
-                <p style={{ margin: 0, fontSize: 18, color: 'var(--text-secondary)', fontWeight: 700 }}>
+                <p className="m-0 text-lg font-bold text-[color:var(--text-secondary)]">
                   Top {getPromotionCutoff()} advance to the next league
                 </p>
               </div>
             )}
           </div>
 
-          <div style={{ position: 'relative', marginBottom: 16 }}>
-            <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }} />
+          <div className="relative mb-4">
+            <Search size={15} className="pointer-events-none absolute left-[14px] top-1/2 -translate-y-1/2 text-[color:var(--text-tertiary)]" />
             <input
               aria-label="Rechercher un joueur"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               placeholder="Rechercher un joueur..."
-              className="kresco-control"
-              style={{ width: '100%', paddingLeft: 42, paddingRight: 40, paddingTop: 11, paddingBottom: 11, fontSize: 14 }}
+              className="kresco-control w-full px-[42px] py-[11px] pr-10 text-sm"
             />
             {searchInput && (
-              <button type="button"
-                onClick={clearSearch}
-                style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}
-              >
+              <button type="button" onClick={clearSearch} className="absolute right-[14px] top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent text-xs text-[color:var(--text-tertiary)]">
                 x
               </button>
             )}
           </div>
 
-          <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
+          <div className="card overflow-hidden p-0">
             {loading ? (
               <LeaderboardRowsSkeleton />
             ) : visibleEntries.length === 0 ? (
-              <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>
+              <div className="px-4 py-12 text-center text-sm text-[color:var(--text-tertiary)]">
                 {normalizedSearch ? `Aucun joueur trouve pour "${searchInput}"` : 'Aucun classement disponible'}
               </div>
             ) : (
               <div>
                 {normalizedSearch && instantEntries.length === 0 && (
-                  <div style={{ padding: '10px 20px', color: 'var(--text-secondary)', fontSize: 12 }}>
-                    Aucun résultat pour &quot;{searchInput}&quot;. Classement complet affiché.
+                  <div className="px-5 py-2.5 text-xs text-[color:var(--text-secondary)]">
+                    Aucun r&eacute;sultat pour &quot;{searchInput}&quot;. Classement complet affich&eacute;.
                   </div>
                 )}
                 {normalizedSearch && instantEntries.length > 0 && instantEntries.length !== displayEntries.length && (
-                  <div style={{ padding: '10px 20px', color: 'var(--text-secondary)', fontSize: 12 }}>
-                    Filtre instantané actif pour &quot;{searchInput}&quot;.
+                  <div className="px-5 py-2.5 text-xs text-[color:var(--text-secondary)]">
+                    Filtre instantan&eacute; actif pour &quot;{searchInput}&quot;.
                   </div>
                 )}
                 {visibleRows.map(({ entry, key, showPromotionDivider, showDemotionDivider, isLast }) => (
@@ -269,33 +308,31 @@ export function LeaderboardPage() {
                       <ZoneDivider zone="demotion" />
                     )}
                     <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 14,
-                        padding: '12px 20px',
-                        background: entry.is_current_user ? 'var(--primary-soft)' : 'transparent',
-                        borderBottom: !isLast ? '1px solid var(--border)' : 'none',
-                        borderLeft: entry.is_current_user ? '3px solid var(--primary)' : '3px solid transparent',
-                      }}
+                      className={[
+                        'flex items-center gap-[14px] px-5 py-3',
+                        !isLast ? 'border-b border-[color:var(--border)]' : 'border-b-0',
+                        entry.is_current_user
+                          ? 'border-l-[3px] border-l-[color:var(--primary)] bg-[color:var(--primary-soft)]'
+                          : 'border-l-[3px] border-l-transparent bg-transparent',
+                      ].join(' ')}
                     >
                       <RankBadge rank={entry.divisionLocalRank ?? entry.rank} />
                       <AvatarBubble entry={entry} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 15, fontWeight: 700, color: entry.is_current_user ? 'var(--primary)' : 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div className="min-w-0 flex-1">
+                        <p className={`m-0 mb-[2px] truncate text-[15px] font-bold ${entry.is_current_user ? 'text-[color:var(--primary)]' : 'text-[color:var(--text-primary)]'}`}>
                           {entry.full_name}
-                          {entry.is_current_user && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 500 }}>(vous)</span>}
+                          {entry.is_current_user && <span className="ml-1.5 text-[11px] font-medium">(vous)</span>}
                         </p>
-                        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0 }}>
-                          {entry.leagueLabel} • Niveau {entry.level}
+                        <p className="m-0 text-xs text-[color:var(--text-tertiary)]">
+                          {entry.leagueLabel}{' \u2022 '}Niveau {entry.level}
                         </p>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      <div className="flex shrink-0 items-center gap-1">
                         <Zap size={13} color="#f59e0b" fill="#f59e0b" />
-                        <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>
+                        <span className="text-sm font-bold text-amber-500">
                           {entry.total_xp.toLocaleString()}
                         </span>
-                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>XP</span>
+                        <span className="text-[11px] text-[color:var(--text-tertiary)]">XP</span>
                       </div>
                     </div>
                   </div>
@@ -305,20 +342,22 @@ export function LeaderboardPage() {
           </div>
 
           {(page > 1 || hasMore) && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 }}>
-              <button type="button"
+            <div className="mt-5 flex items-center justify-center gap-3">
+              <button
+                type="button"
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'var(--surface-hover)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: page === 1 ? 0.4 : 1 }}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-[9px] text-[13px] font-semibold text-[color:var(--text-primary)] ${page === 1 ? 'opacity-40' : 'opacity-100'}`}
               >
                 <ChevronLeft size={14} />
                 Precedent
               </button>
-              <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 600 }}>Page {page}</span>
-              <button type="button"
+              <span className="text-[13px] font-semibold text-[color:var(--text-tertiary)]">Page {page}</span>
+              <button
+                type="button"
                 onClick={() => setPage(p => p + 1)}
                 disabled={!hasMore}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'var(--surface-hover)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: !hasMore ? 0.4 : 1 }}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-[9px] text-[13px] font-semibold text-[color:var(--text-primary)] ${!hasMore ? 'opacity-40' : 'opacity-100'}`}
               >
                 Suivant
                 <ChevronRight size={14} />
@@ -327,16 +366,16 @@ export function LeaderboardPage() {
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="flex flex-col gap-4">
           {currentLeague && currentUser && (
-            <div className="card" style={{ padding: 20 }}>
-              <p style={{ margin: '0 0 4px', fontSize: 30, fontWeight: 800, color: currentLeague.color }}>{currentLeague.label}</p>
-              <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: 13 }}>Keep track of your progress</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="card p-5">
+              <p className={`mb-1 text-[30px] font-extrabold ${leagueTextClass(currentLeague.color)}`}>{currentLeague.label}</p>
+              <p className="mb-3 text-[13px] text-[color:var(--text-secondary)]">Keep track of your progress</p>
+              <div className="flex items-center gap-2.5">
                 <AvatarBubble entry={currentUser} />
                 <div>
-                  <p style={{ margin: 0, fontWeight: 700, color: 'var(--text-primary)' }}>{currentUser.full_name}</p>
-                  <p style={{ margin: 0, color: 'var(--text-tertiary)', fontSize: 12 }}>{currentUser.total_xp.toLocaleString()} points</p>
+                  <p className="m-0 font-bold text-[color:var(--text-primary)]">{currentUser.full_name}</p>
+                  <p className="m-0 text-xs text-[color:var(--text-tertiary)]">{currentUser.total_xp.toLocaleString()} points</p>
                 </div>
               </div>
             </div>
@@ -375,32 +414,33 @@ function ZoneDivider({ zone }: { zone: "promotion" | "demotion" }) {
   const Icon = isPromotion ? ArrowUp : ArrowDown
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '14px 8px', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+    <div className="flex items-center justify-center gap-[14px] border-y border-[color:var(--border)] px-2 py-[14px]">
       <Icon size={20} color={color} />
-      <span style={{ color, fontSize: 28, fontWeight: 800, letterSpacing: 0 }}>{label}</span>
+      <span className={`text-[28px] font-extrabold ${leagueTextClass(color)}`}>{label}</span>
       <Icon size={20} color={color} />
     </div>
   )
 }
 
 function LeagueMarker({ league, active }: { league: ReturnType<typeof getLeagueInfoByKey>, active: boolean }) {
+  const [imageFailed, setImageFailed] = useState(false)
+
   return (
-    <div style={{ width: active ? 106 : 74, height: active ? 106 : 74, borderRadius: '50%', border: active ? `3px solid ${league.color}` : '1px solid var(--border)', background: active ? `${league.color}20` : 'var(--surface-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <Image
-        src={league.emblemAsset}
-        alt={league.label}
-        width={active ? 76 : 48}
-        height={active ? 76 : 48}
-        style={{ width: active ? 76 : 48, height: active ? 76 : 48, objectFit: 'contain' }}
-        onError={(e) => {
-          e.currentTarget.style.display = 'none'
-          const fallback = e.currentTarget.nextElementSibling as HTMLElement | null
-          if (fallback) fallback.style.display = 'flex'
-        }}
-      />
-      <div style={{ display: 'none', width: active ? 76 : 48, height: active ? 76 : 48, borderRadius: '50%', alignItems: 'center', justifyContent: 'center', fontSize: active ? 12 : 10, fontWeight: 700, color: league.color, textAlign: 'center', padding: 6 }}>
-        {league.majorLabel}
-      </div>
+    <div className={`flex items-center justify-center rounded-full ${active ? 'h-[106px] w-[106px]' : 'h-[74px] w-[74px]'} ${leagueRingClasses(league.color, active)}`}>
+      {!imageFailed ? (
+        <Image
+          src={league.emblemAsset}
+          alt={league.label}
+          width={active ? 76 : 48}
+          height={active ? 76 : 48}
+          className="object-contain"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <div className={`flex items-center justify-center rounded-full p-1.5 text-center font-bold ${active ? 'h-[76px] w-[76px] text-xs' : 'h-12 w-12 text-[10px]'} ${leagueTextClass(league.color)}`}>
+          {league.majorLabel}
+        </div>
+      )}
     </div>
   )
 }
@@ -411,16 +451,22 @@ function LeaderboardRow({ entry, compact = false, highlight = false }: {
   highlight?: boolean
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderRadius: 10, padding: compact ? '6px 8px' : '10px 14px', background: highlight ? 'var(--primary-soft)' : 'transparent', border: highlight ? '1px solid rgba(69,61,238,0.15)' : '1px solid transparent', transition: 'background 150ms' }}>
+    <div
+      className={[
+        'flex items-center gap-2.5 rounded-[10px] border transition-[background] duration-150',
+        compact ? 'px-2 py-1.5' : 'px-3.5 py-2.5',
+        highlight ? 'border-[color:rgba(69,61,238,0.15)] bg-[color:var(--primary-soft)]' : 'border-transparent bg-transparent',
+      ].join(' ')}
+    >
       <RankBadge rank={entry.rank} small />
       <AvatarBubble entry={entry} small={compact} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 13, fontWeight: 600, color: highlight ? 'var(--primary)' : 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className="min-w-0 flex-1">
+        <p className={`m-0 truncate text-[13px] font-semibold ${highlight ? 'text-[color:var(--primary)]' : 'text-[color:var(--text-primary)]'}`}>
           {entry.full_name}
-          {entry.is_current_user && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--primary)', fontWeight: 400 }}>(vous)</span>}
+          {entry.is_current_user && <span className="ml-1 text-[10px] font-normal text-[color:var(--primary)]">(vous)</span>}
         </p>
       </div>
-      <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', flexShrink: 0 }}>
+      <span className="shrink-0 text-xs font-bold text-amber-500">
         {entry.total_xp.toLocaleString()} XP
       </span>
     </div>
@@ -428,25 +474,24 @@ function LeaderboardRow({ entry, compact = false, highlight = false }: {
 }
 
 function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
-  const sz = small ? 24 : 32
   if (rank === 1) return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[rgba(245,158,11,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
       <Crown size={small ? 13 : 16} color="#f59e0b" />
     </div>
   )
   if (rank === 2) return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(148,163,184,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <div className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(148,163,184,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
       <Medal size={small ? 13 : 16} color="#94a3b8" />
     </div>
   )
   if (rank === 3) return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(217,119,6,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <div className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(217,119,6,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
       <Medal size={small ? 13 : 16} color="#d97706" />
     </div>
   )
   return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'var(--surface-hover)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <span style={{ fontSize: small ? 10 : 11, fontWeight: 700, color: 'var(--text-tertiary)' }}>{rank}</span>
+    <div className={`flex shrink-0 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-hover)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
+      <span className={small ? 'text-[10px] font-bold text-[color:var(--text-tertiary)]' : 'text-[11px] font-bold text-[color:var(--text-tertiary)]'}>{rank}</span>
     </div>
   )
 }
@@ -461,11 +506,11 @@ function AvatarBubble({ entry, small = false }: { entry: LeaderboardEntry; small
       height={size}
       unoptimized
       referrerPolicy="no-referrer"
-      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+      className={`shrink-0 rounded-full object-cover ${small ? 'h-7 w-7' : 'h-9 w-9'}`}
     />
   ) : (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: 'var(--primary-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <span style={{ fontSize: small ? 11 : 13, fontWeight: 700, color: 'var(--primary)' }}>{entry.full_name?.[0] ?? '?'}</span>
+    <div className={`flex shrink-0 items-center justify-center rounded-full bg-[color:var(--primary-soft)] ${small ? 'h-7 w-7' : 'h-9 w-9'}`}>
+      <span className={small ? 'text-[11px] font-bold text-[color:var(--primary)]' : 'text-[13px] font-bold text-[color:var(--primary)]'}>{entry.full_name?.[0] ?? '?'}</span>
     </div>
   )
 }
