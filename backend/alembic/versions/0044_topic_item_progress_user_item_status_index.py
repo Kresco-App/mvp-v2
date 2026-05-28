@@ -1,7 +1,7 @@
 """Add TopicItemProgress user/item/status composite index
 
-Revision ID: 0044_topic_item_progress_user_item_status_index
-Revises: 0043_server_defaults_for_hot_path_columns
+Revision ID: 0044
+Revises: 0043
 Create Date: 2026-05-28 08:30:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0044_topic_item_progress_user_item_status_index"
-down_revision: Union[str, None] = "0043_server_defaults_for_hot_path_columns"
+revision: str = "0044"
+down_revision: Union[str, None] = "0043"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -37,3 +37,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     if INDEX_NAME in _existing_indexes(TABLE_NAME):
         op.drop_index(INDEX_NAME, table_name=TABLE_NAME)
+

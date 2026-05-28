@@ -1,7 +1,7 @@
 """add live session provider payload
 
-Revision ID: 0015_live_session_provider_payload
-Revises: 0014_live_session_interactions
+Revision ID: 0015
+Revises: 0014
 Create Date: 2026-05-23 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0015_live_session_provider_payload"
-down_revision: Union[str, None] = "0014_live_session_interactions"
+revision: str = "0015"
+down_revision: Union[str, None] = "0014"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -38,3 +38,4 @@ def downgrade() -> None:
     for name in ("provider_payload_json", "stream_key", "stream_ingest_url"):
         if name in columns:
             op.drop_column("live_sessions", name)
+

@@ -1,7 +1,7 @@
 """harden professor and context foreign keys
 
-Revision ID: 0023_context_and_professor_fks
-Revises: 0022_topic_item_primary_tabs_and_comments
+Revision ID: 0023
+Revises: 0022
 Create Date: 2026-05-27 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0023_context_and_professor_fks"
-down_revision: Union[str, None] = "0022_topic_item_primary_tabs_and_comments"
+revision: str = "0023"
+down_revision: Union[str, None] = "0022"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -197,3 +197,4 @@ def downgrade() -> None:
             referred_column="id",
             ondelete="CASCADE",
         )
+

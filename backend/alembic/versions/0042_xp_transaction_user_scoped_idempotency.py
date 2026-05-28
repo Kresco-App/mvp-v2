@@ -1,7 +1,7 @@
 """Scope XP transaction idempotency by user
 
-Revision ID: 0042_xp_transaction_user_scoped_idempotency
-Revises: 0041_payment_verification_attempts
+Revision ID: 0042
+Revises: 0041
 Create Date: 2026-05-28 09:15:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0042_xp_transaction_user_scoped_idempotency"
-down_revision: Union[str, None] = "0041_payment_verification_attempts"
+revision: str = "0042"
+down_revision: Union[str, None] = "0041"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -52,3 +52,4 @@ def downgrade() -> None:
         op.drop_index(NEW_INDEX_NAME, table_name=TABLE_NAME)
     if OLD_INDEX_NAME not in existing_indexes:
         op.create_index(OLD_INDEX_NAME, TABLE_NAME, ["idempotency_key"], unique=True)
+

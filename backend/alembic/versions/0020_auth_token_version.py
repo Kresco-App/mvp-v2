@@ -4,8 +4,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0020_auth_token_version"
-down_revision = "0019_interaction_subject_context"
+revision = "0020"
+down_revision = "0019"
 branch_labels = None
 depends_on = None
 
@@ -38,3 +38,4 @@ def downgrade() -> None:
             batch_op.drop_column("password_changed_at")
         if "auth_token_version" in columns:
             batch_op.drop_column("auth_token_version")
+

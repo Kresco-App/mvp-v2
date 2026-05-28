@@ -52,7 +52,7 @@ def test_payment_verification_attempt_model_and_migration_are_declared():
     migration_text = (
         BACKEND_ROOT / "alembic" / "versions" / "0041_payment_verification_attempts.py"
     ).read_text(encoding="utf-8")
-    assert 'down_revision: Union[str, None] = "0040_user_stats_projection"' in migration_text
+    assert 'down_revision: Union[str, None] = "0040"' in migration_text
     assert "payment_verification_attempts" in migration_text
     assert "uq_payment_verification_attempts_user_session_key" in migration_text
 

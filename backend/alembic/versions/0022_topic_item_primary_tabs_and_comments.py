@@ -1,7 +1,7 @@
 """normalize topic item primary tabs and comments
 
-Revision ID: 0022_topic_item_primary_tabs_and_comments
-Revises: 0021_integrity_hardening
+Revision ID: 0022
+Revises: 0021
 Create Date: 2026-05-27 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0022_topic_item_primary_tabs_and_comments"
-down_revision: Union[str, None] = "0021_integrity_hardening"
+revision: str = "0022"
+down_revision: Union[str, None] = "0021"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -245,3 +245,4 @@ def downgrade() -> None:
     if "topic_items" in _tables() and "primary_tab_content_id" in _columns("topic_items"):
         with op.batch_alter_table("topic_items") as batch_op:
             batch_op.drop_column("primary_tab_content_id")
+

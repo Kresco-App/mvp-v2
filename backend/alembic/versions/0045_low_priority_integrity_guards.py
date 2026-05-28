@@ -1,7 +1,7 @@
 """Add low-priority integrity guards.
 
-Revision ID: 0045_low_priority_integrity_guards
-Revises: 0044_topic_item_progress_user_item_status_index
+Revision ID: 0045
+Revises: 0044
 Create Date: 2026-05-28 10:45:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0045_low_priority_integrity_guards"
-down_revision: Union[str, None] = "0044_topic_item_progress_user_item_status_index"
+revision: str = "0045"
+down_revision: Union[str, None] = "0044"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -160,3 +160,4 @@ def downgrade() -> None:
                 nullable=False,
                 server_default=None,
             )
+

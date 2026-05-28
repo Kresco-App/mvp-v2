@@ -1,7 +1,7 @@
 """add admin audit logs
 
-Revision ID: 0009_add_admin_audit_logs
-Revises: 0008_add_exam_access_policy
+Revision ID: 0009
+Revises: 0008
 Create Date: 2026-05-11 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0009_add_admin_audit_logs"
-down_revision: Union[str, None] = "0008_add_exam_access_policy"
+revision: str = "0009"
+down_revision: Union[str, None] = "0008"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -48,3 +48,4 @@ def downgrade() -> None:
     op.drop_index("ix_admin_audit_logs_model_name", table_name="admin_audit_logs")
     op.drop_index("ix_admin_audit_logs_action", table_name="admin_audit_logs")
     op.drop_table("admin_audit_logs")
+

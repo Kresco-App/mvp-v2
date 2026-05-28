@@ -1,7 +1,7 @@
 """add notification user created index
 
-Revision ID: 0018_notifications_user_created_index
-Revises: 0017_live_interaction_scalability_index
+Revision ID: 0018
+Revises: 0017
 Create Date: 2026-05-26 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0018_notifications_user_created_index"
-down_revision: Union[str, None] = "0017_live_interaction_scalability_index"
+revision: str = "0018"
+down_revision: Union[str, None] = "0017"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -38,3 +38,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     if TABLE_NAME in _tables() and INDEX_NAME in _indexes(TABLE_NAME):
         op.drop_index(INDEX_NAME, table_name=TABLE_NAME)
+

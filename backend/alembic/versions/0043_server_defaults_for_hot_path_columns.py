@@ -1,7 +1,7 @@
 """Add server defaults for hot path boolean/int/status columns.
 
-Revision ID: 0043_server_defaults_for_hot_path_columns
-Revises: 0042_xp_transaction_user_scoped_idempotency
+Revision ID: 0043
+Revises: 0042
 Create Date: 2026-05-28 08:40:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0043_server_defaults_for_hot_path_columns"
-down_revision: Union[str, None] = "0042_xp_transaction_user_scoped_idempotency"
+revision: str = "0043"
+down_revision: Union[str, None] = "0042"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -69,3 +69,4 @@ def downgrade() -> None:
         with op.batch_alter_table("realtime_outbox") as batch_op:
             batch_op.alter_column("attempts", existing_type=sa.Integer(), server_default=None, existing_nullable=False)
             batch_op.alter_column("status", existing_type=sa.String(length=30), server_default=None, existing_nullable=False)
+

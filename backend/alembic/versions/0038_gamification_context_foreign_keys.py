@@ -1,7 +1,7 @@
 """Add gamification context foreign keys and indexes
 
-Revision ID: 0038_gamification_context_foreign_keys
-Revises: 0037_admin_audit_rate_limit_index
+Revision ID: 0038
+Revises: 0037
 Create Date: 2026-05-28 03:45:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0038_gamification_context_foreign_keys"
-down_revision: Union[str, None] = "0037_admin_audit_rate_limit_index"
+revision: str = "0038"
+down_revision: Union[str, None] = "0037"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -111,3 +111,4 @@ def downgrade() -> None:
     for index_name, table_name, _columns in reversed(INDEX_SPECS):
         if table_name in tables and index_name in _indexes(table_name):
             op.drop_index(index_name, table_name=table_name)
+

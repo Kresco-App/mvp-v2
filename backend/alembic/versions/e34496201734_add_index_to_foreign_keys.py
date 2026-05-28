@@ -1,7 +1,7 @@
 """Add missing foreign key indexes.
 
 Revision ID: e34496201734
-Revises: 0026_realtime_outbox
+Revises: 0026
 Create Date: 2026-05-27 19:21:30.143781
 """
 from typing import Sequence, Union
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision: str = "e34496201734"
-down_revision: Union[str, None] = "0026_realtime_outbox"
+down_revision: Union[str, None] = "0026"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -106,6 +106,20 @@ def _existing_indexes(table_name: str) -> set[str]:
     return {index["name"] for index in inspector.get_indexes(table_name)}
 
 
+def _indexable_specs() -> list[tuple[str, str, tuple[str, ...], bool]]:
+    inspector = sa.inspect(op.get_bind())
+    table_names = set(inspector.get_table_names())
+    specs: list[tuple[str, str, tuple[str, ...], bool]] = []
+    for index_name, table_name, columns, unique in INDEX_SPECS:
+        if table_name not in table_names:
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        if not set(columns).issubset(existing_columns):
+            continue
+        specs.append((index_name, table_name, columns, unique))
+    return specs
+
+
 def _create_index(index_name: str, table_name: str, columns: tuple[str, ...], unique: bool) -> None:
     if index_name in _existing_indexes(table_name):
         return
@@ -118,13 +132,14 @@ def _drop_index(index_name: str, table_name: str) -> None:
 
 
 def upgrade() -> None:
+    specs = _indexable_specs()
     if op.get_bind().dialect.name == "postgresql":
         with op.get_context().autocommit_block():
-            for index_name, table_name, columns, unique in INDEX_SPECS:
+            for index_name, table_name, columns, unique in specs:
                 op.execute(sa.text(_postgres_index_sql(index_name, table_name, columns, unique)))
         return
 
-    for index_name, table_name, columns, unique in INDEX_SPECS:
+    for index_name, table_name, columns, unique in specs:
         _create_index(index_name, table_name, columns, unique)
 
 
@@ -137,3 +152,4 @@ def downgrade() -> None:
 
     for index_name, table_name, _, _ in reversed(INDEX_SPECS):
         _drop_index(index_name, table_name)
+

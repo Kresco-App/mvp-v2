@@ -1,7 +1,7 @@
 """Add gamification state uniqueness constraints
 
-Revision ID: 0029_gamification_unique_constraints
-Revises: 0028_hot_path_composite_indexes
+Revision ID: 0029
+Revises: 0028
 Create Date: 2026-05-28 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0029_gamification_unique_constraints"
-down_revision: Union[str, None] = "0028_hot_path_composite_indexes"
+revision: str = "0029"
+down_revision: Union[str, None] = "0028"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -163,3 +163,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     for name, table_name, _columns in reversed(UNIQUE_CONSTRAINTS):
         _drop_unique_constraint(name, table_name)
+

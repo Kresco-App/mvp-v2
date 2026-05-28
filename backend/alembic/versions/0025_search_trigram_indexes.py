@@ -1,7 +1,7 @@
 """add trigram indexes for substring search
 
-Revision ID: 0025_search_trigram_indexes
-Revises: 0024_tab_quiz_submission_idempotency
+Revision ID: 0025
+Revises: 0024
 Create Date: 2026-05-27 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0025_search_trigram_indexes"
-down_revision: Union[str, None] = "0024_tab_quiz_submission_idempotency"
+revision: str = "0025"
+down_revision: Union[str, None] = "0024"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -53,3 +53,4 @@ def downgrade() -> None:
     with op.get_context().autocommit_block():
         for index_name, _, _ in reversed(TRGM_INDEXES):
             op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {_quote_identifier(index_name)}"))
+

@@ -1,6 +1,6 @@
 """Add media quota counters
 
-Revision ID: 0027_media_quota_counters
+Revision ID: 0027
 Revises: e34496201734
 Create Date: 2026-05-27 20:05:00.000000
 
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0027_media_quota_counters"
+revision: str = "0027"
 down_revision: Union[str, None] = "e34496201734"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -41,3 +41,4 @@ def downgrade() -> None:
         op.drop_column("users", "banner_media_size")
     if "avatar_media_size" in existing_columns:
         op.drop_column("users", "avatar_media_size")
+

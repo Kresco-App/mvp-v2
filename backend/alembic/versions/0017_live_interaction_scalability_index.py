@@ -1,7 +1,7 @@
 """add live interaction scalability index
 
-Revision ID: 0017_live_interaction_scalability_index
-Revises: 0016_live_session_checkpoints
+Revision ID: 0017
+Revises: 0016
 Create Date: 2026-05-26 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0017_live_interaction_scalability_index"
-down_revision: Union[str, None] = "0016_live_session_checkpoints"
+revision: str = "0017"
+down_revision: Union[str, None] = "0016"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -41,3 +41,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     if "live_session_interactions" in _tables() and INDEX_NAME in _indexes("live_session_interactions"):
         op.drop_index(INDEX_NAME, table_name="live_session_interactions")
+

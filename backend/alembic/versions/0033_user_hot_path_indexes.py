@@ -1,7 +1,7 @@
 """Add user hot path indexes
 
-Revision ID: 0033_user_hot_path_indexes
-Revises: 0032_email_dispatch_throttles
+Revision ID: 0033
+Revises: 0032
 Create Date: 2026-05-28 02:00:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0033_user_hot_path_indexes"
-down_revision: Union[str, None] = "0032_email_dispatch_throttles"
+revision: str = "0033"
+down_revision: Union[str, None] = "0032"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -49,3 +49,4 @@ def downgrade() -> None:
     for index_name, _columns in reversed(INDEX_SPECS):
         if index_name in existing_indexes:
             op.drop_index(index_name, table_name=TABLE_NAME)
+

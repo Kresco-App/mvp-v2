@@ -1,7 +1,7 @@
 """Add saved item uniqueness constraint
 
-Revision ID: 0030_saved_items_unique_constraint
-Revises: 0029_gamification_unique_constraints
+Revision ID: 0030
+Revises: 0029
 Create Date: 2026-05-28 00:30:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0030_saved_items_unique_constraint"
-down_revision: Union[str, None] = "0029_gamification_unique_constraints"
+revision: str = "0030"
+down_revision: Union[str, None] = "0029"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -76,3 +76,4 @@ def downgrade() -> None:
             batch_op.drop_constraint(CONSTRAINT_NAME, type_="unique")
     if INDEX_NAME in _indexes("saved_items"):
         op.drop_index(INDEX_NAME, table_name="saved_items")
+

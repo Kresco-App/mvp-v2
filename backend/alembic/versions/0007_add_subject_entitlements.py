@@ -1,7 +1,7 @@
 """add subject entitlements
 
-Revision ID: 0007_add_subject_entitlements
-Revises: 0006_add_user_banner_url
+Revision ID: 0007
+Revises: 0006
 Create Date: 2026-05-10 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0007_add_subject_entitlements"
-down_revision: Union[str, None] = "0006_add_user_banner_url"
+revision: str = "0007"
+down_revision: Union[str, None] = "0006"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -45,3 +45,4 @@ def downgrade() -> None:
     op.drop_index("ix_user_subject_entitlements_subject_id", table_name="user_subject_entitlements")
     op.drop_index("ix_user_subject_entitlements_user_id", table_name="user_subject_entitlements")
     op.drop_table("user_subject_entitlements")
+

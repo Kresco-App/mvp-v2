@@ -1,7 +1,7 @@
 """add live session checkpoints
 
-Revision ID: 0016_live_session_checkpoints
-Revises: 0015_live_session_provider_payload
+Revision ID: 0016
+Revises: 0015
 Create Date: 2026-05-23 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0016_live_session_checkpoints"
-down_revision: Union[str, None] = "0015_live_session_provider_payload"
+revision: str = "0016"
+down_revision: Union[str, None] = "0015"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -63,3 +63,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     if "live_session_checkpoints" in _tables():
         op.drop_table("live_session_checkpoints")
+

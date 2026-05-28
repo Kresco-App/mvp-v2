@@ -1,7 +1,7 @@
 """Add email dispatch throttles
 
-Revision ID: 0032_email_dispatch_throttles
-Revises: 0031_stripe_webhook_events
+Revision ID: 0032
+Revises: 0031
 Create Date: 2026-05-28 01:30:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0032_email_dispatch_throttles"
-down_revision: Union[str, None] = "0031_stripe_webhook_events"
+revision: str = "0032"
+down_revision: Union[str, None] = "0031"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -66,3 +66,4 @@ def downgrade() -> None:
             op.drop_index(index_name, table_name=TABLE_NAME)
     if TABLE_NAME in _table_names():
         op.drop_table(TABLE_NAME)
+

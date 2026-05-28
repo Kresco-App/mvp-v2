@@ -1,7 +1,7 @@
 """Add durable realtime outbox.
 
-Revision ID: 0026_realtime_outbox
-Revises: 0025_search_trigram_indexes
+Revision ID: 0026
+Revises: 0025
 Create Date: 2026-05-27
 """
 
@@ -13,8 +13,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0026_realtime_outbox"
-down_revision: Union[str, None] = "0025_search_trigram_indexes"
+revision: str = "0026"
+down_revision: Union[str, None] = "0025"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -72,3 +72,4 @@ def downgrade() -> None:
             op.drop_index(index_name, table_name="realtime_outbox")
     if "realtime_outbox" in _tables():
         op.drop_table("realtime_outbox")
+

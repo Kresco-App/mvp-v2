@@ -1,7 +1,7 @@
 """restore professor user cascade foreign keys
 
-Revision ID: 0036_professor_user_fk_cascade
-Revises: 0035_interaction_context_foreign_keys
+Revision ID: 0036
+Revises: 0035
 Create Date: 2026-05-28 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0036_professor_user_fk_cascade"
-down_revision: Union[str, None] = "0035_interaction_context_foreign_keys"
+revision: str = "0036"
+down_revision: Union[str, None] = "0035"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -92,3 +92,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     for table_name, constraint_name in reversed(PROFESSOR_USER_FKS):
         _replace_professor_user_fk(table_name, constraint_name, ondelete=None)
+

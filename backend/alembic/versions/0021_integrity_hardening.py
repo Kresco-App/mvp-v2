@@ -1,7 +1,7 @@
 """harden interaction indexes and professor offering ownership
 
-Revision ID: 0021_integrity_hardening
-Revises: 0020_auth_token_version
+Revision ID: 0021
+Revises: 0020
 Create Date: 2026-05-27 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0021_integrity_hardening"
-down_revision: Union[str, None] = "0020_auth_token_version"
+revision: str = "0021"
+down_revision: Union[str, None] = "0020"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -85,3 +85,4 @@ def downgrade() -> None:
         for index_name, _columns_for_index in reversed(COMMENT_INDEXES):
             if index_name in existing_indexes:
                 op.drop_index(index_name, table_name="comments")
+

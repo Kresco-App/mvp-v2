@@ -1,7 +1,7 @@
 """Add leaderboard rank projection
 
-Revision ID: 0034_leaderboard_rank_projection
-Revises: 0033_user_hot_path_indexes
+Revision ID: 0034
+Revises: 0033
 Create Date: 2026-05-28 02:10:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0034_leaderboard_rank_projection"
-down_revision: Union[str, None] = "0033_user_hot_path_indexes"
+revision: str = "0034"
+down_revision: Union[str, None] = "0033"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -55,3 +55,4 @@ def downgrade() -> None:
     if "ix_leaderboard_ranks_global_rank_user" in existing_indexes:
         op.drop_index("ix_leaderboard_ranks_global_rank_user", table_name=TABLE_NAME)
     op.drop_table(TABLE_NAME)
+

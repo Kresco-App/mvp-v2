@@ -1,7 +1,7 @@
 """add live session interactions
 
-Revision ID: 0014_live_session_interactions
-Revises: 0013_professor_chat_image_attachments
+Revision ID: 0014
+Revises: 0013
 Create Date: 2026-05-22 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0014_live_session_interactions"
-down_revision: Union[str, None] = "0013_professor_chat_image_attachments"
+revision: str = "0014"
+down_revision: Union[str, None] = "0013"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -69,3 +69,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     if "live_session_interactions" in _tables():
         op.drop_table("live_session_interactions")
+

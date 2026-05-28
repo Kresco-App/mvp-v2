@@ -1,7 +1,7 @@
 """Add Stripe webhook event dedupe table
 
-Revision ID: 0031_stripe_webhook_events
-Revises: 0030_saved_items_unique_constraint
+Revision ID: 0031
+Revises: 0030
 Create Date: 2026-05-28 01:00:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0031_stripe_webhook_events"
-down_revision: Union[str, None] = "0030_saved_items_unique_constraint"
+revision: str = "0031"
+down_revision: Union[str, None] = "0030"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -56,3 +56,4 @@ def downgrade() -> None:
         op.drop_index("ix_stripe_webhook_events_event_id", table_name=TABLE_NAME)
     if TABLE_NAME in _table_names():
         op.drop_table(TABLE_NAME)
+

@@ -1,7 +1,7 @@
 """add tab quiz submission idempotency
 
-Revision ID: 0024_tab_quiz_submission_idempotency
-Revises: 0023_context_and_professor_fks
+Revision ID: 0024
+Revises: 0023
 Create Date: 2026-05-27 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0024_tab_quiz_submission_idempotency"
-down_revision: Union[str, None] = "0023_context_and_professor_fks"
+revision: str = "0024"
+down_revision: Union[str, None] = "0023"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -56,3 +56,4 @@ def downgrade() -> None:
         op.drop_index(INDEX_NAME, table_name="quiz_attempts")
     if "submission_hash" in _columns("quiz_attempts"):
         op.drop_column("quiz_attempts", "submission_hash")
+

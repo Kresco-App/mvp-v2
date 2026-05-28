@@ -86,9 +86,9 @@ def test_hot_path_index_migration_declares_required_indexes():
     progress_migration = (BACKEND_ROOT / "alembic" / "versions" / "0044_topic_item_progress_user_item_status_index.py").read_text(encoding="utf-8")
     migration_text = composite_migration + "\n" + filter_migration + "\n" + progress_migration
 
-    assert 'down_revision: Union[str, None] = "0027_media_quota_counters"' in composite_migration
-    assert 'down_revision: Union[str, None] = "0038_gamification_context_foreign_keys"' in filter_migration
-    assert 'down_revision: Union[str, None] = "0043_server_defaults_for_hot_path_columns"' in progress_migration
+    assert 'down_revision: Union[str, None] = "0027"' in composite_migration
+    assert 'down_revision: Union[str, None] = "0038"' in filter_migration
+    assert 'down_revision: Union[str, None] = "0043"' in progress_migration
     for required in audit.REQUIRED_INDEXES:
         assert required.name in migration_text
         assert required.table in migration_text
@@ -115,7 +115,7 @@ def test_user_hot_path_indexes_exist_in_model_metadata():
 def test_user_hot_path_index_migration_declares_required_indexes():
     migration = (BACKEND_ROOT / "alembic" / "versions" / "0033_user_hot_path_indexes.py").read_text(encoding="utf-8")
 
-    assert 'down_revision: Union[str, None] = "0032_email_dispatch_throttles"' in migration
+    assert 'down_revision: Union[str, None] = "0032"' in migration
     assert '"ix_users_stripe_customer_id", ("stripe_customer_id",)' in migration
     assert '"ix_users_is_active", ("is_active",)' in migration
     assert '"ix_users_role_niveau_filiere_active", ("role", "niveau", "filiere", "is_active")' in migration

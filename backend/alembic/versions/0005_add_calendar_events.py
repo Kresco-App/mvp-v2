@@ -1,7 +1,7 @@
 """add calendar events
 
-Revision ID: 0005_add_calendar_events
-Revises: 0004_kresco_v1_foundation
+Revision ID: 0005
+Revises: 0004
 Create Date: 2026-05-10 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0005_add_calendar_events"
-down_revision: Union[str, None] = "0004_kresco_v1_foundation"
+revision: str = "0005"
+down_revision: Union[str, None] = "0004"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -44,3 +44,4 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_calendar_events_ends_at"), table_name="calendar_events")
     op.drop_index(op.f("ix_calendar_events_starts_at"), table_name="calendar_events")
     op.drop_table("calendar_events")
+

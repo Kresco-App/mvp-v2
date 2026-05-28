@@ -1,7 +1,7 @@
 """add exam access policy
 
-Revision ID: 0008_add_exam_access_policy
-Revises: 0007_add_subject_entitlements
+Revision ID: 0008
+Revises: 0007
 Create Date: 2026-05-10 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0008_add_exam_access_policy"
-down_revision: Union[str, None] = "0007_add_subject_entitlements"
+revision: str = "0008"
+down_revision: Union[str, None] = "0007"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -56,3 +56,4 @@ def downgrade() -> None:
         op.drop_column("exams", "required_feature_key")
     if "required_tier" in exam_columns:
         op.drop_column("exams", "required_tier")
+

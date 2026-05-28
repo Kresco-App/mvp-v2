@@ -1,7 +1,7 @@
 """add subject context to interactions
 
-Revision ID: 0019_interaction_subject_context
-Revises: 0018_notifications_user_created_index
+Revision ID: 0019
+Revises: 0018
 Create Date: 2026-05-26 00:00:00.000000
 """
 from typing import Sequence, Union
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0019_interaction_subject_context"
-down_revision: Union[str, None] = "0018_notifications_user_created_index"
+revision: str = "0019"
+down_revision: Union[str, None] = "0018"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -65,3 +65,4 @@ def downgrade() -> None:
         if table_name in _table_names() and column_name in _columns(table_name):
             with op.batch_alter_table(table_name) as batch_op:
                 batch_op.drop_column(column_name)
+
