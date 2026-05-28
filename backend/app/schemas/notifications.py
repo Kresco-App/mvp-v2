@@ -17,3 +17,8 @@ class NotificationOut(BaseModel):
 class NotificationListOut(BaseModel):
     notifications: list[NotificationOut]
     unread_count: int
+
+
+class NotificationBulkDeleteConfirmationOut(BaseModel):
+    confirmation_token: str
+    expires_in_seconds: int

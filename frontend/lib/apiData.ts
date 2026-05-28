@@ -1,13 +1,12 @@
 import type { SWRConfiguration } from 'swr'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 
 const NON_RETRYABLE_STATUSES = new Set([400, 401, 403, 404, 409, 422])
 export const API_DATA_ERROR_RETRY_COUNT = 2
 export const API_DATA_ERROR_RETRY_INTERVAL_MS = 1500
 
 export async function apiSWRFetcher<T = unknown>(url: string): Promise<T> {
-  const { data } = await api.get<T>(url)
-  return data
+  return getJson<T>(url)
 }
 
 export function apiErrorStatus(error: unknown): number | undefined {

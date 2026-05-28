@@ -69,17 +69,31 @@ export function getAuthenticatedDestination(user: AuthUserLike | null | undefine
   return isProfessorUser(user) ? AUTH_ROUTES.professorHome : AUTH_ROUTES.studentHome
 }
 
+export function getSafePostLoginDestination(
+  nextDestination: string | null | undefined,
+  user: AuthUserLike | null | undefined,
+) {
+  const value = String(nextDestination ?? '').trim()
+  if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null
+  if (value === AUTH_ROUTES.landing || value.startsWith('/auth/') || value === AUTH_ROUTES.professorLogin) return null
+  if (isProfessorRoute(value)) return isProfessorUser(user) ? value : null
+  if (value === '/admin' || value.startsWith('/admin/')) return isStaffUser(user) ? value : null
+  return isProfessorUser(user) ? null : value
+}
+
 export function getUnauthorizedDestination(pathname = '') {
   return isProfessorRoute(pathname) ? AUTH_ROUTES.professorLogin : AUTH_ROUTES.landing
 }
 
-export function resolveAuthSuccess(user: AuthUserLike | null | undefined) {
+export function resolveAuthSuccess(user: AuthUserLike | null | undefined, nextDestination?: string | null) {
+  const safeNextDestination = getSafePostLoginDestination(nextDestination, user)
+
   if (isProfessorUser(user)) {
-    return { action: 'redirect' as const, destination: AUTH_ROUTES.professorHome }
+    return { action: 'redirect' as const, destination: safeNextDestination ?? AUTH_ROUTES.professorHome }
   }
 
   const onboardingStep = getStudentOnboardingStep(user)
   if (onboardingStep) return { action: 'onboarding' as const, step: onboardingStep }
 
-  return { action: 'redirect' as const, destination: AUTH_ROUTES.studentHome }
+  return { action: 'redirect' as const, destination: safeNextDestination ?? AUTH_ROUTES.studentHome }
 }

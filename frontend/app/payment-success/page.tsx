@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import api from '@/lib/axios'
+import { apiJsonClient } from '@/lib/apiClient'
 import { useAuthStore } from '@/lib/store'
 import { verifyCheckoutSession } from '@/lib/payments'
 import KrescoLogo from '@/components/KrescoLogo'
@@ -12,7 +12,7 @@ import { CheckCircle, Loader2 } from 'lucide-react'
 function PaymentSuccessContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { updateUser } = useAuthStore()
+  const updateUser = useAuthStore((state) => state.updateUser)
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
 
   useEffect(() => {
@@ -20,7 +20,7 @@ function PaymentSuccessContent() {
     let cancelled = false
     setStatus('loading')
 
-    verifyCheckoutSession(api, sessionId)
+    verifyCheckoutSession(apiJsonClient, sessionId)
       .then((result) => {
         if (cancelled) return
         if (result.status === 'success') {

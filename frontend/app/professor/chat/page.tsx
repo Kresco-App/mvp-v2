@@ -2,12 +2,18 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { Check, ImageIcon, Loader2, MessageCircle, MoreHorizontal, Pencil, Pin, Search, Send, Star, Trash2, UserRoundCheck, X } from 'lucide-react'
+import { Check, ChevronUp, ImageIcon, Loader2, MessageCircle, MoreHorizontal, Pencil, Pin, Search, Send, Star, Trash2, UserRoundCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { professorInboxChannelName, subscribeKrescoRealtime } from '@/lib/ably'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { canEditChatMessage, parseChatTimestamp, shouldShowChatTimestamp } from '@/lib/chatTime'
+import {
+  CHAT_INITIAL_VISIBLE_MESSAGE_COUNT,
+  CHAT_OLDER_MESSAGE_BATCH_SIZE,
+  getVisibleChatMessageWindow,
+  nextVisibleChatMessageCount,
+} from '@/lib/chatVirtualization'
 import {
   useProfessorChatData,
   type ProfessorMessagesEnvelope,
@@ -25,7 +31,7 @@ import {
 import { useAuthStore } from '@/lib/store'
 
 export default function ProfessorChatPage() {
-  const { user } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'unread' | 'pinned'>('all')
@@ -38,6 +44,7 @@ export default function ProfessorChatPage() {
   const [editDraft, setEditDraft] = useState('')
   const [savingEditId, setSavingEditId] = useState<number | null>(null)
   const [deletingMessageIds, setDeletingMessageIds] = useState<Set<number>>(new Set())
+  const [visibleMessageCount, setVisibleMessageCount] = useState(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const conversationErrorRef = useRef<unknown>(null)
@@ -53,10 +60,6 @@ export default function ProfessorChatPage() {
     mutateConversations,
     mutateMessages,
   } = useProfessorChatData({ q: query, filter }, activeId)
-
-  useEffect(() => {
-    document.title = 'Professor Chat - Kresco'
-  }, [])
 
   const conversationErrorMessage = useMemo(
     () => conversationsError ? apiDataErrorMessage(conversationsError, 'Could not load conversations.') : '',
@@ -130,6 +133,18 @@ export default function ProfessorChatPage() {
   }, [selectedImagePreview])
 
   const active = useMemo(() => conversations.find((conversation) => conversation.id === activeId) ?? null, [activeId, conversations])
+  const messageWindow = useMemo(
+    () => getVisibleChatMessageWindow(messages, visibleMessageCount),
+    [messages, visibleMessageCount],
+  )
+
+  useEffect(() => {
+    setVisibleMessageCount(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
+  }, [activeId])
+
+  const showOlderMessages = useCallback(() => {
+    setVisibleMessageCount((current) => nextVisibleChatMessageCount(current, messages.length))
+  }, [messages.length])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -377,7 +392,21 @@ export default function ProfessorChatPage() {
                         </button>
                       </div>
                     )}
-                    {messages.map((message, index) => {
+                    {messageWindow.canShowOlder && (
+                      <div className="flex justify-center py-1">
+                        <button
+                          type="button"
+                          onClick={showOlderMessages}
+                          className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#71717b] transition hover:-translate-y-px hover:text-[#3f3f46]"
+                          aria-label={`Show ${Math.min(CHAT_OLDER_MESSAGE_BATCH_SIZE, messageWindow.hiddenBeforeCount)} older messages`}
+                        >
+                          <ChevronUp size={14} />
+                          Show older
+                        </button>
+                      </div>
+                    )}
+                    {messageWindow.messages.map((message, visibleIndex) => {
+                      const index = messageWindow.startIndex + visibleIndex
                       const mine = isSameUser(message.sender_user_id, user?.id)
                       const showTimestamp = shouldShowChatTimestamp(messages, index)
                       const isEditing = editingMessageId === message.id

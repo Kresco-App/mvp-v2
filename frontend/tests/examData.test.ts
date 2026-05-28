@@ -56,20 +56,17 @@ describe('exam SWR data', () => {
     }).map((lesson) => lesson.id)).toEqual([1, 2, 3])
   })
 
-  it('loads the first non-empty lesson quiz and skips missing quizzes', async () => {
+  it('loads the discovered subject quiz without probing every lesson', async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/courses/subjects/42') {
+      if (url === '/quizzes/subjects/42/discovery') {
         return {
           data: {
-            chapters: [
-              { lessons: [{ id: 10 }, { id: 11 }, { id: 12 }] },
-            ],
+            subjectId: 42,
+            lessonId: 12,
+            quiz: quizFixture(12, 'Limits exam'),
           },
         }
       }
-      if (url === '/quizzes/10') throw { response: { status: 404 } }
-      if (url === '/quizzes/11') return { data: { id: 11, title: 'Empty quiz', pass_score: 80, questions: [] } }
-      if (url === '/quizzes/12') return { data: quizFixture(12, 'Limits exam') }
       throw new Error(`unexpected url ${url}`)
     })
 
@@ -80,21 +77,15 @@ describe('exam SWR data', () => {
       lessonId: 12,
       quiz: expect.objectContaining({ title: 'Limits exam' }),
     })
-    expect(mocks.apiGet.mock.calls.map((call) => call[0])).toEqual([
-      '/courses/subjects/42',
-      '/quizzes/10',
-      '/quizzes/11',
-      '/quizzes/12',
-    ])
+    expect(mocks.apiGet.mock.calls.map((call) => call[0])).toEqual(['/quizzes/subjects/42/discovery'])
   })
 
   it('does not expose a previous subject quiz after the route subject id changes', async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/courses/subjects/1') {
-        return { data: { chapters: [{ lessons: [{ id: 101 }] }] } }
+      if (url === '/quizzes/subjects/1/discovery') {
+        return { data: { subjectId: '1', lessonId: 101, quiz: quizFixture(101, 'Subject one quiz') } }
       }
-      if (url === '/quizzes/101') return { data: quizFixture(101, 'Subject one quiz') }
-      if (url === '/courses/subjects/2') return new Promise(() => undefined)
+      if (url === '/quizzes/subjects/2/discovery') return new Promise(() => undefined)
       throw new Error(`unexpected url ${url}`)
     })
 

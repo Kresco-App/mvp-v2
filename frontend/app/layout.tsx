@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
-import { connection } from 'next/server'
 import AppToaster from '@/components/AppToaster'
 import ApiDataProvider from '@/components/ApiDataProvider'
+import ClientErrorReporter from '@/components/ClientErrorReporter'
 import './globals.css'
 
 const sunghyunSans = localFont({
@@ -59,20 +59,59 @@ const sfProRounded = localFont({
   display: 'swap',
 })
 
+const siteTitle = 'Kresco - Plateforme E-Learning'
+const siteDescription = 'Preparez votre Bac avec des cours video, des quiz interactifs et un suivi personnalise.'
+const siteUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://kresco.ma')
+const releaseSha = process.env.NEXT_PUBLIC_RELEASE_SHA ?? 'development'
+
 export const metadata: Metadata = {
-  title: 'Kresco — Plateforme E-Learning',
-  description: 'Preparez votre Bac avec des cours video, des quiz interactifs et un suivi personnalise.',
+  metadataBase: siteUrl,
+  applicationName: 'Kresco',
+  title: {
+    default: siteTitle,
+    template: '%s - Kresco',
+  },
+  description: siteDescription,
+  keywords: [
+    'Kresco',
+    'Bac Maroc',
+    'cours video',
+    'quiz interactifs',
+    'plateforme e-learning',
+  ],
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    type: 'website',
+    url: '/',
+    siteName: 'Kresco',
+    title: siteTitle,
+    description: siteDescription,
+    locale: 'fr_MA',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: siteTitle,
+    description: siteDescription,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  other: {
+    'kresco:release': releaseSha,
+  },
 }
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  await connection()
-
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr">
+    <html lang="fr" data-release={releaseSha}>
       <body className={`${sfProRounded.variable} ${sunghyunSans.variable} antialiased`}>
         <ApiDataProvider>
           {children}
         </ApiDataProvider>
+        <ClientErrorReporter />
         <AppToaster />
       </body>
     </html>

@@ -49,6 +49,21 @@ describe('SafeRichText', () => {
     expect(container.querySelector('span')?.hasAttribute('style')).toBe(false)
   })
 
+  it('drops nested executable markup before reconstructing React nodes', async () => {
+    const container = renderComponent(React.createElement(SafeRichText, {
+      html: '<p>Safe <svg><script>alert(1)</script><a href="/ok">link</a></svg><iframe srcdoc="<script>alert(2)</script>"></iframe></p>',
+    }))
+
+    await act(async () => undefined)
+
+    expect(container.textContent).toContain('Safe')
+    expect(container.textContent).not.toContain('alert')
+    expect(container.querySelector('svg')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+    expect(container.querySelector('iframe')).toBeNull()
+    expect(container.innerHTML).not.toContain('srcdoc')
+  })
+
   it('provides a plain text fallback for the pre-hydration render', () => {
     expect(textFromSanitizedHtml('<p>One <strong>two</strong></p>')).toBe('One two')
   })

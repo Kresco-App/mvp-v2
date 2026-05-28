@@ -2,7 +2,11 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import * as d3 from 'd3';
+import { range } from 'd3-array';
+import { easeCubicOut } from 'd3-ease';
+import { scaleLinear } from 'd3-scale';
+import { select } from 'd3-selection';
+import 'd3-transition';
 import { useTheme } from '../context/ThemeContext';
 
 interface VariationsProps {
@@ -27,13 +31,13 @@ export default function VariationsAnimation({ variation }: VariationsProps) {
             if (width === 0) return;
 
             // Clear previous
-            d3.select(containerRef.current).selectAll('*').remove();
+            select(containerRef.current).selectAll('*').remove();
 
             const height = containerRef.current.clientHeight;
             const cx = width / 2;
             const cy = height / 2;
 
-            const svg = d3.select(containerRef.current)
+            const svg = select(containerRef.current)
                 .append('svg')
                 .attr('width', width)
                 .attr('height', height)
@@ -43,7 +47,7 @@ export default function VariationsAnimation({ variation }: VariationsProps) {
             // Draw the real number line
             const lineY = cy;
             const margin = 40;
-            const scale = d3.scaleLinear()
+            const scale = scaleLinear()
                 .domain([-5, 5])
                 .range([margin, width - margin]);
 
@@ -71,7 +75,7 @@ export default function VariationsAnimation({ variation }: VariationsProps) {
                 .attr('fill', axisColor);
 
             // Ticks
-            const ticks = d3.range(-4, 5);
+            const ticks = range(-4, 5);
             svg.selectAll('line.tick')
                 .data(ticks)
                 .enter()
@@ -140,7 +144,7 @@ export default function VariationsAnimation({ variation }: VariationsProps) {
                     .style('filter', 'drop-shadow(0 0 4px rgba(16, 185, 129, 0.5))')
                     .transition()
                     .duration(800)
-                    .ease(d3.easeCubicOut)
+                    .ease(easeCubicOut)
                     .attr('x2', scale(endX));
             };
 

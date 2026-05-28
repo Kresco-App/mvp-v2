@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
+
+from app.schemas.limits import ShortText, StrictInputModel
 
 
 class LessonOut(BaseModel):
@@ -279,22 +281,22 @@ class TopicWorkspaceOut(BaseModel):
     search_results: list[TopicItemOut] = []
 
 
-class ActivityEventIn(BaseModel):
-    event_type: str
-    target_type: str = "topic_item"
+class ActivityEventIn(StrictInputModel):
+    event_type: ShortText
+    target_type: ShortText = "topic_item"
     target_id: int
     topic_id: Optional[int] = None
     topic_item_id: Optional[int] = None
     metadata_json: dict = {}
 
 
-class TopicItemCompleteIn(BaseModel):
-    watched_seconds: int = 0
-    score: Optional[int] = None
+class TopicItemCompleteIn(StrictInputModel):
+    watched_seconds: int = Field(default=0, ge=0)
+    score: Optional[int] = Field(default=None, ge=0, le=100)
 
 
-class TabQuizSubmitIn(BaseModel):
-    answers: dict[str, Any]
+class TabQuizSubmitIn(StrictInputModel):
+    answers: dict[ShortText, Any]
     duration_seconds: int = 0
 
 

@@ -10,8 +10,10 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
+from app.config import Settings
+from app.security.csrf import AdminCSRFMiddleware
 from app.models.users import User
-from app.security.passwords import verify_password
+from app.security.passwords import is_unusable_password, verify_password
 
 ADMIN_SESSION_AUTHENTICATED = "admin_authenticated"
 ADMIN_SESSION_USER_ID = "admin_user_id"
@@ -63,15 +65,16 @@ async def _write_admin_auth_audit(
 
 
 class StaffAdminAuth(AuthenticationBackend):
-    def __init__(self, secret_key: str, *, https_only: bool = False) -> None:
+    def __init__(self, settings: Settings) -> None:
         self.middlewares = [
             Middleware(
                 SessionMiddleware,
-                secret_key=secret_key,
+                secret_key=settings.jwt_secret_key,
                 max_age=86400,
                 same_site="lax",
-                https_only=https_only,
-            )
+                https_only=settings.is_production_like,
+            ),
+            Middleware(AdminCSRFMiddleware, settings=settings),
         ]
 
     async def login(self, request: Request) -> bool:
@@ -108,7 +111,7 @@ class StaffAdminAuth(AuthenticationBackend):
                 or not user.is_active
                 or not user.is_email_verified
                 or not user.is_staff
-                or user.password == "!"
+                or is_unusable_password(user.password)
                 or not verify_password(password, user.password)
             ):
                 await _write_admin_auth_audit(

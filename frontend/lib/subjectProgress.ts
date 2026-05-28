@@ -1,6 +1,6 @@
 'use client'
 
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 
 export interface SubjectPlanData {
   completed_lesson_ids: number[]
@@ -19,8 +19,7 @@ export interface SubjectProgressSummary {
 }
 
 export async function fetchSubjectPlan(subjectId: number | string) {
-  const response = await api.get(`/progress/subject-plan/${subjectId}`)
-  return response.data as SubjectPlanData
+  return getJson<SubjectPlanData>(`/progress/subject-plan/${subjectId}`)
 }
 
 export function buildSubjectProgressSummary(

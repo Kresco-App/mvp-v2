@@ -4,18 +4,25 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, BookOpen, ChevronRight, Plus } from 'lucide-react'
-import api from '@/lib/axios'
+import { toast } from 'sonner'
+import { getJson } from '@/lib/apiClient'
 import AuthGuard from '@/components/AuthGuard'
 
 export default function AdminCoursesPage() {
   const [subjects, setSubjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const router = useRouter()
 
   useEffect(() => {
-    api.get('/courses/subjects')
-      .then(r => setSubjects(r.data ?? []))
-      .catch(() => {})
+    setError('')
+    getJson<any[]>('/courses/subjects')
+      .then(data => setSubjects(data ?? []))
+      .catch(() => {
+        const message = 'Impossible de charger les cours.'
+        setError(message)
+        toast.error(message)
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -39,6 +46,10 @@ export default function AdminCoursesPage() {
           {loading ? (
             <div className="space-y-2">
               {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-900 rounded-xl animate-pulse" />)}
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              {error}
             </div>
           ) : subjects.length === 0 ? (
             <div className="text-center py-16 text-slate-500">

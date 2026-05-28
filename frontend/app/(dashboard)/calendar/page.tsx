@@ -7,7 +7,7 @@ import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { listKrescoRealtimeSubscriptions, subscribeKrescoRealtimeChannels, userNotificationsChannelName } from '@/lib/ably'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 import {
   addDays,
   addMonths,
@@ -54,7 +54,7 @@ export default function CalendarPage() {
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
   const requestedEventId = useMemo(() => parseCalendarEventId(new URLSearchParams(searchKey)), [searchKey])
-  const { user } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()))
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
@@ -62,18 +62,16 @@ export default function CalendarPage() {
 
   const selectedWeekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index)), [selectedWeekStart])
+  const calendarTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', [])
   const firstName = user?.full_name?.split(' ')?.[0] || 'Khalid'
-
-  useEffect(() => { document.title = 'Calendar - Kresco' }, [])
 
   useEffect(() => {
     if (!requestedEventId) return
     let alive = true
 
-    api.get<CalendarEvent>(`/calendar/events/${requestedEventId}`)
-      .then((res) => {
+    getJson<CalendarEvent>(`/calendar/events/${requestedEventId}`)
+      .then((event) => {
         if (!alive) return
-        const event = res.data
         setSelectedEvent(event)
         const eventDate = dateForCalendarEvent(event)
         if (eventDate) setSelectedDate(eventDate)
@@ -91,14 +89,15 @@ export default function CalendarPage() {
   const loadEventsForWeek = useCallback(async (alive: () => boolean) => {
     setLoading(true)
     try {
-      const res = await api.get('/calendar/events', {
+      const data = await getJson<CalendarEvent[]>('/calendar/events', {
         params: {
           start: formatCalendarDate(selectedWeekStart),
           end: formatCalendarDate(addDays(selectedWeekStart, 6)),
+          timezone: calendarTimeZone,
         },
       })
       if (!alive()) return
-      const nextEvents = Array.isArray(res.data) ? res.data : []
+      const nextEvents = Array.isArray(data) ? data : []
       setEvents(nextEvents)
       if (requestedEventId) {
         setSelectedEvent(findCalendarEventById(nextEvents, requestedEventId))
@@ -108,7 +107,7 @@ export default function CalendarPage() {
     } finally {
       if (alive()) setLoading(false)
     }
-  }, [requestedEventId, selectedWeekStart])
+  }, [calendarTimeZone, requestedEventId, selectedWeekStart])
 
   useEffect(() => {
     let alive = true
@@ -118,6 +117,7 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (!user?.id) return
+    const userId = user.id
     let cleanup = () => {}
     let stopped = false
     const refresh = () => void loadEventsForWeek(() => true)
@@ -132,7 +132,7 @@ export default function CalendarPage() {
       .catch(() => {
         if (stopped) return
         cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: [userNotificationsChannelName(user.id)],
+          channelNames: [userNotificationsChannelName(userId)],
           onMessage: refresh,
         })
       })

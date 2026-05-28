@@ -43,9 +43,16 @@ REQUIRED_INDEXES: tuple[RequiredIndex, ...] = (
     RequiredIndex("topic_items", "ix_topic_items_workspace_order", ("topic_id", "status", "section_id", "order", "id")),
     RequiredIndex("tab_contents", "ix_tab_contents_item_status_order", ("topic_item_id", "status", "order", "id")),
     RequiredIndex("topic_item_progress", "ix_topic_item_progress_user_topic_item", ("user_id", "topic_id", "topic_item_id")),
+    RequiredIndex("topic_item_progress", "ix_topic_item_progress_user_item_status", ("user_id", "topic_item_id", "status")),
     RequiredIndex("user_notes", "ix_user_notes_user_topic_updated", ("user_id", "topic_id", "updated_at")),
     RequiredIndex("chapters", "ix_chapters_subject_order", ("subject_id", "order", "id")),
     RequiredIndex("chapter_sections", "ix_chapter_sections_chapter_order", ("chapter_id", "order", "id")),
+    RequiredIndex("topics", "ix_topics_status", ("status",)),
+    RequiredIndex("resources", "ix_resources_status", ("status",)),
+    RequiredIndex("exams", "ix_exams_status", ("status",)),
+    RequiredIndex("exam_problems", "ix_exam_problems_status", ("status",)),
+    RequiredIndex("saved_items", "ix_saved_items_target_lookup", ("target_type", "target_id")),
+    RequiredIndex("admin_audit_logs", "ix_admin_audit_created_at", ("created_at",)),
 )
 
 PLAN_CHECKS: tuple[PlanCheck, ...] = (
@@ -76,9 +83,9 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
         "topic workspace progress",
         (
             "SELECT id FROM topic_item_progress "
-            "WHERE user_id = 1 AND topic_id = 1 AND topic_item_id IN (1, 2, 3)"
+            "WHERE user_id = 1 AND topic_item_id IN (1, 2, 3) AND status = 'completed'"
         ),
-        "ix_topic_item_progress_user_topic_item",
+        "ix_topic_item_progress_user_item_status",
     ),
     PlanCheck(
         "topic workspace notes",

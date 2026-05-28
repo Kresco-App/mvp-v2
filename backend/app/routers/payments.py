@@ -1,29 +1,20 @@
-import logging
-
 import stripe
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
 from app.schemas.payments import CheckoutOut, VerifyOut
-from app.services.payment_entitlements import (
-    apply_paid_checkout_by_user_id,
-    apply_paid_checkout_to_user,
-    persist_created_stripe_customer,
-    revoke_paid_access_by_customer_id,
-    stripe_metadata_user_id,
+from app.services.payment_lifecycle import (
+    create_checkout_state,
+    process_stripe_webhook_event,
+    record_stripe_webhook_event_once as _record_stripe_webhook_event_once,
+    verify_checkout_session_state,
 )
 from app.services.stripe_service import create_checkout_session, customer_id_for_charge, verify_checkout_session
 
 router = APIRouter(tags=["Payments"])
-logger = logging.getLogger("kresco.payments")
-
-
-def _event_value(data, key: str, default: str = "") -> str:
-    value = data.get(key, default) if hasattr(data, "get") else getattr(data, key, default)
-    return str(value or "").strip()
 
 
 @router.post("/create-checkout-session", response_model=CheckoutOut)
@@ -33,26 +24,31 @@ async def create_checkout(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    previous_customer_id = user.stripe_customer_id
-    checkout_url = await create_checkout_session(user, plan, settings)
-    await persist_created_stripe_customer(db, user, previous_customer_id=previous_customer_id)
-
-    return CheckoutOut(checkout_url=checkout_url)
+    return await create_checkout_state(
+        db,
+        user=user,
+        plan=plan,
+        settings=settings,
+        create_checkout_session_fn=create_checkout_session,
+    )
 
 
 @router.get("/verify-session", response_model=VerifyOut)
 async def verify_session(
     session_id: str,
+    idempotency_key: str = Header(..., min_length=8, max_length=160, alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    verification = await verify_checkout_session(session_id, settings)
-    if verification.is_paid and verification.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Checkout session does not belong to this user")
-    if verification.is_paid:
-        await apply_paid_checkout_to_user(db, user, customer_id=verification.customer_id)
-    return VerifyOut(is_pro=user.is_pro)
+    return await verify_checkout_session_state(
+        db,
+        user=user,
+        session_id=session_id,
+        idempotency_key=idempotency_key,
+        settings=settings,
+        verify_checkout_session_fn=verify_checkout_session,
+    )
 
 
 @router.post("/webhook")
@@ -63,43 +59,12 @@ async def stripe_webhook(
 ):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
-
-    if not settings.stripe_webhook_secret:
-        raise HTTPException(status_code=500, detail="Webhook secret not configured")
-
-    try:
-        event = stripe.Webhook.construct_event(payload, sig, settings.stripe_webhook_secret)
-    except stripe.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid Stripe signature")
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid payload")
-
-    event_type = event["type"]
-    data = event["data"]["object"]
-
-    if event_type == "checkout.session.completed":
-        user_id = stripe_metadata_user_id(data.get("metadata", {}))
-        if user_id is None:
-            logger.warning("stripe_checkout_completed_missing_user_id")
-            return {"received": True}
-        await apply_paid_checkout_by_user_id(db, user_id, customer_id=data.get("customer", ""))
-
-    elif event_type in ("customer.subscription.deleted", "invoice.payment_failed"):
-        await revoke_paid_access_by_customer_id(db, customer_id=_event_value(data, "customer"))
-
-    elif event_type == "charge.refunded":
-        await revoke_paid_access_by_customer_id(db, customer_id=_event_value(data, "customer"))
-
-    elif event_type == "charge.dispute.created":
-        customer_id = _event_value(data, "customer")
-        charge_id = _event_value(data, "charge")
-        if not customer_id:
-            customer_id = await customer_id_for_charge(charge_id, settings)
-        if not customer_id:
-            logger.warning("stripe_dispute_created_missing_customer")
-            if charge_id:
-                raise HTTPException(status_code=502, detail="Could not resolve disputed Stripe customer")
-            return {"received": True}
-        await revoke_paid_access_by_customer_id(db, customer_id=customer_id)
-
-    return {"received": True}
+    return await process_stripe_webhook_event(
+        db,
+        settings=settings,
+        payload=payload,
+        signature=sig,
+        construct_event_fn=stripe.Webhook.construct_event,
+        customer_id_for_charge_fn=customer_id_for_charge,
+        record_webhook_event_once_fn=_record_stripe_webhook_event_once,
+    )

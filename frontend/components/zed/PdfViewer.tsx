@@ -46,7 +46,20 @@ async function readAllDocuments(): Promise<LocalDocument[]> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(DOC_STORE, 'readonly')
     const request = transaction.objectStore(DOC_STORE).getAll()
-    request.onsuccess = () => resolve(request.result as LocalDocument[])
+    request.onsuccess = async () => {
+      try {
+        const stored = request.result as LocalDocument[]
+        const valid = []
+        for (const document of stored) {
+          if (document.blob && await hasPdfMagicBytes(document.blob)) {
+            valid.push(document)
+          }
+        }
+        resolve(valid)
+      } catch (error) {
+        reject(error)
+      }
+    }
     request.onerror = () => reject(request.error)
     transaction.oncomplete = () => db.close()
   })
@@ -81,6 +94,12 @@ async function deleteDocument(id: string): Promise<void> {
 function formatBytes(size: number) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+async function hasPdfMagicBytes(blob: Blob): Promise<boolean> {
+  const header = new Uint8Array(await blob.slice(0, 5).arrayBuffer())
+  const expected = [0x25, 0x50, 0x44, 0x46, 0x2d]
+  return expected.every((byte, index) => header[index] === byte)
 }
 
 export default function PdfViewer({ onPinSnippet }: Props) {
@@ -129,6 +148,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
     const nextUrl = URL.createObjectURL(active.blob)
     objectUrlRef.current = nextUrl
     setPdfUrl(nextUrl)
+    setStatus('Document sauvegarde hors ligne')
     localStorage.setItem(ACTIVE_DOC_KEY, active.id)
 
     return () => {
@@ -145,6 +165,12 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setStatus('Seuls les fichiers PDF sont pris en charge pour cette version')
+      e.target.value = ''
+      return
+    }
+
+    if (!(await hasPdfMagicBytes(file))) {
+      setStatus('Le fichier ne semble pas etre un PDF valide')
       e.target.value = ''
       return
     }

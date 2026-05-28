@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { ArrowLeft, BookOpen, ClipboardCheck, Play } from 'lucide-react'
-import api from '@/lib/axios'
-import { buildSubjectProgressSummary, fetchSubjectPlan, type SubjectProgressSummary } from '@/lib/subjectProgress'
+import { getJson } from '@/lib/apiClient'
+import { buildSubjectProgressSummary, type SubjectPlanData, type SubjectProgressSummary } from '@/lib/subjectProgress'
 import { useAuthStore } from '@/lib/store'
 import { FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
 import { FigmaSubjectDetailSkeleton } from '@/components/figma/skeletons'
@@ -51,9 +51,11 @@ interface Subject {
   chapters: Chapter[]
 }
 
+const EMPTY_CHAPTERS: Chapter[] = []
+
 export default function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
-  const { user } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const [subject, setSubject] = useState<Subject | null>(null)
   const [loading, setLoading] = useState(true)
   const [chapterSections, setChapterSections] = useState<Record<number, Section[]>>({})
@@ -65,19 +67,19 @@ export default function SubjectDetailPage() {
   const isPro = user?.is_pro
 
   useEffect(() => {
+    const controller = new AbortController()
     async function load() {
       setLoading(true)
       setLoadError('')
       try {
-        const [subjectRes, subjectPlan, topicsRes] = await Promise.all([
-          api.get(`/courses/subjects/${subjectId}`),
-          fetchSubjectPlan(subjectId).catch(() => null),
-          api.get(`/courses/subjects/${subjectId}/topics`).catch(() => ({ data: [] })),
+        const [subjectData, subjectPlan, topicsData] = await Promise.all([
+          getJson<Subject>(`/courses/subjects/${subjectId}`, { signal: controller.signal }),
+          getJson<SubjectPlanData>(`/progress/subject-plan/${subjectId}`, { signal: controller.signal }),
+          getJson<TopicCard[]>(`/courses/subjects/${subjectId}/topics`, { signal: controller.signal }),
         ])
-        const subjectData = subjectRes.data as Subject
         setSubject(subjectData)
 
-        const subjectTopics = Array.isArray(topicsRes.data) ? topicsRes.data : []
+        const subjectTopics = Array.isArray(topicsData) ? topicsData : []
         setTopics(subjectTopics)
         if (subjectTopics.length > 0) {
           setChapterSections({})
@@ -104,16 +106,46 @@ export default function SubjectDetailPage() {
 
         setProgressSummary(subjectPlan ? buildSubjectProgressSummary(subjectPlan, totalLessonCount) : null)
       } catch {
+        if (controller.signal.aborted) return
         const message = 'Could not load this subject.'
         setLoadError(message)
         toast.error(message)
       } finally {
-        setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
 
     load()
+    return () => {
+      controller.abort()
+    }
   }, [reloadKey, subjectId])
+
+  const allSections = useMemo(() => Object.values(chapterSections).flat(), [chapterSections])
+  const totalSections = allSections.length
+  const completedCount = useMemo(() => allSections.filter((section) => section.is_completed).length, [allSections])
+  const hasTopicWorkspace = topics.length > 0
+  const topicItemTotal = useMemo(() => topics.reduce((total, topic) => total + topic.item_count, 0), [topics])
+  const topicCompletedCount = useMemo(() => topics.reduce((total, topic) => total + topic.completed_count, 0), [topics])
+  const totalCount = hasTopicWorkspace ? topicItemTotal : totalSections
+  const completedTotal = hasTopicWorkspace ? topicCompletedCount : completedCount
+  const percentage = hasTopicWorkspace
+    ? (topicItemTotal > 0 ? Math.round((topicCompletedCount / topicItemTotal) * 100) : 0)
+    : progressSummary?.percentage ?? (totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0)
+  const nextSection = useMemo(
+    () => allSections.find((section) => !section.is_completed && canAccessSection(section, isPro)),
+    [allSections, isPro],
+  )
+  const nextTopic = useMemo(
+    () => topics.find((topic) => topic.can_access !== false && topic.completed_count < topic.item_count) || topics.find((topic) => topic.can_access !== false),
+    [topics],
+  )
+  const continueHref = hasTopicWorkspace ? (nextTopic ? `/topics/${nextTopic.id}` : undefined) : (nextSection ? `/watch/${nextSection.id}` : undefined)
+  const subjectChapters = subject?.chapters ?? EMPTY_CHAPTERS
+  const activeChapterId = useMemo(
+    () => subjectChapters.find((chapter) => (chapterSections[chapter.id] || []).some((section) => section.id === nextSection?.id))?.id,
+    [chapterSections, nextSection?.id, subjectChapters],
+  )
 
   if (loading) {
     return <FigmaSubjectDetailSkeleton />
@@ -133,22 +165,6 @@ export default function SubjectDetailPage() {
       </main>
     )
   }
-
-  const allSections = Object.values(chapterSections).flat()
-  const totalSections = allSections.length
-  const completedCount = allSections.filter((section) => section.is_completed).length
-  const hasTopicWorkspace = topics.length > 0
-  const topicItemTotal = topics.reduce((total, topic) => total + topic.item_count, 0)
-  const topicCompletedCount = topics.reduce((total, topic) => total + topic.completed_count, 0)
-  const totalCount = hasTopicWorkspace ? topicItemTotal : totalSections
-  const completedTotal = hasTopicWorkspace ? topicCompletedCount : completedCount
-  const percentage = hasTopicWorkspace
-    ? (topicItemTotal > 0 ? Math.round((topicCompletedCount / topicItemTotal) * 100) : 0)
-    : progressSummary?.percentage ?? (totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0)
-  const nextSection = allSections.find((section) => !section.is_completed && canAccessSection(section, isPro))
-  const nextTopic = topics.find((topic) => topic.can_access !== false && topic.completed_count < topic.item_count) || topics.find((topic) => topic.can_access !== false)
-  const continueHref = hasTopicWorkspace ? (nextTopic ? `/topics/${nextTopic.id}` : undefined) : (nextSection ? `/watch/${nextSection.id}` : undefined)
-  const activeChapterId = subject.chapters.find((chapter) => (chapterSections[chapter.id] || []).some((section) => section.id === nextSection?.id))?.id
 
   return (
     <main className="w-full">

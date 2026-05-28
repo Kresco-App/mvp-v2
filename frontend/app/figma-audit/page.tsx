@@ -16,22 +16,24 @@ import {
   figmaWorkspaceTabs,
 } from '@/components/figma'
 import { QuizPrimitiveShowcase } from '@/components/quiz/QuizPrimitiveShowcase'
+import { nextImageOptimizerSrc } from '@/lib/nextImageOptimizer'
 import type { ReactNode } from 'react'
 
 const youtubeVideoId = 'M7lc1UVf-VE'
+const youtubeThumbnailSrc = nextImageOptimizerSrc(`https://i.ytimg.com/vi/${youtubeVideoId}/hqdefault.jpg`, 1280)
 
 const youtubeSrcDoc = `
   <style>
     *{box-sizing:border-box}
     body{margin:0;background:#111;font-family:Arial,sans-serif}
     a{position:absolute;inset:0;display:grid;place-items:center;text-decoration:none;overflow:hidden}
-    img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.9}
+    .thumb{position:absolute;inset:0;background-image:url("${youtubeThumbnailSrc}");background-size:cover;background-position:center;opacity:.9}
     .veil{position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.38),rgba(0,0,0,.05))}
     .play{position:relative;width:96px;height:68px;border-radius:18px;background:#ff0000;display:grid;place-items:center}
     .play:before{content:"";width:0;height:0;border-top:16px solid transparent;border-bottom:16px solid transparent;border-left:25px solid white;margin-left:6px}
   </style>
   <a href="https://www.youtube-nocookie.com/embed/${youtubeVideoId}?autoplay=1&rel=0&modestbranding=1">
-    <img src="https://i.ytimg.com/vi/${youtubeVideoId}/hqdefault.jpg" alt="YouTube video thumbnail">
+    <span class="thumb" role="img" aria-label="YouTube video thumbnail"></span>
     <span class="veil"></span>
     <span class="play" aria-label="Play"></span>
   </a>

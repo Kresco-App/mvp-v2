@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 import {
   courseFiltersEqual,
   courseFiltersToSearchParams,
@@ -58,15 +58,13 @@ export default function CoursesPage() {
   const [previewTopic, setPreviewTopic] = useState<TopicCard | null>(null)
   const { query, subject: subjectFilter, status: statusFilter } = filters
 
-  useEffect(() => { document.title = 'Courses - Kresco' }, [])
-
   useEffect(() => {
     let alive = true
 
-    api.get('/courses/topics')
-      .then((res) => {
+    getJson<TopicCard[]>('/courses/topics')
+      .then((data) => {
         if (!alive) return
-        setTopics(Array.isArray(res.data) ? res.data : [])
+        setTopics(Array.isArray(data) ? data : [])
       })
       .catch(() => {
         if (!alive) return

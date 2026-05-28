@@ -91,6 +91,27 @@ def test_cookie_write_accepts_trusted_origin_and_matching_csrf_token(app_client,
     assert run_db(_full_name("csrf-valid@example.com")) == "CSRF Protected"
 
 
+def test_pre_auth_auth_endpoints_reject_untrusted_origin(app_client):
+    response = app_client.post(
+        "/api/auth/login",
+        json={"email": "missing@example.com", "password": "strong-pass-123"},
+        headers={"Origin": "https://attacker.example"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "CSRF origin is not trusted"
+
+
+def test_pre_auth_auth_endpoints_accept_trusted_origin_without_csrf_token(app_client):
+    response = app_client.post(
+        "/api/auth/login",
+        json={"email": "missing@example.com", "password": "strong-pass-123"},
+        headers={"Origin": "http://localhost:3000"},
+    )
+
+    assert response.status_code == 401
+
+
 def test_csrf_refresh_endpoint_returns_token_for_cookie_session(app_client, run_db):
     _login_cookie_session(app_client, run_db, "csrf-refresh@example.com")
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -31,7 +31,7 @@ class CourseOffering(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
     track_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("program_tracks.id", ondelete="CASCADE"), index=True)
-    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(255), default="")
     status: Mapped[str] = mapped_column(String(30), default="active", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -51,7 +51,7 @@ class ProfessorChangeRequest(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     course_offering_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="CASCADE"), index=True)
-    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     target_type: Mapped[str] = mapped_column(String(40))
     target_id: Mapped[int] = mapped_column(Integer)
     change_type: Mapped[str] = mapped_column(String(60), default="update_fields")
@@ -78,7 +78,7 @@ class LiveSession(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     course_offering_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="CASCADE"), index=True)
-    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     calendar_event_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("calendar_events.id", ondelete="SET NULL"), nullable=True, index=True)
     vdocipher_live_id: Mapped[str] = mapped_column(String(255), default="")
     title: Mapped[str] = mapped_column(String(255))
@@ -126,7 +126,7 @@ class LiveSessionCheckpoint(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     live_session_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("live_sessions.id", ondelete="CASCADE"), index=True)
     course_offering_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="CASCADE"), index=True)
-    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(255))
     prompt: Mapped[str] = mapped_column(Text, default="")
     checkpoint_type: Mapped[str] = mapped_column(String(30), default="prompt", index=True)
@@ -151,7 +151,7 @@ class LiveSessionInteraction(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     live_session_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("live_sessions.id", ondelete="CASCADE"), index=True)
     course_offering_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="CASCADE"), index=True)
-    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     student_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(30), default="question", index=True)
     body: Mapped[str] = mapped_column(Text)
@@ -174,18 +174,20 @@ class ProfessorChatConversation(Base):
     __tablename__ = "professor_chat_conversations"
     __table_args__ = (
         UniqueConstraint("course_offering_id", "student_user_id", name="uq_professor_chat_offering_student"),
+        CheckConstraint("unread_for_professor >= 0", name="ck_professor_chat_unread_for_professor_nonnegative"),
+        CheckConstraint("unread_for_student >= 0", name="ck_professor_chat_unread_for_student_nonnegative"),
         Index("ix_professor_chat_professor_updated", "professor_user_id", "updated_at"),
         Index("ix_professor_chat_student_updated", "student_user_id", "updated_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     course_offering_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="CASCADE"), index=True)
-    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    professor_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     student_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(String(30), default="open", index=True)
     last_message_preview: Mapped[str] = mapped_column(String(255), default="")
-    unread_for_professor: Mapped[int] = mapped_column(Integer, default=0)
-    unread_for_student: Mapped[int] = mapped_column(Integer, default=0)
+    unread_for_professor: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    unread_for_student: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     is_pinned_by_professor: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -234,8 +236,8 @@ class RealtimeOutbox(Base):
     channel: Mapped[str] = mapped_column(String(255), index=True)
     event_name: Mapped[str] = mapped_column(String(120), index=True)
     payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
-    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(30), default="pending", server_default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_error: Mapped[str] = mapped_column(Text, default="")
     available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

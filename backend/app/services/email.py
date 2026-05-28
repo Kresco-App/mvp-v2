@@ -5,8 +5,17 @@ from html import escape
 from itsdangerous import URLSafeTimedSerializer
 
 import resend as resend_sdk
+import requests
 
 from app.config import Settings
+
+RESEND_EMAIL_TIMEOUT_SECONDS = 10
+
+
+@dataclass(frozen=True)
+class VerificationTokenPayload:
+    email: str
+    token_version: int
 
 
 @dataclass(frozen=True)
@@ -19,15 +28,32 @@ def _serializer(settings: Settings) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.jwt_secret_key)
 
 
-def generate_verification_token(email: str, settings: Settings) -> str:
-    return _serializer(settings).dumps(email, salt="email-verify")
+def generate_verification_token(email: str, settings: Settings, *, token_version: int = 0) -> str:
+    return _serializer(settings).dumps(
+        {"email": email.lower().strip(), "token_version": token_version},
+        salt="email-verify",
+    )
 
 
-def verify_verification_token(token: str, settings: Settings, max_age: int = 86400) -> str | None:
+def verify_verification_token(token: str, settings: Settings, max_age: int = 86400) -> VerificationTokenPayload | None:
     try:
-        return _serializer(settings).loads(token, salt="email-verify", max_age=max_age)
+        payload = _serializer(settings).loads(token, salt="email-verify", max_age=max_age)
     except Exception:
         return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    email = payload.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return None
+
+    try:
+        token_version = int(payload.get("token_version", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+
+    return VerificationTokenPayload(email=email.lower().strip(), token_version=token_version)
 
 
 def generate_reset_token(email: str, settings: Settings, *, token_version: int = 0) -> str:
@@ -63,7 +89,18 @@ def verify_reset_token(token: str, settings: Settings, max_age: int = 3600) -> R
 
 def _send_email_sync(api_key: str, params: dict) -> None:
     resend_sdk.api_key = api_key
-    resend_sdk.Emails.send(params)
+    response = requests.request(
+        "post",
+        f"{resend_sdk.api_url}/emails",
+        json=params,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": "kresco-backend",
+        },
+        timeout=RESEND_EMAIL_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
 
 
 async def send_verification_email(email: str, full_name: str, token: str, settings: Settings) -> None:

@@ -1,17 +1,19 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import TrueFalse from './TrueFalse'
-import Matching from './Matching'
-import FillInBlank from './FillInBlank'
-import Ordering from './Ordering'
-import DragAndDrop from './DragAndDrop'
-import OndeCaracteristiques from './ondes/OndeCaracteristiques'
-import OndePropagation from './ondes/OndePropagation'
-import OndeTrueFalse from './ondes/OndeTrueFalse'
-import EnsemblesLab from './math/EnsemblesLab'
-import LimitesContinuiteLab from './math/LimitesContinuiteLab'
+import { Component, Suspense, lazy, type ReactNode } from 'react'
 import { CheckCircle2, FlaskConical } from 'lucide-react'
+
+const TrueFalse = lazy(() => import('./TrueFalse'))
+const Matching = lazy(() => import('./Matching'))
+const FillInBlank = lazy(() => import('./FillInBlank'))
+const Ordering = lazy(() => import('./Ordering'))
+const DragAndDrop = lazy(() => import('./DragAndDrop'))
+const OndeCaracteristiques = dynamic(() => import('./ondes/OndeCaracteristiques'), { ssr: false })
+const OndePropagation = dynamic(() => import('./ondes/OndePropagation'), { ssr: false })
+const OndeTrueFalse = dynamic(() => import('./ondes/OndeTrueFalse'), { ssr: false })
+const EnsemblesLab = dynamic(() => import('./math/EnsemblesLab'), { ssr: false })
+const LimitesContinuiteLab = dynamic(() => import('./math/LimitesContinuiteLab'), { ssr: false })
 
 const WaveSimulator = dynamic(() => import('@/components/simulators/WaveSimulator'), { ssr: false })
 const PrismSimulator = dynamic(() => import('@/components/simulators/PrismSimulator'), { ssr: false })
@@ -23,6 +25,60 @@ interface Props {
   activityData?: any
   onComplete?: (correct: boolean) => void
   showSimulatorCompleteButton?: boolean
+}
+
+type ActivityErrorBoundaryProps = {
+  children: ReactNode
+  activityLabel: string
+}
+
+type ActivityErrorBoundaryState = {
+  error: Error | null
+}
+
+class ActivityErrorBoundary extends Component<ActivityErrorBoundaryProps, ActivityErrorBoundaryState> {
+  state: ActivityErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6 text-sm text-rose-200">
+          <p className="font-semibold text-rose-100">Impossible de charger l&apos;activite.</p>
+          <p className="mt-1 text-rose-200/80">
+            {this.props.activityLabel} a rencontre une erreur de chargement.
+          </p>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+function ActivityLoadingState({ label }: { label: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 px-6 py-8 text-sm text-slate-400">
+      Chargement de {label.toLowerCase()}...
+    </div>
+  )
+}
+
+function renderLazyActivity(
+  node: ReactNode,
+  fallbackLabel: string,
+  key: string,
+) {
+  return (
+    <ActivityErrorBoundary activityLabel={fallbackLabel} key={key}>
+      <Suspense fallback={<ActivityLoadingState label={fallbackLabel} />}>
+        {node}
+      </Suspense>
+    </ActivityErrorBoundary>
+  )
 }
 
 function SimulatorBlock({
@@ -89,7 +145,7 @@ export default function InteractiveActivityRenderer({
 
   switch (activityType) {
     case 'true_false':
-      return (
+      return renderLazyActivity(
         <div className="max-w-lg mx-auto">
           <TrueFalse
             statement={activityData?.statement}
@@ -98,10 +154,13 @@ export default function InteractiveActivityRenderer({
             onComplete={onComplete}
           />
         </div>
+        ,
+        'Vrai/Faux',
+        'true_false',
       )
 
     case 'matching':
-      return (
+      return renderLazyActivity(
         <div className="max-w-lg mx-auto">
           <Matching
             question={activityData?.question || 'Associez les elements correspondants'}
@@ -109,10 +168,13 @@ export default function InteractiveActivityRenderer({
             onComplete={onComplete}
           />
         </div>
+        ,
+        'Association',
+        'matching',
       )
 
     case 'fill_in_blank':
-      return (
+      return renderLazyActivity(
         <div className="max-w-lg mx-auto">
           <FillInBlank
             sentence={activityData?.sentence}
@@ -121,10 +183,13 @@ export default function InteractiveActivityRenderer({
             onComplete={onComplete}
           />
         </div>
+        ,
+        'Texte a trous',
+        'fill_in_blank',
       )
 
     case 'ordering':
-      return (
+      return renderLazyActivity(
         <div className="max-w-lg mx-auto">
           <Ordering
             question={activityData?.question || 'Remettez les elements dans le bon ordre'}
@@ -133,10 +198,13 @@ export default function InteractiveActivityRenderer({
             onComplete={onComplete}
           />
         </div>
+        ,
+        'Ordre logique',
+        'ordering',
       )
 
     case 'drag_and_drop':
-      return (
+      return renderLazyActivity(
         <div className="max-w-lg mx-auto">
           <DragAndDrop
             question={activityData?.question || 'Glissez les elements dans les zones correspondantes'}
@@ -145,6 +213,9 @@ export default function InteractiveActivityRenderer({
             onComplete={onComplete}
           />
         </div>
+        ,
+        'Glisser-deposer',
+        'drag_and_drop',
       )
 
     case 'simulator':

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.admin.views import UserAdmin
 from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
+from app.security.csrf import ADMIN_CSRF_COOKIE_NAME, ADMIN_CSRF_FIELD_NAME
 from app.models.users import User
 from app.security.passwords import hash_password
 
@@ -54,9 +55,13 @@ async def _latest_admin_audit(action: str, email: str = "") -> AdminAuditLog | N
 
 
 def _admin_login(client, email: str, password: str = STAFF_PASSWORD):
+    login_form = client.get("/admin/login")
+    assert login_form.status_code == 200
+    csrf_token = client.cookies.get(ADMIN_CSRF_COOKIE_NAME)
+    assert csrf_token
     return client.post(
         "/admin/login",
-        data={"username": email, "password": password},
+        data={"username": email, "password": password, ADMIN_CSRF_FIELD_NAME: csrf_token},
         headers={"Origin": TRUSTED_ORIGIN},
         follow_redirects=False,
     )
@@ -98,6 +103,24 @@ def test_sqladmin_rejects_untrusted_origin_before_login(app_client, run_db):
 
     assert response.status_code == 403
     assert response.json()["detail"] == "CSRF origin is not trusted"
+
+
+def test_sqladmin_login_requires_admin_csrf_token(app_client, run_db):
+    users = run_db(_seed_admin_auth_users("sqladmin-csrf"))
+
+    login_form = app_client.get("/admin/login")
+    assert login_form.status_code == 200
+    assert app_client.cookies.get(ADMIN_CSRF_COOKIE_NAME)
+
+    response = app_client.post(
+        "/admin/login",
+        data={"username": users["staff_email"], "password": STAFF_PASSWORD},
+        headers={"Origin": TRUSTED_ORIGIN},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admin CSRF token is required"
 
 
 def test_sqladmin_session_revokes_when_staff_status_changes(app_client, run_db):

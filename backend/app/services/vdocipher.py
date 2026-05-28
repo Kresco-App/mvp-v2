@@ -64,12 +64,16 @@ async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
 
     otp_url = f"{settings.vdocipher_api_base_url.rstrip('/')}/videos/{quote(video_id, safe='')}/otp"
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(
-            otp_url,
-            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
-            json={"ttl": 300},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                otp_url,
+                headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+                json={"ttl": 300},
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("vdocipher_otp_request_failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="Failed to get video OTP from VdoCipher") from exc
 
     if response.status_code != 200:
         logger.warning("vdocipher_otp_failed", extra=_provider_error_extra(response))
@@ -102,12 +106,16 @@ async def create_live_stream(title: str, settings: Settings, *, chat_mode: str =
         "hideQnA": True,
         "disableEmojis": True,
     }
-    async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.post(
-            settings.vdocipher_live_create_url,
-            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
-            json=payload,
-        )
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                settings.vdocipher_live_create_url,
+                headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("vdocipher_live_create_request_failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="Failed to create VdoCipher live stream") from exc
 
     if response.status_code >= 400:
         logger.warning("vdocipher_live_create_failed", extra=_provider_error_extra(response))

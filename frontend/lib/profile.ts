@@ -1,4 +1,4 @@
-import api from './axios'
+import { getJson, patchJson, postJson } from './apiClient'
 
 export type ProfileUser = {
   id: number
@@ -25,13 +25,11 @@ export class ProfileFeatureUnavailableError extends Error {
 }
 
 export async function getMyProfile() {
-  const { data } = await api.get<ProfileUser>('/profile/me')
-  return data
+  return getJson<ProfileUser>('/profile/me')
 }
 
 export async function updateMyProfile(input: ProfileUpdateInput) {
-  const { data } = await api.patch<ProfileUser>('/profile/me', input)
-  return data
+  return patchJson<ProfileUser>('/profile/me', input)
 }
 
 export async function uploadProfileMedia(kind: 'avatar' | 'banner', file: File) {
@@ -39,7 +37,7 @@ export async function uploadProfileMedia(kind: 'avatar' | 'banner', file: File) 
   form.append('file', file)
 
   try {
-    const { data } = await api.post<{ avatar_url?: string; banner_url?: string; url?: string }>(`/profile/me/media/${kind}`, form, {
+    const data = await postJson<{ avatar_url?: string; banner_url?: string; url?: string }>(`/profile/me/media/${kind}`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
 

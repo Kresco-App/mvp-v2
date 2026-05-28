@@ -3,13 +3,18 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/lib/store'
-import api from '@/lib/axios'
+import { postJson } from '@/lib/apiClient'
 import KrescoLogo from '@/components/KrescoLogo'
+
+type VerifyEmailResponse = {
+  user: Parameters<ReturnType<typeof useAuthStore.getState>['login']>[0]
+  csrf_token?: string
+}
 
 function VerifyEmailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login } = useAuthStore()
+  const login = useAuthStore((state) => state.login)
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -23,8 +28,8 @@ function VerifyEmailContent() {
       return
     }
 
-    api.post('/auth/verify-email', { token })
-      .then(({ data }) => {
+    postJson<VerifyEmailResponse>('/auth/verify-email', { token })
+      .then((data) => {
         if (cancelled) return
         login(data.user, data.csrf_token)
         setStatus('success')

@@ -26,10 +26,6 @@ export default function ProfessorDashboardPage() {
   const lastToastErrorRef = useRef('')
 
   useEffect(() => {
-    document.title = 'Professor Dashboard - Kresco'
-  }, [])
-
-  useEffect(() => {
     if (!loadError) {
       lastToastErrorRef.current = ''
       return

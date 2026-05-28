@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from app.database import get_session_factory
+from sqlalchemy import text
+
 from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.users import User
 from app.services.access import AccessContext, AccessDecision
@@ -428,6 +430,84 @@ def test_topic_item_and_tab_access_resolve_parent_topic_lock(app_client, run_db)
     assert tab_decision.required_tier == "pro"
 
 
+def test_orphaned_topic_item_and_tab_fail_closed(app_client, run_db):
+    suffix = uuid4().hex
+
+    async def _seed_orphaned_graph():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = User(
+                email=f"orphan-access-{suffix}@example.com",
+                full_name="Basic Student",
+                tier="basic",
+                is_pro=False,
+                is_active=True,
+                is_email_verified=True,
+                password="!",
+            )
+            subject = Subject(title=f"Orphan Subject {suffix}", description="", is_published=True)
+            db.add_all([user, subject])
+            await db.flush()
+            topic = Topic(
+                subject_id=subject.id,
+                slug=f"orphan-topic-{suffix}",
+                title="Orphan Topic",
+                description="",
+                status="published",
+            )
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Main", section_type="lesson", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Orphaned Item",
+                description="",
+                item_type="video",
+                order=1,
+            )
+            db.add(item)
+            await db.flush()
+            tab = TabContent(
+                topic_item_id=item.id,
+                label="Orphaned Tab",
+                tab_type="quiz",
+                content="private",
+                config_json={"answer": "secret"},
+                order=1,
+            )
+            db.add(tab)
+            await db.flush()
+            item_id = item.id
+            tab_id = tab.id
+            user_id = user.id
+            await db.execute(text("UPDATE topic_items SET topic_id = -987654 WHERE id = :item_id"), {"item_id": item_id})
+            await db.commit()
+            return user_id, item_id, tab_id
+
+    user_id, item_id, tab_id = run_db(_seed_orphaned_graph())
+
+    async def _decisions():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            item = await db.get(TopicItem, item_id)
+            tab = await db.get(TabContent, tab_id)
+            return (
+                await access_for_topic_item(db, user, item),
+                await access_for_tab(db, user, tab),
+            )
+
+    item_decision, tab_decision = run_db(_decisions())
+
+    assert item_decision.can_access is False
+    assert item_decision.locked_reason == "parent_not_found"
+    assert tab_decision.can_access is False
+    assert tab_decision.locked_reason == "parent_not_found"
+
+
 def test_exam_projection_redacts_locked_problem_and_video_resource():
     context = AccessContext(
         user_id=1,
@@ -479,6 +559,7 @@ def test_exam_projection_redacts_locked_problem_and_video_resource():
     out = exam_out(exam, [problem], context)
 
     assert out.can_access is True
+    assert out.statement_url == "https://cdn.example/exam.pdf"
     assert out.subject_title == "Physics"
     assert len(out.problems) == 1
     projected_problem = out.problems[0]
@@ -490,3 +571,30 @@ def test_exam_projection_redacts_locked_problem_and_video_resource():
     assert projected_problem.video_resource.provider_resource_id == ""
     assert projected_problem.video_resource.url == ""
     assert projected_problem.video_resource.metadata_json == {}
+
+
+def test_exam_projection_redacts_locked_statement_url():
+    context = AccessContext(
+        user_id=1,
+        effective_tier="basic",
+        feature_keys=frozenset(),
+        active_subject_ids=frozenset(),
+    )
+    exam = SimpleNamespace(
+        id=80,
+        subject_id=81,
+        subject=SimpleNamespace(title="Physics"),
+        title="Locked National Exam",
+        year=2025,
+        session="Normal",
+        statement_url="https://cdn.example/locked-exam.pdf",
+        is_free_preview=False,
+        required_tier="pro",
+        required_feature_key="",
+    )
+
+    out = exam_out(exam, [], context)
+
+    assert out.can_access is False
+    assert out.locked_reason == "pro_required"
+    assert out.statement_url == ""

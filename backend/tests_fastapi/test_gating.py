@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.database import get_session_factory
-from app.models.courses import Activity, Chapter, ChapterSection, CoursePDF, Exam, ExamProblem, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection, VideoQuizTrigger
-from app.models.gamification import ContentProgress, QuizResult, XPTransaction
+from app.models.courses import Activity, Chapter, ChapterBlock, ChapterSection, CoursePDF, Exam, ExamProblem, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection, VideoQuizTrigger
+from app.models.gamification import ContentProgress, LessonProgress, QuizResult, UserStats, XPTransaction
 from app.models.quizzes import Quiz, QuizOption, QuizQuestion
 from app.models.users import UserSubjectEntitlement
 
@@ -70,13 +70,16 @@ def test_locked_lesson_quiz_cannot_be_fetched_or_submitted(app_client, auth_toke
             option = QuizOption(question_id=question.id, text="4", is_correct=True)
             db.add(option)
             await db.commit()
-            return quiz.id, lesson.id, question.id, option.id
+            return subject.id, quiz.id, lesson.id, question.id, option.id
 
-    quiz_id, lesson_id, question_id, option_id = run_db(_seed())
+    subject_id, quiz_id, lesson_id, question_id, option_id = run_db(_seed())
     headers = {"Authorization": f"Bearer {token}"}
 
     get_response = app_client.get(f"/api/quizzes/{quiz_id}", headers=headers)
     assert get_response.status_code == 403
+
+    discovery_response = app_client.get(f"/api/quizzes/subjects/{subject_id}/discovery", headers=headers)
+    assert discovery_response.status_code == 403
 
     submit_response = app_client.post(
         f"/api/quizzes/lessons/{lesson_id}/quiz/submit",
@@ -94,6 +97,49 @@ def test_locked_lesson_quiz_cannot_be_fetched_or_submitted(app_client, auth_toke
             return len(result.scalars().all())
 
     assert run_db(_count_results()) == 0
+
+
+def test_subject_quiz_discovery_returns_first_non_empty_quiz(app_client, auth_token, query_counter, run_db):
+    token, user_id = auth_token(email="exam-discovery@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Exam Discovery", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            chapter = Chapter(subject_id=subject.id, title="Chapter", description="", order=1)
+            db.add(chapter)
+            await db.flush()
+            empty_lesson = Lesson(chapter_id=chapter.id, title="Empty quiz lesson", order=1, duration_seconds=600, is_free_preview=False)
+            full_lesson = Lesson(chapter_id=chapter.id, title="Full quiz lesson", order=2, duration_seconds=600, is_free_preview=False)
+            db.add_all([empty_lesson, full_lesson])
+            await db.flush()
+            db.add(Quiz(lesson_id=empty_lesson.id, title="Empty quiz", pass_score=70))
+            full_quiz = Quiz(lesson_id=full_lesson.id, title="Full exam quiz", pass_score=80)
+            db.add(full_quiz)
+            await db.flush()
+            question = QuizQuestion(quiz_id=full_quiz.id, text="Limit?", order=1)
+            db.add(question)
+            await db.flush()
+            db.add(QuizOption(question_id=question.id, text="1", is_correct=True))
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, status="active"))
+            await db.commit()
+            return subject.id, full_lesson.id
+
+    subject_id, lesson_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with query_counter() as queries:
+        response = app_client.get(f"/api/quizzes/subjects/{subject_id}/discovery", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["subjectId"] == subject_id
+    assert body["lessonId"] == lesson_id
+    assert body["quiz"]["title"] == "Full exam quiz"
+    assert body["quiz"]["questions"][0]["options"][0]["text"] == "1"
+    assert queries.count <= 9
 
 
 def test_locked_legacy_lesson_payloads_are_redacted_or_forbidden(app_client, auth_token, run_db):
@@ -256,6 +302,26 @@ def test_quiz_result_awards_xp_once_and_uses_server_pass_score(app_client, auth_
     assert duplicate_pass.json()["passed"] is True
     assert duplicate_pass.json()["xp_earned"] == 0
 
+    async def _assert_single_quiz_result():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            rows = (
+                await db.execute(
+                    select(QuizResult).where(
+                        QuizResult.user_id == user_id,
+                        QuizResult.quiz_id == quiz_id,
+                    )
+                )
+            ).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].passed is True
+            assert rows[0].score == 100
+            stats = await db.get(UserStats, user_id)
+            assert stats is not None
+            assert stats.quizzes_passed == 1
+
+    run_db(_assert_single_quiz_result())
+
 
 def test_progress_update_lesson_completion_uses_idempotent_xp_key(app_client, auth_token, run_db):
     token, user_id = auth_token(email="lesson-progress-idempotency@example.com", is_pro=True)
@@ -271,6 +337,15 @@ def test_progress_update_lesson_completion_uses_idempotent_xp_key(app_client, au
             await db.flush()
             lesson = Lesson(chapter_id=chapter.id, title="Progress lesson", order=1, duration_seconds=100, is_free_preview=True)
             db.add(lesson)
+            await db.flush()
+            db.add(LessonProgress(
+                user_id=user_id,
+                lesson_id=lesson.id,
+                watched_seconds=89,
+                status="started",
+                updated_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+            ))
+            db.add(UserStats(user_id=user_id, total_watch_seconds=89, lessons_completed=0, quizzes_passed=0))
             db.add(UserSubjectEntitlement(
                 user_id=user_id,
                 subject_id=subject.id,
@@ -305,8 +380,128 @@ def test_progress_update_lesson_completion_uses_idempotent_xp_key(app_client, au
             ).scalars().all()
             assert len(rows) == 1
             assert rows[0].idempotency_key == f"lesson_complete:user:{rows[0].user_id}:lesson:{lesson_id}"
+            stats = await db.get(UserStats, user_id)
+            assert stats is not None
+            assert stats.total_watch_seconds == 100
+            assert stats.lessons_completed == 1
 
     run_db(_assert_xp())
+
+
+def test_progress_update_caps_impossible_initial_watch_spoof(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="lesson-progress-spoof@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Progress Spoof", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            chapter = Chapter(subject_id=subject.id, title="Chapter", description="", order=1)
+            db.add(chapter)
+            await db.flush()
+            lesson = Lesson(chapter_id=chapter.id, title="Spoof lesson", order=1, duration_seconds=100, is_free_preview=True)
+            db.add(lesson)
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
+            await db.commit()
+            return lesson.id
+
+    lesson_id = run_db(_seed())
+    response = app_client.post(
+        "/api/progress/update",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"lesson_id": lesson_id, "watched_seconds": 95},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "started"
+    assert response.json()["watched_seconds"] < 90
+
+    async def _assert_no_xp():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            count = await db.scalar(
+                select(func.count())
+                .select_from(XPTransaction)
+                .where(
+                    XPTransaction.user_id == user_id,
+                    XPTransaction.reason == "lesson_complete",
+                    XPTransaction.description == f"Lesson {lesson_id} completed",
+                )
+            )
+            assert count == 0
+
+    run_db(_assert_no_xp())
+
+
+def test_progress_complete_validates_block_and_quiz_against_correct_models(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="progress-complete-models@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Complete Models", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            chapter = Chapter(subject_id=subject.id, title="Chapter", description="", order=1)
+            db.add(chapter)
+            await db.flush()
+            block = ChapterBlock(chapter_id=chapter.id, title="Block", content="Read me", order=1)
+            lesson = Lesson(chapter_id=chapter.id, title="Quiz Lesson", order=2, duration_seconds=100, is_free_preview=True)
+            db.add_all([block, lesson])
+            await db.flush()
+            quiz = Quiz(lesson_id=lesson.id, title="Legacy Quiz", pass_score=70)
+            db.add(quiz)
+            db.add(UserSubjectEntitlement(
+                user_id=user_id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
+            await db.commit()
+            return block.id, quiz.id
+
+    block_id, quiz_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    block_response = app_client.post(
+        "/api/progress/complete",
+        headers=headers,
+        json={"item_type": "block", "item_id": block_id},
+    )
+    quiz_response = app_client.post(
+        "/api/progress/complete",
+        headers=headers,
+        json={"item_type": "quiz", "item_id": quiz_id},
+    )
+
+    assert block_response.status_code == 200
+    assert quiz_response.status_code == 200
+
+    async def _assert_progress():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            rows = (
+                await db.execute(
+                    select(ContentProgress).where(
+                        ContentProgress.user_id == user_id,
+                        ContentProgress.item_type.in_(["block", "quiz"]),
+                    )
+                )
+            ).scalars().all()
+            assert {(row.item_type, row.item_id) for row in rows} == {
+                ("block", block_id),
+                ("quiz", quiz_id),
+            }
+
+    run_db(_assert_progress())
 
 
 def test_legacy_lesson_quiz_submit_awards_pass_and_perfect_xp_once(app_client, auth_token, run_db):
@@ -428,6 +623,7 @@ def test_legacy_lesson_quiz_submit_reuses_failed_result_row(app_client, auth_tok
     first_failed = app_client.post(f"/api/quizzes/lessons/{lesson_id}/quiz/submit", headers=headers, json=wrong_payload)
     duplicate_failed = app_client.post(f"/api/quizzes/lessons/{lesson_id}/quiz/submit", headers=headers, json=wrong_payload)
     passed = app_client.post(f"/api/quizzes/lessons/{lesson_id}/quiz/submit", headers=headers, json=correct_payload)
+    failed_after_pass = app_client.post(f"/api/quizzes/lessons/{lesson_id}/quiz/submit", headers=headers, json=wrong_payload)
 
     assert first_failed.status_code == 200
     assert first_failed.json()["passed"] is False
@@ -436,6 +632,10 @@ def test_legacy_lesson_quiz_submit_reuses_failed_result_row(app_client, auth_tok
     assert passed.status_code == 200
     assert passed.json()["passed"] is True
     assert passed.json()["xp_earned"] == 35
+    assert failed_after_pass.status_code == 200
+    assert failed_after_pass.json()["score"] == 100
+    assert failed_after_pass.json()["passed"] is True
+    assert failed_after_pass.json()["xp_earned"] == 0
 
     async def _assert_single_result():
         session_factory = get_session_factory()
@@ -981,3 +1181,56 @@ def test_exam_bank_reports_access_policy_and_searches_exam_metadata(app_client, 
     subject_results = {item["id"]: item for item in subject_response.json()}
     assert allowed_exam_id in subject_results
     assert subject_results[allowed_exam_id]["can_access"] is True
+
+
+def test_unpublished_parent_subjects_are_hidden_from_direct_course_reads(app_client, auth_token, run_db):
+    token, _ = auth_token(email="unpublished-parent@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Draft Subject", description="", is_published=False, order=1)
+            db.add(subject)
+            await db.flush()
+
+            topic = Topic(
+                subject_id=subject.id,
+                slug="draft-topic",
+                title="Draft Topic",
+                description="Should not leak.",
+                status="published",
+            )
+            db.add(topic)
+            await db.flush()
+
+            exam = Exam(
+                subject_id=subject.id,
+                title="Draft Exam",
+                year=2025,
+                session="Normal",
+                status="published",
+            )
+            db.add(exam)
+            await db.commit()
+            return subject.id, topic.id, exam.id
+
+    subject_id, topic_id, exam_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    subject_response = app_client.get(f"/api/courses/subjects/{subject_id}", headers=headers)
+    assert subject_response.status_code == 404
+
+    topic_list_response = app_client.get(f"/api/courses/topics?subject_id={subject_id}", headers=headers)
+    assert topic_list_response.status_code == 200
+    assert topic_list_response.json() == []
+
+    topic_workspace_response = app_client.get(f"/api/courses/topics/{topic_id}/workspace", headers=headers)
+    assert topic_workspace_response.status_code == 404
+
+    exam_bank_response = app_client.get(f"/api/courses/exam-bank?subject_id={subject_id}", headers=headers)
+    assert exam_bank_response.status_code == 200
+    assert exam_bank_response.json() == []
+
+    exam_ids_response = app_client.get("/api/courses/exam-bank", headers=headers)
+    assert exam_ids_response.status_code == 200
+    assert exam_id not in {item["id"] for item in exam_ids_response.json()}

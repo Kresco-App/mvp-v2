@@ -53,6 +53,32 @@ def test_generate_daily_quests_uses_explicit_quest_date(app_client, run_db):
     assert {quest.date for quest in quests} == {quest_date}
 
 
+def test_generate_daily_quests_backfills_missing_templates(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-partial-quests@example.com"))
+    quest_date = date(2031, 1, 16)
+
+    async def _seed_partial_and_generate():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(DailyQuest(
+                user_id=user_id,
+                quest_type="earn_xp",
+                title="Existing XP quest",
+                target=100,
+                progress=0,
+                xp_reward=25,
+                date=quest_date,
+            ))
+            await db.flush()
+            quests = await generate_daily_quests(user_id, db, quest_date=quest_date)
+            await db.commit()
+            return {quest.quest_type for quest in quests}
+
+    assert run_db(_seed_partial_and_generate()) == {"complete_lesson", "pass_quiz", "earn_xp"}
+    assert run_db(_daily_quest_count(user_id)) == 3
+
+
 def test_award_xp_updates_quests_for_explicit_active_date(app_client, run_db):
     del app_client
     user_id = run_db(_seed_xp_user("xp-active-date@example.com"))
@@ -127,6 +153,80 @@ def test_bulk_award_xp_batches_transactions_and_quest_updates(app_client, query_
     }
     assert run_db(_exercise()) == 0
     assert run_db(_assert_state()) == (30, 3)
+
+
+def test_bulk_award_xp_dedupes_duplicate_idempotency_keys_in_one_batch(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-bulk-duplicate-key@example.com"))
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            amount = await award_xp_bulk(
+                user_id,
+                [
+                    XPAward("quiz_correct", "Duplicate key A", idempotency_key=f"bulk-dupe:user:{user_id}:same"),
+                    XPAward("quiz_correct", "Duplicate key B", idempotency_key=f"bulk-dupe:user:{user_id}:same"),
+                    XPAward("quiz_pass", "Distinct pass", idempotency_key=f"bulk-dupe:user:{user_id}:pass"),
+                ],
+                db,
+            )
+            await db.commit()
+            rows = (
+                await db.execute(select(XPTransaction).where(XPTransaction.user_id == user_id))
+            ).scalars().all()
+            total_xp = await db.scalar(select(UserXP.total_xp).where(UserXP.user_id == user_id))
+            return amount, len(rows), total_xp, {row.idempotency_key for row in rows}
+
+    amount, row_count, total_xp, keys = run_db(_exercise())
+
+    assert amount == 25
+    assert row_count == 2
+    assert total_xp == 25
+    assert keys == {f"bulk-dupe:user:{user_id}:same", f"bulk-dupe:user:{user_id}:pass"}
+
+
+def test_award_xp_idempotency_key_is_scoped_per_user(app_client, run_db):
+    del app_client
+    user_a = run_db(_seed_xp_user("xp-idempotency-user-a@example.com"))
+    user_b = run_db(_seed_xp_user("xp-idempotency-user-b@example.com"))
+    shared_key = "shared-xp-idempotency-key"
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            amount_a = await award_xp(
+                user_a,
+                "quiz_pass",
+                "User A shared key",
+                db,
+                idempotency_key=shared_key,
+            )
+            amount_b = await award_xp(
+                user_b,
+                "quiz_pass",
+                "User B shared key",
+                db,
+                idempotency_key=shared_key,
+            )
+            await db.commit()
+            rows = (
+                await db.execute(
+                    select(XPTransaction).where(XPTransaction.idempotency_key == shared_key)
+                )
+            ).scalars().all()
+            totals = (
+                await db.scalar(select(UserXP.total_xp).where(UserXP.user_id == user_a)),
+                await db.scalar(select(UserXP.total_xp).where(UserXP.user_id == user_b)),
+            )
+            return amount_a, amount_b, len(rows), totals
+
+    amount_a, amount_b, row_count, totals = run_db(_exercise())
+
+    assert amount_a == 20
+    assert amount_b == 20
+    assert row_count == 2
+    assert totals == (20, 20)
 
 
 def test_generate_daily_quests_does_not_rollback_caller_transaction_on_flush_error(app_client, monkeypatch, run_db):

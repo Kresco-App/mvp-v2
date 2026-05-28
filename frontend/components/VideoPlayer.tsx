@@ -5,12 +5,57 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle, Play } from 'lucide-react'
-import api from '@/lib/axios'
+import { getJson, postJson } from '@/lib/apiClient'
 import { isLocalDemoVideoStream } from '@/lib/devFeatures'
 
 const VDO_API_SRC = 'https://player.vdocipher.com/v2/api.js'
 
-let vdoApiPromise = null
+type StreamData = {
+  otp?: string | null
+  playback_info?: string | null
+} | null
+
+type LessonStreamState = {
+  lessonId: string | number | null
+  data: StreamData
+}
+
+type VdoCipherVideoElement = HTMLVideoElement & {
+  currentTime: number
+}
+
+type VdoCipherPlayer = {
+  video?: VdoCipherVideoElement
+}
+
+type VdoCipherApi = {
+  getInstance: (iframe: HTMLIFrameElement) => VdoCipherPlayer | null
+}
+
+type ProgressCallback = ((currentSeconds: number, progress: number) => void) | undefined
+type CompleteCallback = (() => void) | undefined
+
+declare global {
+  interface Window {
+    VdoPlayer?: VdoCipherApi
+  }
+}
+
+let vdoApiPromise: Promise<VdoCipherApi> | null = null
+
+export function buildVdoCipherIframeSrc(streamData: StreamData) {
+  const otp = encodeURIComponent(streamData?.otp ?? '')
+  const playbackInfo = encodeURIComponent(streamData?.playback_info ?? '')
+  return `https://player.vdocipher.com/v2/?otp=${otp}&playbackInfo=${playbackInfo}&player=&`
+}
+
+export function resolveLessonStreamData(streamState: LessonStreamState, lessonId: string | number) {
+  return streamState?.lessonId === lessonId ? streamState.data : null
+}
+
+export function isActiveLesson(progressLessonId: string | number, activeLessonId: string | number) {
+  return progressLessonId === activeLessonId
+}
 
 function loadVdoApi() {
   if (typeof window === 'undefined') {
@@ -64,16 +109,25 @@ function loadVdoApi() {
   return vdoApiPromise
 }
 
-export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onComplete }) {
-  const iframeRef = useRef(null)
-  const playerRef = useRef(null)
-  const progressIntervalRef = useRef(null)
+type VideoPlayerProps = {
+  lessonId: string | number
+  durationSeconds: number
+  onProgress?: ProgressCallback
+  onComplete?: CompleteCallback
+}
+
+export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onComplete }: VideoPlayerProps) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const playerRef = useRef<VdoCipherPlayer | null>(null)
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lessonIdentityRef = useRef(lessonId)
   const completionReportedRef = useRef(false)
-  const onProgressRef = useRef(onProgress)
-  const onCompleteRef = useRef(onComplete)
-  const [streamData, setStreamData] = useState(null)
+  const onProgressRef = useRef<ProgressCallback>(onProgress)
+  const onCompleteRef = useRef<CompleteCallback>(onComplete)
+  const [streamState, setStreamState] = useState<LessonStreamState>({ lessonId: null, data: null })
+  const streamData = resolveLessonStreamData(streamState, lessonId)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const lastSavedRef = useRef(0)
 
@@ -84,9 +138,13 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     }
   }, [])
 
-  const saveProgress = useCallback(async (watchedSeconds) => {
+  const saveProgress = useCallback(async (watchedSeconds: number) => {
+    if (!isActiveLesson(lessonId, lessonIdentityRef.current)) {
+      return
+    }
+
     try {
-      await api.post('/progress/update', {
+      await postJson('/progress/update', {
         lesson_id: lessonId,
         watched_seconds: watchedSeconds,
       })
@@ -111,18 +169,25 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   }, [onComplete, onProgress])
 
   useEffect(() => {
+    lessonIdentityRef.current = lessonId
+    completionReportedRef.current = false
+    lastSavedRef.current = 0
+    clearProgressInterval()
+
     let cancelled = false
 
     async function fetchStream() {
       setLoading(true)
       setError(null)
+      setStreamState({ lessonId, data: null })
       try {
-        const { data } = await api.get(`/courses/sections/${lessonId}/stream`)
+        const data = (await getJson(`/courses/sections/${lessonId}/stream`)) as StreamData
         if (cancelled) return
-        setStreamData(data)
+        setStreamState({ lessonId, data })
       } catch (err) {
         if (cancelled) return
-        const msg = err?.response?.data?.detail || 'Erreur de chargement de la video.'
+        setStreamState({ lessonId, data: null })
+        const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Erreur de chargement de la video.'
         setError(msg)
         toast.error(msg)
       } finally {
@@ -145,14 +210,17 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     if (isLocalDemoVideoStream(streamData)) return
 
     let cancelled = false
-    let cleanupVideoEvents = null
-    let activePlayer = null
+    let cleanupVideoEvents: (() => void) | null = null
+    let activePlayer: VdoCipherPlayer | null = null
 
-    lastSavedRef.current = 0
-    completionReportedRef.current = false
+    const activeLessonId = lessonId
     clearProgressInterval()
 
     const syncProgress = () => {
+      if (!isActiveLesson(activeLessonId, lessonIdentityRef.current)) {
+        return
+      }
+
       const current = activePlayer?.video?.currentTime ?? 0
       const pct = durationSeconds > 0 ? current / durationSeconds : 0
 
@@ -204,7 +272,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
       .catch((err) => {
         if (cancelled) return
 
-        const msg = err?.message || "Erreur d'initialisation du lecteur video."
+        const msg = (err as Error)?.message || "Erreur d'initialisation du lecteur video."
         setError(msg)
         toast.error(msg)
       })
@@ -213,10 +281,12 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
       cancelled = true
       cleanupVideoEvents?.()
       clearProgressInterval()
+      playerRef.current = null
     }
   }, [
     clearProgressInterval,
     durationSeconds,
+    lessonId,
     reportCompletion,
     saveProgress,
     streamData,
@@ -228,7 +298,12 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
       return
     }
 
+    const activeLessonId = lessonId
     const intervalId = setInterval(() => {
+      if (!isActiveLesson(activeLessonId, lessonIdentityRef.current)) {
+        return
+      }
+
       const current = Math.round(playerRef.current?.video?.currentTime ?? 0)
       if (current !== lastSavedRef.current) {
         lastSavedRef.current = current
@@ -243,9 +318,9 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
         progressIntervalRef.current = null
       }
     }
-  }, [clearProgressInterval, isPlaying, saveProgress])
+  }, [clearProgressInterval, isPlaying, lessonId, saveProgress])
 
-  if (loading) {
+  if (loading || !streamData) {
     return (
       <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -298,7 +373,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     )
   }
 
-  const iframeSrc = `https://player.vdocipher.com/v2/?otp=${streamData.otp}&playbackInfo=${streamData.playback_info}&player=&`
+  const iframeSrc = buildVdoCipherIframeSrc(streamData)
 
   return (
     <div className="aspect-video bg-slate-950 rounded-2xl overflow-hidden">

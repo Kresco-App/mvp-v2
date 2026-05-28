@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import api from '@/lib/axios'
+import { getJson, postJson } from '@/lib/apiClient'
 import { CheckCircle2, XCircle, Zap } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface Trigger {
   id: number
@@ -42,9 +43,12 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
   const firedRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
-    api.get(`/progress/lessons/${lessonId}/quiz-triggers`)
-      .then(r => setTriggers(r.data))
-      .catch(() => {})
+    getJson<Trigger[]>(`/progress/lessons/${lessonId}/quiz-triggers`)
+      .then(data => setTriggers(data))
+      .catch(() => {
+        setTriggers([])
+        toast.error('Could not load video quizzes.')
+      })
   }, [lessonId])
 
   // Check if we should fire a trigger at current time
@@ -60,13 +64,19 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
         setActiveTrigger(trigger)
         if (trigger.is_blocking) onPause()
         setLoading(true)
-        api.get(`/quizzes/${trigger.quiz_id}`)
-          .then(r => { setQuiz(r.data); setLoading(false) })
-          .catch(() => setLoading(false))
+        getJson<Quiz>(`/quizzes/${trigger.quiz_id}`)
+          .then(data => { setQuiz(data); setLoading(false) })
+          .catch(() => {
+            toast.error('Could not load this video quiz.')
+            setQuiz(null)
+            setActiveTrigger(null)
+            setLoading(false)
+            if (trigger.is_blocking) onResume()
+          })
         break
       }
     }
-  }, [currentTime, triggers, activeTrigger, onPause])
+  }, [currentTime, triggers, activeTrigger, onPause, onResume])
 
   function selectAnswer(questionId: number, optionId: number) {
     setAnswers(a => ({ ...a, [questionId]: optionId }))
@@ -75,13 +85,13 @@ export default function VideoQuizOverlay({ lessonId, currentTime, onPause, onRes
   async function handleSubmit() {
     if (!quiz || !activeTrigger) return
     try {
-      const res = await api.post('/progress/quiz-result', { answers }, {
+      const data = await postJson<{ score: number; passed: boolean; xp_earned: number }>('/progress/quiz-result', { answers }, {
         params: {
           quiz_id: quiz.id,
         }
       })
-      setResult(res.data)
-      if (res.data.xp_earned > 0) onXPEarned?.(res.data.xp_earned)
+      setResult(data)
+      if (data.xp_earned > 0) onXPEarned?.(data.xp_earned)
     } catch {
       setResult({ score: 0, passed: false, xp_earned: 0 })
     }

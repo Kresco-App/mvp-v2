@@ -85,7 +85,7 @@ class Question(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     question_set_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("question_sets.id", ondelete="CASCADE"), index=True)
-    external_id: Mapped[str] = mapped_column(String(120), default="")
+    external_id: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     type: Mapped[str] = mapped_column(String(60))
     title: Mapped[str] = mapped_column(String(255), default="")
     prompt: Mapped[str] = mapped_column(Text)

@@ -21,7 +21,12 @@ class Subject(Base):
     order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    chapters: Mapped[list["Chapter"]] = relationship("Chapter", back_populates="subject", order_by="Chapter.order")
+    chapters: Mapped[list["Chapter"]] = relationship(
+        "Chapter",
+        back_populates="subject",
+        order_by="Chapter.order",
+        lazy="selectin",
+    )
 
 
 class Chapter(Base):
@@ -37,10 +42,25 @@ class Chapter(Base):
     order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    subject: Mapped["Subject"] = relationship("Subject", back_populates="chapters")
-    lessons: Mapped[list["Lesson"]] = relationship("Lesson", back_populates="chapter", order_by="Lesson.order")
-    blocks: Mapped[list["ChapterBlock"]] = relationship("ChapterBlock", back_populates="chapter", order_by="ChapterBlock.order")
-    sections: Mapped[list["ChapterSection"]] = relationship("ChapterSection", back_populates="chapter", order_by="ChapterSection.order")
+    subject: Mapped["Subject"] = relationship("Subject")
+    lessons: Mapped[list["Lesson"]] = relationship(
+        "Lesson",
+        back_populates="chapter",
+        order_by="Lesson.order",
+        lazy="selectin",
+    )
+    blocks: Mapped[list["ChapterBlock"]] = relationship(
+        "ChapterBlock",
+        back_populates="chapter",
+        order_by="ChapterBlock.order",
+        lazy="selectin",
+    )
+    sections: Mapped[list["ChapterSection"]] = relationship(
+        "ChapterSection",
+        back_populates="chapter",
+        order_by="ChapterSection.order",
+        lazy="selectin",
+    )
 
 
 class Lesson(Base):
@@ -59,7 +79,11 @@ class Lesson(Base):
     activities: Mapped[list["Activity"]] = relationship("Activity", back_populates="lesson", order_by="Activity.order")
     pdfs: Mapped[list["CoursePDF"]] = relationship("CoursePDF", back_populates="lesson", order_by="CoursePDF.order")
     quiz: Mapped[Optional["Quiz"]] = relationship("Quiz", back_populates="lesson", uselist=False)
-    quiz_triggers: Mapped[list["VideoQuizTrigger"]] = relationship("VideoQuizTrigger", back_populates="lesson", order_by="VideoQuizTrigger.timestamp_seconds")
+    quiz_triggers: Mapped[list["VideoQuizTrigger"]] = relationship(
+        "VideoQuizTrigger",
+        back_populates="lesson",
+        order_by="VideoQuizTrigger.timestamp_seconds",
+    )
 
     @property
     def duration_display(self) -> str:
@@ -156,6 +180,9 @@ class ConceptTag(Base):
 
 class Topic(Base):
     __tablename__ = "topics"
+    __table_args__ = (
+        Index("ix_topics_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
@@ -173,7 +200,11 @@ class Topic(Base):
 
     subject: Mapped["Subject"] = relationship("Subject")
     course_offering = relationship("CourseOffering")
-    sections: Mapped[list["TopicSection"]] = relationship("TopicSection", back_populates="topic", order_by="TopicSection.order")
+    sections: Mapped[list["TopicSection"]] = relationship(
+        "TopicSection",
+        back_populates="topic",
+        order_by="TopicSection.order",
+    )
     resources: Mapped[list["Resource"]] = relationship("Resource", back_populates="topic")
 
 
@@ -190,11 +221,18 @@ class TopicSection(Base):
     order: Mapped[int] = mapped_column(Integer, default=0)
 
     topic: Mapped["Topic"] = relationship("Topic", back_populates="sections")
-    items: Mapped[list["TopicItem"]] = relationship("TopicItem", back_populates="section", order_by="TopicItem.order")
+    items: Mapped[list["TopicItem"]] = relationship(
+        "TopicItem",
+        back_populates="section",
+        order_by="TopicItem.order",
+    )
 
 
 class Resource(Base):
     __tablename__ = "resources"
+    __table_args__ = (
+        Index("ix_resources_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -291,6 +329,9 @@ class TabContent(Base):
 
 class Exam(Base):
     __tablename__ = "exams"
+    __table_args__ = (
+        Index("ix_exams_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
@@ -304,11 +345,19 @@ class Exam(Base):
     is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
 
     subject: Mapped["Subject"] = relationship("Subject")
-    problems: Mapped[list["ExamProblem"]] = relationship("ExamProblem", back_populates="exam", order_by="ExamProblem.order")
+    problems: Mapped[list["ExamProblem"]] = relationship(
+        "ExamProblem",
+        back_populates="exam",
+        order_by="ExamProblem.order",
+        lazy="selectin",
+    )
 
 
 class ExamProblem(Base):
     __tablename__ = "exam_problems"
+    __table_args__ = (
+        Index("ix_exam_problems_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     exam_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exams.id", ondelete="CASCADE"), index=True)

@@ -12,10 +12,6 @@ export default function ProfessorChangesPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    document.title = 'Change Requests - Kresco Professor'
-  }, [])
-
-  useEffect(() => {
     let alive = true
     setLoading(true)
     listProfessorChangeRequests(status)

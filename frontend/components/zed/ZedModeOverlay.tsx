@@ -1,7 +1,7 @@
 'use client'
 
-import type { CSSProperties } from 'react'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import type { CSSProperties, MutableRefObject } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -16,6 +16,8 @@ import {
   House,
 } from 'lucide-react'
 import { useFocusEngine } from '@/hooks/useFocusEngine'
+import { useAuthStore } from '@/lib/store'
+import { userScopedStorageKey } from '@/lib/watchViewModel'
 import KrescoMascot, { MascotMood } from '@/components/KrescoMascot'
 import PomodoroTimer from './PomodoroTimer'
 import ScientificCalculator from './ScientificCalculator'
@@ -40,6 +42,7 @@ const RIGHT_TABS: { id: RightTab; label: string; icon: typeof FileText }[] = [
 
 const SPLIT_STORAGE_KEY = 'kresco_zed_split'
 const PINS_STORAGE_KEY = 'kresco_zed_pins'
+const STORAGE_DEFER_DELAY_MS = 0
 
 function clampSplit(value: number) {
   if (!Number.isFinite(value)) return 58
@@ -58,7 +61,12 @@ interface Props {
 
 export default function ZedModeOverlay({ onClose }: Props) {
   const engine = useFocusEngine()
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null)
   const splitContainerRef = useRef<HTMLDivElement>(null)
+  const activeResizeCleanupRef = useRef<(() => void) | null>(null)
+  const splitStorageWriteTimerRef = useRef<number | null>(null)
+  const pinsStorageWriteTimerRef = useRef<number | null>(null)
+  const isStorageHydratedRef = useRef(false)
   const [rightTab, setRightTab] = useState<RightTab>('scratchpad')
   const [splitPercent, setSplitPercent] = useState(58)
   const [isResizing, setIsResizing] = useState(false)
@@ -67,27 +75,91 @@ export default function ZedModeOverlay({ onClose }: Props) {
   const [isFullscreenPdf, setIsFullscreenPdf] = useState(false)
   const [showCalculator, setShowCalculator] = useState(false)
   const [showHomeConfirm, setShowHomeConfirm] = useState(false)
+  const pinsStorageKey = useMemo(() => userScopedStorageKey(PINS_STORAGE_KEY, currentUserId), [currentUserId])
+  const scratchpadStorageKey = useMemo(() => userScopedStorageKey('kresco_zed_scratchpad', currentUserId), [currentUserId])
+
+  const clearDeferredStorageWrite = useCallback((timerRef: MutableRefObject<number | null>) => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  const scheduleStorageWrite = useCallback(
+      (
+      timerRef: MutableRefObject<number | null>,
+      write: () => void,
+    ) => {
+      if (typeof window === 'undefined') return
+      clearDeferredStorageWrite(timerRef)
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null
+        write()
+      }, STORAGE_DEFER_DELAY_MS)
+    },
+    [clearDeferredStorageWrite],
+  )
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window === 'undefined') return
+    isStorageHydratedRef.current = false
+
+    const idleCallback = window.requestIdleCallback?.(() => {
       const saved = localStorage.getItem(SPLIT_STORAGE_KEY)
       if (saved) setSplitPercent(clampSplit(Number(saved)))
 
-      const savedPins = localStorage.getItem(PINS_STORAGE_KEY)
+      const savedPins = localStorage.getItem(pinsStorageKey)
       if (savedPins) {
         try {
           const parsed = JSON.parse(savedPins) as PinnedSnippet[]
           if (Array.isArray(parsed)) setPinnedSnippets(parsed)
         } catch {}
+      } else {
+        setPinnedSnippets([])
+      }
+
+      isStorageHydratedRef.current = true
+    })
+
+    if (idleCallback !== undefined) {
+      return () => {
+        window.cancelIdleCallback?.(idleCallback)
       }
     }
-  }, [])
+
+    const timer = window.setTimeout(() => {
+      const saved = localStorage.getItem(SPLIT_STORAGE_KEY)
+      if (saved) setSplitPercent(clampSplit(Number(saved)))
+
+      const savedPins = localStorage.getItem(pinsStorageKey)
+      if (savedPins) {
+        try {
+          const parsed = JSON.parse(savedPins) as PinnedSnippet[]
+          if (Array.isArray(parsed)) setPinnedSnippets(parsed)
+        } catch {}
+      } else {
+        setPinnedSnippets([])
+      }
+
+      isStorageHydratedRef.current = true
+    }, STORAGE_DEFER_DELAY_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [pinsStorageKey])
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(PINS_STORAGE_KEY, JSON.stringify(pinnedSnippets))
+    if (!isStorageHydratedRef.current) return
+    scheduleStorageWrite(pinsStorageWriteTimerRef, () => {
+      localStorage.setItem(pinsStorageKey, JSON.stringify(pinnedSnippets))
+    })
+  }, [pinnedSnippets, pinsStorageKey, scheduleStorageWrite])
+
+  useEffect(() => {
+    return () => {
+      clearDeferredStorageWrite(splitStorageWriteTimerRef)
+      clearDeferredStorageWrite(pinsStorageWriteTimerRef)
     }
-  }, [pinnedSnippets])
+  }, [clearDeferredStorageWrite])
 
   useEffect(() => {
     if (engine.tabStatus === 'away' && engine.state === 'running') {
@@ -101,31 +173,46 @@ export default function ZedModeOverlay({ onClose }: Props) {
     }
   }, [engine.state, engine.tabStatus])
 
+  const cleanupActiveResize = useCallback(() => {
+    activeResizeCleanupRef.current?.()
+    activeResizeCleanupRef.current = null
+  }, [])
+
+  useEffect(() => cleanupActiveResize, [cleanupActiveResize])
+
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     if (!splitContainerRef.current) return
 
+    cleanupActiveResize()
     const bounds = splitContainerRef.current.getBoundingClientRect()
     setIsResizing(true)
     let latestSplit = splitPercent
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    function handleMouseMove(moveEvent: MouseEvent) {
       const pct = ((moveEvent.clientX - bounds.left) / bounds.width) * 100
       const clamped = clampSplit(pct)
       latestSplit = clamped
       setSplitPercent(clamped)
     }
 
-    const handleMouseUp = () => {
-      setIsResizing(false)
-      localStorage.setItem(SPLIT_STORAGE_KEY, String(latestSplit))
+    function removeResizeListeners() {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
 
+    function handleMouseUp() {
+      setIsResizing(false)
+      scheduleStorageWrite(splitStorageWriteTimerRef, () => {
+        localStorage.setItem(SPLIT_STORAGE_KEY, String(latestSplit))
+      })
+      cleanupActiveResize()
+    }
+
+    activeResizeCleanupRef.current = removeResizeListeners
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
-  }, [splitPercent])
+  }, [cleanupActiveResize, scheduleStorageWrite, splitPercent])
 
   const addPinnedSnippet = useCallback((snippet: PinnedSnippet) => {
     setPinnedSnippets(prev => [...prev, snippet])
@@ -256,6 +343,9 @@ export default function ZedModeOverlay({ onClose }: Props) {
 
         {!isFullscreenPdf && (
           <div
+            role="separator"
+            aria-label="Redimensionner le panneau Zed"
+            aria-orientation="vertical"
             className="group hidden w-2 flex-shrink-0 cursor-col-resize items-center justify-center bg-slate-100 transition-colors hover:bg-indigo-100 md:flex"
             onMouseDown={handleResizeStart}
           >
@@ -285,6 +375,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
                 <Scratchpad
                   pinnedSnippets={pinnedSnippets}
                   onRemoveSnippet={removePinnedSnippet}
+                  storageKey={scratchpadStorageKey}
                 />
               )}
               {rightTab === 'rappels' && (

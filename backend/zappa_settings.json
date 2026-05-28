@@ -7,29 +7,18 @@
         "aws_region": "eu-north-1",
         "environment_variables": {
             "KRESCO_ENV": "production",
-            "DATABASE_URL": "__SET_IN_AWS_SECRETS__",
+            "KRESCO_RELEASE_SHA": "__SET_IN_AWS_SECRETS__",
+            "KRESCO_RUNTIME_SECRET_ID": "__SET_IN_AWS_SECRETS__",
             "DATABASE_CONNECTION_STRATEGY": "rds_proxy",
             "PGSSLROOTCERT": "certs/rds-global-bundle.pem",
-            "JWT_SECRET_KEY": "__SET_IN_AWS_SECRETS__",
             "JWT_ALGORITHM": "HS256",
             "JWT_EXPIRE_MINUTES": "10080",
             "DEBUG": "false",
-            "GOOGLE_CLIENT_ID": "__SET_IN_AWS_SECRETS__",
-            "VDOCIPHER_API_SECRET": "__SET_IN_AWS_SECRETS__",
-            "VDOCIPHER_API_BASE_URL": "__SET_IN_AWS_SECRETS__",
-            "VDOCIPHER_LIVE_CREATE_URL": "__SET_IN_AWS_SECRETS__",
             "CORS_ALLOWED_ORIGINS": "__SET_IN_AWS_SECRETS__",
             "CORS_ALLOW_ORIGIN_REGEX": "",
             "FRONTEND_URL": "__SET_IN_AWS_SECRETS__",
             "STRIPE_PK": "",
-            "STRIPE_SK": "__SET_IN_AWS_SECRETS__",
-            "STRIPE_PRODUCT_ID": "__SET_IN_AWS_SECRETS__",
-            "STRIPE_WEBHOOK_SECRET": "__SET_IN_AWS_SECRETS__",
-            "RESEND_API_KEY": "__SET_IN_AWS_SECRETS__",
-            "ABLY_API_KEY": "__SET_IN_AWS_SECRETS__",
-            "REALTIME_OUTBOX_SECRET": "__SET_IN_AWS_SECRETS__",
             "MEDIA_STORAGE_BACKEND": "s3",
-            "MEDIA_S3_BUCKET": "__SET_IN_AWS_SECRETS__",
             "MEDIA_S3_REGION": "eu-north-1",
             "MEDIA_S3_PREFIX": "production",
             "MEDIA_S3_PRESIGN_TTL_SECONDS": "300",
@@ -37,6 +26,15 @@
             "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "52428800",
             "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "365"
         },
+        "extra_permissions": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:GetSecretValue"
+                ],
+                "Resource": "__SET_IN_AWS_SECRETS__"
+            }
+        ],
         "events": [
             {
                 "function": "app.scheduled.process_realtime_outbox_event",
@@ -59,29 +57,18 @@
         "aws_region": "eu-north-1",
         "environment_variables": {
             "KRESCO_ENV": "staging",
-            "DATABASE_URL": "__SET_IN_AWS_SECRETS__",
+            "KRESCO_RELEASE_SHA": "__SET_IN_AWS_SECRETS__",
+            "KRESCO_RUNTIME_SECRET_ID": "__SET_IN_AWS_SECRETS__",
             "DATABASE_CONNECTION_STRATEGY": "rds_proxy",
             "PGSSLROOTCERT": "certs/rds-global-bundle.pem",
-            "JWT_SECRET_KEY": "__SET_IN_AWS_SECRETS__",
             "JWT_ALGORITHM": "HS256",
             "JWT_EXPIRE_MINUTES": "10080",
             "DEBUG": "false",
-            "GOOGLE_CLIENT_ID": "__SET_IN_AWS_SECRETS__",
-            "VDOCIPHER_API_SECRET": "__SET_IN_AWS_SECRETS__",
-            "VDOCIPHER_API_BASE_URL": "__SET_IN_AWS_SECRETS__",
-            "VDOCIPHER_LIVE_CREATE_URL": "__SET_IN_AWS_SECRETS__",
             "CORS_ALLOWED_ORIGINS": "__SET_IN_AWS_SECRETS__",
             "CORS_ALLOW_ORIGIN_REGEX": "",
             "FRONTEND_URL": "__SET_IN_AWS_SECRETS__",
             "STRIPE_PK": "",
-            "STRIPE_SK": "__SET_IN_AWS_SECRETS__",
-            "STRIPE_PRODUCT_ID": "__SET_IN_AWS_SECRETS__",
-            "STRIPE_WEBHOOK_SECRET": "__SET_IN_AWS_SECRETS__",
-            "RESEND_API_KEY": "__SET_IN_AWS_SECRETS__",
-            "ABLY_API_KEY": "__SET_IN_AWS_SECRETS__",
-            "REALTIME_OUTBOX_SECRET": "__SET_IN_AWS_SECRETS__",
             "MEDIA_STORAGE_BACKEND": "s3",
-            "MEDIA_S3_BUCKET": "__SET_IN_AWS_SECRETS__",
             "MEDIA_S3_REGION": "eu-north-1",
             "MEDIA_S3_PREFIX": "staging",
             "MEDIA_S3_PRESIGN_TTL_SECONDS": "300",
@@ -89,6 +76,15 @@
             "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "52428800",
             "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "365"
         },
+        "extra_permissions": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:GetSecretValue"
+                ],
+                "Resource": "__SET_IN_AWS_SECRETS__"
+            }
+        ],
         "events": [
             {
                 "function": "app.scheduled.process_realtime_outbox_event",

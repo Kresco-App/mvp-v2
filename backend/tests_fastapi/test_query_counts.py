@@ -1,10 +1,21 @@
 from datetime import datetime, timedelta, timezone
+import inspect
 from uuid import uuid4
 
+from app.routers import courses
+from app.routers import quizzes as quizzes_router
+from app.services import course_legacy_read_models
+from app.services import course_topic_mutations
+from app.services import course_topic_read_models
+from app.services import legacy_quizzes
 from app.database import get_session_factory
 from app.models.courses import (
     Chapter,
+    ChapterBlock,
     ChapterSection,
+    CoursePDF,
+    Exam,
+    ExamProblem,
     Lesson,
     Resource,
     Subject,
@@ -21,6 +32,35 @@ from app.models.users import User, UserSubjectEntitlement
 from app.services.auth import create_token
 
 
+def test_legacy_quiz_service_stays_out_of_router():
+    router_source = "\n".join([
+        inspect.getsource(quizzes_router.get_subject_quiz_discovery),
+        inspect.getsource(quizzes_router.get_quiz),
+        inspect.getsource(quizzes_router.submit_quiz),
+    ])
+    service_source = inspect.getsource(legacy_quizzes)
+
+    assert "get_subject_quiz_discovery_state(" in router_source
+    assert "get_quiz_detail_state(" in router_source
+    assert "submit_lesson_quiz_attempt(" in router_source
+    assert "select(Quiz" not in router_source
+    assert "select(QuizResult" not in router_source
+    assert "score_quiz_answers(" not in router_source
+    assert "award_xp_bulk(" not in router_source
+    assert "with_for_update()" not in router_source
+    assert "IntegrityError" not in router_source
+    assert "legacy_quiz_pass:user" not in router_source
+    assert "async def get_subject_quiz_discovery_state" in service_source
+    assert "async def get_quiz_detail_state" in service_source
+    assert "async def submit_lesson_quiz_attempt" in service_source
+    assert "score_quiz_answers(" in service_source
+    assert "award_xp_bulk(" in service_source
+    assert "with_for_update()" in service_source
+    assert "except IntegrityError" in service_source
+    assert 'idempotency_key=f"legacy_quiz_pass:user:{user_id}:quiz:{quiz_id}"' in service_source
+    assert 'idempotency_key=f"legacy_quiz_perfect:user:{user_id}:quiz:{quiz_id}"' in service_source
+
+
 def test_topic_workspace_has_bounded_query_count(app_client, auth_token, query_counter, run_db):
     token, user_id = auth_token(email="query-topic-workspace@example.com", is_pro=True)
     topic_id = run_db(_seed_topic_workspace(user_id))
@@ -33,6 +73,132 @@ def test_topic_workspace_has_bounded_query_count(app_client, auth_token, query_c
 
     assert response.status_code == 200
     assert queries.count <= 8, queries.statements
+
+
+def test_course_topic_read_models_stay_out_of_router():
+    router_source = "\n".join([
+        inspect.getsource(courses.list_topics),
+        inspect.getsource(courses.get_topic_workspace),
+    ])
+    service_source = inspect.getsource(course_topic_read_models)
+
+    assert "list_topic_cards(" in router_source
+    assert "build_topic_workspace(" in router_source
+    assert "select(TopicSection" not in router_source
+    assert "select(TopicItem" not in router_source
+    assert "TopicWorkspaceOut(" not in router_source
+    assert "TopicCardOut(" not in router_source
+    assert "async def list_topic_cards" in service_source
+    assert "async def build_topic_workspace" in service_source
+    assert "async def _matching_topic_item_ids" in service_source
+    assert "exists(" in inspect.getsource(course_topic_read_models._matching_topic_item_ids)
+    assert "content" not in TopicSection.__table__.columns
+    assert "TopicSection.content" not in service_source
+    assert "load_only(" in inspect.getsource(course_topic_read_models.list_topic_cards)
+    assert "load_only(" in inspect.getsource(course_topic_read_models.build_topic_workspace)
+
+
+def test_course_topic_mutations_stay_out_of_router():
+    router_source = "\n".join([
+        inspect.getsource(courses.record_topic_event),
+        inspect.getsource(courses.complete_topic_item),
+    ])
+    service_source = inspect.getsource(course_topic_mutations)
+
+    assert "record_topic_activity_event(" in router_source
+    assert "complete_topic_item_state(" in router_source
+    assert "select(TopicItem" not in router_source
+    assert "ActivityEvent(" not in router_source
+    assert "get_or_create_topic_item_progress(" not in router_source
+    assert "bounded_topic_watch_seconds(" not in router_source
+    assert "award_xp(" not in router_source
+    assert "Quiz items must be submitted through quiz endpoints" not in router_source
+    assert "Topic item is not eligible for completion yet" not in router_source
+
+    assert "async def record_topic_activity_event" in service_source
+    assert "async def complete_topic_item_state" in service_source
+    assert "async def _get_accessible_topic_item" in service_source
+    assert "access_for_topic_item(" in service_source
+    assert "topic_id=body.topic_id or item.topic_id" in service_source
+    assert "topic_item_id=body.topic_item_id or item.id" in service_source
+    assert 'event_type=f"{item.item_type}_completed"' in service_source
+    assert 'metadata_json={"watched_seconds": progress.watched_seconds}' in service_source
+    assert 'idempotency_key=f"topic_item_complete:user:{user.id}:item:{item.id}"' in service_source
+
+
+def test_course_legacy_read_models_stay_out_of_router():
+    router_source = "\n".join([
+        inspect.getsource(courses.list_subjects),
+        inspect.getsource(courses.get_subject),
+        inspect.getsource(courses.get_chapter),
+        inspect.getsource(courses.get_lesson),
+        inspect.getsource(courses.get_lesson_activities),
+        inspect.getsource(courses.get_lesson_stream),
+        inspect.getsource(courses.get_lesson_pdfs),
+        inspect.getsource(courses.get_chapter_sections),
+        inspect.getsource(courses.get_exam_bank),
+        inspect.getsource(courses.get_section_watch_context),
+        inspect.getsource(courses.get_section_stream),
+    ])
+    service_source = inspect.getsource(course_legacy_read_models)
+
+    assert "list_subject_summaries(" in router_source
+    assert "get_subject_detail(" in router_source
+    assert "get_chapter_detail(" in router_source
+    assert "get_lesson_detail(" in router_source
+    assert "list_lesson_activities(" in router_source
+    assert "build_lesson_stream(" in router_source
+    assert "list_lesson_pdfs(" in router_source
+    assert "list_chapter_sections(" in router_source
+    assert "list_exam_bank_entries(" in router_source
+    assert "build_section_watch_context(" in router_source
+    assert "build_section_stream(" in router_source
+    assert "select(Subject" not in router_source
+    assert "select(Chapter" not in router_source
+    assert "select(Lesson" not in router_source
+    assert "select(Activity" not in router_source
+    assert "select(CoursePDF" not in router_source
+    assert "select(Exam" not in router_source
+    assert "select(ChapterSection" not in router_source
+    assert "with_loader_criteria(ExamProblem" not in router_source
+    assert "SubjectListOut(" not in router_source
+    assert "SubjectDetailOut.model_validate" not in router_source
+    assert "ChapterOut.model_validate" not in router_source
+    assert "LessonDetailOut(" not in router_source
+    assert "ActivityOut.model_validate" not in router_source
+    assert "CoursePDFOut.model_validate" not in router_source
+    assert "SectionWatchContextOut(" not in router_source
+    assert "ChapterWithSectionsOut(" not in router_source
+    assert "async def list_subject_summaries" in service_source
+    assert "async def get_subject_detail" in service_source
+    assert "async def get_chapter_detail" in service_source
+    assert "async def get_lesson_detail" in service_source
+    assert "async def list_lesson_activities" in service_source
+    assert "async def build_lesson_stream" in service_source
+    assert "async def list_lesson_pdfs" in service_source
+    assert "async def list_chapter_sections" in service_source
+    assert "async def list_exam_bank_entries" in service_source
+    assert "async def build_section_watch_context" in service_source
+    assert "async def build_section_stream" in service_source
+    assert "exam_out(" in service_source
+    assert "chapter_section_out(" in service_source
+
+
+def test_course_relationship_defaults_use_selectin():
+    expected = {
+        Subject.chapters: "selectin",
+        Chapter.lessons: "selectin",
+        Chapter.blocks: "selectin",
+        Chapter.sections: "selectin",
+        Exam.problems: "selectin",
+    }
+
+    for relationship_prop, lazy in expected.items():
+        assert relationship_prop.property.lazy == lazy
+
+    assert "text" in str(ChapterBlock.__table__.columns["content"].type).lower()
+    assert "text" in str(ChapterSection.__table__.columns["content"].type).lower()
+    assert "text" in str(Resource.__table__.columns["summary"].type).lower()
 
 
 def test_watch_context_has_bounded_query_count(app_client, auth_token, query_counter, run_db):

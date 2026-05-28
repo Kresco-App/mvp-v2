@@ -20,7 +20,11 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
     if factory is None:
         raise RuntimeError("Database not initialized. Call init_engine() first.")
     async with factory() as session:
-        yield session
+        try:
+            yield session
+        except BaseException:
+            await session.rollback()
+            raise
 
 
 async def get_current_user(

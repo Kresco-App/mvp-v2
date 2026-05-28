@@ -1,4 +1,4 @@
-import api from './axios'
+import { deleteJson, getJson, patchJson, postJson } from './apiClient'
 
 export type ProgramTrack = {
   id: number
@@ -189,23 +189,19 @@ export type StudentProfessorChatStatus = {
 }
 
 export async function getProfessorDashboard() {
-  const { data } = await api.get<ProfessorDashboard>('/professor/dashboard')
-  return data
+  return getJson<ProfessorDashboard>('/professor/dashboard')
 }
 
 export async function listProfessorOfferings() {
-  const { data } = await api.get<CourseOffering[]>('/professor/offerings')
-  return data
+  return getJson<CourseOffering[]>('/professor/offerings')
 }
 
 export async function listProfessorLiveSessions() {
-  const { data } = await api.get<ProfessorLiveSession[]>('/professor/live-sessions')
-  return data
+  return getJson<ProfessorLiveSession[]>('/professor/live-sessions')
 }
 
 export async function getProfessorLiveProviderConfig() {
-  const { data } = await api.get<LiveProviderConfig>('/professor/live-provider-config')
-  return data
+  return getJson<LiveProviderConfig>('/professor/live-provider-config')
 }
 
 export type LiveSessionInput = {
@@ -223,187 +219,156 @@ export type LiveSessionInput = {
 }
 
 export async function createProfessorLiveSession(payload: LiveSessionInput) {
-  const { data } = await api.post<ProfessorLiveSession>('/professor/live-sessions', payload)
-  return data
+  return postJson<ProfessorLiveSession>('/professor/live-sessions', payload)
 }
 
 export async function updateProfessorLiveSession(id: number, payload: Partial<LiveSessionInput> & { status?: string }) {
-  const { data } = await api.patch<ProfessorLiveSession>(`/professor/live-sessions/${id}`, payload)
-  return data
+  return patchJson<ProfessorLiveSession>(`/professor/live-sessions/${id}`, payload)
 }
 
 export async function notifyProfessorLiveSession(id: number) {
-  const { data } = await api.post<ProfessorLiveSession>(`/professor/live-sessions/${id}/notify`)
-  return data
+  return postJson<ProfessorLiveSession>(`/professor/live-sessions/${id}/notify`)
 }
 
 export async function startProfessorLiveSession(id: number) {
-  const { data } = await api.post<ProfessorLiveSession>(`/professor/live-sessions/${id}/start`)
-  return data
+  return postJson<ProfessorLiveSession>(`/professor/live-sessions/${id}/start`)
 }
 
 export async function endProfessorLiveSession(id: number) {
-  const { data } = await api.post<ProfessorLiveSession>(`/professor/live-sessions/${id}/end`)
-  return data
+  return postJson<ProfessorLiveSession>(`/professor/live-sessions/${id}/end`)
 }
 
 export async function cancelProfessorLiveSession(id: number) {
-  const { data } = await api.post<ProfessorLiveSession>(`/professor/live-sessions/${id}/cancel`)
-  return data
+  return postJson<ProfessorLiveSession>(`/professor/live-sessions/${id}/cancel`)
 }
 
 export async function deleteProfessorLiveSession(id: number) {
-  const { data } = await api.delete<{ ok: boolean }>(`/professor/live-sessions/${id}`)
-  return data
+  return deleteJson<{ ok: boolean }>(`/professor/live-sessions/${id}`)
 }
 
 export async function getProfessorLiveEmbed(id: number) {
-  const { data } = await api.get<LiveSessionEmbed>(`/professor/live-sessions/${id}/embed`)
-  return data
+  return getJson<LiveSessionEmbed>(`/professor/live-sessions/${id}/embed`)
 }
 
 export async function revealProfessorLiveStreamCredentials(id: number) {
-  const { data } = await api.post<LiveSessionStreamCredentials>(`/professor/live-sessions/${id}/stream-credentials/reveal`)
-  return data
+  return postJson<LiveSessionStreamCredentials>(`/professor/live-sessions/${id}/stream-credentials/reveal`)
 }
 
 export async function listStudentLiveSessions() {
-  const { data } = await api.get<StudentLiveSession[]>('/professor/student-live-sessions')
-  return data
+  return getJson<StudentLiveSession[]>('/professor/student-live-sessions')
 }
 
 export async function getStudentLiveEmbed(id: number) {
-  const { data } = await api.get<LiveSessionEmbed>(`/professor/student-live-sessions/${id}/embed`)
-  return data
+  return getJson<LiveSessionEmbed>(`/professor/student-live-sessions/${id}/embed`)
 }
 
 export async function listProfessorLiveInteractions(id: number, status?: string) {
-  const { data } = await api.get<LiveSessionInteraction[]>(`/professor/live-sessions/${id}/interactions`, {
+  return getJson<LiveSessionInteraction[]>(`/professor/live-sessions/${id}/interactions`, {
     params: status ? { status } : undefined,
   })
-  return data
 }
 
 export async function answerProfessorLiveInteraction(id: number, answer: string) {
-  const { data } = await api.patch<LiveSessionInteraction>(`/professor/live-sessions/interactions/${id}`, { answer })
-  return data
+  return patchJson<LiveSessionInteraction>(`/professor/live-sessions/interactions/${id}`, { answer })
 }
 
 export async function patchProfessorLiveInteraction(id: number, patch: { status?: string; answer?: string }) {
-  const { data } = await api.patch<LiveSessionInteraction>(`/professor/live-sessions/interactions/${id}`, patch)
-  return data
+  return patchJson<LiveSessionInteraction>(`/professor/live-sessions/interactions/${id}`, patch)
 }
 
 export async function deleteProfessorLiveInteraction(id: number) {
-  const { data } = await api.delete<LiveSessionInteraction>(`/professor/live-sessions/interactions/${id}`)
-  return data
+  return deleteJson<LiveSessionInteraction>(`/professor/live-sessions/interactions/${id}`)
 }
 
 export async function listStudentLiveInteractions(id: number) {
-  const { data } = await api.get<LiveSessionInteraction[]>(`/professor/student-live-sessions/${id}/interactions`)
-  return data
+  return getJson<LiveSessionInteraction[]>(`/professor/student-live-sessions/${id}/interactions`)
 }
 
 export async function createStudentLiveInteraction(id: number, body: string, kind = 'question') {
-  const { data } = await api.post<LiveSessionInteraction>(`/professor/student-live-sessions/${id}/interactions`, { body, kind })
-  return data
+  return postJson<LiveSessionInteraction>(`/professor/student-live-sessions/${id}/interactions`, { body, kind })
 }
 
 export async function listProfessorLiveCheckpoints(id: number) {
-  const { data } = await api.get<LiveSessionCheckpoint[]>(`/professor/live-sessions/${id}/checkpoints`)
-  return data
+  return getJson<LiveSessionCheckpoint[]>(`/professor/live-sessions/${id}/checkpoints`)
 }
 
 export async function createProfessorLiveCheckpoint(id: number, payload: { title: string; prompt?: string; checkpoint_type?: string }) {
-  const { data } = await api.post<LiveSessionCheckpoint>(`/professor/live-sessions/${id}/checkpoints`, payload)
-  return data
+  return postJson<LiveSessionCheckpoint>(`/professor/live-sessions/${id}/checkpoints`, payload)
 }
 
 export async function patchProfessorLiveCheckpoint(id: number, patch: { status?: string }) {
-  const { data } = await api.patch<LiveSessionCheckpoint>(`/professor/live-sessions/checkpoints/${id}`, patch)
-  return data
+  return patchJson<LiveSessionCheckpoint>(`/professor/live-sessions/checkpoints/${id}`, patch)
 }
 
 export async function listStudentLiveCheckpoints(id: number) {
-  const { data } = await api.get<LiveSessionCheckpoint[]>(`/professor/student-live-sessions/${id}/checkpoints`)
-  return data
+  return getJson<LiveSessionCheckpoint[]>(`/professor/student-live-sessions/${id}/checkpoints`)
 }
 
 export async function listProfessorChangeRequests(status = 'pending') {
-  const { data } = await api.get<ChangeRequest[]>('/professor/change-requests', { params: { status } })
-  return data
+  return getJson<ChangeRequest[]>('/professor/change-requests', { params: { status } })
 }
 
 type OffsetPageParams = { limit?: number; offset?: number }
 type CursorPageParams = { limit?: number; before_id?: number }
 
 export async function listProfessorConversations(params: { q?: string; unread?: boolean; pinned?: boolean } & OffsetPageParams = {}) {
-  const { data } = await api.get<ProfessorConversation[]>('/professor/chat/conversations', { params })
-  return data
+  return getJson<ProfessorConversation[]>('/professor/chat/conversations', { params })
 }
 
 export async function listProfessorMessages(conversationId: number, params: CursorPageParams = {}) {
-  const { data } = await api.get<ProfessorMessage[]>(`/professor/chat/conversations/${conversationId}/messages`, { params })
-  return data
+  return getJson<ProfessorMessage[]>(`/professor/chat/conversations/${conversationId}/messages`, { params })
 }
 
 export async function sendProfessorMessage(conversationId: number, body: string) {
-  const { data } = await api.post<ProfessorMessage>(`/professor/chat/conversations/${conversationId}/messages`, { body })
-  return data
+  return postJson<ProfessorMessage>(`/professor/chat/conversations/${conversationId}/messages`, { body })
 }
 
 export async function sendProfessorImageMessage(conversationId: number, file: File, body = '') {
   const form = new FormData()
   form.append('file', file)
   if (body.trim()) form.append('body', body.trim())
-  const { data } = await api.post<ProfessorMessage>(`/professor/chat/conversations/${conversationId}/images`, form, {
+  const data = await postJson<ProfessorMessage>(`/professor/chat/conversations/${conversationId}/images`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return data
 }
 
 export async function updateProfessorChatMessage(messageId: number, body: string) {
-  const { data } = await api.patch<ProfessorMessage>(`/professor/chat/messages/${messageId}`, { body })
-  return data
+  return patchJson<ProfessorMessage>(`/professor/chat/messages/${messageId}`, { body })
 }
 
 export async function deleteProfessorChatMessage(messageId: number) {
-  await api.delete(`/professor/chat/messages/${messageId}`)
+  await deleteJson(`/professor/chat/messages/${messageId}`)
 }
 
 export async function patchProfessorConversation(conversationId: number, patch: { is_pinned_by_professor?: boolean; mark_read?: boolean }) {
-  const { data } = await api.patch<ProfessorConversation>(`/professor/chat/conversations/${conversationId}`, patch)
-  return data
+  return patchJson<ProfessorConversation>(`/professor/chat/conversations/${conversationId}`, patch)
 }
 
 export async function getStudentProfessorChat() {
-  const { data } = await api.get<StudentProfessorChatStatus>('/professor/student-chat')
-  return data
+  return getJson<StudentProfessorChatStatus>('/professor/student-chat')
 }
 
 export async function startStudentProfessorConversation(courseOfferingId: number, body: string) {
-  const { data } = await api.post<ProfessorConversation>('/professor/student-chat/conversations', {
+  return postJson<ProfessorConversation>('/professor/student-chat/conversations', {
     course_offering_id: courseOfferingId,
     body,
   })
-  return data
 }
 
 export async function listStudentProfessorMessages(conversationId: number, params: CursorPageParams = {}) {
-  const { data } = await api.get<ProfessorMessage[]>(`/professor/student-chat/conversations/${conversationId}/messages`, { params })
-  return data
+  return getJson<ProfessorMessage[]>(`/professor/student-chat/conversations/${conversationId}/messages`, { params })
 }
 
 export async function sendStudentProfessorMessage(conversationId: number, body: string) {
-  const { data } = await api.post<ProfessorMessage>(`/professor/student-chat/conversations/${conversationId}/messages`, { body })
-  return data
+  return postJson<ProfessorMessage>(`/professor/student-chat/conversations/${conversationId}/messages`, { body })
 }
 
 export async function sendStudentProfessorImageMessage(conversationId: number, file: File, body = '') {
   const form = new FormData()
   form.append('file', file)
   if (body.trim()) form.append('body', body.trim())
-  const { data } = await api.post<ProfessorMessage>(`/professor/student-chat/conversations/${conversationId}/images`, form, {
+  const data = await postJson<ProfessorMessage>(`/professor/student-chat/conversations/${conversationId}/images`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return data

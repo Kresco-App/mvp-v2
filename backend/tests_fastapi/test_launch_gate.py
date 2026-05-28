@@ -91,8 +91,32 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "if: ${{ env.ZAPPA_STAGE == 'production' }}" in backend_workflow
     assert "environment: ${{ inputs.stage }}" in backend_workflow
     assert "ZAPPA_STAGE: ${{ inputs.stage }}" in backend_workflow
+    assert "KRESCO_RELEASE_SHA: ${{ github.sha }}" in backend_workflow
+    assert "confirm_database_migration" in backend_workflow
+    assert "Require production database migration confirmation" in backend_workflow
+    assert "Capture production database snapshot before migration" in backend_workflow
+    assert "aws rds create-db-cluster-snapshot" in backend_workflow
+    assert "aws rds create-db-snapshot" in backend_workflow
+    assert "Record production migration revision before migration" in backend_workflow
+    assert "Require production CloudWatch alarms" in backend_workflow
+    assert "CLOUDWATCH_ALARM_NAMES: ${{ vars.CLOUDWATCH_ALARM_NAMES }}" in backend_workflow
+    assert "aws cloudwatch describe-alarms" in backend_workflow
 
     assert "if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}" in frontend_workflow
     assert "environment: ${{ inputs.environment }}" in frontend_workflow
+    assert "NEXT_PUBLIC_RELEASE_SHA: ${{ github.sha }}" in frontend_workflow
     assert "vercel deploy --prebuilt --prod" in frontend_workflow
     assert "vercel deploy --prebuilt --token" in frontend_workflow
+
+
+def test_ci_and_deploy_workflows_report_test_coverage():
+    backend_ci = (REPO_ROOT / ".github" / "workflows" / "ci-backend.yml").read_text(encoding="utf-8")
+    backend_deploy = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
+    frontend_ci = (REPO_ROOT / ".github" / "workflows" / "ci-frontend.yml").read_text(encoding="utf-8")
+    frontend_deploy = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
+
+    assert "pytest-cov" in (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
+    assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_ci
+    assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_deploy
+    assert "npm run test:coverage" in frontend_ci
+    assert "npm run test:coverage" in frontend_deploy

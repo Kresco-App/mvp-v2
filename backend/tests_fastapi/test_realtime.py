@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -12,9 +13,12 @@ from app.database import get_session_factory
 from app.models.courses import Subject
 from app.models.professor import CourseOffering, LiveSession, ProgramTrack, RealtimeOutbox
 from app.models.users import User, UserSubjectEntitlement
+from app.routers import realtime as realtime_router
 from app.services import ably
+from app.services import realtime_access
 from app.services.auth import create_token
 from app.services import realtime_outbox
+from app.services.access import AccessContext
 
 
 async def _seed_live_session_for_realtime(test_settings, *, student_tier: str = "vip"):
@@ -72,6 +76,23 @@ def test_ably_token_requires_authentication(app_client):
     response = app_client.get("/api/realtime/ably-token")
 
     assert response.status_code == 401
+
+
+def test_realtime_access_queries_stay_out_of_router():
+    router_source = inspect.getsource(realtime_router)
+    access_source = inspect.getsource(realtime_access)
+
+    assert "build_ably_token(" in inspect.getsource(realtime_router.get_ably_token)
+    assert "build_realtime_subscriptions(" in inspect.getsource(realtime_router.get_realtime_subscriptions)
+    assert "select(LiveSession.id)" not in router_source
+    assert "select(CourseOffering.id)" not in router_source
+    assert "build_access_context(" not in router_source
+    assert "subject_scope_enforced" not in router_source
+    assert "create_ably_jwt(" not in router_source
+    assert "async def live_session_ids_for_user" in access_source
+    assert "async def offering_ids_for_user" in access_source
+    assert "subject_scope_enforced" in access_source
+    assert "CourseOffering.subject_id.in_(access_context.active_subject_ids)" in access_source
 
 
 def test_ably_token_returns_503_when_key_is_missing(app_client, auth_token, test_settings):
@@ -136,6 +157,35 @@ def test_ably_token_includes_accessible_live_session_and_offering_channels(app_c
     capability = response.json()["capability"]
     assert capability[f"kresco:live:{live_id}"] == ["subscribe"]
     assert capability[f"kresco:offering:{offering_id}:notifications"] == ["subscribe"]
+
+
+def test_ably_token_reuses_student_access_context_for_capability_queries(
+    app_client,
+    monkeypatch,
+    run_db,
+    test_settings,
+):
+    token, _live_id, _offering_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="vip"))
+    original_build_access_context = realtime_access.build_access_context
+    calls = {"count": 0}
+
+    async def counted_build_access_context(db, user):
+        calls["count"] += 1
+        return await original_build_access_context(db, user)
+
+    monkeypatch.setattr(realtime_access, "build_access_context", counted_build_access_context)
+    old_key = test_settings.ably_api_key
+    test_settings.ably_api_key = "test.key:ably-test-secret"
+    try:
+        response = app_client.get(
+            "/api/realtime/ably-token",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        test_settings.ably_api_key = old_key
+
+    assert response.status_code == 200
+    assert calls["count"] == 1
 
 
 def test_realtime_subscriptions_include_user_and_accessible_offering_channels(app_client, run_db, test_settings):
@@ -642,3 +692,37 @@ def test_ably_token_omits_live_session_channel_without_live_session_feature(app_
     assert response.status_code == 200
     assert f"kresco:live:{live_id}" not in response.json()["capability"]
     assert f"kresco:offering:{offering_id}:notifications" not in response.json()["capability"]
+
+
+def test_ably_token_fails_closed_when_live_session_access_is_unscoped(
+    app_client,
+    monkeypatch,
+    run_db,
+    test_settings,
+):
+    token, live_id, offering_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="basic"))
+
+    async def fake_unscoped_access_context(db, user):
+        return AccessContext(
+            user_id=user.id,
+            effective_tier="basic",
+            feature_keys=frozenset({"live_sessions"}),
+            active_subject_ids=frozenset(),
+            has_subject_entitlement_rows=False,
+        )
+
+    monkeypatch.setattr("app.services.realtime_access.build_access_context", fake_unscoped_access_context)
+    old_key = test_settings.ably_api_key
+    test_settings.ably_api_key = "test.key:ably-test-secret"
+    try:
+        response = app_client.get(
+            "/api/realtime/ably-token",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        test_settings.ably_api_key = old_key
+
+    assert response.status_code == 200
+    capability = response.json()["capability"]
+    assert f"kresco:live:{live_id}" not in capability
+    assert f"kresco:offering:{offering_id}:notifications" not in capability

@@ -31,7 +31,7 @@ import {
   Users,
   Wand2,
 } from 'lucide-react'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 import { getAdminRootUrl } from '@/lib/apiConfig'
 import {
   DOMAIN_LABELS,
@@ -77,10 +77,10 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     let mounted = true
-    api.get('/admin/overview')
-      .then((response) => {
+    getJson<AdminOverview>('/admin/overview')
+      .then((data) => {
         if (!mounted) return
-        setOverview(response.data ?? EMPTY_OVERVIEW)
+        setOverview(data ?? EMPTY_OVERVIEW)
         setState('ready')
       })
       .catch((error) => {

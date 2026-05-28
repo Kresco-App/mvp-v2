@@ -1,5 +1,5 @@
 import * as Ably from 'ably'
-import api from './axios'
+import { getJson } from './apiClient'
 
 export type AblyTokenResponse = {
   token: string
@@ -26,6 +26,11 @@ type RealtimeSubscriptionOptions = {
   beforeSubscribe?: () => void | Promise<void>
 }
 
+type RealtimeFailureContext = {
+  channelName?: string
+  operation: string
+}
+
 export function isKrescoRealtimeEnabled() {
   return process.env.NEXT_PUBLIC_ABLY_ENABLED !== 'false'
 }
@@ -33,6 +38,21 @@ export function isKrescoRealtimeEnabled() {
 function authErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   return 'Could not authenticate with Ably.'
+}
+
+function reportRealtimeAsyncFailure(error: unknown, context: RealtimeFailureContext) {
+  if (typeof console !== 'undefined') {
+    console.warn('Kresco realtime async failure', { ...context, error })
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('kresco:realtime-error', {
+      detail: {
+        ...context,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    }))
+  }
 }
 
 export function getKrescoRealtime(): Ably.Realtime | null {
@@ -46,7 +66,7 @@ export function getKrescoRealtime(): Ably.Realtime | null {
     realtimeClient = new Ably.Realtime({
       authCallback: async (_tokenParams, callback) => {
         try {
-          const { data } = await api.get<AblyTokenResponse>('/realtime/ably-token')
+          const data = await getJson<AblyTokenResponse>('/realtime/ably-token')
           callback(null, data.token)
         } catch (error) {
           callback(authErrorMessage(error), null)
@@ -125,7 +145,8 @@ export function subscribeKrescoRealtime({
       subscribed = true
       stopFallback()
       void runPoll()
-    } catch {
+    } catch (error) {
+      reportRealtimeAsyncFailure(error, { channelName, operation: 'subscribe' })
       startFallback?.(true)
     } finally {
       subscribing = false
@@ -134,7 +155,9 @@ export function subscribeKrescoRealtime({
 
   const handleConnectionState: Ably.connectionEventCallback = (change) => {
     if (change.current === 'connected') {
-      void ensureSubscribed()
+      void ensureSubscribed().catch((error) => {
+        reportRealtimeAsyncFailure(error, { channelName, operation: 'resubscribe' })
+      })
       stopFallback()
       void runPoll()
       return
@@ -148,7 +171,9 @@ export function subscribeKrescoRealtime({
   if (realtime.connection.state === 'suspended' || realtime.connection.state === 'failed') {
     startFallback?.(true)
   }
-  void ensureSubscribed()
+  void ensureSubscribed().catch((error) => {
+    reportRealtimeAsyncFailure(error, { channelName, operation: 'subscribe' })
+  })
 
   return () => {
     stopped = true
@@ -159,8 +184,7 @@ export function subscribeKrescoRealtime({
 }
 
 export async function listKrescoRealtimeSubscriptions() {
-  const { data } = await api.get<RealtimeSubscriptionsResponse>('/realtime/subscriptions')
-  return data
+  return getJson<RealtimeSubscriptionsResponse>('/realtime/subscriptions')
 }
 
 export function subscribeKrescoRealtimeChannels({
@@ -192,7 +216,9 @@ export function subscribeKrescoRealtimeChannels({
       await channel.subscribe(onMessage)
       subscribedChannels.push(channel)
     }
-  })().catch(() => undefined)
+  })().catch((error) => {
+    reportRealtimeAsyncFailure(error, { operation: 'subscribe-channels' })
+  })
 
   return () => {
     stopped = true

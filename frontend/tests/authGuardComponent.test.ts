@@ -4,7 +4,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import AuthGuard from '@/components/AuthGuard.jsx'
+import AuthGuard from '@/components/AuthGuard'
 import ProfessorAuthGate from '@/components/professor/ProfessorAuthGate'
 import { replaceBrowserLocation } from '@/lib/browserNavigation'
 import { getMyProfile } from '@/lib/profile'
@@ -140,6 +140,7 @@ describe('AuthGuard component behavior', () => {
 
   it('denies ProfessorAuthGate when the server profile is not a professor', async () => {
     localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
+    window.history.pushState({}, '', '/professor/chat')
     getMyProfileMock.mockResolvedValueOnce(studentUser as never)
 
     const { container } = renderComponent(
@@ -151,6 +152,9 @@ describe('AuthGuard component behavior', () => {
     })
     expect(container.textContent).not.toContain('Professor child')
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
+
+    const backLink = container.querySelector('a')
+    expect(backLink?.getAttribute('href')).toBe('/home')
   })
 
   it('logs out and redirects when server profile hydration is unauthorized', async () => {

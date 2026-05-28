@@ -3,6 +3,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.limits import LongText, ShortText, StrictInputModel, TokenText, UrlText
+
 
 class ProgramTrackOut(BaseModel):
     id: int
@@ -79,31 +81,31 @@ class LiveProviderConfigOut(BaseModel):
     create_endpoint_configured: bool
 
 
-class LiveSessionIn(BaseModel):
+class LiveSessionIn(StrictInputModel):
     course_offering_id: int
     title: str = Field(min_length=1, max_length=255)
-    description: str = ""
+    description: LongText = ""
     starts_at: datetime
     ends_at: datetime
-    join_url: str = ""
-    vdocipher_live_id: str = ""
-    stream_ingest_url: str = ""
-    stream_key: str = ""
+    join_url: UrlText = ""
+    vdocipher_live_id: ShortText = ""
+    stream_ingest_url: UrlText = ""
+    stream_key: TokenText = ""
     auto_create_vdocipher: bool = False
-    chat_mode: str = "off"
+    chat_mode: ShortText = "off"
 
 
-class LiveSessionUpdateIn(BaseModel):
+class LiveSessionUpdateIn(StrictInputModel):
     course_offering_id: Optional[int] = None
     title: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: Optional[LongText] = None
     starts_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
-    join_url: Optional[str] = None
-    vdocipher_live_id: Optional[str] = None
-    stream_ingest_url: Optional[str] = None
-    stream_key: Optional[str] = None
-    status: Optional[str] = None
+    join_url: Optional[UrlText] = None
+    vdocipher_live_id: Optional[ShortText] = None
+    stream_ingest_url: Optional[UrlText] = None
+    stream_key: Optional[TokenText] = None
+    status: Optional[ShortText] = None
 
 
 class LiveSessionInteractionOut(BaseModel):
@@ -124,13 +126,13 @@ class LiveSessionInteractionOut(BaseModel):
     updated_at: datetime
 
 
-class LiveSessionInteractionIn(BaseModel):
-    kind: str = "question"
+class LiveSessionInteractionIn(StrictInputModel):
+    kind: ShortText = "question"
     body: str = Field(min_length=1, max_length=2000)
 
 
-class LiveSessionInteractionPatchIn(BaseModel):
-    status: Optional[str] = None
+class LiveSessionInteractionPatchIn(StrictInputModel):
+    status: Optional[ShortText] = None
     answer: Optional[str] = Field(default=None, max_length=4000)
 
 
@@ -149,14 +151,14 @@ class LiveSessionCheckpointOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class LiveSessionCheckpointIn(BaseModel):
+class LiveSessionCheckpointIn(StrictInputModel):
     title: str = Field(min_length=1, max_length=255)
     prompt: str = Field(default="", max_length=4000)
-    checkpoint_type: str = "prompt"
+    checkpoint_type: ShortText = "prompt"
 
 
-class LiveSessionCheckpointPatchIn(BaseModel):
-    status: Optional[str] = None
+class LiveSessionCheckpointPatchIn(StrictInputModel):
+    status: Optional[ShortText] = None
 
 
 class ProfessorChangeRequestOut(BaseModel):
@@ -175,11 +177,11 @@ class ProfessorChangeRequestOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ProfessorChangeRequestIn(BaseModel):
+class ProfessorChangeRequestIn(StrictInputModel):
     course_offering_id: int
-    target_type: str
+    target_type: ShortText
     target_id: int
-    change_type: str = "update_fields"
+    change_type: ShortText = "update_fields"
     proposed_patch_json: dict[str, Any]
     current_snapshot_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -248,11 +250,11 @@ class ProfessorChatMessageOut(BaseModel):
     read_at: Optional[datetime] = None
 
 
-class ChatMessageIn(BaseModel):
+class ChatMessageIn(StrictInputModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
-class ChatMessagePatchIn(BaseModel):
+class ChatMessagePatchIn(StrictInputModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
@@ -260,7 +262,7 @@ class StudentStartConversationIn(ChatMessageIn):
     course_offering_id: int
 
 
-class ChatConversationPatchIn(BaseModel):
+class ChatConversationPatchIn(StrictInputModel):
     is_pinned_by_professor: Optional[bool] = None
     mark_read: bool = False
 

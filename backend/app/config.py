@@ -1,3 +1,5 @@
+import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -5,9 +7,10 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-FALLBACK_JWT_SECRET = "fallback-secret-change-in-production"
+LEGACY_FALLBACK_JWT_SECRET = "fallback-secret-change-in-production"
 LOCAL_DATABASE_URL = "sqlite+aiosqlite:///./db.sqlite3"
 PRODUCTION_ENVIRONMENTS = {"production", "prod", "staging"}
+DISALLOWED_JWT_SECRETS = {"", "change-me", LEGACY_FALLBACK_JWT_SECRET}
 
 REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("google_client_id", "GOOGLE_CLIENT_ID"),
@@ -23,12 +26,80 @@ REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
 MEDIA_STORAGE_LOCAL = "local"
 MEDIA_STORAGE_S3 = "s3"
 MEDIA_STORAGE_S3_MOCK = "s3-mock"
+RUNTIME_SECRET_ID_ENV = "KRESCO_RUNTIME_SECRET_ID"
+RUNTIME_SECRET_REGION_ENV = "KRESCO_RUNTIME_SECRET_REGION"
+AWS_REGION_ENV_NAMES = ("AWS_REGION", "AWS_DEFAULT_REGION")
+RUNTIME_SECRET_KEY_ALIASES = {
+    "KRESCO_ENV": "environment",
+    "APP_ENV": "environment",
+    "ENVIRONMENT": "environment",
+    "ENV": "environment",
+    "KRESCO_RELEASE_SHA": "release_sha",
+    "RELEASE_SHA": "release_sha",
+    "GITHUB_SHA": "release_sha",
+    RUNTIME_SECRET_ID_ENV: "runtime_secret_id",
+    RUNTIME_SECRET_REGION_ENV: "runtime_secret_region",
+    "DATABASE_URL": "database_url",
+    "DATABASE_CONNECTION_STRATEGY": "database_connection_strategy",
+    "DATABASE_POOL_SIZE": "database_pool_size",
+    "DATABASE_MAX_OVERFLOW": "database_max_overflow",
+    "DATABASE_POOL_TIMEOUT": "database_pool_timeout",
+    "PGSSLROOTCERT": "pgsslrootcert",
+    "JWT_SECRET_KEY": "jwt_secret_key",
+    "JWT_ALGORITHM": "jwt_algorithm",
+    "JWT_EXPIRE_MINUTES": "jwt_expire_minutes",
+    "GOOGLE_CLIENT_ID": "google_client_id",
+    "VDOCIPHER_API_SECRET": "vdocipher_api_secret",
+    "VDOCIPHER_API_BASE_URL": "vdocipher_api_base_url",
+    "VDOCIPHER_LIVE_CREATE_URL": "vdocipher_live_create_url",
+    "STRIPE_SK": "stripe_sk",
+    "STRIPE_SECRET_KEY": "stripe_sk",
+    "STRIPE_PK": "stripe_pk",
+    "STRIPE_PUBLISHABLE_KEY": "stripe_pk",
+    "STRIPE_PRODUCT_ID": "stripe_product_id",
+    "STRIPE_WEBHOOK_SECRET": "stripe_webhook_secret",
+    "CORS_ALLOWED_ORIGINS": "cors_allowed_origins",
+    "CORS_ALLOW_ORIGIN_REGEX": "cors_allow_origin_regex",
+    "FRONTEND_URL": "frontend_url",
+    "AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
+    "KRESCO_AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
+    "DEBUG": "debug",
+    "RESEND_API_KEY": "resend_api_key",
+    "ABLY_API_KEY": "ably_api_key",
+    "ABLY_TOKEN_TTL_SECONDS": "ably_token_ttl_seconds",
+    "REALTIME_OUTBOX_SECRET": "realtime_outbox_secret",
+    "MEDIA_STORAGE_BACKEND": "media_storage_backend",
+    "MEDIA_S3_BUCKET": "media_s3_bucket",
+    "MEDIA_S3_REGION": "media_s3_region",
+    "AWS_REGION": "media_s3_region",
+    "MEDIA_S3_PREFIX": "media_s3_prefix",
+    "MEDIA_S3_ENDPOINT_URL": "media_s3_endpoint_url",
+    "MEDIA_S3_MOCK_ROOT": "media_s3_mock_root",
+    "MEDIA_S3_PRESIGN_TTL_SECONDS": "media_s3_presign_ttl_seconds",
+    "MEDIA_PROFILE_QUOTA_BYTES": "media_profile_quota_bytes",
+    "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "media_chat_conversation_quota_bytes",
+    "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "media_s3_lifecycle_expiration_days",
+    "MAX_REQUEST_BODY_BYTES": "max_request_body_bytes",
+    "KRESCO_MAX_REQUEST_BODY_BYTES": "max_request_body_bytes",
+}
 
 
 class Settings(BaseSettings):
     environment: str = Field(
         default="development",
         validation_alias=AliasChoices("environment", "KRESCO_ENV", "APP_ENV", "ENVIRONMENT", "ENV"),
+    )
+    release_sha: str = Field(
+        default="",
+        validation_alias=AliasChoices("release_sha", "KRESCO_RELEASE_SHA", "RELEASE_SHA", "GITHUB_SHA"),
+    )
+    runtime_secret_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("runtime_secret_id", RUNTIME_SECRET_ID_ENV),
+    )
+    runtime_secret_region: str = Field(
+        default="",
+        validation_alias=AliasChoices("runtime_secret_region", RUNTIME_SECRET_REGION_ENV),
     )
     database_url: str = Field(
         default=LOCAL_DATABASE_URL,
@@ -38,12 +109,24 @@ class Settings(BaseSettings):
         default="direct",
         validation_alias=AliasChoices("database_connection_strategy", "DATABASE_CONNECTION_STRATEGY"),
     )
+    database_pool_size: int = Field(
+        default=10,
+        validation_alias=AliasChoices("database_pool_size", "DATABASE_POOL_SIZE"),
+    )
+    database_max_overflow: int = Field(
+        default=20,
+        validation_alias=AliasChoices("database_max_overflow", "DATABASE_MAX_OVERFLOW"),
+    )
+    database_pool_timeout: int = Field(
+        default=30,
+        validation_alias=AliasChoices("database_pool_timeout", "DATABASE_POOL_TIMEOUT"),
+    )
     pgsslrootcert: str = Field(
         default=str(BACKEND_DIR / "certs" / "rds-global-bundle.pem"),
         validation_alias=AliasChoices("pgsslrootcert", "PGSSLROOTCERT"),
     )
     jwt_secret_key: str = Field(
-        default=FALLBACK_JWT_SECRET,
+        default="",
         validation_alias=AliasChoices("jwt_secret_key", "JWT_SECRET_KEY"),
     )
     jwt_algorithm: str = Field(default="HS256", validation_alias=AliasChoices("jwt_algorithm", "JWT_ALGORITHM"))
@@ -77,6 +160,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("cors_allow_origin_regex", "CORS_ALLOW_ORIGIN_REGEX"),
     )
     frontend_url: str = Field(default="http://localhost:3000", validation_alias=AliasChoices("frontend_url", "FRONTEND_URL"))
+    auth_cookie_samesite: str = Field(
+        default="lax",
+        validation_alias=AliasChoices("auth_cookie_samesite", "AUTH_COOKIE_SAMESITE", "KRESCO_AUTH_COOKIE_SAMESITE"),
+    )
     debug: bool = Field(default=False, validation_alias=AliasChoices("debug", "DEBUG"))
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("resend_api_key", "RESEND_API_KEY"))
     ably_api_key: str = Field(default="", validation_alias=AliasChoices("ably_api_key", "ABLY_API_KEY"))
@@ -113,6 +200,10 @@ class Settings(BaseSettings):
         default=365,
         validation_alias=AliasChoices("media_s3_lifecycle_expiration_days", "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS"),
     )
+    max_request_body_bytes: int = Field(
+        default=8 * 1024 * 1024,
+        validation_alias=AliasChoices("max_request_body_bytes", "MAX_REQUEST_BODY_BYTES", "KRESCO_MAX_REQUEST_BODY_BYTES"),
+    )
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -120,7 +211,6 @@ class Settings(BaseSettings):
 
     @property
     def is_lambda(self) -> bool:
-        import os
         return bool(os.environ.get("LAMBDA_TASK_ROOT"))
 
     @property
@@ -133,7 +223,10 @@ class Settings(BaseSettings):
 
         errors: list[str] = []
 
-        if self.jwt_secret_key == FALLBACK_JWT_SECRET or len(self.jwt_secret_key.strip()) < 32:
+        if not _is_valid_release_sha(self.release_sha):
+            errors.append("KRESCO_RELEASE_SHA must identify the deployed commit or build in production environments.")
+
+        if self.jwt_secret_key.strip() in DISALLOWED_JWT_SECRETS or len(self.jwt_secret_key.strip()) < 32:
             errors.append("JWT_SECRET_KEY must be configured to a non-default secret with at least 32 characters.")
 
         if _is_sqlite_database_url(self.database_url):
@@ -172,11 +265,16 @@ class Settings(BaseSettings):
             errors.append("MEDIA_CHAT_CONVERSATION_QUOTA_BYTES must be greater than zero.")
         if int(self.media_s3_lifecycle_expiration_days) <= 0:
             errors.append("MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS must be greater than zero.")
+        if int(self.max_request_body_bytes) <= 0:
+            errors.append("MAX_REQUEST_BODY_BYTES must be greater than zero.")
         if len(self.realtime_outbox_secret.strip()) < 32:
             errors.append("REALTIME_OUTBOX_SECRET must be configured with at least 32 characters.")
 
         if _is_local_origin(self.frontend_url):
             errors.append("FRONTEND_URL must not point to localhost in production environments.")
+
+        if self.auth_cookie_samesite.strip().lower() not in {"lax", "strict", "none"}:
+            errors.append("AUTH_COOKIE_SAMESITE must be one of lax, strict, or none.")
 
         if any(_is_local_origin(origin) for origin in self.cors_origins_list):
             errors.append("CORS_ALLOWED_ORIGINS must not include localhost origins in production environments.")
@@ -192,6 +290,11 @@ class Settings(BaseSettings):
 
         return errors
 
+    @property
+    def auth_cookie_samesite_value(self) -> str:
+        normalized = self.auth_cookie_samesite.strip().lower()
+        return normalized if normalized in {"lax", "strict", "none"} else "lax"
+
     model_config = SettingsConfigDict(
         env_file=(BACKEND_DIR / ".env", ".env"),
         extra="ignore",
@@ -201,7 +304,47 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(**load_runtime_secret_overrides())
+
+
+def load_runtime_secret_overrides(runtime_env: dict[str, str] | None = None) -> dict[str, object]:
+    env = runtime_env if runtime_env is not None else os.environ
+    secret_id = str(env.get(RUNTIME_SECRET_ID_ENV, "")).strip()
+    if not secret_id:
+        return {}
+
+    import boto3
+
+    region_name = str(env.get(RUNTIME_SECRET_REGION_ENV, "")).strip()
+    if not region_name:
+        for env_name in AWS_REGION_ENV_NAMES:
+            region_name = str(env.get(env_name, "")).strip()
+            if region_name:
+                break
+
+    client = boto3.client("secretsmanager", region_name=region_name or None)
+    try:
+        response = client.get_secret_value(SecretId=secret_id)
+    except Exception as exc:  # pragma: no cover - exercised against AWS in staging
+        raise RuntimeError("Failed to load runtime configuration from AWS Secrets Manager.") from exc
+
+    secret_string = response.get("SecretString")
+    if not secret_string:
+        raise RuntimeError("Runtime configuration secret must be a JSON SecretString.")
+
+    try:
+        decoded = json.loads(secret_string)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Runtime configuration secret must contain valid JSON.") from exc
+
+    if not isinstance(decoded, dict):
+        raise RuntimeError("Runtime configuration secret must contain a JSON object.")
+
+    return {
+        RUNTIME_SECRET_KEY_ALIASES.get(str(key), str(key)): value
+        for key, value in decoded.items()
+        if value is not None
+    }
 
 
 def validate_production_settings(settings: Settings) -> None:
@@ -259,3 +402,10 @@ def _is_permissive_origin_regex(value: str) -> bool:
     if compact in {"*", ".*", "^.*$", "https?://.*", "^https?://.*$", "^https://.*$", "^http://.*$"}:
         return True
     return ".*" in compact or ".+" in compact
+
+
+def _is_valid_release_sha(value: str) -> bool:
+    normalized = value.strip().lower()
+    if len(normalized) < 7:
+        return False
+    return normalized not in {"development", "local", "unknown", "placeholder", "change-me"}

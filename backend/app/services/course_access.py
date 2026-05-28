@@ -1,3 +1,5 @@
+import copy
+
 from fastapi import HTTPException
 from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +19,23 @@ from app.models.gamification import TopicItemProgress
 from app.models.users import User
 from app.schemas.courses import ChapterSectionOut, ExamOut, ExamProblemOut, ResourceOut, TabContentOut, TopicItemOut
 from app.services.access import AccessContext, AccessDecision, build_access_context
+
+ORPHANED_PARENT_ACCESS_DECISION = AccessDecision(can_access=False, reason="parent_not_found")
+QUIZ_SECRET_CONFIG_KEYS = {
+    "acceptedAnswers",
+    "accepted_answers",
+    "answer",
+    "answerRegion",
+    "answers",
+    "correct",
+    "correctAnswer",
+    "correctAnswers",
+    "correctIndex",
+    "correct_answer",
+    "correct_answers",
+    "correct_index",
+    "is_correct",
+}
 
 
 def _loaded_relationship(obj, name: str):
@@ -50,6 +69,56 @@ def redact_locked_tab(out: TabContentOut) -> TabContentOut:
     return out
 
 
+def scrub_quiz_config(config: dict | None) -> dict | None:
+    if not isinstance(config, dict):
+        return config
+    scrubbed = copy.deepcopy(config)
+    questions = scrubbed.get("questions")
+    if isinstance(questions, list):
+        scrubbed["questions"] = [
+            _scrub_quiz_question(question)
+            for question in questions
+            if isinstance(question, dict)
+        ]
+    return scrubbed
+
+
+def _scrub_quiz_question(question: dict) -> dict:
+    raw_answer = question.get("answer")
+    question_type = str(question.get("type") or "").strip()
+    scrubbed = {
+        key: _scrub_quiz_value(value)
+        for key, value in question.items()
+        if key not in QUIZ_SECRET_CONFIG_KEYS
+    }
+
+    if question_type == "matching" and "pairs" not in scrubbed and isinstance(raw_answer, dict):
+        scrubbed["pairs"] = [{"left": str(left)} for left in raw_answer]
+
+    if question_type == "drag_and_drop" and isinstance(raw_answer, dict):
+        if "items" not in scrubbed:
+            scrubbed["items"] = [{"id": str(item), "label": str(item)} for item in raw_answer]
+        if "zones" not in scrubbed:
+            scrubbed["zones"] = sorted({str(zone) for zone in raw_answer.values()})
+
+    if question_type == "ordering" and "items" not in scrubbed and isinstance(raw_answer, list):
+        scrubbed["items"] = sorted({str(item) for item in raw_answer})
+
+    return scrubbed
+
+
+def _scrub_quiz_value(value):
+    if isinstance(value, dict):
+        return {
+            key: _scrub_quiz_value(item)
+            for key, item in value.items()
+            if key not in QUIZ_SECRET_CONFIG_KEYS
+        }
+    if isinstance(value, list):
+        return [_scrub_quiz_value(item) for item in value]
+    return value
+
+
 def redact_locked_exam_problem(out: ExamProblemOut) -> ExamProblemOut:
     if not out.can_access:
         out.written_solution = ""
@@ -69,7 +138,7 @@ async def access_for_topic_item(db: AsyncSession, user: User, item: TopicItem) -
         topic = await db.scalar(select(Topic).where(Topic.id == item.topic_id))
     access_context = await build_access_context(db, user)
     if topic is None:
-        return access_context.decide_for(item)
+        return ORPHANED_PARENT_ACCESS_DECISION
     topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
     return access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
 
@@ -84,13 +153,12 @@ async def access_for_tab(db: AsyncSession, user: User, tab: TabContent) -> Acces
         )
     access_context = await build_access_context(db, user)
     if item is None:
-        return access_context.decide_for(tab)
+        return ORPHANED_PARENT_ACCESS_DECISION
     topic = _loaded_relationship(item, "topic")
     if topic is None:
         topic = await db.scalar(select(Topic).where(Topic.id == item.topic_id))
     if topic is None:
-        item_access = access_context.decide_for(item)
-        return access_context.decide_child(item_access, tab)
+        return ORPHANED_PARENT_ACCESS_DECISION
     topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
     item_access = access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
     return access_context.decide_child(item_access, tab, subject_id=topic.subject_id)
@@ -114,6 +182,8 @@ def tab_content_out(
     access = tab_access.get(tab.id) if tab_access else None
     if access:
         apply_access_decision(out, access)
+    if str(out.tab_type).strip().lower() == "quiz":
+        out.config_json = scrub_quiz_config(out.config_json) or {}
     if out.resource and resource_access:
         resource_decision = resource_access.get(out.resource.id)
         if resource_decision:
@@ -220,16 +290,8 @@ def exam_out(exam: Exam, problems: list[ExamProblem], access_context: AccessCont
     )
 
 
-import copy
-
 def _scrub_quiz_data(quiz_data: dict | None) -> dict | None:
-    if not quiz_data or not isinstance(quiz_data, dict) or "questions" not in quiz_data:
-        return quiz_data
-    scrubbed = copy.deepcopy(quiz_data)
-    for q in scrubbed.get("questions", []):
-        for opt in q.get("options", []):
-            opt.pop("is_correct", None)
-    return scrubbed
+    return scrub_quiz_config(quiz_data)
 
 def chapter_section_out(
     section: ChapterSection,

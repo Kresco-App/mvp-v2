@@ -2,7 +2,7 @@ export const PRO_CHECKOUT_PLAN = 'pro'
 export const PAYMENT_ERROR_MESSAGE = 'Erreur lors de la creation du paiement.'
 
 export type PaymentApiClient = {
-  get<T = unknown>(url: string): Promise<{ data: T }>
+  get<T = unknown>(url: string, config?: unknown): Promise<{ data: T }>
   post<T = unknown>(url: string, body?: unknown, config?: unknown): Promise<{ data: T }>
 }
 
@@ -20,10 +20,12 @@ export async function verifyCheckoutSession(
 ): Promise<PaymentVerificationResult> {
   const normalizedSessionId = sessionId?.trim()
   if (!normalizedSessionId) return { status: 'error' }
+  const idempotencyKey = paymentVerificationIdempotencyKey(normalizedSessionId)
 
   try {
     const { data } = await apiClient.get<{ is_pro?: boolean }>(
       `/payments/verify-session?session_id=${encodeURIComponent(normalizedSessionId)}`,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
     )
     if (data?.is_pro === true) {
       return { status: 'success', userPatch: { is_pro: true } }
@@ -33,6 +35,10 @@ export async function verifyCheckoutSession(
   }
 
   return { status: 'error' }
+}
+
+export function paymentVerificationIdempotencyKey(sessionId: string) {
+  return `verify-${sessionId.trim().replace(/[^a-zA-Z0-9._:-]/g, '_').slice(0, 153)}`
 }
 
 export async function createProCheckoutSession(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
 
@@ -18,6 +19,7 @@ OUTBOX_PUBLISHED = "published"
 OUTBOX_DEAD = "dead"
 OUTBOX_DELIVERABLE_STATUSES = {OUTBOX_PENDING, OUTBOX_RETRY}
 OUTBOX_STALE_LOCK_SECONDS = 300
+OUTBOX_MAX_CONCURRENCY = 8
 
 logger = logging.getLogger(__name__)
 
@@ -65,45 +67,56 @@ async def process_realtime_outbox(
     published = 0
     retry = 0
     dead = 0
+
+    async def _publish_event(event: RealtimeOutbox) -> tuple[RealtimeOutbox, bool, str]:
+        failure_reason = "Ably publish returned false"
+        try:
+            delivered = await publish_ably_message(
+                settings,
+                event.channel,
+                event.event_name,
+                event.payload_json,
+                attempts=2,
+                retry_delay_seconds=0.2,
+                http_client=http_client,
+            )
+        except Exception as exc:
+            delivered = False
+            failure_reason = f"{type(exc).__name__}: {str(exc)[:500]}"
+            logger.exception(
+                "Realtime outbox publish raised unexpectedly",
+                extra={"outbox_id": event.id, "channel": event.channel, "event": event.event_name},
+            )
+        return event, delivered, failure_reason
+
     async with httpx.AsyncClient(timeout=5) as http_client:
-        for event in events:
-            failure_reason = "Ably publish returned false"
-            try:
-                delivered = await publish_ably_message(
-                    settings,
-                    event.channel,
-                    event.event_name,
-                    event.payload_json,
-                    attempts=2,
-                    retry_delay_seconds=0.2,
-                    http_client=http_client,
-                )
-            except Exception as exc:
-                delivered = False
-                failure_reason = f"{type(exc).__name__}: {str(exc)[:500]}"
-                logger.exception(
-                    "Realtime outbox publish raised unexpectedly",
-                    extra={"outbox_id": event.id, "channel": event.channel, "event": event.event_name},
-                )
+        sem = asyncio.Semaphore(min(len(events), OUTBOX_MAX_CONCURRENCY))
 
-            if delivered:
-                event.status = OUTBOX_PUBLISHED
-                event.published_at = _utc_now()
-                event.last_error = ""
-                event.locked_at = None
-                published += 1
-                continue
+        async def _bounded_publish(event: RealtimeOutbox) -> tuple[RealtimeOutbox, bool, str]:
+            async with sem:
+                return await _publish_event(event)
 
-            event.last_error = failure_reason
+        results = await asyncio.gather(*(_bounded_publish(event) for event in events))
+
+    for event, delivered, failure_reason in results:
+        if delivered:
+            event.status = OUTBOX_PUBLISHED
+            event.published_at = _utc_now()
+            event.last_error = ""
             event.locked_at = None
-            if event.attempts >= max_attempts:
-                event.status = OUTBOX_DEAD
-                event.available_at = _utc_now()
-                dead += 1
-            else:
-                event.status = OUTBOX_RETRY
-                event.available_at = _utc_now() + _retry_delay(event.attempts, retry_base_seconds)
-                retry += 1
+            published += 1
+            continue
+
+        event.last_error = failure_reason
+        event.locked_at = None
+        if event.attempts >= max_attempts:
+            event.status = OUTBOX_DEAD
+            event.available_at = _utc_now()
+            dead += 1
+        else:
+            event.status = OUTBOX_RETRY
+            event.available_at = _utc_now() + _retry_delay(event.attempts, retry_base_seconds)
+            retry += 1
 
     await db.commit()
     return {"claimed": len(events), "published": published, "retry": retry, "dead": dead}

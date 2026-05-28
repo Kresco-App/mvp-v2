@@ -9,7 +9,7 @@ def test_health_remains_liveness_only(app_client):
     response = app_client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "2.0.0"}
+    assert response.json() == {"status": "ok", "version": "2.0.0", "release_sha": "development"}
 
 
 def test_ready_checks_database_and_configuration(app_client):
@@ -19,6 +19,7 @@ def test_ready_checks_database_and_configuration(app_client):
     assert response.json() == {
         "status": "ready",
         "version": "2.0.0",
+        "release_sha": "development",
         "checks": {
             "configuration": "ok",
             "database": "ok",
@@ -38,6 +39,7 @@ def test_ready_reports_database_failure_without_exception_details(app_client):
     assert response.json() == {
         "status": "not_ready",
         "version": "2.0.0",
+        "release_sha": "development",
         "checks": {
             "configuration": "ok",
             "database": "error",

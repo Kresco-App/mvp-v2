@@ -1,7 +1,21 @@
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Integer, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, JSON, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    JSON,
+    UniqueConstraint,
+    false,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -15,6 +29,7 @@ if TYPE_CHECKING:
 class LessonProgress(Base):
     __tablename__ = "lesson_progress"
     __table_args__ = (
+        UniqueConstraint("user_id", "lesson_id", name="uq_lesson_progress_user_lesson"),
         Index("ix_lesson_progress_user_lesson", "user_id", "lesson_id"),
         Index("ix_lesson_progress_user_status", "user_id", "status"),
     )
@@ -36,6 +51,7 @@ class LessonProgress(Base):
 class ContentProgress(Base):
     __tablename__ = "content_progress"
     __table_args__ = (
+        UniqueConstraint("user_id", "item_type", "item_id", name="uq_content_progress_user_item"),
         Index("ix_content_progress_user_item", "user_id", "item_type", "item_id"),
     )
 
@@ -50,11 +66,16 @@ class ContentProgress(Base):
 
 class UserXP(Base):
     __tablename__ = "user_xp"
+    __table_args__ = (
+        CheckConstraint("total_xp >= 0", name="ck_user_xp_total_xp_nonnegative"),
+        CheckConstraint("streak_days >= 0", name="ck_user_xp_streak_days_nonnegative"),
+        Index("ix_user_xp_total_xp_user", "total_xp", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
-    total_xp: Mapped[int] = mapped_column(Integer, default=0)
-    streak_days: Mapped[int] = mapped_column(Integer, default=0)
+    total_xp: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    streak_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     last_active_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -63,12 +84,47 @@ class UserXP(Base):
     user: Mapped["User"] = relationship("User", back_populates="xp")
 
 
+class LeaderboardRank(Base):
+    __tablename__ = "leaderboard_ranks"
+    __table_args__ = (
+        Index("ix_leaderboard_ranks_global_rank_user", "global_rank", "user_id"),
+        Index("ix_leaderboard_ranks_total_xp_user", "total_xp", "user_id"),
+    )
+
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    total_xp: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    global_rank: Mapped[int] = mapped_column(Integer)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user: Mapped["User"] = relationship("User")
+
+
+class UserStats(Base):
+    __tablename__ = "user_stats"
+    __table_args__ = (
+        CheckConstraint("total_watch_seconds >= 0", name="ck_user_stats_total_watch_seconds_nonnegative"),
+        CheckConstraint("lessons_completed >= 0", name="ck_user_stats_lessons_completed_nonnegative"),
+        CheckConstraint("quizzes_passed >= 0", name="ck_user_stats_quizzes_passed_nonnegative"),
+    )
+
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    total_watch_seconds: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    lessons_completed: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    quizzes_passed: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="stats")
+
+
 class XPTransaction(Base):
     __tablename__ = "xp_transactions"
     __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_xp_transactions_amount_nonnegative"),
         Index("ix_xp_transactions_user_created", "user_id", "created_at"),
         Index("ix_xp_transactions_reason", "reason"),
-        Index("ix_xp_transactions_idempotency", "idempotency_key", unique=True),
+        Index("ix_xp_transactions_user_idempotency", "user_id", "idempotency_key", unique=True),
         Index("ix_xp_transactions_context", "subject_id", "topic_id", "topic_section_id"),
     )
 
@@ -79,12 +135,12 @@ class XPTransaction(Base):
     description: Mapped[str] = mapped_column(String(200), default="")
     subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
     topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
-    topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    question_set_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    question_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    quiz_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    question_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("topic_sections.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("topic_items.id", ondelete="SET NULL"), nullable=True, index=True)
+    question_set_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("question_sets.id", ondelete="SET NULL"), nullable=True, index=True)
+    question_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("questions.id", ondelete="SET NULL"), nullable=True, index=True)
+    quiz_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("quiz_attempts.id", ondelete="SET NULL"), nullable=True, index=True)
+    question_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("question_attempts.id", ondelete="SET NULL"), nullable=True, index=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -94,6 +150,7 @@ class XPTransaction(Base):
 class QuizResult(Base):
     __tablename__ = "quiz_results"
     __table_args__ = (
+        UniqueConstraint("user_id", "quiz_id", name="uq_quiz_results_user_quiz"),
         Index("ix_quiz_results_user_passed", "user_id", "passed"),
     )
 
@@ -111,6 +168,7 @@ class QuizResult(Base):
 class DailyQuest(Base):
     __tablename__ = "daily_quests"
     __table_args__ = (
+        UniqueConstraint("user_id", "quest_type", "date", name="uq_daily_quests_user_type_date"),
         Index("ix_daily_quests_user_date", "user_id", "date"),
         Index("ix_daily_quests_user_type_date_completed", "user_id", "quest_type", "date", "completed"),
     )
@@ -123,7 +181,7 @@ class DailyQuest(Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     xp_reward: Mapped[int] = mapped_column(Integer, default=25)
     date: Mapped[date] = mapped_column(Date)
-    completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     user: Mapped["User"] = relationship("User", back_populates="daily_quests")
 
@@ -153,7 +211,9 @@ class ActivityEvent(Base):
 class TopicItemProgress(Base):
     __tablename__ = "topic_item_progress"
     __table_args__ = (
+        UniqueConstraint("user_id", "topic_item_id", name="uq_topic_item_progress_user_item"),
         Index("ix_topic_item_progress_user_item", "user_id", "topic_item_id"),
+        Index("ix_topic_item_progress_user_item_status", "user_id", "topic_item_id", "status"),
         Index("ix_topic_item_progress_user_topic_item", "user_id", "topic_id", "topic_item_id"),
         Index("ix_topic_item_progress_user_topic_status", "user_id", "topic_id", "status"),
         Index("ix_topic_item_progress_status", "status"),
@@ -190,9 +250,9 @@ class QuizAttempt(Base):
     question_set_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("question_sets.id", ondelete="SET NULL"), nullable=True, index=True)
     subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
     topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
-    topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("topic_sections.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("topic_items.id", ondelete="SET NULL"), nullable=True, index=True)
+    tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("tab_contents.id", ondelete="SET NULL"), nullable=True, index=True)
     source_type: Mapped[str] = mapped_column(String(40), default="tab")
     submission_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     score: Mapped[int] = mapped_column(Integer)
@@ -225,9 +285,9 @@ class QuestionAttempt(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
     topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
-    topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_section_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("topic_sections.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("topic_items.id", ondelete="SET NULL"), nullable=True, index=True)
+    tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("tab_contents.id", ondelete="SET NULL"), nullable=True, index=True)
     selected_answer_json: Mapped[dict] = mapped_column(JSON, default=dict)
     correct_answer_json: Mapped[dict] = mapped_column(JSON, default=dict)
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -10,7 +10,7 @@ import { useStudentLiveScheduleData } from '@/lib/liveSessionData'
 import { useAuthStore } from '@/lib/store'
 
 export default function LivePage() {
-  const { user } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const loadErrorRef = useRef<unknown>(null)
   const {
     sessions,
@@ -18,10 +18,6 @@ export default function LivePage() {
     error,
     mutateSessions,
   } = useStudentLiveScheduleData()
-
-  useEffect(() => {
-    document.title = 'Live Sessions - Kresco'
-  }, [])
 
   useEffect(() => {
     if (!error) {
@@ -36,6 +32,7 @@ export default function LivePage() {
 
   useEffect(() => {
     if (!user?.id) return
+    const userId = user.id
     let cleanup = () => {}
     let stopped = false
     const refresh = () => void mutateSessions()
@@ -50,7 +47,7 @@ export default function LivePage() {
       .catch(() => {
         if (stopped) return
         cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: [userNotificationsChannelName(user.id)],
+          channelNames: [userNotificationsChannelName(userId)],
           onMessage: refresh,
         })
       })

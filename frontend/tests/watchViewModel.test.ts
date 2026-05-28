@@ -66,7 +66,8 @@ describe('watch view model', () => {
   })
 
   it('centralizes notes and completion payloads', () => {
-    expect(getWatchNotesKey('12')).toBe('kresco_notes_12')
+    expect(getWatchNotesKey('12', 7)).toBe('kresco_notes_12:user_7')
+    expect(getWatchNotesKey('12')).toBe('kresco_notes_12:user_anonymous')
     expect(buildWatchSectionCompletePayload('12', { score: 80, correct_answers: 4, total_questions: 5 })).toEqual({
       section_id: 12,
       score: 80,

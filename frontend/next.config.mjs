@@ -5,11 +5,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const emptyCanvasModule = path.join(__dirname, 'lib/empty-canvas.cjs')
 const localBackendOrigin = process.env.KRESCO_LOCAL_BACKEND_ORIGIN ?? 'http://127.0.0.1:8000'
 const enableLocalRewrites = shouldEnableLocalRewrites(process.env.NODE_ENV, process.env.KRESCO_ENABLE_LOCAL_REWRITES)
+export const optimizePackageImports = ['lucide-react']
 
 const productionImageRemotePatterns = [
   { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
   { protocol: 'https', hostname: '*.googleusercontent.com' },
   { protocol: 'https', hostname: 'images.unsplash.com' },
+  { protocol: 'https', hostname: 'i.ytimg.com' },
+  { protocol: 'https', hostname: '*.ytimg.com' },
 ]
 
 const localImageRemotePatterns = [
@@ -28,6 +31,9 @@ export function buildImageRemotePatterns(nodeEnv = process.env.NODE_ENV) {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    optimizePackageImports,
+  },
   images: {
     remotePatterns: buildImageRemotePatterns(),
   },

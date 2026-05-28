@@ -53,10 +53,6 @@ export default function ProfessorLivePage() {
   } = useProfessorLiveScheduleData()
 
   useEffect(() => {
-    document.title = 'Live Sessions - Kresco Professor'
-  }, [])
-
-  useEffect(() => {
     if (offerings.length === 0) return
     setForm((current) => ({
       ...current,

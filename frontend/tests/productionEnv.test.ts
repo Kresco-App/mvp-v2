@@ -6,6 +6,8 @@ const VALID_PRODUCTION_ENV = {
   NEXT_PUBLIC_API_BASE_URL: 'https://api.kresco.example/api',
   NEXT_PUBLIC_GOOGLE_CLIENT_ID: 'google-client-id.apps.googleusercontent.com',
   NEXT_PUBLIC_ABLY_ENABLED: 'true',
+  NEXT_PUBLIC_RELEASE_SHA: '0123456789abcdef0123456789abcdef01234567',
+  JWT_SECRET_KEY: 'production-jwt-secret-shared-with-backend-32-bytes',
 }
 
 describe('frontend production environment validation', () => {
@@ -20,6 +22,8 @@ describe('frontend production environment validation', () => {
       expect.stringContaining('NEXT_PUBLIC_API_BASE_URL'),
       expect.stringContaining('NEXT_PUBLIC_GOOGLE_CLIENT_ID'),
       expect.stringContaining('NEXT_PUBLIC_ABLY_ENABLED'),
+      expect.stringContaining('NEXT_PUBLIC_RELEASE_SHA'),
+      expect.stringContaining('JWT_SECRET_KEY'),
     ]))
   })
 
@@ -63,6 +67,30 @@ describe('frontend production environment validation', () => {
     ]))
   })
 
+  it('requires the server-side JWT secret for proxy route authorization', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      JWT_SECRET_KEY: 'change-me',
+    })).toContain('JWT_SECRET_KEY must match the backend JWT secret and be at least 32 characters.')
+
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      JWT_SECRET_KEY: 'too-short',
+    })).toContain('JWT_SECRET_KEY must match the backend JWT secret and be at least 32 characters.')
+  })
+
+  it('requires a concrete release identifier for production correlation', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_RELEASE_SHA: 'unknown',
+    })).toContain('NEXT_PUBLIC_RELEASE_SHA must identify the deployed commit or build.')
+
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_RELEASE_SHA: '123456',
+    })).toContain('NEXT_PUBLIC_RELEASE_SHA must identify the deployed commit or build.')
+  })
+
   it('rejects local demo media feature flags in production', () => {
     expect(validateFrontendProductionEnv({
       ...VALID_PRODUCTION_ENV,
@@ -80,6 +108,8 @@ describe('frontend production environment validation', () => {
       'NEXT_PUBLIC_API_BASE_URL="https://api.kresco.example/api"',
       "NEXT_PUBLIC_GOOGLE_CLIENT_ID='google-client-id.apps.googleusercontent.com'",
       'NEXT_PUBLIC_ABLY_ENABLED=true',
+      'NEXT_PUBLIC_RELEASE_SHA=0123456789abcdef0123456789abcdef01234567',
+      'JWT_SECRET_KEY=production-jwt-secret-shared-with-backend-32-bytes',
     ].join('\n'))).toEqual(VALID_PRODUCTION_ENV)
   })
 })

@@ -4,6 +4,14 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const mocks = vi.hoisted(() => ({
+  reportClientError: vi.fn(),
+}))
+
+vi.mock('@/lib/clientTelemetry', () => ({
+  reportClientError: mocks.reportClientError,
+}))
+
 import ErrorBoundary from '@/components/ErrorBoundary'
 import RouteErrorState from '@/components/RouteErrorState'
 
@@ -15,6 +23,7 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
   document.body.innerHTML = ''
   mountedRoots = []
+  mocks.reportClientError.mockClear()
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
@@ -73,6 +82,10 @@ describe('route error states', () => {
     expect(container.textContent).toContain('Widget failed.')
     expect(container.textContent).toContain('Retry just this widget.')
     expect(container.textContent).not.toContain('Recovered widget')
+    expect(mocks.reportClientError).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'react-error-boundary',
+      message: 'widget boom',
+    }))
 
     shouldThrow = false
     await act(async () => {

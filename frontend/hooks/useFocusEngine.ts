@@ -21,6 +21,8 @@ export const PRESETS: Record<Exclude<FocusPreset, 'custom'>, FocusPresetConfig> 
 const STORAGE_KEY = 'kresco_focus_engine'
 
 interface PersistedState {
+  version: number
+  ownerId: string | null
   preset: FocusPreset
   customMinutes: number
   totalSeconds: number
@@ -32,6 +34,14 @@ interface PersistedState {
   pausedAt: number | null
 }
 
+function isValidFocusPreset(value: unknown): value is FocusPreset {
+  return value === 'sprint' || value === 'deep_work' || value === 'bac_blanc' || value === 'custom'
+}
+
+function isValidFocusState(value: unknown): value is FocusState {
+  return value === 'idle' || value === 'running' || value === 'paused' || value === 'break' || value === 'finished'
+}
+
 function loadState(): PersistedState | null {
   if (typeof window === 'undefined') return null
   try {
@@ -40,10 +50,10 @@ function loadState(): PersistedState | null {
     const parsed = JSON.parse(raw) as Partial<PersistedState>
     const preset = parsed.preset
     const state = parsed.state
-    const validPreset = preset === 'sprint' || preset === 'deep_work' || preset === 'bac_blanc' || preset === 'custom'
-    const validState = state === 'idle' || state === 'running' || state === 'paused' || state === 'break' || state === 'finished'
-    if (!validPreset || !validState || !preset || !state) return null
+    if (!isValidFocusPreset(preset) || !isValidFocusState(state)) return null
     return {
+      version: Number.isFinite(parsed.version) && parsed.version! >= 0 ? parsed.version! : 0,
+      ownerId: typeof parsed.ownerId === 'string' ? parsed.ownerId : null,
       preset,
       customMinutes: Number.isFinite(parsed.customMinutes) ? parsed.customMinutes! : 30,
       totalSeconds: Number.isFinite(parsed.totalSeconds) && parsed.totalSeconds! > 0 ? parsed.totalSeconds! : PRESETS.sprint.minutes * 60,
@@ -62,6 +72,13 @@ function saveState(state: PersistedState) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
+function createTabId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `focus-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`
+}
+
 export function useFocusEngine() {
   const [preset, setPreset] = useState<FocusPreset>('sprint')
   const [customMinutes, setCustomMinutes] = useState(30)
@@ -76,6 +93,9 @@ export function useFocusEngine() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const startedAtRef = useRef<number | null>(null)
   const hasLoadedRef = useRef(false)
+  const tabIdRef = useRef(createTabId())
+  const versionRef = useRef(0)
+  const lastSavedSignatureRef = useRef<string | null>(null)
 
   const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds)
   const progress = totalSeconds > 0 ? elapsedSeconds / totalSeconds : 0
@@ -90,22 +110,66 @@ export function useFocusEngine() {
     const reconciledElapsed = saved.state === 'running' && saved.startedAt
       ? Math.min(saved.totalSeconds, saved.elapsedSeconds + Math.max(0, Math.floor((Date.now() - saved.startedAt) / 1000)))
       : Math.min(saved.elapsedSeconds, saved.totalSeconds)
+    const reconciledState = saved.state === 'running'
+      ? (reconciledElapsed >= saved.totalSeconds ? 'finished' : 'running')
+      : saved.state
 
     setPreset(saved.preset)
     setCustomMinutes(saved.customMinutes)
     setTotalSeconds(saved.totalSeconds)
     setElapsedSeconds(reconciledElapsed)
-    setState(saved.state === 'running' ? (reconciledElapsed >= saved.totalSeconds ? 'finished' : 'paused') : saved.state)
+    setState(reconciledState)
     setStreak(saved.streak)
     setTabWarnings(saved.tabWarnings)
-    startedAtRef.current = saved.startedAt
+    startedAtRef.current = reconciledState === 'running' ? Date.now() : saved.startedAt
+    versionRef.current = saved.version
     hasLoadedRef.current = true
+  }, [])
+
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (event.key !== STORAGE_KEY || event.newValue == null) return
+      try {
+        const parsed = JSON.parse(event.newValue) as Partial<PersistedState>
+        if (!isValidFocusPreset(parsed.preset) || !isValidFocusState(parsed.state)) return
+        const nextVersion = Number.isFinite(parsed.version) ? parsed.version! : 0
+        if (nextVersion <= versionRef.current) return
+
+        versionRef.current = nextVersion
+        lastSavedSignatureRef.current = event.newValue
+
+        const reconciledElapsed = parsed.state === 'running' && parsed.startedAt
+          ? Math.min(parsed.totalSeconds ?? PRESETS.sprint.minutes * 60, (Number.isFinite(parsed.elapsedSeconds) ? parsed.elapsedSeconds! : 0) + Math.max(0, Math.floor((Date.now() - parsed.startedAt) / 1000)))
+          : Math.min(Number.isFinite(parsed.elapsedSeconds) ? parsed.elapsedSeconds! : 0, Number.isFinite(parsed.totalSeconds) && parsed.totalSeconds! > 0 ? parsed.totalSeconds! : PRESETS.sprint.minutes * 60)
+        const reconciledState = parsed.state === 'running'
+          ? (reconciledElapsed >= (Number.isFinite(parsed.totalSeconds) && parsed.totalSeconds! > 0 ? parsed.totalSeconds! : PRESETS.sprint.minutes * 60) ? 'finished' : 'running')
+          : parsed.state
+
+        setPreset(parsed.preset)
+        setCustomMinutes(Number.isFinite(parsed.customMinutes) ? parsed.customMinutes! : 30)
+        setTotalSeconds(Number.isFinite(parsed.totalSeconds) && parsed.totalSeconds! > 0 ? parsed.totalSeconds! : PRESETS.sprint.minutes * 60)
+        setElapsedSeconds(reconciledElapsed)
+        setState(reconciledState)
+        setStreak(Number.isFinite(parsed.streak) && parsed.streak! >= 0 ? parsed.streak! : 0)
+        setTabWarnings(Number.isFinite(parsed.tabWarnings) && parsed.tabWarnings! >= 0 ? parsed.tabWarnings! : 0)
+        startedAtRef.current = reconciledState === 'running' ? Date.now() : typeof parsed.startedAt === 'number' ? parsed.startedAt : null
+      } catch {
+        // Ignore malformed cross-tab writes.
+      }
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
   }, [])
 
   // Persist state
   useEffect(() => {
     if (!hasLoadedRef.current) return
-    saveState({
+    const startedAt = state === 'running' ? Date.now() : startedAtRef.current
+    const nextVersion = versionRef.current + 1
+    const nextState: PersistedState = {
+      version: nextVersion,
+      ownerId: tabIdRef.current,
       preset,
       customMinutes,
       totalSeconds,
@@ -113,9 +177,22 @@ export function useFocusEngine() {
       state,
       streak,
       tabWarnings,
-      startedAt: startedAtRef.current,
+      startedAt,
       pausedAt: state === 'paused' ? Date.now() : null,
-    })
+    }
+    const currentRaw = localStorage.getItem(STORAGE_KEY)
+    if (currentRaw && currentRaw !== lastSavedSignatureRef.current) {
+      const currentParsed = loadState()
+      if (currentParsed && currentParsed.version > versionRef.current) {
+        versionRef.current = currentParsed.version
+        return
+      }
+    }
+    versionRef.current = nextVersion
+    const serialized = JSON.stringify(nextState)
+    lastSavedSignatureRef.current = serialized
+    startedAtRef.current = startedAt
+    saveState(nextState)
   }, [preset, customMinutes, totalSeconds, elapsedSeconds, state, streak, tabWarnings])
 
   // Timer tick
@@ -177,6 +254,7 @@ export function useFocusEngine() {
   }, [])
 
   const resume = useCallback(() => {
+    startedAtRef.current = Date.now()
     setState('running')
   }, [])
 

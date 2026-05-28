@@ -34,7 +34,7 @@ class LocalMediaStorage:
 
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
         del content_type
-        destination = self.root / key
+        destination = _safe_local_destination(self.root, key)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(content)
         url = f"{self.public_prefix}/{quote(key, safe='/')}"
@@ -82,7 +82,7 @@ class S3MockMediaStorage:
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
         del content_type
         object_key = "/".join(part for part in [self.prefix, key] if part)
-        destination = self.root / self.bucket / object_key
+        destination = _safe_local_destination(self.root / self.bucket, object_key)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(content)
         reference = s3_reference(self.bucket, object_key)
@@ -100,6 +100,16 @@ def get_media_storage(settings: Settings) -> MediaStorage:
     if backend == MEDIA_STORAGE_S3_MOCK:
         return S3MockMediaStorage(settings)
     return LocalMediaStorage()
+
+
+async def warm_media_storage_client(settings: Settings) -> None:
+    if settings.media_storage_backend.strip().lower() != MEDIA_STORAGE_S3:
+        return
+    await asyncio.to_thread(
+        _s3_client,
+        settings.media_s3_region.strip(),
+        settings.media_s3_endpoint_url.strip(),
+    )
 
 
 def media_url(reference: str | None, settings: Settings) -> str:
@@ -172,6 +182,26 @@ def safe_original_filename(filename: str | None, fallback: str) -> str:
 
 def _clean_prefix(prefix: str) -> str:
     return "/".join(part for part in prefix.strip("/").split("/") if part)
+
+
+def _safe_local_destination(root: Path, key: str) -> Path:
+    cleaned_key = key.strip().replace("\\", "/")
+    key_parts = cleaned_key.split("/")
+    if (
+        not cleaned_key
+        or cleaned_key.startswith("/")
+        or "\x00" in cleaned_key
+        or any(part in {"", ".", ".."} for part in key_parts)
+    ):
+        raise MediaStorageError("Invalid media object key.")
+
+    root_path = root.resolve()
+    destination = (root_path / cleaned_key).resolve()
+    try:
+        destination.relative_to(root_path)
+    except ValueError as exc:
+        raise MediaStorageError("Media object key escapes the storage root.") from exc
+    return destination
 
 
 @lru_cache(maxsize=8)

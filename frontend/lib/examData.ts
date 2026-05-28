@@ -1,5 +1,5 @@
 import useSWR from 'swr'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 
 export type ExamQuestion = {
   id: number
@@ -43,6 +43,14 @@ export type ExamQuizDiscovery = {
   lessonId: number | null
 }
 
+type ExamQuizDiscoveryResponse = {
+  subjectId?: string | number
+  subject_id?: string | number
+  quiz?: ExamQuiz | null
+  lessonId?: number | null
+  lesson_id?: number | null
+}
+
 export const NO_EXAM_QUIZ_MESSAGE = 'Aucun quiz disponible pour cette matiere.'
 
 export function examQuizDiscoverySWRKey(subjectId: string | number | null | undefined) {
@@ -56,28 +64,18 @@ export async function loadExamQuiz(subjectId: string | number): Promise<ExamQuiz
     throw new Error('Invalid subject id.')
   }
 
-  const { data: subject } = await api.get<ExamSubject>(`/courses/subjects/${encodeURIComponent(normalized)}`)
-  const lessons = examLessonsFromSubject(subject)
-
-  for (const lesson of lessons) {
-    try {
-      const { data } = await api.get<ExamQuiz>(`/quizzes/${lesson.id}`)
-      if (data && Array.isArray(data.questions) && data.questions.length > 0) {
-        return {
-          subjectId: normalized,
-          quiz: data,
-          lessonId: lesson.id,
-        }
-      }
-    } catch {
-      // Missing per-lesson quizzes are expected; keep scanning the subject.
-    }
-  }
+  const data = await getJson<ExamQuizDiscoveryResponse>(
+    `/quizzes/subjects/${encodeURIComponent(normalized)}/discovery`,
+  )
+  const quiz = data?.quiz && Array.isArray(data.quiz.questions) && data.quiz.questions.length > 0
+    ? data.quiz
+    : null
+  const lessonId = data?.lessonId ?? data?.lesson_id ?? null
 
   return {
-    subjectId: normalized,
-    quiz: null,
-    lessonId: null,
+    subjectId: normalizeExamSubjectId(data?.subjectId ?? data?.subject_id) ?? normalized,
+    quiz,
+    lessonId,
   }
 }
 

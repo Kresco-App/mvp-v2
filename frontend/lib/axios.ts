@@ -1,9 +1,14 @@
 import axios from 'axios'
+import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import { getApiBaseUrl, getBackendUrl } from './apiConfig'
 import { KRESCO_CSRF_HEADER, clearStoredAuthSession, readCsrfToken, writeCsrfToken } from './authSession'
 import { getUnauthorizedDestination } from './authPolicy'
 
-const api = axios.create({
+type CsrfConfig = InternalAxiosRequestConfig & {
+  headers: InternalAxiosRequestConfig['headers'] & Record<string, string>
+}
+
+const api: AxiosInstance = axios.create({
   baseURL: getApiBaseUrl(),
   timeout: 15000,
   withCredentials: true,
@@ -20,9 +25,9 @@ const CSRF_EXEMPT_PATHS = new Set([
   '/auth/reset-password',
   '/auth/logout',
 ])
-let csrfRefreshPromise = null
+let csrfRefreshPromise: Promise<string | null> | null = null
 
-function isCsrfExemptRequest(config) {
+function isCsrfExemptRequest(config: Pick<InternalAxiosRequestConfig, 'url'>) {
   const url = config.url || ''
   try {
     const parsed = new URL(url, 'http://kresco.local')
@@ -54,13 +59,14 @@ async function refreshCsrfToken() {
   return csrfRefreshPromise
 }
 
-api.interceptors.request.use(async (config) => {
+api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const method = (config.method || 'get').toLowerCase()
   const needsCsrf = UNSAFE_METHODS.has(method) && !isCsrfExemptRequest(config)
   const csrfToken = needsCsrf ? readCsrfToken() || await refreshCsrfToken() : null
   if (csrfToken) {
-    config.headers = config.headers || {}
-    config.headers[KRESCO_CSRF_HEADER] = csrfToken
+    const typedConfig = config as CsrfConfig
+    typedConfig.headers = typedConfig.headers || {}
+    typedConfig.headers[KRESCO_CSRF_HEADER] = csrfToken
   }
   return config
 })

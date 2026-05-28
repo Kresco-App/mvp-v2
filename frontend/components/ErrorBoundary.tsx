@@ -1,7 +1,8 @@
 'use client'
 
-import { Component, type ReactNode } from 'react'
+import { Component, type ErrorInfo, type ReactNode } from 'react'
 import RouteErrorState from '@/components/RouteErrorState'
+import { reportClientError } from '@/lib/clientTelemetry'
 
 type ErrorBoundaryProps = {
   children?: ReactNode
@@ -22,8 +23,13 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
     return { error }
   }
 
-  componentDidCatch() {
-    // Next.js segment error files catch route render failures; this boundary keeps client widgets non-blank.
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    reportClientError({
+      source: 'react-error-boundary',
+      message: error.message,
+      stack: error.stack,
+      component_stack: errorInfo.componentStack ?? '',
+    })
   }
 
   reset = () => {

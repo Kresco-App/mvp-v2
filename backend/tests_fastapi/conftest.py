@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,9 +20,12 @@ from app.services.auth import create_token
 
 @pytest.fixture(scope="session")
 def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
-    db_path: Path = tmp_path_factory.mktemp("db") / "test.sqlite3"
+    database_url = os.environ.get("KRESCO_TEST_DATABASE_URL", "").strip()
+    if not database_url:
+        db_path: Path = tmp_path_factory.mktemp("db") / "test.sqlite3"
+        database_url = f"sqlite+aiosqlite:///{db_path}"
     return Settings(
-        database_url=f"sqlite+aiosqlite:///{db_path}",
+        database_url=database_url,
         jwt_secret_key="test-secret-key-for-ci-32-bytes-minimum",
         google_client_id="test-google-client-id",
         vdocipher_api_secret="",

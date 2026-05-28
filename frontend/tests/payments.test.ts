@@ -5,6 +5,7 @@ import {
   PRO_CHECKOUT_PLAN,
   createProCheckoutSession,
   getPaymentErrorMessage,
+  paymentVerificationIdempotencyKey,
   verifyCheckoutSession,
 } from '@/lib/payments'
 
@@ -26,7 +27,15 @@ describe('payment success verification', () => {
       status: 'success',
       userPatch: { is_pro: true },
     })
-    expect(apiClient.get).toHaveBeenCalledWith('/payments/verify-session?session_id=cs_test%2Fneeds%20encoding')
+    expect(apiClient.get).toHaveBeenCalledWith(
+      '/payments/verify-session?session_id=cs_test%2Fneeds%20encoding',
+      { headers: { 'Idempotency-Key': 'verify-cs_test_needs_encoding' } },
+    )
+  })
+
+  it('builds stable bounded idempotency keys for verification calls', () => {
+    expect(paymentVerificationIdempotencyKey(' cs_test/needs encoding ')).toBe('verify-cs_test_needs_encoding')
+    expect(paymentVerificationIdempotencyKey(`cs_${'x'.repeat(300)}`).length).toBeLessThanOrEqual(160)
   })
 
   it('treats unpaid sessions and provider failures as errors', async () => {

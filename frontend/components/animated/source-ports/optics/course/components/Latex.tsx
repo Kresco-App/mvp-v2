@@ -21,14 +21,26 @@ export const Latex: React.FC<LatexProps> = ({ formula, block = false, className 
           throwOnError: true, // Throw error so we can catch it
           displayMode: block || false,
         });
-      } catch (e: any) {
-        console.error("KaTeX rendering error:", e);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        console.error("KaTeX rendering error:", error);
         // Display error message in a visible way
         if (containerRef.current) {
-          containerRef.current.innerHTML = `<div style="color: red; border: 1px solid red; padding: 5px; margin: 5px; background-color: #ffe0e0;">
-            <strong>KaTeX Error:</strong> ${e.message || 'Unknown error'}<br/>
-            <code>${formula}</code>
-          </div>`;
+          const errorBox = document.createElement('span');
+          Object.assign(errorBox.style, {
+            backgroundColor: '#ffe0e0',
+            border: '1px solid red',
+            color: 'red',
+            display: block ? 'block' : 'inline-block',
+            margin: '5px',
+            padding: '5px',
+          });
+          const label = document.createElement('strong');
+          label.textContent = 'KaTeX Error: ';
+          const code = document.createElement('code');
+          code.textContent = formula;
+          errorBox.append(label, document.createTextNode(message), document.createElement('br'), code);
+          containerRef.current.replaceChildren(errorBox);
         }
       }
     }

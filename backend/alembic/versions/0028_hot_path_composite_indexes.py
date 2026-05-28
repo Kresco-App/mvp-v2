@@ -24,6 +24,7 @@ INDEX_SPECS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("ix_user_notes_user_topic_updated", "user_notes", ("user_id", "topic_id", "updated_at")),
     ("ix_chapters_subject_order", "chapters", ("subject_id", "order", "id")),
     ("ix_chapter_sections_chapter_order", "chapter_sections", ("chapter_id", "order", "id")),
+    ("ix_user_xp_total_xp_user", "user_xp", ("total_xp", "user_id")),
 )
 
 

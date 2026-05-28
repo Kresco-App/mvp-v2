@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -95,6 +98,8 @@ describe('topic workspace view model', () => {
     expect(formatTopicItemDuration(125)).toBe('2:05')
     expect(youtubeVideoId(baseItem)).toBe('dQw4w9WgXcQ')
     expect(youtubeSrcDoc(baseItem, 'abc123')).toContain('Limits &lt;basics&gt;')
+    expect(youtubeSrcDoc(baseItem, 'abc123')).not.toContain('<img')
+    expect(youtubeSrcDoc(baseItem, 'abc123')).toContain('/_next/image?')
     expect(lockedVideoSrcDoc(baseItem)).toContain('Intro &amp; overview')
     expect(missingVideoSrcDoc({ ...baseItem, title: '' })).toContain('Lesson video')
   })
@@ -239,5 +244,15 @@ describe('topic workspace view model', () => {
     expect(splitOrderingInput('first, second,, third')).toEqual(['first', 'second', 'third'])
     expect(toggleMultiAnswer(['a'], 'b')).toEqual(['a', 'b'])
     expect(toggleMultiAnswer(['a', 'b'], 'a')).toEqual(['b'])
+  })
+
+  it('keeps topic workspace helpers split behind a compatibility barrel', () => {
+    const barrel = readFileSync(resolve(process.cwd(), 'lib/topicWorkspaceViewModel.ts'), 'utf8')
+
+    expect(barrel).toContain('@/lib/topicWorkspaceRendering')
+    expect(barrel).toContain('@/lib/topicWorkspaceSelection')
+    expect(barrel).toContain('@/lib/topicWorkspaceTabs')
+    expect(barrel).toContain('@/lib/topicWorkspaceAnimation')
+    expect(barrel).not.toMatch(/function\s+(youtubeSrcDoc|selectTopicWorkspaceQueryState|animatedConfigForTab)\s*\(/)
   })
 })

@@ -10,19 +10,37 @@ export const KRESCO_COOKIE_SESSION = 'cookie-session'
 const DEFAULT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
 const BASE64URL_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
 
+export type AuthUser = {
+  id?: string | number
+  email?: string
+  full_name?: string
+  role?: string
+  tier?: string
+  niveau?: string
+  filiere?: string
+  track?: string
+  avatar_url?: string
+  banner_url?: string
+  created_at?: string
+  is_staff?: boolean
+  is_superuser?: boolean
+  is_pro?: boolean
+  [key: string]: unknown
+}
+
 export type StoredAuthSession = {
   token: typeof KRESCO_COOKIE_SESSION | null
-  user: Record<string, unknown> | null
+  user: AuthUser | null
 }
 
 let csrfTokenCache: string | null = null
 
-function readStoredJson(key: string) {
+function readStoredJson<T = unknown>(key: string): T | null {
   if (typeof window === 'undefined') return null
 
   try {
     const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
+    return raw ? JSON.parse(raw) as T : null
   } catch {
     return null
   }
@@ -116,6 +134,18 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | null 
   }
 }
 
+export function getAuthUserFromJwt(token: string | undefined | null) {
+  if (!token) return null
+
+  const payload = decodeJwtPayload(token)
+  if (!payload) return null
+
+  return {
+    role: typeof payload.role === 'string' ? payload.role : null,
+    is_staff: payload.is_staff === true,
+  }
+}
+
 export function isJwtExpired(token: string, nowMs = Date.now()) {
   const payload = decodeJwtPayload(token)
   const exp = payload?.exp
@@ -160,7 +190,7 @@ export function readStoredAuthSession(): StoredAuthSession {
 
   localStorage.removeItem(KRESCO_TOKEN_KEY)
 
-  const user = readStoredJson(KRESCO_USER_KEY)
+  const user = readStoredJson<AuthUser>(KRESCO_USER_KEY)
   const hasCookieSession = Boolean(user || readCookie(KRESCO_USER_ROLE_COOKIE))
 
   return {
@@ -169,7 +199,7 @@ export function readStoredAuthSession(): StoredAuthSession {
   }
 }
 
-export function writeStoredAuthSession(user: Record<string, unknown>, csrfToken?: string | null) {
+export function writeStoredAuthSession(user: AuthUser, csrfToken?: string | null) {
   if (typeof window === 'undefined') return
 
   localStorage.removeItem(KRESCO_TOKEN_KEY)
@@ -177,7 +207,7 @@ export function writeStoredAuthSession(user: Record<string, unknown>, csrfToken?
   if (csrfToken !== undefined) writeCsrfToken(csrfToken)
 }
 
-export function updateStoredAuthUser(user: Record<string, unknown>) {
+export function updateStoredAuthUser(user: AuthUser) {
   if (typeof window === 'undefined') return
 
   localStorage.removeItem(KRESCO_TOKEN_KEY)

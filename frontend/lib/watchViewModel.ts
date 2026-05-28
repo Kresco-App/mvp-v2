@@ -59,8 +59,12 @@ export type WatchNextDestination =
   | { kind: 'section'; href: string; section: WatchSection }
   | { kind: 'subject'; href: string; subjectId: number }
 
-export function getWatchNotesKey(sectionId: string | number) {
-  return `kresco_notes_${sectionId}`
+export function userScopedStorageKey(baseKey: string, userId?: string | number | null) {
+  return `${baseKey}:user_${userId ?? 'anonymous'}`
+}
+
+export function getWatchNotesKey(sectionId: string | number, userId?: string | number | null) {
+  return userScopedStorageKey(`kresco_notes_${sectionId}`, userId)
 }
 
 export function getWatchSectionId(sectionId: string | number) {

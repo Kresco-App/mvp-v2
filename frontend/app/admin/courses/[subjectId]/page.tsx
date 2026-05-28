@@ -8,7 +8,7 @@ import {
   Video, HelpCircle, Puzzle, FileText,
   GripVertical, Eye
 } from 'lucide-react'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 import AuthGuard from '@/components/AuthGuard'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -39,9 +39,9 @@ export default function AdminSubjectPage() {
   useEffect(() => {
     async function load() {
       try {
-        const subjRes = await api.get(`/courses/subjects/${subjectId}`)
-        setSubject(subjRes.data)
-        setChapters(subjRes.data.chapters ?? [])
+        const subjectData = await getJson<any>(`/courses/subjects/${subjectId}`)
+        setSubject(subjectData)
+        setChapters(subjectData.chapters ?? [])
       } catch {
         toast.error('Matière introuvable')
         router.push('/admin/courses')
@@ -55,8 +55,8 @@ export default function AdminSubjectPage() {
   async function loadChapterSections(chapterId: number) {
     if (sections[chapterId]) return
     try {
-      const res = await api.get(`/courses/chapters/${chapterId}/sections`)
-      setSections(prev => ({ ...prev, [chapterId]: res.data }))
+      const chapterSections = await getJson<any[]>(`/courses/chapters/${chapterId}/sections`)
+      setSections(prev => ({ ...prev, [chapterId]: chapterSections }))
     } catch {
       setSections(prev => ({ ...prev, [chapterId]: [] }))
     }

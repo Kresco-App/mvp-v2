@@ -1,12 +1,18 @@
 'use client'
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, ImageIcon, Link2, Loader2, LockKeyhole, MessageCircle, MoreHorizontal, Pencil, Send, Trash2, X } from 'lucide-react'
+import { Check, ChevronUp, ImageIcon, Link2, Loader2, LockKeyhole, MessageCircle, MoreHorizontal, Pencil, Send, Trash2, X } from 'lucide-react'
 import Image from 'next/image'
 import { toast } from 'sonner'
 import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { canEditChatMessage, parseChatTimestamp, shouldShowChatTimestamp } from '@/lib/chatTime'
+import {
+  CHAT_INITIAL_VISIBLE_MESSAGE_COUNT,
+  CHAT_OLDER_MESSAGE_BATCH_SIZE,
+  getVisibleChatMessageWindow,
+  nextVisibleChatMessageCount,
+} from '@/lib/chatVirtualization'
 import {
   chatMediaUrl,
   deleteProfessorChatMessage,
@@ -24,7 +30,7 @@ import {
 } from '@/lib/studentProfessorChatData'
 
 export default function StudentProfessorChatPage() {
-  const { user } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
   const [newMessage, setNewMessage] = useState('')
@@ -37,6 +43,7 @@ export default function StudentProfessorChatPage() {
   const [editDraft, setEditDraft] = useState('')
   const [savingEditId, setSavingEditId] = useState<number | null>(null)
   const [deletingMessageIds, setDeletingMessageIds] = useState<Set<number>>(new Set())
+  const [visibleMessageCount, setVisibleMessageCount] = useState(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const statusErrorRef = useRef<unknown>(null)
@@ -57,10 +64,6 @@ export default function StudentProfessorChatPage() {
     if (activeId) refreshes.push(mutateMessages())
     await Promise.allSettled(refreshes)
   }, [activeId, mutateMessages, mutateStatus])
-
-  useEffect(() => {
-    document.title = 'Professor Chat - Kresco'
-  }, [])
 
   useEffect(() => {
     if (!status) return
@@ -116,10 +119,22 @@ export default function StudentProfessorChatPage() {
   }, [refreshChat, user?.id])
 
   const active = useMemo(() => status?.conversations.find((conversation) => conversation.id === activeId) ?? null, [activeId, status])
+  const messageWindow = useMemo(
+    () => getVisibleChatMessageWindow(messages, visibleMessageCount),
+    [messages, visibleMessageCount],
+  )
   const selectedThread = useMemo(() => {
     if (!status) return null
     return teacherThreads(status).find((thread) => thread.course_offering_id === selectedOfferingId) ?? null
   }, [selectedOfferingId, status])
+
+  useEffect(() => {
+    setVisibleMessageCount(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
+  }, [activeId])
+
+  const showOlderMessages = useCallback(() => {
+    setVisibleMessageCount((current) => nextVisibleChatMessageCount(current, messages.length))
+  }, [messages.length])
 
   async function startConversation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -323,82 +338,100 @@ export default function StudentProfessorChatPage() {
                           <p className="m-0 mt-1 text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#a1a1aa]">Start a conversation</p>
                         </div>
                       </div>
-                    ) : messages.map((message, index) => {
-                      const mine = isSameUser(message.sender_user_id, user?.id)
-                      const showTimestamp = shouldShowChatTimestamp(messages, index)
-                      const showAvatar = shouldShowClusterAvatar(messages, index)
-                      const isEditing = editingMessageId === message.id
-                      const isDeleting = deletingMessageIds.has(message.id)
-                      const canEdit = mine && canEditChatMessage(message.created_at)
-                      return (
-                        <div key={message.id} className={`flex w-full flex-col transition duration-150 ${showTimestamp ? 'mb-5' : 'mb-0'} ${mine ? 'items-end' : 'items-start'} ${isDeleting ? '-translate-y-1 scale-[0.98] opacity-0' : 'translate-y-0 opacity-100'}`}>
-                          <div className={`group flex w-full items-start gap-3 ${mine ? 'justify-end' : 'justify-start'}`}>
-                            {!mine && (showAvatar ? <Avatar name={active.professor.full_name} src={active.professor.avatar_url} /> : <AvatarSpacer />)}
-                            <div className={`relative max-w-[min(72%,290px)] rounded-b-[12px] border border-[#e4e4e7] bg-[#f4f4f5] p-3 ${mine ? 'rounded-tl-[12px]' : 'rounded-tr-[12px]'}`}>
-                              {mine && !isEditing && (
-                                <div className="absolute -left-11 top-1 z-10 opacity-0 transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                                  <button type="button" onClick={() => setMessageMenuId((current) => (current === message.id ? null : message.id))} className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]" aria-label="Message actions">
-                                    <MoreHorizontal size={15} />
-                                  </button>
-                                  {messageMenuId === message.id && (
-                                    <div className="absolute right-0 top-9 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]">
-                                      {canEdit && (
-                                        <button type="button" onClick={() => startEditingMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-[#52525c] hover:bg-[#f4f4f5]">
-                                          <Pencil size={13} />
-                                          Edit
-                                        </button>
-                                      )}
-                                      <button type="button" onClick={() => void removeMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-red-500 hover:bg-red-50">
-                                        <Trash2 size={13} />
-                                        Delete
+                    ) : (
+                      <>
+                        {messageWindow.canShowOlder && (
+                          <div className="flex justify-center py-1">
+                            <button
+                              type="button"
+                              onClick={showOlderMessages}
+                              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#71717b] transition hover:-translate-y-px hover:text-[#3f3f46]"
+                              aria-label={`Show ${Math.min(CHAT_OLDER_MESSAGE_BATCH_SIZE, messageWindow.hiddenBeforeCount)} older messages`}
+                            >
+                              <ChevronUp size={14} />
+                              Show older
+                            </button>
+                          </div>
+                        )}
+                        {messageWindow.messages.map((message, visibleIndex) => {
+                          const index = messageWindow.startIndex + visibleIndex
+                          const mine = isSameUser(message.sender_user_id, user?.id)
+                          const showTimestamp = shouldShowChatTimestamp(messages, index)
+                          const showAvatar = shouldShowClusterAvatar(messages, index)
+                          const isEditing = editingMessageId === message.id
+                          const isDeleting = deletingMessageIds.has(message.id)
+                          const canEdit = mine && canEditChatMessage(message.created_at)
+                          return (
+                            <div key={message.id} className={`flex w-full flex-col transition duration-150 ${showTimestamp ? 'mb-5' : 'mb-0'} ${mine ? 'items-end' : 'items-start'} ${isDeleting ? '-translate-y-1 scale-[0.98] opacity-0' : 'translate-y-0 opacity-100'}`}>
+                              <div className={`group flex w-full items-start gap-3 ${mine ? 'justify-end' : 'justify-start'}`}>
+                                {!mine && (showAvatar ? <Avatar name={active.professor.full_name} src={active.professor.avatar_url} /> : <AvatarSpacer />)}
+                                <div className={`relative max-w-[min(72%,290px)] rounded-b-[12px] border border-[#e4e4e7] bg-[#f4f4f5] p-3 ${mine ? 'rounded-tl-[12px]' : 'rounded-tr-[12px]'}`}>
+                                  {mine && !isEditing && (
+                                    <div className="absolute -left-11 top-1 z-10 opacity-0 transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                      <button type="button" onClick={() => setMessageMenuId((current) => (current === message.id ? null : message.id))} className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]" aria-label="Message actions">
+                                        <MoreHorizontal size={15} />
                                       </button>
+                                      {messageMenuId === message.id && (
+                                        <div className="absolute right-0 top-9 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]">
+                                          {canEdit && (
+                                            <button type="button" onClick={() => startEditingMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-[#52525c] hover:bg-[#f4f4f5]">
+                                              <Pencil size={13} />
+                                              Edit
+                                            </button>
+                                          )}
+                                          <button type="button" onClick={() => void removeMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-red-500 hover:bg-red-50">
+                                            <Trash2 size={13} />
+                                            Delete
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
-                                </div>
-                              )}
-                              {isEditing ? (
-                                <form
-                                  onSubmit={(event) => {
-                                    event.preventDefault()
-                                    void saveMessageEdit(message)
-                                  }}
-                                  className="grid min-w-[220px] gap-2"
-                                >
-                                  <textarea
-                                    aria-label="Edit message"
-                                    value={editDraft}
-                                    onChange={(event) => setEditDraft(event.target.value)}
-                                    className="min-h-20 w-full resize-none rounded-[10px] border border-[#e4e4e7] bg-white px-3 py-2 text-[14px] font-bold leading-[1.35] text-[#71717b] outline-none focus:border-[#5b60f9]"
-                                    autoFocus
-                                  />
-                                  <span className="flex justify-end gap-1">
-                                    <button type="button" onClick={() => setEditingMessageId(null)} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-white text-[#71717b] hover:text-[#3f3f46]" aria-label="Cancel edit">
-                                      <X size={14} />
-                                    </button>
-                                    <button type="submit" disabled={!editDraft.trim() || savingEditId === message.id} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-[#5b60f9] text-white disabled:cursor-not-allowed disabled:opacity-50" aria-label="Save edit">
-                                      {savingEditId === message.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                                    </button>
-                                  </span>
-                                </form>
-                              ) : (
-                                <>
-                                  {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#71717b]">{message.body}</p>}
-                                  {message.attachment_url && (
-                                    <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[10px] border border-[#e4e4e7]' : 'block overflow-hidden rounded-[10px] border border-[#e4e4e7]'}>
-                                      <Image src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} width={520} height={260} unoptimized className="max-h-[260px] w-full object-cover" />
-                                    </a>
+                                  {isEditing ? (
+                                    <form
+                                      onSubmit={(event) => {
+                                        event.preventDefault()
+                                        void saveMessageEdit(message)
+                                      }}
+                                      className="grid min-w-[220px] gap-2"
+                                    >
+                                      <textarea
+                                        aria-label="Edit message"
+                                        value={editDraft}
+                                        onChange={(event) => setEditDraft(event.target.value)}
+                                        className="min-h-20 w-full resize-none rounded-[10px] border border-[#e4e4e7] bg-white px-3 py-2 text-[14px] font-bold leading-[1.35] text-[#71717b] outline-none focus:border-[#5b60f9]"
+                                        autoFocus
+                                      />
+                                      <span className="flex justify-end gap-1">
+                                        <button type="button" onClick={() => setEditingMessageId(null)} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-white text-[#71717b] hover:text-[#3f3f46]" aria-label="Cancel edit">
+                                          <X size={14} />
+                                        </button>
+                                        <button type="submit" disabled={!editDraft.trim() || savingEditId === message.id} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-[#5b60f9] text-white disabled:cursor-not-allowed disabled:opacity-50" aria-label="Save edit">
+                                          {savingEditId === message.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                                        </button>
+                                      </span>
+                                    </form>
+                                  ) : (
+                                    <>
+                                      {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#71717b]">{message.body}</p>}
+                                      {message.attachment_url && (
+                                        <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[10px] border border-[#e4e4e7]' : 'block overflow-hidden rounded-[10px] border border-[#e4e4e7]'}>
+                                          <Image src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} width={520} height={260} unoptimized className="max-h-[260px] w-full object-cover" />
+                                        </a>
+                                      )}
+                                    </>
                                   )}
-                                </>
+                                </div>
+                                {mine && (showAvatar ? <Avatar name={user?.full_name || 'Student'} src={user?.avatar_url} /> : <AvatarSpacer />)}
+                              </div>
+                              {showTimestamp && (
+                                <span className={`mt-1 block text-[11px] font-bold text-[#a1a1aa] ${mine ? 'mr-14' : 'ml-14'}`}>{formatMessageTime(message.created_at)}</span>
                               )}
                             </div>
-                            {mine && (showAvatar ? <Avatar name={user?.full_name || 'Student'} src={user?.avatar_url} /> : <AvatarSpacer />)}
-                          </div>
-                          {showTimestamp && (
-                            <span className={`mt-1 block text-[11px] font-bold text-[#a1a1aa] ${mine ? 'mr-14' : 'ml-14'}`}>{formatMessageTime(message.created_at)}</span>
-                          )}
-                        </div>
-                      )
-                    })}
+                          )
+                        })}
+                      </>
+                    )}
                     {sending && (
                       <div className="flex justify-end pr-14 text-[12px] font-bold text-[#a1a1aa]">
                         Sending...

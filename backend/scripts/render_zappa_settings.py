@@ -11,10 +11,40 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.config import PRODUCTION_ENVIRONMENTS, Settings
+from app.config import PRODUCTION_ENVIRONMENTS, RUNTIME_SECRET_ID_ENV, Settings
 
 PLACEHOLDER = "__SET_IN_AWS_SECRETS__"
 DEFAULT_SETTINGS_PATH = BACKEND_ROOT / "zappa_settings.json"
+RUNTIME_SECRET_BACKED_ENV_KEYS = {
+    "DATABASE_URL",
+    "JWT_SECRET_KEY",
+    "GOOGLE_CLIENT_ID",
+    "VDOCIPHER_API_SECRET",
+    "VDOCIPHER_API_BASE_URL",
+    "VDOCIPHER_LIVE_CREATE_URL",
+    "STRIPE_SK",
+    "STRIPE_PRODUCT_ID",
+    "STRIPE_WEBHOOK_SECRET",
+    "RESEND_API_KEY",
+    "ABLY_API_KEY",
+    "REALTIME_OUTBOX_SECRET",
+    "MEDIA_S3_BUCKET",
+}
+RUNTIME_SECRET_VALIDATION_VALUES = {
+    "DATABASE_URL": "postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+    "JWT_SECRET_KEY": "test-secret-key-for-production-32-bytes-minimum",
+    "GOOGLE_CLIENT_ID": "google-client",
+    "VDOCIPHER_API_SECRET": "vdocipher-secret",
+    "VDOCIPHER_API_BASE_URL": "https://video.example.com/api",
+    "VDOCIPHER_LIVE_CREATE_URL": "https://video.example.com/live",
+    "STRIPE_SK": "stripe-secret",
+    "STRIPE_PRODUCT_ID": "stripe-product",
+    "STRIPE_WEBHOOK_SECRET": "stripe-webhook",
+    "RESEND_API_KEY": "resend-key",
+    "ABLY_API_KEY": "ably:key",
+    "REALTIME_OUTBOX_SECRET": "test-realtime-outbox-secret-32-bytes",
+    "MEDIA_S3_BUCKET": "kresco-media-production",
+}
 OPTIONAL_OVERRIDE_KEYS = {
     "CORS_ALLOWED_ORIGINS",
     "CORS_ALLOW_ORIGIN_REGEX",
@@ -24,6 +54,8 @@ OPTIONAL_OVERRIDE_KEYS = {
 
 ENV_TO_SETTINGS_FIELD = {
     "KRESCO_ENV": "environment",
+    "KRESCO_RELEASE_SHA": "release_sha",
+    RUNTIME_SECRET_ID_ENV: "runtime_secret_id",
     "DATABASE_URL": "database_url",
     "DATABASE_CONNECTION_STRATEGY": "database_connection_strategy",
     "PGSSLROOTCERT": "pgsslrootcert",
@@ -84,8 +116,16 @@ def render_zappa_settings(
     zappa_env = zappa_stage.get("environment_variables")
     if not isinstance(zappa_env, dict):
         raise ZappaRenderError(f"zappa_settings.json is missing {target_stage}.environment_variables.")
+    embedded_secret_keys = sorted(key for key in RUNTIME_SECRET_BACKED_ENV_KEYS if key in zappa_env)
+    if embedded_secret_keys:
+        joined = ", ".join(embedded_secret_keys)
+        raise ZappaRenderError(
+            "Runtime secret-backed keys must not be present in zappa_settings.json environment_variables: "
+            + joined
+        )
 
     resolved_env, replaced_keys, overridden_keys = _resolve_environment_variables(zappa_env, env)
+    _resolve_runtime_secret_permission(zappa_stage, resolved_env)
     _validate_rendered_environment(resolved_env, target_stage)
 
     zappa_stage["environment_variables"] = resolved_env
@@ -136,10 +176,48 @@ def _resolve_environment_variables(
     return resolved_env, replaced_keys, overridden_keys
 
 
+def _resolve_runtime_secret_permission(zappa_stage: dict[str, object], resolved_env: Mapping[str, str]) -> None:
+    secret_id = str(resolved_env.get(RUNTIME_SECRET_ID_ENV, "")).strip()
+    if not secret_id:
+        return
+    if not secret_id.startswith("arn:aws:secretsmanager:"):
+        raise ZappaRenderError(f"{RUNTIME_SECRET_ID_ENV} must be a full AWS Secrets Manager ARN.")
+
+    permissions = zappa_stage.get("extra_permissions")
+    if not isinstance(permissions, list):
+        raise ZappaRenderError("zappa_settings.json must grant Secrets Manager access via extra_permissions.")
+
+    matched = False
+    for statement in permissions:
+        if not isinstance(statement, dict):
+            continue
+        actions = statement.get("Action")
+        action_values = actions if isinstance(actions, list) else [actions]
+        if "secretsmanager:GetSecretValue" not in action_values:
+            continue
+        matched = True
+        resource = statement.get("Resource")
+        if resource == PLACEHOLDER:
+            statement["Resource"] = secret_id
+        elif resource != secret_id:
+            raise ZappaRenderError("Secrets Manager permission must be scoped to the runtime secret ARN.")
+
+    if not matched:
+        raise ZappaRenderError("Secrets Manager permission placeholder was not rendered.")
+
+
 def _validate_rendered_environment(rendered_env: Mapping[str, str], stage: str) -> None:
-    settings_kwargs = _settings_kwargs_from_environment(rendered_env)
+    errors: list[str] = []
+    secret_id = str(rendered_env.get(RUNTIME_SECRET_ID_ENV, "")).strip()
+    if not secret_id:
+        errors.append(f"{RUNTIME_SECRET_ID_ENV} must be configured for deployed runtime secrets.")
+    elif not secret_id.startswith("arn:aws:secretsmanager:"):
+        errors.append(f"{RUNTIME_SECRET_ID_ENV} must be a full AWS Secrets Manager ARN.")
+
+    validation_env = {**RUNTIME_SECRET_VALIDATION_VALUES, **rendered_env}
+    settings_kwargs = _settings_kwargs_from_environment(validation_env)
     settings = Settings(**settings_kwargs)
-    errors = settings.production_config_errors()
+    errors.extend(settings.production_config_errors())
     environment = settings.environment.strip().lower()
     if environment not in PRODUCTION_ENVIRONMENTS:
         errors.append("KRESCO_ENV must be set to a production-like value for the Zappa stage.")

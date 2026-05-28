@@ -15,7 +15,8 @@ import {
 import { FigmaProfileSkeleton } from '@/components/figma/skeletons'
 
 export default function ProfilePage() {
-  const { user, updateUser } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
+  const updateUser = useAuthStore((state) => state.updateUser)
   const {
     profile,
     xp,
@@ -34,8 +35,6 @@ export default function ProfilePage() {
   const [editError, setEditError] = useState<string | null>(null)
   const lastToastErrorRef = useRef('')
   const uploadedMediaUrlsRef = useRef(new Set<string>())
-
-  useEffect(() => { document.title = 'Profile - Kresco' }, [])
 
   useEffect(() => {
     if (!profile) return

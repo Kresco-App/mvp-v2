@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-unused-vars */
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 
 interface SettingsContextType {
   examMode: boolean;
@@ -24,12 +24,13 @@ export const SettingsProvider: React.FC<{ children: ReactNode }> = ({ children }
     if (isHydrated) localStorage.setItem(EXAM_MODE_STORAGE_KEY, examMode.toString());
   }, [examMode, isHydrated]);
 
-  const toggleExamMode = () => {
+  const toggleExamMode = useCallback(() => {
     setExamMode(prev => !prev);
-  };
+  }, []);
+  const value = useMemo(() => ({ examMode, toggleExamMode }), [examMode, toggleExamMode]);
 
   return (
-    <SettingsContext.Provider value={{ examMode, toggleExamMode }}>
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

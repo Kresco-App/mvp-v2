@@ -45,16 +45,9 @@ export const PrismSimulator: React.FC = () => {
   const [incidentAngle, setIncidentAngle] = useState(45); // degrees
   const [prismAngle, setPrismAngle] = useState(60); // degrees
 
-  // Local state for smooth sliding
-  const [localIncidentAngle, setLocalIncidentAngle] = useState(incidentAngle);
-  const [localPrismAngle, setLocalPrismAngle] = useState(prismAngle);
-
   const [showWhiteLight, setShowWhiteLight] = useState(true);
 
   const { canvasRef, width, height } = useResponsiveCanvas();
-
-  useEffect(() => { setLocalIncidentAngle(incidentAngle) }, [incidentAngle]);
-  useEffect(() => { setLocalPrismAngle(prismAngle) }, [prismAngle]);
 
   const simulation: SimulationResult = useMemo(() => {
     if (width === 0 || height === 0) {
@@ -175,13 +168,12 @@ export const PrismSimulator: React.FC = () => {
               <div className="flex justify-between items-end">
                 <label className="text-sm font-bold text-slate-700">Angle d'Incidence (i)</label>
                 <span className="font-mono text-yellow-600 font-bold bg-yellow-50 px-2 py-0.5 rounded text-sm">
-                  {localIncidentAngle}°
+                  {incidentAngle}°
                 </span>
               </div>
               <Slider
-                value={[localIncidentAngle]}
+                value={[incidentAngle]}
                 onValueChange={([value]) => {
-                  setLocalIncidentAngle(value);
                   setIncidentAngle(value);
                 }}
                 min={0} max={85} step={1}
@@ -192,13 +184,12 @@ export const PrismSimulator: React.FC = () => {
               <div className="flex justify-between items-end">
                 <label className="text-sm font-bold text-slate-700">Angle du Prisme (A)</label>
                 <span className="font-mono text-yellow-600 font-bold bg-yellow-50 px-2 py-0.5 rounded text-sm">
-                  {localPrismAngle}°
+                  {prismAngle}°
                 </span>
               </div>
               <Slider
-                value={[localPrismAngle]}
+                value={[prismAngle]}
                 onValueChange={([value]) => {
-                  setLocalPrismAngle(value);
                   setPrismAngle(value);
                 }}
                 min={30} max={75} step={1}

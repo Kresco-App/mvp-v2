@@ -3,7 +3,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import * as d3 from 'd3';
+import { easeElasticOut } from 'd3-ease';
+import { select } from 'd3-selection';
+import 'd3-transition';
 import { useTheme } from '../context/ThemeContext';
 
 interface SetsInclusionProps {
@@ -32,7 +34,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             if (width === 0) return;
 
             // Clear previous SVG robustly
-            d3.select(containerRef.current).selectAll('*').remove();
+            select(containerRef.current).selectAll('*').remove();
 
             // make room for the info panel below
             const height = containerRef.current.clientHeight - (selectedSet ? 100 : 0);
@@ -40,7 +42,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             const cx = width / 2;
             const cy = height / 2;
 
-            const svg = d3.select(containerRef.current)
+            const svg = select(containerRef.current)
                 .append('svg')
                 .attr('width', width)
                 .attr('height', actualHeight)
@@ -74,14 +76,14 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                 // Interactivity
                 .on('mouseover', function (_event, d) {
                     // Highlight the path
-                    d3.select(this)
+                    select(this)
                         .transition()
                         .duration(200)
                         .attr('stroke-width', 4)
                         .attr('fill', isDark ? `${d.color}30` : `${d.color}40`);
 
                     // Enlarge label
-                    d3.select((this.parentNode as any).querySelector('text.set-label'))
+                    select((this.parentNode as any).querySelector('text.set-label'))
                         .transition()
                         .duration(200)
                         .attr('font-size', '28px');
@@ -89,13 +91,13 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                 .on('mouseout', function (_event, d) {
                     // Remove highlight if not selected
                     if (selectedSet?.id !== d.id) {
-                        d3.select(this)
+                        select(this)
                             .transition()
                             .duration(200)
                             .attr('stroke-width', 2)
                             .attr('fill', isDark ? `${d.color}15` : `${d.color}20`);
 
-                        d3.select((this.parentNode as any).querySelector('text.set-label'))
+                        select((this.parentNode as any).querySelector('text.set-label'))
                             .transition()
                             .duration(200)
                             .attr('font-size', '20px');
@@ -114,12 +116,12 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                         .attr('font-size', '20px');
 
                     // Highlight clicked
-                    d3.select(event.currentTarget)
+                    select(event.currentTarget)
                         .transition()
                         .duration(200)
                         .attr('stroke-width', 4)
                         .attr('fill', isDark ? `${d.color}30` : `${d.color}40`);
-                    d3.select((event.currentTarget.parentNode as any).querySelector('text.set-label'))
+                    select((event.currentTarget.parentNode as any).querySelector('text.set-label'))
                         .transition()
                         .duration(200)
                         .attr('font-size', '28px');
@@ -130,7 +132,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                 .transition()
                 .duration(1500 / speed)
                 .delay((_d, i) => (sets.length - 1 - i) * 800 / speed)
-                .ease(d3.easeElasticOut.amplitude(1).period(0.5))
+                .ease(easeElasticOut.amplitude(1).period(0.5))
                 .attr('r', d => d.radius);
 
             // Labels
@@ -180,7 +182,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             });
 
             // Tooltip div (invisible initially)
-            const tooltip = d3.select(containerRef.current)
+            const tooltip = select(containerRef.current)
                 .append('div')
                 .attr('class', 'absolute z-10 pointer-events-none opacity-0 transition-opacity duration-200 backdrop-blur-md rounded-lg p-2 text-xs border shadow-lg')
                 .style('background', isDark ? 'rgba(30, 41, 59, 0.8)' : 'rgba(255, 255, 255, 0.8)')
@@ -202,7 +204,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                 .style('animation', 'float 3s ease-in-out infinite alternate')
                 .style('animation-delay', (_d, i) => `${i * 0.2}s`)
                 .on('mouseover', function (event, d) {
-                    d3.select(this)
+                    select(this)
                         .transition()
                         .duration(200)
                         .attr('font-size', '20px')
@@ -221,7 +223,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                         .style('top', `${event.pageY - 28}px`);
                 })
                 .on('mouseout', function () {
-                    d3.select(this)
+                    select(this)
                         .transition()
                         .duration(200)
                         .attr('font-size', '14px')
@@ -272,7 +274,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             if (resizeObserver) {
                 resizeObserver.disconnect();
             }
-            d3.select(containerRef.current).selectAll('*').interrupt().remove();
+            select(containerRef.current).selectAll('*').interrupt().remove();
         };
     }, [isDark, speed, selectedSet]);
 

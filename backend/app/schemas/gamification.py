@@ -3,23 +3,25 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-
-class ProgressUpdateIn(BaseModel):
-    lesson_id: int
-    watched_seconds: int
+from app.schemas.limits import ShortText, StrictInputModel
 
 
-class ProgressCompleteIn(BaseModel):
-    item_type: str
+class ProgressUpdateIn(StrictInputModel):
+    lesson_id: int = Field(gt=0)
+    watched_seconds: int = Field(ge=0)
+
+
+class ProgressCompleteIn(StrictInputModel):
+    item_type: ShortText
     item_id: int
 
 
-class SectionCompleteIn(BaseModel):
+class SectionCompleteIn(StrictInputModel):
     section_id: int
     score: int = 0
     correct_answers: int = 0
     total_questions: int = 0
-    answers: dict[str, int] = Field(default_factory=dict)
+    answers: dict[ShortText, int] = Field(default_factory=dict)
 
 
 class LessonProgressOut(BaseModel):

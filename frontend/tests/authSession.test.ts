@@ -1,12 +1,18 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mutate } from 'swr'
+
+vi.mock('swr', () => ({
+  mutate: vi.fn(() => Promise.resolve()),
+}))
 
 import {
   AUTH_ROUTES,
   canUseStudentProfessorChat,
   getAccessDeniedDestination,
   getAuthenticatedDestination,
+  getSafePostLoginDestination,
   getStudentOnboardingStep,
   getUnauthorizedDestination,
   hasRequiredAuthAccess,
@@ -18,12 +24,14 @@ import { getAuthRedirect, isProtectedRoute } from '@/lib/authRedirect'
 import {
   KRESCO_COOKIE_SESSION,
   KRESCO_CSRF_COOKIE,
+  KRESCO_CSRF_HEADER,
   KRESCO_CSRF_KEY,
   KRESCO_TOKEN_KEY,
   KRESCO_TOKEN_COOKIE,
   KRESCO_USER_KEY,
   KRESCO_USER_ROLE_COOKIE,
   clearStoredAuthSession,
+  getAuthUserFromJwt,
   getTokenCookieMaxAgeSeconds,
   isJwtExpired,
   readCsrfToken,
@@ -37,6 +45,11 @@ function makeToken(payload: Record<string, unknown>) {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.test`
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.mocked(mutate).mockClear()
+})
 
 describe('auth redirect decisions', () => {
   it('classifies dashboard and protected feature routes', () => {
@@ -69,10 +82,27 @@ describe('auth redirect decisions', () => {
   })
 
   it('redirects signed-in professors off landing to the professor workspace', () => {
-    expect(getAuthRedirect('/', 'valid', () => false, 'professor')).toEqual({
+    expect(getAuthRedirect('/', makeToken({ exp: 1_700_000_001, role: 'professor' }), () => false)).toEqual({
       action: 'redirect',
       destination: '/professor',
     })
+  })
+
+  it('uses JWT claims, not writable role cookies, for sensitive route redirects', () => {
+    const studentToken = makeToken({ exp: 1_700_000_001, role: 'student', is_staff: false })
+    const professorToken = makeToken({ exp: 1_700_000_001, role: 'professor', is_staff: false })
+    const staffToken = makeToken({ exp: 1_700_000_001, role: 'student', is_staff: true })
+
+    expect(getAuthRedirect('/professor', studentToken, () => false)).toEqual({
+      action: 'redirect',
+      destination: '/home',
+    })
+    expect(getAuthRedirect('/professor', professorToken, () => false)).toEqual({ action: 'allow' })
+    expect(getAuthRedirect('/admin', professorToken, () => false)).toEqual({
+      action: 'redirect',
+      destination: '/home',
+    })
+    expect(getAuthRedirect('/admin', staffToken, () => false)).toEqual({ action: 'allow' })
   })
 })
 
@@ -87,6 +117,10 @@ describe('auth policy decisions', () => {
       action: 'redirect',
       destination: AUTH_ROUTES.studentHome,
     })
+    expect(resolveAuthSuccess({ niveau: '2bac', filiere: 'Bac Sciences Physiques' }, '/topics/42')).toEqual({
+      action: 'redirect',
+      destination: '/topics/42',
+    })
   })
 
   it('centralizes professor route and user decisions', () => {
@@ -98,8 +132,27 @@ describe('auth policy decisions', () => {
       action: 'redirect',
       destination: AUTH_ROUTES.professorHome,
     })
+    expect(resolveAuthSuccess(professor, '/professor/chat')).toEqual({
+      action: 'redirect',
+      destination: '/professor/chat',
+    })
     expect(getUnauthorizedDestination('/professor/chat')).toBe(AUTH_ROUTES.professorLogin)
     expect(getUnauthorizedDestination('/home')).toBe(AUTH_ROUTES.landing)
+  })
+
+  it('sanitizes post-login next destinations', () => {
+    const student = { role: 'student', niveau: '2bac', filiere: 'Bac Sciences Physiques' }
+    const professor = { role: 'professor' }
+    const staff = { role: 'student', is_staff: true, niveau: '2bac', filiere: 'Bac Sciences Physiques' }
+
+    expect(getSafePostLoginDestination('https://evil.example/home', student)).toBeNull()
+    expect(getSafePostLoginDestination('//evil.example/home', student)).toBeNull()
+    expect(getSafePostLoginDestination('/auth/reset-password', student)).toBeNull()
+    expect(getSafePostLoginDestination('/professor', student)).toBeNull()
+    expect(getSafePostLoginDestination('/admin', student)).toBeNull()
+    expect(getSafePostLoginDestination('/admin', staff)).toBe('/admin')
+    expect(getSafePostLoginDestination('/topics/42?tab=notes', student)).toBe('/topics/42?tab=notes')
+    expect(getSafePostLoginDestination('/topics/42', professor)).toBeNull()
   })
 
   it('centralizes server-verified role and staff access decisions', () => {
@@ -150,6 +203,17 @@ describe('auth session JWT helpers', () => {
     expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user })
   })
 
+  it('extracts immutable route authorization claims from the JWT payload', () => {
+    expect(getAuthUserFromJwt(makeToken({ role: 'professor', is_staff: true }))).toEqual({
+      role: 'professor',
+      is_staff: true,
+    })
+    expect(getAuthUserFromJwt(makeToken({ role: 123, is_staff: 'true' }))).toEqual({
+      role: null,
+      is_staff: false,
+    })
+  })
+
   it('clears the CSRF token with browser auth session state', () => {
     localStorage.setItem(KRESCO_USER_KEY, JSON.stringify({ id: 1, role: 'student' }))
     document.cookie = `${KRESCO_TOKEN_COOKIE}=session; Path=/`
@@ -195,5 +259,64 @@ describe('auth store session writes', () => {
     expect(useAuthStore.getState().user).toEqual(user)
     expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(user)
     expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('legacy-csrf-token')
+  })
+
+  it('clears the SWR cache and revokes the backend cookie session on logout', () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })))
+    vi.stubGlobal('fetch', fetchMock)
+    writeCsrfToken('logout-csrf')
+    useAuthStore.setState({
+      token: KRESCO_COOKIE_SESSION,
+      user: { id: 3, email: 'logout@kresco.local', role: 'student' },
+      isHydrated: true,
+      logoutError: 'stale error',
+      isLoggingOut: false,
+    })
+
+    useAuthStore.getState().logout()
+
+    expect(mutate).toHaveBeenCalledWith(expect.any(Function), undefined, { revalidate: false })
+    const predicate = vi.mocked(mutate).mock.calls[0][0] as (key: unknown) => boolean
+    expect(predicate('/progress/xp')).toBe(true)
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/logout'),
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        headers: expect.objectContaining({
+          [KRESCO_CSRF_HEADER]: 'logout-csrf',
+        }),
+      }),
+    )
+    expect(useAuthStore.getState().token).toBeNull()
+    expect(useAuthStore.getState().user).toBeNull()
+    expect(useAuthStore.getState().logoutError).toBeNull()
+    expect(useAuthStore.getState().isLoggingOut).toBe(true)
+  })
+
+  it('keeps the local logout but records a backend revocation failure', async () => {
+    const fetchMock = vi.fn(() => Promise.reject(new Error('network down')))
+    vi.stubGlobal('fetch', fetchMock)
+    writeCsrfToken('logout-csrf')
+    useAuthStore.setState({
+      token: KRESCO_COOKIE_SESSION,
+      user: { id: 4, email: 'failure@kresco.local', role: 'student' },
+      isHydrated: true,
+      logoutError: null,
+      isLoggingOut: false,
+    })
+
+    useAuthStore.getState().logout()
+
+    expect(useAuthStore.getState().token).toBeNull()
+    expect(useAuthStore.getState().user).toBeNull()
+    expect(useAuthStore.getState().logoutError).toBeNull()
+
+    await vi.waitFor(() => {
+      expect(useAuthStore.getState().logoutError).toBe(
+        'We could not revoke your server session. Please sign in again to finish logging out.',
+      )
+    })
+    expect(useAuthStore.getState().isLoggingOut).toBe(false)
   })
 })

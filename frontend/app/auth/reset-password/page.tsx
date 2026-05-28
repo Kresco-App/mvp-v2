@@ -3,7 +3,7 @@
 import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import api from '@/lib/axios'
+import { postJson } from '@/lib/apiClient'
 import KrescoLogo from '@/components/KrescoLogo'
 import { Eye, EyeOff } from 'lucide-react'
 
@@ -32,7 +32,7 @@ function ResetPasswordContent() {
 
     setLoading(true)
     try {
-      await api.post('/auth/reset-password', { token, password })
+      await postJson('/auth/reset-password', { token, password })
       setDone(true)
       setTimeout(() => router.replace('/'), 2500)
     } catch (err: any) {

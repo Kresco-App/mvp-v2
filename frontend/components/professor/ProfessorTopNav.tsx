@@ -19,7 +19,8 @@ const professorLinks = [
 export default function ProfessorTopNav() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, logout } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
   const [menuOpen, setMenuOpen] = useState(false)
 
   function active(href: string) {

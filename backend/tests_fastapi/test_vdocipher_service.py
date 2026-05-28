@@ -26,6 +26,21 @@ class FakeAsyncClient:
         return self.__class__.response
 
 
+class FailingAsyncClient:
+    def __init__(self, *, timeout: int):
+        self.timeout = timeout
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url: str, *, headers: dict, json: dict):
+        del url, headers, json
+        raise httpx.ConnectTimeout("provider timed out")
+
+
 def live_settings(**overrides) -> Settings:
     values = {
         "database_url": "sqlite+aiosqlite:///./test.sqlite3",
@@ -78,6 +93,16 @@ def test_get_video_otp_surfaces_provider_error(monkeypatch):
     FakeAsyncClient.calls = []
     FakeAsyncClient.response = httpx.Response(401, json={"message": "invalid secret"})
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(vdocipher.get_video_otp("video-123", live_settings()))
+
+    assert error.value.status_code == 502
+    assert error.value.detail == "Failed to get video OTP from VdoCipher"
+
+
+def test_get_video_otp_maps_provider_network_failure(monkeypatch):
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FailingAsyncClient)
 
     with pytest.raises(HTTPException) as error:
         asyncio.run(vdocipher.get_video_otp("video-123", live_settings()))
@@ -151,6 +176,16 @@ def test_create_live_stream_masks_provider_error(monkeypatch):
     assert error.value.status_code == 502
     assert error.value.detail == "Failed to create VdoCipher live stream"
     assert "api-secret" not in error.value.detail
+
+
+def test_create_live_stream_maps_provider_network_failure(monkeypatch):
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FailingAsyncClient)
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(vdocipher.create_live_stream("Slow live", live_settings()))
+
+    assert error.value.status_code == 502
+    assert error.value.detail == "Failed to create VdoCipher live stream"
 
 
 def test_create_live_stream_rejects_missing_live_id(monkeypatch):

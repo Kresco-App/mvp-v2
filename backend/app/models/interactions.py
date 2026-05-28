@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -51,8 +51,12 @@ class UserNote(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
     topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
-    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    tab_content_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("topic_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    tab_content_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("tab_contents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     body: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -64,6 +68,11 @@ class UserNote(Base):
 
 class SavedItem(Base):
     __tablename__ = "saved_items"
+    __table_args__ = (
+        UniqueConstraint("user_id", "target_type", "target_id", name="uq_saved_items_user_target"),
+        Index("ix_saved_items_user_target", "user_id", "target_type", "target_id"),
+        Index("ix_saved_items_target_lookup", "target_type", "target_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -71,7 +80,9 @@ class SavedItem(Base):
     target_id: Mapped[int] = mapped_column(Integer)
     subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
     topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
-    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("topic_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     label: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

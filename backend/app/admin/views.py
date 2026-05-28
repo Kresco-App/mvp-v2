@@ -5,6 +5,7 @@ from sqladmin import ModelView
 from sqladmin.filters import AllUniqueStringValuesFilter, BooleanFilter
 
 from app.database import get_session_factory
+from app.admin.auth import ADMIN_SESSION_AUTHENTICATED, ADMIN_SESSION_USER_ID
 from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import (
@@ -61,6 +62,15 @@ def _admin_audit_note(request) -> str:
 
 
 class PowerModelView(ModelView):
+    def is_accessible(self, request) -> bool:
+        session = getattr(request, "session", None)
+        if not isinstance(session, dict):
+            return False
+        return bool(session.get(ADMIN_SESSION_AUTHENTICATED) and session.get(ADMIN_SESSION_USER_ID))
+
+    def is_visible(self, request) -> bool:
+        return self.is_accessible(request)
+
     async def _write_audit_log(self, action: str, data: dict, model: Any, request) -> None:
         if model.__class__.__name__ == "AdminAuditLog":
             return
@@ -813,6 +823,39 @@ IMMUTABLE_ADMIN_MODELS = {
     "AdminAuditLog",
 }
 
+READ_ONLY_ADMIN_MODELS = {
+    "ActivityEvent",
+    "ContentProgress",
+    "DailyQuest",
+    "LessonProgress",
+    "QuestionAttempt",
+    "QuizAttempt",
+    "QuizResult",
+    "TopicItemProgress",
+    "UserXP",
+    "XPTransaction",
+}
+
+ADMIN_MUTATION_POLICY = {
+    "User": {"create": False, "edit": True, "delete": False},
+    **{
+        model_name: {"create": False, "edit": False, "delete": False}
+        for model_name in IMMUTABLE_ADMIN_MODELS | READ_ONLY_ADMIN_MODELS
+    },
+}
+
+PROTECTED_FORM_COLUMNS_BY_MODEL = {
+    "User": {
+        "auth_token_version",
+        "is_staff",
+        "is_superuser",
+        "password",
+        "password_changed_at",
+        "role",
+        "stripe_customer_id",
+    },
+}
+
 FILTERABLE_CHOICE_COLUMN_NAMES = {
     "activity_type",
     "block_type",
@@ -894,10 +937,19 @@ def configure_power_admin_view(view: type[ModelView]) -> None:
     view.column_default_sort = [(model.created_at, True)] if hasattr(model, "created_at") else [(model.id, True)]
     view.page_size = 50
     view.page_size_options = [25, 50, 100, 250]
-    is_immutable = model.__name__ in IMMUTABLE_ADMIN_MODELS
-    view.can_create = not is_immutable
-    view.can_edit = not is_immutable
-    view.can_delete = not is_immutable
+    excluded_columns = {
+        str(column)
+        for column in (getattr(view, "form_excluded_columns", None) or [])
+    }
+    excluded_columns.update(SENSITIVE_COLUMN_NAMES)
+    excluded_columns.update(PROTECTED_FORM_COLUMNS_BY_MODEL.get(model.__name__, set()))
+    view.form_excluded_columns = sorted(excluded_columns)
+
+    mutation_policy = ADMIN_MUTATION_POLICY.get(model.__name__)
+    if mutation_policy is not None:
+        view.can_create = mutation_policy["create"]
+        view.can_edit = mutation_policy["edit"]
+        view.can_delete = mutation_policy["delete"]
     view.can_export = True
     view.can_view_details = True
 

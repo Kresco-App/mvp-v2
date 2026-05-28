@@ -54,3 +54,25 @@ def test_send_reset_email_builds_resend_payload(monkeypatch, test_settings):
     assert payload["to"] == ["student@example.com"]
     assert payload["subject"] == "Reinitialiser votre mot de passe Kresco"
     assert "https://app.example/auth/reset-password?token=reset-token" in payload["html"]
+
+
+def test_resend_sync_send_uses_bounded_http_timeout(monkeypatch):
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(email_service.requests, "request", fake_request)
+
+    email_service._send_email_sync("re_test", {"to": ["student@example.com"]})
+
+    method, url, kwargs = calls[0]
+    assert method == "post"
+    assert url.endswith("/emails")
+    assert kwargs["headers"]["Authorization"] == "Bearer re_test"
+    assert kwargs["timeout"] == email_service.RESEND_EMAIL_TIMEOUT_SECONDS

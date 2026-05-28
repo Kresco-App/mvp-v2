@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
+
 export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: /integration\.spec\.ts/,
@@ -20,6 +22,7 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       ...process.env,
+      JWT_SECRET_KEY: jwtSecretKey,
       NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api/',
       NEXT_PUBLIC_ABLY_ENABLED: 'false',
     },

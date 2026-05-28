@@ -1,6 +1,8 @@
 from typing import Dict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.limits import StrictInputModel
 
 
 class QuizOptionOut(BaseModel):
@@ -28,7 +30,15 @@ class QuizOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class QuizSubmitIn(BaseModel):
+class QuizDiscoveryOut(BaseModel):
+    subject_id: int = Field(serialization_alias="subjectId")
+    lesson_id: int | None = Field(default=None, serialization_alias="lessonId")
+    quiz: QuizOut | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class QuizSubmitIn(StrictInputModel):
     answers: Dict[int, int]
 
 

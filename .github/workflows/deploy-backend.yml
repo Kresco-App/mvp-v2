@@ -12,6 +12,11 @@ on:
         options:
           - staging
           - production
+      confirm_database_migration:
+        description: 'Required for production: confirm that the migration plan and backup/restore path have been reviewed'
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   deploy:
@@ -43,6 +48,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
 
       - name: Check repository hygiene
         run: python scripts/check_repo_hygiene.py
@@ -54,12 +63,51 @@ jobs:
         if: ${{ env.ZAPPA_STAGE == 'production' }}
         run: python scripts/check_production_launch_gate.py
 
+      - name: Require production database migration confirmation
+        if: ${{ env.ZAPPA_STAGE == 'production' && inputs.confirm_database_migration != true }}
+        run: |
+          echo "Production deploys require confirm_database_migration=true after reviewing the migration plan and restore path."
+          exit 1
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-north-1
+
+      - name: Require production CloudWatch alarms
+        if: ${{ env.ZAPPA_STAGE == 'production' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDWATCH_ALARM_NAMES:-}" ]; then
+            echo "Set CLOUDWATCH_ALARM_NAMES to comma-separated alarms covering Request5xx, UnhandledException, ClientError, and ReadinessError."
+            exit 1
+          fi
+          IFS=',' read -ra alarm_names <<< "$CLOUDWATCH_ALARM_NAMES"
+          normalized_alarm_names=()
+          for alarm_name in "${alarm_names[@]}"; do
+            alarm_name="$(echo "$alarm_name" | xargs)"
+            if [ -n "$alarm_name" ]; then
+              normalized_alarm_names+=("$alarm_name")
+            fi
+          done
+          if [ "${#normalized_alarm_names[@]}" -lt 4 ]; then
+            echo "CLOUDWATCH_ALARM_NAMES must list at least four alarms: Request5xx, UnhandledException, ClientError, and ReadinessError."
+            exit 1
+          fi
+          found="$(aws cloudwatch describe-alarms \
+            --alarm-names "${normalized_alarm_names[@]}" \
+            --query 'MetricAlarms[].AlarmName' \
+            --output text)"
+          for alarm_name in "${normalized_alarm_names[@]}"; do
+            if ! grep -Fq "$alarm_name" <<< "$found"; then
+              echo "Required CloudWatch alarm is missing: $alarm_name"
+              exit 1
+            fi
+          done
+        env:
+          CLOUDWATCH_ALARM_NAMES: ${{ vars.CLOUDWATCH_ALARM_NAMES }}
 
       - name: Install Dependencies
         run: |
@@ -68,7 +116,7 @@ jobs:
           source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest==8.4.2 zappa==0.62.1
+          pip install -r requirements-dev.txt
 
       - name: Run Alembic migration check on Postgres
         run: |
@@ -101,7 +149,43 @@ jobs:
         run: |
           cd backend
           source venv/bin/activate
-          python -m pytest -q
+          python -m pytest --cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml -q
+
+      - name: Capture production database snapshot before migration
+        if: ${{ env.ZAPPA_STAGE == 'production' }}
+        run: |
+          set -euo pipefail
+          snapshot_id="kresco-${ZAPPA_STAGE}-pre-migration-${GITHUB_RUN_ID}"
+          if [ -n "${RDS_DB_CLUSTER_IDENTIFIER:-}" ]; then
+            aws rds create-db-cluster-snapshot \
+              --db-cluster-identifier "$RDS_DB_CLUSTER_IDENTIFIER" \
+              --db-cluster-snapshot-identifier "$snapshot_id"
+            aws rds wait db-cluster-snapshot-available \
+              --db-cluster-snapshot-identifier "$snapshot_id"
+          elif [ -n "${RDS_DB_INSTANCE_IDENTIFIER:-}" ]; then
+            aws rds create-db-snapshot \
+              --db-instance-identifier "$RDS_DB_INSTANCE_IDENTIFIER" \
+              --db-snapshot-identifier "$snapshot_id"
+            aws rds wait db-snapshot-available \
+              --db-snapshot-identifier "$snapshot_id"
+          else
+            echo "Set RDS_DB_CLUSTER_IDENTIFIER or RDS_DB_INSTANCE_IDENTIFIER for production migration backups."
+            exit 1
+          fi
+        env:
+          RDS_DB_CLUSTER_IDENTIFIER: ${{ vars.RDS_DB_CLUSTER_IDENTIFIER }}
+          RDS_DB_INSTANCE_IDENTIFIER: ${{ vars.RDS_DB_INSTANCE_IDENTIFIER }}
+
+      - name: Record production migration revision before migration
+        if: ${{ env.ZAPPA_STAGE == 'production' }}
+        run: |
+          cd backend
+          source venv/bin/activate
+          DATABASE_URL="${{ secrets.DATABASE_URL }}" alembic current
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_CONNECTION_STRATEGY: rds_proxy
+          PGSSLROOTCERT: certs/rds-global-bundle.pem
 
       - name: Run Alembic Migrations
         run: |
@@ -119,21 +203,10 @@ jobs:
           source venv/bin/activate
           python scripts/render_zappa_settings.py zappa_settings.json "$ZAPPA_STAGE"
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          KRESCO_RUNTIME_SECRET_ID: ${{ vars.KRESCO_RUNTIME_SECRET_ID }}
+          KRESCO_RELEASE_SHA: ${{ github.sha }}
           DATABASE_CONNECTION_STRATEGY: rds_proxy
           PGSSLROOTCERT: certs/rds-global-bundle.pem
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          VDOCIPHER_API_SECRET: ${{ secrets.VDOCIPHER_API_SECRET }}
-          VDOCIPHER_API_BASE_URL: ${{ secrets.VDOCIPHER_API_BASE_URL }}
-          VDOCIPHER_LIVE_CREATE_URL: ${{ secrets.VDOCIPHER_LIVE_CREATE_URL }}
-          STRIPE_SK: ${{ secrets.STRIPE_SK }}
-          STRIPE_PRODUCT_ID: ${{ secrets.STRIPE_PRODUCT_ID }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
-          REALTIME_OUTBOX_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
-          MEDIA_S3_BUCKET: ${{ secrets.MEDIA_S3_BUCKET }}
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           CORS_ALLOW_ORIGIN_REGEX: ${{ vars.CORS_ALLOW_ORIGIN_REGEX }}

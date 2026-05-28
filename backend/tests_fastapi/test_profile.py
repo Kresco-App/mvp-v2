@@ -1,9 +1,29 @@
+import inspect
 from types import SimpleNamespace
 
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME
 from app.database import get_session_factory
 from app.models.users import User
+import app.routers.users as users_router
+from app.services import user_profile
+
+
+def test_profile_mutations_stay_out_of_router():
+    update_source = inspect.getsource(users_router.update_profile)
+    upload_source = inspect.getsource(users_router.upload_profile_media)
+    service_source = inspect.getsource(user_profile)
+
+    assert "update_profile_state(" in update_source
+    assert "upload_profile_media_state(" in upload_source
+    assert "await db.commit()" not in update_source + upload_source
+    assert "file.read(" not in upload_source
+    assert "image_matches_mime_type(" not in upload_source
+    assert "Profile media quota exceeded" not in upload_source
+    assert "async def update_profile_state" in service_source
+    assert "async def upload_profile_media_state" in service_source
+    assert "Profile media quota exceeded" in service_source
+    assert "profile_media_key(" in service_source
 
 
 def _install_cookie_session(app_client, test_settings, token: str, user_id: int, *, with_csrf: bool) -> str:

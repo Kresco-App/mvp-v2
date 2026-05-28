@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertCircle, LockKeyhole, Mail } from 'lucide-react'
 import KrescoWordmark from '@/components/KrescoWordmark'
-import api from '@/lib/axios'
+import { postJson } from '@/lib/apiClient'
 import { AUTH_ROUTES, isProfessorUser } from '@/lib/authPolicy'
 import { useAuthStore } from '@/lib/store'
 
@@ -21,14 +21,18 @@ type LoginResponse = {
 
 export default function ProfessorLoginPage() {
   const router = useRouter()
-  const { login, logout, hydrate, token, user, isHydrated } = useAuthStore()
+  const login = useAuthStore((state) => state.login)
+  const logout = useAuthStore((state) => state.logout)
+  const hydrate = useAuthStore((state) => state.hydrate)
+  const token = useAuthStore((state) => state.token)
+  const user = useAuthStore((state) => state.user)
+  const isHydrated = useAuthStore((state) => state.isHydrated)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    document.title = 'Professor Login - Kresco'
     hydrate()
   }, [hydrate])
 
@@ -43,7 +47,7 @@ export default function ProfessorLoginPage() {
     setError('')
     setLoading(true)
     try {
-      const { data } = await api.post<LoginResponse>('/auth/login', { email, password })
+      const data = await postJson<LoginResponse>('/auth/login', { email, password })
       if (!isProfessorUser(data.user)) {
         logout()
         setError('This login is only for professor accounts.')

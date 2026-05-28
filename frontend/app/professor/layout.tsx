@@ -1,4 +1,10 @@
+import type { Metadata } from 'next'
 import ErrorBoundary from '@/components/ErrorBoundary'
+
+export const metadata: Metadata = {
+  title: 'Professor Dashboard',
+  description: 'Manage Kresco teaching activity, live sessions, chats, and change requests.',
+}
 
 export default function ProfessorRouteLayout({ children }: { children: React.ReactNode }) {
   return (

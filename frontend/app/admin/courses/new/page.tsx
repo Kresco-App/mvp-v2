@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, Check, BookOpen, FileText } from 'lucide-react'
-import api from '@/lib/axios'
+import { postJson } from '@/lib/apiClient'
 import AuthGuard from '@/components/AuthGuard'
 import { toast } from 'sonner'
 
@@ -20,6 +20,10 @@ interface ChapterForm {
   id: string
   title: string
   order: number
+}
+
+type CreatedSubject = {
+  id: number
 }
 
 const NIVEAUX = ['1bac', '2bac']
@@ -53,18 +57,18 @@ export default function NewCoursePage() {
     setCreating(true)
     try {
       // Create subject
-      const subjRes = await api.post('/courses/subjects', {
+      const createdSubject = await postJson<CreatedSubject>('/courses/subjects', {
         title: subject.title,
         description: subject.description,
         niveau: subject.niveau,
         filiere: subject.filiere,
       })
-      const subjId = subjRes.data.id
+      const subjId = createdSubject.id
 
       // Create chapters
       const validChapters = chapters.filter(c => c.title.trim())
       for (const ch of validChapters) {
-        await api.post('/courses/chapters', {
+        await postJson('/courses/chapters', {
           subject_id: subjId,
           title: ch.title,
           order: ch.order,

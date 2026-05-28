@@ -43,6 +43,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
 
       - name: Check repository hygiene
         working-directory: .
@@ -55,11 +57,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Restore Next.js cache
+        uses: actions/cache@v4
+        with:
+          path: frontend/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/app/**', 'frontend/components/**', 'frontend/lib/**', 'frontend/next.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
+
       - name: Install backend dependencies for integration tests
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Restore Playwright Chromium cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
@@ -73,8 +89,8 @@ jobs:
       - name: Run typecheck
         run: npm run typecheck
 
-      - name: Run unit tests
-        run: npm run test
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
 
       - name: Build frontend
         run: npm run build

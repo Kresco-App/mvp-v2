@@ -1,15 +1,12 @@
 import inspect
-import logging
 import os
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db, require_professor_active_offering
-from app.models.gamification import UserXP
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.users import (
@@ -18,25 +15,43 @@ from app.schemas.users import (
     VerifyEmailIn,
 )
 from app.security.csrf import clear_csrf_cookie, set_csrf_cookie
-from app.security.passwords import hash_password, verify_password
+from app.security.passwords import (
+    hash_password,
+    hash_password_async,
+    is_unusable_password,
+    verify_password,
+    verify_password_async,
+)
 from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_google_token
-from app.services.email import (
-    generate_reset_token, generate_verification_token,
-    send_reset_email, send_verification_email,
-    verify_reset_token, verify_verification_token,
+from app.services.auth_account import (
+    authenticate_password_login,
+    reset_password_account,
+    revoke_user_sessions,
+    verify_email_account,
 )
-from app.services.image_uploads import (
-    allowed_image_extension,
-    image_matches_mime_type,
-    normalize_image_mime_type,
+from app.services.auth_email_dispatch import (
+    EMAIL_PURPOSE_PASSWORD_RESET,
+    EMAIL_PURPOSE_VERIFICATION,
+    deliver_password_reset_email_dispatch,
+    deliver_verification_email_dispatch,
+    prepare_password_reset_dispatch,
+    prepare_resend_verification_dispatch,
+    prepare_signup_verification_dispatch,
 )
-from app.services.media_storage import get_media_storage, media_url, profile_media_key
+from app.services.auth_google import complete_google_login
+from app.services.auth_signup import create_or_reclaim_signup_user
+from app.services.email import send_reset_email, send_verification_email
+from app.services.media_storage import get_media_storage, media_url
+from app.services.user_profile import (
+    update_profile_state,
+    upload_profile_media_state,
+    user_out as profile_user_out,
+)
 
 router = APIRouter(tags=["Auth & Users"])
-logger = logging.getLogger("kresco.auth")
 
-MAX_PROFILE_MEDIA_BYTES = 5 * 1024 * 1024
 AUTH_LOGIN_RATE_LIMIT = os.environ.get("KRESCO_AUTH_LOGIN_RATE_LIMIT", "5/minute")
+MIN_PASSWORD_LENGTH = 8
 
 
 def _hash_password(plain: str) -> str:
@@ -47,12 +62,20 @@ def _verify_password(plain: str, stored: str) -> bool:
     return verify_password(plain, stored)
 
 
+async def _hash_password_async(plain: str) -> str:
+    return await hash_password_async(plain)
+
+
+async def _verify_password_async(plain: str, stored: str) -> bool:
+    return await verify_password_async(plain, stored)
+
+
 def _auth_cookie_secure(settings: Settings) -> bool:
     return settings.is_production_like
 
 
 def _auth_cookie_samesite(settings: Settings) -> str:
-    return "none" if settings.is_production_like else "lax"
+    return settings.auth_cookie_samesite_value
 
 
 def _set_auth_cookies(response: Response, token: str, user: User, settings: Settings) -> str:
@@ -100,29 +123,8 @@ def _clear_auth_cookies(response: Response, settings: Settings) -> None:
     clear_csrf_cookie(response, settings)
 
 
-def _log_email_dispatch_failure(flow: str, exc: Exception) -> None:
-    logger.warning(
-        "auth_email_dispatch_failed",
-        extra={"flow": flow, "error_type": type(exc).__name__},
-        exc_info=True,
-    )
-
-
-def _profile_media_projected_bytes(user: User, kind: str, incoming_bytes: int) -> int:
-    avatar_bytes = int(user.avatar_media_size or 0)
-    banner_bytes = int(user.banner_media_size or 0)
-    if kind == "avatar":
-        avatar_bytes = incoming_bytes
-    else:
-        banner_bytes = incoming_bytes
-    return avatar_bytes + banner_bytes
-
-
 def _user_out(user: User, settings: Settings) -> UserOut:
-    out = UserOut.model_validate(user)
-    out.avatar_url = media_url(user.avatar_url, settings)
-    out.banner_url = media_url(user.banner_url, settings)
-    return out
+    return profile_user_out(user, settings, media_url_fn=media_url)
 
 
 @router.post("/google-login", response_model=AuthSessionOut)
@@ -138,49 +140,11 @@ async def google_login(
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Google credential")
 
-    email = payload.get("email", "")
-    full_name = payload.get("name", "")
-    avatar_url = payload.get("picture", "")
-    google_id = payload.get("sub", "")
-
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        user = User(
-            email=email, full_name=full_name, avatar_url=avatar_url,
-            google_id=google_id, is_email_verified=True,
-        )
-        db.add(user)
-        await db.flush()
-        db.add(UserXP(user_id=user.id, total_xp=0, streak_days=0))
-        await db.commit()
-        await db.refresh(user)
-    else:
-        if user.role == "professor":
-            await require_professor_active_offering(db, user)
-
-        changed = False
-        if not user.is_email_verified:
-            user.is_email_verified = True
-            changed = True
-        if user.google_id != google_id:
-            user.google_id = google_id
-            changed = True
-        if avatar_url and user.avatar_url != avatar_url:
-            user.avatar_url = avatar_url
-            changed = True
-        if not user.full_name and full_name:
-            user.full_name = full_name
-            changed = True
-        if changed:
-            try:
-                await db.commit()
-                await db.refresh(user)
-            except Exception as exc:
-                await db.rollback()
-                logger.exception("google_login_persistence_failed email=%s", email)
-                raise HTTPException(status_code=503, detail="Could not complete Google login.") from exc
+    user = await complete_google_login(
+        db,
+        payload=payload,
+        require_professor_active_offering_fn=require_professor_active_offering,
+    )
 
     token = create_token(user, settings)
     csrf_token = _set_auth_cookies(response, token, user, settings)
@@ -192,41 +156,35 @@ async def google_login(
 async def signup(
     request: Request,
     body: SignupIn,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caracteres")
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 8 caracteres")
 
     email = body.email.lower().strip()
-    result = await db.execute(select(User).where(User.email == email))
-    existing = result.scalar_one_or_none()
+    user = await create_or_reclaim_signup_user(
+        db,
+        email=email,
+        full_name=body.full_name,
+        plain_password=body.password,
+    )
 
-    if existing is not None:
-        if existing.is_email_verified:
-            raise HTTPException(status_code=409, detail="Un compte existe deja avec cet email")
-        # Email squatting: unverified record — overwrite it so real owner can claim
-        existing.full_name = body.full_name
-        existing.password = _hash_password(body.password)
-        await db.commit()
-        await db.refresh(existing)
-        user = existing
-    else:
-        user = User(
-            email=email, full_name=body.full_name,
-            password=_hash_password(body.password), is_email_verified=False,
+    if dispatch := await prepare_signup_verification_dispatch(
+        db,
+        email=email,
+        full_name=body.full_name,
+        token_version=user.auth_token_version or 0,
+        settings=settings,
+    ):
+        background_tasks.add_task(
+            deliver_verification_email_dispatch,
+            dispatch,
+            settings,
+            send_verification_email,
+            flow="signup_verification",
         )
-        db.add(user)
-        await db.flush()
-        db.add(UserXP(user_id=user.id, total_xp=0, streak_days=0))
-        await db.commit()
-        await db.refresh(user)
-
-    token = generate_verification_token(email, settings)
-    try:
-        await send_verification_email(email, body.full_name, token, settings)
-    except Exception as exc:
-        _log_email_dispatch_failure("signup_verification", exc)
 
     return SignupPendingOut(
         message="Un email de verification a ete envoye a votre adresse.",
@@ -241,23 +199,7 @@ async def verify_email(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    email = verify_verification_token(body.token, settings)
-    if email is None:
-        raise HTTPException(status_code=400, detail="Lien de verification invalide ou expire")
-
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Compte introuvable")
-
-    if user.role == "professor":
-        await require_professor_active_offering(db, user)
-
-    if not user.is_email_verified:
-        user.is_email_verified = True
-        await db.commit()
-        await db.refresh(user)
-
+    user = await verify_email_account(db, token=body.token, settings=settings)
     token = create_token(user, settings)
     csrf_token = _set_auth_cookies(response, token, user, settings)
     return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
@@ -268,19 +210,19 @@ async def verify_email(
 async def resend_verification(
     request: Request,
     body: ResendVerificationIn,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     email = body.email.lower().strip()
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    if user and not user.is_email_verified:
-        token = generate_verification_token(email, settings)
-        try:
-            await send_verification_email(email, user.full_name, token, settings)
-        except Exception as exc:
-            _log_email_dispatch_failure("resend_verification", exc)
+    if dispatch := await prepare_resend_verification_dispatch(db, email=email, settings=settings):
+        background_tasks.add_task(
+            deliver_verification_email_dispatch,
+            dispatch,
+            settings,
+            send_verification_email,
+            flow="resend_verification",
+        )
 
     # Always return success to avoid email enumeration
     return MessageOut(message="Si ce compte existe et n'est pas verifie, un email a ete envoye.")
@@ -295,22 +237,12 @@ async def login(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    result = await db.execute(
-        select(User).where(User.email == body.email.lower(), User.is_active == True)  # noqa: E712
+    user = await authenticate_password_login(
+        db,
+        email=body.email,
+        password=body.password,
+        require_professor_active_offering_fn=require_professor_active_offering,
     )
-    user = result.scalar_one_or_none()
-
-    if user is None or user.password == "!" or not _verify_password(body.password, user.password):
-        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
-
-    if not user.is_email_verified:
-        raise HTTPException(
-            status_code=403,
-            detail="Veuillez verifier votre email avant de vous connecter",
-        )
-    if user.role == "professor":
-        await require_professor_active_offering(db, user)
-
     token = create_token(user, settings)
     csrf_token = _set_auth_cookies(response, token, user, settings)
     return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
@@ -319,8 +251,11 @@ async def login(
 @router.post("/auth/logout", response_model=MessageOut)
 async def logout(
     response: Response,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    await revoke_user_sessions(db, user)
     _clear_auth_cookies(response, settings)
     return MessageOut(message="Deconnecte.")
 
@@ -339,21 +274,19 @@ async def csrf_token(
 async def forgot_password(
     request: Request,
     body: ForgotPasswordIn,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     email = body.email.lower().strip()
-    result = await db.execute(
-        select(User).where(User.email == email, User.is_active == True)  # noqa: E712
-    )
-    user = result.scalar_one_or_none()
-
-    if user and user.is_email_verified and user.password != "!":
-        token = generate_reset_token(email, settings, token_version=user.auth_token_version or 0)
-        try:
-            await send_reset_email(email, token, settings)
-        except Exception as exc:
-            _log_email_dispatch_failure("forgot_password", exc)
+    if dispatch := await prepare_password_reset_dispatch(db, email=email, settings=settings):
+        background_tasks.add_task(
+            deliver_password_reset_email_dispatch,
+            dispatch,
+            settings,
+            send_reset_email,
+            flow="forgot_password",
+        )
 
     # Always return success to avoid email enumeration
     return MessageOut(message="Si ce compte existe, vous recevrez un email de reinitialisation.")
@@ -365,24 +298,10 @@ async def reset_password(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caracteres")
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 8 caracteres")
 
-    reset_payload = verify_reset_token(body.token, settings)
-    if reset_payload is None:
-        raise HTTPException(status_code=400, detail="Lien de reinitialisation invalide ou expire")
-
-    result = await db.execute(select(User).where(User.email == reset_payload.email))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Compte introuvable")
-    if (user.auth_token_version or 0) != reset_payload.token_version:
-        raise HTTPException(status_code=400, detail="Lien de reinitialisation invalide ou expire")
-
-    user.password = _hash_password(body.password)
-    user.auth_token_version = (user.auth_token_version or 0) + 1
-    user.password_changed_at = datetime.now(timezone.utc)
-    await db.commit()
+    await reset_password_account(db, token=body.token, password=body.password, settings=settings)
     return MessageOut(message="Mot de passe reinitialise avec succes.")
 
 
@@ -401,18 +320,7 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    updates = body.model_dump(exclude_none=True)
-    if not updates:
-        return _user_out(user, settings)
-    if "avatar_url" in updates:
-        user.avatar_media_size = 0
-    if "banner_url" in updates:
-        user.banner_media_size = 0
-    for field, value in updates.items():
-        setattr(user, field, value)
-    await db.commit()
-    await db.refresh(user)
-    return _user_out(user, settings)
+    return await update_profile_state(db, user=user, body=body, settings=settings, media_url_fn=media_url)
 
 
 @router.post("/profile/me/media/{kind}", response_model=ProfileMediaOut)
@@ -423,37 +331,11 @@ async def upload_profile_media(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    if kind not in {"avatar", "banner"}:
-        raise HTTPException(status_code=404, detail="Unsupported profile media type")
-
-    mime_type = normalize_image_mime_type(file.content_type)
-    extension = allowed_image_extension(mime_type)
-    if extension is None:
-        raise HTTPException(status_code=400, detail="Upload a JPG, PNG, WEBP, or GIF image")
-
-    content = await file.read(MAX_PROFILE_MEDIA_BYTES + 1)
-    if not content:
-        raise HTTPException(status_code=400, detail="Upload a non-empty image")
-    if len(content) > MAX_PROFILE_MEDIA_BYTES:
-        raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
-    if not image_matches_mime_type(content, mime_type):
-        raise HTTPException(status_code=400, detail="Upload a valid JPG, PNG, WEBP, or GIF image")
-    if _profile_media_projected_bytes(user, kind, len(content)) > int(settings.media_profile_quota_bytes):
-        raise HTTPException(status_code=413, detail="Profile media quota exceeded")
-
-    stored = await get_media_storage(settings).put_object(
-        key=profile_media_key(user.id, kind, extension),
-        content=content,
-        content_type=mime_type,
+    return await upload_profile_media_state(
+        db,
+        user=user,
+        kind=kind,
+        file=file,
+        settings=settings,
+        storage_factory=get_media_storage,
     )
-    url = stored.url
-    if kind == "avatar":
-        user.avatar_url = stored.reference
-        user.avatar_media_size = len(content)
-    else:
-        user.banner_url = stored.reference
-        user.banner_media_size = len(content)
-
-    await db.commit()
-    await db.refresh(user)
-    return ProfileMediaOut(url=url)

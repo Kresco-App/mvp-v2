@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
 from app.database import get_session_factory
 from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
-from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
+from app.models.gamification import ActivityEvent, QuestionAttempt, QuizAttempt, TopicItemProgress, XPTransaction
 from app.models.quizzes import Question, QuestionSet
 from app.models.users import UserSubjectEntitlement
 from sqlalchemy import func, select
@@ -76,6 +78,7 @@ def test_tab_quiz_grades_required_question_types(app_client, auth_token, run_db)
     assert body["correct"] == 10
     assert body["score"] == 100
     assert body["passed"] is True
+    assert all("answer" not in item for item in body["grading"]["questions"])
 
     async def _assert_tracking():
         session_factory = get_session_factory()
@@ -93,6 +96,164 @@ def test_tab_quiz_grades_required_question_types(app_client, auth_token, run_db)
             assert {row.reason for row in xp_rows} == {"quiz_correct", "quiz_pass"}
 
     run_db(_assert_tracking())
+
+
+def test_topic_workspace_scrubs_quiz_answer_payloads(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="quiz-scrub@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Quiz Scrub Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="quiz-scrub-topic", title="Quiz Scrub", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Quizzes", section_type="quizzes", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(topic_id=topic.id, section_id=section.id, title="Quiz item", item_type="checkpoint_quiz", order=1)
+            db.add(item)
+            await db.flush()
+            tab = TabContent(
+                topic_item_id=item.id,
+                label="Quiz",
+                tab_type="quiz",
+                order=1,
+                config_json={
+                    "pass_score": 70,
+                    "questions": [
+                        {
+                            "id": "mc",
+                            "type": "multiple_choice",
+                            "prompt": "Pick A",
+                            "options": [
+                                {"text": "A", "is_correct": True},
+                                {"text": "B", "is_correct": False},
+                            ],
+                            "answer": "A",
+                            "accepted_answers": ["A"],
+                        },
+                        {
+                            "id": "match",
+                            "type": "matching",
+                            "prompt": "Match",
+                            "answer": {"T": "s", "f": "Hz"},
+                        },
+                        {
+                            "id": "hotspot",
+                            "type": "image_hotspot",
+                            "prompt": "Aim",
+                            "answerRegion": {"shape": "ellipse", "x": 50, "y": 50, "rx": 10, "ry": 10},
+                        },
+                    ],
+                },
+            )
+            db.add(tab)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            await db.commit()
+            return topic.id
+
+    topic_id = run_db(_seed())
+
+    response = app_client.get(
+        f"/api/courses/topics/{topic_id}/workspace",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    tab_config = response.json()["sections"][0]["items"][0]["tabs"][0]["config_json"]
+    assert not _contains_any_key(
+        tab_config,
+        {
+            "accepted_answers",
+            "answer",
+            "answerRegion",
+            "correct",
+            "correct_answer",
+            "correctIndex",
+            "is_correct",
+        },
+    )
+    questions = tab_config["questions"]
+    assert questions[1]["pairs"] == [{"left": "T"}, {"left": "f"}]
+
+
+def test_tab_quiz_rejects_negative_hotspot_radius_expansion(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="hotspot-radius@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Hotspot Quiz Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="hotspot-radius-topic", title="Hotspot Quiz", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Hotspots", section_type="chapter", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(topic_id=topic.id, section_id=section.id, title="Hotspot quiz", item_type="checkpoint_quiz", order=1)
+            db.add(item)
+            await db.flush()
+            tab = TabContent(
+                topic_item_id=item.id,
+                label="Hotspot",
+                tab_type="quiz",
+                order=1,
+                config_json={
+                    "pass_score": 100,
+                    "questions": [
+                        {
+                            "id": "hotspot",
+                            "type": "image_hotspot",
+                            "title": "Hotspot",
+                            "prompt": "Aim",
+                            "answerRegion": {"shape": "ellipse", "x": 50, "y": 50, "rx": 10, "ry": 10},
+                        }
+                    ],
+                },
+            )
+            db.add(tab)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            await db.commit()
+            await db.refresh(tab)
+            return tab.id
+
+    tab_id = run_db(_seed())
+    response = app_client.post(
+        f"/api/courses/tabs/{tab_id}/quiz/submit",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "answers": {
+                "hotspot": {"x": 1000, "y": 1000, "radius": -10000},
+            },
+            "duration_seconds": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["correct"] == 0
+    assert body["score"] == 0
+    assert body["passed"] is False
+
+    async def _assert_attempt():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            question_attempt = (
+                await db.execute(
+                    select(QuestionAttempt)
+                    .join(QuizAttempt, QuestionAttempt.quiz_attempt_id == QuizAttempt.id)
+                    .join(QuestionSet, QuizAttempt.question_set_id == QuestionSet.id)
+                    .where(QuestionSet.tab_content_id == tab_id)
+                )
+            ).scalar_one()
+            assert question_attempt.is_correct is False
+
+    run_db(_assert_attempt())
 
 
 def test_tab_quiz_reuses_identical_submission(app_client, auth_token, run_db):
@@ -215,6 +376,262 @@ def test_topic_item_completion_awards_xp_once_with_context(app_client, auth_toke
     run_db(_assert_xp())
 
 
+def test_topic_item_event_creates_activity_and_progress_without_completion(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-event-progress@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Event Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="event-topic", title="Event Topic", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Lessons", section_type="lessons", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(topic_id=topic.id, section_id=section.id, title="Event video", item_type="video", order=1)
+            db.add(item)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            await db.commit()
+            return topic.id, item.id
+
+    topic_id, item_id = run_db(_seed())
+    response = app_client.post(
+        f"/api/courses/topic-items/{item_id}/event",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "event_type": "video_started",
+            "target_id": item_id,
+            "metadata_json": {"position": 12},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+    async def _assert_event_and_progress():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            event = await db.scalar(
+                select(ActivityEvent).where(
+                    ActivityEvent.user_id == user_id,
+                    ActivityEvent.topic_item_id == item_id,
+                )
+            )
+            progress = await db.scalar(
+                select(TopicItemProgress).where(
+                    TopicItemProgress.user_id == user_id,
+                    TopicItemProgress.topic_item_id == item_id,
+                )
+            )
+            xp_count = await db.scalar(
+                select(func.count()).select_from(XPTransaction).where(XPTransaction.topic_item_id == item_id)
+            )
+            assert event is not None
+            assert event.event_type == "video_started"
+            assert event.target_type == "topic_item"
+            assert event.target_id == item_id
+            assert event.topic_id == topic_id
+            assert event.metadata_json == {"position": 12}
+            assert progress is not None
+            assert progress.status == "started"
+            assert progress.completed_at is None
+            assert xp_count == 0
+
+    run_db(_assert_event_and_progress())
+
+
+def test_topic_item_event_and_completion_missing_items_return_404(app_client, auth_token):
+    token, _user_id = auth_token(email="topic-event-missing@example.com", is_pro=True)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    event_response = app_client.post(
+        "/api/courses/topic-items/999999999/event",
+        headers=headers,
+        json={"event_type": "video_started", "target_id": 999999999},
+    )
+    completion_response = app_client.post(
+        "/api/courses/topic-items/999999999/complete",
+        headers=headers,
+        json={"watched_seconds": 0},
+    )
+
+    assert event_response.status_code == 404
+    assert event_response.json()["detail"] == "Topic item not found"
+    assert completion_response.status_code == 404
+    assert completion_response.json()["detail"] == "Topic item not found"
+
+
+def test_topic_item_completion_event_is_written_on_repeated_completion(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-complete-event-repeat@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Completion Event Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="completion-event-topic", title="Completion Event", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Readings", section_type="lessons", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Completion reading",
+                item_type="reading",
+                order=1,
+            )
+            db.add(item)
+            await db.flush()
+            db.add(TopicItemProgress(
+                user_id=user_id,
+                topic_id=topic.id,
+                topic_item_id=item.id,
+                status="completed",
+                completed_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+                watched_seconds=0,
+            ))
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            await db.commit()
+            return item.id
+
+    item_id = run_db(_seed())
+    response = app_client.post(
+        f"/api/courses/topic-items/{item_id}/complete",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"watched_seconds": 0},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["xp_earned"] == 0
+
+    async def _assert_completion_event():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            events = (
+                await db.execute(
+                    select(ActivityEvent).where(
+                        ActivityEvent.user_id == user_id,
+                        ActivityEvent.topic_item_id == item_id,
+                    )
+                )
+            ).scalars().all()
+            xp_count = await db.scalar(
+                select(func.count()).select_from(XPTransaction).where(XPTransaction.topic_item_id == item_id)
+            )
+            assert len(events) == 1
+            assert events[0].event_type == "reading_completed"
+            assert events[0].metadata_json == {"watched_seconds": 0}
+            assert xp_count == 0
+
+    run_db(_assert_completion_event())
+
+
+def test_topic_item_completion_rejects_impossible_timed_video_spoof(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-complete-spoof@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Timed Completion Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="timed-completion-topic", title="Timed Completion", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Lessons", section_type="lessons", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Timed video",
+                item_type="video",
+                duration_seconds=120,
+                order=1,
+            )
+            db.add(item)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            await db.commit()
+            return item.id
+
+    item_id = run_db(_seed())
+    response = app_client.post(
+        f"/api/courses/topic-items/{item_id}/complete",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"watched_seconds": 120},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Topic item is not eligible for completion yet"
+
+    async def _assert_not_completed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            progress = await db.scalar(
+                select(TopicItemProgress).where(
+                    TopicItemProgress.user_id == user_id,
+                    TopicItemProgress.topic_item_id == item_id,
+                )
+            )
+            xp_count = await db.scalar(
+                select(func.count()).select_from(XPTransaction).where(XPTransaction.topic_item_id == item_id)
+            )
+            assert progress is not None
+            assert progress.status == "started"
+            assert progress.watched_seconds < 108
+            assert xp_count == 0
+
+    run_db(_assert_not_completed())
+
+
+def test_topic_item_complete_rejects_client_scored_quiz_completion(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-complete-quiz-spoof@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Quiz Completion Subject", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="quiz-completion-topic", title="Quiz Completion", order=1, is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Quizzes", section_type="quizzes", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(topic_id=topic.id, section_id=section.id, title="Checkpoint", item_type="checkpoint_quiz", order=1)
+            db.add(item)
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            await db.commit()
+            return item.id
+
+    item_id = run_db(_seed())
+    response = app_client.post(
+        f"/api/courses/topic-items/{item_id}/complete",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"watched_seconds": 0, "score": 100},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Quiz items must be submitted through quiz endpoints"
+
+    async def _assert_no_spoofed_xp():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            xp_count = await db.scalar(
+                select(func.count()).select_from(XPTransaction).where(XPTransaction.topic_item_id == item_id)
+            )
+            assert xp_count == 0
+
+    run_db(_assert_no_spoofed_xp())
+
+
 def test_tab_quiz_tracks_figma_audit_primitives(app_client, auth_token, run_db):
     token, user_id = auth_token(email="quiz-figma-primitives@example.com", is_pro=True)
 
@@ -301,3 +718,11 @@ def test_tab_quiz_tracks_figma_audit_primitives(app_client, auth_token, run_db):
             assert all(attempt.is_correct for attempt in question_attempts)
 
     run_db(_assert_tracking())
+
+
+def _contains_any_key(value, keys: set[str]) -> bool:
+    if isinstance(value, dict):
+        return any(key in keys or _contains_any_key(item, keys) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_contains_any_key(item, keys) for item in value)
+    return False

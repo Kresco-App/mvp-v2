@@ -1,37 +1,21 @@
 'use client'
 
-import { useEffect } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, Crown, Zap, BookOpen, Award, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
-import api from '@/lib/axios'
+import { apiJsonClient } from '@/lib/apiClient'
+import { localizedCopy } from '@/lib/localization'
 import { createProCheckoutSession } from '@/lib/payments'
 import AuthGuard from '@/components/AuthGuard'
 
-const GRATUIT_FEATURES = [
-  'Acces aux lecons en apercu',
-  'Suivi de progression basique',
-  'Discussions communautaires',
-  '3 matieres disponibles',
-]
-
-const PRO_FEATURES = [
-  'Toutes les lecons et chapitres debloques',
-  'Suivi complet de progression et serie',
-  'Quiz interactifs avec correction',
-  'Certificats de completion',
-  'Support prioritaire',
-  'Nouveau contenu chaque semaine',
-]
+const pricingCopy = localizedCopy.pricing
 
 export default function PricingPage() {
-  const { user } = useAuthStore()
-
-  useEffect(() => { document.title = 'Tarifs \u2014 Kresco' }, [])
+  const user = useAuthStore((state) => state.user)
 
   async function handleCheckout() {
-    const result = await createProCheckoutSession(api)
+    const result = await createProCheckoutSession(apiJsonClient)
     if (result.status === 'success') {
       window.location.href = result.checkoutUrl
       return
@@ -41,7 +25,7 @@ export default function PricingPage() {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-slate-950 p-6">
+      <main className="min-h-screen bg-slate-950 p-6">
         {/* Back button */}
         <div className="max-w-4xl mx-auto mb-6">
           <Link
@@ -49,7 +33,7 @@ export default function PricingPage() {
             className="inline-flex items-center gap-2 text-slate-500 hover:text-white text-sm transition-colors"
           >
             <ArrowLeft size={16} />
-            Retour a l&apos;accueil
+            {pricingCopy.backHome}
           </Link>
         </div>
 
@@ -57,13 +41,13 @@ export default function PricingPage() {
           <div className="text-center mb-12">
             <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 text-sm font-semibold px-4 py-1.5 rounded-full mb-5">
               <Crown size={14} />
-              Ameliorez votre apprentissage
+              {pricingCopy.badge}
             </div>
             <h1 className="text-4xl font-bold text-white mb-4">
-              Tarification simple et transparente
+              {pricingCopy.title}
             </h1>
             <p className="text-slate-500 text-lg max-w-md mx-auto leading-relaxed">
-              Un paiement unique pour debloquer Kresco Pro.
+              {pricingCopy.subtitle}
             </p>
           </div>
 
@@ -74,15 +58,15 @@ export default function PricingPage() {
                 <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center mb-4">
                   <BookOpen size={20} className="text-slate-400" />
                 </div>
-                <h2 className="text-xl font-bold text-white mb-1">Gratuit</h2>
+                <h2 className="text-xl font-bold text-white mb-1">{pricingCopy.freePlan}</h2>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-bold text-white">0 MAD</span>
+                  <span className="text-4xl font-bold text-white">{pricingCopy.freePrice}</span>
                 </div>
-                <p className="text-slate-500 text-sm mt-2">Commencez avec les lecons en apercu.</p>
+                <p className="text-slate-500 text-sm mt-2">{pricingCopy.freeDescription}</p>
               </div>
 
               <ul className="space-y-3 mb-8">
-                {GRATUIT_FEATURES.map(f => (
+                {pricingCopy.freeFeatures.map(f => (
                   <li key={f} className="flex items-center gap-3 text-sm text-slate-400">
                     <CheckCircle2 size={16} className="text-slate-400 flex-shrink-0" />
                     {f}
@@ -94,7 +78,7 @@ export default function PricingPage() {
                 disabled
                 className="w-full py-3 rounded-xl border border-slate-700 text-slate-400 text-sm font-semibold cursor-not-allowed"
               >
-                {user?.is_pro ? 'Plan precedent' : 'Plan actuel'}
+                {user?.is_pro ? pricingCopy.previousPlan : pricingCopy.currentPlan}
               </button>
             </div>
 
@@ -106,21 +90,21 @@ export default function PricingPage() {
                     <Crown size={20} className="text-indigo-400" />
                   </div>
                   <div className="flex items-center gap-2 mb-2">
-                    <h2 className="text-xl font-bold text-white">Pro</h2>
+                    <h2 className="text-xl font-bold text-white">{pricingCopy.proPlan}</h2>
                     <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                      Le plus populaire
+                      {pricingCopy.popular}
                     </span>
                   </div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-white">99 MAD</span>
-                    <span className="text-slate-500 text-sm">une fois</span>
+                    <span className="text-4xl font-bold text-white">{pricingCopy.proPrice}</span>
+                    <span className="text-slate-500 text-sm">{pricingCopy.oneTime}</span>
                   </div>
-                  <p className="text-slate-500 text-xs mt-1">Acces Pro active apres confirmation Stripe.</p>
-                  <p className="text-slate-400 text-sm mt-2">Tout ce qu&apos;il faut pour reussir votre Bac.</p>
+                  <p className="text-slate-500 text-xs mt-1">{pricingCopy.stripeActivation}</p>
+                  <p className="text-slate-400 text-sm mt-2">{pricingCopy.proDescription}</p>
                 </div>
 
                 <ul className="space-y-3 mb-8">
-                  {PRO_FEATURES.map(f => (
+                  {pricingCopy.proFeatures.map(f => (
                     <li key={f} className="flex items-center gap-3 text-sm text-slate-300">
                       <CheckCircle2 size={16} className="text-indigo-400 flex-shrink-0" />
                       {f}
@@ -131,7 +115,7 @@ export default function PricingPage() {
                 {user?.is_pro ? (
                   <div className="w-full py-3 rounded-xl bg-green-500/20 text-green-400 text-sm font-bold text-center">
                     <CheckCircle2 size={16} className="inline mr-2" />
-                    Vous etes Pro !
+                    {pricingCopy.proActive}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -140,13 +124,13 @@ export default function PricingPage() {
                       className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
                     >
                       <Zap size={16} />
-                      Acheter l&apos;acces Pro - 99 MAD
+                      {pricingCopy.checkout}
                     </button>
                   </div>
                 )}
 
                 <p className="text-slate-400 text-xs text-center mt-4">
-                  Paiement unique securise via Stripe
+                  {pricingCopy.securePayment}
                 </p>
               </div>
             </div>
@@ -154,9 +138,9 @@ export default function PricingPage() {
 
           <div className="mt-10 grid grid-cols-3 gap-6 text-center">
             {[
-              { icon: Award, value: 'Unique', label: 'Paiement' },
-              { icon: Crown, value: 'Pro', label: 'Acces' },
-              { icon: CheckCircle2, value: 'Stripe', label: 'Checkout' },
+              { icon: Award, ...pricingCopy.stats[0] },
+              { icon: Crown, ...pricingCopy.stats[1] },
+              { icon: CheckCircle2, ...pricingCopy.stats[2] },
             ].map(({ icon: Icon, value, label }) => (
               <div key={label} className="bg-slate-900 rounded-2xl border border-slate-800 p-5 shadow-sm">
                 <Icon size={20} className="text-indigo-600 mx-auto mb-2" />
@@ -166,7 +150,7 @@ export default function PricingPage() {
             ))}
           </div>
         </div>
-      </div>
+      </main>
     </AuthGuard>
   )
 }

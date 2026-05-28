@@ -9,6 +9,10 @@ from types import SimpleNamespace
 import app.models.courses  # noqa: F401
 import app.models.gamification  # noqa: F401
 import app.models.interactions  # noqa: F401
+import app.models.notifications  # noqa: F401
+import app.models.professor  # noqa: F401
+import app.models.quizzes  # noqa: F401
+import app.models.users  # noqa: F401
 from app.models.base import Base
 
 
@@ -45,6 +49,7 @@ def test_query_plan_audit_detects_missing_required_indexes():
 
     assert "topic_sections.ix_topic_sections_topic_order(topic_id, order, id)" in missing
     assert any(item.startswith("topic_items.ix_topic_items_workspace_order") for item in missing)
+    assert any(item.startswith("topic_item_progress.ix_topic_item_progress_user_item_status") for item in missing)
 
 
 def test_query_plan_audit_accepts_expected_index_plans(monkeypatch):
@@ -76,14 +81,63 @@ def test_query_plan_audit_rejects_sequential_scans(monkeypatch):
 
 def test_hot_path_index_migration_declares_required_indexes():
     audit = _load_query_plan_audit_module()
-    migration = (BACKEND_ROOT / "alembic" / "versions" / "0028_hot_path_composite_indexes.py").read_text(encoding="utf-8")
+    composite_migration = (BACKEND_ROOT / "alembic" / "versions" / "0028_hot_path_composite_indexes.py").read_text(encoding="utf-8")
+    filter_migration = (BACKEND_ROOT / "alembic" / "versions" / "0039_hot_filter_indexes.py").read_text(encoding="utf-8")
+    progress_migration = (BACKEND_ROOT / "alembic" / "versions" / "0044_topic_item_progress_user_item_status_index.py").read_text(encoding="utf-8")
+    migration_text = composite_migration + "\n" + filter_migration + "\n" + progress_migration
 
-    assert 'down_revision: Union[str, None] = "0027_media_quota_counters"' in migration
+    assert 'down_revision: Union[str, None] = "0027_media_quota_counters"' in composite_migration
+    assert 'down_revision: Union[str, None] = "0038_gamification_context_foreign_keys"' in filter_migration
+    assert 'down_revision: Union[str, None] = "0043_server_defaults_for_hot_path_columns"' in progress_migration
     for required in audit.REQUIRED_INDEXES:
-        assert required.name in migration
-        assert required.table in migration
+        assert required.name in migration_text
+        assert required.table in migration_text
         for column in required.columns:
-            assert f'"{column}"' in migration
+            assert f'"{column}"' in migration_text
+
+
+def test_topic_item_progress_model_includes_user_item_status_index():
+    table = Base.metadata.tables["topic_item_progress"]
+    indexes = {index.name: tuple(column.name for column in index.columns) for index in table.indexes}
+
+    assert indexes["ix_topic_item_progress_user_item_status"] == ("user_id", "topic_item_id", "status")
+
+
+def test_user_hot_path_indexes_exist_in_model_metadata():
+    table = Base.metadata.tables["users"]
+    indexes = {index.name: tuple(column.name for column in index.columns) for index in table.indexes}
+
+    assert indexes["ix_users_stripe_customer_id"] == ("stripe_customer_id",)
+    assert indexes["ix_users_is_active"] == ("is_active",)
+    assert indexes["ix_users_role_niveau_filiere_active"] == ("role", "niveau", "filiere", "is_active")
+
+
+def test_user_hot_path_index_migration_declares_required_indexes():
+    migration = (BACKEND_ROOT / "alembic" / "versions" / "0033_user_hot_path_indexes.py").read_text(encoding="utf-8")
+
+    assert 'down_revision: Union[str, None] = "0032_email_dispatch_throttles"' in migration
+    assert '"ix_users_stripe_customer_id", ("stripe_customer_id",)' in migration
+    assert '"ix_users_is_active", ("is_active",)' in migration
+    assert '"ix_users_role_niveau_filiere_active", ("role", "niveau", "filiere", "is_active")' in migration
+
+
+def test_foreign_key_columns_are_indexed_or_index_leading():
+    missing: list[str] = []
+
+    for table in Base.metadata.sorted_tables:
+        leading_index_columns = {
+            list(index.columns)[0].name
+            for index in table.indexes
+            if list(index.columns)
+        }
+        for column in table.columns:
+            if not column.foreign_keys:
+                continue
+            if column.primary_key or column.index or column.name in leading_index_columns:
+                continue
+            missing.append(f"{table.name}.{column.name}")
+
+    assert missing == []
 
 
 def test_backend_ci_and_deploy_run_query_plan_audit():

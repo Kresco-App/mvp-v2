@@ -8,8 +8,9 @@ Production remains frozen until the traceability gate says otherwise. Use this r
 2. Confirm `DATABASE_URL` points at the RDS Proxy endpoint, includes `sslmode=verify-full`, and uses `PGSSLROOTCERT=certs/rds-global-bundle.pem`.
 3. Confirm backend Zappa settings for the stage use `DATABASE_CONNECTION_STRATEGY=rds_proxy`, `memory_size >= 1024`, `timeout_seconds >= 45`, and `keep_warm=true`.
 4. Confirm the S3 bucket has Block Public Access, no public read policy, and lifecycle rules for the stage prefix.
-5. Run `python scripts/check_production_launch_gate.py` locally before any attempted production workflow. It must fail during the freeze and pass only after the traceability rows and readiness score are complete.
-6. Run the backend deploy workflow manually against `staging`.
+5. Confirm `CLOUDWATCH_ALARM_NAMES` is configured on the production GitHub Environment and points to alarms covering `Request5xx`, `UnhandledException`, `ClientError`, and `ReadinessError` from the `Kresco/Api` metric namespace.
+6. Run `python scripts/check_production_launch_gate.py` locally before any attempted production workflow. It must fail during the freeze and pass only after the traceability rows and readiness score are complete.
+7. Run the backend deploy workflow manually against `staging`.
 
 ## Deploy
 
@@ -19,6 +20,19 @@ Production remains frozen until the traceability gate says otherwise. Use this r
 4. If the runtime verifier fails, treat the stage as not deployed and do not proceed to smoke testing.
 5. Smoke the staging frontend against the staging backend.
 6. Promote the same commit to `production` only after the staging evidence is attached to the launch gate.
+
+## Monitoring
+
+Backend Lambda writes CloudWatch Embedded Metric Format JSON for the `Kresco/Api` namespace on every request and server-side failure. Frontend route errors, widget boundary crashes, `window.onerror`, and unhandled promise rejections are posted to `/api/client-errors`, which emits the `ClientError` metric.
+
+Production must have alarms for:
+
+1. `Request5xx` greater than zero over a short window.
+2. `UnhandledException` greater than zero.
+3. `ClientError` above the agreed client-error budget.
+4. `ReadinessError` greater than zero.
+
+The production backend deploy workflow refuses to proceed unless `CLOUDWATCH_ALARM_NAMES` lists existing alarms for this set. During an incident, correlate browser reports, backend request IDs, and the `x-release-sha` response header with the alarm time window.
 
 ## Rollback
 
@@ -56,7 +70,7 @@ Use this first-response checklist for broken login, watch, stream, upload, realt
 1. Capture the failing URL, account role, request ID, UTC time, browser console error, and backend status code.
 2. Check `/ready`.
 3. Check `/api/internal/diagnostics`.
-4. Inspect CloudWatch logs for the request ID and Lambda errors.
+4. Inspect CloudWatch logs and `Kresco/Api` alarms for the request ID, release SHA, Lambda errors, `ClientError`, `Request5xx`, `UnhandledException`, and `ReadinessError`.
 5. If media is affected, verify S3 private-object access and presigned URL generation.
 6. If realtime is affected, inspect `realtime_outbox` dead/retry counts and the scheduled worker invocation.
 7. If database connectivity is affected, verify RDS Proxy target health and TLS certificate validation.

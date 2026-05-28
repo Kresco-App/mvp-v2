@@ -13,7 +13,7 @@ import {
 } from '@/lib/homeDashboardViewModel'
 
 export default function HomePage() {
-  const { user } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const {
     topics,
     subjects,
@@ -23,8 +23,6 @@ export default function HomePage() {
     retry,
   } = useHomeDashboardData()
   const lastToastErrorRef = useRef('')
-
-  useEffect(() => { document.title = 'Home - Kresco' }, [])
 
   useEffect(() => {
     if (!error) {

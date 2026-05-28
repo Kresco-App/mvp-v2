@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { BookOpen, CalendarDays, CheckCircle2, FileText, Lock, Play, Search, Trophy } from 'lucide-react'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 import { SkeletonBlock } from '@/components/figma'
 
 interface ExamProblem {
@@ -56,8 +56,6 @@ export default function ExamBankPage() {
   const [loading, setLoading] = useState(true)
   const query = useDebouncedValue(queryInput, EXAM_SEARCH_DEBOUNCE_MS)
 
-  useEffect(() => { document.title = 'Exam Bank - Kresco' }, [])
-
   useEffect(() => {
     let alive = true
     const params = new URLSearchParams()
@@ -66,10 +64,10 @@ export default function ExamBankPage() {
     const queryString = params.toString()
 
     setLoading(true)
-    api.get(`/courses/exam-bank${queryString ? `?${queryString}` : ''}`)
-      .then((res) => {
+    getJson<Exam[]>(`/courses/exam-bank${queryString ? `?${queryString}` : ''}`)
+      .then((data) => {
         if (!alive) return
-        setExams(Array.isArray(res.data) ? res.data : [])
+        setExams(Array.isArray(data) ? data : [])
       })
       .catch(() => {
         if (!alive) return

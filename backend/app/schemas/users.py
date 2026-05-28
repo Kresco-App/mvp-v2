@@ -3,9 +3,11 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.schemas.limits import EmailText, PasswordText, ShortText, StrictInputModel, TokenText, UrlText
 
-class GoogleLoginIn(BaseModel):
-    credential: str
+
+class GoogleLoginIn(StrictInputModel):
+    credential: TokenText
 
 
 class UserOut(BaseModel):
@@ -44,41 +46,41 @@ class MessageOut(BaseModel):
     message: str
 
 
-class UserUpdateIn(BaseModel):
-    full_name: Optional[str] = None
-    avatar_url: Optional[str] = None
-    banner_url: Optional[str] = None
-    niveau: Optional[str] = None
-    filiere: Optional[str] = None
+class UserUpdateIn(StrictInputModel):
+    full_name: Optional[ShortText] = None
+    avatar_url: Optional[UrlText] = None
+    banner_url: Optional[UrlText] = None
+    niveau: Optional[ShortText] = None
+    filiere: Optional[ShortText] = None
 
 
 class ProfileMediaOut(BaseModel):
     url: str
 
 
-class SignupIn(BaseModel):
-    email: str
-    password: str
-    full_name: str
+class SignupIn(StrictInputModel):
+    email: EmailText
+    password: PasswordText
+    full_name: ShortText
 
 
-class LoginIn(BaseModel):
-    email: str
-    password: str
+class LoginIn(StrictInputModel):
+    email: EmailText
+    password: PasswordText
 
 
-class VerifyEmailIn(BaseModel):
-    token: str
+class VerifyEmailIn(StrictInputModel):
+    token: TokenText
 
 
-class ResendVerificationIn(BaseModel):
-    email: str
+class ResendVerificationIn(StrictInputModel):
+    email: EmailText
 
 
-class ForgotPasswordIn(BaseModel):
-    email: str
+class ForgotPasswordIn(StrictInputModel):
+    email: EmailText
 
 
-class ResetPasswordIn(BaseModel):
-    token: str
-    password: str
+class ResetPasswordIn(StrictInputModel):
+    token: TokenText
+    password: PasswordText

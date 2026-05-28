@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
@@ -6,6 +6,20 @@ import { getAuthRedirect } from '@/lib/authRedirect'
 import { isJwtExpired, KRESCO_CSRF_COOKIE, KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE_COOKIE } from '@/lib/authSession'
 
 const CSP_HEADER = 'Content-Security-Policy'
+const CSP_NONCE_PLACEHOLDER = '__KRESCO_CSP_NONCE__'
+const JWT_SECRET_MIN_LENGTH = 32
+
+let cachedCspTemplate: { key: string; value: string } | null = null
+
+type ProxyAuthUser = {
+  role: string | null
+  is_staff: boolean
+}
+
+type ProxyTokenVerification = {
+  expired: boolean
+  user: ProxyAuthUser | null
+}
 
 function normalizeCsp(directives: string[]) {
   return directives
@@ -29,7 +43,68 @@ function uniqueSources(sources: string[]) {
   return Array.from(new Set(sources.filter(Boolean)))
 }
 
+function decodeJsonSegment(segment: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'))
+  } catch {
+    return null
+  }
+}
+
+function signatureMatches(signedValue: string, signature: string, secret: string) {
+  const expected = createHmac('sha256', secret).update(signedValue).digest('base64url')
+  const expectedBuffer = Buffer.from(expected)
+  const receivedBuffer = Buffer.from(signature)
+  return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)
+}
+
+export function verifyProxyAuthToken(token: string | undefined | null, nowMs = Date.now()): ProxyTokenVerification {
+  if (!token) return { expired: true, user: null }
+
+  const secret = (process.env.JWT_SECRET_KEY || '').trim()
+  if (secret.length < JWT_SECRET_MIN_LENGTH) return { expired: true, user: null }
+
+  const parts = token.split('.')
+  if (parts.length !== 3) return { expired: true, user: null }
+
+  const [encodedHeader, encodedPayload, signature] = parts
+  const header = decodeJsonSegment(encodedHeader)
+  if (header?.alg !== 'HS256') return { expired: true, user: null }
+  if (!signatureMatches(`${encodedHeader}.${encodedPayload}`, signature, secret)) {
+    return { expired: true, user: null }
+  }
+
+  const payload = decodeJsonSegment(encodedPayload)
+  if (typeof payload?.exp !== 'number' || payload.exp * 1000 <= nowMs) {
+    return { expired: true, user: null }
+  }
+
+  return {
+    expired: false,
+    user: {
+      role: typeof payload.role === 'string' ? payload.role : null,
+      is_staff: payload.is_staff === true,
+    },
+  }
+}
+
 export function buildContentSecurityPolicy(nonce: string) {
+  return getContentSecurityPolicyTemplate().replace(CSP_NONCE_PLACEHOLDER, nonce)
+}
+
+function cspTemplateCacheKey() {
+  return [
+    process.env.NODE_ENV ?? '',
+    process.env.NEXT_PUBLIC_API_BASE_URL ?? '',
+  ].join('\0')
+}
+
+function getContentSecurityPolicyTemplate() {
+  const key = cspTemplateCacheKey()
+  if (cachedCspTemplate?.key === key) {
+    return cachedCspTemplate.value
+  }
+
   const isDevelopment = process.env.NODE_ENV !== 'production'
   const apiOrigin = absoluteOrigin(process.env.NEXT_PUBLIC_API_BASE_URL)
   const devConnectSources = isDevelopment
@@ -38,9 +113,9 @@ export function buildContentSecurityPolicy(nonce: string) {
   const devImageSources = isDevelopment ? ['http://localhost:*', 'http://127.0.0.1:*'] : []
   const devScriptSources = isDevelopment ? ["'unsafe-eval'"] : []
 
-  return normalizeCsp([
+  const value = normalizeCsp([
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' https://accounts.google.com https://player.vdocipher.com ${devScriptSources.join(' ')}`,
+    `script-src 'self' 'nonce-${CSP_NONCE_PLACEHOLDER}' https://accounts.google.com https://player.vdocipher.com ${devScriptSources.join(' ')}`,
     "style-src 'self' https://accounts.google.com",
     "style-src-elem 'self' 'unsafe-inline' https://accounts.google.com",
     "style-src-attr 'unsafe-inline'",
@@ -77,6 +152,8 @@ export function buildContentSecurityPolicy(nonce: string) {
     "frame-ancestors 'none'",
     "manifest-src 'self'",
   ])
+  cachedCspTemplate = { key, value }
+  return value
 }
 
 function withSecurityHeaders(response: NextResponse, csp: string) {
@@ -94,8 +171,17 @@ export function proxy(request: NextRequest) {
   requestHeaders.set(CSP_HEADER, csp)
 
   const token = request.cookies.get(KRESCO_TOKEN_COOKIE)?.value
-  const userRole = request.cookies.get(KRESCO_USER_ROLE_COOKIE)?.value
-  const decision = getAuthRedirect(request.nextUrl.pathname, token, isJwtExpired, userRole)
+  let verifiedToken: ProxyTokenVerification | null = null
+  const getVerifiedToken = () => {
+    verifiedToken ??= verifyProxyAuthToken(token)
+    return verifiedToken
+  }
+  const decision = getAuthRedirect(
+    request.nextUrl.pathname,
+    token,
+    token ? () => getVerifiedToken().expired : isJwtExpired,
+    () => getVerifiedToken().user,
+  )
 
   if (decision.action === 'allow') {
     return withSecurityHeaders(NextResponse.next({ request: { headers: requestHeaders } }), csp)

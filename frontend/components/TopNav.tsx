@@ -46,7 +46,8 @@ const professorStudentLinks = [
 export default function TopNav() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, logout } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
+  const logout = useAuthStore((state) => state.logout)
   const [menuOpen, setMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
@@ -222,11 +223,12 @@ export default function TopNav() {
         <div className="flex h-full min-w-0 flex-1 items-center justify-end gap-1 md:flex-none">
           <button
             type="button"
-            title="Navigation"
+            aria-label="Navigation menu"
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
             className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition duration-150 hover:-translate-y-px hover:bg-[#f4f4f5] active:scale-95 md:hidden"
           >
-            <Menu size={19} />
+            <Menu size={19} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -234,7 +236,7 @@ export default function TopNav() {
             onClick={() => void showInfoToast('Notes are available inside each topic.')}
             className="hidden h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition duration-150 hover:-translate-y-px hover:bg-[#f4f4f5] active:scale-95 sm:grid"
           >
-            <StickyNote size={18} />
+            <StickyNote size={18} aria-hidden="true" />
           </button>
           <div ref={notificationsRef} className="relative hidden sm:block">
             <button
@@ -246,7 +248,7 @@ export default function TopNav() {
               onClick={() => void openNotifications()}
               className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition duration-150 hover:-translate-y-px hover:bg-[#f4f4f5] active:scale-95"
             >
-              <Bell size={18} />
+              <Bell size={18} aria-hidden="true" />
               {unreadCount > 0 && (
                 <span className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white">
                   {unreadCount > 9 ? '9+' : unreadCount}
@@ -268,7 +270,7 @@ export default function TopNav() {
                       className="inline-flex h-8 items-center gap-1 rounded-[10px] border-0 bg-transparent px-2 text-[12px] font-black text-[#453dee] transition hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:hover:bg-transparent"
                       title="Mark all notifications read"
                     >
-                      <CheckCheck size={14} />
+                      <CheckCheck size={14} aria-hidden="true" />
                       Read
                     </button>
                     <button
@@ -279,7 +281,7 @@ export default function TopNav() {
                       title="Delete all notifications"
                       aria-label="Delete all notifications"
                     >
-                      <Trash2 size={15} />
+                      <Trash2 size={15} aria-hidden="true" />
                     </button>
                     <button
                       type="button"
@@ -288,7 +290,7 @@ export default function TopNav() {
                       title="Close notifications"
                       aria-label="Close notifications"
                     >
-                      <X size={16} />
+                      <X size={16} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -336,10 +338,12 @@ export default function TopNav() {
           <div className="relative">
             <button
               type="button"
+              aria-label="Account menu"
+              aria-expanded={menuOpen}
               onClick={() => setMenuOpen((value) => !value)}
               className="grid h-11 w-11 place-items-center overflow-hidden rounded-[14px] border border-[#e4e4e7] bg-[#e4e4e7] text-sm font-black text-[#3a2fd3] transition duration-150 hover:-translate-y-px hover:border-[#d4d4d8] hover:bg-[#f4f4f5] active:scale-95"
             >
-              {user?.full_name?.[0]?.toUpperCase() || <User size={18} />}
+              {user?.full_name?.[0]?.toUpperCase() || <User size={18} aria-hidden="true" />}
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-[calc(100%+10px)] w-64 origin-top-right rounded-2xl border border-[#e4e4e7] bg-white p-2 shadow-[0_18px_40px_rgba(24,24,27,0.16)]">
@@ -366,11 +370,11 @@ export default function TopNav() {
                   <p className="m-0 mt-1 truncate text-xs font-bold text-[#71717b]">{user?.email}</p>
                 </div>
                 <Link href="/profile" onClick={() => setMenuOpen(false)} className="mt-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#52525c] no-underline hover:bg-[#f4f4f5]">
-                  <User size={15} />
+                  <User size={15} aria-hidden="true" />
                   Profile
                 </Link>
                 <button type="button" onClick={doLogout} className="flex w-full items-center gap-2 rounded-xl border-0 bg-transparent px-3 py-2 text-left text-sm font-bold text-red-500 hover:bg-red-50">
-                  <LogOut size={15} />
+                  <LogOut size={15} aria-hidden="true" />
                   Log out
                 </button>
               </div>

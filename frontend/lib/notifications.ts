@@ -1,4 +1,4 @@
-import api from './axios'
+import { deleteJson, getJson, postJson } from './apiClient'
 
 export type NotificationItem = {
   id: number
@@ -15,23 +15,21 @@ export type NotificationList = {
 }
 
 export async function listNotifications() {
-  const { data } = await api.get<NotificationList>('/notifications')
-  return data
+  return getJson<NotificationList>('/notifications')
 }
 
 export async function markNotificationRead(id: number) {
-  const { data } = await api.post<NotificationItem>(`/notifications/${id}/read`)
-  return data
+  return postJson<NotificationItem>(`/notifications/${id}/read`)
 }
 
 export async function markAllNotificationsRead() {
-  await api.post('/notifications/read-all')
+  await postJson('/notifications/read-all')
 }
 
 export async function deleteNotification(id: number) {
-  await api.delete(`/notifications/${id}`)
+  await deleteJson(`/notifications/${id}`)
 }
 
 export async function deleteAllNotifications() {
-  await api.delete('/notifications')
+  await deleteJson('/notifications')
 }

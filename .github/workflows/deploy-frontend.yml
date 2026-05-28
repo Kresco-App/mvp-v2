@@ -19,6 +19,7 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+      NEXT_PUBLIC_RELEASE_SHA: ${{ github.sha }}
     defaults:
       run:
         working-directory: frontend
@@ -70,8 +71,8 @@ jobs:
       - name: Run typecheck
         run: npm run typecheck
 
-      - name: Run unit tests
-        run: npm run test
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
 
       - name: Build frontend for browser smoke
         run: npm run build

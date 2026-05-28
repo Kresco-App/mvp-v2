@@ -1,3 +1,4 @@
+import inspect
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
@@ -6,6 +7,13 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 import app.routers.professor as professor_router
+import app.services.professor_audit as professor_audit
+import app.services.professor_chat_mutations as professor_chat_mutations
+import app.services.professor_change_requests as professor_change_requests
+import app.services.professor_live_interactions as professor_live_interactions
+import app.services.professor_live_sessions as professor_live_sessions
+import app.services.professor_queries as professor_queries
+import app.services.professor_serializers as professor_serializers
 from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
@@ -198,7 +206,7 @@ def _install_cookie_session(app_client, test_settings, user_id: int, *, with_csr
     return csrf_token
 
 
-def test_professor_dashboard_requires_professor_and_returns_scope(app_client, run_db, test_settings):
+def test_professor_dashboard_requires_professor_and_returns_scope(app_client, query_counter, run_db, test_settings):
     seeded = run_db(_seed_professor_platform(test_settings))
 
     basic_response = app_client.get(
@@ -207,14 +215,29 @@ def test_professor_dashboard_requires_professor_and_returns_scope(app_client, ru
     )
     assert basic_response.status_code == 403
 
-    response = app_client.get(
-        "/api/professor/dashboard",
-        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
-    )
+    with query_counter() as queries:
+        response = app_client.get(
+            "/api/professor/dashboard",
+            headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+        )
     assert response.status_code == 200
+    assert queries.count <= 9, queries.statements
     body = response.json()
     assert body["active_offering"]["id"] == seeded["offering_id"]
     assert body["active_offering"]["track"]["filiere"] == seeded["filiere"]
+
+    offerings = app_client.get(
+        "/api/professor/offerings?limit=1&offset=1",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert offerings.status_code == 200
+    assert [item["id"] for item in offerings.json()] == [seeded["second_offering_id"]]
+
+    invalid_offerings_limit = app_client.get(
+        "/api/professor/offerings?limit=101",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert invalid_offerings_limit.status_code == 422
 
 
 def test_professor_requires_active_offering_for_login_and_area(app_client, run_db, test_settings):
@@ -234,6 +257,55 @@ def test_professor_requires_active_offering_for_login_and_area(app_client, run_d
     )
     assert dashboard.status_code == 403
     assert dashboard.json()["detail"] == "Active course offering assignment required"
+
+
+def test_student_live_sessions_hide_inactive_course_offerings(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    payload = {
+        "course_offering_id": seeded["offering_id"],
+        "title": "Archived offering live",
+        "description": "Should not remain student-visible",
+        "starts_at": starts_at.isoformat(),
+        "ends_at": (starts_at + timedelta(hours=1)).isoformat(),
+        "join_url": "https://live.example/archived",
+        "vdocipher_live_id": "live_archived",
+    }
+    created = app_client.post(
+        "/api/professor/live-sessions",
+        json=payload,
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert created.status_code == 201
+    live_id = created.json()["id"]
+    started = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/start",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert started.status_code == 200
+
+    async def _archive_offering():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            offering = await db.get(CourseOffering, seeded["offering_id"])
+            offering.status = "archived"
+            await db.commit()
+
+    run_db(_archive_offering())
+
+    student_sessions = app_client.get(
+        "/api/professor/student-live-sessions",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert student_sessions.status_code == 200
+    assert all(session["id"] != live_id for session in student_sessions.json())
+
+    student_embed = app_client.get(
+        f"/api/professor/student-live-sessions/{live_id}/embed",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert student_embed.status_code == 404
+    assert student_embed.json()["detail"] == "Live session not found"
 
 
 def test_professor_live_sessions_are_scoped_to_owned_offering(app_client, run_db, test_settings):
@@ -552,8 +624,14 @@ def test_professor_live_sessions_are_scoped_to_owned_offering(app_client, run_db
     )
     assert all(item["id"] != first_notification_id for item in after_delete.json()["notifications"])
 
+    confirmation = app_client.get(
+        "/api/notifications/delete-all-confirmation",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert confirmation.status_code == 200
+
     deleted_all_notifications = app_client.delete(
-        "/api/notifications",
+        f"/api/notifications?confirmation_token={confirmation.json()['confirmation_token']}",
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
     assert deleted_all_notifications.status_code == 200
@@ -764,7 +842,7 @@ def test_professor_live_session_can_be_generated_from_provider(app_client, run_d
             "raw": {"liveId": "generated_live_123", "streamUrl": "rtmp://ingest.example/live", "streamKey": "secret-stream-key"},
         }
 
-    monkeypatch.setattr(professor_router, "create_live_stream", fake_create_live_stream)
+    monkeypatch.setattr(professor_live_sessions, "create_live_stream", fake_create_live_stream)
 
     created = app_client.post(
         "/api/professor/live-sessions",
@@ -826,7 +904,7 @@ def test_professor_live_session_generation_failure_does_not_create_session(app_c
         del title, settings, chat_mode
         raise HTTPException(status_code=502, detail="Failed to create VdoCipher live stream")
 
-    monkeypatch.setattr(professor_router, "create_live_stream", fake_create_live_stream)
+    monkeypatch.setattr(professor_live_sessions, "create_live_stream", fake_create_live_stream)
 
     failed = app_client.post(
         "/api/professor/live-sessions",
@@ -1140,6 +1218,19 @@ def test_change_request_requires_target_inside_offering(app_client, run_db, test
     assert audit.changed_data["target_type"] == "topic"
     assert "professor_user_id=" in audit.note
 
+    listed = app_client.get(
+        "/api/professor/change-requests?limit=1&offset=0",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [created.json()["id"]]
+
+    invalid_limit = app_client.get(
+        "/api/professor/change-requests?limit=101",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert invalid_limit.status_code == 422
+
     forbidden = app_client.post(
         "/api/professor/change-requests",
         json={
@@ -1162,7 +1253,7 @@ def test_professor_sensitive_mutations_are_rate_limited(app_client, run_db, test
         "proposed_patch_json": {"title": "Repeated change"},
     }
 
-    for index in range(professor_router.PROFESSOR_MUTATION_BURST_LIMIT):
+    for index in range(professor_audit.PROFESSOR_MUTATION_BURST_LIMIT):
         response = app_client.post(
             "/api/professor/change-requests",
             json={**payload, "proposed_patch_json": {"title": f"Repeated change {index}"}},
@@ -1177,6 +1268,19 @@ def test_professor_sensitive_mutations_are_rate_limited(app_client, run_db, test
     )
     assert limited.status_code == 429
     assert limited.json()["detail"] == "Slow down before submitting more professor changes"
+
+
+def test_professor_time_serializers_normalize_naive_datetimes_as_utc():
+    now = datetime(2026, 5, 28, 8, 0, 0, tzinfo=timezone.utc)
+    live_session = SimpleNamespace(
+        vdocipher_live_id="live-test",
+        status="live",
+        ends_at=datetime(2026, 5, 28, 8, 5, 0),
+    )
+    chat_time = datetime(2026, 5, 28, 8, 10, 0)
+
+    assert professor_serializers.live_session_is_joinable(live_session, now=now) is True
+    assert professor_serializers.chat_datetime(chat_time) == chat_time.replace(tzinfo=timezone.utc)
 
 
 def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_client, run_db, test_settings):
@@ -1232,6 +1336,20 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     assert other_professor_thread["conversation"] is None
     assert other_professor_thread["professor"]["full_name"] == "Pr Other"
     assert "email" not in other_professor_thread["professor"]
+
+    paged_status = app_client.get(
+        "/api/professor/student-chat?limit=1&offset=1",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert paged_status.status_code == 200
+    assert len(paged_status.json()["offerings"]) == 1
+    assert len(paged_status.json()["teacher_threads"]) == 1
+
+    invalid_status_limit = app_client.get(
+        "/api/professor/student-chat?limit=101",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert invalid_status_limit.status_code == 422
 
     second_conversation = app_client.post(
         "/api/professor/student-chat/conversations",
@@ -1320,17 +1438,48 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     assert edited_student_message.status_code == 200
     assert edited_student_message.json()["body"] == "Here is my edited work"
 
+    forbidden_delete = app_client.delete(
+        f"/api/professor/chat/messages/{image_message_id}",
+        headers={"Authorization": f"Bearer {seeded['basic_student_token']}"},
+    )
+    assert forbidden_delete.status_code == 404
+    assert forbidden_delete.json()["detail"] == "Chat message not found"
+
     deleted_student_message = app_client.delete(
         f"/api/professor/chat/messages/{image_message_id}",
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
     assert deleted_student_message.status_code == 200
 
+    old_message = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        json={"body": "Fresh follow-up"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert old_message.status_code == 201
+    old_message_id = old_message.json()["id"]
+
+    async def _backdate_message():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            message = await db.get(ProfessorChatMessage, old_message_id)
+            message.created_at = datetime.now(timezone.utc) - timedelta(minutes=16)
+            await db.commit()
+
+    run_db(_backdate_message())
+
+    too_late_delete = app_client.delete(
+        f"/api/professor/chat/messages/{old_message_id}",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert too_late_delete.status_code == 403
+    assert too_late_delete.json()["detail"] == "Messages can only be deleted for 15 minutes"
+
     student_messages = app_client.get(
         f"/api/professor/student-chat/conversations/{conversation_id}/messages",
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
-    assert all(item["id"] != image_message_id for item in student_messages.json())
+    assert all(item["body"] != "Here is my edited work" for item in student_messages.json())
 
     invalid_image = app_client.post(
         f"/api/professor/student-chat/conversations/{conversation_id}/images",
@@ -1352,6 +1501,287 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
         headers={"Authorization": f"Bearer {seeded['other_professor_token']}"},
     )
     assert blocked_reply.status_code == 404
+
+
+def test_revoked_student_cannot_delete_existing_professor_chat_message(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+
+    created = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Message before downgrade"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert created.status_code == 201
+    conversation_id = created.json()["id"]
+
+    messages = app_client.get(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert messages.status_code == 200
+    message_id = messages.json()[0]["id"]
+
+    async def _revoke_chat_access():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            student = await db.get(User, seeded["vip_student_id"])
+            student.tier = "basic"
+            student.is_pro = False
+            await db.commit()
+
+    run_db(_revoke_chat_access())
+
+    deleted = app_client.delete(
+        f"/api/professor/chat/messages/{message_id}",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+
+    assert deleted.status_code == 403
+    assert deleted.json()["detail"] == "VIP or Platinum access required for professor chat"
+
+
+def test_professor_chat_and_live_mutations_keep_race_guards():
+    start_source = inspect.getsource(professor_chat_mutations.start_student_conversation_state)
+    assert ".with_for_update()" in start_source
+    conversation_lock_source = "\n".join([
+        inspect.getsource(professor_queries.require_professor_conversation),
+        inspect.getsource(professor_queries.require_student_conversation),
+    ])
+    assert ".with_for_update(nowait=True)" in conversation_lock_source
+    assert "CONVERSATION_LOCKED_DETAIL" in conversation_lock_source
+
+    delete_source = inspect.getsource(professor_chat_mutations.delete_chat_message_state)
+    assert "ensure_student_professor_chat_access(user)" in delete_source
+    assert "Messages can only be deleted for 15 minutes" in delete_source
+
+    for function_name in (
+        "delete_live_session",
+        "update_live_session",
+        "cancel_live_session",
+        "notify_live_session",
+        "start_live_session",
+        "end_live_session",
+    ):
+        source = inspect.getsource(getattr(professor_live_sessions, function_name.replace("_live_session", "_professor_live_session")))
+        assert "for_update=True" in source
+
+
+def test_professor_chat_lock_error_detection_handles_postgres_nowait():
+    lock_error = SimpleNamespace(orig=SimpleNamespace(pgcode="55P03"))
+    text_error = SimpleNamespace(orig=RuntimeError("could not obtain lock on row in relation"))
+    other_error = SimpleNamespace(orig=RuntimeError("connection lost"))
+
+    assert professor_queries.is_lock_unavailable_error(lock_error) is True
+    assert professor_queries.is_lock_unavailable_error(text_error) is True
+    assert professor_queries.is_lock_unavailable_error(other_error) is False
+
+
+def test_professor_live_session_lifecycle_stays_out_of_router():
+    router_source = inspect.getsource(professor_router)
+    live_service_source = inspect.getsource(professor_live_sessions)
+    notification_source = inspect.getsource(professor_live_sessions.notify_students_for_live)
+
+    assert "from app.services.professor_live_sessions import" in router_source
+    assert "def _live_calendar_subtitle" not in router_source
+    assert "def _sync_calendar_event_from_live_session" not in router_source
+    assert "async def _students_for_offering" not in router_source
+    assert "async def _notify_students_for_live" not in router_source
+    assert "async def _enqueue_live_session_event_and_track" not in router_source
+    assert "async def create_professor_live_session" in live_service_source
+    assert "async def update_professor_live_session" in live_service_source
+    assert "async def notify_students_for_live" in live_service_source
+    assert ".from_select(" in notification_source
+    assert ".scalars().all()" not in notification_source
+    assert "async def list_professor_live_sessions" in live_service_source
+    assert "async def reveal_professor_live_stream_credentials_state" in live_service_source
+    assert "offering_notifications_channel_name" in live_service_source
+    assert "live_session_channel_name" in live_service_source
+    assert "list_professor_live_sessions(" in inspect.getsource(professor_router.list_live_sessions)
+    assert "reveal_professor_live_stream_credentials_state(" in inspect.getsource(
+        professor_router.reveal_professor_live_stream_credentials
+    )
+
+
+def test_professor_live_interaction_mutations_stay_out_of_router():
+    router_source = inspect.getsource(professor_router)
+    interaction_service_source = inspect.getsource(professor_live_interactions)
+
+    assert "from app.services.professor_live_interactions import" in router_source
+    assert "def _clean_live_interaction_body" not in router_source
+    assert "def _normalize_live_interaction_kind" not in router_source
+    assert "async def _enforce_live_interaction_burst_limit" not in router_source
+    assert "LiveSessionInteraction(" not in inspect.getsource(professor_router.create_student_live_interaction)
+    assert "LiveSessionCheckpoint(" not in inspect.getsource(professor_router.create_professor_live_checkpoint)
+    assert "live.interaction.created" not in router_source
+    assert "live.checkpoint.created" not in router_source
+
+    for function_name, service_call in (
+        ("list_professor_live_interactions", "list_professor_live_interaction_entries("),
+        ("update_professor_live_interaction", "update_professor_live_interaction_state("),
+        ("delete_professor_live_interaction", "delete_professor_live_interaction_state("),
+        ("list_student_live_interactions", "list_student_live_interaction_entries("),
+        ("create_student_live_interaction", "create_student_live_interaction_state("),
+        ("list_professor_live_checkpoints", "list_professor_live_checkpoint_entries("),
+        ("create_professor_live_checkpoint", "create_professor_live_checkpoint_state("),
+        ("update_professor_live_checkpoint", "update_professor_live_checkpoint_state("),
+        ("list_student_live_checkpoints", "list_student_live_checkpoint_entries("),
+    ):
+        source = inspect.getsource(getattr(professor_router, function_name))
+        assert service_call in source
+        assert "select(" not in source
+        assert "LiveSessionInteraction." not in source
+        assert "LiveSessionCheckpoint." not in source
+        assert "enqueue_live_session_event(" not in source
+        assert "_record_professor_audit(" not in source
+
+    assert "def clean_live_interaction_body" in interaction_service_source
+    assert "async def enforce_live_interaction_burst_limit" in interaction_service_source
+    assert "async def list_professor_live_interaction_entries" in interaction_service_source
+    assert "async def list_student_live_interaction_entries" in interaction_service_source
+    assert "async def list_professor_live_checkpoint_entries" in interaction_service_source
+    assert "async def list_student_live_checkpoint_entries" in interaction_service_source
+    assert "async def create_student_live_interaction_state" in interaction_service_source
+    assert "async def create_professor_live_checkpoint_state" in interaction_service_source
+    assert "LiveSessionInteraction.status.not_in" in interaction_service_source
+    assert "LiveSessionCheckpoint.status != \"deleted\"" in interaction_service_source
+    assert "live.interaction.created" in interaction_service_source
+    assert "live.checkpoint.created" in interaction_service_source
+
+
+def test_professor_chat_mutation_helpers_stay_out_of_router():
+    router_source = inspect.getsource(professor_router)
+    chat_mutation_source = inspect.getsource(professor_chat_mutations)
+
+    assert "from app.services.professor_chat_mutations import" in router_source
+    assert "def _touch_conversation" not in router_source
+    assert "async def _apply_professor_sent_message_update" not in router_source
+    assert "async def _apply_student_sent_message_update" not in router_source
+    assert "async def _refresh_chat_preview" not in router_source
+    assert "async def publish_chat_message_change" not in router_source
+    assert "async def _chat_media_used_bytes" not in router_source
+    assert "async def _save_chat_image" not in router_source
+    for function_name, service_call in (
+        ("list_professor_messages", "list_professor_messages_for_conversation("),
+        ("send_professor_message", "send_professor_message_state("),
+        ("send_professor_image_message", "send_professor_image_message_state("),
+        ("update_chat_message", "update_chat_message_state("),
+        ("delete_chat_message", "delete_chat_message_state("),
+        ("patch_professor_conversation", "patch_professor_conversation_state("),
+        ("start_student_conversation", "start_student_conversation_state("),
+        ("list_student_messages", "list_student_messages_for_conversation("),
+        ("send_student_message", "send_student_message_state("),
+        ("send_student_image_message", "send_student_image_message_state("),
+    ):
+        source = inspect.getsource(getattr(professor_router, function_name))
+        assert service_call in source
+        assert "select(" not in source
+        assert "await db.commit(" not in source
+        assert "await db.flush(" not in source
+        assert "db.add(" not in source
+        assert "await db.delete(" not in source
+        assert "publish_chat_message_change(" not in source
+        assert "enqueue_realtime_event(" not in source
+    assert "async def apply_professor_sent_message_update" in chat_mutation_source
+    assert "async def apply_student_sent_message_update" in chat_mutation_source
+    assert "async def refresh_chat_preview" in chat_mutation_source
+    assert "async def save_chat_image" in chat_mutation_source
+    assert "async def start_student_conversation_state" in chat_mutation_source
+    assert "async def send_professor_message_state" in chat_mutation_source
+    assert "async def send_student_image_message_state" in chat_mutation_source
+    assert "await enqueue_realtime_event(" in chat_mutation_source
+
+
+def test_professor_output_serializers_stay_out_of_router():
+    router_source = inspect.getsource(professor_router)
+    serializer_source = inspect.getsource(professor_serializers)
+    query_source = inspect.getsource(professor_queries)
+
+    assert "from app.services.professor_serializers import" in router_source
+    assert "from app.services.professor_queries import" in router_source
+    assert "def _message_out" not in router_source
+    assert "def _conversation_out" not in router_source
+    assert "def _professor_live_session_out" not in router_source
+    assert "async def _require_professor_live_session" not in router_source
+    assert "async def _messages_for_conversation" not in router_source
+    assert "async def _student_teacher_threads" not in router_source
+    dashboard_source = inspect.getsource(professor_router.get_professor_dashboard)
+    assert "_professor_dashboard(" in dashboard_source
+    assert "select(LiveSession)" not in dashboard_source
+    assert "select(ProfessorChangeRequest)" not in dashboard_source
+    assert "select(func." not in dashboard_source
+    assert "ProfessorDashboardOut(" not in dashboard_source
+    conversation_list_source = inspect.getsource(professor_router.list_professor_conversations)
+    assert "_professor_conversations(" in conversation_list_source
+    assert "select(ProfessorChatConversation)" not in conversation_list_source
+    assert "ProfessorChatConversation.last_message_preview.ilike" not in conversation_list_source
+    assert "def message_out" in serializer_source
+    assert "def conversation_out" in serializer_source
+    assert "def professor_live_session_out" in serializer_source
+    assert "async def professor_conversations" in query_source
+    assert "async def professor_dashboard" in query_source
+    assert "row_number()" in inspect.getsource(professor_queries.conversation_last_sender_role)
+    assert ".distinct(" not in inspect.getsource(professor_queries.conversation_last_sender_role)
+    assert "ProfessorDashboardOut(" in query_source
+    assert "select(ProfessorChangeRequest)" in query_source
+    assert "async def require_professor_live_session" in query_source
+    assert "async def messages_for_conversation" in query_source
+    assert "async def student_teacher_threads" in query_source
+    assert "async def student_live_sessions" in query_source
+    assert "async def student_professor_chat_status" in query_source
+
+
+def test_professor_router_database_work_stays_in_services():
+    router_source = inspect.getsource(professor_router)
+
+    for forbidden in (
+        "select(",
+        "db.execute(",
+        "db.scalar(",
+        "db.add(",
+        "db.add_all(",
+        "db.commit(",
+        "db.flush(",
+        "db.delete(",
+        "with_for_update(",
+    ):
+        assert forbidden not in router_source
+
+
+def test_professor_change_request_helpers_stay_out_of_router():
+    router_source = inspect.getsource(professor_router)
+    change_request_source = inspect.getsource(professor_change_requests)
+
+    assert "from app.services.professor_change_requests import" in router_source
+    assert "ALLOWED_CHANGE_TARGETS =" not in router_source
+    assert "def _topic_offering_id" not in router_source
+    assert "async def _target_belongs_to_offering" not in router_source
+    assert "ProfessorChangeRequest(" not in inspect.getsource(professor_router.create_change_request)
+    assert "select(ProfessorChangeRequest)" not in inspect.getsource(professor_router.list_change_requests)
+    assert "create_professor_change_request(" in inspect.getsource(professor_router.create_change_request)
+    assert "list_professor_change_requests(" in inspect.getsource(professor_router.list_change_requests)
+    assert "async def target_belongs_to_offering" in change_request_source
+    assert "async def create_professor_change_request" in change_request_source
+    assert "async def list_professor_change_requests" in change_request_source
+
+
+def test_professor_read_list_services_clamp_pagination_bounds():
+    change_request_source = inspect.getsource(professor_change_requests)
+    live_session_source = inspect.getsource(professor_live_sessions)
+    live_interaction_source = inspect.getsource(professor_live_interactions)
+    query_source = inspect.getsource(professor_queries)
+
+    assert "MAX_CHANGE_REQUESTS_LIMIT = 100" in change_request_source
+    assert "limit = min(max(limit, 1), MAX_CHANGE_REQUESTS_LIMIT)" in change_request_source
+    assert "MAX_PROFESSOR_LIVE_SESSIONS_LIMIT = 100" in live_session_source
+    assert "limit = min(max(limit, 1), MAX_PROFESSOR_LIVE_SESSIONS_LIMIT)" in live_session_source
+    assert "MAX_LIVE_INTERACTION_LIST_LIMIT = 200" in live_interaction_source
+    assert "MAX_LIVE_CHECKPOINT_LIST_LIMIT = 100" in live_interaction_source
+    assert "limit = min(max(limit, 1), MAX_LIVE_INTERACTION_LIST_LIMIT)" in live_interaction_source
+    assert "limit = min(max(limit, 1), MAX_LIVE_CHECKPOINT_LIST_LIMIT)" in live_interaction_source
+    assert "MAX_PROFESSOR_CONVERSATIONS_LIMIT = 100" in query_source
+    assert "MAX_CHAT_MESSAGES_LIMIT = 200" in query_source
+    assert "limit = min(max(limit, 1), MAX_PROFESSOR_CONVERSATIONS_LIMIT)" in query_source
+    assert "limit = min(max(limit, 1), MAX_CHAT_MESSAGES_LIMIT)" in query_source
 
 
 def test_professor_chat_image_upload_enforces_conversation_quota(app_client, run_db, test_settings):
@@ -1526,9 +1956,9 @@ def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db,
                 url=f"https://signed.example.com/test-prefix/{key}?signature=upload",
             )
 
-    monkeypatch.setattr("app.routers.professor.get_media_storage", lambda settings: _Storage())
+    monkeypatch.setattr("app.services.professor_chat_mutations.get_media_storage", lambda settings: _Storage())
     monkeypatch.setattr(
-        "app.routers.professor.media_url",
+        "app.services.professor_serializers.media_url",
         lambda reference, settings: f"https://signed.example.com/{reference.removeprefix('s3://kresco-media/')}?signature=read"
         if str(reference).startswith("s3://")
         else reference,

@@ -22,10 +22,12 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react'
-import api from '@/lib/axios'
+import { postJson } from '@/lib/apiClient'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/lib/store'
 import AuthGuard from '@/components/AuthGuard'
+import ErrorBoundary from '@/components/ErrorBoundary'
 import RouteErrorState from '@/components/RouteErrorState'
 import SafeRichText from '@/components/SafeRichText'
 import { triggerMascot } from '@/lib/mascotEvents'
@@ -37,7 +39,6 @@ import {
   getCurrentWatchChapter,
   getNextWatchDestination,
   getWatchCompletionFeedback,
-  getWatchDocumentTitle,
   getWatchNotesKey,
   getWatchSectionId,
   getWatchSectionProgressLabel,
@@ -91,6 +92,7 @@ export default function WatchPage() {
   const { lessonId } = useParams<{ lessonId: string }>()
   const sectionId = lessonId
   const router = useRouter()
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null)
 
   const {
     context,
@@ -116,24 +118,25 @@ export default function WatchPage() {
   const [notesSaved, setNotesSaved] = useState(true)
   const [currentTime, setCurrentTime] = useState(0)
   const [completingSection, setCompletingSection] = useState(false)
+  const notesStorageKey = useMemo(() => getWatchNotesKey(sectionId, currentUserId), [currentUserId, sectionId])
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(getWatchNotesKey(sectionId))
+      const saved = localStorage.getItem(notesStorageKey)
       setNotes(saved ?? '')
       setNotesSaved(true)
     }
-  }, [sectionId])
+  }, [notesStorageKey])
 
   function saveNotes() {
-    localStorage.setItem(getWatchNotesKey(sectionId), notes)
+    localStorage.setItem(notesStorageKey, notes)
     setNotesSaved(true)
     toast.success('Notes sauvegardees !')
   }
 
   function clearNotes() {
     if (!confirm('Supprimer toutes les notes de cette section ?')) return
-    localStorage.removeItem(getWatchNotesKey(sectionId))
+    localStorage.removeItem(notesStorageKey)
     setNotes('')
     setNotesSaved(true)
   }
@@ -170,12 +173,6 @@ export default function WatchPage() {
   }, [mutateContext])
 
   useEffect(() => {
-    if (section) {
-      document.title = getWatchDocumentTitle(section)
-    }
-  }, [section])
-
-  useEffect(() => {
     if (!section) return
     const nextTab = normalizeWatchTab(activeTab, section)
     if (nextTab !== activeTab) setActiveTab(nextTab)
@@ -191,7 +188,7 @@ export default function WatchPage() {
 
     setCompletingSection(true)
     try {
-      const { data } = await api.post('/progress/section-complete', buildWatchSectionCompletePayload(sectionId, opts))
+      const data = await postJson<any>('/progress/section-complete', buildWatchSectionCompletePayload(sectionId, opts))
       if (data.passed !== false) {
         setIsCompleted(true)
         void mutateContext()
@@ -420,7 +417,16 @@ export default function WatchPage() {
 
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 overflow-y-auto">
-            <div className="bg-slate-950">{renderSectionContent()}</div>
+            <div className="bg-slate-950">
+              <ErrorBoundary
+                eyebrow="Lesson panel error"
+                title="This lesson panel failed to load."
+                message="Retry this panel or continue using the rest of the lesson page."
+                homeHref="/home"
+              >
+                {renderSectionContent()}
+              </ErrorBoundary>
+            </div>
 
             <div className="px-6 pb-6">
               <div className="flex items-center justify-between mb-1">
@@ -478,17 +484,24 @@ export default function WatchPage() {
               )}
 
               {activeTab === 'lab' && (
-                <div className="space-y-6">
-                  <InteractiveActivityRenderer
-                    activityType={section.activity_type}
-                    activityData={section.activity_data}
-                    onComplete={(correct) => {
-                      if (correct) {
-                        toast.success('Activite reussie !')
-                      }
-                    }}
-                  />
-                </div>
+                <ErrorBoundary
+                  eyebrow="Activity error"
+                  title="This activity failed to load."
+                  message="Retry the activity without leaving the lesson."
+                  homeHref="/home"
+                >
+                  <div className="space-y-6">
+                    <InteractiveActivityRenderer
+                      activityType={section.activity_type}
+                      activityData={section.activity_data}
+                      onComplete={(correct) => {
+                        if (correct) {
+                          toast.success('Activite reussie !')
+                        }
+                      }}
+                    />
+                  </div>
+                </ErrorBoundary>
               )}
 
               {activeTab === 'notes' && (
@@ -562,12 +575,19 @@ export default function WatchPage() {
           </div>
 
           <div className="w-80 flex-shrink-0 border-l border-slate-800 overflow-hidden hidden lg:block">
-            <ChapterSidebar
-              chapters={chapters}
-              currentSectionId={getWatchSectionId(sectionId)}
-              chapterInfo={chapterInfo}
-              chapterSections={chapterSections}
-            />
+            <ErrorBoundary
+              eyebrow="Chapter navigation error"
+              title="Chapter navigation failed to load."
+              message="Retry the navigation panel without leaving the lesson."
+              homeHref="/home"
+            >
+              <ChapterSidebar
+                chapters={chapters}
+                currentSectionId={getWatchSectionId(sectionId)}
+                chapterInfo={chapterInfo}
+                chapterSections={chapterSections}
+              />
+            </ErrorBoundary>
           </div>
         </div>
       </div>

@@ -1,6 +1,8 @@
+import { createHmac } from 'node:crypto'
 import { expect, type Page, test } from '@playwright/test'
 
 const apiBase = /\/api\//
+const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
 
 const smokeUser = {
   id: 1,
@@ -542,7 +544,13 @@ const studentProfessorChat = {
 
 function makeTestJwt() {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
-  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ exp: Math.floor(Date.now() / 1000) + 3600 })}.smoke`
+  const signedValue = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    role: 'student',
+    is_staff: true,
+  })}`
+  const signature = createHmac('sha256', jwtSecretKey).update(signedValue).digest('base64url')
+  return `${signedValue}.${signature}`
 }
 
 async function seedAuthenticatedUser(page: Page, user = smokeUser) {

@@ -49,11 +49,6 @@ export default function ProfessorLiveControlRoomPage() {
   }, [embed, error, loading, numericSessionId, session])
 
   useEffect(() => {
-    const title = session?.title ?? embed?.title
-    if (title) document.title = `${title} - Live Control`
-  }, [embed?.title, session?.title])
-
-  useEffect(() => {
     if (!session?.has_stream_credentials) setStreamCredentials(null)
   }, [session?.has_stream_credentials])
 

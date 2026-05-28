@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuthStore } from '@/lib/store'
 import {
   getAccessDeniedDestination,
@@ -10,7 +10,13 @@ import {
 import { replaceBrowserLocation } from '@/lib/browserNavigation'
 import { getMyProfile } from '@/lib/profile'
 
-function LoadingScreen({ message }) {
+type AuthGuardProps = {
+  children: ReactNode
+  requireRole?: string | null
+  requireStaff?: boolean
+}
+
+function LoadingScreen({ message }: { message: string }) {
   return (
     <div className="flex items-center justify-center min-h-screen bg-slate-900">
       <div className="flex flex-col items-center gap-3">
@@ -21,7 +27,13 @@ function LoadingScreen({ message }) {
   )
 }
 
-function AccessDeniedScreen({ requireRole, requireStaff }) {
+function AccessDeniedScreen({ requireRole, requireStaff }: Pick<AuthGuardProps, 'requireRole' | 'requireStaff'>) {
+  const [pathname, setPathname] = useState('')
+
+  useEffect(() => {
+    setPathname(window.location.pathname)
+  }, [])
+
   const title = requireStaff
     ? 'Staff access required'
     : requireRole === 'professor'
@@ -36,7 +48,7 @@ function AccessDeniedScreen({ requireRole, requireStaff }) {
           Your account is signed in, but it does not have permission to open this area.
         </p>
         <a
-          href={getAccessDeniedDestination({ role: requireRole, staff: requireStaff }, typeof window !== 'undefined' ? window.location.pathname : '')}
+          href={getAccessDeniedDestination({ role: requireRole, staff: requireStaff }, pathname)}
           className="mt-6 inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           Back to app
@@ -46,7 +58,7 @@ function AccessDeniedScreen({ requireRole, requireStaff }) {
   )
 }
 
-function VerificationErrorScreen({ onRetry }) {
+function VerificationErrorScreen({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-950 px-6">
       <section className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-slate-900 p-7">
@@ -66,19 +78,12 @@ function VerificationErrorScreen({ onRetry }) {
   )
 }
 
-function isUnauthorizedError(error) {
-  const status = error?.response?.status
+function isUnauthorizedError(error: unknown) {
+  const status = (error as { response?: { status?: number } } | null | undefined)?.response?.status
   return status === 401 || status === 403
 }
 
-/**
- * @param {{
- *   children: import('react').ReactNode,
- *   requireRole?: string | null,
- *   requireStaff?: boolean,
- * }} props
- */
-export default function AuthGuard({ children, requireRole = null, requireStaff = false }) {
+export default function AuthGuard({ children, requireRole = null, requireStaff = false }: AuthGuardProps) {
   const token = useAuthStore((state) => state.token)
   const user = useAuthStore((state) => state.user)
   const hydrate = useAuthStore((state) => state.hydrate)
@@ -88,7 +93,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
   const logout = useAuthStore((state) => state.logout)
   const [accessState, setAccessState] = useState('pending')
   const [retryCount, setRetryCount] = useState(0)
-  const verificationStateRef = useRef('idle')
+  const verificationStateRef = useRef<'idle' | 'checking' | 'denied' | 'error'>('idle')
   const needsServerProfile = Boolean(requireRole || requireStaff || !user || !token)
 
   function retryVerification() {

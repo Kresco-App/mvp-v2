@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Check, ChevronLeft, ChevronRight, Clock3, Trophy, Zap } from 'lucide-react'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
 import {
   buildPermanentSidebarCalendarDays,
   buildStrikeDays,
@@ -89,22 +89,22 @@ export function PermanentSidebar({
     let alive = true
     setLoading(true)
 
-    api.get(dataEndpoint)
-      .then((summaryResult) => {
-        if (alive) setLoadedData(toClientSidebarData(summaryResult.data))
+    getJson<PermanentSidebarData>(dataEndpoint)
+      .then((summaryData) => {
+        if (alive) setLoadedData(toClientSidebarData(summaryData))
       })
       .catch(() => {
         return Promise.allSettled([
-          api.get('/progress/daily-quests'),
-          api.get('/progress/leaderboard', { params: { limit: 10 } }),
-          api.get('/progress/xp'),
+          getJson<FigmaDailyQuest[]>('/progress/daily-quests'),
+          getJson<PermanentSidebarLeaderboardEntry[]>('/progress/leaderboard', { params: { limit: 10 } }),
+          getJson<{ streak_days?: number }>('/progress/xp'),
         ]).then(([questResult, leaderboardResult, xpResult]) => {
           if (!alive) return
           setLoadedData({
             calendarDays: buildPermanentSidebarCalendarDays(),
-            quests: questResult.status === 'fulfilled' ? questResult.value.data : [],
-            leaderboardEntries: leaderboardResult.status === 'fulfilled' ? leaderboardResult.value.data : [],
-            strikeDays: xpResult.status === 'fulfilled' ? buildStrikeDays(xpResult.value.data?.streak_days ?? 0) : permanentSidebarStrikeDefaults,
+            quests: questResult.status === 'fulfilled' ? questResult.value : [],
+            leaderboardEntries: leaderboardResult.status === 'fulfilled' ? leaderboardResult.value : [],
+            strikeDays: xpResult.status === 'fulfilled' ? buildStrikeDays(xpResult.value?.streak_days ?? 0) : permanentSidebarStrikeDefaults,
             liveEvents: [],
           })
         })

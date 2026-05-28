@@ -20,7 +20,7 @@ import { useAuthStore } from '@/lib/store'
 
 export default function LiveSessionRoomPage() {
   const router = useRouter()
-  const { user } = useAuthStore()
+  const user = useAuthStore((state) => state.user)
   const { sessionId } = useParams<{ sessionId: string }>()
   const [interactionBody, setInteractionBody] = useState('')
   const [activePanel, setActivePanel] = useState<'message' | 'question'>('message')
@@ -51,10 +51,6 @@ export default function LiveSessionRoomPage() {
   const questionError = interactionsError
     ? apiDataErrorMessage(interactionsError, 'Could not load live chat and Q&A.')
     : ''
-
-  useEffect(() => {
-    if (session?.title) document.title = `${session.title} - Kresco Live`
-  }, [session?.title])
 
   useEffect(() => {
     if (embedError) toast.error(apiDataErrorMessage(embedError, 'Could not open the VdoCipher live player.'))
