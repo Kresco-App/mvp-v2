@@ -76,7 +76,7 @@ api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/figma-audit')) {
         clearStoredAuthSession()
         window.location.href = getUnauthorizedDestination(window.location.pathname)
       }

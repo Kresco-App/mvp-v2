@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { patchJson, postJson } from '@/lib/apiClient'
 import { resolveAuthSuccess } from '@/lib/authPolicy'
 import { useAuthStore } from '@/lib/store'
+import { apiDataErrorMessage } from '@/lib/apiData'
 
 declare global {
   interface Window {
@@ -71,7 +72,7 @@ export function useAuthPageController() {
         toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
         handleAuthResolution(data.user)
       } catch (err: any) {
-        toast.error(err?.response?.data?.detail || 'Connexion échouée.')
+        toast.error(apiDataErrorMessage(err, 'Connexion échouée.'))
       } finally {
         setLoading(false)
       }
@@ -156,7 +157,7 @@ export function useAuthPageController() {
       setAuthMode('verify-pending')
       toast.success('Email de vérification envoyé !')
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Erreur lors de la création du compte.')
+      toast.error(apiDataErrorMessage(err, 'Erreur lors de la création du compte.'))
     } finally {
       setLoading(false)
     }
@@ -176,7 +177,7 @@ export function useAuthPageController() {
         setAuthMode('verify-pending')
         toast.error('Vérifiez votre email avant de vous connecter.')
       } else {
-        toast.error(err?.response?.data?.detail || 'Email ou mot de passe incorrect.')
+        toast.error(apiDataErrorMessage(err, 'Email ou mot de passe incorrect.'))
       }
     } finally {
       setLoading(false)

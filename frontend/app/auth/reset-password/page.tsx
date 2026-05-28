@@ -4,6 +4,7 @@ import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { postJson } from '@/lib/apiClient'
+import { apiDataErrorMessage } from '@/lib/apiData'
 import KrescoLogo from '@/components/KrescoLogo'
 import { Eye, EyeOff } from 'lucide-react'
 import { localizedCopy } from '@/lib/localization'
@@ -37,7 +38,7 @@ function ResetPasswordContent() {
       setDone(true)
       setTimeout(() => router.replace('/'), 2500)
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || localizedCopy.auth.resetPasswordInvalidLinkBody)
+      toast.error(apiDataErrorMessage(err, localizedCopy.auth.resetPasswordInvalidLinkBody))
     } finally {
       setLoading(false)
     }

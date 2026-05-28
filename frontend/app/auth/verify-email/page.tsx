@@ -6,6 +6,7 @@ import { useAuthStore } from '@/lib/store'
 import { postJson } from '@/lib/apiClient'
 import KrescoLogo from '@/components/KrescoLogo'
 import { localizedCopy } from '@/lib/localization'
+import { apiDataErrorMessage } from '@/lib/apiData'
 
 type VerifyEmailResponse = {
   user: Parameters<ReturnType<typeof useAuthStore.getState>['login']>[0]
@@ -39,7 +40,7 @@ function VerifyEmailContent() {
       .catch((err: any) => {
         if (cancelled) return
         setStatus('error')
-        setErrorMsg(err?.response?.data?.detail || 'Lien invalide ou expir\u00e9.')
+        setErrorMsg(apiDataErrorMessage(err, 'Lien invalide ou expir\u00e9.'))
       })
 
     return () => {

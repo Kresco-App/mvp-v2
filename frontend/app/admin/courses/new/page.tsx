@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, Check, BookOpen, FileText } from 'lucide-react'
 import { postJson } from '@/lib/apiClient'
 import AuthGuard from '@/components/AuthGuard'
 import { toast } from 'sonner'
+import { apiDataErrorMessage } from '@/lib/apiData'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,7 +78,7 @@ export default function NewCoursePage() {
       toast.success('Cours créé avec succès !')
       router.push(`/admin/courses/${subjId}`)
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail ?? 'Erreur lors de la création')
+      toast.error(apiDataErrorMessage(err, 'Erreur lors de la création'))
     } finally {
       setCreating(false)
     }
