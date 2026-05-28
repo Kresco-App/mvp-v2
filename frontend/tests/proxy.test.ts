@@ -56,6 +56,8 @@ function expectSecurityHeaders(response: ReturnType<typeof proxy>) {
   expect(response.headers.get('content-security-policy')).toContain("default-src 'self'")
   expect(response.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
   expect(response.headers.get('permissions-policy')).toBe('camera=(), microphone=(), geolocation=(), payment=()')
+  expect(response.headers.get('x-frame-options')).toBe('DENY')
+  expect(response.headers.get('x-content-type-options')).toBe('nosniff')
 }
 
 describe('Next proxy auth boundary', () => {
@@ -248,7 +250,7 @@ describe('Next proxy auth boundary', () => {
       ['/', {}],
       ['/home', studentCookies],
       ['/calendar', studentCookies],
-      ['/watch/lesson-1', studentCookies],
+      ['/topics/42', studentCookies],
       ['/admin', staffCookies],
       ['/professor', professorCookies],
       ['/professor/live/session-1', professorCookies],

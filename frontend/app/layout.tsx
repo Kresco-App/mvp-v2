@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
+import { headers } from 'next/headers'
 import AppToaster from '@/components/AppToaster'
 import ApiDataProvider from '@/components/ApiDataProvider'
 import ClientErrorReporter from '@/components/ClientErrorReporter'
@@ -104,7 +105,9 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await headers()
+
   return (
     <html lang="fr" data-release={releaseSha}>
       <body className={`${sfProRounded.variable} ${sunghyunSans.variable} antialiased`}>

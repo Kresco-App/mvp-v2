@@ -24,19 +24,6 @@ export type ExamResult = {
   xp_earned: number
 }
 
-export type ExamSubjectLesson = {
-  id: number
-}
-
-export type ExamSubjectChapter = {
-  lessons?: ExamSubjectLesson[]
-}
-
-export type ExamSubject = {
-  id?: number | string
-  chapters?: ExamSubjectChapter[]
-}
-
 export type ExamQuizDiscovery = {
   subjectId: string
   quiz: ExamQuiz | null
@@ -99,15 +86,6 @@ export function useExamQuizData(subjectId: string | number | null | undefined) {
     isValidating: query.isValidating,
     mutate: query.mutate,
   }
-}
-
-export function examLessonsFromSubject(subject: ExamSubject): ExamSubjectLesson[] {
-  const chapters = Array.isArray(subject.chapters) ? subject.chapters : []
-  return chapters.flatMap((chapter) => (
-    Array.isArray(chapter.lessons)
-      ? chapter.lessons.filter((lesson) => Number.isFinite(lesson.id))
-      : []
-  ))
 }
 
 function normalizeExamSubjectId(subjectId: string | number | null | undefined) {

@@ -20,6 +20,9 @@ SENSITIVE_PROVIDER_KEYS = {
 
 logger = logging.getLogger(__name__)
 
+DEMO_VIDEO_ID_PREFIX = "demo-"
+DEMO_VIDEO_STREAM = {"otp": "mock-otp-token", "playback_info": ""}
+
 
 def _first_string(data: dict, keys: tuple[str, ...]) -> str:
     for key in keys:
@@ -85,6 +88,13 @@ async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("vdocipher_otp_malformed_response")
         raise HTTPException(status_code=502, detail="Invalid VdoCipher OTP response") from exc
+
+
+async def get_video_stream_data(vdocipher_id: str, settings: Settings) -> dict:
+    video_id = vdocipher_id.strip()
+    if video_id.startswith(DEMO_VIDEO_ID_PREFIX) and not settings.is_production_like:
+        return dict(DEMO_VIDEO_STREAM)
+    return await get_video_otp(video_id, settings)
 
 
 async def create_live_stream(title: str, settings: Settings, *, chat_mode: str = "off") -> dict:

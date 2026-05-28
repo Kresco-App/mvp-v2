@@ -114,8 +114,8 @@ describe('profile view model helpers', () => {
     expect(profileSavedItemHref({ id: 3, target_type: 'quiz', target_id: 7, topic_id: 12, topic_item_id: 34 })).toBe('/topics/12?item=34&quiz=7')
     expect(profileSavedItemHref({ id: 4, target_type: 'tab_content', target_id: 8, topic_id: 12, topic_item_id: 34 })).toBe('/topics/12?item=34&tab=8')
     expect(profileSavedItemHref({ id: 5, target_type: 'exam_problem', target_id: 99, topic_id: 12 })).toBe('/exam-bank?problem=99&topic=12')
-    expect(profileSavedItemHref({ id: 6, target_type: 'lesson', target_id: 101 })).toBe('/watch/101')
-    expect(profileSavedItemHref({ id: 7, target_type: 'chapter', target_id: 3 })).toBe('/courses?chapter=3')
+    expect(profileSavedItemHref({ id: 6, target_type: 'lesson', target_id: 101 })).toBe('/profile')
+    expect(profileSavedItemHref({ id: 7, target_type: 'chapter', target_id: 3 })).toBe('/profile')
   })
 
   it('builds saved item hub display labels defensively', () => {

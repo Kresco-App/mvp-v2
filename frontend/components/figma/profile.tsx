@@ -86,7 +86,7 @@ export function FigmaProfile({
   const streak = xp?.streak_days ?? 7
   const league = getLeagueLabel(xp?.level, sidebar.leaderboardEntries)
   const watchTime = formatWatchTime(stats?.totalWatchMinutes ?? 0)
-  const completedLessons = stats?.lessonsCompleted ?? 0
+  const completedLessons = stats?.itemsCompleted ?? 0
   const quizzesPassed = stats?.quizzesPassed ?? 0
   const followers = getFollowers(sidebar.leaderboardEntries)
   const avatarUrl = mediaUrl(optimisticDraft?.avatar_url || user?.avatar_url || DEFAULT_PROFILE_AVATAR_URL)

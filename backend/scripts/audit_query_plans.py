@@ -45,8 +45,6 @@ REQUIRED_INDEXES: tuple[RequiredIndex, ...] = (
     RequiredIndex("topic_item_progress", "ix_topic_item_progress_user_topic_item", ("user_id", "topic_id", "topic_item_id")),
     RequiredIndex("topic_item_progress", "ix_topic_item_progress_user_item_status", ("user_id", "topic_item_id", "status")),
     RequiredIndex("user_notes", "ix_user_notes_user_topic_updated", ("user_id", "topic_id", "updated_at")),
-    RequiredIndex("chapters", "ix_chapters_subject_order", ("subject_id", "order", "id")),
-    RequiredIndex("chapter_sections", "ix_chapter_sections_chapter_order", ("chapter_id", "order", "id")),
     RequiredIndex("topics", "ix_topics_status", ("status",)),
     RequiredIndex("resources", "ix_resources_status", ("status",)),
     RequiredIndex("exams", "ix_exams_status", ("status",)),
@@ -91,16 +89,6 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
         "topic workspace notes",
         "SELECT id FROM user_notes WHERE user_id = 1 AND topic_id = 1 ORDER BY updated_at DESC",
         "ix_user_notes_user_topic_updated",
-    ),
-    PlanCheck(
-        "watch context chapters",
-        'SELECT id FROM chapters WHERE subject_id = 1 ORDER BY "order", id',
-        "ix_chapters_subject_order",
-    ),
-    PlanCheck(
-        "watch context chapter sections",
-        'SELECT id FROM chapter_sections WHERE chapter_id = 1 ORDER BY "order", id',
-        "ix_chapter_sections_chapter_order",
     ),
 )
 

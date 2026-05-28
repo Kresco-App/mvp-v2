@@ -17,7 +17,7 @@ interface QuizData {
   questions: QuizQuestion[]
 }
 
-interface QuizResult {
+interface SectionQuizResult {
   score: number
   passed: boolean
   correctCount: number
@@ -27,7 +27,7 @@ interface QuizResult {
 interface Props {
   data: QuizData
   passScore: number
-  onComplete: (answers: Record<string, number>) => Promise<QuizResult>
+  onComplete: (answers: Record<string, number>) => Promise<SectionQuizResult>
 }
 
 export default function SectionQuiz({ data, passScore, onComplete }: Props) {
@@ -35,7 +35,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
   const [selectedOption, setSelectedOption] = useState<number | null>(null)
   const [answers, setAnswers] = useState<Record<string, number>>({})
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<QuizResult | null>(null)
+  const [result, setResult] = useState<SectionQuizResult | null>(null)
 
   const totalQuestions = data.questions.length
   const currentQuestion = data.questions[currentIndex]

@@ -3,8 +3,7 @@ from pydantic import ValidationError
 from typing import Annotated, get_args, get_origin
 
 from app.routers.telemetry import ClientErrorIn
-from app.schemas.courses import ActivityEventIn, TabQuizSubmitIn, TopicItemCompleteIn
-from app.schemas.gamification import ProgressCompleteIn, ProgressUpdateIn, SectionCompleteIn
+from app.schemas.courses import TabQuizSubmitIn, TopicItemCompleteIn
 from app.schemas.interactions import CommentCreateIn, NoteCreateIn, SavedItemCreateIn
 from app.schemas.professor import (
     ChatConversationPatchIn,
@@ -43,8 +42,6 @@ LIMITED_STRING_FIELDS = {
     NoteCreateIn: ("body",),
     SavedItemCreateIn: ("target_type", "label"),
     CommentCreateIn: ("body",),
-    ProgressCompleteIn: ("item_type",),
-    ActivityEventIn: ("event_type", "target_type"),
     LiveSessionIn: (
         "title",
         "description",
@@ -110,8 +107,6 @@ def test_request_schema_string_fields_have_max_length_constraints():
         (NoteCreateIn, {"body": "x" * 10001}),
         (CommentCreateIn, {"topic_item_id": 1, "body": "x" * 10001}),
         (SavedItemCreateIn, {"target_type": "x" * 256, "target_id": 1}),
-        (ProgressCompleteIn, {"item_type": "x" * 256, "item_id": 1}),
-        (ActivityEventIn, {"event_type": "x" * 256, "target_id": 1}),
         (
             LiveSessionIn,
             {
@@ -171,9 +166,6 @@ def test_schema_limits_reject_oversized_answer_keys():
     with pytest.raises(ValidationError):
         TabQuizSubmitIn(answers={"x" * 256: "A"})
 
-    with pytest.raises(ValidationError):
-        SectionCompleteIn(section_id=1, answers={"x" * 256: 1})
-
 
 @pytest.mark.parametrize(
     ("model", "payload"),
@@ -189,10 +181,6 @@ def test_schema_limits_reject_oversized_answer_keys():
         (NoteCreateIn, {"body": "Note"}),
         (SavedItemCreateIn, {"target_type": "topic", "target_id": 1}),
         (CommentCreateIn, {"topic_item_id": 1, "body": "Comment"}),
-        (ProgressUpdateIn, {"lesson_id": 1, "watched_seconds": 1}),
-        (ProgressCompleteIn, {"item_type": "section", "item_id": 1}),
-        (SectionCompleteIn, {"section_id": 1}),
-        (ActivityEventIn, {"event_type": "view", "target_id": 1}),
         (TopicItemCompleteIn, {"watched_seconds": 1}),
         (TabQuizSubmitIn, {"answers": {"q": "A"}}),
         (QuizSubmitIn, {"answers": {1: 1}}),

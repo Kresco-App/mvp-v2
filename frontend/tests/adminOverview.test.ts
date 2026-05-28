@@ -28,7 +28,8 @@ describe('admin overview utilities', () => {
   it('groups CRUD items by domain without changing item order', () => {
     const grouped = groupByDomain(FALLBACK_CRUD)
 
-    expect(grouped.quiz.map((item) => item.slug)).toEqual(['quiz', 'quiz-question', 'quiz-option', 'question-set', 'question'])
+    expect(grouped.quiz.map((item) => item.slug)).toEqual(['question-set', 'question'])
+    expect(grouped['progress-xp'].map((item) => item.slug)).not.toContain('activity-event')
     expect(grouped.notifications.map((item) => item.slug)).toEqual(['notification'])
   })
 

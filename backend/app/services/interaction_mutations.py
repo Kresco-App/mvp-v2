@@ -6,7 +6,6 @@ from sqlalchemy.orm import selectinload
 
 from app.config import Settings
 from app.models.courses import TabContent, TopicItem
-from app.models.gamification import ActivityEvent
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.users import User
 from app.schemas.interactions import (
@@ -177,17 +176,6 @@ async def create_user_note(
     )
     db.add(note)
     await db.flush()
-    db.add(
-        ActivityEvent(
-            user_id=user.id,
-            event_type="note_created",
-            target_type="user_note",
-            target_id=note.id,
-            topic_id=note.topic_id,
-            topic_item_id=note.topic_item_id,
-            metadata_json=activity_metadata(subject_id=note.subject_id, tab_content_id=note.tab_content_id),
-        )
-    )
     await db.commit()
     await db.refresh(note)
     return NoteOut.model_validate(note)
@@ -277,18 +265,6 @@ async def save_user_item(
         if body.label and body.label != save.label:
             save.label = body.label
 
-    if created:
-        db.add(
-            ActivityEvent(
-                user_id=user.id,
-                event_type="saved_item_created",
-                target_type=save.target_type,
-                target_id=save.target_id,
-                topic_id=save.topic_id,
-                topic_item_id=save.topic_item_id,
-                metadata_json=activity_metadata(saved_item_id=save.id, subject_id=save.subject_id),
-            )
-        )
     await db.commit()
     await db.refresh(save)
     return SavedItemOut.model_validate(save)

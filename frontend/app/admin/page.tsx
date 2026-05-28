@@ -6,7 +6,6 @@ import {
   Activity,
   BarChart3,
   Bell,
-  BookOpen,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
@@ -24,7 +23,6 @@ import {
   Lock,
   MessageSquare,
   NotebookPen,
-  Puzzle,
   Search,
   ShieldCheck,
   Trophy,
@@ -61,8 +59,6 @@ const DOMAIN_ICONS: Record<string, any> = {
   calendar: CalendarDays,
   notifications: Bell,
   'admin-audit': ClipboardList,
-  'legacy-course': BookOpen,
-  'learning-activities': Puzzle,
 }
 
 function adminRoot(): string {

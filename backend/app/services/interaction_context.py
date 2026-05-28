@@ -1,8 +1,8 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.courses import Chapter, ChapterSection, Exam, ExamProblem, Lesson, Resource, TabContent, Topic, TopicItem
-from app.models.quizzes import Question, QuestionSet, Quiz
+from app.models.courses import Exam, ExamProblem, Resource, TabContent, Topic, TopicItem
+from app.models.quizzes import Question, QuestionSet
 
 
 InteractionContext = dict[str, int | None]
@@ -95,44 +95,7 @@ async def _context_from_exam_problem(db: AsyncSession, problem_id: int) -> Inter
     }
 
 
-async def _context_from_legacy_lesson(db: AsyncSession, lesson_id: int) -> InteractionContext:
-    result = await db.execute(
-        select(Chapter.subject_id)
-        .join(Lesson, Lesson.chapter_id == Chapter.id)
-        .where(Lesson.id == lesson_id)
-    )
-    subject_id = result.scalar_one_or_none()
-    return {"subject_id": int(subject_id) if subject_id is not None else None}
-
-
-async def _context_from_legacy_chapter(db: AsyncSession, chapter_id: int) -> InteractionContext:
-    result = await db.execute(select(Chapter.subject_id).where(Chapter.id == chapter_id))
-    subject_id = result.scalar_one_or_none()
-    return {"subject_id": int(subject_id) if subject_id is not None else None}
-
-
-async def _context_from_legacy_section(db: AsyncSession, section_id: int) -> InteractionContext:
-    result = await db.execute(
-        select(Chapter.subject_id)
-        .join(ChapterSection, ChapterSection.chapter_id == Chapter.id)
-        .where(ChapterSection.id == section_id)
-    )
-    subject_id = result.scalar_one_or_none()
-    return {"subject_id": int(subject_id) if subject_id is not None else None}
-
-
 async def _context_from_quiz(db: AsyncSession, quiz_id: int) -> InteractionContext:
-    result = await db.execute(
-        select(Chapter.subject_id)
-        .join(Lesson, Lesson.chapter_id == Chapter.id)
-        .join(Quiz, Quiz.lesson_id == Lesson.id)
-        .where(Quiz.id == quiz_id)
-    )
-    row = result.one_or_none()
-    if row is not None:
-        subject_id = row[0]
-        return {"subject_id": int(subject_id) if subject_id is not None else None}
-
     question_set = await db.get(QuestionSet, quiz_id)
     if question_set is not None:
         return {
@@ -169,6 +132,8 @@ async def _context_from_question(db: AsyncSession, question_id: int) -> Interact
 
 
 async def _target_context(db: AsyncSession, target_type: str, target_id: int) -> InteractionContext:
+    if target_type == "topic":
+        return await _context_from_topic(db, target_id)
     if target_type == "topic_item":
         return await _context_from_topic_item(db, target_id)
     if target_type == "resource":
@@ -177,13 +142,7 @@ async def _target_context(db: AsyncSession, target_type: str, target_id: int) ->
         return await _context_from_tab_content(db, target_id)
     if target_type == "exam_problem":
         return await _context_from_exam_problem(db, target_id)
-    if target_type == "lesson":
-        return await _context_from_legacy_lesson(db, target_id)
-    if target_type == "chapter":
-        return await _context_from_legacy_chapter(db, target_id)
-    if target_type == "section":
-        return await _context_from_legacy_section(db, target_id)
-    if target_type == "quiz":
+    if target_type in {"quiz", "question_set"}:
         return await _context_from_quiz(db, target_id)
     if target_type == "question":
         return await _context_from_question(db, target_id)

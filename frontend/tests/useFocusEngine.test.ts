@@ -14,7 +14,10 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 let latestEngine: ReturnType<typeof useFocusEngine> | null = null
 
 function FocusEngineProbe() {
-  latestEngine = useFocusEngine()
+  const engine = useFocusEngine()
+  React.useEffect(() => {
+    latestEngine = engine
+  }, [engine])
   return null
 }
 

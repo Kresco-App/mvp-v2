@@ -19,7 +19,6 @@ const metadataLayouts = [
   ['professor', 'chat', 'layout.tsx'],
   ['professor', 'live', 'layout.tsx'],
   ['professor', 'login', 'layout.tsx'],
-  ['watch', '[lessonId]', 'layout.tsx'],
 ]
 
 describe('route metadata ownership', () => {

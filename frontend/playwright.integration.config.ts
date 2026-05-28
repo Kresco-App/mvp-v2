@@ -9,7 +9,7 @@ const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-by
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: /integration\.spec\.ts/,
+  testMatch: /integration\.spec\.ts$/,
   timeout: 45_000,
   expect: {
     timeout: 15_000,

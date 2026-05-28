@@ -18,7 +18,6 @@ export default function ExamPage() {
 
   const {
     quiz,
-    lessonId,
     noQuiz,
     error: examError,
     loading,
@@ -40,16 +39,11 @@ export default function ExamPage() {
   const [result, setResult] = useState<ExamResult | null>(null)
   const submitCalledRef = useRef(false)
   const answersRef = useRef(answers)
-  const lessonIdRef = useRef(lessonId)
   const quizRef = useRef(quiz)
 
   useEffect(() => {
     answersRef.current = answers
   }, [answers])
-
-  useEffect(() => {
-    lessonIdRef.current = lessonId
-  }, [lessonId])
 
   useEffect(() => {
     quizRef.current = quiz
@@ -86,13 +80,12 @@ export default function ExamPage() {
 
   const handleSubmit = useCallback(async () => {
     const activeQuiz = quizRef.current
-    const activeLessonId = lessonIdRef.current
-    if (submitCalledRef.current || !activeQuiz || !activeLessonId) return
+    if (submitCalledRef.current || !activeQuiz) return
     submitCalledRef.current = true
     setSubmitted(true)
     setSubmitting(true)
     try {
-      const data = await postJson<ExamResult>(`/quizzes/lessons/${activeLessonId}/quiz/submit`, { answers: answersRef.current })
+      const data = await postJson<ExamResult>(`/quizzes/${activeQuiz.id}/submit`, { answers: answersRef.current })
       setResult(data)
     } catch {
       toast.error('Erreur lors de la soumission de l\'examen.')

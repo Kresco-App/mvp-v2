@@ -8,11 +8,8 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.gamification import (
-        LessonProgress,
-        ContentProgress,
         UserXP,
         XPTransaction,
-        QuizResult,
         DailyQuest,
         UserStats,
     )
@@ -54,12 +51,9 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    lesson_progress: Mapped[list["LessonProgress"]] = relationship("LessonProgress", back_populates="user")
-    content_progress: Mapped[list["ContentProgress"]] = relationship("ContentProgress", back_populates="user")
     xp: Mapped[Optional["UserXP"]] = relationship("UserXP", back_populates="user", uselist=False)
     stats: Mapped[Optional["UserStats"]] = relationship("UserStats", back_populates="user", uselist=False)
     xp_transactions: Mapped[list["XPTransaction"]] = relationship("XPTransaction", back_populates="user")
-    quiz_results: Mapped[list["QuizResult"]] = relationship("QuizResult", back_populates="user")
     daily_quests: Mapped[list["DailyQuest"]] = relationship("DailyQuest", back_populates="user")
     comments: Mapped[list["Comment"]] = relationship("Comment", back_populates="user")
     notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="user")

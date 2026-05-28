@@ -17,7 +17,6 @@ import {
 } from 'lucide-react'
 import { useFocusEngine } from '@/hooks/useFocusEngine'
 import { useAuthStore } from '@/lib/store'
-import { userScopedStorageKey } from '@/lib/watchViewModel'
 import KrescoMascot, { MascotMood } from '@/components/KrescoMascot'
 import PomodoroTimer from './PomodoroTimer'
 import ScientificCalculator from './ScientificCalculator'
@@ -57,6 +56,10 @@ interface PinnedSnippet {
 
 interface Props {
   onClose: () => void
+}
+
+function userScopedStorageKey(base: string, userId: string | number | null) {
+  return userId !== null ? `${base}_${userId}` : base
 }
 
 export default function ZedModeOverlay({ onClose }: Props) {

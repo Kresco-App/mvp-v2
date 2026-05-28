@@ -16,7 +16,7 @@ interface SubjectForm {
   filiere: string
 }
 
-interface ChapterForm {
+interface TopicForm {
   id: string
   title: string
   order: number
@@ -35,7 +35,7 @@ const FILIERES = [
 
 const STEPS = [
   { id: 1, label: 'Matière', icon: BookOpen },
-  { id: 2, label: 'Chapitres', icon: FileText },
+  { id: 2, label: 'Sujets', icon: FileText },
   { id: 3, label: 'Confirmation', icon: Check },
 ]
 
@@ -47,8 +47,8 @@ export default function NewCoursePage() {
   const [subject, setSubject] = useState<SubjectForm>({
     title: '', description: '', niveau: '2bac', filiere: 'PC'
   })
-  const [chapters, setChapters] = useState<ChapterForm[]>([
-    { id: 'chapter-1', title: '', order: 1 }
+  const [topics, setTopics] = useState<TopicForm[]>([
+    { id: 'topic-1', title: '', order: 1 }
   ])
   const [creating, setCreating] = useState(false)
 
@@ -65,13 +65,12 @@ export default function NewCoursePage() {
       })
       const subjId = createdSubject.id
 
-      // Create chapters
-      const validChapters = chapters.filter(c => c.title.trim())
-      for (const ch of validChapters) {
-        await postJson('/courses/chapters', {
+      const validTopics = topics.filter(c => c.title.trim())
+      for (const topic of validTopics) {
+        await postJson('/courses/topics', {
           subject_id: subjId,
-          title: ch.title,
-          order: ch.order,
+          title: topic.title,
+          order: topic.order,
         })
       }
 
@@ -186,30 +185,30 @@ export default function NewCoursePage() {
             </div>
           )}
 
-          {/* Step 2: Chapters */}
+          {/* Step 2: Topics */}
           {step === 2 && (
             <div className="space-y-5">
-              <h2 className="text-white font-bold text-lg">Chapitres</h2>
-              <p className="text-slate-400 text-sm">Ajoutez les chapitres du cours. Vous pourrez ajouter des sections ensuite.</p>
+              <h2 className="text-white font-bold text-lg">Sujets</h2>
+              <p className="text-slate-400 text-sm">Ajoutez les sujets du cours. Vous pourrez ajouter des items ensuite.</p>
 
               <div className="space-y-3">
-                {chapters.map((ch, i) => (
+                {topics.map((ch, i) => (
                   <div key={ch.id} className="flex items-center gap-3">
                     <span className="text-slate-400 text-sm font-mono w-6 text-center">{i + 1}</span>
                     <input
-                      aria-label={`Titre du chapitre ${i + 1}`}
+                      aria-label={`Titre du sujet ${i + 1}`}
                       value={ch.title}
                       onChange={e => {
-                        const next = [...chapters]
+                        const next = [...topics]
                         next[i] = { ...next[i], title: e.target.value }
-                        setChapters(next)
+                        setTopics(next)
                       }}
-                      placeholder={`Chapitre ${i + 1}`}
+                      placeholder={`Sujet ${i + 1}`}
                       className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-600"
                     />
-                    {chapters.length > 1 && (
+                    {topics.length > 1 && (
                       <button type="button"
-                        onClick={() => setChapters(prev => prev.filter((_, j) => j !== i).map((c, j) => ({ ...c, order: j + 1 })))}
+                        onClick={() => setTopics(prev => prev.filter((_, j) => j !== i).map((c, j) => ({ ...c, order: j + 1 })))}
                         className="text-slate-400 hover:text-red-400 transition"
                       >
                         ×
@@ -220,10 +219,10 @@ export default function NewCoursePage() {
               </div>
 
               <button type="button"
-                onClick={() => setChapters(prev => [...prev, { id: `chapter-${Date.now()}-${prev.length + 1}`, title: '', order: prev.length + 1 }])}
+                onClick={() => setTopics(prev => [...prev, { id: `topic-${Date.now()}-${prev.length + 1}`, title: '', order: prev.length + 1 }])}
                 className="text-indigo-400 hover:text-indigo-300 text-sm font-medium flex items-center gap-1 transition"
               >
-                + Ajouter un chapitre
+                + Ajouter un sujet
               </button>
 
               <div className="flex gap-3 pt-2">
@@ -261,9 +260,9 @@ export default function NewCoursePage() {
                   </div>
                 )}
                 <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wide mb-2">Chapitres ({chapters.filter(c => c.title.trim()).length})</p>
+                  <p className="text-slate-500 text-xs uppercase tracking-wide mb-2">Sujets ({topics.filter(c => c.title.trim()).length})</p>
                   <ol className="space-y-1">
-                    {chapters.filter(c => c.title.trim()).map((ch, i) => (
+                    {topics.filter(c => c.title.trim()).map((ch, i) => (
                       <li key={ch.id} className="text-slate-300 text-sm flex items-center gap-2">
                         <span className="text-slate-400 text-xs font-mono">{i + 1}.</span>
                         {ch.title}

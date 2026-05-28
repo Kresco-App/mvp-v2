@@ -8,12 +8,14 @@ import ZedModeOverlay from '@/components/zed/ZedModeOverlay'
 
 vi.mock('framer-motion', async () => {
   const React = await import('react')
+  const MockMotionDiv = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+    ({ children, ...props }, ref) => React.createElement('div', { ...props, ref }, children),
+  )
+  MockMotionDiv.displayName = 'MockMotionDiv'
   return {
     AnimatePresence: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
     motion: {
-      div: React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-        ({ children, ...props }, ref) => React.createElement('div', { ...props, ref }, children),
-      ),
+      div: MockMotionDiv,
     },
   }
 })
@@ -107,7 +109,7 @@ describe('ZedModeOverlay', () => {
   it('defers localStorage hydration until after the initial render', () => {
     localStorage.setItem('kresco_zed_split', '61')
     localStorage.setItem(
-      'kresco_zed_pins:user_anonymous',
+      'kresco_zed_pins',
       JSON.stringify([{ id: 'pin-1', content: 'Note', type: 'text' }]),
     )
     const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
@@ -125,8 +127,8 @@ describe('ZedModeOverlay', () => {
       })
 
       expect(getItemSpy).toHaveBeenCalledWith('kresco_zed_split')
-      expect(getItemSpy).toHaveBeenCalledWith('kresco_zed_pins:user_anonymous')
-      expect(setItemSpy).not.toHaveBeenCalledWith('kresco_zed_pins:user_anonymous', '[]')
+      expect(getItemSpy).toHaveBeenCalledWith('kresco_zed_pins')
+      expect(setItemSpy).not.toHaveBeenCalledWith('kresco_zed_pins', '[]')
     } finally {
       vi.useRealTimers()
     }

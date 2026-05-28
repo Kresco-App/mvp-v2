@@ -7,6 +7,7 @@ import KrescoWordmark from '@/components/KrescoWordmark'
 import { postJson } from '@/lib/apiClient'
 import { AUTH_ROUTES, isProfessorUser } from '@/lib/authPolicy'
 import { useAuthStore } from '@/lib/store'
+import { localizedCopy } from '@/lib/localization'
 
 type LoginResponse = {
   user: {
@@ -70,11 +71,11 @@ export default function ProfessorLoginPage() {
           <span className="rounded-[12px] bg-[#f0f0ff] px-3 py-2 text-[12px] font-black text-[#453dee]">Professor</span>
         </div>
         <div className="mb-7">
-          <h1 className="m-0 text-[24px] font-black leading-[1.12] text-[#3f3f46]">Professor Login</h1>
+          <h1 className="m-0 text-[24px] font-black leading-[1.12] text-[#3f3f46]">{localizedCopy.auth.professorLoginTitle}</h1>
         </div>
         <form className="grid gap-4" onSubmit={submit}>
           <label className="grid gap-2 text-[13px] font-black text-[#52525c]">
-            Email
+            {localizedCopy.auth.email}
             <span className="flex h-12 items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-4">
               <Mail size={17} className="text-[#71717b]" />
               <input
@@ -89,7 +90,7 @@ export default function ProfessorLoginPage() {
             </span>
           </label>
           <label className="grid gap-2 text-[13px] font-black text-[#52525c]">
-            Password
+            {localizedCopy.auth.password}
             <span className="flex h-12 items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-4">
               <LockKeyhole size={17} className="text-[#71717b]" />
               <input
@@ -114,7 +115,7 @@ export default function ProfessorLoginPage() {
             disabled={loading}
             className="mt-2 h-12 rounded-[14px] border-0 bg-[#453dee] px-5 text-[15px] font-black text-white transition hover:bg-[#3a2fd3] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? localizedCopy.auth.loginLoading : localizedCopy.auth.professorLoginAction}
           </button>
         </form>
       </section>

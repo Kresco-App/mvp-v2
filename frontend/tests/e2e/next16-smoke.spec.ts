@@ -130,22 +130,6 @@ const topicWorkspace = {
   can_access: true,
 }
 
-const section = {
-  id: 101,
-  title: 'Mock limits video',
-  section_type: 'video',
-  order: 1,
-  duration_seconds: 600,
-  is_free_preview: true,
-  is_completed: false,
-  is_locked: false,
-  video_url: '',
-  text_content: '',
-  quiz_data: null,
-  pass_score: 70,
-  activity_data: null,
-}
-
 const adminOverview = {
   generated_at: new Date().toISOString(),
   totals: {
@@ -542,12 +526,12 @@ const studentProfessorChat = {
   ],
 }
 
-function makeTestJwt() {
+function makeTestJwt(user = smokeUser) {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
   const signedValue = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({
     exp: Math.floor(Date.now() / 1000) + 3600,
-    role: 'student',
-    is_staff: true,
+    role: user.role,
+    is_staff: user.is_staff === true,
   })}`
   const signature = createHmac('sha256', jwtSecretKey).update(signedValue).digest('base64url')
   return `${signedValue}.${signature}`
@@ -561,7 +545,7 @@ async function seedAuthenticatedUser(page: Page, user = smokeUser) {
       window.document.cookie = `kresco_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=3600`
       window.document.cookie = `kresco_user_role=${encodeURIComponent(user.role)}; Path=/; SameSite=Lax; Max-Age=3600`
     },
-    { token: makeTestJwt(), user },
+    { token: makeTestJwt(user), user },
   )
 }
 
@@ -778,62 +762,7 @@ async function mockApi(page: Page) {
       return
     }
 
-    if (path === '/courses/sections/101/watch-context') {
-      await route.fulfill({
-        json: {
-          section: { ...section, chapter_id: 11 },
-          chapter: {
-            id: 11,
-            title: 'Limits chapter',
-            description: '',
-            order: 1,
-            sections: [{ ...section, chapter_id: 11 }],
-          },
-          subject_id: 1,
-          subject_title: 'Mathematics',
-          chapters: [
-            {
-              id: 11,
-              title: 'Limits chapter',
-              description: '',
-              order: 1,
-              sections: [{ ...section, chapter_id: 11 }],
-            },
-          ],
-        },
-      })
-      return
-    }
 
-    if (path === '/courses/subjects') {
-      await route.fulfill({ json: [{ id: 1, title: 'Mathematics' }] })
-      return
-    }
-
-    if (path === '/courses/subjects/1') {
-      await route.fulfill({ json: { id: 1, title: 'Mathematics', chapters: [{ id: 11, title: 'Limits chapter' }] } })
-      return
-    }
-
-    if (path === '/courses/chapters/11/sections') {
-      await route.fulfill({ json: [section] })
-      return
-    }
-
-    if (path === '/progress/sections/101/access') {
-      await route.fulfill({ json: { can_access: true } })
-      return
-    }
-
-    if (path === '/courses/sections/101/stream') {
-      await route.fulfill({ json: { otp: 'mock-otp-token', playback_info: 'mock-playback' } })
-      return
-    }
-
-    if (path === '/courses/lessons/101/pdfs' || path === '/interactions/comments' || path === '/progress/lessons/101/quiz-triggers') {
-      await route.fulfill({ json: [] })
-      return
-    }
 
     await route.fulfill({ json: {} })
   })
@@ -900,7 +829,7 @@ test('authenticated dashboard, payment, and admin routes hydrate with mocked API
   browserErrors.assertClean()
 })
 
-test('topic workspace and watch routes hydrate with mocked course data', async ({ page }) => {
+test('topic workspace hydrates with mocked course data', async ({ page }) => {
   const browserErrors = collectCriticalBrowserErrors(page)
   await seedAuthenticatedUser(page)
 
@@ -910,11 +839,6 @@ test('topic workspace and watch routes hydrate with mocked course data', async (
   await expect(page.getByLabel('Search this topic')).toBeVisible()
   await page.getByRole('button', { name: /Lab/i }).click()
   await expect(page.getByText('Periodicite des ondes')).toBeVisible()
-
-  await page.goto('/watch/101')
-  await expect(page.getByRole('heading', { name: 'Mock limits video' })).toBeVisible()
-  await expect(page.getByText('Apercu video local')).toBeVisible()
-  await expect(page.getByRole('button', { name: /Mes notes/i })).toBeVisible()
 
   browserErrors.assertClean()
 })

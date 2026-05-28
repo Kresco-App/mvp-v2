@@ -53,7 +53,6 @@ describe('apiClient transport wrapper', () => {
       ['lib', 'apiData.ts'],
       ['lib', 'authPageController.ts'],
       ['lib', 'examData.ts'],
-      ['lib', 'subjectProgress.ts'],
       ['components', 'Leaderboard.tsx'],
       ['components', 'VideoPlayer.tsx'],
       ['components', 'VideoQuizOverlay.tsx'],

@@ -18,14 +18,14 @@ describe('VideoPlayer VdoCipher URL construction', () => {
     )
   })
 
-  it('ignores cached stream data from a previous lesson id', () => {
+  it('ignores cached stream data from a previous topic item id', () => {
     const data = { otp: 'same-otp', playback_info: 'same-playback' }
 
-    expect(resolveLessonStreamData({ lessonId: 'lesson-a', data }, 'lesson-a')).toBe(data)
-    expect(resolveLessonStreamData({ lessonId: 'lesson-a', data }, 'lesson-b')).toBeNull()
+    expect(resolveLessonStreamData({ topicItemId: 'item-a', data }, 'item-a')).toBe(data)
+    expect(resolveLessonStreamData({ topicItemId: 'item-a', data }, 'item-b')).toBeNull()
   })
 
-  it('treats progress writes as lesson-bound identity checks', () => {
+  it('treats progress writes as item-bound identity checks', () => {
     expect(isActiveLesson(42, 42)).toBe(true)
     expect(isActiveLesson(42, 7)).toBe(false)
   })

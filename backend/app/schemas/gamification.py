@@ -6,41 +6,6 @@ from pydantic import BaseModel, Field
 from app.schemas.limits import ShortText, StrictInputModel
 
 
-class ProgressUpdateIn(StrictInputModel):
-    lesson_id: int = Field(gt=0)
-    watched_seconds: int = Field(ge=0)
-
-
-class ProgressCompleteIn(StrictInputModel):
-    item_type: ShortText
-    item_id: int
-
-
-class SectionCompleteIn(StrictInputModel):
-    section_id: int
-    score: int = 0
-    correct_answers: int = 0
-    total_questions: int = 0
-    answers: dict[ShortText, int] = Field(default_factory=dict)
-
-
-class LessonProgressOut(BaseModel):
-    lesson_id: int
-    watched_seconds: int
-    status: str
-
-    model_config = {"from_attributes": True}
-
-
-class SubjectPlanOut(BaseModel):
-    completed_lesson_ids: list[int]
-    completed_block_ids: list[int]
-    completed_quiz_ids: list[int]
-    completed_section_ids: list[int]
-    total_section_count: int
-    total_lesson_count: int
-
-
 class XPOut(BaseModel):
     total_xp: int
     level: int
@@ -65,13 +30,6 @@ class XPTransactionOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class LessonAccessOut(BaseModel):
-    can_access: bool
-    reason: str
-    blocker_lesson_id: Optional[int] = None
-    blocker_quiz_id: Optional[int] = None
 
 
 class LeaderboardEntryOut(BaseModel):
@@ -134,12 +92,5 @@ class SidebarSummaryOut(BaseModel):
 class UserStatsOut(BaseModel):
     total_watch_minutes: int
     quizzes_passed: int
-    lessons_completed: int
+    items_completed: int
     is_pro: bool
-
-
-class SectionAccessOut(BaseModel):
-    can_access: bool
-    reason: str = "unlocked"
-    required_tier: str = ""
-    required_subject_id: Optional[int] = None

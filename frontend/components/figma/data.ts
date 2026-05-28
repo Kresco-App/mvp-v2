@@ -23,7 +23,7 @@ export const figmaLessonItems: FigmaRailItem[] = [
 ]
 
 export const figmaChapterItems: FigmaRailItem[] = Array.from({ length: 8 }, (_, index) => ({
-  label: `Chapter ${index + 1}`,
+  label: `Topic ${index + 1}`,
   active: index === 0,
 }))
 

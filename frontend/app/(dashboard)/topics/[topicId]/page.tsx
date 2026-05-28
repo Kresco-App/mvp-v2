@@ -217,17 +217,7 @@ export default function TopicWorkspacePage() {
     }
 
     router.replace(`/topics/${topicId}?item=${item.id}`, { scroll: false })
-
-    try {
-      await postJson(`/courses/topic-items/${item.id}/event`, {
-        event_type: `${item.item_type}_opened`,
-        target_type: 'topic_item',
-        target_id: item.id,
-        topic_id: workspace?.id,
-        topic_item_id: item.id,
-      })
-    } catch {}
-  }, [router, topicId, workspace?.id])
+  }, [router, topicId])
 
   const runTopicSearch = useCallback(() => {
     if (!activeItem) return

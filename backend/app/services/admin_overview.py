@@ -11,17 +11,15 @@ from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import (
-    Activity, Chapter, ChapterBlock, ChapterSection, ConceptTag, CoursePDF, Exam,
-    ExamProblem, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection,
-    VideoQuizTrigger,
-)
+    ConceptTag, Exam,
+    ExamProblem, Resource, Subject, TabContent, Topic, TopicItem, TopicSection,
+    )
 from app.models.gamification import (
-    ActivityEvent, ContentProgress, DailyQuest, LessonProgress, QuestionAttempt, QuizAttempt, QuizResult,
-    TopicItemProgress, UserXP, XPTransaction,
+    DailyQuest, QuestionAttempt, QuizAttempt, TopicItemProgress, UserXP, XPTransaction,
 )
 from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
-from app.models.quizzes import Question, QuestionSet, Quiz, QuizOption, QuizQuestion
+from app.models.quizzes import Question, QuestionSet
 from app.models.users import User, UserSubjectEntitlement
 from app.schemas.admin import AdminCrudActionsOut, AdminCrudCatalogItemOut, AdminOverviewOut
 from app.services.access import FEATURES_BY_TIER, TIER_RANK
@@ -34,25 +32,12 @@ MODEL_DOMAINS = {
     "User": "users-access",
     "UserSubjectEntitlement": "access-billing",
     "Subject": "knowledge-base",
-    "Chapter": "legacy-course",
-    "Lesson": "legacy-course",
-    "ChapterSection": "legacy-course",
-    "ChapterBlock": "legacy-course",
-    "Activity": "learning-activities",
-    "CoursePDF": "resources",
-    "Quiz": "quiz",
-    "QuizQuestion": "quiz",
-    "QuizOption": "quiz",
     "QuestionSet": "quiz",
     "Question": "quiz",
-    "LessonProgress": "progress-xp",
     "UserXP": "progress-xp",
     "XPTransaction": "progress-xp",
-    "QuizResult": "progress-xp",
     "DailyQuest": "progress-xp",
     "CalendarEvent": "calendar",
-    "ContentProgress": "progress-xp",
-    "VideoQuizTrigger": "quiz",
     "Topic": "knowledge-base",
     "TopicSection": "knowledge-base",
     "TopicItem": "knowledge-base",
@@ -63,7 +48,6 @@ MODEL_DOMAINS = {
     "ExamProblem": "exam-bank",
     "UserNote": "notes-saves-comments",
     "SavedItem": "notes-saves-comments",
-    "ActivityEvent": "engagement",
     "TopicItemProgress": "progress-xp",
     "QuizAttempt": "progress-xp",
     "QuestionAttempt": "progress-xp",
@@ -74,16 +58,6 @@ MODEL_DOMAINS = {
 
 COUNT_MODELS: tuple[tuple[str, type[Any]], ...] = (
     ("subjects", Subject),
-    ("chapters", Chapter),
-    ("lessons", Lesson),
-    ("chapter_sections", ChapterSection),
-    ("chapter_blocks", ChapterBlock),
-    ("activities", Activity),
-    ("course_pdfs", CoursePDF),
-    ("video_quiz_triggers", VideoQuizTrigger),
-    ("quizzes", Quiz),
-    ("quiz_questions", QuizQuestion),
-    ("quiz_options", QuizOption),
     ("question_sets", QuestionSet),
     ("questions", Question),
     ("topics", Topic),
@@ -100,8 +74,6 @@ COUNT_MODELS: tuple[tuple[str, type[Any]], ...] = (
     ("comments", Comment),
     ("notifications", Notification),
     ("admin_audit_logs", AdminAuditLog),
-    ("activity_events", ActivityEvent),
-    ("lesson_progress_records", LessonProgress),
     ("topic_item_progress_records", TopicItemProgress),
     ("xp_transactions", XPTransaction),
     ("question_attempts", QuestionAttempt),
@@ -132,6 +104,10 @@ async def _count(db: AsyncSession, model: type[Any], *where) -> int:
     if where:
         stmt = stmt.where(*where)
     return int(await db.scalar(stmt) or 0)
+
+
+async def _zero(_db: AsyncSession) -> int:
+    return 0
 
 
 async def _count_distinct(db: AsyncSession, column, *where) -> int:
@@ -459,10 +435,10 @@ async def build_admin_overview(db: AsyncSession) -> AdminOverviewOut:
         lambda session: _count(session, User),
         lambda session: _count(session, QuizAttempt),
         lambda session: _count(session, QuizAttempt, QuizAttempt.passed == True),  # noqa: E712
-        lambda session: _count(session, QuizResult),
-        lambda session: _count(session, QuizResult, QuizResult.passed == True),  # noqa: E712
+        lambda session: _count(session, QuizAttempt),
+        lambda session: _count(session, QuizAttempt, QuizAttempt.passed == True),  # noqa: E712
         lambda session: _count(session, TopicItemProgress, TopicItemProgress.status == "completed"),
-        lambda session: _count(session, LessonProgress, LessonProgress.status == "completed"),
+        _zero,
         lambda session: _count(session, User, User.is_staff == True),  # noqa: E712
         lambda session: _count(session, User, User.is_pro == True),  # noqa: E712
         lambda session: _count(session, UserSubjectEntitlement),
@@ -519,9 +495,7 @@ async def build_admin_overview(db: AsyncSession) -> AdminOverviewOut:
     }
 
     progress_breakdowns = await _breakdowns(db, (
-        ("lesson_progress_by_status", LessonProgress, LessonProgress.status),
         ("topic_item_progress_by_status", TopicItemProgress, TopicItemProgress.status),
-        ("content_progress_by_type", ContentProgress, ContentProgress.item_type),
         ("xp_transactions_by_reason", XPTransaction, XPTransaction.reason),
         ("daily_quests_by_completion", DailyQuest, DailyQuest.completed),
     ))
@@ -535,11 +509,11 @@ async def build_admin_overview(db: AsyncSession) -> AdminOverviewOut:
         lambda session: _avg(session, UserXP.streak_days),
     )
     progress_xp = {
-        "lesson_progress_by_status": progress_breakdowns["lesson_progress_by_status"],
-        "topic_item_progress_by_status": progress_breakdowns["topic_item_progress_by_status"],
-        "content_progress_by_type": progress_breakdowns["content_progress_by_type"],
-        "xp_transactions_by_reason": progress_breakdowns["xp_transactions_by_reason"],
-        "daily_quests_by_completion": progress_breakdowns["daily_quests_by_completion"],
+        "lesson_progress_by_status": {},
+        "topic_item_progress_by_status": progress_breakdowns.get("topic_item_progress_by_status", {}),
+        "content_progress_by_type": {},
+        "xp_transactions_by_reason": progress_breakdowns.get("xp_transactions_by_reason", {}),
+        "daily_quests_by_completion": progress_breakdowns.get("daily_quests_by_completion", {}),
         "total_xp": total_xp,
         "average_xp_per_user_with_xp": average_xp_per_user_with_xp,
         "average_streak_days": average_streak_days,
@@ -592,25 +566,26 @@ async def build_admin_overview(db: AsyncSession) -> AdminOverviewOut:
         saves_7d,
         comments_7d,
     ) = await _gather_reads(
-        lambda session: _count(session, ActivityEvent, ActivityEvent.created_at >= recent_since),
-        lambda session: _count_distinct(session, ActivityEvent.user_id, ActivityEvent.created_at >= recent_since),
+        _zero,
+        lambda session: _count_distinct(
+            session,
+            TopicItemProgress.user_id,
+            TopicItemProgress.updated_at >= recent_since,
+        ),
         lambda session: _count(session, QuestionAttempt, QuestionAttempt.is_correct == True),  # noqa: E712
         lambda session: _avg(session, QuizAttempt.score),
-        lambda session: _sum(session, LessonProgress.watched_seconds),
+        _zero,
         lambda session: _sum(session, TopicItemProgress.watched_seconds),
         lambda session: _count(session, UserNote, UserNote.created_at >= recent_since),
         lambda session: _count(session, SavedItem, SavedItem.created_at >= recent_since),
         lambda session: _count(session, Comment, Comment.created_at >= recent_since),
     )
-    activity_breakdowns = await _breakdowns(db, (
-        ("activity_events_by_type", ActivityEvent, ActivityEvent.event_type),
-        ("activity_events_by_target", ActivityEvent, ActivityEvent.target_type),
-    ))
+    activity_breakdowns = {}
     engagement = {
         "active_users_7d": active_users_7d,
         "activity_events_7d": activity_events_7d,
-        "activity_events_by_type": activity_breakdowns["activity_events_by_type"],
-        "activity_events_by_target": activity_breakdowns["activity_events_by_target"],
+        "activity_events_by_type": {},
+        "activity_events_by_target": {},
         "quiz_attempts": quiz_attempts_total,
         "question_attempts": totals["question_attempts"],
         "question_attempts_correct": question_attempts_correct,

@@ -7,109 +7,29 @@ from sqlalchemy.orm import selectinload
 
 from app.config import Settings
 from app.models.calendar import CalendarEvent
-from app.models.courses import Chapter, ChapterBlock, ChapterSection, Lesson, Subject, VideoQuizTrigger
+from app.models.courses import Subject
 from app.models.gamification import (
-    ContentProgress,
     DailyQuest,
     LeaderboardRank,
-    LessonProgress,
     UserXP,
     XPTransaction,
 )
 from app.models.professor import CourseOffering, LiveSession, ProgramTrack
-from app.models.quizzes import Quiz
 from app.models.users import User
-from app.schemas.courses import VideoQuizTriggerOut
 from app.schemas.gamification import (
     DailyQuestOut,
     LeaderboardEntryOut,
-    LessonAccessOut,
-    SectionAccessOut,
     SidebarSummaryOut,
-    SubjectPlanOut,
     UserStatsOut,
     XPOut,
     XPTransactionOut,
 )
+
 from app.services.access import build_access_context
-from app.services.course_access import require_lesson_access
 from app.services.gamification_stats import read_user_stats
 from app.services.media_storage import media_url
 from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
 from app.services.xp import award_xp, calculate_level, generate_daily_quests
-
-
-def grade_section_quiz(section: ChapterSection, answers: dict[str, int]) -> tuple[int, bool, int, int]:
-    quiz_data = section.quiz_data if isinstance(section.quiz_data, dict) else {}
-    questions = quiz_data.get("questions", [])
-    if not isinstance(questions, list):
-        questions = []
-
-    correct = 0
-    for index, question in enumerate(questions):
-        if not isinstance(question, dict):
-            continue
-        options = question.get("options", [])
-        if not isinstance(options, list):
-            continue
-        submitted = answers.get(str(index))
-        if type(submitted) is not int or submitted < 0 or submitted >= len(options):
-            continue
-        option = options[submitted]
-        if isinstance(option, dict) and option.get("is_correct"):
-            correct += 1
-
-    total = len(questions)
-    score = round((correct / total) * 100) if total else 0
-    passed = total > 0 and score >= (section.pass_score or 70)
-    return score, passed, correct, total
-
-
-async def build_lesson_access_status(
-    db: AsyncSession,
-    *,
-    user: User,
-    lesson_id: int,
-) -> LessonAccessOut:
-    result = await db.execute(
-        select(Lesson)
-        .options(selectinload(Lesson.chapter).selectinload(Chapter.lessons))
-        .where(Lesson.id == lesson_id)
-    )
-    lesson = result.scalar_one_or_none()
-    if lesson is None:
-        raise HTTPException(status_code=404, detail="Lesson not found")
-
-    access_context = await build_access_context(db, user)
-    subject_id = lesson.chapter.subject_id if lesson.chapter else None
-    access = access_context.decide_for(lesson, subject_id=subject_id, fallback_required_tier="pro")
-    return LessonAccessOut(can_access=access.can_access, reason=access.reason)
-
-
-async def build_section_access_status(
-    db: AsyncSession,
-    *,
-    user: User,
-    section_id: int,
-) -> SectionAccessOut:
-    result = await db.execute(
-        select(ChapterSection)
-        .options(selectinload(ChapterSection.chapter).selectinload(Chapter.sections))
-        .where(ChapterSection.id == section_id)
-    )
-    section = result.scalar_one_or_none()
-    if section is None:
-        raise HTTPException(status_code=404, detail="Section not found")
-
-    access_context = await build_access_context(db, user)
-    subject_id = section.chapter.subject_id if section.chapter else None
-    access = access_context.decide_for(section, subject_id=subject_id, fallback_required_tier="pro")
-    return SectionAccessOut(
-        can_access=access.can_access,
-        reason=access.reason,
-        required_tier=access.required_tier,
-        required_subject_id=access.required_subject_id,
-    )
 
 
 async def build_xp_summary(db: AsyncSession, *, user: User) -> XPOut:
@@ -143,25 +63,6 @@ async def list_xp_transactions(
         .limit(limit)
     )
     return [XPTransactionOut.model_validate(transaction) for transaction in result.scalars().all()]
-
-
-async def list_lesson_quiz_triggers(
-    db: AsyncSession,
-    *,
-    user: User,
-    lesson_id: int,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[VideoQuizTriggerOut]:
-    await require_lesson_access(db, user, lesson_id)
-    result = await db.execute(
-        select(VideoQuizTrigger)
-        .where(VideoQuizTrigger.lesson_id == lesson_id)
-        .order_by(VideoQuizTrigger.timestamp_seconds)
-        .offset(offset)
-        .limit(limit)
-    )
-    return [VideoQuizTriggerOut.model_validate(trigger) for trigger in result.scalars().all()]
 
 
 async def list_daily_quest_entries(db: AsyncSession, *, user: User) -> list[DailyQuestOut]:
@@ -212,79 +113,6 @@ async def claim_daily_quest_reward(
     )
     await db.commit()
     return {"success": True, "xp_awarded": xp_awarded}
-
-
-async def build_subject_plan(db: AsyncSession, *, user_id: int, subject_id: int) -> SubjectPlanOut | None:
-    subject_exists = await db.scalar(select(Subject.id).where(Subject.id == subject_id))
-    if subject_exists is None:
-        return None
-
-    total_lesson_count = await db.scalar(
-        select(func.count(Lesson.id))
-        .join(Chapter, Chapter.id == Lesson.chapter_id)
-        .where(Chapter.subject_id == subject_id)
-    ) or 0
-    total_section_count = await db.scalar(
-        select(func.count(ChapterSection.id))
-        .join(Chapter, Chapter.id == ChapterSection.chapter_id)
-        .where(Chapter.subject_id == subject_id)
-    ) or 0
-
-    if total_lesson_count:
-        progress_result = await db.execute(
-            select(LessonProgress.lesson_id)
-            .join(Lesson, Lesson.id == LessonProgress.lesson_id)
-            .join(Chapter, Chapter.id == Lesson.chapter_id)
-            .where(
-                LessonProgress.user_id == user_id,
-                LessonProgress.status == "completed",
-                Chapter.subject_id == subject_id,
-            )
-        )
-        completed_lessons = [int(lesson_id) for lesson_id in progress_result.scalars().all()]
-    else:
-        completed_lessons = []
-
-    completed_block_result = await db.execute(
-        select(ContentProgress.item_id)
-        .join(ChapterBlock, ChapterBlock.id == ContentProgress.item_id)
-        .join(Chapter, Chapter.id == ChapterBlock.chapter_id)
-        .where(
-            ContentProgress.user_id == user_id,
-            ContentProgress.item_type == "block",
-            Chapter.subject_id == subject_id,
-        )
-    )
-    completed_quiz_result = await db.execute(
-        select(ContentProgress.item_id)
-        .join(Quiz, Quiz.id == ContentProgress.item_id)
-        .join(Lesson, Lesson.id == Quiz.lesson_id)
-        .join(Chapter, Chapter.id == Lesson.chapter_id)
-        .where(
-            ContentProgress.user_id == user_id,
-            ContentProgress.item_type == "quiz",
-            Chapter.subject_id == subject_id,
-        )
-    )
-    completed_section_result = await db.execute(
-        select(ContentProgress.item_id)
-        .join(ChapterSection, ChapterSection.id == ContentProgress.item_id)
-        .join(Chapter, Chapter.id == ChapterSection.chapter_id)
-        .where(
-            ContentProgress.user_id == user_id,
-            ContentProgress.item_type == "section",
-            Chapter.subject_id == subject_id,
-        )
-    )
-
-    return SubjectPlanOut(
-        completed_lesson_ids=completed_lessons,
-        completed_block_ids=[int(item_id) for item_id in completed_block_result.scalars().all()],
-        completed_quiz_ids=[int(item_id) for item_id in completed_quiz_result.scalars().all()],
-        completed_section_ids=[int(item_id) for item_id in completed_section_result.scalars().all()],
-        total_section_count=total_section_count,
-        total_lesson_count=total_lesson_count,
-    )
 
 
 async def list_leaderboard_entries(
@@ -423,12 +251,12 @@ async def build_user_stats(db: AsyncSession, *, user: User) -> UserStatsOut:
     stats = await read_user_stats(db, user_id=user.id)
     total_seconds = int(stats.total_watch_seconds or 0) if stats else 0
     quizzes_passed = int(stats.quizzes_passed or 0) if stats else 0
-    lessons_completed = int(stats.lessons_completed or 0) if stats else 0
+    items_completed = int(stats.lessons_completed or 0) if stats else 0
 
     return UserStatsOut(
         total_watch_minutes=total_seconds // 60,
         quizzes_passed=quizzes_passed,
-        lessons_completed=lessons_completed,
+        items_completed=items_completed,
         is_pro=user.is_pro,
     )
 

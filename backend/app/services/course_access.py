@@ -6,10 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.courses import (
-    ChapterSection,
     Exam,
     ExamProblem,
-    Lesson,
     Resource,
     TabContent,
     Topic,
@@ -17,7 +15,7 @@ from app.models.courses import (
 )
 from app.models.gamification import TopicItemProgress
 from app.models.users import User
-from app.schemas.courses import ChapterSectionOut, ExamOut, ExamProblemOut, ResourceOut, TabContentOut, TopicItemOut
+from app.schemas.courses import ExamOut, ExamProblemOut, ResourceOut, TabContentOut, TopicItemOut
 from app.services.access import AccessContext, AccessDecision, build_access_context
 
 ORPHANED_PARENT_ACCESS_DECISION = AccessDecision(can_access=False, reason="parent_not_found")
@@ -292,61 +290,6 @@ def exam_out(exam: Exam, problems: list[ExamProblem], access_context: AccessCont
 
 def _scrub_quiz_data(quiz_data: dict | None) -> dict | None:
     return scrub_quiz_config(quiz_data)
-
-def chapter_section_out(
-    section: ChapterSection,
-    access_context: AccessContext,
-    *,
-    fallback_subject_id: int | None = None,
-) -> ChapterSectionOut:
-    subject_id = fallback_subject_id
-    if subject_id is None and section.chapter:
-        subject_id = section.chapter.subject_id
-    access = access_context.decide_for(section, subject_id=subject_id, fallback_required_tier="pro")
-    return ChapterSectionOut(
-        id=section.id,
-        title=section.title,
-        section_type=section.section_type,
-        order=section.order,
-        is_gating=section.is_gating,
-        is_free_preview=section.is_free_preview,
-        vdocipher_id=section.vdocipher_id if access.can_access else "",
-        duration_seconds=section.duration_seconds,
-        content=section.content if access.can_access else "",
-        quiz_data=_scrub_quiz_data(section.quiz_data) if access.can_access else None,
-        pass_score=section.pass_score,
-        activity_type=section.activity_type,
-        activity_data=section.activity_data if access.can_access else None,
-        chapter_id=section.chapter_id,
-    )
-
-
-async def require_lesson_access(
-    db: AsyncSession,
-    user: User,
-    lesson_id: int,
-    *,
-    fallback_required_tier: str = "pro",
-) -> Lesson:
-    lesson = await db.scalar(
-        select(Lesson)
-        .options(selectinload(Lesson.chapter))
-        .where(Lesson.id == lesson_id)
-    )
-    if lesson is None:
-        raise HTTPException(status_code=404, detail="Lesson not found")
-
-    access_context = await build_access_context(db, user)
-    subject_id = lesson.chapter.subject_id if lesson.chapter else None
-    access = access_context.decide_for(
-        lesson,
-        subject_id=subject_id,
-        fallback_required_tier=fallback_required_tier,
-    )
-    if not access.can_access:
-        raise HTTPException(status_code=403, detail=access.locked_reason)
-    return lesson
-
 
 async def require_topic_item_access(
     db: AsyncSession,

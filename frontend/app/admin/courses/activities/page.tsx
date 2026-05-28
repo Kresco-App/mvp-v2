@@ -271,7 +271,7 @@ export default function ActivityBuilderPage() {
             {output && (
               <div className="bg-slate-800/60 rounded-xl p-4 text-xs text-slate-400 space-y-1">
                 <p className="text-slate-300 font-semibold mb-2">Comment utiliser :</p>
-                <p>1. Dans l&apos;admin Django, créez un <code className="text-indigo-300">ChapterSection</code></p>
+                <p>1. Dans l&apos;admin, créez un <code className="text-indigo-300">TopicItem</code></p>
                 <p>2. <code className="text-indigo-300">section_type</code> = <code className="text-green-400">activity</code></p>
                 <p>3. <code className="text-indigo-300">activity_type</code> = <code className="text-green-400">{selectedType}</code></p>
                 <p>4. Collez le contenu de <code className="text-indigo-300">activity_data</code> dans le champ JSON</p>

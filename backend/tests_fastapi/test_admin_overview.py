@@ -14,7 +14,8 @@ from app.admin.views import (
     UserAdmin,
     UserXPAdmin,
 )
-from app.models.courses import Subject, Topic
+from app.models.courses import Subject, Topic, TopicItem, TopicSection
+from app.models.gamification import QuizAttempt, TopicItemProgress
 from app.models.users import User, UserSubjectEntitlement
 from app.services.auth import create_token
 
@@ -46,6 +47,34 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
             subject = Subject(title="Admin Physics", is_published=True, order=99)
             db.add_all([student, staff, subject])
             await db.flush()
+            topic = Topic(
+                subject_id=subject.id,
+                slug="admin-overview-topic",
+                title="Admin Overview Topic",
+                status="published",
+                order=99,
+            )
+            empty_topic = Topic(
+                subject_id=subject.id,
+                slug="admin-overview-empty-topic",
+                title="Admin Overview Empty Topic",
+                status="published",
+                order=100,
+            )
+            db.add_all([topic, empty_topic])
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Main", section_type="main", order=1)
+            db.add(section)
+            await db.flush()
+            topic_item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Admin Overview Item",
+                item_type="reading",
+                status="published",
+            )
+            db.add(topic_item)
+            await db.flush()
             db.add(
                 UserSubjectEntitlement(
                     user_id=student.id,
@@ -55,12 +84,25 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
                 )
             )
             db.add(
-                Topic(
+                QuizAttempt(
+                    user_id=student.id,
                     subject_id=subject.id,
-                    slug="admin-overview-topic",
-                    title="Admin Overview Topic",
-                    status="published",
-                    order=99,
+                    topic_id=topic.id,
+                    topic_item_id=topic_item.id,
+                    source_type="tab",
+                    score=90,
+                    passed=True,
+                    answers={},
+                    grading={},
+                )
+            )
+            db.add(
+                TopicItemProgress(
+                    user_id=student.id,
+                    topic_id=topic.id,
+                    topic_item_id=topic_item.id,
+                    status="completed",
+                    watched_seconds=120,
                 )
             )
             await db.commit()
@@ -83,8 +125,13 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
 
     assert data["totals"]["users"] >= 2
     assert data["totals"]["subjects"] >= 1
+    assert data["totals"]["quiz_attempts"] >= 1
+    assert data["totals"]["quiz_results"] >= 1
     assert data["content_status"]["topics"]["published"] >= 1
     assert "engagement" in data
+    assert data["engagement"]["active_users_7d"] >= 1
+    assert data["engagement"]["quiz_attempt_pass_rate"] > 0
+    assert data["engagement"]["quiz_result_pass_rate"] > 0
     assert "progress_xp" in data
     assert "admin_audit" in data
     assert data["ops_readiness"]["access"]["active_entitlements_now"] >= 1

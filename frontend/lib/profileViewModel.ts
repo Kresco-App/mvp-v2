@@ -31,7 +31,7 @@ export type FigmaProfileXP = {
 export type FigmaProfileStats = {
   totalWatchMinutes: number
   quizzesPassed: number
-  lessonsCompleted: number
+  itemsCompleted: number
   isPro: boolean
 }
 
@@ -192,12 +192,8 @@ export function profileSavedItemHref(save: FigmaProfileSavedItem) {
     })
   }
 
-  if (save.target_type === 'lesson' || save.target_type === 'section') {
-    return `/watch/${save.target_id}`
-  }
-
-  if (save.target_type === 'chapter') {
-    return withQuery('/courses', { chapter: save.target_id })
+  if (save.target_type === 'topic' || save.target_type === 'topic_item') {
+    return topicHref
   }
 
   if (save.target_type === 'tab_content' && topicHref !== '/profile') {

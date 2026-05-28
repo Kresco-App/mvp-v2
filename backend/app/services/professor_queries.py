@@ -133,7 +133,7 @@ async def professor_offerings(
     stmt = (
         select(CourseOffering)
         .options(
-            selectinload(CourseOffering.subject).options(noload(Subject.chapters)),
+            selectinload(CourseOffering.subject),
             selectinload(CourseOffering.track),
         )
         .where(CourseOffering.professor_user_id == professor.id, CourseOffering.status == "active")

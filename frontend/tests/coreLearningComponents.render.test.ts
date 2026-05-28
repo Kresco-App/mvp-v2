@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SectionQuiz from '@/components/SectionQuiz'
 import VideoPlayer from '@/components/VideoPlayer'
-import VideoQuizOverlay from '@/components/VideoQuizOverlay'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -117,7 +116,7 @@ describe('core learning component rendering', () => {
       await flushPromises()
     })
 
-    expect(mocks.apiGet).toHaveBeenCalledWith('/courses/sections/42/stream')
+    expect(mocks.apiGet).toHaveBeenCalledWith('/courses/topic-items/42/stream')
     expect(container.textContent).toContain('Apercu video local')
 
     await act(async () => {
@@ -125,87 +124,13 @@ describe('core learning component rendering', () => {
       await flushPromises()
     })
 
-    expect(mocks.apiPost).toHaveBeenCalledWith('/progress/update', {
-      lesson_id: 42,
+    expect(mocks.apiPost).toHaveBeenCalledWith('/courses/topic-items/42/complete', {
       watched_seconds: 120,
     })
     expect(onComplete).toHaveBeenCalledTimes(1)
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Lecon marquee comme terminee !')
   })
 
-  it('fires a blocking VideoQuizOverlay trigger, submits answers, and resumes after result', async () => {
-    mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/progress/lessons/7/quiz-triggers') {
-        return { data: [{ id: 1, timestamp_seconds: 10, quiz_id: 99, is_blocking: true }] }
-      }
-      if (url === '/quizzes/99') {
-        return {
-          data: {
-            id: 99,
-            title: 'Checkpoint',
-            questions: [
-              {
-                id: 5,
-                text: 'Pick the right option',
-                options: [{ id: 11, text: 'Wrong' }, { id: 12, text: 'Right' }],
-              },
-            ],
-          },
-        }
-      }
-      throw new Error(`unexpected GET ${url}`)
-    })
-    mocks.apiPost.mockResolvedValueOnce({ data: { score: 100, passed: true, xp_earned: 15 } })
-    const onPause = vi.fn()
-    const onResume = vi.fn()
-    const onXPEarned = vi.fn()
-    const { container, root } = renderComponent(React.createElement(VideoQuizOverlay, {
-      lessonId: 7,
-      currentTime: 0,
-      onPause,
-      onResume,
-      onXPEarned,
-    }))
-
-    await act(async () => {
-      await flushPromises()
-    })
-    expect(container.textContent).toBe('')
-
-    await act(async () => {
-      root.render(React.createElement(VideoQuizOverlay, {
-        lessonId: 7,
-        currentTime: 10,
-        onPause,
-        onResume,
-        onXPEarned,
-      }))
-      await flushPromises()
-    })
-
-    expect(onPause).toHaveBeenCalledTimes(1)
-    expect(container.textContent).toContain('Checkpoint')
-    expect(buttonByText(container, 'Valider')?.hasAttribute('disabled')).toBe(true)
-
-    act(() => {
-      buttonByText(container, 'Right')?.click()
-    })
-    await act(async () => {
-      buttonByText(container, 'Valider')?.click()
-      await flushPromises()
-    })
-
-    expect(mocks.apiPost).toHaveBeenCalledWith('/progress/quiz-result', { answers: { 5: 12 } }, {
-      params: { quiz_id: 99 },
-    })
-    expect(onXPEarned).toHaveBeenCalledWith(15)
-    expect(container.textContent).toContain('100%')
-
-    act(() => {
-      buttonByText(container, 'Continuer a regarder')?.click()
-    })
-    expect(onResume).toHaveBeenCalledTimes(1)
-  })
 })
 
 function renderComponent(element: React.ReactElement) {

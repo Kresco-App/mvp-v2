@@ -22,46 +22,9 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.users import User
-    from app.models.courses import Lesson
-    from app.models.quizzes import Question, QuestionSet, Quiz
+    from app.models.quizzes import Question, QuestionSet
 
 
-class LessonProgress(Base):
-    __tablename__ = "lesson_progress"
-    __table_args__ = (
-        UniqueConstraint("user_id", "lesson_id", name="uq_lesson_progress_user_lesson"),
-        Index("ix_lesson_progress_user_lesson", "user_id", "lesson_id"),
-        Index("ix_lesson_progress_user_status", "user_id", "status"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    lesson_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("lessons.id", ondelete="CASCADE"), index=True)
-    watched_seconds: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(20), default="started")
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    user: Mapped["User"] = relationship("User", back_populates="lesson_progress")
-    lesson: Mapped["Lesson"] = relationship("Lesson")
-
-
-class ContentProgress(Base):
-    __tablename__ = "content_progress"
-    __table_args__ = (
-        UniqueConstraint("user_id", "item_type", "item_id", name="uq_content_progress_user_item"),
-        Index("ix_content_progress_user_item", "user_id", "item_type", "item_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    item_type: Mapped[str] = mapped_column(String(20))
-    item_id: Mapped[int] = mapped_column(Integer)
-    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    user: Mapped["User"] = relationship("User", back_populates="content_progress")
 
 
 class UserXP(Base):
@@ -147,23 +110,6 @@ class XPTransaction(Base):
     user: Mapped["User"] = relationship("User", back_populates="xp_transactions")
 
 
-class QuizResult(Base):
-    __tablename__ = "quiz_results"
-    __table_args__ = (
-        UniqueConstraint("user_id", "quiz_id", name="uq_quiz_results_user_quiz"),
-        Index("ix_quiz_results_user_passed", "user_id", "passed"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    quiz_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
-    score: Mapped[int] = mapped_column(Integer)
-    passed: Mapped[bool] = mapped_column(Boolean)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    user: Mapped["User"] = relationship("User", back_populates="quiz_results")
-    quiz: Mapped["Quiz"] = relationship("Quiz", back_populates="results")
-
 
 class DailyQuest(Base):
     __tablename__ = "daily_quests"
@@ -185,27 +131,6 @@ class DailyQuest(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="daily_quests")
 
-
-class ActivityEvent(Base):
-    __tablename__ = "activity_events"
-    __table_args__ = (
-        Index("ix_activity_events_created_at", "created_at"),
-        Index("ix_activity_events_user_created", "user_id", "created_at"),
-        Index("ix_activity_events_event_type", "event_type"),
-        Index("ix_activity_events_target_type", "target_type"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    event_type: Mapped[str] = mapped_column(String(60))
-    target_type: Mapped[str] = mapped_column(String(40))
-    target_id: Mapped[int] = mapped_column(Integer)
-    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
-    topic_item_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    user: Mapped["User"] = relationship("User")
 
 
 class TopicItemProgress(Base):

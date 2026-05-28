@@ -6,9 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.courses import TopicItem
-from app.models.gamification import ActivityEvent
 from app.models.users import User
-from app.schemas.courses import ActivityEventIn, TopicItemCompleteIn
+from app.schemas.courses import TopicItemCompleteIn
 from app.services.course_access import access_for_topic_item
 from app.services.course_progress import (
     bounded_topic_watch_seconds,
@@ -17,6 +16,30 @@ from app.services.course_progress import (
     requires_timed_topic_completion,
 )
 from app.services.xp import award_xp
+
+QUIZ_ITEM_TYPES = {"quiz", "checkpoint_quiz", "quiz_set", "question_set"}
+XP_REASON_BY_ITEM_TYPE = {
+    "video": "video_complete",
+    "interactive": "lab_complete",
+    "lab": "lab_complete",
+    "reading": "lesson_complete",
+    "lesson": "lesson_complete",
+    "text": "lesson_complete",
+    "pdf": "lesson_complete",
+    "resource": "lesson_complete",
+}
+
+
+def _normalized_item_type(item_type: str) -> str:
+    return item_type.strip().lower()
+
+
+def _is_quiz_item_type(item_type: str) -> bool:
+    return _normalized_item_type(item_type) in QUIZ_ITEM_TYPES
+
+
+def _xp_reason_for_item_type(item_type: str) -> str:
+    return XP_REASON_BY_ITEM_TYPE.get(_normalized_item_type(item_type), "lesson_complete")
 
 
 async def _get_accessible_topic_item(db: AsyncSession, user: User, item_id: int) -> TopicItem:
@@ -34,33 +57,6 @@ async def _get_accessible_topic_item(db: AsyncSession, user: User, item_id: int)
     return item
 
 
-async def record_topic_activity_event(
-    db: AsyncSession,
-    *,
-    user: User,
-    item_id: int,
-    body: ActivityEventIn,
-) -> dict[str, bool]:
-    item = await _get_accessible_topic_item(db, user, item_id)
-    db.add(ActivityEvent(
-        user_id=user.id,
-        event_type=body.event_type,
-        target_type=body.target_type,
-        target_id=body.target_id,
-        topic_id=body.topic_id or item.topic_id,
-        topic_item_id=body.topic_item_id or item.id,
-        metadata_json=body.metadata_json,
-    ))
-    await get_or_create_topic_item_progress(
-        db,
-        user_id=user.id,
-        topic_id=item.topic_id,
-        topic_item_id=item.id,
-    )
-    await db.commit()
-    return {"ok": True}
-
-
 async def complete_topic_item_state(
     db: AsyncSession,
     *,
@@ -69,7 +65,7 @@ async def complete_topic_item_state(
     body: TopicItemCompleteIn,
 ) -> dict[str, int | bool]:
     item = await _get_accessible_topic_item(db, user, item_id)
-    if "quiz" in item.item_type:
+    if _is_quiz_item_type(item.item_type):
         raise HTTPException(status_code=400, detail="Quiz items must be submitted through quiz endpoints")
     progress = await get_or_create_topic_item_progress(
         db,
@@ -96,16 +92,7 @@ async def complete_topic_item_state(
         raise HTTPException(status_code=409, detail="Topic item is not eligible for completion yet")
     progress.status = "completed"
     progress.completed_at = now
-    db.add(ActivityEvent(
-        user_id=user.id,
-        event_type=f"{item.item_type}_completed",
-        target_type="topic_item",
-        target_id=item.id,
-        topic_id=item.topic_id,
-        topic_item_id=item.id,
-        metadata_json={"watched_seconds": progress.watched_seconds},
-    ))
-    xp_reason = "video_complete" if "video" in item.item_type else "lab_complete" if "interactive" in item.item_type else "lesson_complete"
+    xp_reason = _xp_reason_for_item_type(item.item_type)
     xp_earned = 0
     if not was_completed:
         xp_earned = await award_xp(

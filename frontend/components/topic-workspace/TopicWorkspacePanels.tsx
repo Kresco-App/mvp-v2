@@ -21,10 +21,6 @@ import {
 import { AnimatedContentRenderer } from '@/components/animated/registry'
 import type { AnimatedCompletionEvent, AnimatedRendererProps } from '@/components/animated/types'
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(' ')
-}
-
 export function LockedContentPanel({
   reason,
   title,
@@ -91,22 +87,39 @@ function QuizQuestion({
 }) {
   const type = question.type || 'multiple_choice'
   const options = question.options || ['true', 'false']
+  const normalizeOption = (option: any) => {
+    if (option && typeof option === 'object' && !Array.isArray(option)) {
+      const optionValue = option.id ?? option.value ?? option.key ?? option.text ?? option.label
+      return {
+        key: String(optionValue),
+        value: optionValue,
+        label: String(option.text ?? option.label ?? optionValue),
+      }
+    }
+    return {
+      key: String(option),
+      value: option,
+      label: String(option),
+    }
+  }
 
   if (type === 'multiple_choice' || type === 'true_false') {
     return (
       <div className="grid gap-2">
-        {options.map((option: string) => (
+        {options.map((rawOption: any) => {
+          const option = normalizeOption(rawOption)
+          return (
           <button
-            key={option}
+            key={option.key}
             type="button"
-            onClick={() => onChange(option)}
+            onClick={() => onChange(option.value)}
             className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
-              value === option ? 'border-[#29aee4] bg-[#29aee4] text-white' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
+              String(value) === String(option.value) ? 'border-[#29aee4] bg-[#29aee4] text-white' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
             }`}
           >
-            {option}
+            {option.label}
           </button>
-        ))}
+        )})}
       </div>
     )
   }
@@ -115,18 +128,21 @@ function QuizQuestion({
     const selected = Array.isArray(value) ? value.map(String) : []
     return (
       <div className="grid gap-2">
-        {(question.options || []).map((option: string) => (
+        {(question.options || []).map((rawOption: any) => {
+          const option = normalizeOption(rawOption)
+          const isSelected = selected.includes(String(option.value))
+          return (
           <button
-            key={option}
+            key={option.key}
             type="button"
-            onClick={() => onChange(toggleMultiAnswer(value, option))}
+            onClick={() => onChange(toggleMultiAnswer(value, option.value))}
             className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
-              selected.includes(option) ? 'border-[#29aee4] bg-[#eaf8ff] text-[#1292cf]' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
+              isSelected ? 'border-[#29aee4] bg-[#eaf8ff] text-[#1292cf]' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
             }`}
           >
-            {selected.includes(option) ? 'Selected: ' : ''}{option}
+            {isSelected ? 'Selected: ' : ''}{option.label}
           </button>
-        ))}
+        )})}
       </div>
     )
   }

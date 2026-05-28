@@ -126,6 +126,8 @@ function getContentSecurityPolicyTemplate() {
       'https://player.vdocipher.com',
       'https://*.ably.io',
       'wss://*.ably.io',
+      'https://*.ably.net',
+      'wss://*.ably.net',
       'https://*.ably-realtime.com',
       'wss://*.ably-realtime.com',
       ...devConnectSources,
@@ -160,6 +162,8 @@ function withSecurityHeaders(response: NextResponse, csp: string) {
   response.headers.set(CSP_HEADER, csp)
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
+  response.headers.set('X-Frame-Options', 'DENY')
+  response.headers.set('X-Content-Type-Options', 'nosniff')
   return response
 }
 

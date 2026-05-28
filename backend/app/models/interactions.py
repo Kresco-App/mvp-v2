@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from app.models.courses import TopicItem
     from app.models.users import User
 
-ALLOWED_TARGET_TYPES = {"lesson", "chapter", "section", "topic_item", "resource", "quiz", "question", "exam_problem", "tab_content"}
+ALLOWED_TARGET_TYPES = {"topic", "topic_item", "resource", "question_set", "question", "exam_problem", "tab_content"}
 
 
 class Comment(Base):

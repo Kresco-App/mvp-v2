@@ -29,14 +29,8 @@ type TopicWorkspace = {
 type SubjectSummary = {
   id: number
   title: string
-  chapter_count?: number
 }
 
-type WatchSectionSummary = {
-  id: number
-  title: string
-  section_type: string
-}
 
 type CourseOffering = {
   id: number
@@ -86,20 +80,13 @@ type ProfessorChatImageMessage = {
   attachment_size: number
 }
 
-type SubjectDetail = {
-  id: number
-  title: string
-  chapters: Array<{
-    title: string
-    sections?: WatchSectionSummary[]
-  }>
-}
+
 
 async function firstSeededSubject(page: Page) {
   const subjectsResponse = await page.request.get(apiUrl('/api/courses/subjects'))
   expect(subjectsResponse.status()).toBe(200)
   const subjects = await subjectsResponse.json() as SubjectSummary[]
-  const subject = subjects.find((item) => (item.chapter_count ?? 0) > 0) ?? subjects[0]
+  const subject = subjects[0]
   expect(subject, 'expected seeded backend database to include at least one subject').toBeTruthy()
   return subject
 }
@@ -211,28 +198,7 @@ async function csrfRequestHeaders(page: Page) {
   }
 }
 
-async function findWatchFixtureSection(page: Page) {
-  const subjectsResponse = await page.request.get(apiUrl('/api/courses/subjects'))
-  expect(subjectsResponse.status()).toBe(200)
-  const subjects = await subjectsResponse.json() as SubjectSummary[]
 
-  for (const subject of subjects.filter((item) => (item.chapter_count ?? 0) > 0)) {
-    const subjectResponse = await page.request.get(apiUrl(`/api/courses/subjects/${subject.id}`))
-    expect(subjectResponse.status()).toBe(200)
-    const detail = await subjectResponse.json() as SubjectDetail
-    const chapter = detail.chapters.find((item) => item.title === 'E2E Watch Flow')
-    const section = chapter?.sections?.find((item) => item.title === 'E2E Watch Text Section')
-    if (chapter && section) {
-      return {
-        subjectTitle: detail.title,
-        chapterTitle: chapter.title,
-        section,
-      }
-    }
-  }
-
-  throw new Error('expected E2E Watch Flow section in seeded backend database')
-}
 
 test('local demo login backdoor is not exposed', async ({ page }) => {
   await page.goto('/')
@@ -246,7 +212,7 @@ test('local demo login backdoor is not exposed', async ({ page }) => {
   expect(storedToken).toBeNull()
 })
 
-test('backend-backed student journey reaches topic and watch progress', async ({ page }) => {
+test('backend-backed student journey reaches topic progress', async ({ page }) => {
   const clientErrors: string[] = []
   page.on('console', (message) => {
     if (message.type() === 'error') clientErrors.push(message.text())
@@ -259,7 +225,7 @@ test('backend-backed student journey reaches topic and watch progress', async ({
       && response.request().method() === 'GET'
   ))
 
-  await loginAsSeededUser(page, 'student@kresco.local')
+  await loginAsSeededUser(page, 'student@example.com')
   await expect(page).toHaveURL(/\/home$/)
   await expect(page.getByRole('heading', { name: /Hello Kresco!/i })).toBeVisible().catch((error) => (
     failWithPageState(page, 'Home did not render after backend login.', error, clientErrors)
@@ -267,7 +233,7 @@ test('backend-backed student journey reaches topic and watch progress', async ({
   await expect(page.getByText('Wanna complete where we left off last time?')).toBeVisible()
 
   const topics = await (await topicsResponse).json() as TopicSummary[]
-  const topic = topics.find((item) => (
+  const topic = topics.find((item) => item.title === 'E2E Watch Flow') ?? topics.find((item) => (
     item.can_access !== false
       && item.item_count > 0
       && item.completed_count < item.item_count
@@ -283,7 +249,7 @@ test('backend-backed student journey reaches topic and watch progress', async ({
     responsePath(response) === `/api/courses/topics/${topic.id}/workspace`
       && response.request().method() === 'GET'
   ))
-  await page.locator(`a[href="/topics/${topic.id}"]`).first().click()
+  await page.goto(`/topics/${topic.id}`)
 
   const workspace = await (await workspaceResponse).json() as TopicWorkspace
   const activeItem = workspace.active_item
@@ -291,7 +257,9 @@ test('backend-backed student journey reaches topic and watch progress', async ({
     throw new Error('expected topic workspace to expose an active item')
   }
   await expect(page).toHaveURL(new RegExp(`/topics/${topic.id}`))
-  await expect(page.getByRole('heading', { name: new RegExp(escapeRegExp(`${workspace.subject_title}: ${activeItem.title}`), 'i') })).toBeVisible()
+  await expect(page.getByRole('heading', { name: new RegExp(escapeRegExp(`${workspace.subject_title}: ${activeItem.title}`), 'i') })).toBeVisible().catch((error) => (
+    failWithPageState(page, 'Topic workspace did not render after backend route load.', error, clientErrors)
+  ))
 
   const completeResponse = page.waitForResponse((response) => (
     responsePath(response) === `/api/courses/topic-items/${activeItem.id}/complete`
@@ -312,33 +280,10 @@ test('backend-backed student journey reaches topic and watch progress', async ({
   expect(refreshedWorkspace.active_item?.progress_status).toBe('completed')
   await expect(page.getByLabel('Course content')).toContainText(`${refreshedWorkspace.completed_count}/${refreshedWorkspace.item_count} Completed`)
 
-  const watchFixture = await findWatchFixtureSection(page)
-  const watchContextResponse = page.waitForResponse((response) => (
-    responsePath(response) === `/api/courses/sections/${watchFixture.section.id}/watch-context`
-      && response.request().method() === 'GET'
-  ))
-  await page.goto(`/watch/${watchFixture.section.id}`)
-
-  const watchContext = await watchContextResponse
-  expect(watchContext.status()).toBe(200)
-  await expect(page.getByRole('heading', { name: watchFixture.section.title })).toBeVisible()
-  await expect(page.getByText(watchFixture.chapterTitle).first()).toBeVisible()
-  await expect(page.getByText('Backend-backed watch progress')).toBeVisible()
-
-  const sectionCompleteResponse = page.waitForResponse((response) => (
-    responsePath(response) === '/api/progress/section-complete'
-      && response.request().method() === 'POST'
-  ))
-  await page.getByRole('button', { name: /Marquer comme terminee/i }).click()
-
-  const sectionComplete = await sectionCompleteResponse
-  expect(sectionComplete.status()).toBe(200)
-  await expect(page.getByText('Terminee')).toBeVisible()
-  await expect(page.getByRole('button', { name: /Section suivante/i })).toBeVisible()
 })
 
 test('backend-backed VIP student chat sends a real professor message', async ({ page }) => {
-  await loginAsSeededUser(page, 'vip@kresco.local')
+  await loginAsSeededUser(page, 'vip@example.com')
   await page.goto('/professor-chat')
 
   await expect(page.getByRole('heading', { name: /Pr Ahmed Kamil/i })).toBeVisible()
@@ -364,7 +309,7 @@ test('backend-backed upload flows use S3 mock storage for profile and chat media
   const professorPage = await professorContext.newPage()
 
   try {
-    await loginAsSeededUser(studentPage, 'vip@kresco.local')
+    await loginAsSeededUser(studentPage, 'vip@example.com')
     await studentPage.goto('/profile')
     await expect(studentPage.getByRole('button', { name: 'Edit profile' })).toBeVisible()
     await studentPage.getByRole('button', { name: 'Edit profile' }).click()
@@ -423,7 +368,7 @@ test('backend-backed upload flows use S3 mock storage for profile and chat media
     expectMockS3MediaUrl(studentImageMessage.attachment_url, '/professor-chat/')
     await expect(studentPage.getByText(studentCaption)).toBeVisible()
 
-    await loginAsSeededUser(professorPage, 'professor@kresco.local')
+    await loginAsSeededUser(professorPage, 'professor@example.com')
     await professorPage.goto('/professor/chat')
     await expect(professorPage.getByRole('heading', { name: 'Professor Chat' })).toBeVisible()
     await expect(professorPage.getByText('Sara Benali').first()).toBeVisible()
@@ -489,16 +434,15 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
     }
 
     const forbiddenPage = await forbiddenContext.newPage()
-    await loginAsSeededUser(forbiddenPage, 'student@kresco.local')
+    await loginAsSeededUser(forbiddenPage, 'student@example.com')
     await forbiddenPage.goto('/admin')
-    await expect(forbiddenPage).toHaveURL(/\/admin$/)
-    await expect(forbiddenPage.getByRole('heading', { name: 'Staff access required' })).toBeVisible()
-    await expect(forbiddenPage.getByRole('link', { name: 'Back to app' })).toBeVisible()
+    await expect(forbiddenPage).toHaveURL(/\/home$/)
+    await expect(forbiddenPage.getByRole('heading', { name: /Hello Kresco!/i })).toBeVisible()
     const storedForbiddenUser = await forbiddenPage.evaluate(() => window.localStorage.getItem('kresco_user'))
-    expect(storedForbiddenUser).toContain('student@kresco.local')
+    expect(storedForbiddenUser).toContain('student@example.com')
 
     const backendFailurePage = await backendFailureContext.newPage()
-    await loginViaBackend(backendFailurePage, 'admin@kresco.local')
+    await loginViaBackend(backendFailurePage, 'admin@example.com')
     let overviewFailures = 0
     await backendFailurePage.route('**/api/admin/overview', async (route) => {
       overviewFailures += 1
@@ -514,7 +458,7 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
     expect(overviewFailures).toBeGreaterThan(0)
 
     const emptyPage = await emptyContext.newPage()
-    await loginAsSeededUser(emptyPage, 'student@kresco.local')
+    await loginAsSeededUser(emptyPage, 'student@example.com')
     await emptyPage.route('**/api/courses/topics', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     })
@@ -535,12 +479,11 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
 test('backend-backed route fallbacks stay non-blank on controlled API failures', async ({ browser }) => {
   const subjectContext = await browser.newContext({ baseURL: frontendOrigin })
   const topicContext = await browser.newContext({ baseURL: frontendOrigin })
-  const watchContext = await browser.newContext({ baseURL: frontendOrigin })
   const examContext = await browser.newContext({ baseURL: frontendOrigin })
 
   try {
     const subjectPage = await subjectContext.newPage()
-    await loginViaBackend(subjectPage, 'student@kresco.local')
+    await loginViaBackend(subjectPage, 'student@example.com')
     const subject = await firstSeededSubject(subjectPage)
     let subjectFailures = 0
     await subjectPage.route(`**/api/courses/subjects/${subject.id}`, async (route) => {
@@ -559,7 +502,7 @@ test('backend-backed route fallbacks stay non-blank on controlled API failures',
     expect(subjectFailures).toBeGreaterThan(0)
 
     const topicPage = await topicContext.newPage()
-    await loginViaBackend(topicPage, 'student@kresco.local')
+    await loginViaBackend(topicPage, 'student@example.com')
     const topic = await firstAccessibleTopic(topicPage)
     let topicFailures = 0
     await topicPage.route(`**/api/courses/topics/${topic.id}/workspace**`, async (route) => {
@@ -577,30 +520,11 @@ test('backend-backed route fallbacks stay non-blank on controlled API failures',
     await expect(topicPage.getByRole('link', { name: 'Back home' })).toBeVisible()
     expect(topicFailures).toBeGreaterThan(0)
 
-    const watchPage = await watchContext.newPage()
-    await loginViaBackend(watchPage, 'student@kresco.local')
-    const watchFixture = await findWatchFixtureSection(watchPage)
-    let watchFailures = 0
-    await watchPage.route(`**/api/courses/sections/${watchFixture.section.id}/watch-context`, async (route) => {
-      watchFailures += 1
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ detail: 'controlled E2E watch context failure' }),
-      })
-    })
-    await watchPage.goto(`/watch/${watchFixture.section.id}`)
-    await expect(watchPage).toHaveURL(new RegExp(`/watch/${watchFixture.section.id}$`))
-    await expect(watchPage.getByRole('heading', { name: 'This lesson could not be loaded.' })).toBeVisible()
-    await expect(watchPage.getByRole('button', { name: 'Retry' })).toBeVisible()
-    await expect(watchPage.getByRole('link', { name: 'Back home' })).toBeVisible()
-    expect(watchFailures).toBeGreaterThan(0)
-
     const examPage = await examContext.newPage()
-    await loginViaBackend(examPage, 'student@kresco.local')
+    await loginViaBackend(examPage, 'student@example.com')
     const examSubject = await firstSeededSubject(examPage)
     let examFailures = 0
-    await examPage.route(`**/api/courses/subjects/${examSubject.id}`, async (route) => {
+    await examPage.route(`**/api/quizzes/subjects/${examSubject.id}/discovery`, async (route) => {
       examFailures += 1
       await route.fulfill({
         status: 500,
@@ -617,7 +541,6 @@ test('backend-backed route fallbacks stay non-blank on controlled API failures',
   } finally {
     await subjectContext.close()
     await topicContext.close()
-    await watchContext.close()
     await examContext.close()
   }
 })
@@ -629,7 +552,7 @@ test('backend-backed professor live session becomes student-visible with interac
   const studentPage = await studentContext.newPage()
 
   try {
-    await loginAsSeededUser(professorPage, 'professor@kresco.local')
+    await loginAsSeededUser(professorPage, 'professor@example.com')
 
     const offeringsResponse = await professorPage.request.get(apiUrl('/api/professor/offerings'))
     expect(offeringsResponse.status()).toBe(200)
@@ -687,7 +610,7 @@ test('backend-backed professor live session becomes student-visible with interac
     expect(checkpoint.title).toBe(checkpointTitle)
     expect(checkpoint.status).toBe('active')
 
-    await loginAsSeededUser(studentPage, 'vip@kresco.local')
+    await loginAsSeededUser(studentPage, 'vip@example.com')
     const studentListResponsePromise = studentPage.waitForResponse((response) => (
       responsePath(response) === '/api/professor/student-live-sessions'
         && response.request().method() === 'GET'

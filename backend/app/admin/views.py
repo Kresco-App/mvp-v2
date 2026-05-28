@@ -9,13 +9,11 @@ from app.admin.auth import ADMIN_SESSION_AUTHENTICATED, ADMIN_SESSION_USER_ID
 from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import (
-    Activity, Chapter, ChapterBlock, ChapterSection, ConceptTag, CoursePDF, Exam,
-    ExamProblem, Lesson, Resource, Subject, TabContent, Topic, TopicItem, TopicSection,
-    VideoQuizTrigger,
-)
+    ConceptTag, Exam,
+    ExamProblem, Resource, Subject, TabContent, Topic, TopicItem, TopicSection,
+    )
 from app.models.gamification import (
-    ActivityEvent, ContentProgress, DailyQuest, LessonProgress, QuestionAttempt, QuizAttempt, QuizResult,
-    TopicItemProgress, UserXP, XPTransaction,
+    DailyQuest, QuestionAttempt, QuizAttempt, TopicItemProgress, UserXP, XPTransaction,
 )
 from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
@@ -29,7 +27,7 @@ from app.models.professor import (
     ProfessorChatMessage,
     ProgramTrack,
 )
-from app.models.quizzes import Question, QuestionSet, Quiz, QuizOption, QuizQuestion
+from app.models.quizzes import Question, QuestionSet
 from app.models.users import User, UserSubjectEntitlement
 
 
@@ -105,8 +103,8 @@ class UserAdmin(PowerModelView, model=User):
     column_list = [User.id, User.email, User.full_name, User.role, User.tier, User.is_pro, User.niveau, User.filiere, User.is_active, User.is_email_verified, User.created_at]
     column_searchable_list = [User.email, User.full_name]
     column_sortable_list = [User.created_at, User.is_pro, User.role, User.tier]
-    form_excluded_columns = ["password", "last_login", "lesson_progress", "content_progress",
-                             "xp", "xp_transactions", "quiz_results", "daily_quests", "comments", "notifications",
+    form_excluded_columns = ["password", "last_login",
+                             "xp", "xp_transactions", "daily_quests", "comments", "notifications",
                              "subject_entitlements"]
     can_create = True
     can_edit = True
@@ -139,127 +137,29 @@ class SubjectAdmin(PowerModelView, model=Subject):
     column_list = [Subject.id, Subject.title, Subject.is_published, Subject.order, Subject.created_at]
     column_searchable_list = [Subject.title]
     column_sortable_list = [Subject.order, Subject.created_at]
-    form_excluded_columns = ["chapters"]
+    form_excluded_columns: list[str] = []
     can_create = True
     can_edit = True
     can_delete = True
     can_view_details = True
 
 
-class ChapterAdmin(PowerModelView, model=Chapter):
-    name = "Chapter"
-    name_plural = "Chapters"
-    icon = "fa-solid fa-bookmark"
-    column_list = [Chapter.id, Chapter.title, Chapter.subject_id, Chapter.order, Chapter.created_at]
-    column_searchable_list = [Chapter.title]
-    column_sortable_list = [Chapter.order]
-    form_excluded_columns = ["subject", "lessons", "blocks", "sections"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class LessonAdmin(PowerModelView, model=Lesson):
-    name = "Lesson"
-    name_plural = "Lessons"
-    icon = "fa-solid fa-video"
-    column_list = [Lesson.id, Lesson.title, Lesson.chapter_id, Lesson.duration_seconds, Lesson.is_free_preview, Lesson.order]
-    column_searchable_list = [Lesson.title]
-    column_sortable_list = [Lesson.order]
-    form_excluded_columns = ["chapter", "activities", "pdfs", "quiz", "quiz_triggers"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class ChapterSectionAdmin(PowerModelView, model=ChapterSection):
-    name = "Chapter Section"
-    name_plural = "Chapter Sections"
-    icon = "fa-solid fa-layer-group"
-    column_list = [ChapterSection.id, ChapterSection.title, ChapterSection.chapter_id, ChapterSection.section_type, ChapterSection.order, ChapterSection.is_gating, ChapterSection.is_free_preview]
-    column_searchable_list = [ChapterSection.title]
-    column_sortable_list = [ChapterSection.order]
-    form_excluded_columns = ["chapter"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class ChapterBlockAdmin(PowerModelView, model=ChapterBlock):
-    name = "Chapter Block"
-    name_plural = "Chapter Blocks"
-    icon = "fa-solid fa-paragraph"
-    column_list = [ChapterBlock.id, ChapterBlock.title, ChapterBlock.chapter_id, ChapterBlock.block_type, ChapterBlock.order]
-    form_excluded_columns = ["chapter"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class ActivityAdmin(PowerModelView, model=Activity):
-    name = "Activity"
-    name_plural = "Activities"
-    icon = "fa-solid fa-flask"
-    column_list = [Activity.id, Activity.title, Activity.lesson_id, Activity.activity_type, Activity.order]
-    column_searchable_list = [Activity.title]
-    form_excluded_columns = ["lesson"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class CoursePDFAdmin(PowerModelView, model=CoursePDF):
-    name = "Course PDF"
-    name_plural = "Course PDFs"
-    icon = "fa-solid fa-file-pdf"
-    column_list = [CoursePDF.id, CoursePDF.title, CoursePDF.lesson_id, CoursePDF.order]
-    form_excluded_columns = ["lesson"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class QuizAdmin(PowerModelView, model=Quiz):
-    name = "Quiz"
-    name_plural = "Quizzes"
-    icon = "fa-solid fa-question-circle"
-    column_list = [Quiz.id, Quiz.title, Quiz.lesson_id, Quiz.pass_score, Quiz.created_at]
-    form_excluded_columns = ["lesson", "questions", "results"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class QuizQuestionAdmin(PowerModelView, model=QuizQuestion):
-    name = "Quiz Question"
-    name_plural = "Quiz Questions"
-    icon = "fa-solid fa-list-ol"
-    column_list = [QuizQuestion.id, QuizQuestion.quiz_id, QuizQuestion.text, QuizQuestion.order]
-    column_searchable_list = [QuizQuestion.text]
-    form_excluded_columns = ["quiz", "options"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
-class QuizOptionAdmin(PowerModelView, model=QuizOption):
-    name = "Quiz Option"
-    name_plural = "Quiz Options"
-    icon = "fa-solid fa-check-square"
-    column_list = [QuizOption.id, QuizOption.question_id, QuizOption.text, QuizOption.is_correct]
-    form_excluded_columns = ["question"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
 class QuestionSetAdmin(PowerModelView, model=QuestionSet):
@@ -295,16 +195,6 @@ class QuestionAdmin(PowerModelView, model=Question):
     can_view_details = True
 
 
-class LessonProgressAdmin(PowerModelView, model=LessonProgress):
-    name = "Lesson Progress"
-    name_plural = "Lesson Progress Records"
-    icon = "fa-solid fa-chart-line"
-    column_list = [LessonProgress.id, LessonProgress.user_id, LessonProgress.lesson_id, LessonProgress.watched_seconds, LessonProgress.status, LessonProgress.updated_at]
-    form_excluded_columns = ["user", "lesson"]
-    can_create = False
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
 class UserXPAdmin(PowerModelView, model=UserXP):
@@ -332,16 +222,6 @@ class XPTransactionAdmin(PowerModelView, model=XPTransaction):
     can_view_details = True
 
 
-class QuizResultAdmin(PowerModelView, model=QuizResult):
-    name = "Quiz Result"
-    name_plural = "Quiz Results"
-    icon = "fa-solid fa-trophy"
-    column_list = [QuizResult.id, QuizResult.user_id, QuizResult.quiz_id, QuizResult.score, QuizResult.passed, QuizResult.created_at]
-    form_excluded_columns = ["user", "quiz"]
-    can_create = False
-    can_edit = False
-    can_delete = True
-    can_view_details = True
 
 
 class DailyQuestAdmin(PowerModelView, model=DailyQuest):
@@ -374,28 +254,8 @@ class CalendarEventAdmin(PowerModelView, model=CalendarEvent):
     can_view_details = True
 
 
-class ContentProgressAdmin(PowerModelView, model=ContentProgress):
-    name = "Content Progress"
-    name_plural = "Content Progress Records"
-    icon = "fa-solid fa-check"
-    column_list = [ContentProgress.id, ContentProgress.user_id, ContentProgress.item_type, ContentProgress.item_id, ContentProgress.completed_at]
-    form_excluded_columns = ["user"]
-    can_create = False
-    can_edit = False
-    can_delete = True
-    can_view_details = True
 
 
-class VideoQuizTriggerAdmin(PowerModelView, model=VideoQuizTrigger):
-    name = "Video Quiz Trigger"
-    name_plural = "Video Quiz Triggers"
-    icon = "fa-solid fa-clock"
-    column_list = [VideoQuizTrigger.id, VideoQuizTrigger.lesson_id, VideoQuizTrigger.timestamp_seconds, VideoQuizTrigger.quiz_id, VideoQuizTrigger.is_blocking]
-    form_excluded_columns = ["lesson"]
-    can_create = True
-    can_edit = True
-    can_delete = True
-    can_view_details = True
 
 
 class TopicAdmin(PowerModelView, model=Topic):
@@ -545,16 +405,6 @@ class SavedItemAdmin(PowerModelView, model=SavedItem):
     can_view_details = True
 
 
-class ActivityEventAdmin(PowerModelView, model=ActivityEvent):
-    name = "Activity Event"
-    name_plural = "Activity Events"
-    icon = "fa-solid fa-wave-square"
-    column_list = [ActivityEvent.id, ActivityEvent.user_id, ActivityEvent.event_type, ActivityEvent.target_type, ActivityEvent.target_id, ActivityEvent.created_at]
-    form_excluded_columns = ["user"]
-    can_create = False
-    can_edit = False
-    can_delete = True
-    can_view_details = True
 
 
 class TopicItemProgressAdmin(PowerModelView, model=TopicItemProgress):
@@ -570,8 +420,8 @@ class TopicItemProgressAdmin(PowerModelView, model=TopicItemProgress):
 
 
 class QuizAttemptAdmin(PowerModelView, model=QuizAttempt):
-    name = "Quiz Attempt"
-    name_plural = "Quiz Attempts"
+    name = "Attempt"
+    name_plural = "Attempts"
     icon = "fa-solid fa-circle-check"
     column_list = [
         QuizAttempt.id, QuizAttempt.user_id, QuizAttempt.question_set_id,
@@ -768,13 +618,10 @@ class AdminAuditLogAdmin(PowerModelView, model=AdminAuditLog):
 
 
 ALL_VIEWS = [
-    UserAdmin, UserSubjectEntitlementAdmin, SubjectAdmin, ChapterAdmin, LessonAdmin, ChapterSectionAdmin,
-    ChapterBlockAdmin, ActivityAdmin, CoursePDFAdmin, QuizAdmin, QuizQuestionAdmin,
-    QuizOptionAdmin, QuestionSetAdmin, QuestionAdmin, LessonProgressAdmin, UserXPAdmin, XPTransactionAdmin,
-    QuizResultAdmin, DailyQuestAdmin, CalendarEventAdmin, ContentProgressAdmin, VideoQuizTriggerAdmin,
+    UserAdmin, UserSubjectEntitlementAdmin, SubjectAdmin, QuestionSetAdmin, QuestionAdmin, UserXPAdmin, XPTransactionAdmin, DailyQuestAdmin, CalendarEventAdmin,
     TopicAdmin, TopicSectionAdmin, TopicItemAdmin, ResourceAdmin, TabContentAdmin,
     ConceptTagAdmin, ExamAdmin, ExamProblemAdmin, UserNoteAdmin, SavedItemAdmin,
-    ActivityEventAdmin, TopicItemProgressAdmin, QuizAttemptAdmin, QuestionAttemptAdmin, CommentAdmin,
+    TopicItemProgressAdmin, QuizAttemptAdmin, QuestionAttemptAdmin, CommentAdmin,
     NotificationAdmin, ProgramTrackAdmin, CourseOfferingAdmin, LiveSessionAdmin,
     LiveSessionInteractionAdmin, LiveSessionCheckpointAdmin,
     ProfessorChangeRequestAdmin, ProfessorChatConversationAdmin, ProfessorChatMessageAdmin,
@@ -824,13 +671,9 @@ IMMUTABLE_ADMIN_MODELS = {
 }
 
 READ_ONLY_ADMIN_MODELS = {
-    "ActivityEvent",
-    "ContentProgress",
     "DailyQuest",
-    "LessonProgress",
     "QuestionAttempt",
     "QuizAttempt",
-    "QuizResult",
     "TopicItemProgress",
     "UserXP",
     "XPTransaction",

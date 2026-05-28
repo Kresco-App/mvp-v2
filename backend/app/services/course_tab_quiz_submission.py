@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.courses import TabContent, TopicItem
-from app.models.gamification import ActivityEvent, QuestionAttempt, QuizAttempt
+from app.models.gamification import QuestionAttempt, QuizAttempt
 from app.models.users import User
 from app.schemas.courses import TabQuizResultOut, TabQuizSubmitIn
 from app.services.course_access import access_for_tab
@@ -245,23 +245,5 @@ async def submit_tab_quiz_attempt(
         )
         progress.latest_score = score
         progress.best_score = max(progress.best_score or 0, score)
-
-    db.add(ActivityEvent(
-        user_id=user.id,
-        event_type="quiz_submitted",
-        target_type="question_set",
-        target_id=question_set.id,
-        topic_id=question_set.topic_id,
-        topic_item_id=question_set.topic_item_id,
-        metadata_json={
-            "quiz_attempt_id": attempt.id,
-            "tab_content_id": tab.id,
-            "topic_section_id": question_set.topic_section_id,
-            "score": score,
-            "passed": passed,
-            "correct": correct,
-            "total": total,
-        },
-    ))
     await db.commit()
     return TabQuizResultOut(**result_payload, xp_earned=xp_earned)

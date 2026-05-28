@@ -16,7 +16,7 @@ type StreamData = {
 } | null
 
 type LessonStreamState = {
-  lessonId: string | number | null
+  topicItemId: string | number | null
   data: StreamData
 }
 
@@ -49,8 +49,8 @@ export function buildVdoCipherIframeSrc(streamData: StreamData) {
   return `https://player.vdocipher.com/v2/?otp=${otp}&playbackInfo=${playbackInfo}&player=&`
 }
 
-export function resolveLessonStreamData(streamState: LessonStreamState, lessonId: string | number) {
-  return streamState?.lessonId === lessonId ? streamState.data : null
+export function resolveLessonStreamData(streamState: LessonStreamState, topicItemId: string | number) {
+  return streamState?.topicItemId === topicItemId ? streamState.data : null
 }
 
 export function isActiveLesson(progressLessonId: string | number, activeLessonId: string | number) {
@@ -110,6 +110,7 @@ function loadVdoApi() {
 }
 
 type VideoPlayerProps = {
+  /** Deprecated prop name; the value now represents a topic item id. */
   lessonId: string | number
   durationSeconds: number
   onProgress?: ProgressCallback
@@ -124,7 +125,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   const completionReportedRef = useRef(false)
   const onProgressRef = useRef<ProgressCallback>(onProgress)
   const onCompleteRef = useRef<CompleteCallback>(onComplete)
-  const [streamState, setStreamState] = useState<LessonStreamState>({ lessonId: null, data: null })
+  const [streamState, setStreamState] = useState<LessonStreamState>({ topicItemId: null, data: null })
   const streamData = resolveLessonStreamData(streamState, lessonId)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -144,8 +145,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     }
 
     try {
-      await postJson('/progress/update', {
-        lesson_id: lessonId,
+      await postJson(`/courses/topic-items/${lessonId}/complete`, {
         watched_seconds: watchedSeconds,
       })
     } catch {
@@ -179,14 +179,14 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     async function fetchStream() {
       setLoading(true)
       setError(null)
-      setStreamState({ lessonId, data: null })
+      setStreamState({ topicItemId: lessonId, data: null })
       try {
-        const data = (await getJson(`/courses/sections/${lessonId}/stream`)) as StreamData
+        const data = (await getJson(`/courses/topic-items/${lessonId}/stream`)) as StreamData
         if (cancelled) return
-        setStreamState({ lessonId, data })
+        setStreamState({ topicItemId: lessonId, data })
       } catch (err) {
         if (cancelled) return
-        setStreamState({ lessonId, data: null })
+        setStreamState({ topicItemId: lessonId, data: null })
         const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Erreur de chargement de la video.'
         setError(msg)
         toast.error(msg)

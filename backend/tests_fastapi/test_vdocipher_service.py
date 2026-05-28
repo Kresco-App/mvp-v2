@@ -89,6 +89,30 @@ def test_get_video_otp_requires_video_id_and_provider_config():
     assert "VDOCIPHER_API_BASE_URL" in missing_base_url.value.detail
 
 
+def test_get_video_stream_data_returns_demo_stream_outside_production(monkeypatch):
+    class UnexpectedAsyncClient:
+        def __init__(self, *, timeout: int):
+            del timeout
+            raise AssertionError("demo stream should not call VdoCipher")
+
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    result = asyncio.run(vdocipher.get_video_stream_data(" demo-preview ", live_settings(environment="test")))
+
+    assert result == {"otp": "mock-otp-token", "playback_info": ""}
+
+
+def test_get_video_stream_data_uses_provider_for_demo_ids_in_production(monkeypatch):
+    FakeAsyncClient.calls = []
+    FakeAsyncClient.response = httpx.Response(200, json={"otp": "otp-value", "playbackInfo": "playback-value"})
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(vdocipher.get_video_stream_data("demo-preview", live_settings(environment="production")))
+
+    assert result == {"otp": "otp-value", "playback_info": "playback-value"}
+    assert FakeAsyncClient.calls[0]["url"] == "https://video-api.example/api/videos/demo-preview/otp"
+
+
 def test_get_video_otp_surfaces_provider_error(monkeypatch):
     FakeAsyncClient.calls = []
     FakeAsyncClient.response = httpx.Response(401, json={"message": "invalid secret"})

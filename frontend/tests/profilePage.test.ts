@@ -49,7 +49,7 @@ type MockProfileDraft = {
 type MockProfileProps = {
   user?: MockProfileUser | null
   xp?: { total_xp?: number } | null
-  stats?: { lessonsCompleted?: number } | null
+  stats?: { itemsCompleted?: number } | null
   subjects: unknown[]
   notes: unknown[]
   saves: unknown[]
@@ -65,7 +65,7 @@ vi.mock('@/components/figma', () => ({
     React.createElement('h1', null, `Profile shell ${props.user?.full_name ?? 'missing'}`),
     React.createElement('p', null, `Avatar ${props.user?.avatar_url ?? 'none'}`),
     React.createElement('p', null, `XP ${props.xp?.total_xp ?? 'none'}`),
-    React.createElement('p', null, `Lessons ${props.stats?.lessonsCompleted ?? 'none'}`),
+    React.createElement('p', null, `Lessons ${props.stats?.itemsCompleted ?? 'none'}`),
     React.createElement('p', null, `Subjects ${props.subjects.length}`),
     React.createElement('p', null, `Notes ${props.notes.length}`),
     React.createElement('p', null, `Saves ${props.saves.length}`),
@@ -148,7 +148,7 @@ const endpointData: Record<string, unknown> = {
   '/progress/stats': {
     total_watch_minutes: 90,
     quizzes_passed: 3,
-    lessons_completed: 7,
+    items_completed: 7,
     is_pro: true,
   },
   '/courses/subjects': [

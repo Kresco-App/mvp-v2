@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/lib/store'
 import { postJson } from '@/lib/apiClient'
 import KrescoLogo from '@/components/KrescoLogo'
+import { localizedCopy } from '@/lib/localization'
 
 type VerifyEmailResponse = {
   user: Parameters<ReturnType<typeof useAuthStore.getState>['login']>[0]
@@ -66,7 +67,7 @@ function VerifyEmailContent() {
                 <path d="M5 13l4 4L19 7" stroke="var(--auth-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <h1 className="mb-2 text-[22px] font-bold text-[var(--auth-text)]">Email v&eacute;rifi&eacute; !</h1>
+            <h1 className="mb-2 text-[22px] font-bold text-[var(--auth-text)]">{localizedCopy.auth.verifyEmailVerifiedTitle}</h1>
             <p className="text-[14px] text-[var(--auth-text-muted)]">Redirection en cours...</p>
           </>
         )}
@@ -84,7 +85,7 @@ function VerifyEmailContent() {
               href="/"
               className="text-[14px] font-semibold text-[var(--auth-primary)] no-underline"
             >
-              Retour &agrave; la connexion
+              {localizedCopy.auth.backToLogin}
             </a>
           </>
         )}

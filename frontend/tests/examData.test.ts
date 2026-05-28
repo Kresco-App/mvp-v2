@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiSWRConfig } from '@/lib/apiData'
 import {
-  examLessonsFromSubject,
   examQuizDiscoverySWRKey,
   loadExamQuiz,
   useExamQuizData,
@@ -44,16 +43,9 @@ afterEach(() => {
 })
 
 describe('exam SWR data', () => {
-  it('builds keys and flattens lessons defensively', () => {
+  it('builds discovery keys defensively', () => {
     expect(examQuizDiscoverySWRKey(12)).toEqual(['exam-quiz-discovery', '12'])
     expect(examQuizDiscoverySWRKey('')).toBeNull()
-    expect(examLessonsFromSubject({
-      chapters: [
-        { lessons: [{ id: 1 }, { id: 2 }] },
-        {},
-        { lessons: [{ id: 3 }] },
-      ],
-    }).map((lesson) => lesson.id)).toEqual([1, 2, 3])
   })
 
   it('loads the discovered subject quiz without probing every lesson', async () => {

@@ -45,7 +45,7 @@ export type SidebarSummary = {
 export type ProfileStatsResult = {
   total_watch_minutes: number
   quizzes_passed: number
-  lessons_completed: number
+  items_completed: number
   is_pro: boolean
 }
 
@@ -93,7 +93,7 @@ export function toProfileStats(raw: ProfileStatsResult): FigmaProfileStats {
   return {
     totalWatchMinutes: numberOrZero(raw.total_watch_minutes),
     quizzesPassed: numberOrZero(raw.quizzes_passed),
-    lessonsCompleted: numberOrZero(raw.lessons_completed),
+    itemsCompleted: numberOrZero(raw.items_completed),
     isPro: Boolean(raw.is_pro),
   }
 }

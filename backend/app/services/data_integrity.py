@@ -8,10 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.gamification import (
-    ContentProgress,
     DailyQuest,
-    LessonProgress,
-    QuizResult,
     TopicItemProgress,
     XPTransaction,
 )
@@ -29,18 +26,6 @@ async def audit_data_integrity(db: AsyncSession) -> list[DataIntegrityFinding]:
     findings: list[DataIntegrityFinding] = []
     duplicate_specs = (
         (
-            "lesson_progress_duplicate_user_lesson",
-            LessonProgress,
-            (LessonProgress.user_id, LessonProgress.lesson_id),
-            None,
-        ),
-        (
-            "content_progress_duplicate_user_item",
-            ContentProgress,
-            (ContentProgress.user_id, ContentProgress.item_type, ContentProgress.item_id),
-            None,
-        ),
-        (
             "saved_item_duplicate_user_target",
             SavedItem,
             (SavedItem.user_id, SavedItem.target_type, SavedItem.target_id),
@@ -50,12 +35,6 @@ async def audit_data_integrity(db: AsyncSession) -> list[DataIntegrityFinding]:
             "daily_quest_duplicate_user_type_date",
             DailyQuest,
             (DailyQuest.user_id, DailyQuest.quest_type, DailyQuest.date),
-            None,
-        ),
-        (
-            "quiz_result_duplicate_user_quiz",
-            QuizResult,
-            (QuizResult.user_id, QuizResult.quiz_id),
             None,
         ),
         (

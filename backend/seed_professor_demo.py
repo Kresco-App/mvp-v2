@@ -8,11 +8,11 @@ Usage:
   python seed_professor_demo.py
 
 Demo accounts:
-  professor@kresco.local / kresco123
-  physics.professor@kresco.local / kresco123
-  vip@kresco.local / kresco123
-  platinum@kresco.local / kresco123
-  basic@kresco.local / kresco123
+  professor@example.com / kresco123
+  physics.professor@example.com / kresco123
+  vip@example.com / kresco123
+  platinum@example.com / kresco123
+  basic@example.com / kresco123
 """
 
 import asyncio
@@ -60,10 +60,10 @@ async def main() -> None:
     await reset_engine()
     print("Professor demo data is ready.")
     print(f"Database: {database_url}")
-    print(f"Professor: professor@kresco.local / {DEMO_PASSWORD}")
-    print(f"VIP student: vip@kresco.local / {DEMO_PASSWORD}")
-    print(f"Platinum student: platinum@kresco.local / {DEMO_PASSWORD}")
-    print(f"Basic student: basic@kresco.local / {DEMO_PASSWORD}")
+    print(f"Professor: professor@example.com / {DEMO_PASSWORD}")
+    print(f"VIP student: vip@example.com / {DEMO_PASSWORD}")
+    print(f"Platinum student: platinum@example.com / {DEMO_PASSWORD}")
+    print(f"Basic student: basic@example.com / {DEMO_PASSWORD}")
 
 
 async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool = False) -> None:
@@ -74,7 +74,7 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
     )
     math_professor = await upsert_user(
         db,
-        "professor@kresco.local",
+        "professor@example.com",
         "Pr Ahmed Kamil",
         role="professor",
         tier="basic",
@@ -83,7 +83,7 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
     )
     physics_professor = await upsert_user(
         db,
-        "physics.professor@kresco.local",
+        "physics.professor@example.com",
         "Pr Lina Amrani",
         role="professor",
         tier="basic",
@@ -92,7 +92,7 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
     )
     vip_student = await upsert_user(
         db,
-        "vip@kresco.local",
+        "vip@example.com",
         "Sara Benali",
         role="student",
         tier="vip",
@@ -102,7 +102,7 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
     )
     platinum_student = await upsert_user(
         db,
-        "platinum@kresco.local",
+        "platinum@example.com",
         "Youssef El Idrissi",
         role="student",
         tier="platinum",
@@ -112,7 +112,7 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
     )
     basic_student = await upsert_user(
         db,
-        "basic@kresco.local",
+        "basic@example.com",
         "Nora Basic",
         role="student",
         tier="basic",

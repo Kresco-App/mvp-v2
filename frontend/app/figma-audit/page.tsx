@@ -98,7 +98,7 @@ export default function FigmaAuditPage() {
           </div>
         </AuditSection>
 
-        <AuditSection title="Chapter Rail Variant" note="Same RailCard primitive, chapter-sized variant only.">
+        <AuditSection title="Topic Rail Variant" note="Same RailCard primitive, topic-sized variant only.">
           <ChapterRail />
         </AuditSection>
 

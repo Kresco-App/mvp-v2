@@ -6,23 +6,9 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { ArrowLeft, BookOpen, ClipboardCheck, Play } from 'lucide-react'
 import { getJson } from '@/lib/apiClient'
-import { buildSubjectProgressSummary, type SubjectPlanData, type SubjectProgressSummary } from '@/lib/subjectProgress'
-import { useAuthStore } from '@/lib/store'
 import { FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
 import { FigmaSubjectDetailSkeleton } from '@/components/figma/skeletons'
 import RouteErrorState from '@/components/RouteErrorState'
-
-interface Section {
-  id: number
-  title: string
-  section_type: 'video' | 'quiz' | 'activity' | 'text'
-  activity_type?: string
-  order: number
-  duration_seconds?: number
-  is_free_preview?: boolean
-  is_completed?: boolean
-  is_locked?: boolean
-}
 
 interface TopicCard {
   id: number
@@ -34,37 +20,20 @@ interface TopicCard {
   can_access?: boolean
 }
 
-interface Chapter {
-  id: number
-  title: string
-  order: number
-  lessons: unknown[]
-  blocks: unknown[]
-  sections?: Section[]
-}
-
 interface Subject {
   id: number
   title: string
   description: string
   thumbnail_url: string
-  chapters: Chapter[]
 }
-
-const EMPTY_CHAPTERS: Chapter[] = []
 
 export default function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
-  const user = useAuthStore((state) => state.user)
   const [subject, setSubject] = useState<Subject | null>(null)
   const [loading, setLoading] = useState(true)
-  const [chapterSections, setChapterSections] = useState<Record<number, Section[]>>({})
-  const [progressSummary, setProgressSummary] = useState<SubjectProgressSummary | null>(null)
   const [topics, setTopics] = useState<TopicCard[]>([])
   const [loadError, setLoadError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
-
-  const isPro = user?.is_pro
 
   useEffect(() => {
     const controller = new AbortController()
@@ -72,39 +41,12 @@ export default function SubjectDetailPage() {
       setLoading(true)
       setLoadError('')
       try {
-        const [subjectData, subjectPlan, topicsData] = await Promise.all([
+        const [subjectData, topicsData] = await Promise.all([
           getJson<Subject>(`/courses/subjects/${subjectId}`, { signal: controller.signal }),
-          getJson<SubjectPlanData>(`/progress/subject-plan/${subjectId}`, { signal: controller.signal }),
           getJson<TopicCard[]>(`/courses/subjects/${subjectId}/topics`, { signal: controller.signal }),
         ])
         setSubject(subjectData)
-
-        const subjectTopics = Array.isArray(topicsData) ? topicsData : []
-        setTopics(subjectTopics)
-        if (subjectTopics.length > 0) {
-          setChapterSections({})
-          setProgressSummary(null)
-          return
-        }
-
-        const completedSectionIds = new Set(subjectPlan?.completed_section_ids ?? [])
-        const totalLessonCount = subjectData.chapters.reduce(
-          (count: number, chapter: Chapter) => count + (chapter.lessons?.length ?? 0),
-          0,
-        )
-
-        const sectionsMap: Record<number, Section[]> = Object.fromEntries(
-          subjectData.chapters.map((chapter) => [
-            chapter.id,
-            (chapter.sections ?? []).map((section) => ({
-              ...section,
-              is_completed: completedSectionIds.has(section.id),
-            })),
-          ]),
-        ) as Record<number, Section[]>
-        setChapterSections(sectionsMap)
-
-        setProgressSummary(subjectPlan ? buildSubjectProgressSummary(subjectPlan, totalLessonCount) : null)
+        setTopics(Array.isArray(topicsData) ? topicsData : [])
       } catch {
         if (controller.signal.aborted) return
         const message = 'Could not load this subject.'
@@ -121,31 +63,16 @@ export default function SubjectDetailPage() {
     }
   }, [reloadKey, subjectId])
 
-  const allSections = useMemo(() => Object.values(chapterSections).flat(), [chapterSections])
-  const totalSections = allSections.length
-  const completedCount = useMemo(() => allSections.filter((section) => section.is_completed).length, [allSections])
-  const hasTopicWorkspace = topics.length > 0
   const topicItemTotal = useMemo(() => topics.reduce((total, topic) => total + topic.item_count, 0), [topics])
   const topicCompletedCount = useMemo(() => topics.reduce((total, topic) => total + topic.completed_count, 0), [topics])
-  const totalCount = hasTopicWorkspace ? topicItemTotal : totalSections
-  const completedTotal = hasTopicWorkspace ? topicCompletedCount : completedCount
-  const percentage = hasTopicWorkspace
-    ? (topicItemTotal > 0 ? Math.round((topicCompletedCount / topicItemTotal) * 100) : 0)
-    : progressSummary?.percentage ?? (totalSections > 0 ? Math.round((completedCount / totalSections) * 100) : 0)
-  const nextSection = useMemo(
-    () => allSections.find((section) => !section.is_completed && canAccessSection(section, isPro)),
-    [allSections, isPro],
-  )
+  const totalCount = topicItemTotal
+  const completedTotal = topicCompletedCount
+  const percentage = topicItemTotal > 0 ? Math.round((topicCompletedCount / topicItemTotal) * 100) : 0
   const nextTopic = useMemo(
     () => topics.find((topic) => topic.can_access !== false && topic.completed_count < topic.item_count) || topics.find((topic) => topic.can_access !== false),
     [topics],
   )
-  const continueHref = hasTopicWorkspace ? (nextTopic ? `/topics/${nextTopic.id}` : undefined) : (nextSection ? `/watch/${nextSection.id}` : undefined)
-  const subjectChapters = subject?.chapters ?? EMPTY_CHAPTERS
-  const activeChapterId = useMemo(
-    () => subjectChapters.find((chapter) => (chapterSections[chapter.id] || []).some((section) => section.id === nextSection?.id))?.id,
-    [chapterSections, nextSection?.id, subjectChapters],
-  )
+  const continueHref = nextTopic ? `/topics/${nextTopic.id}` : undefined
 
   if (loading) {
     return <FigmaSubjectDetailSkeleton />
@@ -187,7 +114,7 @@ export default function SubjectDetailPage() {
                 <p className="m-0 mt-2 max-w-[620px] text-[15px] font-semibold leading-relaxed text-[#71717b]">{subject.description}</p>
                 <div className="mt-5">
                   <div className="mb-2 flex justify-between text-[13px] font-bold text-[#71717b]">
-                    <span>{completedTotal} / {totalCount} {hasTopicWorkspace ? 'items' : 'sections'} completed</span>
+                    <span>{completedTotal} / {totalCount} items completed</span>
                     <span className="text-[#453dee]">{percentage}%</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-[#f4f4f5]">
@@ -213,14 +140,14 @@ export default function SubjectDetailPage() {
 
           <section className="pb-20">
             <div className="mb-5">
-              <h2 className="m-0 text-[25px] font-bold leading-none tracking-normal text-[#3f3f46]">{hasTopicWorkspace ? 'Topics' : 'Chapters'}</h2>
+              <h2 className="m-0 text-[25px] font-bold leading-none tracking-normal text-[#3f3f46]">Topics</h2>
               <p className="m-0 mt-2 text-[16px] font-bold leading-none tracking-normal text-[#a1a1aa]">
-                {hasTopicWorkspace ? 'Choose the next topic to continue.' : 'Choose the next chapter to continue.'}
+                {topics.length > 0 ? 'Choose the next topic to continue.' : 'No topics available yet.'}
               </p>
             </div>
 
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-[14px]">
-              {hasTopicWorkspace ? topics.map((topic, topicIdx) => (
+              {topics.map((topic, topicIdx) => (
                 <FigmaSubjectCourseCard
                   key={topic.id}
                   index={topicIdx}
@@ -230,22 +157,7 @@ export default function SubjectDetailPage() {
                   state={getTopicCardState(topic)}
                   href={`/topics/${topic.id}`}
                 />
-              )) : subject.chapters.map((chapter, chapterIdx) => {
-                const sections = chapterSections[chapter.id] || []
-                const lessonCount = Math.max(sections.length, chapter.lessons?.length ?? 0, 1)
-
-                return (
-                  <FigmaSubjectCourseCard
-                    key={chapter.id}
-                    index={chapterIdx}
-                    title={chapter.title}
-                    description={`${completedInChapter(sections)} of ${sections.length || lessonCount} sections complete`}
-                    progress={getChapterProgress(sections)}
-                    state={getChapterCardState(sections, chapter.id === activeChapterId, isPro)}
-                    href={getChapterHref(sections, isPro)}
-                  />
-                )
-              })}
+              ))}
             </div>
 
             <Link href={`/exam/${subjectId}`} className="mt-8 inline-flex h-[58px] w-full items-center justify-center gap-3 rounded-[18px] bg-[#453dee] text-[17px] font-bold text-white no-underline shadow-none transition hover:-translate-y-0.5">
@@ -257,38 +169,10 @@ export default function SubjectDetailPage() {
   )
 }
 
-function completedInChapter(sections: Section[]) {
-  return sections.filter((section) => section.is_completed).length
-}
-
-function getChapterProgress(sections: Section[]) {
-  if (sections.length === 0) return 0
-  return Math.round((completedInChapter(sections) / sections.length) * 100)
-}
-
-function getChapterHref(sections: Section[], isPro?: boolean) {
-  const next = sections.find((section) => !section.is_completed && canAccessSection(section, isPro)) || sections.find((section) => canAccessSection(section, isPro))
-  return next ? `/watch/${next.id}` : undefined
-}
-
-function getChapterCardState(sections: Section[], isActive: boolean, isPro?: boolean): FigmaSubjectCourseCardState {
-  if (sections.length === 0) return 'upcoming'
-  const completed = completedInChapter(sections)
-  if (completed === sections.length) return 'completed'
-  const hasAccessible = sections.some((section) => canAccessSection(section, isPro))
-  if (!hasAccessible) return 'locked'
-  if (isActive || completed > 0) return 'current'
-  return 'available'
-}
-
 function getTopicCardState(topic: TopicCard): FigmaSubjectCourseCardState {
   if (topic.can_access === false) return 'locked'
   if (topic.item_count <= 0) return 'upcoming'
   if (topic.progress_pct >= 100 || topic.completed_count >= topic.item_count) return 'completed'
   if (topic.progress_pct > 0 || topic.completed_count > 0) return 'current'
   return 'available'
-}
-
-function canAccessSection(section: Section, isPro?: boolean) {
-  return !section.is_locked || Boolean(section.is_free_preview) || Boolean(isPro)
 }

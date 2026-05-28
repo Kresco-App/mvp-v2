@@ -49,7 +49,23 @@ export const localizedCopy = {
     saving: 'Sauvegarde...',
     google: 'Google',
     facebook: 'Facebook',
-    apple: 'Apple'
+    apple: 'Apple',
+    resetPasswordInvalidLinkTitle: 'Lien invalide',
+    resetPasswordInvalidLinkBody: 'Ce lien de réinitialisation est invalide ou a expiré.',
+    resetPasswordSuccessTitle: 'Mot de passe mis à jour !',
+    resetPasswordSuccessBody: 'Redirection vers la connexion...',
+    resetPasswordTitle: 'Nouveau mot de passe',
+    resetPasswordBody: 'Choisissez un mot de passe sécurisé pour votre compte.',
+    resetPasswordConfirmLabel: 'Confirmer le mot de passe',
+    resetPasswordSaveBtn: 'Enregistrer le mot de passe',
+    resetPasswordMismatch: 'Les mots de passe ne correspondent pas',
+    verifyEmailVerifiedTitle: 'Email vérifié !',
+    verifyEmailVerifiedBody: 'Votre adresse a été confirmée avec succès.',
+    verifyEmailInvalidTitle: 'Lien invalide',
+    verifyEmailInvalidBody: 'Ce lien de vérification est invalide ou a expiré.',
+    professorLoginTitle: 'Espace Professeur',
+    professorLoginBody: 'Connectez-vous pour gérer vos cours et interagir avec les élèves.',
+    professorLoginAction: 'Connexion Professeur'
   },
 
   pricing: {
