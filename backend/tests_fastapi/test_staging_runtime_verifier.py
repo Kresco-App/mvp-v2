@@ -66,6 +66,12 @@ def _diagnostics_payload():
                 "live_create_url_https": True,
             },
             "email": {"status": "ok", "resend_api_key_configured": True},
+            "payment": {
+                "status": "ok",
+                "stripe_sk_configured": True,
+                "stripe_product_id_configured": True,
+                "stripe_webhook_secret_configured": True,
+            },
         },
     }
 

@@ -98,6 +98,11 @@ def validate_runtime_payloads(
     email = _check(checks, "email", errors)
     _require(email.get("resend_api_key_configured") is True, "email.resend_api_key_configured must be true.", errors)
 
+    payment = _check(checks, "payment", errors)
+    _require(payment.get("stripe_sk_configured") is True, "payment.stripe_sk_configured must be true.", errors)
+    _require(payment.get("stripe_product_id_configured") is True, "payment.stripe_product_id_configured must be true.", errors)
+    _require(payment.get("stripe_webhook_secret_configured") is True, "payment.stripe_webhook_secret_configured must be true.", errors)
+
     if outbox_result is not None:
         _require(outbox_result.get("ok") is True, "outbox drain endpoint must return ok=true.", errors)
         _require(_int_value(outbox_result, "retry") == 0, "outbox drain must not move events to retry.", errors)

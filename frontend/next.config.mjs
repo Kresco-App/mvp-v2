@@ -29,6 +29,26 @@ export function buildImageRemotePatterns(nodeEnv = process.env.NODE_ENV) {
   return [...productionImageRemotePatterns, ...localImageRemotePatterns]
 }
 
+const SECURITY_HEADERS = [
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  {
+    key: 'Content-Security-Policy',
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://js.stripe.com https://accounts.google.com",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https://*.googleusercontent.com https://images.unsplash.com https://*.ytimg.com https://*.amazonaws.com",
+      "font-src 'self'",
+      "frame-src https://js.stripe.com https://player.vdocipher.com https://accounts.google.com",
+      "connect-src 'self' https://*.ably.io wss://*.ably.io https://api.stripe.com https://*.amazonaws.com",
+      "media-src 'self' blob: https://*.amazonaws.com",
+      "worker-src 'self' blob:",
+    ].join('; '),
+  },
+]
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
@@ -42,6 +62,9 @@ const nextConfig = {
     resolveAlias: {
       canvas: emptyCanvasModule,
     },
+  },
+  async headers() {
+    return [{ source: '/(.*)', headers: SECURITY_HEADERS }]
   },
   async rewrites() {
     if (!enableLocalRewrites) return []

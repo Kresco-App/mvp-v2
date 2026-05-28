@@ -27,6 +27,7 @@ async def build_production_diagnostics(db: AsyncSession, settings: Settings) -> 
         "realtime": await _realtime_check(db, settings),
         "video": _video_check(settings),
         "email": _email_check(settings),
+        "payment": _payment_check(settings),
     }
     errors = [name for name, check in checks.items() if check.get("status") != "ok"]
     return {
@@ -198,6 +199,19 @@ def _email_check(settings: Settings) -> dict[str, Any]:
     return {
         "status": "ok" if configured else "error",
         "resend_api_key_configured": configured,
+    }
+
+
+def _payment_check(settings: Settings) -> dict[str, Any]:
+    sk_configured = bool(settings.stripe_sk.strip())
+    product_id_configured = bool(settings.stripe_product_id.strip())
+    webhook_secret_configured = bool(settings.stripe_webhook_secret.strip())
+    status = "ok" if sk_configured and product_id_configured and webhook_secret_configured else "error"
+    return {
+        "status": status,
+        "stripe_sk_configured": sk_configured,
+        "stripe_product_id_configured": product_id_configured,
+        "stripe_webhook_secret_configured": webhook_secret_configured,
     }
 
 

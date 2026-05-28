@@ -16,15 +16,11 @@ def test_ready_checks_database_and_configuration(app_client):
     response = app_client.get("/ready")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "ready",
-        "version": "2.0.0",
-        "release_sha": "development",
-        "checks": {
-            "configuration": "ok",
-            "database": "ok",
-        },
-    }
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["checks"]["configuration"] == "ok"
+    assert body["checks"]["database"] == "ok"
+    assert set(body["checks"]["config_services"].keys()) == {"database", "s3", "ably", "vdocipher", "smtp", "payment"}
 
 
 def test_ready_reports_database_failure_without_exception_details(app_client):
@@ -36,16 +32,12 @@ def test_ready_reports_database_failure_without_exception_details(app_client):
         app_client.app.state.db_engine = original_engine
 
     assert response.status_code == 503
-    assert response.json() == {
-        "status": "not_ready",
-        "version": "2.0.0",
-        "release_sha": "development",
-        "checks": {
-            "configuration": "ok",
-            "database": "error",
-        },
-        "errors": ["database"],
-    }
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["errors"] == ["database"]
+    assert body["checks"]["configuration"] == "ok"
+    assert body["checks"]["database"] == "error"
+    assert set(body["checks"]["config_services"].keys()) == {"database", "s3", "ably", "vdocipher", "smtp", "payment"}
 
 
 def test_internal_diagnostics_requires_worker_secret(app_client, test_settings):
@@ -118,6 +110,12 @@ def test_internal_diagnostics_reports_ready_launch_gate(app_client, run_db, test
         "status": "ok",
         "resend_api_key_configured": True,
     }
+    assert body["checks"]["payment"] == {
+        "status": "ok",
+        "stripe_sk_configured": True,
+        "stripe_product_id_configured": True,
+        "stripe_webhook_secret_configured": True,
+    }
 
 
 def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_db, test_settings):
@@ -189,6 +187,9 @@ DIAGNOSTICS_SETTING_FIELDS = (
     "vdocipher_api_base_url",
     "vdocipher_live_create_url",
     "resend_api_key",
+    "stripe_sk",
+    "stripe_product_id",
+    "stripe_webhook_secret",
 )
 
 
@@ -217,6 +218,9 @@ def _set_ready_diagnostics_settings(settings):
     settings.vdocipher_api_base_url = "https://video.example.com/api"
     settings.vdocipher_live_create_url = "https://video.example.com/live"
     settings.resend_api_key = "re_test"
+    settings.stripe_sk = "sk_test_staging"
+    settings.stripe_product_id = "prod_test_staging"
+    settings.stripe_webhook_secret = "whsec_test_staging"
 
 
 async def _set_alembic_heads(heads: list[str]):

@@ -40,6 +40,7 @@ SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
 }
 
 
@@ -102,6 +103,22 @@ class RequestSizeLimitMiddleware:
                 content={"detail": "Request body too large"},
             ))
             await response(scope, receive, send)
+
+
+def _ready_config_service_status(settings: Settings) -> dict[str, str]:
+    def _present(value: str) -> bool:
+        return bool(value.strip())
+
+    db_url = settings.database_url.strip().lower()
+    db_ok = not db_url.startswith("sqlite") and db_url != ""
+    return {
+        "database": "ok" if db_ok else "misconfigured",
+        "s3": "ok" if _present(settings.media_s3_bucket) and _present(settings.media_s3_region) else "missing",
+        "ably": "ok" if _present(settings.ably_api_key) else "missing",
+        "vdocipher": "ok" if _present(settings.vdocipher_api_secret) else "missing",
+        "smtp": "ok" if _present(settings.resend_api_key) else "missing",
+        "payment": "ok" if _present(settings.stripe_sk) else "missing",
+    }
 
 
 def _apply_security_headers(response: Response) -> Response:
@@ -300,13 +317,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/ready")
     async def ready():
-        checks = {
+        checks: dict[str, object] = {
             "configuration": "ok",
             "database": "ok",
         }
         errors: list[str] = []
 
         config_errors = settings.production_config_errors()
+        checks["config_services"] = _ready_config_service_status(settings)
         if config_errors:
             checks["configuration"] = "error"
             errors.append("configuration")
