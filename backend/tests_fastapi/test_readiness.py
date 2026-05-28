@@ -9,7 +9,11 @@ def test_health_remains_liveness_only(app_client):
     response = app_client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "2.0.0", "release_sha": "development"}
+    assert response.json() == {
+        "status": "ok",
+        "version": "2.0.0",
+        "release_sha": app_client.app.state.release_sha,
+    }
 
 
 def test_ready_checks_database_and_configuration(app_client):

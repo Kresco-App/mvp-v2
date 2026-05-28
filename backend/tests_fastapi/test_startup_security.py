@@ -129,15 +129,15 @@ def test_security_headers_are_applied_to_responses(app_client):
     assert response.headers["strict-transport-security"] == "max-age=31536000; includeSubDomains"
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
-    assert response.headers["x-release-sha"] == "development"
+    assert response.headers["x-release-sha"] == app_client.app.state.release_sha
 
 
 def test_health_and_ready_expose_release_correlation(app_client):
     health = app_client.get("/health")
     ready = app_client.get("/ready")
 
-    assert health.json()["release_sha"] == "development"
-    assert ready.json()["release_sha"] == "development"
+    assert health.json()["release_sha"] == app_client.app.state.release_sha
+    assert ready.json()["release_sha"] == app_client.app.state.release_sha
 
 
 def test_app_uses_orjson_for_default_response_serialization(app_client):
@@ -233,6 +233,7 @@ def test_production_settings_reject_missing_integration_config():
 def test_production_settings_require_release_sha():
     settings = Settings(
         environment="production",
+        release_sha="development",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
         google_client_id="google-client",
