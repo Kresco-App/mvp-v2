@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 
 export type FigmaSubjectCourseCardState = 'completed' | 'current' | 'available' | 'locked' | 'upcoming'
 
@@ -12,6 +13,7 @@ export type FigmaSubjectCourseCardProps = {
   xp?: number
   href?: string
   imageUrl?: string
+  onClick?: () => void
   state: FigmaSubjectCourseCardState
 }
 
@@ -24,6 +26,7 @@ export function FigmaSubjectCourseCard({
   progress,
   href,
   imageUrl,
+  onClick,
   state,
 }: FigmaSubjectCourseCardProps) {
   const safeProgress = Math.max(0, Math.min(100, Math.round(progress)))
@@ -33,15 +36,13 @@ export function FigmaSubjectCourseCard({
   const isUpcoming = state === 'upcoming'
   const isUnavailable = isLocked || isUpcoming
   const label = isCompleted ? 'Well Done' : isCurrent ? 'Continue' : isLocked ? 'Locked' : isUpcoming ? 'Coming soon' : 'Start the lesson'
-  const progressWidth = Math.max(24, Math.round((safeProgress / 100) * 320))
-
-  const borderColor = isCompleted ? '#fcc94d' : isCurrent ? '#5b60f9' : '#e4e4e7'
-  const imageBorderColor = isCompleted ? '#fcc94d' : isCurrent ? '#5b60f9' : '#d4d4d8'
-  const outerBackground = isCompleted
-    ? '#f5900b'
+  const progressWidthClassName = progressWidthClass(Math.max(8, safeProgress))
+  const cardChromeClass = isCompleted
+    ? 'bg-[#fcc94d] shadow-[0_3.75px_0_#f5900b]'
     : isCurrent
-      ? 'linear-gradient(90deg, rgba(0,0,0,.2), rgba(0,0,0,.2)), #5b60f9'
-      : 'linear-gradient(90deg, rgba(0,0,0,.12), rgba(0,0,0,.12)), #f3f4f6'
+      ? 'bg-[#5b60f9] shadow-[0_3.75px_0_#383dc7]'
+      : 'bg-[#e4e4e7] shadow-[0_3.75px_0_#d9dadd]'
+  const imageBorderClass = isCompleted ? 'border-[#fcc94d]' : isCurrent ? 'border-[#5b60f9]' : 'border-[#d4d4d8]'
   const badgeClass = isCompleted
     ? 'border-[#fbae17] bg-[#f5900b] text-white'
     : isCurrent
@@ -52,25 +53,21 @@ export function FigmaSubjectCourseCard({
 
   const card = (
     <article
-      className={`group kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-hidden rounded-[16px] ${isUnavailable ? 'opacity-80' : ''}`}
-      style={{ background: outerBackground, animationDelay: `${Math.min(index * 45, 220)}ms` }}
+      className={`kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${cardChromeClass} ${isUnavailable ? 'opacity-80' : ''}`}
     >
       <div
-        className={`absolute left-0 right-[0.33px] top-[-3.75px] flex h-[327.5px] flex-col overflow-hidden rounded-[16px] border-2 transition duration-200 group-hover:top-[-5px] ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
-        style={{
-          borderColor,
-          boxShadow: isCompleted
-            ? '0 3.75px 0 #f5900b'
-            : isCurrent
-              ? '0 3.75px 0 #383dc7'
-              : '0 3.75px 0 #d9dadd',
-        }}
+        className={`flex h-full flex-col overflow-hidden rounded-[14px] transition duration-200 ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
       >
         <div
-          className="relative h-[193.5px] w-full overflow-hidden border-2 p-[12px]"
-          style={{ borderColor: imageBorderColor }}
+          className={`relative h-[193.5px] w-full overflow-hidden border-b-2 p-[12px] ${imageBorderClass}`}
         >
-          <img alt="" className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]" src={imageUrl ?? PLACEHOLDER_IMAGE} />
+          <Image
+            alt=""
+            className="object-cover transition duration-500 group-hover:scale-[1.035]"
+            fill
+            sizes="(max-width: 768px) 100vw, 344px"
+            src={imageUrl ?? PLACEHOLDER_IMAGE}
+          />
           <div className={`relative grid size-[36px] place-items-center rounded-[4px] border-2 text-[20px] font-black leading-[1.2] tracking-[0.2px] ${badgeClass}`}>
             {index + 1}
           </div>
@@ -87,8 +84,7 @@ export function FigmaSubjectCourseCard({
             <div className={`h-[10px] w-full overflow-hidden rounded-[4.286px] ${isCompleted ? 'bg-transparent' : 'bg-[#f4f4f5]'}`}>
               {!isCompleted && !isUnavailable && (
                 <span
-                  className="kresco-progress-fill block h-full rounded-[4.286px] bg-[#5b60f9] shadow-[inset_0px_2.857px_2.857px_rgba(255,255,255,.4),inset_0px_-2.857px_2.857px_rgba(0,0,0,.08)]"
-                  style={{ width: `${progressWidth}px` }}
+                  className={`kresco-progress-fill block h-full rounded-[4.286px] bg-[#5b60f9] shadow-[inset_0px_2.857px_2.857px_rgba(255,255,255,.4),inset_0px_-2.857px_2.857px_rgba(0,0,0,.08)] ${progressWidthClassName}`}
                 />
               )}
             </div>
@@ -110,6 +106,23 @@ export function FigmaSubjectCourseCard({
     </article>
   )
 
+  if (onClick) {
+    return (
+      <div
+        className="group relative block w-full max-w-[344.33px] cursor-pointer no-underline transition duration-200 hover:-translate-y-1"
+      >
+        {card}
+        <button
+          type="button"
+          className="absolute inset-0 rounded-[16px] border-0 bg-transparent p-0 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20"
+          onClick={onClick}
+        >
+          <span className="sr-only">{label}: {title}</span>
+        </button>
+      </div>
+    )
+  }
+
   if (!href || isUnavailable) return card
 
   return (
@@ -117,4 +130,31 @@ export function FigmaSubjectCourseCard({
       {card}
     </Link>
   )
+}
+
+function progressWidthClass(value: number) {
+  const bucket = Math.max(0, Math.min(100, Math.round(value / 5) * 5))
+  switch (bucket) {
+    case 0: return 'w-0'
+    case 5: return 'w-[5%]'
+    case 10: return 'w-[10%]'
+    case 15: return 'w-[15%]'
+    case 20: return 'w-[20%]'
+    case 25: return 'w-1/4'
+    case 30: return 'w-[30%]'
+    case 35: return 'w-[35%]'
+    case 40: return 'w-[40%]'
+    case 45: return 'w-[45%]'
+    case 50: return 'w-1/2'
+    case 55: return 'w-[55%]'
+    case 60: return 'w-[60%]'
+    case 65: return 'w-[65%]'
+    case 70: return 'w-[70%]'
+    case 75: return 'w-3/4'
+    case 80: return 'w-4/5'
+    case 85: return 'w-[85%]'
+    case 90: return 'w-[90%]'
+    case 95: return 'w-[95%]'
+    default: return 'w-full'
+  }
 }

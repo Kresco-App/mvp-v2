@@ -7,6 +7,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from app.database import _build_async_url
 
 config = context.config
 
@@ -19,22 +20,13 @@ from app.models import users, courses, quizzes, gamification, interactions, noti
 target_metadata = Base.metadata
 
 
-def get_url() -> str:
-    url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./db.sqlite3")
-    if url.startswith("postgresql://") or url.startswith("postgres://"):
-        url = url.split("?")[0]  # strip query params (sslmode etc — asyncpg uses connect_args)
-        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-    return url
-
-
-def _needs_ssl() -> bool:
+def get_url_and_connect_args() -> tuple[str, dict]:
     raw = os.environ.get("DATABASE_URL", "")
-    return "rds.amazonaws.com" in raw
+    return _build_async_url(raw or "sqlite+aiosqlite:///./db.sqlite3", os.environ.get("PGSSLROOTCERT"))
 
 
 def run_migrations_offline() -> None:
-    url = get_url()
+    url, _ = get_url_and_connect_args()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -53,8 +45,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     cfg = config.get_section(config.config_ini_section, {})
-    cfg["sqlalchemy.url"] = get_url()
-    connect_args = {"ssl": "require"} if _needs_ssl() else {}
+    cfg["sqlalchemy.url"], connect_args = get_url_and_connect_args()
     connectable = async_engine_from_config(
         cfg,
         prefix="sqlalchemy.",

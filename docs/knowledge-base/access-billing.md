@@ -1,96 +1,58 @@
 # Access and Billing Model
 
-## Principle
+## Current Access Inputs
 
-Access is the combination of:
+Access decisions use:
 
-- Subject entitlement.
-- Global tier.
-- Feature policy.
+- User subject entitlements.
+- User global pro state.
+- Content gate fields.
 
-Example:
+Current gate fields on content records:
 
-```text
-User has Physics access + Pro tier
--> can access Physics Pro content/features
-
-User has Math access only
--> cannot access Physics topic items
-```
-
-## Subject entitlement
-
-Subject entitlement controls where the student has access.
-
-Suggested fields:
-
-- `user_id`
-- `subject_id`
-- `starts_at`
-- `ends_at`
-- `source`
-- `status`
-
-Access period can be:
-
-- Monthly.
-- Semester.
-- Until exam date.
-- Any other configured period.
-
-Implementation should not depend on one billing duration.
-
-## Global tier
-
-Tier is global to reduce buying fatigue and confusion.
-
-Examples:
-
-- Basic.
-- Pro.
-- VIP.
-
-Exact tier meanings are not locked yet.
-
-Do not encode business rules as hard-coded `if tier == vip` checks everywhere. Use policy/feature keys.
-
-## Feature gates
-
-Use feature keys for premium capabilities.
-
-Possible keys:
-
-- `live_sessions`
-- `ai_tutor`
-- `teacher_chat`
-- `interactive_course`
-- `simulated_exams`
-- `downloads`
-- `advanced_quizzes`
-- `forum_posting`
-- `exam_bank_video_solutions`
-
-## Policy-based access
-
-Content/resources should support:
-
-- `required_subject_access`
+- `is_free_preview`
 - `required_tier`
 - `required_feature_key`
-- `is_free_preview`
 
-This allows future changes without redesigning the database.
+Current subject entitlement records are represented by `UserSubjectEntitlement`.
 
-## Locked preview
+## Current Access Surfaces
 
-Locked content should not simply disappear.
+Access checks apply to:
 
-Locked cards/items should be able to show:
+- Topics.
+- TopicItems.
+- TabContent.
+- Resources.
+- Lessons and sections on compatibility routes.
+- Exams and ExamProblems.
+
+Locked API responses must keep the learning structure visible while hiding protected payloads such as provider IDs, URLs, quiz configs, and written solutions. Course response projection and locked-payload redaction live in `backend/app/services/course_access.py`.
+
+## Current Billing Surface
+
+Stripe payment integration lives in:
+
+- `backend/app/routers/payments.py`
+- `backend/app/services/stripe_service.py`
+- `backend/app/services/payment_entitlements.py`
+
+Current endpoints:
+
+- `POST /api/payments/create-checkout-session`
+- `GET /api/payments/verify-session`
+- `POST /api/payments/webhook`
+
+The current billing model is a one-time `pro` Checkout payment. Successful payment marks `User.is_pro=true` through the shared payment entitlement service; the app does not currently create Stripe subscriptions or model recurring billing periods.
+
+## Current Preview Rule
+
+Locked content should show:
 
 - Title.
 - Lightweight summary.
 - Topic context.
-- Free preview items.
+- Free preview state.
 - Unlock CTA.
 
-This is important for conversion and comprehension.
+Locked content must not leak protected resource URLs, provider IDs, quiz answers, or written solutions.

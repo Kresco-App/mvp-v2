@@ -1,68 +1,41 @@
 'use client'
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
-import { BookCheck, Camera, ChevronRight, Clock3, Flame, Loader2, Pencil, Save, ShieldCheck, Star, Trophy, X, Zap } from 'lucide-react'
-import { getLeagueInfoByKey, rankToLeagueKey } from '@/lib/leaderboardLeagues'
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import Image from 'next/image'
+import Link from 'next/link'
+import { BookCheck, Bookmark, Camera, ChevronRight, Clock3, Flame, Loader2, Pencil, Save, ShieldCheck, Star, StickyNote, Trophy, X, Zap } from 'lucide-react'
+import {
+  DEFAULT_PROFILE_AVATAR_URL,
+  DEFAULT_PROFILE_BANNER_URL,
+  buildEditDraft,
+  buildProfileNoteHubItems,
+  buildProfileSaveHubItems,
+  fallbackSubjects,
+  followerAvatar,
+  formatWatchTime,
+  getFollowers,
+  getJoinedDate,
+  getLeagueLabel,
+  getUsername,
+  mediaUrl,
+  normalizeSubjects,
+  polarPoint,
+  ringPoints,
+  type FigmaProfileEditDraft,
+  type FigmaProfileMediaKind,
+  type FigmaProfileNote,
+  type FigmaProfileSavedItem,
+  type FigmaProfileSidebarData,
+  type FigmaProfileStats,
+  type FigmaProfileSubject,
+  type FigmaProfileUser,
+  type FigmaProfileXP,
+} from '@/lib/profileViewModel'
 import {
   CalendarCard,
   ChronoCard,
-  type PermanentSidebarCalendarDay,
-  type PermanentSidebarCountdownUnit,
-  type PermanentSidebarLeaderboardEntry,
-  type PermanentSidebarLiveEvent,
 } from './permanent-sidebar'
-
-export type FigmaProfileUser = {
-  full_name?: string
-  email?: string
-  avatar_url?: string
-  banner_url?: string
-  niveau?: string
-  filiere?: string
-  track?: string
-  created_at?: string
-}
-
-export type FigmaProfileXP = {
-  total_xp: number
-  level: number
-  xp_progress_pct?: number
-  xp_for_current_level?: number
-  xp_for_next_level?: number
-  streak_days: number
-}
-
-export type FigmaProfileStats = {
-  totalWatchMinutes: number
-  quizzesPassed: number
-  lessonsCompleted: number
-  isPro: boolean
-}
-
-export type FigmaProfileSubject = {
-  key: string
-  title: string
-  score: number
-  caption: string
-  tone: string
-}
-
-export type FigmaProfileSidebarData = {
-  chronoUnits?: PermanentSidebarCountdownUnit[]
-  calendarDays?: PermanentSidebarCalendarDay[]
-  liveEvents?: PermanentSidebarLiveEvent[]
-  leaderboardEntries?: PermanentSidebarLeaderboardEntry[]
-}
-
-export type FigmaProfileMediaKind = 'avatar' | 'banner'
-
-export type FigmaProfileEditDraft = {
-  full_name: string
-  level?: string
-  track?: string
-  avatar_url?: string
-  banner_url?: string
-}
+import type { PermanentSidebarLeaderboardEntry } from '@/lib/permanentSidebarViewModel'
 
 export type FigmaProfileProps = {
   user: FigmaProfileUser | null
@@ -70,6 +43,8 @@ export type FigmaProfileProps = {
   stats?: FigmaProfileStats | null
   subjects: FigmaProfileSubject[]
   sidebar: FigmaProfileSidebarData
+  notes?: FigmaProfileNote[]
+  saves?: FigmaProfileSavedItem[]
   loading?: boolean
   editable?: boolean
   saving?: boolean
@@ -78,19 +53,8 @@ export type FigmaProfileProps = {
   onSelectMedia?: (kind: FigmaProfileMediaKind, draft: FigmaProfileEditDraft) => string | undefined | Promise<string | undefined>
 }
 
-const fallbackSubjects: FigmaProfileSubject[] = [
-  { key: 'math', title: 'Mathematics', score: 56, caption: "You're doing good keep it up", tone: '#ff8904' },
-  { key: 'physics', title: 'Physics', score: 32, caption: 'Almost there, just a little more effort', tone: '#ff6467' },
-  { key: 'chemistry', title: 'Chemistry', score: 93, caption: 'Oh my god, are you Mendeleev', tone: '#009966' },
-  { key: 'geography', title: 'Geography', score: 64, caption: 'Cool, you know your continents!', tone: '#009966' },
-  { key: 'biology', title: 'Biology', score: 80, caption: 'Cells, genetics, and steady wins', tone: '#453dee' },
-  { key: 'philosophy', title: 'Philosophy', score: 72, caption: 'Clear arguments are paying off', tone: '#707fff' },
-  { key: 'english', title: 'English', score: 68, caption: 'Vocabulary and writing are growing', tone: '#51a2ff' },
-]
-
 const badgeTones = ['#5b60f9', '#c4d1ff', '#51a2ff', '#ff8904']
-const defaultBannerUrl = '/figma-assets/profile/profile-cover.png'
-const defaultAvatarUrl = '/figma-assets/profile/profile-avatar.png'
+const PROFILE_HUB_VISIBLE_ITEMS = 4
 
 export function FigmaProfile({
   user,
@@ -98,6 +62,8 @@ export function FigmaProfile({
   stats,
   subjects,
   sidebar,
+  notes = [],
+  saves = [],
   loading,
   editable = true,
   saving,
@@ -120,11 +86,11 @@ export function FigmaProfile({
   const streak = xp?.streak_days ?? 7
   const league = getLeagueLabel(xp?.level, sidebar.leaderboardEntries)
   const watchTime = formatWatchTime(stats?.totalWatchMinutes ?? 0)
-  const completedLessons = stats?.lessonsCompleted ?? 0
+  const completedLessons = stats?.itemsCompleted ?? 0
   const quizzesPassed = stats?.quizzesPassed ?? 0
   const followers = getFollowers(sidebar.leaderboardEntries)
-  const avatarUrl = mediaUrl(optimisticDraft?.avatar_url || user?.avatar_url || defaultAvatarUrl)
-  const bannerUrl = mediaUrl(optimisticDraft?.banner_url || user?.banner_url || defaultBannerUrl)
+  const avatarUrl = mediaUrl(optimisticDraft?.avatar_url || user?.avatar_url || DEFAULT_PROFILE_AVATAR_URL)
+  const bannerUrl = mediaUrl(optimisticDraft?.banner_url || user?.banner_url || DEFAULT_PROFILE_BANNER_URL)
   const isSaving = Boolean(saving || localSaving)
   const isMediaSelecting = Boolean(selectingMedia)
   const visibleError = editError || localError
@@ -209,10 +175,10 @@ export function FigmaProfile({
         <main className="figma-profile-main" aria-busy={loading ? 'true' : 'false'}>
           <section className="figma-profile-hero" aria-label="Profile summary">
             <div className="figma-profile-cover">
-              <img src={bannerUrl} alt="" />
+              <Image src={bannerUrl} alt="" fill sizes="720px" priority unoptimized />
             </div>
             <div className="figma-profile-avatar" aria-label="Profile picture">
-              <img src={avatarUrl} alt={firstName} referrerPolicy="no-referrer" />
+              <Image src={avatarUrl} alt={firstName} fill sizes="82px" unoptimized referrerPolicy="no-referrer" />
             </div>
 
             <div className="figma-profile-badges" aria-label="Badges">
@@ -253,6 +219,8 @@ export function FigmaProfile({
               <SubjectScoreCard subject={subject} key={subject.key} />
             ))}
           </section>
+
+          <ProfileHub notes={notes} saves={saves} />
         </main>
 
         <aside className="figma-profile-rail" aria-label="Profile sidebar">
@@ -278,8 +246,8 @@ export function FigmaProfile({
             </div>
 
             <div className="figma-profile-edit-preview">
-              <img className="figma-profile-edit-cover" src={mediaUrl(draft.banner_url || defaultBannerUrl)} alt="" />
-              <img className="figma-profile-edit-avatar" src={mediaUrl(draft.avatar_url || defaultAvatarUrl)} alt="" referrerPolicy="no-referrer" />
+              <Image className="figma-profile-edit-cover" src={mediaUrl(draft.banner_url || DEFAULT_PROFILE_BANNER_URL)} alt="" fill sizes="520px" unoptimized />
+              <Image className="figma-profile-edit-avatar" src={mediaUrl(draft.avatar_url || DEFAULT_PROFILE_AVATAR_URL)} alt="" width={72} height={72} unoptimized referrerPolicy="no-referrer" />
             </div>
 
             <div className="figma-profile-edit-grid">
@@ -324,7 +292,7 @@ export function FigmaProfile({
                     className="figma-input"
                     value={draft.avatar_url ?? ''}
                     onChange={(event) => setDraft((current) => ({ ...current, avatar_url: event.target.value }))}
-                    placeholder={defaultAvatarUrl}
+                    placeholder={DEFAULT_PROFILE_AVATAR_URL}
                     disabled={isSaving || isMediaSelecting}
                   />
                   <button type="button" className="figma-profile-media-button" onClick={() => handleMediaSelect('avatar')} disabled={isSaving || isMediaSelecting || !onSelectMedia}>
@@ -341,7 +309,7 @@ export function FigmaProfile({
                     className="figma-input"
                     value={draft.banner_url ?? ''}
                     onChange={(event) => setDraft((current) => ({ ...current, banner_url: event.target.value }))}
-                    placeholder={defaultBannerUrl}
+                    placeholder={DEFAULT_PROFILE_BANNER_URL}
                     disabled={isSaving || isMediaSelecting}
                   />
                   <button type="button" className="figma-profile-media-button" onClick={() => handleMediaSelect('banner')} disabled={isSaving || isMediaSelecting || !onSelectMedia}>
@@ -371,6 +339,64 @@ export function FigmaProfile({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function ProfileHub({ notes, saves }: { notes: FigmaProfileNote[]; saves: FigmaProfileSavedItem[] }) {
+  const noteItems = useMemo(() => buildProfileNoteHubItems(notes, PROFILE_HUB_VISIBLE_ITEMS), [notes])
+  const saveItems = useMemo(() => buildProfileSaveHubItems(saves, PROFILE_HUB_VISIBLE_ITEMS), [saves])
+
+  return (
+    <section className="figma-profile-hub" aria-label="Notes and saved items">
+      <ProfileHubColumn
+        icon={<StickyNote size={18} />}
+        title="Recent notes"
+        empty="Notes you save in a topic will appear here."
+        items={noteItems}
+      />
+      <ProfileHubColumn
+        icon={<Bookmark size={18} />}
+        title="Saved items"
+        empty="Saved lessons, resources, quizzes, and exam problems will appear here."
+        items={saveItems}
+      />
+    </section>
+  )
+}
+
+function ProfileHubColumn({
+  icon,
+  title,
+  empty,
+  items,
+}: {
+  icon: ReactNode
+  title: string
+  empty: string
+  items: { id: string; href: string; title: string; meta: string }[]
+}) {
+  return (
+    <article className="figma-profile-hub-column">
+      <div className="figma-profile-hub-heading">
+        <span>{icon}</span>
+        <strong>{title}</strong>
+      </div>
+      {items.length > 0 ? (
+        <div className="figma-profile-hub-list">
+          {items.map((item) => (
+            <Link href={item.href} key={item.id} className="figma-profile-hub-row">
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.meta}</small>
+              </span>
+              <ChevronRight size={15} strokeWidth={2.4} />
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <p>{empty}</p>
+      )}
+    </article>
   )
 }
 
@@ -599,6 +625,108 @@ function ProfileEditStyles() {
           grid-template-columns: 1fr;
         }
       }
+
+      .figma-profile-hub {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        padding-top: 18px;
+      }
+
+      .figma-profile-hub-column {
+        min-width: 0;
+        border: 2px solid #e4e4e7;
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 16px;
+      }
+
+      .figma-profile-hub-heading {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: #3f3f46;
+      }
+
+      .figma-profile-hub-heading span {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 12px;
+        background: #eaf8ff;
+        color: #1292cf;
+      }
+
+      .figma-profile-hub-heading strong {
+        font-size: 15px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .figma-profile-hub-list {
+        display: grid;
+        gap: 9px;
+        padding-top: 13px;
+      }
+
+      .figma-profile-hub-row {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-radius: 13px;
+        background: #f7f8fb;
+        color: #3f3f46;
+        padding: 12px;
+        text-decoration: none;
+        transition: transform 160ms ease, box-shadow 160ms ease;
+      }
+
+      .figma-profile-hub-row:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 22px rgba(24,24,27,0.08);
+      }
+
+      .figma-profile-hub-row span {
+        min-width: 0;
+      }
+
+      .figma-profile-hub-row strong {
+        display: block;
+        overflow: hidden;
+        color: #3f3f46;
+        font-size: 13px;
+        font-weight: 900;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .figma-profile-hub-row small {
+        display: block;
+        margin-top: 4px;
+        color: #71717b;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1;
+        text-transform: capitalize;
+      }
+
+      .figma-profile-hub-column p {
+        margin: 13px 0 0;
+        color: #71717b;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      @media (max-width: 980px) {
+        .figma-profile-hub {
+          grid-template-columns: 1fr;
+        }
+      }
     `}</style>
   )
 }
@@ -697,159 +825,17 @@ function FollowerPanel({ entries }: { entries: PermanentSidebarLeaderboardEntry[
       </div>
       <div className="figma-profile-follow-list">
         {visible.map((entry, index) => (
-          <a href="/classement" className="figma-profile-follow-row" key={`${entry.user_id}-${entry.rank}-${index}`}>
-            <img src={entry.avatar_url || followerAvatar(index)} alt="" />
+          <Link href="/classement" className="figma-profile-follow-row" key={`${entry.user_id}-${entry.rank}-${index}`}>
+            <Image src={entry.avatar_url || followerAvatar(index)} alt="" width={40} height={40} unoptimized referrerPolicy="no-referrer" />
             <span>
               <strong>{entry.full_name}</strong>
               <small>{entry.total_xp.toLocaleString()} point</small>
             </span>
             <ChevronRight size={15} strokeWidth={2.4} />
-          </a>
+          </Link>
         ))}
       </div>
     </section>
   )
 }
 
-function normalizeSubjects(subjects: FigmaProfileSubject[]) {
-  if (subjects.length === 0) return fallbackSubjects.slice(0, 6)
-
-  const merged = new Map<string, FigmaProfileSubject>()
-  for (const subject of subjects) merged.set(subject.key, subject)
-  return Array.from(merged.values())
-}
-
-function getUsername(user: FigmaProfileUser | null) {
-  if (!user?.email) return 'ahmedmalik547'
-  return user.email.split('@')[0].replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 28) || 'student'
-}
-
-function getJoinedDate(value?: string) {
-  if (!value) return 'Joined July 2026'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Joined July 2026'
-  return `Joined ${date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
-}
-
-function buildEditDraft(user: FigmaProfileUser | null, xp: FigmaProfileXP | null): FigmaProfileEditDraft {
-  return {
-    full_name: user?.full_name || 'Ahmed Malik',
-    level: user?.niveau || (typeof xp?.level === 'number' ? String(xp.level) : ''),
-    track: user?.filiere || user?.track || '',
-    avatar_url: user?.avatar_url || defaultAvatarUrl,
-    banner_url: user?.banner_url || defaultBannerUrl,
-  }
-}
-
-function getLeagueLabel(level = 4, entries?: PermanentSidebarLeaderboardEntry[]) {
-  const currentEntry = entries?.find((entry) => entry.is_current_user)
-  if (currentEntry?.rank) return getLeagueInfoByKey(rankToLeagueKey(currentEntry.rank)).label
-
-  if (level >= 16) return 'Ruby IV'
-  if (level >= 11) return 'Emerald IV'
-  if (level >= 6) return 'Sapphire IV'
-  return 'Bronze IV'
-}
-
-function getFollowers(entries?: PermanentSidebarLeaderboardEntry[]) {
-  const fallbacks: PermanentSidebarLeaderboardEntry[] = [
-    { rank: 1, user_id: 1, full_name: 'Fatima Ansari', total_xp: 541135, level: 7, avatar_url: '/figma-assets/profile/follower-fatima.png' },
-    { rank: 2, user_id: 2, full_name: 'Ahmed Malik', total_xp: 541135, level: 7, avatar_url: '/figma-assets/profile/follower-ahmed.png' },
-    { rank: 3, user_id: 3, full_name: 'Aymen Ben Hamou', total_xp: 541135, level: 7, avatar_url: '/figma-assets/profile/follower-aymen.png' },
-    { rank: 4, user_id: 4, full_name: 'Ibtisam Mahir', total_xp: 541135, level: 7, avatar_url: '/figma-assets/profile/follower-ibtisam.png' },
-  ]
-
-  if (!entries || entries.length === 0) return fallbacks
-  const nonCurrentEntries = entries.filter((entry) => !entry.is_current_user)
-  const source = nonCurrentEntries.length > 0 ? nonCurrentEntries : entries
-  return source.slice(0, 5).map((entry, index) => ({
-    ...entry,
-    avatar_url: entry.avatar_url || followerAvatar(index),
-  }))
-}
-
-function formatWatchTime(minutes: number) {
-  const safeMinutes = Math.max(0, Math.round(minutes))
-  if (safeMinutes < 60) return `${safeMinutes}m`
-  const hours = Math.floor(safeMinutes / 60)
-  const remainder = safeMinutes % 60
-  return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`
-}
-
-function followerAvatar(index: number) {
-  return [
-    '/figma-assets/profile/follower-fatima.png',
-    '/figma-assets/profile/follower-ahmed.png',
-    '/figma-assets/profile/follower-aymen.png',
-    '/figma-assets/profile/follower-ibtisam.png',
-  ][index % 4]
-}
-
-function mediaUrl(value?: string) {
-  if (!value) return ''
-  if (/^(https?:|data:|blob:)/.test(value)) return value
-  if (value.startsWith('/figma-assets/')) return value
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/'
-  const origin = apiBase.replace(/\/api\/?$/, '').replace(/\/$/, '')
-  return `${origin}${value.startsWith('/') ? value : `/${value}`}`
-}
-
-function polarPoint(cx: number, cy: number, r: number, index: number, total: number) {
-  const angle = -Math.PI / 2 + (index * Math.PI * 2) / total
-  return {
-    x: Number((cx + Math.cos(angle) * r).toFixed(2)),
-    y: Number((cy + Math.sin(angle) * r).toFixed(2)),
-  }
-}
-
-function ringPoints(center: number, radius: number, total: number) {
-  return Array.from({ length: total }, (_, index) => {
-    const point = polarPoint(center, center, radius, index, total)
-    return `${point.x},${point.y}`
-  }).join(' ')
-}
-
-export function toProfileSubject(title: string, progress: number | undefined, index: number): FigmaProfileSubject {
-  const canonical = canonicalSubject(title)
-  const fallback = fallbackSubjects.find((subject) => subject.key === canonical.key) ?? fallbackSubjects[index % fallbackSubjects.length]
-  const score = clampScore(progress ?? fallback.score)
-
-  return {
-    key: canonical.key,
-    title: canonical.title,
-    score,
-    caption: scoreCaption(canonical.key, score),
-    tone: scoreTone(score, index),
-  }
-}
-
-function canonicalSubject(title: string) {
-  const normalized = title.toLowerCase()
-  if (normalized.includes('math')) return { key: 'math', title: 'Mathematics' }
-  if (normalized.includes('phys')) return { key: 'physics', title: 'Physics' }
-  if (normalized.includes('chem') || normalized.includes('chim')) return { key: 'chemistry', title: 'Chemistry' }
-  if (normalized.includes('geo')) return { key: 'geography', title: 'Geography' }
-  if (normalized.includes('bio') || normalized.includes('svt')) return { key: 'biology', title: 'Biology' }
-  if (normalized.includes('philo')) return { key: 'philosophy', title: 'Philosophy' }
-  if (normalized.includes('english') || normalized.includes('anglais')) return { key: 'english', title: 'English' }
-  return { key: normalized.replace(/\W+/g, '-') || 'subject', title }
-}
-
-function clampScore(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value)))
-}
-
-function scoreTone(score: number, index: number) {
-  if (score < 45) return '#ff6467'
-  if (score < 60) return '#ff8904'
-  if (score >= 85) return '#009966'
-  return ['#453dee', '#51a2ff', '#707fff'][index % 3]
-}
-
-function scoreCaption(key: string, score: number) {
-  if (key === 'chemistry' && score >= 85) return 'Oh my god, are you Mendeleev'
-  if (key === 'geography') return 'Cool, you know your continents!'
-  if (score < 45) return 'Almost there, just a little more effort'
-  if (score < 65) return "You're doing good keep it up"
-  return 'Strong progress, keep the rhythm'
-}

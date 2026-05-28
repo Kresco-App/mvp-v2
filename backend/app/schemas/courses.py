@@ -1,72 +1,8 @@
-from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
-
-class LessonOut(BaseModel):
-    id: int
-    title: str
-    vdocipher_id: str
-    duration_seconds: int
-    is_free_preview: bool
-    order: int
-
-    model_config = {"from_attributes": True}
-
-
-class ChapterBlockOut(BaseModel):
-    id: int
-    title: str
-    content: str
-    block_type: str
-    order: int
-
-    model_config = {"from_attributes": True}
-
-
-class ChapterSectionBriefOut(BaseModel):
-    id: int
-    title: str
-    section_type: str
-    order: int
-    is_gating: bool
-    is_free_preview: bool
-    duration_seconds: int
-    activity_type: str
-
-    model_config = {"from_attributes": True}
-
-
-class ChapterSectionOut(BaseModel):
-    id: int
-    title: str
-    section_type: str
-    order: int
-    is_gating: bool
-    is_free_preview: bool
-    vdocipher_id: str
-    duration_seconds: int
-    content: str
-    quiz_data: Optional[dict] = None
-    pass_score: int
-    activity_type: str
-    activity_data: Optional[dict] = None
-    chapter_id: int
-
-    model_config = {"from_attributes": True}
-
-
-class ChapterOut(BaseModel):
-    id: int
-    title: str
-    description: str
-    order: int
-    lessons: list[LessonOut] = []
-    blocks: list[ChapterBlockOut] = []
-    sections: list[ChapterSectionBriefOut] = []
-
-    model_config = {"from_attributes": True}
+from app.schemas.limits import ShortText, StrictInputModel
 
 
 class SubjectListOut(BaseModel):
@@ -88,7 +24,6 @@ class SubjectDetailOut(BaseModel):
     description: str
     thumbnail_url: str
     is_published: bool
-    chapters: list[ChapterOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -96,48 +31,6 @@ class SubjectDetailOut(BaseModel):
 class StreamOut(BaseModel):
     otp: str
     playback_info: str
-
-
-class CoursePDFOut(BaseModel):
-    id: int
-    title: str
-    file_url: str
-    order: int
-
-    model_config = {"from_attributes": True}
-
-
-class LessonDetailOut(BaseModel):
-    id: int
-    title: str
-    vdocipher_id: str
-    duration_seconds: int
-    is_free_preview: bool
-    order: int
-    chapter_id: int
-    chapter_title: str = ""
-    subject_id: int = 0
-    subject_title: str = ""
-
-    model_config = {"from_attributes": True}
-
-
-class ActivityOut(BaseModel):
-    id: int
-    title: str
-    activity_type: str
-    config_json: dict
-
-    model_config = {"from_attributes": True}
-
-
-class VideoQuizTriggerOut(BaseModel):
-    id: int
-    timestamp_seconds: int
-    quiz_id: int
-    is_blocking: bool
-
-    model_config = {"from_attributes": True}
 
 
 class ResourceOut(BaseModel):
@@ -152,6 +45,10 @@ class ResourceOut(BaseModel):
     is_free_preview: bool = False
     required_tier: str = ""
     required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -164,9 +61,14 @@ class TabContentOut(BaseModel):
     config_json: dict = {}
     renderer_key: str = ""
     order: int
-    is_recommended: bool = False
     concept_slugs: list[str] = []
     resource: Optional[ResourceOut] = None
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -185,9 +87,17 @@ class TopicItemOut(BaseModel):
     is_free_preview: bool = False
     concept_slugs: list[str] = []
     primary_resource: Optional[ResourceOut] = None
+    primary_tab_content_id: Optional[int] = None
+    primary_tab: Optional[TabContentOut] = None
     tabs: list[TabContentOut] = []
     progress_status: str = "not_started"
     best_score: Optional[int] = None
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -214,13 +124,12 @@ class TopicCardOut(BaseModel):
     completed_count: int = 0
     progress_pct: int = 0
     concepts: list[str] = []
-
-
-class StudyToolsOut(BaseModel):
-    quizzes: list[TabContentOut] = []
-    interactive: list[TabContentOut] = []
-    resources: list[ResourceOut] = []
-    notes: list[dict] = []
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
 
 
 class TopicWorkspaceOut(BaseModel):
@@ -233,29 +142,25 @@ class TopicWorkspaceOut(BaseModel):
     progress_pct: int
     completed_count: int
     item_count: int
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
     active_item_id: Optional[int]
     sections: list[TopicSectionOut]
     active_item: Optional[TopicItemOut]
-    study_tools: StudyToolsOut
     search_results: list[TopicItemOut] = []
 
 
-class ActivityEventIn(BaseModel):
-    event_type: str
-    target_type: str = "topic_item"
-    target_id: int
-    topic_id: Optional[int] = None
-    topic_item_id: Optional[int] = None
-    metadata_json: dict = {}
+class TopicItemCompleteIn(StrictInputModel):
+    watched_seconds: int = Field(default=0, ge=0)
+    score: Optional[int] = Field(default=None, ge=0, le=100)
 
 
-class TopicItemCompleteIn(BaseModel):
-    watched_seconds: int = 0
-    score: Optional[int] = None
-
-
-class TabQuizSubmitIn(BaseModel):
-    answers: dict[str, Any]
+class TabQuizSubmitIn(StrictInputModel):
+    answers: dict[ShortText, Any]
     duration_seconds: int = 0
 
 
@@ -280,9 +185,14 @@ class ExamProblemOut(BaseModel):
     difficulty: str
     concept_slugs: list[str] = []
     video_resource: Optional[ResourceOut] = None
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
-
 
 class ExamOut(BaseModel):
     id: int
@@ -292,6 +202,18 @@ class ExamOut(BaseModel):
     year: int
     session: str
     statement_url: str
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
     problems: list[ExamProblemOut] = []
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def redact_if_locked(self) -> "ExamOut":
+        if not self.can_access:
+            self.statement_url = ""
+        return self

@@ -1,93 +1,94 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Trophy, Search, Crown, Medal, ChevronLeft, ChevronRight, Zap, ArrowUp, ArrowDown } from 'lucide-react'
-import api from '@/lib/axios'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Trophy, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { toast } from 'sonner'
+import { getJson } from '@/lib/apiClient'
+import { LeaderboardPageSkeleton, SkeletonBlock } from '@/components/figma/skeletons'
 import {
-  type LeagueKey,
-  type Zone,
   getDemotionStartRank,
   getLeagueInfoByKey,
   getMajorLeagueStrip,
   getPromotionCutoff,
-  getZone,
-  rankToDivisionLocalRank,
-  rankToLeagueKey,
 } from '@/lib/leaderboardLeagues'
-
-interface LeaderboardEntry {
-  rank: number
-  user_id: number
-  full_name: string
-  avatar_url: string
-  total_xp: number
-  level: number
-  is_current_user: boolean
-  leagueKey?: LeagueKey
-  leagueLabel?: string
-  divisionLocalRank?: number
-  zone?: Zone
-}
-
-function enrichEntry(entry: LeaderboardEntry): LeaderboardEntry {
-  const leagueKey = rankToLeagueKey(entry.rank)
-  const league = getLeagueInfoByKey(leagueKey)
-  const divisionLocalRank = rankToDivisionLocalRank(entry.rank)
-  return {
-    ...entry,
-    leagueKey,
-    leagueLabel: league.label,
-    divisionLocalRank,
-    zone: getZone(divisionLocalRank),
-  }
-}
+import {
+  AvatarBubble,
+  LeaderboardListRow,
+  LeaderboardRow,
+  LeaderboardRowsSkeleton,
+  LeagueMarker,
+  ZoneDivider,
+  enrichEntry,
+  leagueTextClass,
+  type LeaderboardEntry,
+  type LeaderboardVisibleRow,
+} from '@/components/leaderboard/LeaderboardParts'
 
 export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    api.get('/progress/leaderboard', { params: { limit: 5 } })
-      .then(r => setEntries(r.data))
-      .catch(() => {})
+    setError('')
+    getJson<LeaderboardEntry[]>('/progress/leaderboard', { params: { limit: 5 } })
+      .then(data => setEntries(data))
+      .catch(() => {
+        const message = 'Could not load leaderboard.'
+        setError(message)
+        toast.error(message)
+      })
       .finally(() => setLoading(false))
   }, [])
 
+  const top = useMemo(() => entries.filter(e => !e.is_current_user || e.rank <= 5).slice(0, 5), [entries])
+  const currentUser = useMemo(() => entries.find(e => e.is_current_user), [entries])
+  const currentUserInTop = useMemo(() => top.some(e => e.is_current_user), [top])
+
   if (loading) {
     return (
-      <div className="card p-5 space-y-3 animate-pulse">
-        {[1, 2, 3].map(i => (
-          <div key={i} style={{ height: 40, borderRadius: 10, background: 'var(--surface-hover)' }} />
+      <div className="card kresco-skeleton-card space-y-3 p-5">
+        {[1, 2, 3].map((i) => (
+          <div className="grid grid-cols-[24px_28px_1fr_auto] items-center gap-2" key={i}>
+            <SkeletonBlock className="h-6 w-6 rounded-full" />
+            <SkeletonBlock className="h-7 w-7 rounded-full" />
+            <SkeletonBlock className="h-[13px] w-[70%] rounded-[6px]" />
+            <SkeletonBlock className="h-[12px] w-14 rounded-[6px]" />
+          </div>
         ))}
       </div>
     )
   }
 
-  const top = entries.filter(e => !e.is_current_user || e.rank <= 5).slice(0, 5)
-  const currentUser = entries.find(e => e.is_current_user)
-  const currentUserInTop = top.some(e => e.is_current_user)
+  if (error) {
+    return (
+      <div className="card p-5 text-sm text-[color:var(--text-secondary)]">
+        {error}
+      </div>
+    )
+  }
 
   return (
     <div className="card p-5">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Trophy size={15} style={{ color: '#f59e0b' }} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Classement</span>
+      <div className="mb-[14px] flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Trophy size={15} className="text-amber-500" />
+          <span className="text-sm font-bold text-[color:var(--text-primary)]">Classement</span>
         </div>
         {onExpand && (
-          <button onClick={onExpand} style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
+          <button type="button" onClick={onExpand} className="cursor-pointer border-0 bg-transparent text-xs font-semibold text-[color:var(--primary)]">
             Voir tout
           </button>
         )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className="flex flex-col gap-1">
         {top.map(entry => (
           <LeaderboardRow key={`${entry.user_id}-${entry.rank}`} entry={entry} compact highlight={entry.is_current_user} />
         ))}
         {currentUser && !currentUserInTop && (
           <>
-            <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11, letterSpacing: 2, padding: '2px 0' }}>. . .</div>
+            <div className="py-[2px] text-center text-[11px] tracking-[2px] text-[color:var(--text-tertiary)]">. . .</div>
             <LeaderboardRow entry={currentUser} compact highlight />
           </>
         )}
@@ -100,16 +101,19 @@ export function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
   const [lastNonEmptyEntries, setLastNonEmptyEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [searchInput, setSearchInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const PAGE_SIZE = 20
 
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true)
+    setError('')
     try {
       const offset = (page - 1) * PAGE_SIZE
-      const { data } = await api.get('/progress/leaderboard', {
-        params: { limit: PAGE_SIZE, offset }
+      const data = await getJson<LeaderboardEntry[]>('/progress/leaderboard', {
+        params: { limit: PAGE_SIZE, offset, ...(searchQuery ? { search: searchQuery } : {}) }
       })
       const mapped = (data ?? []).map((entry: LeaderboardEntry) => enrichEntry(entry))
       setEntries(mapped)
@@ -117,138 +121,157 @@ export function LeaderboardPage() {
         setLastNonEmptyEntries(mapped)
       }
     } catch {
+      const message = 'Could not load leaderboard.'
       setEntries([])
+      setError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
-  }, [page])
+  }, [page, searchQuery])
 
   useEffect(() => { fetchLeaderboard() }, [fetchLeaderboard])
 
+  useEffect(() => {
+    const nextSearch = searchInput.trim()
+    const timer = window.setTimeout(() => {
+      setPage(1)
+      setSearchQuery(nextSearch)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
+
   function clearSearch() {
     setSearchInput('')
+    setSearchQuery('')
+    setPage(1)
   }
 
-  const displayEntries = entries.length > 0 ? entries : lastNonEmptyEntries
-  const normalizedSearch = searchInput.trim().toLowerCase()
-  const instantEntries = normalizedSearch
-    ? displayEntries.filter((entry) => entry.full_name.toLowerCase().includes(normalizedSearch))
-    : displayEntries
-  const visibleEntries = normalizedSearch && instantEntries.length === 0 ? displayEntries : instantEntries
+  const displayEntries = useMemo(
+    () => (entries.length > 0 ? entries : lastNonEmptyEntries),
+    [entries, lastNonEmptyEntries],
+  )
+  const normalizedSearch = useMemo(() => searchInput.trim().toLowerCase(), [searchInput])
+  const instantEntries = useMemo(
+    () => (
+      normalizedSearch
+        ? displayEntries.filter((entry) => entry.full_name.toLowerCase().includes(normalizedSearch))
+        : displayEntries
+    ),
+    [displayEntries, normalizedSearch],
+  )
+  const visibleEntries = useMemo(
+    () => (normalizedSearch && instantEntries.length === 0 ? displayEntries : instantEntries),
+    [displayEntries, instantEntries, normalizedSearch],
+  )
   const hasMore = entries.length === PAGE_SIZE
-  const headerSourceEntries = entries.length > 0 ? entries : lastNonEmptyEntries
-  const currentUser = headerSourceEntries.find((e) => e.is_current_user) ?? headerSourceEntries[0]
-  const currentLeague = currentUser?.leagueKey ? getLeagueInfoByKey(currentUser.leagueKey) : null
-  const leagueStrip = currentLeague ? getMajorLeagueStrip(currentLeague.key) : []
+  const headerSourceEntries = useMemo(
+    () => (entries.length > 0 ? entries : lastNonEmptyEntries),
+    [entries, lastNonEmptyEntries],
+  )
+  const currentUser = useMemo(
+    () => headerSourceEntries.find((e) => e.is_current_user) ?? headerSourceEntries[0],
+    [headerSourceEntries],
+  )
+  const currentLeague = useMemo(
+    () => (currentUser?.leagueKey ? getLeagueInfoByKey(currentUser.leagueKey) : null),
+    [currentUser],
+  )
+  const leagueStrip = useMemo(
+    () => (currentLeague ? getMajorLeagueStrip(currentLeague.key) : []),
+    [currentLeague],
+  )
+  const visibleRows = useMemo<LeaderboardVisibleRow[]>(
+    () => visibleEntries.map((entry, idx) => ({
+      entry,
+      key: `${entry.user_id}-${entry.rank}`,
+      showPromotionDivider: entry.divisionLocalRank === getPromotionCutoff() + 1,
+      showDemotionDivider: entry.divisionLocalRank === getDemotionStartRank(),
+      isLast: idx >= visibleEntries.length - 1,
+    })),
+    [visibleEntries],
+  )
+
+  if (loading && lastNonEmptyEntries.length === 0) {
+    return <LeaderboardPageSkeleton />
+  }
 
   return (
-    <div className="kresco-shell" style={{ maxWidth: 980, margin: '0 auto' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20 }}>
+    <div className="kresco-shell mx-auto max-w-[980px]">
+      <div className="grid grid-cols-[1fr_300px] gap-5">
         <div>
-          <div className="card" style={{ padding: 20, marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+          <div className="card mb-4 p-5">
+            <div className="mb-4 flex items-center gap-2.5">
               <Trophy size={20} color="#6366f1" />
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Classement</h1>
+              <h1 className="m-0 text-[22px] font-extrabold text-[color:var(--text-primary)]">Classement</h1>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginBottom: 10, flexWrap: 'wrap' }}>
-              {leagueStrip.map((league) => (
-                <LeagueMarker key={league.key} league={league} active={league.key === currentLeague?.key} />
+            <div className="mb-2.5 flex flex-wrap items-center justify-center gap-[14px]">
+              {leagueStrip.map((league, index) => (
+                <LeagueMarker key={`${league.key}-${index}`} league={league} active={league.key === currentLeague?.key} />
               ))}
             </div>
 
             {currentLeague && (
-              <div style={{ textAlign: 'center' }}>
-                <h2 style={{ fontSize: 42, lineHeight: 1, margin: '8px 0 4px', color: currentLeague.color, fontWeight: 800 }}>
+              <div className="text-center">
+                <h2 className={`mt-[8px] mb-1 text-[42px] font-extrabold leading-none ${leagueTextClass(currentLeague.color)}`}>
                   {currentLeague.label}
                 </h2>
-                <p style={{ margin: 0, fontSize: 18, color: 'var(--text-secondary)', fontWeight: 700 }}>
+                <p className="m-0 text-lg font-bold text-[color:var(--text-secondary)]">
                   Top {getPromotionCutoff()} advance to the next league
                 </p>
               </div>
             )}
           </div>
 
-          <div style={{ position: 'relative', marginBottom: 16 }}>
-            <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }} />
+          <div className="relative mb-4">
+            <Search size={15} className="pointer-events-none absolute left-[14px] top-1/2 -translate-y-1/2 text-[color:var(--text-tertiary)]" />
             <input
+              aria-label="Rechercher un joueur"
               value={searchInput}
               onChange={e => setSearchInput(e.target.value)}
               placeholder="Rechercher un joueur..."
-              className="kresco-control"
-              style={{ width: '100%', paddingLeft: 42, paddingRight: 40, paddingTop: 11, paddingBottom: 11, fontSize: 14 }}
+              className="kresco-control w-full px-[42px] py-[11px] pr-10 text-sm"
             />
             {searchInput && (
-              <button
-                onClick={clearSearch}
-                style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}
-              >
+              <button type="button" onClick={clearSearch} className="absolute right-[14px] top-1/2 -translate-y-1/2 cursor-pointer border-0 bg-transparent text-xs text-[color:var(--text-tertiary)]">
                 x
               </button>
             )}
           </div>
 
-          <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
+          <div className="card overflow-hidden p-0">
             {loading ? (
-              <div>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} style={{ height: 60, background: i % 2 === 0 ? 'var(--surface-card)' : 'var(--surface-hover)', animation: 'pulse 1.5s ease infinite' }} />
-                ))}
+              <LeaderboardRowsSkeleton />
+            ) : error ? (
+              <div className="px-4 py-12 text-center text-sm text-[color:var(--text-secondary)]">
+                {error}
               </div>
             ) : visibleEntries.length === 0 ? (
-              <div style={{ padding: '48px 16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>
+              <div className="px-4 py-12 text-center text-sm text-[color:var(--text-tertiary)]">
                 {normalizedSearch ? `Aucun joueur trouve pour "${searchInput}"` : 'Aucun classement disponible'}
               </div>
             ) : (
               <div>
                 {normalizedSearch && instantEntries.length === 0 && (
-                  <div style={{ padding: '10px 20px', color: 'var(--text-secondary)', fontSize: 12 }}>
-                    Aucun résultat pour &quot;{searchInput}&quot;. Classement complet affiché.
+                  <div className="px-5 py-2.5 text-xs text-[color:var(--text-secondary)]">
+                    Aucun r&eacute;sultat pour &quot;{searchInput}&quot;. Classement complet affich&eacute;.
                   </div>
                 )}
                 {normalizedSearch && instantEntries.length > 0 && instantEntries.length !== displayEntries.length && (
-                  <div style={{ padding: '10px 20px', color: 'var(--text-secondary)', fontSize: 12 }}>
-                    Filtre instantané actif pour &quot;{searchInput}&quot;.
+                  <div className="px-5 py-2.5 text-xs text-[color:var(--text-secondary)]">
+                    Filtre instantan&eacute; actif pour &quot;{searchInput}&quot;.
                   </div>
                 )}
-                {visibleEntries.map((entry, idx) => (
-                  <div key={`${entry.user_id}-${entry.rank}`}>
-                    {entry.divisionLocalRank === getPromotionCutoff() + 1 && (
+                {visibleRows.map(({ entry, key, showPromotionDivider, showDemotionDivider, isLast }) => (
+                  <div key={key}>
+                    {showPromotionDivider && (
                       <ZoneDivider zone="promotion" />
                     )}
-                    {entry.divisionLocalRank === getDemotionStartRank() && (
+                    {showDemotionDivider && (
                       <ZoneDivider zone="demotion" />
                     )}
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 14,
-                        padding: '12px 20px',
-                        background: entry.is_current_user ? 'var(--primary-soft)' : 'transparent',
-                        borderBottom: idx < visibleEntries.length - 1 ? '1px solid var(--border)' : 'none',
-                        borderLeft: entry.is_current_user ? '3px solid var(--primary)' : '3px solid transparent',
-                      }}
-                    >
-                      <RankBadge rank={entry.divisionLocalRank ?? entry.rank} />
-                      <AvatarBubble entry={entry} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 15, fontWeight: 700, color: entry.is_current_user ? 'var(--primary)' : 'var(--text-primary)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {entry.full_name}
-                          {entry.is_current_user && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 500 }}>(vous)</span>}
-                        </p>
-                        <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: 0 }}>
-                          {entry.leagueLabel} • Niveau {entry.level}
-                        </p>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                        <Zap size={13} color="#f59e0b" fill="#f59e0b" />
-                        <span style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b' }}>
-                          {entry.total_xp.toLocaleString()}
-                        </span>
-                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>XP</span>
-                      </div>
-                    </div>
+                    <LeaderboardListRow entry={entry} isLast={isLast} />
                   </div>
                 ))}
               </div>
@@ -256,20 +279,22 @@ export function LeaderboardPage() {
           </div>
 
           {(page > 1 || hasMore) && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 20 }}>
+            <div className="mt-5 flex items-center justify-center gap-3">
               <button
+                type="button"
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'var(--surface-hover)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: page === 1 ? 0.4 : 1 }}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-[9px] text-[13px] font-semibold text-[color:var(--text-primary)] ${page === 1 ? 'opacity-40' : 'opacity-100'}`}
               >
                 <ChevronLeft size={14} />
                 Precedent
               </button>
-              <span style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 600 }}>Page {page}</span>
+              <span className="text-[13px] font-semibold text-[color:var(--text-tertiary)]">Page {page}</span>
               <button
+                type="button"
                 onClick={() => setPage(p => p + 1)}
                 disabled={!hasMore}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, background: 'var(--surface-hover)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: !hasMore ? 0.4 : 1 }}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-[9px] text-[13px] font-semibold text-[color:var(--text-primary)] ${!hasMore ? 'opacity-40' : 'opacity-100'}`}
               >
                 Suivant
                 <ChevronRight size={14} />
@@ -278,119 +303,22 @@ export function LeaderboardPage() {
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="flex flex-col gap-4">
           {currentLeague && currentUser && (
-            <div className="card" style={{ padding: 20 }}>
-              <p style={{ margin: '0 0 4px', fontSize: 30, fontWeight: 800, color: currentLeague.color }}>{currentLeague.label}</p>
-              <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: 13 }}>Keep track of your progress</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="card p-5">
+              <p className={`mb-1 text-[30px] font-extrabold ${leagueTextClass(currentLeague.color)}`}>{currentLeague.label}</p>
+              <p className="mb-3 text-[13px] text-[color:var(--text-secondary)]">Keep track of your progress</p>
+              <div className="flex items-center gap-2.5">
                 <AvatarBubble entry={currentUser} />
                 <div>
-                  <p style={{ margin: 0, fontWeight: 700, color: 'var(--text-primary)' }}>{currentUser.full_name}</p>
-                  <p style={{ margin: 0, color: 'var(--text-tertiary)', fontSize: 12 }}>{currentUser.total_xp.toLocaleString()} points</p>
+                  <p className="m-0 font-bold text-[color:var(--text-primary)]">{currentUser.full_name}</p>
+                  <p className="m-0 text-xs text-[color:var(--text-tertiary)]">{currentUser.total_xp.toLocaleString()} points</p>
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-function ZoneDivider({ zone }: { zone: "promotion" | "demotion" }) {
-  const isPromotion = zone === "promotion"
-  const label = isPromotion ? "PROMOTION ZONE" : "DEMOTION ZONE"
-  const color = isPromotion ? "#10b981" : "#ef4444"
-  const Icon = isPromotion ? ArrowUp : ArrowDown
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '14px 8px', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-      <Icon size={20} color={color} />
-      <span style={{ color, fontSize: 28, fontWeight: 800, letterSpacing: 0 }}>{label}</span>
-      <Icon size={20} color={color} />
-    </div>
-  )
-}
-
-function LeagueMarker({ league, active }: { league: ReturnType<typeof getLeagueInfoByKey>, active: boolean }) {
-  return (
-    <div style={{ width: active ? 106 : 74, height: active ? 106 : 74, borderRadius: '50%', border: active ? `3px solid ${league.color}` : '1px solid var(--border)', background: active ? `${league.color}20` : 'var(--surface-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <img
-        src={league.emblemAsset}
-        alt={league.label}
-        style={{ width: active ? 76 : 48, height: active ? 76 : 48, objectFit: 'contain' }}
-        onError={(e) => {
-          e.currentTarget.style.display = 'none'
-          const fallback = e.currentTarget.nextElementSibling as HTMLElement | null
-          if (fallback) fallback.style.display = 'flex'
-        }}
-      />
-      <div style={{ display: 'none', width: active ? 76 : 48, height: active ? 76 : 48, borderRadius: '50%', alignItems: 'center', justifyContent: 'center', fontSize: active ? 12 : 10, fontWeight: 700, color: league.color, textAlign: 'center', padding: 6 }}>
-        {league.majorLabel}
-      </div>
-    </div>
-  )
-}
-
-function LeaderboardRow({ entry, compact = false, highlight = false }: {
-  entry: LeaderboardEntry
-  compact?: boolean
-  highlight?: boolean
-}) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderRadius: 10, padding: compact ? '6px 8px' : '10px 14px', background: highlight ? 'var(--primary-soft)' : 'transparent', border: highlight ? '1px solid rgba(69,61,238,0.15)' : '1px solid transparent', transition: 'background 150ms' }}>
-      <RankBadge rank={entry.rank} small />
-      <AvatarBubble entry={entry} small={compact} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 13, fontWeight: 600, color: highlight ? 'var(--primary)' : 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {entry.full_name}
-          {entry.is_current_user && <span style={{ marginLeft: 4, fontSize: 10, color: 'var(--primary)', fontWeight: 400 }}>(vous)</span>}
-        </p>
-      </div>
-      <span style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', flexShrink: 0 }}>
-        {entry.total_xp.toLocaleString()} XP
-      </span>
-    </div>
-  )
-}
-
-function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
-  const sz = small ? 24 : 32
-  if (rank === 1) return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(245,158,11,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <Crown size={small ? 13 : 16} color="#f59e0b" />
-    </div>
-  )
-  if (rank === 2) return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(148,163,184,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <Medal size={small ? 13 : 16} color="#94a3b8" />
-    </div>
-  )
-  if (rank === 3) return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'rgba(217,119,6,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <Medal size={small ? 13 : 16} color="#d97706" />
-    </div>
-  )
-  return (
-    <div style={{ width: sz, height: sz, borderRadius: '50%', background: 'var(--surface-hover)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <span style={{ fontSize: small ? 10 : 11, fontWeight: 700, color: 'var(--text-tertiary)' }}>{rank}</span>
-    </div>
-  )
-}
-
-function AvatarBubble({ entry, small = false }: { entry: LeaderboardEntry; small?: boolean }) {
-  const size = small ? 28 : 36
-  return entry.avatar_url ? (
-    <img
-      src={entry.avatar_url}
-      alt=""
-      referrerPolicy="no-referrer"
-      style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-    />
-  ) : (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: 'var(--primary-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <span style={{ fontSize: small ? 11 : 13, fontWeight: 700, color: 'var(--primary)' }}>{entry.full_name?.[0] ?? '?'}</span>
     </div>
   )
 }

@@ -1,226 +1,77 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
-import api from '@/lib/axios'
+import { RotateCcw } from 'lucide-react'
 import { useAuthStore } from '@/lib/store'
+import { FigmaHomeMain } from '@/components/figma'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import { useHomeDashboardData } from '@/lib/homeDashboardData'
 import {
-  FigmaHomeMain,
-  PermanentSidebar,
-  type FigmaHomeSubject,
-  type FigmaHomeTopic,
-} from '@/components/figma'
-
-interface TopicCard {
-  id: number
-  subject_title: string
-  title: string
-  description: string
-  item_count: number
-  completed_count: number
-  progress_pct: number
-  concepts: string[]
-}
-
-interface SubjectCard {
-  id: number | string
-  title: string
-  description?: string
-  progress_pct?: number
-}
+  toHomeContinueTopics,
+  toHomeSubjectShortcuts,
+} from '@/lib/homeDashboardViewModel'
 
 export default function HomePage() {
-  const { user } = useAuthStore()
-  const [topics, setTopics] = useState<TopicCard[]>([])
-  const [subjects, setSubjects] = useState<SubjectCard[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => { document.title = 'Home - Kresco' }, [])
+  const user = useAuthStore((state) => state.user)
+  const {
+    topics,
+    subjects,
+    loading,
+    error,
+    isValidating,
+    retry,
+  } = useHomeDashboardData()
+  const lastToastErrorRef = useRef('')
 
   useEffect(() => {
-    let alive = true
-
-    async function loadHome() {
-      const [topicsResult, subjectsResult] = await Promise.all([
-        api.get('/courses/topics').then(
-          (value) => ({ status: 'fulfilled' as const, value }),
-          (reason) => ({ status: 'rejected' as const, reason }),
-        ),
-        api.get('/courses/subjects').then(
-          (value) => ({ status: 'fulfilled' as const, value }),
-          (reason) => ({ status: 'rejected' as const, reason }),
-        ),
-      ])
-
-      if (!alive) return
-
-      if (topicsResult.status === 'fulfilled') {
-        setTopics(Array.isArray(topicsResult.value.data) ? topicsResult.value.data : [])
-      } else {
-        toast.error('Could not load your dashboard.')
-      }
-
-      if (subjectsResult.status === 'fulfilled') {
-        setSubjects(Array.isArray(subjectsResult.value.data) ? subjectsResult.value.data : [])
-      }
-
-      setLoading(false)
+    if (!error) {
+      lastToastErrorRef.current = ''
+      return
     }
+    const message = apiDataErrorMessage(error, 'Could not load your dashboard.')
+    if (message === lastToastErrorRef.current) return
+    lastToastErrorRef.current = message
+    toast.error(message)
+  }, [error])
 
-    loadHome()
-
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  const firstName = user?.full_name?.split(' ')[0] || 'Student'
-  const continueTopics = useMemo<FigmaHomeTopic[]>(() => {
-    const recommended = [
-      ...topics.filter((topic) => topic.progress_pct > 0 && topic.progress_pct < 100),
-      ...topics,
-    ]
-    const source = uniqueById(recommended)
-
-    if (source.length === 0) return fallbackContinueTopics
-
-    return source.slice(0, 2).map((topic) => ({
-      id: topic.id,
-      subject_title: topic.subject_title,
-      title: topic.title,
-      description: topic.description,
-      progress_pct: topic.progress_pct,
-      item_count: topic.item_count,
-      completed_count: topic.completed_count,
-      href: `/topics/${topic.id}`,
-    }))
-  }, [topics])
-
-  const subjectShortcuts = useMemo<FigmaHomeSubject[]>(() => {
-    const source = buildSubjectShortcuts(subjects, fallbackSubjects)
-
-    return source.map((subject) => ({
-      id: subject.id,
-      title: canonicalSubjectTitle(subject.title),
-      description: subject.description,
-      progress_pct: subject.progress_pct,
-      learner_count: '25k Learner',
-      href: `/courses?subject=${encodeURIComponent(canonicalSubjectTitle(subject.title))}`,
-    }))
-  }, [subjects])
-
-  return (
-    <div className="figma-home-container">
-      <div className="figma-home-grid">
-        <main>
-          <FigmaHomeMain
-            firstName={firstName}
-            subjects={subjectShortcuts}
-            continueTopics={continueTopics}
-            loading={loading}
-          />
-        </main>
-
-        <PermanentSidebar />
-      </div>
-    </div>
-  )
-}
-
-function uniqueById(topics: TopicCard[]) {
-  const seen = new Set<number>()
-  return topics.filter((topic) => {
-    if (seen.has(topic.id)) return false
-    seen.add(topic.id)
-    return true
-  })
-}
-
-function buildSubjectShortcuts(subjects: SubjectCard[], fallbacks: SubjectCard[]) {
-  const byKey = new Map<string, SubjectCard>()
-
-  for (const subject of [...subjects, ...fallbacks]) {
-    const key = subjectKey(subject.title)
-    if (!allowedSubjectKeys.includes(key)) continue
-    const current = byKey.get(key)
-    if (!current) {
-      byKey.set(key, subject)
-      continue
-    }
-
-    if (subjectRank(subject.title) > subjectRank(current.title)) {
-      byKey.set(key, subject)
+  async function retryHomeData() {
+    try {
+      await retry()
+    } catch {
+      // SWR exposes the latest error through state; the effect above owns user-visible reporting.
     }
   }
 
-  return allowedSubjectKeys
-    .map((key) => byKey.get(key) ?? fallbacks.find((subject) => subjectKey(subject.title) === key))
-    .filter((subject): subject is SubjectCard => Boolean(subject))
+  const firstName = user?.full_name?.split(' ')[0] || 'Student'
+  const continueTopics = useMemo(() => toHomeContinueTopics(topics), [topics])
+  const subjectShortcuts = useMemo(() => toHomeSubjectShortcuts(subjects), [subjects])
+
+  return (
+    <>
+      {error && (
+        <section role="alert" className="mb-6 flex max-w-[984px] flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-[#fde68a] bg-[#fffbeb] px-5 py-4">
+          <div>
+            <p className="m-0 text-[14px] font-black text-[#92400e]">Dashboard data could not be refreshed.</p>
+            <p className="m-0 mt-1 text-[13px] font-bold text-[#b45309]">Cached or partial data stays visible while you retry.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void retryHomeData()}
+            disabled={isValidating}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#92400e] px-4 text-[13px] font-black text-white disabled:opacity-60"
+          >
+            <RotateCcw size={15} />
+            {isValidating ? 'Retrying...' : 'Retry dashboard data'}
+          </button>
+        </section>
+      )}
+      <FigmaHomeMain
+        firstName={firstName}
+        subjects={subjectShortcuts}
+        continueTopics={continueTopics}
+        loading={loading}
+      />
+    </>
+  )
 }
-
-function subjectKey(title: string) {
-  const normalized = normalizeSubjectTitle(title)
-  if (['math', 'maths', 'mathematics', 'mathematiques'].includes(normalized)) return 'math'
-  if (normalized.includes('physique') || normalized.includes('physics')) return 'physics'
-  if (normalized.includes('chemistry') || normalized.includes('chimie')) return 'physics'
-  if (normalized.includes('philosophy') || normalized.includes('philosophie')) return 'philosophy'
-  if (normalized.includes('sciences de la vie') || normalized === 'svt' || normalized.includes('biology')) return 'biology'
-  if (normalized.includes('english') || normalized.includes('anglais')) return 'english'
-  return normalized
-}
-
-function canonicalSubjectTitle(title: string) {
-  const key = subjectKey(title)
-  if (key === 'math') return 'Math'
-  if (key === 'physics') return 'Physics'
-  if (key === 'philosophy') return 'Philosophy'
-  if (key === 'biology') return 'Biology'
-  if (key === 'english') return 'English'
-  return title
-}
-
-function subjectRank(title: string) {
-  const canonical = canonicalSubjectTitle(title)
-  if (title === canonical) return 3
-  if (title.length > 4) return 2
-  return 1
-}
-
-function normalizeSubjectTitle(title: string) {
-  return title
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[-_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-const allowedSubjectKeys = ['math', 'physics', 'philosophy', 'biology', 'english']
-
-const fallbackSubjects: SubjectCard[] = [
-  { id: 'math', title: 'Math' },
-  { id: 'physics', title: 'Physics' },
-  { id: 'philosophy', title: 'Philosophy' },
-  { id: 'biology', title: 'Biology' },
-  { id: 'english', title: 'English' },
-]
-
-const fallbackContinueTopics: FigmaHomeTopic[] = [
-  {
-    id: 'math-logic',
-    subject_title: 'Mathematics',
-    title: 'Mathematics',
-    description: 'Improve your math skills by solving logic problems',
-    progress_pct: 12,
-    href: '/courses?subject=Mathematics&filter=Recommended',
-  },
-  {
-    id: 'geography-earth',
-    subject_title: 'Geography',
-    title: 'Geography',
-    description: 'Get to know your home planet better by exploring',
-    progress_pct: 46,
-    href: '/courses?subject=Geography&filter=Recommended',
-  },
-]

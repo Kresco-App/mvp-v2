@@ -13,9 +13,8 @@ The main promise is:
 - Bac exam examples.
 - Downloadable summaries and worksheets.
 - Interactive/animated React learning components.
-- Future AI, live tutoring, chat, and forum.
 
-Do not design v1 around all school levels. Keep the model clean enough to expand, but optimize content and UX around Bac.
+Do not design v1 around all school levels. Optimize content and UX around Bac.
 
 ## Core hierarchy
 
@@ -37,11 +36,11 @@ Definitions:
 - `TopicItem`: A learning item in the main path. It can be video, quiz, exercise, exam problem, interactive lesson, or other renderable item.
 - `Resource`: Reusable content object such as video, PDF, summary, quiz, question set, simulation, or written solution.
 - `TabContent`: Configurable content shown under a TopicItem.
-- `ConceptTag`: Semantic tag used for search, filtering, recommendations, AI context, retry recommendations, and analytics.
+- `ConceptTag`: Semantic tag used for search, filtering, retry recommendations, analytics, and XP balancing.
 
 ## Removed/changed vocabulary
 
-Avoid treating `Unit` as a required level. The user explicitly rejected `unit` as a semantic layer for this product.
+Do not treat `Unit` as a required level. The user rejected `unit` as a semantic layer for this product.
 
 Old terms like chapter/lesson can exist in UI copy or migration code, but the target product language should be Topic and TopicItem.
 
@@ -74,14 +73,18 @@ Default Topic sections:
 
 These are the Main Path.
 
-Study Tools are secondary aggregations:
+Revision and review content lives in a final revision section inside the same guided path.
 
-- Quizzes.
-- Interactive.
-- Resources.
-- Notes.
+The final revision section can include:
 
-Study Tools should not replace the Main Path. They help the student access all quizzes, labs, resources, or notes directly.
+- Summary video.
+- Animated course collection.
+- Lab collection.
+- Quiz collection.
+- Resource collection.
+
+These final-section items should reference existing TopicItems, TabContent,
+QuestionSets, and Resources instead of duplicating content.
 
 ## Tabs
 
@@ -117,7 +120,7 @@ Interactive content can be:
 - A full structured animated React course.
 - A focused simulator/lab.
 - A checkpoint inside a video path.
-- A standalone Study Tool item.
+- A final revision item.
 
 Use stable registry keys for complex React content, for example:
 
@@ -125,7 +128,7 @@ Use stable registry keys for complex React content, for example:
 - `periodicite_interactive_course`
 - `continuity_graph_lab`
 
-The database should attach registered components to topics/items/tabs without requiring every interactive object to be fully editable through admin at v1.
+The database attaches registered components to topics/items/tabs through stable renderer keys.
 
 ## Quizzes
 
@@ -144,6 +147,28 @@ Required quiz/question types:
 - `multi_select`
 - `interactive_checkpoint`
 
+Canonical v1 quiz content should use normalized question sets:
+
+```text
+QuestionSet
+-> Question
+```
+
+`QuestionSet` is the quiz-level object. It can be attached to a subject, topic,
+section, topic item, and tab.
+
+`Question` stores shared fields such as type, title, prompt, explanation,
+difficulty, concept slugs, order, and status.
+
+Each question also stores:
+
+- `config_json`: type-specific rendering data such as options, slider range,
+  drag zones, formula tokens, image hotspot geometry, media, or lines.
+- `answer_json`: canonical answer data used for grading.
+
+This hybrid model keeps analytics normalized while preserving the flexible Figma
+quiz primitives.
+
 Store attempts with:
 
 - First attempt.
@@ -152,8 +177,12 @@ Store attempts with:
 - Completion status.
 - Score.
 - Time spent where meaningful.
+- One `QuestionAttempt` row per answered question.
 
 The first attempt matters for XP, diagnosis, recommendations, and anti-farming.
+
+`QuizAttempt` is the session/result row. `QuestionAttempt` stores each submitted
+answer, correctness, grading metadata, timing, and hierarchy context.
 
 ## Concept tags
 
@@ -175,6 +204,5 @@ Tags power:
 - Topic search.
 - Exam Bank filters.
 - Retry recommendations.
-- AI context later.
 - Analytics.
 - XP balancing.

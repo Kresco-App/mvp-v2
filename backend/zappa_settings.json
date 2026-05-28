@@ -6,28 +6,97 @@
         "s3_bucket": "kresco-zappa-367182071147",
         "aws_region": "eu-north-1",
         "environment_variables": {
-            "DATABASE_URL": "__SET_IN_AWS_SECRETS__",
-            "JWT_SECRET_KEY": "__SET_IN_AWS_SECRETS__",
+            "KRESCO_ENV": "production",
+            "KRESCO_RELEASE_SHA": "__SET_IN_AWS_SECRETS__",
+            "KRESCO_RUNTIME_SECRET_ID": "__SET_IN_AWS_SECRETS__",
+            "DATABASE_CONNECTION_STRATEGY": "rds_proxy",
+            "PGSSLROOTCERT": "certs/rds-global-bundle.pem",
             "JWT_ALGORITHM": "HS256",
             "JWT_EXPIRE_MINUTES": "10080",
             "DEBUG": "false",
-            "GOOGLE_CLIENT_ID": "__SET_IN_AWS_SECRETS__",
-            "VDOCIPHER_API_SECRET": "__SET_IN_AWS_SECRETS__",
-            "CORS_ALLOWED_ORIGINS": "http://localhost:3000,http://127.0.0.1:3000,https://kena-intercounty-pseudoregally.ngrok-free.dev,https://mvp-v2-pearl.vercel.app,https://frontend-entamshed-tahalyousfis-projects-e3b45930.vercel.app,https://frontend-ochre-eta-42.vercel.app",
-            "FRONTEND_URL": "https://mvp-v2-pearl.vercel.app",
-            "STRIPE_PK": "__SET_IN_AWS_SECRETS__",
-            "STRIPE_SK": "__SET_IN_AWS_SECRETS__",
-            "STRIPE_PRODUCT_ID": "__SET_IN_AWS_SECRETS__",
-            "STRIPE_WEBHOOK_SECRET": "__SET_IN_AWS_SECRETS__",
-            "ADMIN_PASSWORD": "__SET_IN_AWS_SECRETS__",
-            "RESEND_API_KEY": "__SET_IN_AWS_SECRETS__"
+            "CORS_ALLOWED_ORIGINS": "__SET_IN_AWS_SECRETS__",
+            "CORS_ALLOW_ORIGIN_REGEX": "",
+            "FRONTEND_URL": "__SET_IN_AWS_SECRETS__",
+            "STRIPE_PK": "",
+            "MEDIA_STORAGE_BACKEND": "s3",
+            "MEDIA_S3_REGION": "eu-north-1",
+            "MEDIA_S3_PREFIX": "production",
+            "MEDIA_S3_PRESIGN_TTL_SECONDS": "300",
+            "MEDIA_PROFILE_QUOTA_BYTES": "10485760",
+            "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "52428800",
+            "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "365"
         },
+        "extra_permissions": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:GetSecretValue"
+                ],
+                "Resource": "__SET_IN_AWS_SECRETS__"
+            }
+        ],
+        "events": [
+            {
+                "function": "app.scheduled.process_realtime_outbox_event",
+                "expression": "rate(1 minute)"
+            }
+        ],
         "cors": true,
-        "timeout_seconds": 30,
-        "memory_size": 512,
+        "timeout_seconds": 45,
+        "memory_size": 1024,
         "manage_roles": true,
         "apigateway_enabled": true,
         "slim_handler": true,
-        "keep_warm": false
+        "keep_warm": true
+    },
+    "staging": {
+        "app_function": "app_handler.application",
+        "project_name": "kresco-staging",
+        "runtime": "python3.11",
+        "s3_bucket": "kresco-zappa-367182071147",
+        "aws_region": "eu-north-1",
+        "environment_variables": {
+            "KRESCO_ENV": "staging",
+            "KRESCO_RELEASE_SHA": "__SET_IN_AWS_SECRETS__",
+            "KRESCO_RUNTIME_SECRET_ID": "__SET_IN_AWS_SECRETS__",
+            "DATABASE_CONNECTION_STRATEGY": "rds_proxy",
+            "PGSSLROOTCERT": "certs/rds-global-bundle.pem",
+            "JWT_ALGORITHM": "HS256",
+            "JWT_EXPIRE_MINUTES": "10080",
+            "DEBUG": "false",
+            "CORS_ALLOWED_ORIGINS": "__SET_IN_AWS_SECRETS__",
+            "CORS_ALLOW_ORIGIN_REGEX": "",
+            "FRONTEND_URL": "__SET_IN_AWS_SECRETS__",
+            "STRIPE_PK": "",
+            "MEDIA_STORAGE_BACKEND": "s3",
+            "MEDIA_S3_REGION": "eu-north-1",
+            "MEDIA_S3_PREFIX": "staging",
+            "MEDIA_S3_PRESIGN_TTL_SECONDS": "300",
+            "MEDIA_PROFILE_QUOTA_BYTES": "10485760",
+            "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "52428800",
+            "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "365"
+        },
+        "extra_permissions": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:GetSecretValue"
+                ],
+                "Resource": "__SET_IN_AWS_SECRETS__"
+            }
+        ],
+        "events": [
+            {
+                "function": "app.scheduled.process_realtime_outbox_event",
+                "expression": "rate(1 minute)"
+            }
+        ],
+        "cors": true,
+        "timeout_seconds": 45,
+        "memory_size": 1024,
+        "manage_roles": true,
+        "apigateway_enabled": true,
+        "slim_handler": true,
+        "keep_warm": true
     }
 }

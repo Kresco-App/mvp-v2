@@ -1,13 +1,29 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
-import api from '@/lib/axios'
+import { listKrescoRealtimeSubscriptions, subscribeKrescoRealtimeChannels, userNotificationsChannelName } from '@/lib/ably'
+import { getJson } from '@/lib/apiClient'
+import {
+  addDays,
+  addMonths,
+  buildMonthGrid,
+  dateForCalendarEvent,
+  eventsForWeek,
+  findCalendarEventById,
+  formatCalendarDate,
+  isSameCalendarDay,
+  parseCalendarEventId,
+  startOfDay,
+  startOfWeek,
+} from '@/lib/calendarViewModel'
 import { useAuthStore } from '@/lib/store'
 import { PermanentSidebarPanelTitle } from '@/components/figma'
+import { CalendarPageSkeleton } from '@/components/figma/skeletons'
 
 type CalendarEvent = {
   id: number
@@ -32,12 +48,13 @@ const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const miniDayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const hours = Array.from({ length: 24 }, (_, index) => index)
 const hourHeight = 80
-const dayWidth = 220
-const timeWidth = 100
+const calendarColumnWidth = 100 / 7
 
 export default function CalendarPage() {
   const searchParams = useSearchParams()
-  const { user } = useAuthStore()
+  const searchKey = searchParams.toString()
+  const requestedEventId = useMemo(() => parseCalendarEventId(new URLSearchParams(searchKey)), [searchKey])
+  const user = useAuthStore((state) => state.user)
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()))
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
@@ -45,42 +62,97 @@ export default function CalendarPage() {
 
   const selectedWeekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index)), [selectedWeekStart])
+  const calendarTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', [])
   const firstName = user?.full_name?.split(' ')?.[0] || 'Khalid'
 
-  useEffect(() => { document.title = 'Calendar - Kresco' }, [])
+  useEffect(() => {
+    if (!requestedEventId) return
+    let alive = true
+
+    getJson<CalendarEvent>(`/calendar/events/${requestedEventId}`)
+      .then((event) => {
+        if (!alive) return
+        setSelectedEvent(event)
+        const eventDate = dateForCalendarEvent(event)
+        if (eventDate) setSelectedDate(eventDate)
+      })
+      .catch(() => {
+        if (!alive) return
+        setSelectedEvent(null)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [requestedEventId])
+
+  const loadEventsForWeek = useCallback(async (alive: () => boolean) => {
+    setLoading(true)
+    try {
+      const data = await getJson<CalendarEvent[]>('/calendar/events', {
+        params: {
+          start: formatCalendarDate(selectedWeekStart),
+          end: formatCalendarDate(addDays(selectedWeekStart, 6)),
+          timezone: calendarTimeZone,
+        },
+      })
+      if (!alive()) return
+      const nextEvents = Array.isArray(data) ? data : []
+      setEvents(nextEvents)
+      if (requestedEventId) {
+        setSelectedEvent(findCalendarEventById(nextEvents, requestedEventId))
+      }
+    } catch {
+      toast.error('Could not load calendar events.')
+    } finally {
+      if (alive()) setLoading(false)
+    }
+  }, [calendarTimeZone, requestedEventId, selectedWeekStart])
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    api.get('/calendar/events', {
-      params: {
-        start: formatDate(selectedWeekStart),
-        end: formatDate(addDays(selectedWeekStart, 6)),
-      },
-    })
-      .then((res) => {
-        if (!alive) return
-        setEvents(res.data)
-        const eventId = Number(searchParams.get('event'))
-        if (eventId) {
-          const match = res.data.find((event: CalendarEvent) => event.id === eventId)
-          if (match) setSelectedEvent(match)
-        }
-      })
-      .catch(() => toast.error('Could not load calendar events.'))
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
+    void loadEventsForWeek(() => alive)
     return () => { alive = false }
-  }, [selectedWeekStart, searchParams])
+  }, [loadEventsForWeek])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const userId = user.id
+    let cleanup = () => {}
+    let stopped = false
+    const refresh = () => void loadEventsForWeek(() => true)
+    void listKrescoRealtimeSubscriptions()
+      .then(({ notification_channels }) => {
+        if (stopped) return
+        cleanup = subscribeKrescoRealtimeChannels({
+          channelNames: notification_channels,
+          onMessage: refresh,
+        })
+      })
+      .catch(() => {
+        if (stopped) return
+        cleanup = subscribeKrescoRealtimeChannels({
+          channelNames: [userNotificationsChannelName(userId)],
+          onMessage: refresh,
+        })
+      })
+    return () => {
+      stopped = true
+      cleanup()
+    }
+  }, [loadEventsForWeek, user?.id])
 
   function moveWeek(direction: -1 | 1) {
     setSelectedDate((current) => addDays(current, direction * 7))
   }
 
+  if (loading && events.length === 0) {
+    return <CalendarPageSkeleton />
+  }
+
   return (
     <div className="figma-container pb-[120px]">
-      <div className="figma-dashboard-grid">
+      <div className="figma-dashboard-grid calendar-page-grid">
         <main className="min-w-0 pt-11">
           <header className="mb-8">
             <h1 className="m-0 text-[24px] font-bold leading-[1.4] tracking-[0.24px] text-[#3f3f46]">
@@ -91,7 +163,7 @@ export default function CalendarPage() {
             </p>
           </header>
 
-          <section className="w-full overflow-hidden bg-white" aria-label="Weekly calendar">
+          <section className="w-full bg-white" aria-label="Weekly calendar">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b]">
                 {formatWeekRange(weekDays)}
@@ -109,28 +181,28 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            <div className="w-full overflow-x-auto overflow-y-hidden">
-              <div className="relative" style={{ width: timeWidth + dayWidth * 7 }}>
+            <div className="w-full overflow-hidden">
+              <div className="relative w-full min-w-0">
                 <div className="sticky top-0 z-10 flex bg-white">
-                  <div className="h-11 shrink-0 border-2 border-[#e4e4e7]" style={{ width: timeWidth }} />
+                  <div className="h-11 w-14 shrink-0 border-2 border-[#e4e4e7]" />
                   {dayNames.map((day) => (
-                    <div key={day} className="-ml-0.5 flex h-11 shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-3 py-1.5" style={{ width: dayWidth }}>
-                      <span className="text-center text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b]">{day}</span>
+                    <div key={day} className="-ml-0.5 flex h-11 w-[calc((100%_-_56px)_/_7)] shrink-0 items-center justify-center border-2 border-[#e4e4e7] px-1 py-1.5">
+                      <span className="text-center text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b] max-[480px]:text-[12px]">{day.slice(0, 3)}</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="relative flex">
-                  <div className="shrink-0" style={{ width: timeWidth }}>
+                <div className="relative flex max-h-[calc(100vh-260px)] min-h-[420px] overflow-y-auto overflow-x-hidden max-[760px]:max-h-[560px] max-[480px]:min-h-[360px]">
+                  <div className="w-14 shrink-0">
                     {hours.map((hour) => (
-                      <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-3 pb-1.5">
-                        <span className="text-[14px] font-bold leading-[1.2] tracking-[0.14px] text-[#71717b]">{formatHour(hour)}</span>
+                      <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-1.5 pb-1.5">
+                        <span className="text-[14px] font-bold leading-[1.2] tracking-[0.14px] text-[#71717b] max-[480px]:text-[11px]">{formatHour(hour)}</span>
                       </div>
                     ))}
                   </div>
-                  <div className="relative flex">
+                  <div className="relative flex min-w-0 flex-1">
                     {weekDays.map((day) => (
-                      <div key={day.toISOString()} className="-ml-0.5 shrink-0" style={{ width: dayWidth }}>
+                      <div key={day.toISOString()} className="-ml-0.5 w-[calc(100%_/_7)] shrink-0">
                         {hours.map((hour) => (
                           <div key={hour} className="-mt-0.5 h-20 border-2 border-[#e4e4e7]" />
                         ))}
@@ -156,7 +228,7 @@ export default function CalendarPage() {
           </section>
         </main>
 
-        <aside className="flex w-[351px] shrink-0 flex-col gap-[14px] pb-[120px] pt-32 max-[1180px]:mt-8 max-[1180px]:w-full max-[1180px]:pt-0">
+        <aside className="flex w-[351px] shrink-0 flex-col gap-[14px] pb-[120px] pt-32 max-[1440px]:mt-8 max-[1440px]:w-full max-[1440px]:pt-0">
           <MiniCalendarCard selectedDate={selectedDate} onSelectDate={setSelectedDate} />
           {selectedEvent && <EventDetailCard event={selectedEvent} onClose={() => setSelectedEvent(null)} />}
         </aside>
@@ -165,7 +237,15 @@ export default function CalendarPage() {
   )
 }
 
-function CalendarEventBlock({ event, weekStart, onSelect }: { event: CalendarEvent; weekStart: Date; onSelect: (event: CalendarEvent) => void }) {
+function CalendarEventBlock({
+  event,
+  weekStart,
+  onSelect,
+}: {
+  event: CalendarEvent
+  weekStart: Date
+  onSelect: (event: CalendarEvent) => void
+}) {
   const start = new Date(event.starts_at)
   const end = new Date(event.ends_at)
   const dayIndex = Math.max(0, Math.min(6, Math.floor((startOfDay(start).getTime() - weekStart.getTime()) / 86400000)))
@@ -173,18 +253,21 @@ function CalendarEventBlock({ event, weekStart, onSelect }: { event: CalendarEve
   const durationMinutes = Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000))
   const top = (minutesFromStart / 60) * hourHeight
   const height = Math.max(62, (durationMinutes / 60) * hourHeight - 2)
-  const color = event.color || (event.event_type === 'study_block' ? '#29aee4' : '#5b60f9')
+  const left = `${dayIndex * calendarColumnWidth}%`
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(event)}
-      className="absolute z-20 flex flex-col items-start justify-between overflow-hidden rounded-[6px] border-0 px-2 py-1.5 text-left font-bold leading-[1.2] shadow-none"
-      style={{ left: dayIndex * dayWidth + 2, top, width: dayWidth - 4, height, background: color }}
-    >
-      <span className="line-clamp-2 w-full text-[14px] tracking-[0.14px] text-white">{event.title}</span>
-      <span className="w-full truncate text-[12px] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</span>
-    </button>
+    <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full overflow-visible">
+      <foreignObject x={left} y={top} width={`${calendarColumnWidth}%`} height={height} className="pointer-events-none overflow-visible">
+        <button
+          type="button"
+          onClick={() => onSelect(event)}
+          className={`pointer-events-auto mx-0.5 flex h-full w-[calc(100%-4px)] flex-col items-start justify-between overflow-hidden rounded-[6px] border-0 px-2 py-1.5 text-left font-bold leading-[1.2] shadow-none ${calendarEventToneClass(event)}`}
+        >
+          <span className="line-clamp-2 w-full text-[14px] tracking-[0.14px] text-white">{event.title}</span>
+          <span className="w-full truncate text-[12px] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</span>
+        </button>
+      </foreignObject>
+    </svg>
   )
 }
 
@@ -219,7 +302,7 @@ function MiniCalendarCard({ selectedDate, onSelectDate }: { selectedDate: Date; 
           </div>
         ))}
         {days.map((day) => {
-          const isSelected = isSameDay(day.date, selectedDate)
+          const isSelected = isSameCalendarDay(day.date, selectedDate)
           const isCurrentMonth = day.date.getMonth() === visibleMonth.getMonth()
           return (
             <button
@@ -241,88 +324,89 @@ function MiniCalendarCard({ selectedDate, onSelectDate }: { selectedDate: Date; 
 
 function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
   return (
-    <section className="w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none max-[1180px]:w-full">
+    <motion.section
+      key={event.id}
+      initial={{ opacity: 0, y: 10, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+      className="w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none max-[1180px]:w-full"
+    >
       <div className="flex items-start justify-between gap-3">
         <PermanentSidebarPanelTitle title="Event Details" subtitle={event.event_type === 'live_session' ? 'Live preparation' : 'Study block'} />
-        <button type="button" onClick={onClose} className="h-8 rounded-md border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b]">Close</button>
+        <motion.button type="button" onClick={onClose} className="h-8 rounded-md border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b]" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
+          Close
+        </motion.button>
       </div>
-      <div className="mt-6 rounded-lg p-3 text-white" style={{ background: event.color || '#5b60f9' }}>
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, delay: 0.04, ease: [0.2, 0.8, 0.2, 1] }}
+        className={`mt-6 rounded-lg p-3 text-white ${calendarEventToneClass(event)}`}
+      >
         <div className="mb-2 flex items-center gap-2 text-[12px] font-bold text-[#c4d1ff]">
           <Video size={14} />
           {event.status}
         </div>
         <h2 className="m-0 text-[16px] font-bold leading-[1.2] tracking-[0.16px]">{event.title}</h2>
         <p className="m-0 mt-3 text-[12px] font-bold leading-[1.2] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</p>
-      </div>
+      </motion.div>
       <div className="mt-5 grid gap-3 text-[14px] font-bold leading-[1.2] tracking-[0.14px]">
-        <InfoRow label="Time" value={`${formatEventDate(new Date(event.starts_at))} - ${formatTime(new Date(event.ends_at))}`} />
-        <InfoRow label="Subject" value={event.subject_title || event.subtitle || '-'} />
-        <InfoRow label="Topic" value={event.topic_title || '-'} />
+        <InfoRow index={0} label="Time" value={`${formatEventDate(new Date(event.starts_at))} - ${formatTime(new Date(event.ends_at))}`} />
+        <InfoRow index={1} label="Subject" value={event.subject_title || event.subtitle || '-'} />
+        <InfoRow index={2} label="Topic" value={event.topic_title || '-'} />
       </div>
-      {event.description && <p className="m-0 mt-5 text-[14px] font-semibold leading-[1.35] tracking-[0.14px] text-[#71717b]">{event.description}</p>}
+      {event.description && (
+        <motion.p
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18, delay: 0.14, ease: [0.2, 0.8, 0.2, 1] }}
+          className="m-0 mt-5 text-[14px] font-semibold leading-[1.35] tracking-[0.14px] text-[#71717b]"
+        >
+          {event.description}
+        </motion.p>
+      )}
       <div className="mt-5 grid gap-2">
         {event.preparation_href && (
-          <Link href={event.preparation_href} className="figma-button h-11 shadow-none">
+          <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+            <Link href={event.preparation_href} className="figma-button h-11 w-full shadow-none">
             Prepare
             <ExternalLink size={15} />
-          </Link>
+            </Link>
+          </motion.div>
         )}
         {event.join_url ? (
-          <a href={event.join_url} className="figma-button secondary h-11" target="_blank" rel="noreferrer">
-            Join session
-          </a>
+          <motion.a href={event.join_url} className="figma-button secondary h-11" target="_blank" rel="noreferrer" whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+              Join session
+          </motion.a>
         ) : (
           <button type="button" disabled className="h-11 rounded-[14px] border-0 bg-[#f4f4f5] text-[13px] font-black text-[#9f9fa9]">
             Join unavailable
           </button>
         )}
       </div>
-    </section>
+    </motion.section>
   )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function calendarEventToneClass(event: CalendarEvent) {
+  const color = event.color?.toLowerCase()
+  if (event.event_type === 'study_block' || color === '#29aee4') return 'calendar-event-tone-sky'
+  if (event.status === 'live') return 'calendar-event-tone-amber'
+  return 'calendar-event-tone-purple'
+}
+
+function InfoRow({ label, value, index = 0 }: { label: string; value: string; index?: number }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f4f4f5] px-3 py-2">
+    <motion.div
+      initial={{ opacity: 0, x: 6 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.18, delay: 0.08 + index * 0.035, ease: [0.2, 0.8, 0.2, 1] }}
+      className="flex items-center justify-between gap-3 rounded-lg bg-[#f4f4f5] px-3 py-2"
+    >
       <span className="text-[#9f9fa9]">{label}</span>
       <span className="min-w-0 truncate text-right text-[#3f3f46]">{value}</span>
-    </div>
+    </motion.div>
   )
-}
-
-function eventsForWeek(events: CalendarEvent[], weekStart: Date) {
-  const weekEnd = addDays(weekStart, 7)
-  return events.filter((event) => {
-    const starts = new Date(event.starts_at)
-    return starts >= weekStart && starts < weekEnd
-  })
-}
-
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
-}
-
-function startOfWeek(date: Date) {
-  const day = date.getDay()
-  const mondayOffset = day === 0 ? -6 : 1 - day
-  return startOfDay(addDays(date, mondayOffset))
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
-}
-
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1)
-}
-
-function formatDate(date: Date) {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
 }
 
 function formatHour(hour: number) {
@@ -347,14 +431,3 @@ function formatWeekRange(days: Date[]) {
   return `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
-
-function buildMonthGrid(month: Date) {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1)
-  const firstDay = first.getDay()
-  const mondayOffset = firstDay === 0 ? -6 : 1 - firstDay
-  const start = addDays(first, mondayOffset)
-  return Array.from({ length: 42 }, (_, index) => ({ date: addDays(start, index) }))
-}

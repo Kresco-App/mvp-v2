@@ -1,33 +1,14 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Clock, AlertTriangle, CheckCircle2, XCircle, ArrowRight } from 'lucide-react'
-import api from '@/lib/axios'
-
-interface Question {
-  id: number
-  text: string
-  order: number
-  options: { id: number; text: string }[]
-}
-
-interface Quiz {
-  id: number
-  title: string
-  pass_score: number
-  questions: Question[]
-}
-
-interface Result {
-  score: number
-  passed: boolean
-  correct: number
-  total: number
-  pass_score: number
-  xp_earned: number
-}
+import { Clock, AlertTriangle, CheckCircle2, XCircle, ArrowRight, RotateCcw } from 'lucide-react'
+import { postJson } from '@/lib/apiClient'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import { NO_EXAM_QUIZ_MESSAGE, useExamQuizData, type ExamResult } from '@/lib/examData'
+import ErrorBoundary from '@/components/ErrorBoundary'
+import RouteErrorState from '@/components/RouteErrorState'
 
 const EXAM_DURATION_MINUTES = 45
 
@@ -35,67 +16,76 @@ export default function ExamPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
   const router = useRouter()
 
-  useEffect(() => { document.title = 'Examen \u2014 Kresco' }, [])
-
-  const [quiz, setQuiz] = useState<Quiz | null>(null)
-  const [lessonId, setLessonId] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
+  const {
+    quiz,
+    noQuiz,
+    error: examError,
+    loading,
+    isValidating,
+    mutate: retryExamData,
+  } = useExamQuizData(subjectId)
+  const loadError = examError
+    ? apiDataErrorMessage(examError, 'Erreur lors du chargement de l\'examen.')
+    : noQuiz
+      ? NO_EXAM_QUIZ_MESSAGE
+      : ''
+  const lastLoadErrorToastRef = useRef('')
   const [answers, setAnswers] = useState<Record<number, number>>({})
   const [currentIdx, setCurrentIdx] = useState(0)
   const [timeLeft, setTimeLeft] = useState(EXAM_DURATION_MINUTES * 60)
   const [started, setStarted] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<Result | null>(null)
+  const [result, setResult] = useState<ExamResult | null>(null)
   const submitCalledRef = useRef(false)
+  const answersRef = useRef(answers)
+  const quizRef = useRef(quiz)
 
   useEffect(() => {
-    async function loadQuiz() {
-      try {
-        const { data: subject } = await api.get(`/courses/subjects/${subjectId}`)
-        const chapters = subject.chapters || []
-        const allLessons: { id: number }[] = chapters.flatMap((ch: any) => ch.lessons || [])
+    answersRef.current = answers
+  }, [answers])
 
-        let loadedQuiz: Quiz | null = null
-        let foundLessonId: number | null = null
+  useEffect(() => {
+    quizRef.current = quiz
+  }, [quiz])
 
-        for (const lesson of allLessons) {
-          try {
-            const { data } = await api.get(`/quizzes/${lesson.id}`)
-            if (data && data.questions && data.questions.length > 0) {
-              loadedQuiz = data
-              foundLessonId = lesson.id
-              break
-            }
-          } catch {
-            // Ce quiz n'existe pas, on continue
-          }
-        }
-
-        if (loadedQuiz && foundLessonId) {
-          setQuiz(loadedQuiz)
-          setLessonId(foundLessonId)
-        } else {
-          toast.error('Aucun quiz disponible pour cette matiere.')
-          router.push('/home')
-        }
-      } catch {
-        toast.error('Erreur lors du chargement de l\'examen.')
-        router.push('/home')
-      } finally {
-        setLoading(false)
-      }
+  useEffect(() => {
+    if (!loadError) {
+      lastLoadErrorToastRef.current = ''
+      return
     }
-    loadQuiz()
-  }, [subjectId, router])
+    if (loadError === lastLoadErrorToastRef.current) return
+    lastLoadErrorToastRef.current = loadError
+    toast.error(loadError)
+  }, [loadError])
+
+  useEffect(() => {
+    setAnswers({})
+    setCurrentIdx(0)
+    setTimeLeft(EXAM_DURATION_MINUTES * 60)
+    setStarted(false)
+    setSubmitted(false)
+    setSubmitting(false)
+    setResult(null)
+    submitCalledRef.current = false
+  }, [quiz?.id, subjectId])
+
+  async function retryExam() {
+    try {
+      await retryExamData()
+    } catch {
+      // SWR owns the latest error state; the effect above owns user-visible reporting.
+    }
+  }
 
   const handleSubmit = useCallback(async () => {
-    if (submitCalledRef.current || !quiz || !lessonId) return
+    const activeQuiz = quizRef.current
+    if (submitCalledRef.current || !activeQuiz) return
     submitCalledRef.current = true
     setSubmitted(true)
     setSubmitting(true)
     try {
-      const { data } = await api.post(`/quizzes/lessons/${lessonId}/quiz/submit`, { answers })
+      const data = await postJson<ExamResult>(`/quizzes/${activeQuiz.id}/submit`, { answers: answersRef.current })
       setResult(data)
     } catch {
       toast.error('Erreur lors de la soumission de l\'examen.')
@@ -104,7 +94,7 @@ export default function ExamPage() {
     } finally {
       setSubmitting(false)
     }
-  }, [quiz, lessonId, answers])
+  }, [])
 
   // Countdown timer
   useEffect(() => {
@@ -127,9 +117,22 @@ export default function ExamPage() {
   const pct = (timeLeft / (EXAM_DURATION_MINUTES * 60)) * 100
   const isUrgent = timeLeft < 300  // 5 dernieres minutes
 
-  if (loading) return (
+  if (loading && !quiz) return (
     <div className="fixed inset-0 bg-slate-900 flex items-center justify-center z-50">
       <div className="w-8 h-8 border-2 border-kresco border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+
+  if (!quiz) return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900 px-6">
+      <RouteErrorState
+        eyebrow="Exam unavailable"
+        title="This exam could not be loaded."
+        message={loadError || 'The exam data was empty or incomplete. Retry the request or go back home.'}
+        homeHref="/home"
+        homeLabel="Back home"
+        onRetry={() => void retryExam()}
+      />
     </div>
   )
 
@@ -137,6 +140,23 @@ export default function ExamPage() {
   if (!started) return (
     <div className="fixed inset-0 bg-slate-900 flex items-center justify-center z-50">
       <div className="bg-slate-900 rounded-3xl p-10 max-w-md w-full text-center shadow-2xl mx-4">
+        {loadError && (
+          <section role="alert" className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-950/40 p-3 text-left">
+            <div>
+              <p className="m-0 text-xs font-bold text-amber-100">Exam data could not be refreshed.</p>
+              <p className="m-0 mt-1 text-[11px] font-semibold text-amber-200/80">Cached quiz data stays visible while you retry.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void retryExam()}
+              disabled={isValidating}
+              className="inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-2.5 text-[11px] font-bold text-slate-950 disabled:opacity-60"
+            >
+              <RotateCcw size={13} />
+              {isValidating ? 'Retrying' : 'Retry'}
+            </button>
+          </section>
+        )}
         <div className="w-16 h-16 bg-kresco/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
           <AlertTriangle size={28} className="text-kresco" />
         </div>
@@ -152,13 +172,13 @@ export default function ExamPage() {
           <li>Minimum 80% pour reussir</li>
         </ul>
         <div className="flex gap-3">
-          <button
+          <button type="button"
             onClick={() => router.back()}
             className="flex-1 border border-slate-700 text-slate-400 font-semibold py-3 rounded-xl hover:bg-slate-950 transition"
           >
             Annuler
           </button>
-          <button
+          <button type="button"
             onClick={() => setStarted(true)}
             className="flex-1 bg-kresco text-white font-semibold py-3 rounded-xl hover:bg-kresco/90 transition"
           >
@@ -189,13 +209,13 @@ export default function ExamPage() {
           <p className="text-indigo-600 text-xs font-semibold mb-6">+{result.xp_earned} XP gagnes !</p>
         )}
         <div className="flex gap-3 mt-6">
-          <button
+          <button type="button"
             onClick={() => router.push('/home')}
             className="flex-1 border border-slate-700 text-slate-400 font-semibold py-3 rounded-xl hover:bg-slate-950 transition"
           >
             Retour a l&apos;accueil
           </button>
-          <button
+          <button type="button"
             onClick={() => {
               setSubmitted(false)
               setAnswers({})
@@ -221,7 +241,6 @@ export default function ExamPage() {
     </div>
   )
 
-  if (!quiz) return null
   const question = quiz.questions[currentIdx]
   const answered = Object.keys(answers).length
   const total = quiz.questions.length
@@ -253,7 +272,7 @@ export default function ExamPage() {
         <div className="w-20 bg-slate-800 border-r border-slate-700 p-3 overflow-y-auto">
           <div className="grid grid-cols-2 gap-1.5">
             {quiz.questions.map((q, i) => (
-              <button
+              <button type="button"
                 key={q.id}
                 onClick={() => setCurrentIdx(i)}
                 className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
@@ -268,55 +287,62 @@ export default function ExamPage() {
         </div>
 
         {/* Question principale */}
-        <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center">
-          <div className="w-full max-w-2xl">
-            <p className="text-slate-400 text-sm mb-4">Question {currentIdx + 1} sur {total}</p>
-            <div className="bg-slate-800 rounded-2xl p-6 mb-6">
-              <p className="text-white text-lg font-semibold leading-relaxed">{question.text}</p>
-            </div>
+        <ErrorBoundary
+          eyebrow="Exam question error"
+          title="This exam question failed to load."
+          message="Retry the question panel without leaving the exam."
+          homeHref="/home"
+        >
+          <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center">
+            <div className="w-full max-w-2xl">
+              <p className="text-slate-400 text-sm mb-4">Question {currentIdx + 1} sur {total}</p>
+              <div className="bg-slate-800 rounded-2xl p-6 mb-6">
+                <p className="text-white text-lg font-semibold leading-relaxed">{question.text}</p>
+              </div>
 
-            <div className="space-y-3 mb-8">
-              {question.options.map(opt => (
-                <button
-                  key={opt.id}
-                  onClick={() => setAnswers(a => ({ ...a, [question.id]: opt.id }))}
-                  className={`w-full text-left px-5 py-4 rounded-xl border-2 transition text-sm ${
-                    answers[question.id] === opt.id
-                      ? 'border-kresco bg-kresco/10 text-white font-semibold'
-                      : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:bg-slate-800'
-                  }`}
-                >
-                  {opt.text}
-                </button>
-              ))}
-            </div>
+              <div className="space-y-3 mb-8">
+                {question.options.map(opt => (
+                  <button type="button"
+                    key={opt.id}
+                    onClick={() => setAnswers(a => ({ ...a, [question.id]: opt.id }))}
+                    className={`w-full text-left px-5 py-4 rounded-xl border-2 transition text-sm ${
+                      answers[question.id] === opt.id
+                        ? 'border-kresco bg-kresco/10 text-white font-semibold'
+                        : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:bg-slate-800'
+                    }`}
+                  >
+                    {opt.text}
+                  </button>
+                ))}
+              </div>
 
-            <div className="flex justify-between">
-              <button
-                onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
-                disabled={currentIdx === 0}
-                className="text-slate-400 text-sm hover:text-white transition disabled:opacity-30"
-              >
-                Precedent
-              </button>
-              {currentIdx < total - 1 ? (
-                <button
-                  onClick={() => setCurrentIdx(i => i + 1)}
-                  className="flex items-center gap-2 bg-kresco text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-kresco/90 transition"
+              <div className="flex justify-between">
+                <button type="button"
+                  onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
+                  disabled={currentIdx === 0}
+                  className="text-slate-400 text-sm hover:text-white transition disabled:opacity-30"
                 >
-                  Suivant <ArrowRight size={14} />
+                  Precedent
                 </button>
-              ) : (
-                <button
-                  onClick={handleSubmit}
-                  className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-green-700 transition"
-                >
-                  Soumettre l&apos;examen
-                </button>
-              )}
+                {currentIdx < total - 1 ? (
+                  <button type="button"
+                    onClick={() => setCurrentIdx(i => i + 1)}
+                    className="flex items-center gap-2 bg-kresco text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-kresco/90 transition"
+                  >
+                    Suivant <ArrowRight size={14} />
+                  </button>
+                ) : (
+                  <button type="button"
+                    onClick={handleSubmit}
+                    className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-green-700 transition"
+                  >
+                    Soumettre l&apos;examen
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </ErrorBoundary>
       </div>
     </div>
   )

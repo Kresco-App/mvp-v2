@@ -1,120 +1,89 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import api from '@/lib/axios'
-import { getMyProfile, updateMyProfile, uploadProfileMedia, type ProfileUser } from '@/lib/profile'
+import { RotateCcw } from 'lucide-react'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import { useProfileData } from '@/lib/profileData'
+import { getMyProfile, updateMyProfile, uploadProfileMedia, type ProfileUpdateInput } from '@/lib/profile'
 import { useAuthStore } from '@/lib/store'
 import {
   FigmaProfile,
-  toProfileSubject,
   type FigmaProfileEditDraft,
   type FigmaProfileMediaKind,
-  type FigmaProfileStats,
-  type FigmaProfileSubject,
-  type FigmaProfileXP,
-  type PermanentSidebarCalendarDay,
-  type PermanentSidebarCountdownUnit,
-  type PermanentSidebarLeaderboardEntry,
-  type PermanentSidebarLiveEvent,
 } from '@/components/figma'
-
-type SubjectCard = {
-  id: number | string
-  title: string
-  progress_pct?: number
-}
-
-type TopicCard = {
-  id: number
-  subject_title: string
-  progress_pct?: number
-}
-
-type SidebarSummary = {
-  chrono_units?: PermanentSidebarCountdownUnit[]
-  calendar_days?: PermanentSidebarCalendarDay[]
-  live_events?: PermanentSidebarLiveEvent[]
-  leaderboard_entries?: PermanentSidebarLeaderboardEntry[]
-}
-
-type ProfileStatsResult = {
-  total_watch_minutes: number
-  quizzes_passed: number
-  lessons_completed: number
-  is_pro: boolean
-}
+import { FigmaProfileSkeleton } from '@/components/figma/skeletons'
 
 export default function ProfilePage() {
-  const { user, updateUser } = useAuthStore()
-  const [profile, setProfile] = useState<ProfileUser | null>(null)
-  const [xp, setXp] = useState<FigmaProfileXP | null>(null)
-  const [stats, setStats] = useState<FigmaProfileStats | null>(null)
-  const [subjects, setSubjects] = useState<SubjectCard[]>([])
-  const [topics, setTopics] = useState<TopicCard[]>([])
-  const [sidebar, setSidebar] = useState<SidebarSummary>({})
-  const [loading, setLoading] = useState(true)
+  const user = useAuthStore((state) => state.user)
+  const updateUser = useAuthStore((state) => state.updateUser)
+  const {
+    profile,
+    xp,
+    stats,
+    profileSubjects,
+    notes,
+    saves,
+    sidebar,
+    loading,
+    error,
+    isValidating,
+    retry,
+    mutateProfile,
+  } = useProfileData()
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
-
-  useEffect(() => { document.title = 'Profile - Kresco' }, [])
+  const lastToastErrorRef = useRef('')
+  const uploadedMediaUrlsRef = useRef(new Set<string>())
 
   useEffect(() => {
-    let alive = true
+    if (!profile) return
+    updateUser(profile)
+  }, [profile, updateUser])
 
-    async function loadProfile() {
-      setLoading(true)
-      const [profileResult, xpResult, statsResult, subjectsResult, topicsResult, sidebarResult] = await Promise.allSettled([
-        getMyProfile(),
-        api.get('/progress/xp'),
-        api.get('/progress/stats'),
-        api.get('/courses/subjects'),
-        api.get('/courses/topics'),
-        api.get('/progress/sidebar-summary'),
-      ])
-
-      if (!alive) return
-
-      if (profileResult.status === 'fulfilled') {
-        setProfile(profileResult.value)
-        updateUser(profileResult.value)
-      } else {
-        toast.error(getErrorMessage(profileResult.reason, 'Could not load profile details.'))
-      }
-
-      if (xpResult.status === 'fulfilled') setXp(xpResult.value.data)
-      if (statsResult.status === 'fulfilled') setStats(toProfileStats(statsResult.value.data))
-      if (subjectsResult.status === 'fulfilled') setSubjects(Array.isArray(subjectsResult.value.data) ? subjectsResult.value.data : [])
-      if (topicsResult.status === 'fulfilled') setTopics(Array.isArray(topicsResult.value.data) ? topicsResult.value.data : [])
-      if (sidebarResult.status === 'fulfilled') setSidebar(sidebarResult.value.data ?? {})
-
-      setLoading(false)
+  useEffect(() => {
+    if (!error) {
+      lastToastErrorRef.current = ''
+      return
     }
+    const message = apiDataErrorMessage(error, 'Could not refresh profile data.')
+    if (message === lastToastErrorRef.current) return
+    lastToastErrorRef.current = message
+    toast.error(message)
+  }, [error])
 
-    loadProfile()
-
-    return () => {
-      alive = false
+  async function retryProfileData() {
+    try {
+      await retry()
+    } catch {
+      // SWR owns the latest error state; the effect above owns user-visible reporting.
     }
-  }, [updateUser])
-
-  const profileSubjects = useMemo(() => buildProfileSubjects(subjects, topics), [subjects, topics])
+  }
 
   async function handleSaveProfile(draft: FigmaProfileEditDraft) {
     setSaving(true)
     setEditError(null)
 
     try {
-      await updateMyProfile({
+      const currentProfile = profile ?? user
+      const nextAvatarUrl = draft.avatar_url?.trim() ?? ''
+      const nextBannerUrl = draft.banner_url?.trim() ?? ''
+      const payload: ProfileUpdateInput = {
         full_name: draft.full_name.trim(),
-        avatar_url: draft.avatar_url?.trim() ?? '',
-        banner_url: draft.banner_url?.trim() ?? '',
         niveau: draft.level?.trim() ?? '',
         filiere: draft.track?.trim() ?? '',
-      })
+      }
+      if (nextAvatarUrl !== (currentProfile?.avatar_url?.trim() ?? '') && !uploadedMediaUrlsRef.current.has(nextAvatarUrl)) {
+        payload.avatar_url = nextAvatarUrl
+      }
+      if (nextBannerUrl !== (currentProfile?.banner_url?.trim() ?? '') && !uploadedMediaUrlsRef.current.has(nextBannerUrl)) {
+        payload.banner_url = nextBannerUrl
+      }
+      await updateMyProfile(payload)
       const latestProfile = await getMyProfile()
-      setProfile(latestProfile)
+      await mutateProfile(latestProfile, { revalidate: false })
       updateUser(latestProfile)
+      uploadedMediaUrlsRef.current.clear()
       toast.success('Profile saved.')
     } catch (error) {
       const message = getErrorMessage(error, 'Could not save profile.')
@@ -133,7 +102,11 @@ export default function ProfilePage() {
       const file = await pickImageFile()
       if (!file) return undefined
       const mediaUrl = await uploadProfileMedia(kind, file)
-      toast.success(`${kind === 'avatar' ? 'Avatar' : 'Banner'} uploaded. Save your profile to keep it.`)
+      uploadedMediaUrlsRef.current.add(mediaUrl)
+      const field = kind === 'avatar' ? 'avatar_url' : 'banner_url'
+      await mutateProfile((current) => (current ? { ...current, [field]: mediaUrl } : current), { revalidate: false })
+      if (user) updateUser({ ...user, [field]: mediaUrl })
+      toast.success(`${kind === 'avatar' ? 'Avatar' : 'Banner'} uploaded.`)
       return mediaUrl
     } catch (error) {
       const message = getErrorMessage(error, 'Could not upload profile image.')
@@ -143,58 +116,50 @@ export default function ProfilePage() {
     }
   }
 
+  if (loading) {
+    return <FigmaProfileSkeleton />
+  }
+
   return (
-    <FigmaProfile
-      user={profile ?? user}
-      xp={xp}
-      stats={stats}
-      subjects={profileSubjects}
-      sidebar={{
-        chronoUnits: sidebar.chrono_units,
-        calendarDays: sidebar.calendar_days,
-        liveEvents: sidebar.live_events,
-        leaderboardEntries: sidebar.leaderboard_entries,
-      }}
-      loading={loading}
-      saving={saving}
-      editError={editError}
-      onSaveProfile={handleSaveProfile}
-      onSelectMedia={handleSelectMedia}
-    />
+    <>
+      {error && (
+        <section role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-[#fde68a] bg-[#fffbeb] px-5 py-4">
+          <div>
+            <p className="m-0 text-[14px] font-black text-[#92400e]">Profile data could not be refreshed.</p>
+            <p className="m-0 mt-1 text-[13px] font-bold text-[#b45309]">Cached or partial profile data stays visible while you retry.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void retryProfileData()}
+            disabled={isValidating}
+            className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#92400e] px-4 text-[13px] font-black text-white disabled:opacity-60"
+          >
+            <RotateCcw size={15} />
+            {isValidating ? 'Retrying...' : 'Retry profile data'}
+          </button>
+        </section>
+      )}
+      <FigmaProfile
+        user={profile ?? user}
+        xp={xp}
+        stats={stats}
+        subjects={profileSubjects}
+        notes={notes}
+        saves={saves}
+        sidebar={{
+          chronoUnits: sidebar.chrono_units,
+          calendarDays: sidebar.calendar_days,
+          liveEvents: sidebar.live_events,
+          leaderboardEntries: sidebar.leaderboard_entries,
+        }}
+        loading={false}
+        saving={saving}
+        editError={editError}
+        onSaveProfile={handleSaveProfile}
+        onSelectMedia={handleSelectMedia}
+      />
+    </>
   )
-}
-
-function toProfileStats(raw: ProfileStatsResult): FigmaProfileStats {
-  return {
-    totalWatchMinutes: numberOrZero(raw.total_watch_minutes),
-    quizzesPassed: numberOrZero(raw.quizzes_passed),
-    lessonsCompleted: numberOrZero(raw.lessons_completed),
-    isPro: Boolean(raw.is_pro),
-  }
-}
-
-function buildProfileSubjects(subjects: SubjectCard[], topics: TopicCard[]): FigmaProfileSubject[] {
-  const progressBySubject = new Map<string, number[]>()
-
-  for (const topic of topics) {
-    if (typeof topic.progress_pct !== 'number') continue
-    const key = subjectKey(topic.subject_title)
-    const values = progressBySubject.get(key) ?? []
-    values.push(topic.progress_pct)
-    progressBySubject.set(key, values)
-  }
-
-  return subjects.map((subject, index) => {
-    const topicValues = progressBySubject.get(subjectKey(subject.title))
-    const progress = topicValues && topicValues.length > 0
-      ? topicValues.reduce((sum, value) => sum + value, 0) / topicValues.length
-      : subject.progress_pct
-    return toProfileSubject(subject.title, progress, index)
-  })
-}
-
-function numberOrZero(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
 function pickImageFile() {
@@ -213,27 +178,5 @@ function pickImageFile() {
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
-  const maybeError = error as { response?: { data?: { detail?: unknown; message?: unknown }; status?: number } }
-  const detail = maybeError?.response?.data?.detail
-  if (typeof detail === 'string' && detail.trim()) return detail
-  const message = maybeError?.response?.data?.message
-  if (typeof message === 'string' && message.trim()) return message
-  if (maybeError?.response?.status) return `${fallback} (${maybeError.response.status})`
-  if (error instanceof Error && error.message) return error.message
-  return fallback
-}
-
-function subjectKey(title: string) {
-  const normalized = title
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-  if (normalized.includes('math')) return 'math'
-  if (normalized.includes('phys')) return 'physics'
-  if (normalized.includes('chem') || normalized.includes('chim')) return 'chemistry'
-  if (normalized.includes('geo')) return 'geography'
-  if (normalized.includes('bio') || normalized.includes('svt')) return 'biology'
-  if (normalized.includes('philo')) return 'philosophy'
-  if (normalized.includes('english') || normalized.includes('anglais')) return 'english'
-  return normalized.replace(/\W+/g, '-')
+  return apiDataErrorMessage(error, fallback)
 }

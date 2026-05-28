@@ -45,7 +45,7 @@ function clampPosition(x: number, y: number, el: HTMLDivElement | null) {
 
 export default function ScientificCalculator({ onClose }: Props) {
   const [display, setDisplay] = useState('')
-  const [history, setHistory] = useState<HistoryEntry[]>([])
+  const [calcHistory, setCalcHistory] = useState<HistoryEntry[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [pos, setPos] = useState({ x: 80, y: 80 })
   const dragOffset = useRef({ x: 0, y: 0 })
@@ -91,7 +91,7 @@ export default function ScientificCalculator({ onClose }: Props) {
 
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [history.length])
+  }, [calcHistory.length])
 
   const handleButton = useCallback((val: string) => {
     if (val === 'C') {
@@ -110,7 +110,7 @@ export default function ScientificCalculator({ onClose }: Props) {
     if (val === '=') {
       if (!display) return
       const result = evaluateMathExpression(display)
-      setHistory(h => [{ expr: display, result }, ...h.slice(0, 19)])
+      setCalcHistory(h => [{ expr: display, result }, ...h.slice(0, 19)])
       setDisplay(result === 'Erreur' ? display : result)
       return
     }
@@ -162,6 +162,7 @@ export default function ScientificCalculator({ onClose }: Props) {
             <span className="text-sm font-semibold text-slate-900">Calculatrice</span>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
             aria-label="Fermer la calculatrice"
@@ -172,7 +173,7 @@ export default function ScientificCalculator({ onClose }: Props) {
 
         <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-6 py-5">
           <div className="mb-2 min-h-[20px] truncate text-right text-sm text-slate-500">
-            {history[0] ? `${history[0].expr} =` : ''}
+            {calcHistory[0] ? `${calcHistory[0].expr} =` : ''}
           </div>
           <div className="min-h-[48px] truncate text-right font-mono text-4xl font-light tracking-normal text-slate-950">
             {display || '0'}
@@ -183,6 +184,7 @@ export default function ScientificCalculator({ onClose }: Props) {
           {BUTTONS.flat().map((btn) => (
             <button
               key={btn}
+              type="button"
               onClick={() => handleButton(btn)}
               className={cn(
                 'flex h-14 flex-col items-center justify-center rounded-xl border text-base font-semibold shadow-sm transition-all active:scale-[0.96]',
@@ -199,11 +201,12 @@ export default function ScientificCalculator({ onClose }: Props) {
           ))}
         </div>
 
-        {history.length > 0 && (
+        {calcHistory.length > 0 && (
           <div className="max-h-[88px] space-y-0.5 overflow-y-auto border-t border-slate-100 bg-slate-50 px-4 py-2">
-            {history.slice(0, 5).map((h, i) => (
+            {calcHistory.slice(0, 5).map((h, i) => (
               <button
                 key={`${h.expr}-${i}`}
+                type="button"
                 onClick={() => setDisplay(h.result)}
                 className="block w-full truncate text-right text-xs text-slate-500 transition hover:text-slate-900"
               >

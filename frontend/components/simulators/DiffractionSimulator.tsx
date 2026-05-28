@@ -67,7 +67,7 @@ export default function DiffractionSimulator() {
 
     if (Math.abs(x - screenX) < 30) {
       isDraggingRef.current = true
-      document.body.style.cursor = 'ew-resize'
+      document.body.classList.add('kresco-ew-resize')
     }
   }
 
@@ -83,7 +83,7 @@ export default function DiffractionSimulator() {
     const handlePointerUp = () => {
       if (isDraggingRef.current) {
         isDraggingRef.current = false
-        document.body.style.cursor = 'default'
+        document.body.classList.remove('kresco-ew-resize')
       }
     }
 
@@ -97,6 +97,7 @@ export default function DiffractionSimulator() {
       window.removeEventListener('mouseup', handlePointerUp)
       window.removeEventListener('touchmove', handlePointerMove)
       window.removeEventListener('touchend', handlePointerUp)
+      document.body.classList.remove('kresco-ew-resize')
     }
   }, [])
 
@@ -422,7 +423,7 @@ export default function DiffractionSimulator() {
     <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-slate-100">Diffraction</h3>
-        <button
+        <button type="button"
           onClick={() => {
             setWavelength(400)
             setSlitWidth(100)
@@ -470,6 +471,7 @@ export default function DiffractionSimulator() {
                 <span className="font-mono" style={{ color: getWavelengthColor(wavelength) }}>{wavelength} nm</span>
               </div>
               <input
+                aria-label="Longueur d'onde"
                 type="range"
                 min="380"
                 max="750"
@@ -486,6 +488,7 @@ export default function DiffractionSimulator() {
                 <span className="text-emerald-400 font-mono">{slitWidth} um</span>
               </div>
               <input
+                aria-label="Largeur fente"
                 type="range"
                 min="20"
                 max="200"

@@ -1,185 +1,61 @@
-# Stripe Integration Guide
+# Stripe Integration
 
-## Overview
-Stripe handles Pro subscription payments. Users pay monthly/yearly to unlock premium content.
+## Current Implementation
 
----
+Stripe is implemented in the FastAPI backend:
 
-## Step 1: Create a Stripe Account
-1. Sign up at https://stripe.com
-2. Go to **Developers → API Keys** and copy:
-   - `STRIPE_SK` (starts with `sk_test_...`)
-   - `STRIPE_PK` (starts with `pk_test_...`)
-3. Add to `.env`:
-   ```
-   STRIPE_SK=sk_test_...
-   STRIPE_PK=pk_test_...
-   STRIPE_WEBHOOK_SECRET=whsec_...
-   ```
+- Router: `backend/app/routers/payments.py`
+- Stripe service: `backend/app/services/stripe_service.py`
+- Entitlement service: `backend/app/services/payment_entitlements.py`
+- Schemas: `backend/app/schemas/payments.py`
 
----
+Current endpoints:
 
-## Step 2: Create Products in Stripe Dashboard
-1. **Products → Add product**
-2. Create product: `Kresco Pro`
-3. Create prices under that product (monthly/yearly as needed)
-3. Add to `.env`:
-   ```
-   STRIPE_PRODUCT_ID=prod_xxx
-   ```
+- `POST /api/payments/create-checkout-session`
+- `GET /api/payments/verify-session?session_id=...`
+- `POST /api/payments/webhook`
 
----
+Current checkout mode is one-time payment, not subscription mode. A successful payment unlocks the user's Pro access flag.
 
-## Step 3: Install Stripe in Backend
+Current plans:
+
+- `pro`: 9900 centimes MAD one-time Pro unlock.
+
+## Required Environment
+
+Set these in the backend environment:
+
+```text
+STRIPE_SK=
+STRIPE_PRODUCT_ID=
+STRIPE_WEBHOOK_SECRET=
+FRONTEND_URL=
+```
+
+Accepted aliases are defined in `backend/app/config.py`. `STRIPE_PK` / `STRIPE_PUBLISHABLE_KEY` is still accepted by settings for compatibility, but hosted Checkout is created server-side and does not require it.
+
+## Current Behavior
+
+- Checkout sessions are created server-side with Stripe.
+- Checkout session creation requires an authenticated user.
+- Stripe customer metadata includes the Kresco user id.
+- Existing Stripe customer ids are reused; newly created customer ids are persisted back to the user.
+- Successful checkout redirects to `${FRONTEND_URL}/payment-success?session_id=...`.
+- Checkout creation returns `503` when required Stripe checkout configuration is missing.
+- `verify-session` marks the current user as `is_pro=true` through the shared payment entitlement service when Stripe reports a paid session.
+- `verify-session` rejects paid sessions that belong to another user.
+- Webhook `checkout.session.completed` marks the target user as pro through the same entitlement service.
+- Webhook `customer.subscription.deleted` and `invoice.payment_failed` still mark users non-pro by Stripe customer id through the same entitlement service as a legacy/defensive branch, but current checkout does not create subscriptions.
+
+## Local Verification
+
+Backend tests cover webhook secret enforcement:
+
 ```bash
 cd backend
-source venv/bin/activate
-pip install stripe
-echo "stripe" >> requirements.txt
+python -m pytest tests_fastapi/test_payment_entitlements.py
+python -m pytest tests_fastapi/test_payments.py
+python -m pytest tests_fastapi/test_stripe_service.py
 ```
 
----
-
-## Step 4: Backend Subscription Endpoints
-Create/update `backend/app/routers/payments.py` (FastAPI):
-
-```python
-import stripe
-from fastapi import APIRouter, Depends
-from app.config import get_settings
-from app.dependencies import get_current_user
-
-router = APIRouter(tags=["Payments"])
-
-@router.post("/create-checkout-session")
-async def create_checkout(plan: str = "monthly", user=Depends(get_current_user)):
-    settings = get_settings()
-    stripe.api_key = settings.stripe_sk
-
-    session = stripe.checkout.Session.create(
-        payment_method_types=['card'],
-        mode='subscription',
-        line_items=[{'price': price_id, 'quantity': 1}],
-        customer_email=user.email,
-        metadata={'user_id': str(user.id)},
-        success_url='https://yourapp.com/pricing?success=1',
-        cancel_url='https://yourapp.com/pricing?canceled=1',
-    )
-    return {"checkout_url": session.url}
-
-
-@router.post("/webhook")
-async def stripe_webhook(request):
-    payload = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
-
-    try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, settings.stripe_webhook_secret
-        )
-    except (ValueError, stripe.error.SignatureVerificationError):
-        return {"error": "Invalid"}, 400
-
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        user_id = session['metadata']['user_id']
-        # Update user subscription status in DB
-
-    elif event['type'] in ('customer.subscription.deleted', 'invoice.payment_failed'):
-        customer_email = event['data']['object'].get('customer_email', '')
-        # Update user subscription status in DB
-
-    return {"ok": True}
-```
-
-Register in `backend/app/main.py`:
-```python
-from app.routers import payments
-app.include_router(payments.router, prefix="/api/payments")
-```
-
----
-
-## Step 5: Frontend Checkout Button
-```tsx
-// In your pricing page:
-async function handleSubscribe(plan: 'monthly' | 'yearly') {
-  const res = await api.post('/payments/create-checkout-session', null, {
-    params: { plan }
-  })
-  window.location.href = res.data.checkout_url  // Redirect to Stripe hosted page
-}
-```
-
----
-
-## Step 6: Stripe Webhook (Local Testing)
-```bash
-# Install Stripe CLI
-brew install stripe/stripe-cli/stripe
-
-# Login
-stripe login
-
-# Forward webhooks to local backend
-stripe listen --forward-to localhost:8000/api/payments/webhook
-```
-
-Copy the webhook signing secret printed and set:
-```
-STRIPE_WEBHOOK_SECRET=whsec_...
-```
-
----
-
-## Step 7: Production Webhook
-1. In Stripe Dashboard → **Webhooks → Add endpoint**
-2. URL: `https://api.yourapp.com/api/payments/webhook`
-3. Events to listen:
-   - `checkout.session.completed`
-   - `customer.subscription.deleted`
-   - `invoice.payment_failed`
-4. Copy the signing secret → set `STRIPE_WEBHOOK_SECRET` in production env.
-
----
-
-## Step 8: Customer Portal (Manage Subscription)
-```python
-@router.post("/customer-portal")
-def customer_portal(request):
-    # Find or create Stripe customer
-    customers = stripe.Customer.list(email=request.auth.email).data
-    if not customers:
-        return {"error": "No subscription found"}, 404
-    customer = customers[0]
-
-    session = stripe.billing_portal.Session.create(
-        customer=customer.id,
-        return_url='https://yourapp.com/profile',
-    )
-    return {"portal_url": session.url}
-```
-
----
-
-## Testing Cards
-| Card | Result |
-|------|--------|
-| `4242 4242 4242 4242` | Success |
-| `4000 0000 0000 9995` | Declined |
-| `4000 0027 6000 3184` | 3D Secure required |
-
-Use any future expiry date, any 3-digit CVC, any ZIP.
-
----
-
-## MAD Currency Note
-Stripe supports Moroccan Dirham (MAD). Set currency when creating prices:
-```python
-stripe.Price.create(
-    unit_amount=9900,  # 99.00 MAD in centimes
-    currency="mad",
-    recurring={"interval": "month"},
-    product=product_id,
-)
-```
+Do not paste real Stripe secrets into Markdown.

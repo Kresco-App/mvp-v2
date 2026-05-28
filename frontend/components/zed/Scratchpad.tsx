@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Image from 'next/image'
 import { CornerDownLeft, Pin, Trash2, Calculator } from 'lucide-react'
 import 'katex/dist/katex.min.css'
 import { evaluateMathExpression } from '@/lib/zedMath'
-
-const STORAGE_KEY = 'kresco_zed_scratchpad'
 
 interface PinnedSnippet {
   id: string
@@ -16,28 +15,34 @@ interface PinnedSnippet {
 interface Props {
   pinnedSnippets: PinnedSnippet[]
   onRemoveSnippet: (id: string) => void
+  storageKey: string
 }
 
-export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
+export default function Scratchpad({ pinnedSnippets, onRemoveSnippet, storageKey }: Props) {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<{ expr: string; result: string }[]>([])
+  const [storageHydrated, setStorageHydrated] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const hasInput = input.trim().length > 0
 
   useEffect(() => {
+    setStorageHydrated(false)
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY)
+      const saved = localStorage.getItem(storageKey)
       if (saved) {
         try { setHistory(JSON.parse(saved)) } catch {}
+      } else {
+        setHistory([])
       }
     }
-  }, [])
+    setStorageHydrated(true)
+  }, [storageKey])
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(history))
+    if (typeof window !== 'undefined' && storageHydrated) {
+      localStorage.setItem(storageKey, JSON.stringify(history))
     }
-  }, [history])
+  }, [history, storageHydrated, storageKey])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -72,7 +77,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
           </div>
         </div>
         {history.length > 0 && (
-          <button
+          <button type="button"
             onClick={clearHistory}
             className="rounded-md p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
             title="Effacer"
@@ -99,9 +104,12 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
             {pinnedSnippets.map(snippet => (
               <div key={snippet.id} className="group relative rounded-lg border border-stone-200 bg-white p-2 shadow-sm">
                 {snippet.type === 'image' ? (
-                  <img
+                  <Image
                     src={snippet.content}
                     alt="Extrait epingle"
+                    width={320}
+                    height={144}
+                    sizes="320px"
                     className="max-h-36 w-full rounded-md object-contain"
                   />
                 ) : (
@@ -109,7 +117,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
                     {snippet.content}
                   </div>
                 )}
-                <button
+                <button type="button"
                   onClick={() => onRemoveSnippet(snippet.id)}
                   className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-400 opacity-0 shadow-sm ring-1 ring-stone-200 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus:opacity-100"
                   title="Retirer l'epingle"
@@ -174,7 +182,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet }: Props) {
             <p className="min-w-0 text-[11px] leading-snug text-slate-500">
               sqrt, sin, cos, tan, ln, log, pi, e, ^ supportes
             </p>
-            <button
+            <button type="button"
               onClick={handleSubmit}
               disabled={!hasInput}
               className="flex h-8 min-w-12 items-center justify-center gap-1 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-stone-300 disabled:text-stone-500"

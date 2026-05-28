@@ -420,6 +420,114 @@ body {
 .kresco-soft-pulse {
   animation: krescoSoftPulse 2400ms ease-in-out infinite;
 }
+.audit-catalog-mode-hidden,
+body:has(.audit-catalog) > button[aria-label*='mode'] {
+  display: none;
+}
+.professor-control-button,
+.professor-live-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  border-width: 2px;
+  border-radius: 12px;
+  padding: 0 13px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+.professor-live-field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 900;
+  color: #52525c;
+}
+.professor-live-input {
+  min-height: 42px;
+  border-radius: 12px;
+  border: 2px solid #e4e4e7;
+  background: #fff;
+  padding: 0 12px;
+  color: #3f3f46;
+  font-size: 14px;
+  font-weight: 800;
+  outline: none;
+}
+.professor-live-input:focus { border-color: #453dee; }
+.professor-live-menu-item {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: left;
+}
+.professor-live-menu-item:hover { background: #f4f4f5; }
+.professor-live-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.calendar-event-tone-purple {
+  background: #5b60f9;
+}
+.calendar-event-tone-sky {
+  background: #29aee4;
+}
+.calendar-event-tone-amber {
+  background: #f5900b;
+}
+.kresco-ew-resize,
+.kresco-ew-resize * {
+  cursor: ew-resize !important;
+}
+@keyframes mascot-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes mascot-bounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  25% { transform: translateY(-10px) scale(1.05); }
+  50% { transform: translateY(0) scale(1); }
+  75% { transform: translateY(-5px) scale(1.02); }
+}
+@keyframes mascot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+@keyframes mascot-shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  20% { transform: translateX(-3px) rotate(-2deg); }
+  40% { transform: translateX(3px) rotate(2deg); }
+  60% { transform: translateX(-2px) rotate(-1deg); }
+  80% { transform: translateX(2px) rotate(1deg); }
+}
+@keyframes mascot-droop {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(3px) rotate(-2deg); }
+}
+@keyframes mascot-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes bubble-in {
+  0% { transform: scale(0.8) translateY(4px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.mascot-float { animation: mascot-float 3s ease-in-out infinite; }
+.mascot-bounce { animation: mascot-bounce 0.8s ease-in-out infinite; }
+.mascot-pulse { animation: mascot-pulse 1.5s ease-in-out infinite; }
+.mascot-shake { animation: mascot-shake 0.5s ease-in-out infinite; }
+.mascot-droop { animation: mascot-droop 2.5s ease-in-out infinite; }
+.mascot-pop-in { animation: mascot-pop-in 0.4s ease-out forwards; }
+.bubble-in { animation: bubble-in 0.25s ease-out forwards; }
 .kresco-skeleton {
   position: relative;
   overflow: hidden;
@@ -513,9 +621,15 @@ body {
 .figma-courses-grid,
 .figma-dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, var(--figma-main-column)) var(--figma-sidebar-width);
+  grid-template-columns: minmax(0, 1fr) var(--figma-sidebar-width);
   gap: var(--figma-sidebar-gap);
   align-items: start;
+}
+
+@media (max-width: 1440px) {
+  .calendar-page-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .figma-card {

@@ -1,174 +1,516 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
-  BookOpen, Users, Puzzle,
-  ChevronRight, Plus, Video, FileText
+  Activity,
+  BarChart3,
+  Bell,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  CircleDollarSign,
+  ClipboardList,
+  Database,
+  FileQuestion,
+  FileText,
+  Gauge,
+  GraduationCap,
+  KeyRound,
+  LibraryBig,
+  LineChart,
+  ListChecks,
+  Lock,
+  MessageSquare,
+  NotebookPen,
+  Search,
+  ShieldCheck,
+  Trophy,
+  Users,
+  Wand2,
 } from 'lucide-react'
-import api from '@/lib/axios'
+import { getJson } from '@/lib/apiClient'
+import { getAdminRootUrl } from '@/lib/apiConfig'
+import {
+  DOMAIN_LABELS,
+  EMPTY_OVERVIEW,
+  filterCrudCatalog,
+  formatNumber,
+  groupByDomain,
+  numberValue,
+  percent,
+  publishedRatio,
+  sumValues,
+  type AdminOverview,
+  type LoadState,
+} from '@/lib/adminOverview'
 import AuthGuard from '@/components/AuthGuard'
 
-interface Stats {
-  subjects: number
-  chapters: number
-  sections: number
-  users: number
+const DOMAIN_ICONS: Record<string, any> = {
+  'knowledge-base': LibraryBig,
+  resources: FileText,
+  quiz: FileQuestion,
+  'exam-bank': GraduationCap,
+  'users-access': Users,
+  'access-billing': KeyRound,
+  'progress-xp': Trophy,
+  engagement: Activity,
+  'notes-saves-comments': MessageSquare,
+  calendar: CalendarDays,
+  notifications: Bell,
+  'admin-audit': ClipboardList,
+}
+
+function adminRoot(): string {
+  return getAdminRootUrl()
 }
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [subjects, setSubjects] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [overview, setOverview] = useState<AdminOverview>(EMPTY_OVERVIEW)
+  const [state, setState] = useState<LoadState>('loading')
+  const [query, setQuery] = useState('')
+  const root = useMemo(adminRoot, [])
 
   useEffect(() => {
-    Promise.all([
-      api.get('/courses/subjects').catch(() => ({ data: [] })),
-    ]).then(([subjRes]) => {
-      const subjs = subjRes.data ?? []
-      setSubjects(subjs)
-      setStats({
-        subjects: subjs.length,
-        chapters: subjs.reduce((acc: number, s: any) => acc + (s.chapters?.length ?? 0), 0),
-        sections: 0,
-        users: 0,
+    let mounted = true
+    getJson<AdminOverview>('/admin/overview')
+      .then((data) => {
+        if (!mounted) return
+        setOverview(data ?? EMPTY_OVERVIEW)
+        setState('ready')
       })
-    }).finally(() => setLoading(false))
+      .catch((error) => {
+        if (!mounted) return
+        if (error?.response?.status === 403) {
+          setState('forbidden')
+          return
+        }
+        setOverview(EMPTY_OVERVIEW)
+        setState('fallback')
+      })
+    return () => { mounted = false }
   }, [])
 
-  const QUICK_ACTIONS = [
-    {
-      label: 'Nouveau cours',
-      desc: 'Créer un sujet, chapitres et sections',
-      icon: BookOpen,
-      color: 'text-indigo-400',
-      bg: 'bg-indigo-600/10 border-indigo-600/20',
-      href: '/admin/courses/new',
-    },
-    {
-      label: 'Créateur d\'activités',
-      desc: 'MCQ, Glisser-déposer, Vrai/Faux…',
-      icon: Puzzle,
-      color: 'text-purple-400',
-      bg: 'bg-purple-600/10 border-purple-600/20',
-      href: '/admin/courses/activities',
-    },
-    {
-      label: 'Gestion des cours',
-      desc: 'Modifier les sections existantes',
-      icon: Video,
-      color: 'text-sky-400',
-      bg: 'bg-sky-600/10 border-sky-600/20',
-      href: '/admin/courses',
-    },
+  const filteredCrud = useMemo(() => {
+    return filterCrudCatalog(overview.crud_catalog, query)
+  }, [overview.crud_catalog, query])
+
+  const groupedCrud = useMemo(() => groupByDomain(filteredCrud), [filteredCrud])
+
+  const topStats = [
+    { label: 'Users', value: overview.totals.users, icon: Users, hint: `${formatNumber(overview.totals.pro_users)} pro` },
+    { label: 'Topics', value: overview.totals.topics, icon: LibraryBig, hint: `${formatNumber(overview.totals.topic_items)} items` },
+    { label: 'Resources', value: overview.totals.resources, icon: FileText, hint: `${formatNumber(overview.totals.tab_contents)} tabs` },
+    { label: 'Quiz attempts', value: overview.totals.quiz_attempts, icon: ListChecks, hint: percent(overview.engagement.quiz_attempt_pass_rate) },
+    { label: 'Activity events', value: overview.totals.activity_events, icon: Activity, hint: `${formatNumber(overview.engagement.active_users_7d)} active 7d` },
+    { label: 'Exam problems', value: overview.totals.exam_problems, icon: GraduationCap, hint: `${formatNumber(overview.totals.exams)} exams` },
   ]
+
+  const readiness = [
+    { label: 'Subjects', statuses: overview.content_status.subjects, totalKey: 'subjects' },
+    { label: 'Topics', statuses: overview.content_status.topics, totalKey: 'topics' },
+    { label: 'Topic items', statuses: overview.content_status.topic_items, totalKey: 'topic_items' },
+    { label: 'Resources', statuses: overview.content_status.resources, totalKey: 'resources' },
+    { label: 'Tabs', statuses: overview.content_status.tab_contents, totalKey: 'tab_contents' },
+    { label: 'Exam problems', statuses: overview.content_status.exam_problems, totalKey: 'exam_problems' },
+  ]
+
+  if (state === 'forbidden') {
+    return (
+      <AuthGuard>
+        <div className="min-h-screen bg-slate-950 px-6 py-10">
+          <div className="mx-auto max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-8">
+            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-red-500/10 text-red-500">
+              <Lock size={22} />
+            </div>
+            <h1 className="text-xl font-bold text-white">Staff access required</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              The admin analytics API is protected by the backend staff guard. Sign in with a staff account, or use the SQLAdmin password flow for direct CRUD access.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <a href={root} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+                <Database size={16} /> Open SQLAdmin
+              </a>
+              <Link href="/home" className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-4 py-2 text-sm font-semibold text-slate-400 hover:bg-slate-800/50">
+                Back to app
+              </Link>
+            </div>
+          </div>
+        </div>
+      </AuthGuard>
+    )
+  }
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-slate-950">
-        {/* Header */}
-        <div className="bg-slate-900 border-b border-slate-800 px-8 py-5">
-          <div className="max-w-5xl mx-auto flex items-center justify-between">
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <div className="border-b border-slate-800 bg-slate-900">
+          <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-8">
             <div>
-              <h1 className="text-white text-xl font-bold">Tableau de bord</h1>
-              <p className="text-slate-400 text-sm mt-0.5">Espace enseignant · Kresco</p>
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-indigo-400">
+                <ShieldCheck size={15} /> Kresco admin
+              </div>
+              <h1 className="mt-2 text-2xl font-bold text-white">Operations control center</h1>
+              <p className="mt-1 max-w-3xl text-sm text-slate-500">
+                Analytics, content readiness, and direct CRUD coverage for the Bac-first Topic model.
+              </p>
             </div>
-            <Link href="/home" className="text-slate-400 hover:text-white text-sm transition">
-              ← Retour à la plateforme
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <a href={`${root}/topic/list`} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+                <LibraryBig size={16} /> Topics
+              </a>
+              <a href={root} className="inline-flex items-center gap-2 rounded-xl border border-slate-800 px-4 py-2 text-sm font-semibold text-slate-400 hover:bg-slate-800/50">
+                <Database size={16} /> SQLAdmin
+              </a>
+            </div>
           </div>
         </div>
 
-        <div className="max-w-5xl mx-auto px-8 py-8 space-y-8">
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { label: 'Matières', value: stats?.subjects ?? '—', icon: BookOpen, color: 'text-indigo-400' },
-              { label: 'Chapitres', value: stats?.chapters ?? '—', icon: FileText, color: 'text-purple-400' },
-              { label: 'Sections', value: stats?.sections ?? '—', icon: Video, color: 'text-sky-400' },
-              { label: 'Étudiants', value: stats?.users ?? '—', icon: Users, color: 'text-green-400' },
-            ].map(s => (
-              <div key={s.label} className="bg-slate-900 rounded-2xl border border-slate-800 p-5">
-                <s.icon size={20} className={`${s.color} mb-3`} />
-                <p className="text-white text-2xl font-bold">{loading ? '…' : s.value}</p>
-                <p className="text-slate-500 text-xs mt-1">{s.label}</p>
+        <main className="mx-auto grid max-w-7xl gap-6 px-5 py-6 lg:grid-cols-[260px_minmax(0,1fr)] lg:px-8">
+          <aside className="space-y-3 lg:sticky lg:top-6 lg:self-start">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Runtime</p>
+              <div className="mt-3 space-y-3 text-sm">
+                <StatusLine icon={Gauge} label="API status" value={state === 'ready' ? 'Live analytics' : state === 'loading' ? 'Loading' : 'Fallback catalog'} tone={state === 'ready' ? 'good' : 'warn'} />
+                <StatusLine icon={Database} label="CRUD source" value="SQLAdmin registry" tone="good" />
+                <StatusLine icon={ShieldCheck} label="Validation mode" value={overview.ops_readiness?.local_validation?.mode ?? 'local only'} tone="good" />
+                <StatusLine icon={Wand2} label="Model language" value="Topics, items, resources" tone="good" />
               </div>
-            ))}
-          </div>
-
-          {/* Quick actions */}
-          <div>
-            <h2 className="text-white font-semibold mb-4">Actions rapides</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {QUICK_ACTIONS.map(action => (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  className={`bg-slate-900 border ${action.bg} rounded-2xl p-6 hover:bg-slate-800/60 transition group`}
-                >
-                  <action.icon size={22} className={`${action.color} mb-3`} />
-                  <p className="text-white font-semibold mb-1">{action.label}</p>
-                  <p className="text-slate-500 text-xs">{action.desc}</p>
-                  <ChevronRight size={14} className="text-slate-400 group-hover:text-slate-400 mt-3 transition" />
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {/* Subject list */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-white font-semibold">Matières publiées</h2>
-              <Link
-                href="/admin/courses/new"
-                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition"
-              >
-                <Plus size={13} /> Nouvelle matière
-              </Link>
             </div>
 
-            {loading ? (
-              <div className="space-y-2">
-                {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-900 rounded-xl animate-pulse" />)}
-              </div>
-            ) : subjects.length === 0 ? (
-              <div className="bg-slate-900 rounded-2xl border border-slate-800 p-12 text-center">
-                <BookOpen size={32} className="text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">Aucune matière. Créez votre premier cours !</p>
-                <Link
-                  href="/admin/courses/new"
-                  className="mt-4 inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition"
-                >
-                  <Plus size={14} /> Créer un cours
-                </Link>
-              </div>
-            ) : (
-              <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-                {subjects.map((subj, i) => (
-                  <Link
-                    key={subj.id}
-                    href={`/admin/courses/${subj.id}`}
-                    className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-800/50 transition group ${
-                      i < subjects.length - 1 ? 'border-b border-slate-800' : ''
-                    }`}
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-indigo-600/20 flex items-center justify-center flex-shrink-0">
-                      <BookOpen size={16} className="text-indigo-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-semibold text-sm truncate">{subj.title}</p>
-                      <p className="text-slate-500 text-xs mt-0.5">
-                        {subj.chapters?.length ?? 0} chapitres
-                      </p>
-                    </div>
-                    <ChevronRight size={15} className="text-slate-400 group-hover:text-slate-400 transition flex-shrink-0" />
-                  </Link>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Primary paths</p>
+              <nav className="mt-3 grid gap-1">
+                {([
+                  ['Content', `${root}/topic/list`, LibraryBig],
+                  ['Resources', `${root}/resource/list`, FileText],
+                  ['Quizzes', `${root}/quiz/list`, FileQuestion],
+                  ['Exam bank', `${root}/exam/list`, GraduationCap],
+                  ['Users', `${root}/user/list`, Users],
+                  ['Access', `${root}/user-subject-entitlement/list`, KeyRound],
+                ] as [string, string, any][]).map(([label, href, Icon]) => (
+                  <a key={String(label)} href={String(href)} className="flex items-center justify-between rounded-xl px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/50 hover:text-white">
+                    <span className="flex items-center gap-2"><Icon size={15} /> {label}</span>
+                    <ChevronRight size={14} />
+                  </a>
                 ))}
+              </nav>
+            </div>
+          </aside>
+
+          <div className="space-y-6">
+            {state === 'fallback' && (
+              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
+                Live analytics could not be loaded. The CRUD catalog is still available from the known SQLAdmin registry.
               </div>
             )}
+
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {topStats.map((stat) => (
+                <MetricTile key={stat.label} {...stat} loading={state === 'loading'} />
+              ))}
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-bold text-white">Content readiness</h2>
+                    <p className="text-sm text-slate-500">Publish state across the canonical content hierarchy.</p>
+                  </div>
+                  <CheckCircle2 className="text-green-500" size={20} />
+                </div>
+                <div className="mt-5 space-y-4">
+                  {readiness.map((item) => (
+                    <ReadinessRow
+                      key={item.label}
+                      label={item.label}
+                      total={overview.totals[item.totalKey]}
+                      statuses={item.statuses}
+                      loading={state === 'loading'}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-4">
+                <AnalyticsPanel
+                  icon={LineChart}
+                  title="Engagement"
+                  rows={[
+                    ['Active users 7d', formatNumber(overview.engagement.active_users_7d)],
+                    ['Events 7d', formatNumber(overview.engagement.activity_events_7d)],
+                    ['Quiz pass rate', percent(overview.engagement.quiz_attempt_pass_rate)],
+                    ['Watch minutes', formatNumber(overview.engagement.total_watch_minutes)],
+                  ]}
+                  loading={state === 'loading'}
+                />
+                <AnalyticsPanel
+                  icon={CircleDollarSign}
+                  title="Access and billing"
+                  rows={[
+                    ['Pro users', formatNumber(overview.totals.pro_users)],
+                    ['Entitlements', formatNumber(overview.totals.subject_entitlements)],
+                    ['Active now', formatNumber(overview.ops_readiness?.access?.active_entitlements_now)],
+                    ['Subject coverage', percent(overview.ops_readiness?.access?.subject_scope_coverage_percent)],
+                    ['Gated topic items', formatNumber(overview.access_billing?.gated_content?.topic_items_with_required_tier)],
+                    ['Free previews', formatNumber(overview.access_billing?.gated_content?.free_preview_topic_items)],
+                  ]}
+                  loading={state === 'loading'}
+                />
+              </div>
+            </section>
+
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <AnalyticsPanel
+                icon={Trophy}
+                title="Progress and XP"
+                rows={[
+                  ['Total XP', formatNumber(overview.progress_xp.total_xp)],
+                  ['Completed items', formatNumber(overview.progress_xp.completed_topic_items)],
+                  ['Completed lessons', formatNumber(overview.progress_xp.completed_lessons)],
+                ]}
+                loading={state === 'loading'}
+              />
+              <AnalyticsPanel
+                icon={NotebookPen}
+                title="Notes and saves"
+                rows={[
+                  ['Notes', formatNumber(overview.interactions.notes)],
+                  ['Saved items', formatNumber(overview.interactions.saved_items)],
+                  ['Comments', formatNumber(overview.interactions.comments)],
+                ]}
+                loading={state === 'loading'}
+              />
+              <AnalyticsPanel
+                icon={CalendarDays}
+                title="Calendar"
+                rows={[
+                  ['Upcoming', formatNumber(overview.calendar.upcoming_events)],
+                  ['Live', formatNumber(overview.calendar.live_events)],
+                  ['Total events', formatNumber(overview.totals.calendar_events)],
+                ]}
+                loading={state === 'loading'}
+              />
+              <AnalyticsPanel
+                icon={Bell}
+                title="Notifications"
+                rows={[
+                  ['Total', formatNumber(overview.notifications.total)],
+                  ['Unread', formatNumber(overview.notifications.unread)],
+                  ['Created 7d', formatNumber(overview.notifications.created_7d)],
+                ]}
+                loading={state === 'loading'}
+              />
+              <AnalyticsPanel
+                icon={ClipboardList}
+                title="Admin audit"
+                rows={[
+                  ['Total', formatNumber(overview.admin_audit?.total)],
+                  ['Created 7d', formatNumber(overview.admin_audit?.created_7d)],
+                  ['Models touched', formatNumber(Object.keys(overview.admin_audit?.by_model ?? {}).length)],
+                ]}
+                loading={state === 'loading'}
+              />
+              <AnalyticsPanel
+                icon={ShieldCheck}
+                title="Ops readiness"
+                rows={[
+                  ['Content gaps', formatNumber(sumValues(overview.ops_readiness?.content_gaps))],
+                  ['Unknown gates', formatNumber(numberValue(overview.ops_readiness?.access?.unknown_tier_gate_values) + numberValue(overview.ops_readiness?.access?.unknown_feature_gate_values))],
+                  ['Video IDs missing', formatNumber(overview.ops_readiness?.provider_readiness?.video_resources_missing_provider_id)],
+                ]}
+                loading={state === 'loading'}
+              />
+            </section>
+
+            <section className="rounded-2xl border border-slate-800 bg-slate-900">
+              <div className="flex flex-col gap-4 border-b border-slate-800 p-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-white">CRUD catalog</h2>
+                  <p className="text-sm text-slate-500">Every operational model exposed by the backend SQLAdmin registry.</p>
+                </div>
+                <div className="relative w-full lg:w-80">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                  <input
+                    aria-label="Search models"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search models"
+                    className="w-full rounded-xl border border-slate-800 bg-slate-950 py-2 pl-9 pr-3 text-sm text-white outline-none ring-indigo-500/30 placeholder:text-slate-500 focus:ring-4"
+                  />
+                </div>
+              </div>
+
+              <div className="divide-y divide-slate-800">
+                {Object.entries(groupedCrud).map(([domain, items]) => {
+                  const Icon = DOMAIN_ICONS[domain] ?? Database
+                  return (
+                    <div key={domain} className="grid gap-4 p-5 xl:grid-cols-[220px_minmax(0,1fr)]">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-bold text-white">
+                          <Icon size={17} className="text-indigo-400" />
+                          {DOMAIN_LABELS[domain] ?? domain}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">{items.length} models</p>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {items.map((item) => (
+                          <a
+                            key={`${item.domain}-${item.slug}`}
+                            href={`${root}/${item.slug}/list`}
+                            className="group rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 hover:border-indigo-500/40 hover:bg-slate-800/50"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-white">{item.name_plural}</p>
+                                <p className="mt-0.5 truncate text-xs text-slate-500">{item.model}</p>
+                              </div>
+                              <ChevronRight size={15} className="mt-0.5 text-slate-500 group-hover:text-indigo-400" />
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-1.5">
+                              {Object.entries(item.actions).map(([action, enabled]) => (
+                                <span
+                                  key={action}
+                                  className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                                    enabled ? 'bg-green-500/10 text-green-600' : 'bg-slate-800 text-slate-500'
+                                  }`}
+                                >
+                                  {action}
+                                </span>
+                              ))}
+                            </div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
           </div>
-        </div>
+        </main>
       </div>
     </AuthGuard>
+  )
+}
+
+function MetricTile({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  loading,
+}: {
+  label: string
+  value: unknown
+  hint: string
+  icon: any
+  loading: boolean
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="flex items-center justify-between">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600/10 text-indigo-400">
+          <Icon size={19} />
+        </div>
+        <BarChart3 size={16} className="text-slate-500" />
+      </div>
+      <p className="mt-5 text-2xl font-bold text-white">{loading ? '...' : formatNumber(value)}</p>
+      <div className="mt-1 flex items-center justify-between gap-3 text-sm">
+        <span className="text-slate-500">{label}</span>
+        <span className="font-semibold text-slate-400">{loading ? '' : hint}</span>
+      </div>
+    </div>
+  )
+}
+
+function ReadinessRow({
+  label,
+  total,
+  statuses,
+  loading,
+}: {
+  label: string
+  total: unknown
+  statuses?: Record<string, number>
+  loading: boolean
+}) {
+  const ratio = publishedRatio(statuses)
+  const statusText = Object.entries(statuses ?? {})
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(' / ')
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold text-white">{label}</p>
+          <p className="mt-0.5 text-xs text-slate-500">{loading ? 'Loading status' : statusText || 'No status rows yet'}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm font-bold text-white">{loading ? '...' : formatNumber(total)}</p>
+          <p className="text-xs text-slate-500">{ratio}% ready</p>
+        </div>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+        <div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: `${loading ? 25 : ratio}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function AnalyticsPanel({
+  title,
+  rows,
+  icon: Icon,
+  loading,
+}: {
+  title: string
+  rows: [string, string][]
+  icon: any
+  loading: boolean
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800 text-indigo-400">
+          <Icon size={17} />
+        </div>
+        <h3 className="text-sm font-bold text-white">{title}</h3>
+      </div>
+      <div className="mt-4 space-y-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-4 text-sm">
+            <span className="text-slate-500">{label}</span>
+            <span className="font-bold text-white">{loading ? '...' : value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StatusLine({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string
+  value: string
+  icon: any
+  tone: 'good' | 'warn'
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className={`mt-0.5 flex h-7 w-7 items-center justify-center rounded-lg ${tone === 'good' ? 'bg-green-500/10 text-green-600' : 'bg-amber-500/10 text-amber-600'}`}>
+        <Icon size={14} />
+      </div>
+      <div>
+        <p className="font-semibold text-white">{value}</p>
+        <p className="text-xs text-slate-500">{label}</p>
+      </div>
+    </div>
   )
 }

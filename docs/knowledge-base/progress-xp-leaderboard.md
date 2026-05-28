@@ -1,147 +1,93 @@
 # Progress, XP, and Leaderboards
 
-## Principle
+## Current Principle
 
 Progress and XP are separate.
 
-Progress answers: how much of the topic/course has the student meaningfully completed?
+Progress answers how much of a topic the student has completed. XP answers how much verified study activity has been awarded across the platform.
 
-XP answers: how much verified study activity has the student earned across the platform?
+## Current Tables
 
-## Master progress
+- `activity_events`
+- `topic_item_progress`
+- `quiz_attempts`
+- `question_attempts`
+- `user_xp`
+- `xp_transactions`
+- `daily_quests`
 
-Topic progress should include everything meaningful, not just videos.
+Compatibility progress tables remain active for existing lesson/section screens.
 
-Suggested weight:
-
-- Main Path: 70-80%.
-- Tabs, tools, interactions, resources, notes, quizzes: 20-30%.
-
-The exact weight can change by topic, but the principle is locked: progress should reflect the full learning experience.
-
-## Trackable actions
+## Current Trackable Actions
 
 Track events for:
 
-- Video started.
-- Video progress milestone.
-- Video completed.
-- Quiz attempt started.
-- Quiz attempt submitted.
-- Quiz passed.
-- Quiz retried.
-- Lab opened.
-- Lab interacted with.
-- Interactive course completed.
-- PDF/resource opened.
-- PDF/resource downloaded.
-- Summary opened.
-- Notes created.
-- Notes edited.
-- Saved item created.
-- Exam problem opened.
-- Exam problem attempted.
-- Written solution opened.
-- Video solution watched.
+- Topic item opened.
+- Topic item completed.
+- Video progress and completion.
+- Quiz submitted.
+- Question answered correctly or incorrectly.
+- Lab opened or completed.
+- Resource opened.
+- Notes created or edited.
+- Exam problem opened or attempted.
 
-## XP model
+## Current XP Rules
 
-XP should be awarded across everything, but only for meaningful activity.
+XP is awarded through `backend/app/services/xp.py`.
 
-Good XP sources:
+Current reward reasons include:
 
-- Completing videos with watch-time validation.
-- First quiz attempts.
-- Improved quiz attempts.
-- Passing hard quizzes.
-- Interacting with simulations.
-- Completing interactive checkpoints.
-- Working through exam problems.
-- Opening/using resources.
-- Taking notes.
+- `video_complete`
+- `quiz_correct`
+- `quiz_retry_correct`
+- `lab_complete`
+- `exam_complete`
+- `quiz_pass`
+- `quiz_perfect`
+- `daily_login`
+- `streak_bonus`
+- `lesson_complete`
 
-XP should not be easy to farm.
+XP awards should include hierarchy context when available:
 
-## Anti-farming rules
+- `subject_id`
+- `topic_id`
+- `topic_section_id`
+- `topic_item_id`
+- `question_set_id`
+- `question_id`
+- `quiz_attempt_id`
+- `question_attempt_id`
 
-Use:
+Use `idempotency_key` for first-correct and first-pass rewards.
 
-- Server-side validation.
-- Event deduplication.
-- Minimum watch time.
-- Completion thresholds.
-- Daily caps.
-- Diminishing returns.
-- First-attempt emphasis.
-- Retry XP limits.
-- Meaningful interaction requirements for labs.
-- Duplicate resource-open protection.
-- Suspicious event detection later.
+## Current Quiz Attempt Tracking
 
-Optimistic UI is allowed, but server processing is the source of truth.
+`QuizAttempt` stores:
 
-## Event-driven processing
-
-Preferred model:
-
-```text
-Frontend
--> FastAPI Lambda
--> activity_events table
--> SQS
--> worker Lambda
--> validation/dedupe
--> xp_ledger
--> progress aggregates
--> seasonal leaderboard
-```
-
-Use event logs for auditability and future analytics.
-
-Use aggregate tables for fast dashboard/profile/topic reads.
-
-## Data concepts
-
-Suggested entities:
-
-- `activity_events`
-- `xp_ledger`
-- `user_progress`
-- `progress_snapshots`
-- `leaderboard_seasons`
-- `leaderboard_entries`
-
-The event log is append-oriented. Aggregates are derived.
-
-## Quiz attempts
-
-Store:
-
-- First attempt.
-- Latest attempt.
-- Best attempt.
-- Completion status.
+- User.
+- QuestionSet.
+- Subject/topic/section/item/tab context.
 - Score.
-- Time spent.
-- Answers.
-- Grading details.
+- Pass/fail.
+- Attempt number.
+- Duration.
+- Answers JSON.
+- Grading JSON.
 
-First attempt is important for:
+`QuestionAttempt` stores:
 
-- XP.
-- Diagnostics.
-- Recommendations.
-- Anti-farming.
-- Measuring true understanding.
+- User.
+- QuizAttempt.
+- Question.
+- Selected answer JSON.
+- Correct answer JSON.
+- Correctness.
+- Score awarded.
+- Grading metadata.
+- Hierarchy context.
 
-## Leaderboard
+## Current Leaderboard Data
 
-Leaderboards should be seasonal.
-
-Season length can be weekly or configured later.
-
-Scope is across everything, not only one feature.
-
-Profile should also show lifetime XP.
-
-If leaderboard rewards are real, XP must be defensible and hard to farm.
+Leaderboard UI reads from XP totals and league grouping helpers. XP ledger integrity depends on `xp_transactions`, not client-only state.

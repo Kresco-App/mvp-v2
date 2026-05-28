@@ -1,8 +1,16 @@
 # Architecture and Infrastructure
 
-## Current backend shape
+## Current Backend Shape
 
-Current architecture:
+Current runtime boundary:
+
+```text
+Next.js Frontend
+-> FastAPI API
+-> SQL database
+```
+
+Current production target remains:
 
 ```text
 Vercel Frontend
@@ -11,144 +19,59 @@ Vercel Frontend
 -> RDS PostgreSQL
 ```
 
-Deployment uses Zappa for the FastAPI/Lambda backend.
+Deployment work is paused during product implementation. Use local validation unless the task is explicitly deployment-focused.
 
-This is a good core API backend for the current product if it remains the control layer.
+## Active Runtime Files
 
-## Backend responsibilities
+- Backend factory: `backend/app/main.py`
+- Lambda adapter: `backend/app_handler.py`
+- Backend config: `backend/app/config.py`
+- Database engine/session setup: `backend/app/database.py`
+- Backend liveness/readiness: `/health` is cheap liveness; `/ready` checks config policy and database connectivity.
+- API routers: `backend/app/routers/**`
+- SQLAdmin registry: `backend/app/admin/views.py`
+- Alembic migrations: `backend/alembic/versions/**`
+- Frontend app: `frontend/app/**`
+- Frontend API client: `frontend/lib/axios.js`
 
-FastAPI/Lambda should handle:
+## Backend Responsibilities
 
-- Auth/session APIs.
-- Users.
-- Roles/permissions.
-- Subjects/topics/content metadata.
-- Course/topic access.
-- Quiz attempts.
-- Progress.
-- XP event ingestion.
-- Payments/subscriptions.
-- Admin actions.
-- Token generation for video/live/chat providers.
-- Webhooks.
-- Email triggers.
+FastAPI handles:
 
-## What not to put in Lambda
+- Auth and user APIs.
+- Subject, topic, item, tab, resource, and exam metadata.
+- Access decisions and locked response shaping.
+- Quiz grading and attempt tracking.
+- Progress and XP tracking.
+- Payments and Stripe webhooks.
+- VdoCipher OTP generation.
+- SQLAdmin-backed content operations.
+- Notifications and calendar APIs.
 
-Do not use the normal FastAPI/Lambda path for:
+## Current Scalability Rules
 
-- Actual livestream video delivery.
-- Thousands of websocket chat connections.
-- Large video processing.
-- Long-running AI jobs inside one HTTP request.
-- Large file processing.
+- Keep API requests short.
+- Keep large media delivery outside FastAPI.
+- Keep secrets server-side.
+- Use Alembic for schema changes.
+- Prefer indexed lookup paths for topic, quiz, XP, and admin overview queries.
+- Keep XP awards idempotent where duplicate user actions are possible.
 
-Use providers and async workers.
+## Verification
 
-## Future providers
+Backend:
 
-Livestream/video delivery:
-
-- Mux.
-- AWS IVS.
-- LiveKit.
-- Agora.
-- Cloudflare Stream.
-
-Realtime/chat:
-
-- Ably.
-- Pusher.
-- LiveKit data channels.
-- API Gateway WebSocket only if AWS-native complexity is worth it.
-
-AI:
-
-- Backend-authenticated AI calls for simple chat.
-- Async jobs for long analysis/generation.
-
-## Async architecture
-
-Use event-driven processing for progress, XP, recommendations, and long-running work.
-
-Preferred model:
-
-```text
-FastAPI Lambda
--> database event row
--> SQS
--> worker Lambda
--> derived tables / notifications / analytics
+```bash
+cd backend
+python -m pytest tests_fastapi
+python -m pytest tests_fastapi/test_readiness.py
 ```
 
-This keeps user requests fast and makes XP/progress more reliable.
+Frontend:
 
-## RDS Proxy and caching
-
-Before launch:
-
-- Add RDS Proxy.
-- Add caching where appropriate.
-
-Important current decision:
-
-Do not implement caching right now.
-
-But design APIs and data access so caching can be added later:
-
-- Stable resource identifiers.
-- Clear read endpoints.
-- Updated timestamps/versions.
-- Avoid mixing user-private and public cacheable data unnecessarily.
-- Separate expensive aggregate queries from simple content reads.
-
-## Observability
-
-Track and alert on:
-
-- Payment failures.
-- Webhook failures.
-- Video token generation failures.
-- Quiz submission failures.
-- XP/progress worker failures.
-- SQS dead-letter queues.
-- API errors.
-- Deploy failures.
-- Database connection pressure.
-- Cost-sensitive features.
-
-## Evals/checks
-
-Add explicit checks/evals for:
-
-- Access decisions.
-- XP awarding.
-- Anti-farming.
-- Quiz grading.
-- Progress calculation.
-- Content visibility.
-- Recommendation logic later.
-- AI tutor behavior later.
-
-## Scalability stance
-
-FastAPI on Lambda can scale well for core request/response features.
-
-Main risks are:
-
-- Database connection pressure.
-- Cold starts during spikes.
-- Missing RDS Proxy.
-- Expensive AI usage.
-- Livestream viewer-minute cost.
-- Chat fanout cost.
-- No usage limits.
-- Weak observability.
-
-The right boundary is:
-
-```text
-Backend = source of truth and access control
-Providers = heavy video/realtime/AI infrastructure
-Workers = slow/derived/background work
+```bash
+cd frontend
+npm run lint
+npm test
+npm run build
 ```

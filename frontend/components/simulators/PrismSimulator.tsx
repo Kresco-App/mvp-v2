@@ -276,7 +276,7 @@ export default function PrismSimulator() {
     <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-bold text-slate-100">Prisme et dispersion</h3>
-        <button
+        <button type="button"
           onClick={() => {
             setIncidentAngle(45)
             setPrismAngle(60)
@@ -300,21 +300,21 @@ export default function PrismSimulator() {
           <section className="bg-slate-700/50 rounded-2xl p-4 space-y-3 border border-slate-600">
             <h4 className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Mode source</h4>
             <div className="grid grid-cols-3 gap-1">
-              <button
+              <button type="button"
                 onClick={() => setSourceMode('white')}
                 className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${sourceMode === 'white' ? 'bg-blue-500 text-white shadow-sm' : 'bg-slate-800 text-slate-200 border border-slate-600'}`}
               >
                 <Sun size={14} />
                 Soleil
               </button>
-              <button
+              <button type="button"
                 onClick={() => setSourceMode('single')}
                 className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${sourceMode === 'single' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-800 text-slate-200 border border-slate-600'}`}
               >
                 <Droplet size={14} />
                 1 Laser
               </button>
-              <button
+              <button type="button"
                 onClick={() => setSourceMode('double')}
                 className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${sourceMode === 'double' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-800 text-slate-200 border border-slate-600'}`}
               >
@@ -333,6 +333,7 @@ export default function PrismSimulator() {
                     </span>
                   </div>
                   <input
+                    aria-label={sourceMode === 'double' ? 'Laser 1 wavelength' : 'Colour wavelength'}
                     type="range"
                     min="380"
                     max="750"
@@ -353,6 +354,7 @@ export default function PrismSimulator() {
                       </span>
                     </div>
                     <input
+                      aria-label="Laser 2 wavelength"
                       type="range"
                       min="380"
                       max="750"
@@ -377,6 +379,7 @@ export default function PrismSimulator() {
                 <span className="text-amber-400 font-mono font-medium">{incidentAngle}&deg;</span>
               </div>
               <input
+                aria-label="Incidence angle"
                 type="range"
                 min="0"
                 max="85"
@@ -393,6 +396,7 @@ export default function PrismSimulator() {
                 <span className="text-purple-400 font-mono font-medium">{prismAngle}&deg;</span>
               </div>
               <input
+                aria-label="Prism angle"
                 type="range"
                 min="30"
                 max="75"
@@ -405,7 +409,7 @@ export default function PrismSimulator() {
 
             {sourceMode === 'single' && (
               <div className="pt-2 border-t border-purple-500/10">
-                <button
+                <button type="button"
                   onClick={() => setShowAngles(!showAngles)}
                   className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${showAngles ? 'bg-purple-500 text-white shadow-sm' : 'bg-slate-900 text-slate-200 border border-slate-600'}`}
                 >

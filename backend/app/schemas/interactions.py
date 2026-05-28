@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.schemas.limits import LongText, ShortText, StrictInputModel
+
 
 class CommentAuthorOut(BaseModel):
     id: int
@@ -14,7 +16,8 @@ class CommentAuthorOut(BaseModel):
 
 class CommentOut(BaseModel):
     id: int
-    body: str
+    topic_item_id: int
+    body: LongText
     author: CommentAuthorOut
     parent_id: Optional[int] = None
     reply_count: int = 0
@@ -23,15 +26,17 @@ class CommentOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class NoteCreateIn(BaseModel):
+class NoteCreateIn(StrictInputModel):
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
     tab_content_id: int | None = None
-    body: str
+    body: LongText
 
 
 class NoteOut(BaseModel):
     id: int
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
     tab_content_id: int | None = None
@@ -42,18 +47,20 @@ class NoteOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SavedItemCreateIn(BaseModel):
-    target_type: str
+class SavedItemCreateIn(StrictInputModel):
+    target_type: ShortText
     target_id: int
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
-    label: str = ""
+    label: ShortText = ""
 
 
 class SavedItemOut(BaseModel):
     id: int
     target_type: str
     target_id: int
+    subject_id: int | None = None
     topic_id: int | None = None
     topic_item_id: int | None = None
     label: str
@@ -62,8 +69,7 @@ class SavedItemOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CommentCreateIn(BaseModel):
-    body: str
-    content_type: str
-    object_id: int
+class CommentCreateIn(StrictInputModel):
+    body: LongText
+    topic_item_id: int
     parent_id: Optional[int] = None

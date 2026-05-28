@@ -1,0 +1,248 @@
+from sqlalchemy import func, select
+
+from app.database import get_session_factory
+from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
+from app.models.gamification import QuestionAttempt, QuizAttempt, TopicItemProgress, XPTransaction
+from app.models.quizzes import Question, QuestionSet
+from app.models.users import UserSubjectEntitlement
+
+
+async def _seed_quiz_tab(user_id: int, slug: str, questions: list[dict], *, pass_score: int = 70):
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        subject = Subject(title=f"Quiz {slug}", description="", is_published=True, order=1)
+        db.add(subject)
+        await db.flush()
+        topic = Topic(subject_id=subject.id, slug=slug, title=f"Topic {slug}", order=1, is_free_preview=True)
+        db.add(topic)
+        await db.flush()
+        section = TopicSection(topic_id=topic.id, title="Quizzes", section_type="quizzes", order=1)
+        db.add(section)
+        await db.flush()
+        item = TopicItem(topic_id=topic.id, section_id=section.id, title="Quiz item", item_type="checkpoint_quiz", order=1)
+        db.add(item)
+        await db.flush()
+        tab = TabContent(
+            topic_item_id=item.id,
+            label="Quiz",
+            tab_type="quiz",
+            order=1,
+            config_json={"pass_score": pass_score, "questions": questions},
+        )
+        db.add(tab)
+        db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+        await db.commit()
+        return subject.id, topic.id, section.id, item.id, tab.id
+
+
+def test_tab_quiz_grades_tracks_xp_and_question_attempts(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-quiz-grading@example.com", is_pro=True)
+    questions = [
+        {"id": "mc", "type": "multiple_choice", "prompt": "Pick A", "options": ["A", "B"], "answer": "A"},
+        {"id": "multi", "type": "multi_select", "prompt": "Pick two", "options": ["a", "b", "c"], "answer": ["a", "c"]},
+        {"id": "num", "type": "numeric_answer", "prompt": "2+2", "answer": "4", "tolerance": 0},
+        {"id": "match", "type": "matching", "prompt": "Match", "answer": {"T": "s", "f": "Hz"}},
+        {"id": "order", "type": "ordering", "prompt": "Order", "answer": ["define", "substitute", "conclude"]},
+    ]
+    _subject_id, _topic_id, section_id, item_id, tab_id = run_db(
+        _seed_quiz_tab(user_id, "topic-quiz-grading", questions)
+    )
+
+    response = app_client.post(
+        f"/api/courses/tabs/{tab_id}/quiz/submit",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "answers": {
+                "mc": "A",
+                "multi": ["c", "a"],
+                "num": "4",
+                "match": {"T": "s", "f": "Hz"},
+                "order": ["define", "substitute", "conclude"],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["correct"] == 5
+    assert body["score"] == 100
+    assert body["passed"] is True
+    assert body["xp_earned"] > 0
+
+    async def _assert_tracking():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            question_set = (await db.execute(select(QuestionSet).where(QuestionSet.tab_content_id == tab_id))).scalar_one()
+            questions_count = await db.scalar(select(func.count()).select_from(Question).where(Question.question_set_id == question_set.id))
+            attempt = (await db.execute(select(QuizAttempt).where(QuizAttempt.question_set_id == question_set.id))).scalar_one()
+            attempt_count = await db.scalar(select(func.count()).select_from(QuestionAttempt).where(QuestionAttempt.quiz_attempt_id == attempt.id))
+            xp_count = await db.scalar(select(func.count()).select_from(XPTransaction).where(XPTransaction.quiz_attempt_id == attempt.id))
+            progress = await db.scalar(select(TopicItemProgress).where(TopicItemProgress.user_id == user_id, TopicItemProgress.topic_item_id == item_id))
+            assert question_set.topic_section_id == section_id
+            assert questions_count == 5
+            assert attempt_count == 5
+            assert xp_count == 6
+            assert progress is not None
+            assert progress.best_score == 100
+
+    run_db(_assert_tracking())
+
+
+def test_topic_workspace_scrubs_quiz_answers(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-quiz-scrub@example.com", is_pro=True)
+    questions = [
+        {"id": "mc", "type": "multiple_choice", "prompt": "Pick A", "options": [{"text": "A", "is_correct": True}], "answer": "A"},
+        {"id": "match", "type": "matching", "prompt": "Match", "answer": {"T": "s", "f": "Hz"}},
+        {"id": "hotspot", "type": "image_hotspot", "prompt": "Aim", "answerRegion": {"x": 50, "y": 50, "rx": 10, "ry": 10}},
+    ]
+    _subject_id, topic_id, _section_id, _item_id, _tab_id = run_db(
+        _seed_quiz_tab(user_id, "topic-quiz-scrub", questions)
+    )
+
+    response = app_client.get(
+        f"/api/courses/topics/{topic_id}/workspace",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    config = response.json()["sections"][0]["items"][0]["tabs"][0]["config_json"]
+    assert not _contains_any_key(config, {"answer", "answerRegion", "accepted_answers", "is_correct"})
+    assert config["questions"][1]["pairs"] == [{"left": "T"}, {"left": "f"}]
+
+
+def test_tab_quiz_reuses_identical_submission(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-quiz-idempotency@example.com", is_pro=True)
+    _subject_id, _topic_id, _section_id, _item_id, tab_id = run_db(
+        _seed_quiz_tab(
+            user_id,
+            "topic-quiz-idempotency",
+            [{"id": "mc", "type": "multiple_choice", "prompt": "Pick A", "options": ["A", "B"], "answer": "A"}],
+        )
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = app_client.post(f"/api/courses/tabs/{tab_id}/quiz/submit", headers=headers, json={"answers": {"mc": "A"}})
+    duplicate = app_client.post(
+        f"/api/courses/tabs/{tab_id}/quiz/submit",
+        headers=headers,
+        json={"answers": {"mc": " a ", "ignored": "junk"}},
+    )
+
+    assert first.status_code == 200
+    assert duplicate.status_code == 200
+    assert first.json()["xp_earned"] > 0
+    assert duplicate.json()["xp_earned"] == 0
+
+    async def _assert_single_attempt():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            question_set = (await db.execute(select(QuestionSet).where(QuestionSet.tab_content_id == tab_id))).scalar_one()
+            attempts = (await db.execute(select(QuizAttempt).where(QuizAttempt.user_id == user_id, QuizAttempt.question_set_id == question_set.id))).scalars().all()
+            assert len(attempts) == 1
+            assert len(attempts[0].submission_hash or "") == 64
+
+    run_db(_assert_single_attempt())
+
+
+def test_standalone_subject_quiz_enforces_subject_access(app_client, auth_token, run_db):
+    locked_token, locked_user_id = auth_token(email="standalone-quiz-locked@example.com", is_pro=True)
+    allowed_token, allowed_user_id = auth_token(email="standalone-quiz-allowed@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            quiz_subject = Subject(title="Standalone gated quiz", description="", is_published=True, order=1)
+            other_subject = Subject(title="Standalone other quiz", description="", is_published=True, order=2)
+            db.add_all([quiz_subject, other_subject])
+            await db.flush()
+            question_set = QuestionSet(
+                subject_id=quiz_subject.id,
+                title="Standalone access quiz",
+                source_type="subject_exam",
+                pass_score=70,
+                status="published",
+            )
+            db.add(question_set)
+            await db.flush()
+            question = Question(
+                question_set_id=question_set.id,
+                external_id="standalone-q1",
+                type="multiple_choice",
+                prompt="Choose one",
+                config_json={"options": [{"id": 1, "text": "Correct"}, {"id": 2, "text": "Wrong"}]},
+                answer_json={"answer": 1},
+                status="published",
+            )
+            db.add_all([
+                question,
+                UserSubjectEntitlement(user_id=locked_user_id, subject_id=other_subject.id, source="test", status="active"),
+                UserSubjectEntitlement(user_id=allowed_user_id, subject_id=quiz_subject.id, source="test", status="active"),
+            ])
+            await db.commit()
+            return quiz_subject.id, question_set.id, question.id
+
+    subject_id, question_set_id, question_id = run_db(_seed())
+
+    locked_headers = {"Authorization": f"Bearer {locked_token}"}
+    allowed_headers = {"Authorization": f"Bearer {allowed_token}"}
+
+    locked_discovery = app_client.get(f"/api/quizzes/subjects/{subject_id}/discovery", headers=locked_headers)
+    locked_detail = app_client.get(f"/api/quizzes/{question_set_id}", headers=locked_headers)
+    locked_submit = app_client.post(
+        f"/api/quizzes/{question_set_id}/submit",
+        headers=locked_headers,
+        json={"answers": {str(question_id): 1}},
+    )
+    allowed_discovery = app_client.get(f"/api/quizzes/subjects/{subject_id}/discovery", headers=allowed_headers)
+    allowed_submit = app_client.post(
+        f"/api/quizzes/{question_set_id}/submit",
+        headers=allowed_headers,
+        json={"answers": {str(question_id): 1}},
+    )
+
+    assert locked_discovery.status_code == 403
+    assert locked_detail.status_code == 403
+    assert locked_submit.status_code == 403
+    assert allowed_discovery.status_code == 200
+    assert allowed_discovery.json()["quiz"]["id"] == question_set_id
+    assert allowed_submit.status_code == 200
+    assert allowed_submit.json()["passed"] is True
+
+
+def test_topic_item_completion_rejects_spoofed_video_and_quiz_completion(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-completion-spoof@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Completion spoof", is_published=True)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(subject_id=subject.id, slug="topic-completion-spoof", title="Completion spoof", is_free_preview=True)
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Items", section_type="items", order=1)
+            db.add(section)
+            await db.flush()
+            video = TopicItem(topic_id=topic.id, section_id=section.id, title="Video", item_type="video", duration_seconds=120)
+            quiz = TopicItem(topic_id=topic.id, section_id=section.id, title="Quiz", item_type="checkpoint_quiz")
+            db.add_all([video, quiz, UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active")])
+            await db.commit()
+            return video.id, quiz.id
+
+    video_id, quiz_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    video_response = app_client.post(f"/api/courses/topic-items/{video_id}/complete", headers=headers, json={"watched_seconds": 120})
+    quiz_response = app_client.post(f"/api/courses/topic-items/{quiz_id}/complete", headers=headers, json={"watched_seconds": 0, "score": 100})
+
+    assert video_response.status_code == 409
+    assert quiz_response.status_code == 400
+
+
+def _contains_any_key(value, keys: set[str]) -> bool:
+    if isinstance(value, dict):
+        return any(key in keys or _contains_any_key(item, keys) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_contains_any_key(item, keys) for item in value)
+    return False

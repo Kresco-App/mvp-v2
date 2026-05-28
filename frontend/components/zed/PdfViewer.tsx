@@ -46,7 +46,20 @@ async function readAllDocuments(): Promise<LocalDocument[]> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(DOC_STORE, 'readonly')
     const request = transaction.objectStore(DOC_STORE).getAll()
-    request.onsuccess = () => resolve(request.result as LocalDocument[])
+    request.onsuccess = async () => {
+      try {
+        const stored = request.result as LocalDocument[]
+        const valid = []
+        for (const document of stored) {
+          if (document.blob && await hasPdfMagicBytes(document.blob)) {
+            valid.push(document)
+          }
+        }
+        resolve(valid)
+      } catch (error) {
+        reject(error)
+      }
+    }
     request.onerror = () => reject(request.error)
     transaction.oncomplete = () => db.close()
   })
@@ -81,6 +94,12 @@ async function deleteDocument(id: string): Promise<void> {
 function formatBytes(size: number) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+async function hasPdfMagicBytes(blob: Blob): Promise<boolean> {
+  const header = new Uint8Array(await blob.slice(0, 5).arrayBuffer())
+  const expected = [0x25, 0x50, 0x44, 0x46, 0x2d]
+  return expected.every((byte, index) => header[index] === byte)
 }
 
 export default function PdfViewer({ onPinSnippet }: Props) {
@@ -129,6 +148,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
     const nextUrl = URL.createObjectURL(active.blob)
     objectUrlRef.current = nextUrl
     setPdfUrl(nextUrl)
+    setStatus('Document sauvegarde hors ligne')
     localStorage.setItem(ACTIVE_DOC_KEY, active.id)
 
     return () => {
@@ -145,6 +165,12 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
     if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
       setStatus('Seuls les fichiers PDF sont pris en charge pour cette version')
+      e.target.value = ''
+      return
+    }
+
+    if (!(await hasPdfMagicBytes(file))) {
+      setStatus('Le fichier ne semble pas etre un PDF valide')
       e.target.value = ''
       return
     }
@@ -254,10 +280,12 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
           {documents.length > 0 && (
             <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3 text-left">
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <label htmlFor="local-pdf-select" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Documents locaux
               </label>
               <select
+                id="local-pdf-select"
+                aria-label="Documents locaux"
                 value={activeDocumentId ?? ''}
                 onChange={(event) => setActiveDocumentId(event.target.value)}
                 className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
@@ -275,7 +303,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           <label className="mt-5 inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-within:ring-2 focus-within:ring-indigo-200">
             <Upload size={16} />
             Importer un PDF
-            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" />
+            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Importer un PDF" />
           </label>
         </div>
       </div>
@@ -284,53 +312,44 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
   return (
     <div className="flex h-full flex-col bg-slate-100 text-slate-900">
-      <div className="flex flex-shrink-0 flex-col gap-3 border-b border-slate-200 bg-white px-3 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50">
-            <FileText size={17} className="text-indigo-600" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <p className="truncate text-sm font-semibold text-slate-950">{activeDocument?.name ?? 'Visionneuse PDF'}</p>
-              {activeDocument && (
-                <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 sm:inline-flex">
-                  {formatBytes(activeDocument.size)}
-                </span>
-              )}
-            </div>
-            <p className="truncate text-xs text-slate-500">Sauvegarde locale hors ligne active</p>
-          </div>
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex min-h-12 flex-shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <FileText size={17} className="flex-shrink-0 text-indigo-600" />
           {documents.length > 0 && (
             <select
               value={activeDocumentId ?? ''}
               onChange={(event) => setActiveDocumentId(event.target.value)}
-              className="min-h-9 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 sm:min-w-56 lg:max-w-64"
+              className="min-w-0 flex-1 truncate rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               title="Documents locaux"
             >
               {documents.map((document) => (
                 <option key={document.id} value={document.id}>
-                  {document.name} ({formatBytes(document.size)})
+                  {document.name}
                 </option>
               ))}
             </select>
           )}
+          {activeDocument && (
+            <span className="hidden flex-shrink-0 text-xs font-medium text-slate-400 sm:inline">
+              {formatBytes(activeDocument.size)}
+            </span>
+          )}
+        </div>
 
-          <button
+        <div className="flex flex-shrink-0 items-center gap-1">
+
+          <button type="button"
             onClick={handlePinText}
-            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
             title="Epingler du texte"
             aria-label="Epingler du texte"
           >
             <Pin size={14} />
-            <span className="hidden sm:inline">Epingler</span>
           </button>
 
-          <button
+          <button type="button"
             onClick={() => setIsSnipping(!isSnipping)}
-            className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition ${
+            className={`inline-flex h-9 w-9 items-center justify-center rounded-md border transition ${
               isSnipping
                 ? 'border-amber-300 bg-amber-50 text-amber-700'
                 : 'border-slate-200 bg-white text-slate-700 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700'
@@ -339,29 +358,27 @@ export default function PdfViewer({ onPinSnippet }: Props) {
             aria-label={isSnipping ? 'Glissez pour capturer une zone' : 'Capturer une zone'}
           >
             <Scissors size={14} />
-            <span className="hidden sm:inline">{isSnipping ? 'Glissez' : 'Capturer'}</span>
           </button>
 
           {isSnipping && (
-            <button
+            <button type="button"
               onClick={() => { setIsSnipping(false); setSnipRect(null) }}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
               title="Annuler la capture"
             >
               <X size={15} />
             </button>
           )}
 
-          <label className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-within:ring-2 focus-within:ring-indigo-100">
+          <label className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-within:ring-2 focus-within:ring-indigo-100" title="Changer de PDF">
             <Upload size={14} />
-            <span className="hidden sm:inline">Changer</span>
             <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Changer de PDF" />
           </label>
 
           {activeDocumentId && (
-            <button
+            <button type="button"
               onClick={() => removeDocument(activeDocumentId)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-100 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
               title="Supprimer du stockage local"
             >
               <Trash2 size={14} />
@@ -375,6 +392,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           ref={iframeRef}
           src={pdfUrl}
           className="h-full w-full border-0 bg-white"
+          sandbox="allow-downloads"
           title="PDF Viewer"
         />
 

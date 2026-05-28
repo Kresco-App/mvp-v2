@@ -5,8 +5,13 @@
 
 # Node
 node_modules/
+.next/
+*.tgz
 npm-debug.log
 yarn-error.log
+*.log
+*.out.log
+*.err.log
 
 # Python
 __pycache__/
@@ -25,3 +30,9 @@ env/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local runtime artifacts
+.codex-logs/
+*.sqlite3
+*.db
+.codex-quiz-dom.png

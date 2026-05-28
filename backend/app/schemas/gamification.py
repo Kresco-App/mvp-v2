@@ -1,41 +1,9 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-
-class ProgressUpdateIn(BaseModel):
-    lesson_id: int
-    watched_seconds: int
-
-
-class ProgressCompleteIn(BaseModel):
-    item_type: str
-    item_id: int
-
-
-class SectionCompleteIn(BaseModel):
-    section_id: int
-    score: int = 0
-    correct_answers: int = 0
-    total_questions: int = 0
-
-
-class LessonProgressOut(BaseModel):
-    lesson_id: int
-    watched_seconds: int
-    status: str
-
-    model_config = {"from_attributes": True}
-
-
-class SubjectPlanOut(BaseModel):
-    completed_lesson_ids: list[int]
-    completed_block_ids: list[int]
-    completed_quiz_ids: list[int]
-    completed_section_ids: list[int]
-    total_section_count: int
-    total_lesson_count: int
+from app.schemas.limits import ShortText, StrictInputModel
 
 
 class XPOut(BaseModel):
@@ -51,16 +19,17 @@ class XPTransactionOut(BaseModel):
     amount: int
     reason: str
     description: str
+    subject_id: Optional[int] = None
+    topic_id: Optional[int] = None
+    topic_section_id: Optional[int] = None
+    topic_item_id: Optional[int] = None
+    question_set_id: Optional[int] = None
+    question_id: Optional[int] = None
+    quiz_attempt_id: Optional[int] = None
+    question_attempt_id: Optional[int] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
-
-
-class LessonAccessOut(BaseModel):
-    can_access: bool
-    reason: str
-    blocker_lesson_id: Optional[int] = None
-    blocker_quiz_id: Optional[int] = None
 
 
 class LeaderboardEntryOut(BaseModel):
@@ -91,6 +60,7 @@ class SidebarCountdownUnitOut(BaseModel):
 
 
 class SidebarCalendarDayOut(BaseModel):
+    id: str
     value: int | str
     label: str
     active: bool = False
@@ -122,9 +92,5 @@ class SidebarSummaryOut(BaseModel):
 class UserStatsOut(BaseModel):
     total_watch_minutes: int
     quizzes_passed: int
-    lessons_completed: int
+    items_completed: int
     is_pro: bool
-
-
-class SectionAccessOut(BaseModel):
-    can_access: bool

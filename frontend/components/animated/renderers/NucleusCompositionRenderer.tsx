@@ -514,6 +514,7 @@ function Control({
         </div>
       </div>
       <input
+        aria-label={label}
         id={`nucleus-${label}`}
         type="range"
         min={min}

@@ -10,12 +10,6 @@ File key:
 
 `f9ZR9sGl9lZwWxtXbbvvei`
 
-Earlier design link:
-
-`https://www.figma.com/design/gWM6XGhwQFnj7xVvHAgeAg/Kresco?node-id=1-4&p=f&t=XTVZyuxdxsQ4cMIE-0`
-
-The earlier file may be inaccessible. Use the copy with file key `f9ZR9sGl9lZwWxtXbbvvei` unless a newer link is explicitly provided.
-
 ## Rule
 
 Figma is the visual and design-system source of truth.
@@ -37,7 +31,7 @@ If the Figma assumes an architecture that conflicts with the agreed product mode
 
 Example: if Figma shows Lab replacing the video, but the agreed UX requires the video to stay primary and Lab to appear below/in tabs, keep Figma's styling but change the interaction model.
 
-## Known Figma sections
+## Current Figma Sections
 
 Observed sections include:
 
@@ -48,8 +42,6 @@ Observed sections include:
 - Calendar.
 - Leaderboard.
 - Profile.
-- Settings.
-- Chat.
 - Notes.
 
 Course-related screens include:
@@ -67,18 +59,16 @@ The Home design is clean and should inspire the dashboard structure: continuatio
 The final implementation should use Figma as the visual shell, while the product model should use:
 
 - Topic Workspace instead of a simple course page.
-- Main Path and Study Tools instead of forcing every asset into one linear chapter model.
+- Main Path with a final revision section instead of a separate tools mode.
 - Configurable tabs under the primary viewer.
 - Search/filter inside the topic.
 - Progress and completion indicators across video, quiz, interactive, and resources.
 
-## Design constraints locked so far
+## Current Design Constraints
 
 - Desktop v1 is the first priority.
-- Mobile UX is deferred to design, but the model should remain responsive-friendly.
 - English/LTR layout is acceptable for v1.
-- Future Arabic/RTL may mirror or adjust the layout later.
-- The implementation should not hard-code assumptions that make RTL impossible.
+- The model should remain responsive-friendly.
 
 ## Agent instruction
 

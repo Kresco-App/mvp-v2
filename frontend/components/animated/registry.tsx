@@ -1,6 +1,5 @@
-import type {
-  ComponentType,
-} from 'react'
+import dynamic from 'next/dynamic'
+import type { ComponentType } from 'react'
 import type {
   AnimatedLessonConfig,
   AnimatedRendererComponent,
@@ -8,8 +7,6 @@ import type {
   AnimatedRendererProps,
   AnimatedRendererRegistry,
 } from './types'
-import NucleusCompositionRenderer from './renderers/NucleusCompositionRenderer'
-import WavePeriodicityRenderer from './renderers/WavePeriodicityRenderer'
 
 export const ANIMATED_FALLBACK_RENDERER_KEY = 'fallback'
 
@@ -57,6 +54,36 @@ function adaptAnimatedRenderer(Renderer: ComponentType<any>): AnimatedRendererCo
     )
   }
 }
+
+function lazyRenderer(loader: () => Promise<{ default: ComponentType<any> }>): AnimatedRendererComponent {
+  const Renderer = dynamic(async () => {
+    const mod = await loader()
+    return adaptAnimatedRenderer(mod.default)
+  }, {
+    loading: () => <FallbackAnimatedRenderer className="animate-pulse" />,
+    ssr: false,
+  }) as AnimatedRendererComponent
+
+  return Renderer
+}
+
+function lazyDirectRenderer(loader: () => Promise<{ default: AnimatedRendererComponent }>): AnimatedRendererComponent {
+  const Renderer = dynamic(loader, {
+    loading: () => <FallbackAnimatedRenderer className="animate-pulse" />,
+    ssr: false,
+  }) as AnimatedRendererComponent
+
+  return Renderer
+}
+
+const ChemistrySourceRenderer = lazyDirectRenderer(() => import('./renderers/ChemistrySourceRenderer'))
+const MathSourceRenderer = lazyDirectRenderer(() => import('./renderers/MathSourceRenderer'))
+const NucleusCompositionRenderer = lazyRenderer(() => import('./renderers/NucleusCompositionRenderer'))
+const NuclearSourceRenderer = lazyDirectRenderer(() => import('./renderers/NuclearSourceRenderer'))
+const OpticsSourceRenderer = lazyDirectRenderer(() => import('./renderers/OpticsSourceRenderer'))
+const RcCapacitorSourceRenderer = lazyDirectRenderer(() => import('./renderers/RcCapacitorSourceRenderer'))
+const WaveSourceRenderer = lazyDirectRenderer(() => import('./renderers/WaveSourceRenderer'))
+const WavePeriodicityRenderer = lazyRenderer(() => import('./renderers/WavePeriodicityRenderer'))
 
 export function FallbackAnimatedRenderer(props: AnimatedRendererProps) {
   const config = resolveConfig(props)
@@ -123,6 +150,76 @@ export const animatedRendererRegistry: AnimatedRendererRegistry = {
   nucleus_composition: adaptAnimatedRenderer(NucleusCompositionRenderer),
   nucleus_composition_renderer: adaptAnimatedRenderer(NucleusCompositionRenderer),
   nucleus_composition_interactive_course: adaptAnimatedRenderer(NucleusCompositionRenderer),
+  rc_simulator: RcCapacitorSourceRenderer,
+  rc_capacitor_simulator: RcCapacitorSourceRenderer,
+  rc_formulas: RcCapacitorSourceRenderer,
+  rc_exercises: RcCapacitorSourceRenderer,
+  capacitor_association: RcCapacitorSourceRenderer,
+  atom_composition: NuclearSourceRenderer,
+  nucleus_builder: NuclearSourceRenderer,
+  isotope_comparator: NuclearSourceRenderer,
+  stability_graph: NuclearSourceRenderer,
+  decay_simulator: NuclearSourceRenderer,
+  decay_law_graph: NuclearSourceRenderer,
+  decay_diagrams: NuclearSourceRenderer,
+  half_life_explanation: NuclearSourceRenderer,
+  formula_summary: NuclearSourceRenderer,
+  comprehensive_exercises: NuclearSourceRenderer,
+  radioactivity_visualizer: NuclearSourceRenderer,
+  radioactivity_formulas: NuclearSourceRenderer,
+  radioactivity_exercises: NuclearSourceRenderer,
+  tau_demonstration: NuclearSourceRenderer,
+  soddy_law_demonstrator: NuclearSourceRenderer,
+  particle_identification_method: NuclearSourceRenderer,
+  mass_energy_scale: NuclearSourceRenderer,
+  mass_energy_demonstration: NuclearSourceRenderer,
+  aston_curve: NuclearSourceRenderer,
+  fission_fusion_animator: NuclearSourceRenderer,
+  nuclear_formulas: NuclearSourceRenderer,
+  nuclear_exercises: NuclearSourceRenderer,
+  nuclear_advanced_exercises: NuclearSourceRenderer,
+  nucleus_stability_explorer: NuclearSourceRenderer,
+  wave_source_simulator: WaveSourceRenderer,
+  wave_simulator_source: WaveSourceRenderer,
+  rope_wave_simulator: WaveSourceRenderer,
+  sound_wave_simulator: WaveSourceRenderer,
+  superposition_simulator: WaveSourceRenderer,
+  time_delay_simulator: WaveSourceRenderer,
+  periodic_wave_simulator: WaveSourceRenderer,
+  stroboscope_simulator: WaveSourceRenderer,
+  wave_lab: WaveSourceRenderer,
+  wave_exercises_source: WaveSourceRenderer,
+  wave_periodic_formulas: WaveSourceRenderer,
+  wave_periodic_exercises: WaveSourceRenderer,
+  wave_advanced_exercises: WaveSourceRenderer,
+  onde_lab: WaveSourceRenderer,
+  light_diffraction_simulator: OpticsSourceRenderer,
+  diffraction_simulator: OpticsSourceRenderer,
+  diffraction_lab: OpticsSourceRenderer,
+  prism_simulator: OpticsSourceRenderer,
+  light_formulas: OpticsSourceRenderer,
+  light_exercises: OpticsSourceRenderer,
+  light_advanced_exercises: OpticsSourceRenderer,
+  light_lab: OpticsSourceRenderer,
+  optics_lab: OpticsSourceRenderer,
+  kinetics_course: ChemistrySourceRenderer,
+  progress_table: ChemistrySourceRenderer,
+  distribution_chart: ChemistrySourceRenderer,
+  ph_scale: ChemistrySourceRenderer,
+  predominance: ChemistrySourceRenderer,
+  titration_curve: ChemistrySourceRenderer,
+  indicator_simulator: ChemistrySourceRenderer,
+  interactive_water: ChemistrySourceRenderer,
+  chimie_formulas: ChemistrySourceRenderer,
+  chimie_exercises: ChemistrySourceRenderer,
+  sets_inclusion: MathSourceRenderer,
+  sets_inclusion_animation: MathSourceRenderer,
+  variations: MathSourceRenderer,
+  variations_animation: MathSourceRenderer,
+  pascal_triangle_lab: MathSourceRenderer,
+  pascal_triangle_animation: MathSourceRenderer,
+  function_explorer: MathSourceRenderer,
+  math_sets_page: MathSourceRenderer,
 }
 
 export function registerAnimatedRenderer(rendererKey: AnimatedRendererKey, component: AnimatedRendererComponent) {

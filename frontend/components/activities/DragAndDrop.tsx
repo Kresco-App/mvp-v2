@@ -116,7 +116,7 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
 
       <div className="flex gap-3">
         {!submitted ? (
-          <button
+          <button type="button"
             onClick={handleSubmit}
             disabled={Object.keys(assignments).length < zones.length}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
@@ -124,7 +124,7 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
             Verifier
           </button>
         ) : (
-          <button
+          <button type="button"
             onClick={handleReset}
             className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
           >

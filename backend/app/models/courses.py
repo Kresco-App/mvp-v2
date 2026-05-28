@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Integer, Boolean, DateTime, ForeignKey, Integer, String, Text, JSON, func
+from sqlalchemy import BigInteger, Integer, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -21,121 +21,6 @@ class Subject(Base):
     order: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    chapters: Mapped[list["Chapter"]] = relationship("Chapter", back_populates="subject", order_by="Chapter.order")
-
-
-class Chapter(Base):
-    __tablename__ = "chapters"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text, default="")
-    order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    subject: Mapped["Subject"] = relationship("Subject", back_populates="chapters")
-    lessons: Mapped[list["Lesson"]] = relationship("Lesson", back_populates="chapter", order_by="Lesson.order")
-    blocks: Mapped[list["ChapterBlock"]] = relationship("ChapterBlock", back_populates="chapter", order_by="ChapterBlock.order")
-    sections: Mapped[list["ChapterSection"]] = relationship("ChapterSection", back_populates="chapter", order_by="ChapterSection.order")
-
-
-class Lesson(Base):
-    __tablename__ = "lessons"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    chapter_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(255))
-    vdocipher_id: Mapped[str] = mapped_column(String(255), default="")
-    duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
-    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
-    order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    chapter: Mapped["Chapter"] = relationship("Chapter", back_populates="lessons")
-    activities: Mapped[list["Activity"]] = relationship("Activity", back_populates="lesson", order_by="Activity.order")
-    pdfs: Mapped[list["CoursePDF"]] = relationship("CoursePDF", back_populates="lesson", order_by="CoursePDF.order")
-    quiz: Mapped[Optional["Quiz"]] = relationship("Quiz", back_populates="lesson", uselist=False)
-    quiz_triggers: Mapped[list["VideoQuizTrigger"]] = relationship("VideoQuizTrigger", back_populates="lesson", order_by="VideoQuizTrigger.timestamp_seconds")
-
-    @property
-    def duration_display(self) -> str:
-        m, s = divmod(self.duration_seconds, 60)
-        return f"{m}:{s:02d}"
-
-
-class VideoQuizTrigger(Base):
-    __tablename__ = "video_quiz_triggers"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    lesson_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("lessons.id", ondelete="CASCADE"))
-    timestamp_seconds: Mapped[int] = mapped_column(Integer)
-    quiz_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quizzes.id", ondelete="CASCADE"))
-    is_blocking: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    lesson: Mapped["Lesson"] = relationship("Lesson", back_populates="quiz_triggers")
-
-
-class ChapterBlock(Base):
-    __tablename__ = "chapter_blocks"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    chapter_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(255), default="")
-    content: Mapped[str] = mapped_column(Text)
-    block_type: Mapped[str] = mapped_column(String(20), default="markdown")
-    order: Mapped[int] = mapped_column(Integer, default=0)
-
-    chapter: Mapped["Chapter"] = relationship("Chapter", back_populates="blocks")
-
-
-class ChapterSection(Base):
-    __tablename__ = "chapter_sections"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    chapter_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chapters.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(255))
-    section_type: Mapped[str] = mapped_column(String(20))
-    order: Mapped[int] = mapped_column(Integer, default=0)
-    is_gating: Mapped[bool] = mapped_column(Boolean, default=True)
-    vdocipher_id: Mapped[str] = mapped_column(String(255), default="")
-    duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
-    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
-    content: Mapped[str] = mapped_column(Text, default="")
-    quiz_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    pass_score: Mapped[int] = mapped_column(Integer, default=70)
-    activity_type: Mapped[str] = mapped_column(String(30), default="")
-    activity_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-
-    chapter: Mapped["Chapter"] = relationship("Chapter", back_populates="sections")
-
-
-class Activity(Base):
-    __tablename__ = "activities"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    lesson_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("lessons.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(255))
-    activity_type: Mapped[str] = mapped_column(String(30))
-    config_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    react_component_url: Mapped[str] = mapped_column(String(500), default="")
-    order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    lesson: Mapped["Lesson"] = relationship("Lesson", back_populates="activities")
-
-
-class CoursePDF(Base):
-    __tablename__ = "course_pdfs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    lesson_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("lessons.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(255))
-    file_url: Mapped[str] = mapped_column(String(500))
-    order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    lesson: Mapped["Lesson"] = relationship("Lesson", back_populates="pdfs")
 
 
 class ConceptTag(Base):
@@ -150,9 +35,13 @@ class ConceptTag(Base):
 
 class Topic(Base):
     __tablename__ = "topics"
+    __table_args__ = (
+        Index("ix_topics_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"))
+    subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
+    course_offering_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("course_offerings.id", ondelete="SET NULL"), nullable=True, index=True)
     slug: Mapped[str] = mapped_column(String(160), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
@@ -165,28 +54,43 @@ class Topic(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     subject: Mapped["Subject"] = relationship("Subject")
-    sections: Mapped[list["TopicSection"]] = relationship("TopicSection", back_populates="topic", order_by="TopicSection.order")
+    course_offering = relationship("CourseOffering")
+    sections: Mapped[list["TopicSection"]] = relationship(
+        "TopicSection",
+        back_populates="topic",
+        order_by="TopicSection.order",
+    )
     resources: Mapped[list["Resource"]] = relationship("Resource", back_populates="topic")
 
 
 class TopicSection(Base):
     __tablename__ = "topic_sections"
+    __table_args__ = (
+        Index("ix_topic_sections_topic_order", "topic_id", "order", "id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"))
+    topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(120))
     section_type: Mapped[str] = mapped_column(String(40))
     order: Mapped[int] = mapped_column(Integer, default=0)
 
     topic: Mapped["Topic"] = relationship("Topic", back_populates="sections")
-    items: Mapped[list["TopicItem"]] = relationship("TopicItem", back_populates="section", order_by="TopicItem.order")
+    items: Mapped[list["TopicItem"]] = relationship(
+        "TopicItem",
+        back_populates="section",
+        order_by="TopicItem.order",
+    )
 
 
 class Resource(Base):
     __tablename__ = "resources"
+    __table_args__ = (
+        Index("ix_resources_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     resource_type: Mapped[str] = mapped_column(String(60))
     provider: Mapped[str] = mapped_column(String(60), default="")
@@ -205,11 +109,25 @@ class Resource(Base):
 
 class TopicItem(Base):
     __tablename__ = "topic_items"
+    __table_args__ = (
+        Index("ix_topic_items_workspace_order", "topic_id", "status", "section_id", "order", "id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"))
-    section_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_sections.id", ondelete="CASCADE"))
-    primary_resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True)
+    topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"), index=True)
+    section_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_sections.id", ondelete="CASCADE"), index=True)
+    primary_resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True, index=True)
+    primary_tab_content_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey(
+            "tab_contents.id",
+            ondelete="SET NULL",
+            name="fk_topic_items_primary_tab_content_id_tab_contents",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
     item_type: Mapped[str] = mapped_column(String(60))
@@ -227,15 +145,28 @@ class TopicItem(Base):
     topic: Mapped["Topic"] = relationship("Topic")
     section: Mapped["TopicSection"] = relationship("TopicSection", back_populates="items")
     primary_resource: Mapped[Optional["Resource"]] = relationship("Resource")
-    tabs: Mapped[list["TabContent"]] = relationship("TabContent", back_populates="topic_item", order_by="TabContent.order")
+    primary_tab_content: Mapped[Optional["TabContent"]] = relationship(
+        "TabContent",
+        foreign_keys=[primary_tab_content_id],
+        post_update=True,
+    )
+    tabs: Mapped[list["TabContent"]] = relationship(
+        "TabContent",
+        back_populates="topic_item",
+        order_by="TabContent.order",
+        foreign_keys="TabContent.topic_item_id",
+    )
 
 
 class TabContent(Base):
     __tablename__ = "tab_contents"
+    __table_args__ = (
+        Index("ix_tab_contents_item_status_order", "topic_item_id", "status", "order", "id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    topic_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"))
-    resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True)
+    topic_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"), index=True)
+    resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True, index=True)
     label: Mapped[str] = mapped_column(String(80))
     tab_type: Mapped[str] = mapped_column(String(60))
     content: Mapped[str] = mapped_column(Text, default="")
@@ -243,37 +174,50 @@ class TabContent(Base):
     renderer_key: Mapped[str] = mapped_column(String(120), default="")
     order: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(30), default="published")
-    is_recommended: Mapped[bool] = mapped_column(Boolean, default=False)
     required_tier: Mapped[str] = mapped_column(String(40), default="")
     required_feature_key: Mapped[str] = mapped_column(String(80), default="")
     concept_slugs: Mapped[list[str]] = mapped_column(JSON, default=list)
 
-    topic_item: Mapped["TopicItem"] = relationship("TopicItem", back_populates="tabs")
+    topic_item: Mapped["TopicItem"] = relationship("TopicItem", back_populates="tabs", foreign_keys=[topic_item_id])
     resource: Mapped[Optional["Resource"]] = relationship("Resource")
 
 
 class Exam(Base):
     __tablename__ = "exams"
+    __table_args__ = (
+        Index("ix_exams_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"))
+    subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(255))
     year: Mapped[int] = mapped_column(Integer)
     session: Mapped[str] = mapped_column(String(120), default="National")
     statement_url: Mapped[str] = mapped_column(String(500), default="")
     status: Mapped[str] = mapped_column(String(30), default="published")
+    required_tier: Mapped[str] = mapped_column(String(40), default="")
+    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
+    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
 
     subject: Mapped["Subject"] = relationship("Subject")
-    problems: Mapped[list["ExamProblem"]] = relationship("ExamProblem", back_populates="exam", order_by="ExamProblem.order")
+    problems: Mapped[list["ExamProblem"]] = relationship(
+        "ExamProblem",
+        back_populates="exam",
+        order_by="ExamProblem.order",
+        lazy="selectin",
+    )
 
 
 class ExamProblem(Base):
     __tablename__ = "exam_problems"
+    __table_args__ = (
+        Index("ix_exam_problems_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    exam_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exams.id", ondelete="CASCADE"))
-    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True)
-    video_resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True)
+    exam_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("exams.id", ondelete="CASCADE"), index=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
+    video_resource_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("resources.id", ondelete="SET NULL"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     statement: Mapped[str] = mapped_column(Text, default="")
     written_solution: Mapped[str] = mapped_column(Text, default="")
@@ -281,6 +225,9 @@ class ExamProblem(Base):
     order: Mapped[int] = mapped_column(Integer, default=0)
     difficulty: Mapped[str] = mapped_column(String(40), default="bac")
     status: Mapped[str] = mapped_column(String(30), default="published")
+    required_tier: Mapped[str] = mapped_column(String(40), default="")
+    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
+    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
     concept_slugs: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     exam: Mapped["Exam"] = relationship("Exam", back_populates="problems")

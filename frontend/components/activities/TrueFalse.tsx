@@ -38,7 +38,7 @@ export default function TrueFalse({ statement, isTrue, explanation, onComplete }
           const isWrong = submitted && isSelected && val !== isTrue
 
           return (
-            <button
+            <button type="button"
               key={label}
               onClick={() => handleAnswer(val)}
               disabled={submitted}
@@ -67,7 +67,7 @@ export default function TrueFalse({ statement, isTrue, explanation, onComplete }
               {explanation}
             </p>
           )}
-          <button
+          <button type="button"
             onClick={() => { setAnswer(null); setSubmitted(false) }}
             className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
           >

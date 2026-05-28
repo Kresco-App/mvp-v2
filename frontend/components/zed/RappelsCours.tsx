@@ -280,7 +280,7 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
             <p className="text-[11px] text-slate-500 leading-tight">{formulaCount} formules Bac</p>
           </div>
         </div>
-        <button
+        <button type="button"
           onClick={onClose}
           className="h-8 w-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition"
           aria-label="Fermer les rappels"
@@ -292,7 +292,7 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
       <div className="px-3 py-2 border-b border-slate-200 flex-shrink-0">
         <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-none">
           {CHEAT_SHEETS.map(item => (
-            <button
+            <button type="button"
               key={item.id}
               onClick={() => { setSelectedSubject(item.id); setSearch('') }}
               className={cn(
@@ -310,6 +310,7 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
+            aria-label={`Rechercher dans ${subject.shortName}`}
             value={search}
             onChange={event => setSearch(event.target.value)}
             placeholder={`Rechercher dans ${subject.shortName}`}

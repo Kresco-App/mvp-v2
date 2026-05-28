@@ -280,6 +280,7 @@ function ControlSlider({
         <span className="shrink-0 font-mono text-xs text-slate-500">{display}</span>
       </span>
       <input
+        aria-label={label}
         type="range"
         min={min}
         max={max}
@@ -325,8 +326,8 @@ export default function WavePeriodicityRenderer(props: RendererProps) {
   )
   const [isPlaying, setIsPlaying] = useState(true)
   const [elapsed, setElapsed] = useState(0)
-  const frameRef = useRef<number>()
-  const lastFrameRef = useRef<number>()
+  const frameRef = useRef<number | null>(null)
+  const lastFrameRef = useRef<number | null>(null)
 
   useEffect(() => {
     setMode(normalized.initialMode)
@@ -336,7 +337,7 @@ export default function WavePeriodicityRenderer(props: RendererProps) {
 
   useEffect(() => {
     const animate = (timestamp: number) => {
-      if (!lastFrameRef.current) lastFrameRef.current = timestamp
+      if (lastFrameRef.current === null) lastFrameRef.current = timestamp
       const deltaSeconds = (timestamp - lastFrameRef.current) / 1000
       lastFrameRef.current = timestamp
 
@@ -350,8 +351,8 @@ export default function WavePeriodicityRenderer(props: RendererProps) {
     frameRef.current = requestAnimationFrame(animate)
 
     return () => {
-      if (frameRef.current) cancelAnimationFrame(frameRef.current)
-      lastFrameRef.current = undefined
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+      lastFrameRef.current = null
     }
   }, [isPlaying])
 

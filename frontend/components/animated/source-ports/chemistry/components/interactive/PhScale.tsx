@@ -1,0 +1,120 @@
+/* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react/display-name, prefer-const, @typescript-eslint/no-unused-expressions */
+'use client';
+
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
+import { Activity } from 'lucide-react';
+
+export const PHScale: React.FC = () => {
+  const [ph, setPh] = useState(7);
+
+  const h3oExp = -ph;
+  const hoExp = -(14 - ph);
+
+  const getBackgroundColor = (val: number) => {
+    if (val < 7) return `rgba(239, 68, 68, ${1 - val/7})`; 
+    if (val > 7) return `rgba(59, 130, 246, ${(val-7)/7})`; 
+    return 'rgba(255, 255, 255, 1)';
+  };
+
+  const getLabel = (val: number) => {
+    if (val < 6.8) return { text: 'ACIDE', color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-200' };
+    if (val > 7.2) return { text: 'BASIQUE', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' };
+    return { text: 'NEUTRE', color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-200' };
+  };
+
+  const info = getLabel(ph);
+
+  return (
+    <div className="bg-white p-6 md:p-10 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 my-10">
+      
+      {/* Header with Status */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-4">
+        <div>
+            <h3 className="text-xl font-bold text-[#1e1b4b] flex items-center">
+                <Activity className="mr-2 text-[#fbbf24]" size={24}/> Échelle de pH Interactive
+            </h3>
+            <p className="text-slate-500 font-medium text-sm mt-1">Évolution inverse des concentrations [H₃O⁺] et [HO⁻]</p>
+        </div>
+        <div className={`px-6 py-2 rounded-xl font-black text-sm uppercase tracking-[0.2em] border shadow-sm transition-colors duration-300 ${info.bg} ${info.color} ${info.border}`}>
+            {info.text}
+        </div>
+      </div>
+
+      {/* Main Display & Slider */}
+      <div className="bg-slate-50 p-6 md:p-8 rounded-2xl border border-slate-200 mb-10 shadow-inner">
+          <div 
+            className="w-full h-32 rounded-xl flex items-center justify-center transition-colors duration-300 relative overflow-hidden border border-slate-200 shadow-sm mb-8"
+            style={{ backgroundColor: getBackgroundColor(ph) }}
+          >
+            <div className="z-10 text-center bg-white/90 px-12 py-4 rounded-2xl shadow-xl backdrop-blur-md transform transition-transform duration-200 hover:scale-105 border border-white/50">
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Valeur du pH</div>
+                <div className="text-6xl font-math font-black text-slate-800 tracking-tighter">{ph.toFixed(1)}</div>
+            </div>
+          </div>
+
+          <div className="relative h-6 bg-gradient-to-r from-red-500 via-green-400 to-blue-500 rounded-full mb-2">
+             <input 
+                type="range" 
+                min="0" 
+                max="14" 
+                step="0.1" 
+                value={ph}
+                onChange={(e) => setPh(parseFloat(e.target.value))}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            />
+            <div 
+                className="absolute top-1/2 -translate-y-1/2 w-8 h-8 bg-white border-4 border-slate-900 rounded-full shadow-xl pointer-events-none transition-all"
+                style={{ left: `calc(${(ph/14)*100}% - 16px)` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs font-bold text-slate-400 font-mono mt-3">
+            <span>0 (Acide)</span>
+            <span>7 (Neutre)</span>
+            <span>14 (Basique)</span>
+          </div>
+      </div>
+
+      {/* Bars Visualization */}
+      <div className="grid grid-cols-2 gap-4 md:gap-8">
+          
+          {/* Acid Bar */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-lg flex flex-col items-center relative overflow-hidden group hover:border-red-100 transition-colors">
+             <div className="z-10 text-center mb-6">
+                 <div className="font-bold text-slate-700 text-sm mb-1 uppercase tracking-wider">[H₃O⁺]</div>
+                 <div className="font-math text-3xl text-red-600 font-bold">
+                    10<sup className="text-lg font-medium">{h3oExp.toFixed(1)}</sup>
+                 </div>
+                 <div className="text-[10px] text-slate-400 mt-1 font-bold bg-slate-100 px-2 py-0.5 rounded-full inline-block">mol·L⁻¹</div>
+             </div>
+             
+             <div className="w-16 h-48 bg-slate-100 rounded-t-xl relative overflow-hidden flex items-end shadow-inner border border-slate-200">
+                <motion.div 
+                    animate={{ height: `${(14 - ph) / 14 * 100}%` }}
+                    className="w-full bg-gradient-to-t from-red-600 to-red-400"
+                />
+             </div>
+          </div>
+
+          {/* Base Bar */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-lg flex flex-col items-center relative overflow-hidden group hover:border-blue-100 transition-colors">
+             <div className="z-10 text-center mb-6">
+                 <div className="font-bold text-slate-700 text-sm mb-1 uppercase tracking-wider">[HO⁻]</div>
+                 <div className="font-math text-3xl text-blue-600 font-bold">
+                    10<sup className="text-lg font-medium">{hoExp.toFixed(1)}</sup>
+                 </div>
+                 <div className="text-[10px] text-slate-400 mt-1 font-bold bg-slate-100 px-2 py-0.5 rounded-full inline-block">mol·L⁻¹</div>
+             </div>
+
+             <div className="w-16 h-48 bg-slate-100 rounded-t-xl relative overflow-hidden flex items-end shadow-inner border border-slate-200">
+                <motion.div 
+                    animate={{ height: `${ph / 14 * 100}%` }}
+                    className="w-full bg-gradient-to-t from-blue-600 to-blue-400"
+                />
+             </div>
+          </div>
+
+      </div>
+    </div>
+  );
+};

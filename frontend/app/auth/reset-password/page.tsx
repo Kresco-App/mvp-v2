@@ -3,42 +3,17 @@
 import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import api from '@/lib/axios'
+import { postJson } from '@/lib/apiClient'
+import { apiDataErrorMessage } from '@/lib/apiData'
 import KrescoLogo from '@/components/KrescoLogo'
 import { Eye, EyeOff } from 'lucide-react'
+import { localizedCopy } from '@/lib/localization'
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '13px 16px',
-  borderRadius: 14,
-  background: 'var(--auth-input-bg)',
-  border: '1px solid var(--auth-input-border)',
-  color: 'var(--auth-text)',
-  fontSize: 14,
-  outline: 'none',
-  transition: 'border-color 150ms',
-}
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 13,
-  fontWeight: 500,
-  color: 'var(--auth-text-hint)',
-  marginBottom: 6,
-}
-
-const primaryBtnStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '14px',
-  borderRadius: 14,
-  background: 'var(--auth-primary)',
-  color: '#ffffff',
-  fontSize: 15,
-  fontWeight: 600,
-  border: 'none',
-  cursor: 'pointer',
-  transition: 'opacity 150ms',
-}
+const pageClass = 'flex min-h-screen flex-col items-center justify-center bg-[var(--auth-bg)] p-6'
+const panelClass = 'flex w-full max-w-[380px] flex-col items-center'
+const inputClass = 'w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-colors focus:border-[var(--auth-input-border-focus)]'
+const labelClass = 'mb-1.5 block text-[13px] font-medium text-[var(--auth-text-hint)]'
+const primaryButtonClass = 'w-full rounded-[14px] border-0 bg-[var(--auth-primary)] p-[14px] text-[15px] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-60'
 
 function ResetPasswordContent() {
   const router = useRouter()
@@ -53,43 +28,33 @@ function ResetPasswordContent() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (password.length < 6) return toast.error('Mot de passe trop court (min. 6 caractères)')
-    if (password !== confirm) return toast.error('Les mots de passe ne correspondent pas')
-    if (!token) return toast.error('Lien de réinitialisation invalide')
+    if (password.length < 6) return toast.error(localizedCopy.auth.passwordMinPlaceholder)
+    if (password !== confirm) return toast.error(localizedCopy.auth.resetPasswordMismatch)
+    if (!token) return toast.error(localizedCopy.auth.resetPasswordInvalidLinkTitle)
 
     setLoading(true)
     try {
-      await api.post('/auth/reset-password', { token, password })
+      await postJson('/auth/reset-password', { token, password })
       setDone(true)
       setTimeout(() => router.replace('/'), 2500)
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Lien invalide ou expiré.')
+      toast.error(apiDataErrorMessage(err, localizedCopy.auth.resetPasswordInvalidLinkBody))
     } finally {
       setLoading(false)
     }
   }
 
-  const pageStyle: React.CSSProperties = {
-    minHeight: '100vh',
-    background: 'var(--auth-bg)',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  }
-
   if (!token) {
     return (
-      <div style={pageStyle}>
-        <div style={{ width: '100%', maxWidth: 380, textAlign: 'center' }}>
+      <div className={pageClass}>
+        <div className="w-full max-w-[380px] text-center">
           <KrescoLogo size={52} className="mb-6" />
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--auth-text)', marginBottom: 8 }}>Lien invalide</h1>
-          <p style={{ color: 'var(--auth-text-muted)', fontSize: 14, marginBottom: 24 }}>
-            Ce lien de réinitialisation est invalide ou a expiré.
+          <h1 className="mb-2 text-[20px] font-bold text-[var(--auth-text)]">{localizedCopy.auth.resetPasswordInvalidLinkTitle}</h1>
+          <p className="mb-6 text-[14px] text-[var(--auth-text-muted)]">
+            {localizedCopy.auth.resetPasswordInvalidLinkBody}
           </p>
-          <a href="/" style={{ color: 'var(--auth-primary)', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
-            Retour à la connexion
+          <a href="/" className="text-[14px] font-semibold text-[var(--auth-primary)] no-underline">
+            {localizedCopy.auth.backToLogin}
           </a>
         </div>
       </div>
@@ -97,48 +62,49 @@ function ResetPasswordContent() {
   }
 
   return (
-    <div style={pageStyle}>
-      <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <div className={pageClass}>
+      <div className={panelClass}>
         <KrescoLogo size={52} className="mb-5" />
 
         {done ? (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--auth-card-selected-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+          <div className="text-center">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--auth-card-selected-bg)]">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
                 <path d="M5 13l4 4L19 7" stroke="var(--auth-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--auth-text)', margin: '0 0 8px' }}>Mot de passe mis à jour !</h1>
-            <p style={{ color: 'var(--auth-text-muted)', fontSize: 14 }}>Redirection vers la connexion...</p>
+            <h1 className="mb-2 text-[22px] font-bold text-[var(--auth-text)]">{localizedCopy.auth.resetPasswordSuccessTitle}</h1>
+            <p className="text-[14px] text-[var(--auth-text-muted)]">{localizedCopy.auth.resetPasswordSuccessBody}</p>
           </div>
         ) : (
           <>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--auth-text)', margin: '0 0 6px', textAlign: 'center' }}>
-              Nouveau mot de passe
+            <h1 className="mb-1.5 text-center text-[22px] font-bold text-[var(--auth-text)]">
+              {localizedCopy.auth.resetPasswordTitle}
             </h1>
-            <p style={{ fontSize: 14, color: 'var(--auth-text-muted)', marginBottom: 24, textAlign: 'center' }}>
-              Choisissez un mot de passe sécurisé pour votre compte.
+            <p className="mb-6 text-center text-[14px] text-[var(--auth-text-muted)]">
+              {localizedCopy.auth.resetPasswordBody}
             </p>
 
-            <form onSubmit={handleSubmit} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3.5">
               <div>
-                <label style={labelStyle}>Nouveau mot de passe</label>
-                <div style={{ position: 'relative' }}>
+                <label htmlFor="reset-password" className={labelClass}>{localizedCopy.auth.resetPasswordTitle}</label>
+                <div className="relative">
                   <input
+                    id="reset-password"
+                    aria-label={localizedCopy.auth.resetPasswordTitle}
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    placeholder="Min. 6 caractères"
+                    placeholder={'Min. 6 caract\u00e8res'}
                     required
                     minLength={6}
-                    style={{ ...inputStyle, paddingRight: 44 }}
-                    onFocus={e => (e.target.style.borderColor = 'var(--auth-input-border-focus)')}
-                    onBlur={e => (e.target.style.borderColor = 'var(--auth-input-border)')}
+                    className={`${inputClass} pr-11`}
                   />
                   <button
                     type="button"
+                    aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
                     onClick={() => setShowPassword(v => !v)}
-                    style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--auth-text-muted)', display: 'flex' }}
+                    className="absolute right-3.5 top-1/2 flex -translate-y-1/2 border-0 bg-transparent text-[var(--auth-text-muted)]"
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -146,42 +112,33 @@ function ResetPasswordContent() {
               </div>
 
               <div>
-                <label style={labelStyle}>Confirmer le mot de passe</label>
+                <label htmlFor="reset-password-confirm" className={labelClass}>{localizedCopy.auth.resetPasswordConfirmLabel}</label>
                 <input
+                  id="reset-password-confirm"
+                  aria-label={localizedCopy.auth.resetPasswordConfirmLabel}
                   type={showPassword ? 'text' : 'password'}
                   value={confirm}
                   onChange={e => setConfirm(e.target.value)}
-                  placeholder="Répétez le mot de passe"
+                  placeholder={'R\u00e9p\u00e9tez le mot de passe'}
                   required
-                  style={{
-                    ...inputStyle,
-                    borderColor: confirm && confirm !== password ? '#c10007' : 'var(--auth-input-border)',
-                  }}
-                  onFocus={e => {
-                    if (!(confirm && confirm !== password)) {
-                      e.target.style.borderColor = 'var(--auth-input-border-focus)'
-                    }
-                  }}
-                  onBlur={e => {
-                    e.target.style.borderColor = confirm && confirm !== password ? '#c10007' : 'var(--auth-input-border)'
-                  }}
+                  className={`${inputClass} ${confirm && confirm !== password ? 'border-[#c10007] focus:border-[#c10007]' : ''}`}
                 />
                 {confirm && confirm !== password && (
-                  <p style={{ fontSize: 12, color: '#c10007', marginTop: 4 }}>Les mots de passe ne correspondent pas</p>
+                  <p className="mt-1 text-[12px] text-[#c10007]">{localizedCopy.auth.resetPasswordMismatch}</p>
                 )}
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                style={{ ...primaryBtnStyle, marginTop: 4, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
+                className={`${primaryButtonClass} mt-1`}
               >
-                {loading ? 'Enregistrement...' : 'Enregistrer le mot de passe'}
+                {loading ? localizedCopy.auth.saving : localizedCopy.auth.resetPasswordSaveBtn}
               </button>
             </form>
 
-            <a href="/" style={{ marginTop: 20, fontSize: 14, color: 'var(--auth-text-muted)', textDecoration: 'none' }}>
-              Retour à la connexion
+            <a href="/" className="mt-5 text-[14px] text-[var(--auth-text-muted)] no-underline">
+              {localizedCopy.auth.backToLogin}
             </a>
           </>
         )}
@@ -193,8 +150,8 @@ function ResetPasswordContent() {
 export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)' }}>
-        <div style={{ width: 36, height: 36, border: '3px solid #edf1ff', borderTopColor: '#453dee', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <div className="flex min-h-screen items-center justify-center bg-[var(--auth-bg)]">
+        <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[#edf1ff] border-t-[#453dee]" />
       </div>
     }>
       <ResetPasswordContent />

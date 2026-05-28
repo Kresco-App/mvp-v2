@@ -1,44 +1,36 @@
 # Notes, Saves, and Profile Hub
 
-## Notes
+## Current Notes Model
 
-Notes should always be available as a tab.
+Notes are attached to the current learning context.
+
+Current note context fields:
+
+- `subject_id`
+- `topic_id`
+- `topic_item_id`
+- `tab_content_id`
 
 Topic Workspace notes:
 
-- Notes attached to the current TopicItem.
-- Notes can deep-link back to the source item.
-- Notes can later support timestamps for videos.
+- Notes attach to the current TopicItem.
+- Notes deep-link back to the source item.
+- Notes are available through the Notes tab surface.
 
-Study Tools -> Notes:
+Final revision notes:
 
-- Shows notes for the current topic.
-- Groups notes by source item.
-- Allows jumping back to the exact item.
+- The final revision section can include a notes item.
+- The notes item groups notes for the current topic by source item.
+- Selecting a note returns the student to the exact TopicItem context.
 
-Profile -> Notes:
+Profile notes:
 
-- Shows all notes across all topics.
-- Allows filtering/searching later.
-- Deep-links back to the original Topic Workspace context.
+- Profile shows notes across topics.
+- Profile notes deep-link back to the original Topic Workspace context.
 
-## Future canvas notes
+## Current Saves Model
 
-Canvas/infinite-board notes are possible later.
-
-Potential approach:
-
-- Excalidraw-style component.
-- Lightweight drawing/canvas component.
-- Saved canvas documents linked to TopicItem or Topic.
-
-This is not a v1 blocker.
-
-## Saves/bookmarks
-
-Students need a way to save anything and return to it from a central hub.
-
-Save targets:
+Saved item targets:
 
 - TopicItem.
 - Resource.
@@ -46,28 +38,15 @@ Save targets:
 - Question.
 - ExamProblem.
 - TabContent.
-- Future video timestamp.
 
-Saved items should store references and deep links, not duplicate content.
+Saved items store references and deep links. They do not duplicate content.
 
-## Profile hub
+## Deep-Link Requirement
 
-Profile is the natural home for:
-
-- Saved items.
-- All notes.
-- Achievements.
-- Lifetime XP.
-- Settings.
-
-Dashboard can show shortcuts to recent saved/notes, but Profile is the canonical hub.
-
-## Deep-link requirement
-
-Every saved item and note should be able to navigate back to the exact learning context:
+Every saved item and note should navigate back to:
 
 ```text
-Subject -> Topic -> TopicItem -> Tab/resource/timestamp when applicable
+Subject -> Topic -> TopicItem -> Tab/resource context
 ```
 
 If a content object cannot be deep-linked, it is not modeled cleanly enough.

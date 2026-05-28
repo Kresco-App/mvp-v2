@@ -31,6 +31,7 @@ export default function FillInBlank({ sentence, answer, hint, onComplete }: Prop
       <div className="text-white leading-relaxed text-base flex items-center flex-wrap gap-1.5">
         <span>{parts[0]}</span>
         <input
+          aria-label="Réponse à compléter"
           value={input}
           onChange={e => !submitted && setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !submitted && handleSubmit()}
@@ -56,7 +57,7 @@ export default function FillInBlank({ sentence, answer, hint, onComplete }: Prop
 
       <div className="flex gap-3">
         {!submitted ? (
-          <button
+          <button type="button"
             onClick={handleSubmit}
             disabled={!input.trim()}
             className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
@@ -64,7 +65,7 @@ export default function FillInBlank({ sentence, answer, hint, onComplete }: Prop
             Verifier
           </button>
         ) : (
-          <button
+          <button type="button"
             onClick={() => { setInput(''); setSubmitted(false) }}
             className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
           >

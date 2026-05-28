@@ -32,7 +32,8 @@ export function LearningTabBar({
       {tabs.map((tab) => {
         const { label, icon: Icon, active } = tab
         return (
-        <button
+        <button type="button"
+          aria-label={label}
           className={`relative inline-flex items-center whitespace-nowrap border-0 bg-transparent font-bold leading-none tracking-normal transition-colors duration-200 ${
             active ? 'text-[#453dee]' : 'text-[#565760] hover:text-[#453dee]'
           } ${
@@ -42,10 +43,9 @@ export function LearningTabBar({
           }`}
           key={label}
           onClick={() => onSelect?.(tab)}
-          type="button"
         >
           <Icon size={isWorkspace ? 25 : 18} strokeWidth={2.7} />
-          {label}
+          <span className="max-[480px]:hidden">{label}</span>
           {active && (
             <motion.span
               layoutId={`figma-tab-active-${size}`}
