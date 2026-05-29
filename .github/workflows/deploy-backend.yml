@@ -133,6 +133,16 @@ jobs:
             --abi cp311 \
             --target "$site_packages" \
             -r requirements.txt
+          rm -rf /tmp/cached_wheels
+          mkdir -p /tmp/cached_wheels
+          python -m pip download \
+            --only-binary=:all: \
+            --platform manylinux2014_x86_64 \
+            --implementation cp \
+            --python-version 311 \
+            --abi cp311 \
+            --dest /tmp/cached_wheels \
+            -r requirements.txt
 
       - name: Run Alembic migration check on Postgres
         run: |
