@@ -673,6 +673,7 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert "--platform manylinux2014_x86_64" in workflow
     assert "--python-version 311" in workflow
     assert "/tmp/cached_wheels" in workflow
+    assert "manylinux_2_17_x86_64" in workflow
     assert "DATABASE_CONNECTION_STRATEGY: rds_proxy" in workflow
     assert 'DATABASE_URL="${{ secrets.DATABASE_URL }}"' not in workflow
     render_step = workflow[

@@ -143,6 +143,18 @@ jobs:
             --abi cp311 \
             --dest /tmp/cached_wheels \
             -r requirements.txt
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          cache = Path("/tmp/cached_wheels")
+          for wheel in cache.glob("*-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"):
+              alias = cache / wheel.name.replace(
+                  "manylinux2014_x86_64.manylinux_2_17_x86_64",
+                  "manylinux_2_17_x86_64",
+              )
+              shutil.copy2(wheel, alias)
+          PY
 
       - name: Run Alembic migration check on Postgres
         run: |
