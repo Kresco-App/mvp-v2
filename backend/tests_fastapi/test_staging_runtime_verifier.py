@@ -111,11 +111,15 @@ def test_staging_runtime_verifier_derives_internal_urls_from_ready_url():
     assert verifier.derive_url(
         "https://api.example.com/production/ready",
         "/api/internal/diagnostics",
-    ) == "https://api.example.com/api/internal/diagnostics"
+    ) == "https://api.example.com/production/api/internal/diagnostics"
     assert verifier.derive_url(
         "https://api.example.com/ready",
         "/api/internal/realtime/process-outbox?limit=1",
     ) == "https://api.example.com/api/internal/realtime/process-outbox?limit=1"
+    assert verifier.derive_url(
+        "https://api.example.com/staging/ready",
+        "/api/internal/realtime/process-outbox?limit=1",
+    ) == "https://api.example.com/staging/api/internal/realtime/process-outbox?limit=1"
 
 
 def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():

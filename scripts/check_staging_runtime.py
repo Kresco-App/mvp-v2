@@ -191,7 +191,10 @@ def derive_url(ready_url: str, path_and_query: str) -> str:
     if not parsed.scheme or not parsed.netloc:
         raise ValueError("ready_url must be an absolute HTTP(S) URL.")
     path, question, query = path_and_query.partition("?")
-    return urlunparse(parsed._replace(path=path, query=query if question else "", params="", fragment=""))
+    ready_path = parsed.path.rstrip("/")
+    stage_prefix = ready_path.rsplit("/", 1)[0] if "/" in ready_path else ""
+    derived_path = f"{stage_prefix}/{path.lstrip('/')}" if stage_prefix else path
+    return urlunparse(parsed._replace(path=derived_path, query=query if question else "", params="", fragment=""))
 
 
 def _fetch_with_retries(url: str, timeout_seconds: int, retries: int, delay: int) -> dict[str, Any]:
