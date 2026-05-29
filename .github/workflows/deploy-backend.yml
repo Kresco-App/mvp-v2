@@ -222,6 +222,7 @@ jobs:
           python scripts/resolve_zappa_vpc_config.py
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          KRESCO_RUNTIME_SECRET_ID: ${{ vars.KRESCO_RUNTIME_SECRET_ID }}
           ZAPPA_SUBNET_IDS: ${{ vars.ZAPPA_SUBNET_IDS }}
           ZAPPA_SECURITY_GROUP_IDS: ${{ vars.ZAPPA_SECURITY_GROUP_IDS }}
 

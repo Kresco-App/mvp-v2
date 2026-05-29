@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -13,6 +14,9 @@ from sqlalchemy.engine import make_url
 
 from app.database import _build_async_url
 
+RUNTIME_SECRET_ID_ENV = "KRESCO_RUNTIME_SECRET_ID"
+DATABASE_URL_KEY = "DATABASE_URL"
+
 
 def main() -> None:
     configured_subnets = os.environ.get("ZAPPA_SUBNET_IDS", "").strip()
@@ -22,13 +26,18 @@ def main() -> None:
         print("Using explicit Zappa VPC config from GitHub environment variables.")
         return
 
-    database_url = os.environ.get("DATABASE_URL", "").strip()
-    if not database_url:
-        raise SystemExit("DATABASE_URL is required to discover the RDS Proxy VPC config.")
-
     import boto3
 
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or None
+    secretsmanager = boto3.client("secretsmanager", region_name=region)
+
+    database_url = _runtime_database_url(secretsmanager) or os.environ.get("DATABASE_URL", "").strip()
+    if not database_url:
+        raise SystemExit(
+            "DATABASE_URL is required to discover the RDS Proxy VPC config. "
+            f"Set it in the runtime secret referenced by {RUNTIME_SECRET_ID_ENV}."
+        )
+
     rds = boto3.client("rds", region_name=region)
     ec2 = boto3.client("ec2", region_name=region)
 
@@ -49,12 +58,41 @@ def main() -> None:
     stage = os.environ.get("ZAPPA_STAGE", "staging").strip() or "staging"
     lambda_security_group_id = _ensure_lambda_security_group(ec2, vpc_id, stage)
     _authorize_proxy_ingress(ec2, proxy_security_group_ids, lambda_security_group_id)
+    _authorize_proxy_target_ingress(rds, ec2, proxy_name, proxy_security_group_ids)
+    _authorize_lambda_egress(
+        ec2,
+        lambda_security_group_id,
+        proxy_security_group_ids,
+        5432,
+        "Kresco Lambda to RDS Proxy",
+    )
     _ensure_private_aws_service_access(ec2, vpc_id, subnet_ids, lambda_security_group_id, region, stage)
     _write_outputs(",".join(subnet_ids), lambda_security_group_id)
     print(
         "Resolved Zappa VPC config from RDS Proxy "
         f"{proxy_name}: subnets={len(subnet_ids)} lambda_security_group={lambda_security_group_id}"
     )
+
+
+def _runtime_database_url(secretsmanager) -> str:
+    secret_id = os.environ.get(RUNTIME_SECRET_ID_ENV, "").strip()
+    if not secret_id:
+        return ""
+
+    response = secretsmanager.get_secret_value(SecretId=secret_id)
+    secret_string = response.get("SecretString")
+    if not secret_string:
+        raise SystemExit("Runtime secret must contain a JSON SecretString.")
+
+    try:
+        secret = json.loads(secret_string)
+    except json.JSONDecodeError as exc:
+        raise SystemExit("Runtime secret must contain valid JSON.") from exc
+
+    if not isinstance(secret, dict):
+        raise SystemExit("Runtime secret must contain a JSON object.")
+
+    return str(secret.get(DATABASE_URL_KEY) or secret.get("database_url") or "").strip()
 
 
 def _database_host(database_url: str) -> str:
@@ -151,6 +189,115 @@ def _authorize_proxy_ingress(ec2, proxy_security_group_ids: list[str], lambda_se
                 raise
 
 
+def _authorize_proxy_target_ingress(rds, ec2, proxy_name: str, proxy_security_group_ids: list[str]) -> None:
+    target_security_group_ids = _proxy_target_security_group_ids(rds, proxy_name)
+    if not target_security_group_ids:
+        raise SystemExit(
+            f"RDS Proxy {proxy_name} has no resolvable database target security groups. "
+            "Attach a DB target to the proxy before deploying Lambda."
+        )
+
+    for target_security_group_id in target_security_group_ids:
+        for proxy_security_group_id in proxy_security_group_ids:
+            try:
+                ec2.authorize_security_group_ingress(
+                    GroupId=target_security_group_id,
+                    IpPermissions=[
+                        {
+                            "IpProtocol": "tcp",
+                            "FromPort": 5432,
+                            "ToPort": 5432,
+                            "UserIdGroupPairs": [
+                                {
+                                    "GroupId": proxy_security_group_id,
+                                    "Description": "Kresco RDS Proxy to database target",
+                                }
+                            ],
+                        }
+                    ],
+                )
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") != "InvalidPermission.Duplicate":
+                    raise
+
+
+def _proxy_target_security_group_ids(rds, proxy_name: str) -> list[str]:
+    response = rds.describe_db_proxy_targets(DBProxyName=proxy_name)
+    targets = list(response.get("Targets", []))
+    if not targets:
+        return []
+
+    target_resource_ids = {str(target.get("RdsResourceId", "")) for target in targets if target.get("RdsResourceId")}
+    target_endpoints = {str(target.get("Endpoint", "")) for target in targets if target.get("Endpoint")}
+    group_ids: set[str] = set()
+
+    for instance in _paginate(rds, "describe_db_instances", "DBInstances"):
+        if _matches_rds_target(instance, target_resource_ids, target_endpoints):
+            group_ids.update(_rds_security_group_ids(instance))
+
+    for cluster in _paginate(rds, "describe_db_clusters", "DBClusters"):
+        if _matches_rds_cluster_target(cluster, target_resource_ids, target_endpoints):
+            group_ids.update(_rds_security_group_ids(cluster))
+
+    return sorted(group_ids)
+
+
+def _matches_rds_target(instance: dict, target_resource_ids: set[str], target_endpoints: set[str]) -> bool:
+    endpoint = instance.get("Endpoint") if isinstance(instance.get("Endpoint"), dict) else {}
+    return (
+        str(instance.get("DBInstanceIdentifier", "")) in target_resource_ids
+        or str(instance.get("DbiResourceId", "")) in target_resource_ids
+        or str(endpoint.get("Address", "")) in target_endpoints
+    )
+
+
+def _matches_rds_cluster_target(cluster: dict, target_resource_ids: set[str], target_endpoints: set[str]) -> bool:
+    return (
+        str(cluster.get("DBClusterIdentifier", "")) in target_resource_ids
+        or str(cluster.get("DbClusterResourceId", "")) in target_resource_ids
+        or str(cluster.get("Endpoint", "")) in target_endpoints
+        or str(cluster.get("ReaderEndpoint", "")) in target_endpoints
+    )
+
+
+def _rds_security_group_ids(resource: dict) -> set[str]:
+    return {
+        str(group.get("VpcSecurityGroupId", ""))
+        for group in resource.get("VpcSecurityGroups", [])
+        if str(group.get("VpcSecurityGroupId", "")).startswith("sg-")
+    }
+
+
+def _authorize_lambda_egress(
+    ec2,
+    lambda_security_group_id: str,
+    destination_security_group_ids: list[str],
+    port: int,
+    description: str,
+) -> None:
+    for destination_security_group_id in destination_security_group_ids:
+        try:
+            ec2.authorize_security_group_egress(
+                GroupId=lambda_security_group_id,
+                IpPermissions=[
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": port,
+                        "ToPort": port,
+                        "UserIdGroupPairs": [
+                            {
+                                "GroupId": destination_security_group_id,
+                                "Description": description,
+                            }
+                        ],
+                    }
+                ],
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "InvalidPermission.Duplicate":
+                raise
+
+
 def _ensure_private_aws_service_access(
     ec2,
     vpc_id: str,
@@ -168,6 +315,13 @@ def _ensure_private_aws_service_access(
         endpoint_ids.append(_ensure_s3_gateway_endpoint(ec2, vpc_id, route_table_ids, region, stage))
 
     endpoint_security_group_id = _ensure_endpoint_security_group(ec2, vpc_id, lambda_security_group_id, stage)
+    _authorize_lambda_egress(
+        ec2,
+        lambda_security_group_id,
+        [endpoint_security_group_id],
+        443,
+        "Kresco Lambda to private AWS endpoints",
+    )
     endpoint_ids.append(
         _ensure_interface_endpoint(
             ec2,
