@@ -49,6 +49,7 @@ def main() -> None:
     stage = os.environ.get("ZAPPA_STAGE", "staging").strip() or "staging"
     lambda_security_group_id = _ensure_lambda_security_group(ec2, vpc_id, stage)
     _authorize_proxy_ingress(ec2, proxy_security_group_ids, lambda_security_group_id)
+    _ensure_private_aws_service_access(ec2, vpc_id, subnet_ids, lambda_security_group_id, region, stage)
     _write_outputs(",".join(subnet_ids), lambda_security_group_id)
     print(
         "Resolved Zappa VPC config from RDS Proxy "
@@ -148,6 +149,238 @@ def _authorize_proxy_ingress(ec2, proxy_security_group_ids: list[str], lambda_se
         except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") != "InvalidPermission.Duplicate":
                 raise
+
+
+def _ensure_private_aws_service_access(
+    ec2,
+    vpc_id: str,
+    subnet_ids: list[str],
+    lambda_security_group_id: str,
+    region: str | None,
+    stage: str,
+) -> None:
+    if not region:
+        raise SystemExit("AWS_REGION is required to provision Lambda VPC endpoints.")
+
+    endpoint_ids: list[str] = []
+    route_table_ids = _route_table_ids_for_subnets(ec2, vpc_id, subnet_ids)
+    if route_table_ids:
+        endpoint_ids.append(_ensure_s3_gateway_endpoint(ec2, vpc_id, route_table_ids, region, stage))
+
+    endpoint_security_group_id = _ensure_endpoint_security_group(ec2, vpc_id, lambda_security_group_id, stage)
+    endpoint_ids.append(
+        _ensure_interface_endpoint(
+            ec2,
+            vpc_id,
+            subnet_ids,
+            endpoint_security_group_id,
+            region,
+            "secretsmanager",
+            stage,
+        )
+    )
+    _wait_for_vpc_endpoints(ec2, [endpoint_id for endpoint_id in endpoint_ids if endpoint_id])
+
+
+def _route_table_ids_for_subnets(ec2, vpc_id: str, subnet_ids: list[str]) -> list[str]:
+    main_route_table_id = _main_route_table_id(ec2, vpc_id)
+    route_table_ids: list[str] = []
+    for subnet_id in subnet_ids:
+        response = ec2.describe_route_tables(
+            Filters=[
+                {"Name": "vpc-id", "Values": [vpc_id]},
+                {"Name": "association.subnet-id", "Values": [subnet_id]},
+            ]
+        )
+        tables = response.get("RouteTables", [])
+        route_table_id = str(tables[0].get("RouteTableId", "")) if tables else main_route_table_id
+        if route_table_id and route_table_id not in route_table_ids:
+            route_table_ids.append(route_table_id)
+    return route_table_ids
+
+
+def _main_route_table_id(ec2, vpc_id: str) -> str:
+    response = ec2.describe_route_tables(
+        Filters=[
+            {"Name": "vpc-id", "Values": [vpc_id]},
+            {"Name": "association.main", "Values": ["true"]},
+        ]
+    )
+    tables = response.get("RouteTables", [])
+    return str(tables[0].get("RouteTableId", "")) if tables else ""
+
+
+def _ensure_s3_gateway_endpoint(
+    ec2,
+    vpc_id: str,
+    route_table_ids: list[str],
+    region: str,
+    stage: str,
+) -> str:
+    service_name = f"com.amazonaws.{region}.s3"
+    existing = _vpc_endpoints(ec2, vpc_id, service_name, ["available", "pending"])
+    if existing:
+        endpoint = existing[0]
+        endpoint_id = str(endpoint["VpcEndpointId"])
+        existing_route_table_ids = {str(value) for value in endpoint.get("RouteTableIds", [])}
+        missing_route_table_ids = [value for value in route_table_ids if value not in existing_route_table_ids]
+        if missing_route_table_ids:
+            ec2.modify_vpc_endpoint(
+                VpcEndpointId=endpoint_id,
+                AddRouteTableIds=missing_route_table_ids,
+            )
+        return endpoint_id
+
+    response = ec2.create_vpc_endpoint(
+        VpcEndpointType="Gateway",
+        VpcId=vpc_id,
+        ServiceName=service_name,
+        RouteTableIds=route_table_ids,
+        TagSpecifications=[_endpoint_tags(stage, "s3")],
+    )
+    return str(response.get("VpcEndpoint", {}).get("VpcEndpointId", ""))
+
+
+def _ensure_interface_endpoint(
+    ec2,
+    vpc_id: str,
+    subnet_ids: list[str],
+    security_group_id: str,
+    region: str,
+    service: str,
+    stage: str,
+) -> str:
+    service_name = f"com.amazonaws.{region}.{service}"
+    existing = _vpc_endpoints(ec2, vpc_id, service_name, ["available", "pending"])
+    if existing:
+        endpoint = existing[0]
+        endpoint_id = str(endpoint["VpcEndpointId"])
+        existing_subnet_ids = {str(value) for value in endpoint.get("SubnetIds", [])}
+        missing_subnet_ids = [value for value in subnet_ids if value not in existing_subnet_ids]
+        kwargs: dict[str, object] = {}
+        if missing_subnet_ids:
+            kwargs["AddSubnetIds"] = missing_subnet_ids
+        if security_group_id not in _endpoint_security_group_ids(endpoint):
+            kwargs["AddSecurityGroupIds"] = [security_group_id]
+        if not endpoint.get("PrivateDnsEnabled", False):
+            kwargs["PrivateDnsEnabled"] = True
+        if kwargs:
+            ec2.modify_vpc_endpoint(VpcEndpointId=endpoint_id, **kwargs)
+        return endpoint_id
+
+    response = ec2.create_vpc_endpoint(
+        VpcEndpointType="Interface",
+        VpcId=vpc_id,
+        ServiceName=service_name,
+        SubnetIds=subnet_ids,
+        SecurityGroupIds=[security_group_id],
+        PrivateDnsEnabled=True,
+        TagSpecifications=[_endpoint_tags(stage, service)],
+    )
+    return str(response.get("VpcEndpoint", {}).get("VpcEndpointId", ""))
+
+
+def _vpc_endpoints(ec2, vpc_id: str, service_name: str, states: list[str]) -> list[dict]:
+    response = ec2.describe_vpc_endpoints(
+        Filters=[
+            {"Name": "vpc-id", "Values": [vpc_id]},
+            {"Name": "service-name", "Values": [service_name]},
+            {"Name": "vpc-endpoint-state", "Values": states},
+        ]
+    )
+    return list(response.get("VpcEndpoints", []))
+
+
+def _endpoint_security_group_ids(endpoint: dict) -> set[str]:
+    group_ids: set[str] = set()
+    for group in endpoint.get("Groups", []):
+        if isinstance(group, dict):
+            group_id = str(group.get("GroupId", ""))
+        else:
+            group_id = str(group)
+        if group_id:
+            group_ids.add(group_id)
+    return group_ids
+
+
+def _wait_for_vpc_endpoints(ec2, endpoint_ids: list[str]) -> None:
+    if not endpoint_ids:
+        return
+    try:
+        waiter = ec2.get_waiter("vpc_endpoint_available")
+    except Exception:
+        return
+    waiter.wait(
+        VpcEndpointIds=endpoint_ids,
+        WaiterConfig={"Delay": 5, "MaxAttempts": 24},
+    )
+
+
+def _ensure_endpoint_security_group(
+    ec2,
+    vpc_id: str,
+    lambda_security_group_id: str,
+    stage: str,
+) -> str:
+    group_name = f"kresco-{stage}-vpc-endpoints"
+    existing = ec2.describe_security_groups(
+        Filters=[
+            {"Name": "group-name", "Values": [group_name]},
+            {"Name": "vpc-id", "Values": [vpc_id]},
+        ]
+    ).get("SecurityGroups", [])
+    if existing:
+        group_id = str(existing[0]["GroupId"])
+    else:
+        response = ec2.create_security_group(
+            GroupName=group_name,
+            Description=f"Kresco {stage} private AWS service endpoints",
+            VpcId=vpc_id,
+            TagSpecifications=[
+                {
+                    "ResourceType": "security-group",
+                    "Tags": [
+                        {"Key": "Name", "Value": group_name},
+                        {"Key": "Project", "Value": "kresco"},
+                        {"Key": "Stage", "Value": stage},
+                    ],
+                }
+            ],
+        )
+        group_id = str(response["GroupId"])
+
+    try:
+        ec2.authorize_security_group_ingress(
+            GroupId=group_id,
+            IpPermissions=[
+                {
+                    "IpProtocol": "tcp",
+                    "FromPort": 443,
+                    "ToPort": 443,
+                    "UserIdGroupPairs": [
+                        {
+                            "GroupId": lambda_security_group_id,
+                            "Description": "Kresco Lambda to private AWS endpoints",
+                        }
+                    ],
+                }
+            ],
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") != "InvalidPermission.Duplicate":
+            raise
+    return group_id
+
+
+def _endpoint_tags(stage: str, service: str) -> dict[str, object]:
+    return {
+        "ResourceType": "vpc-endpoint",
+        "Tags": [
+            {"Key": "Name", "Value": f"kresco-{stage}-{service}"},
+            {"Key": "Project", "Value": "kresco"},
+            {"Key": "Stage", "Value": stage},
+        ],
+    }
 
 
 def _write_outputs(subnet_ids: str, security_group_ids: str) -> None:

@@ -69,3 +69,69 @@ def test_authorize_proxy_ingress_ignores_duplicate_rule():
             )
 
     resolver._authorize_proxy_ingress(FakeEc2(), ["sg-proxy"], "sg-lambda")
+
+
+def test_private_aws_service_access_creates_s3_and_secrets_manager_endpoints():
+    resolver = _load_resolver_module()
+
+    class FakeEc2:
+        def __init__(self):
+            self.created_endpoints = []
+            self.authorized_groups = []
+
+        def describe_route_tables(self, Filters):
+            filter_names = {filter_["Name"] for filter_ in Filters}
+            if "association.subnet-id" in filter_names:
+                subnet_id = next(filter_["Values"][0] for filter_ in Filters if filter_["Name"] == "association.subnet-id")
+                return {"RouteTables": [{"RouteTableId": f"rtb-{subnet_id[-1]}"}]}
+            return {"RouteTables": [{"RouteTableId": "rtb-main"}]}
+
+        def describe_vpc_endpoints(self, Filters):
+            return {"VpcEndpoints": []}
+
+        def describe_security_groups(self, Filters):
+            return {"SecurityGroups": []}
+
+        def create_security_group(self, **kwargs):
+            assert kwargs["GroupName"] == "kresco-staging-vpc-endpoints"
+            return {"GroupId": "sg-endpoints"}
+
+        def authorize_security_group_ingress(self, **kwargs):
+            self.authorized_groups.append(kwargs)
+
+        def create_vpc_endpoint(self, **kwargs):
+            self.created_endpoints.append(kwargs)
+            return {"VpcEndpoint": {"VpcEndpointId": f"vpce-{len(self.created_endpoints)}"}}
+
+    ec2 = FakeEc2()
+
+    resolver._ensure_private_aws_service_access(
+        ec2,
+        "vpc-123",
+        ["subnet-a", "subnet-b"],
+        "sg-lambda",
+        "eu-west-3",
+        "staging",
+    )
+
+    endpoint_types = {endpoint["VpcEndpointType"] for endpoint in ec2.created_endpoints}
+    service_names = {endpoint["ServiceName"] for endpoint in ec2.created_endpoints}
+    assert endpoint_types == {"Gateway", "Interface"}
+    assert service_names == {"com.amazonaws.eu-west-3.s3", "com.amazonaws.eu-west-3.secretsmanager"}
+    assert ec2.authorized_groups[0]["GroupId"] == "sg-endpoints"
+    assert ec2.authorized_groups[0]["IpPermissions"][0]["UserIdGroupPairs"][0]["GroupId"] == "sg-lambda"
+
+
+def test_existing_interface_endpoint_group_ids_are_parsed_from_group_objects():
+    resolver = _load_resolver_module()
+
+    group_ids = resolver._endpoint_security_group_ids(
+        {
+            "Groups": [
+                {"GroupId": "sg-one", "GroupName": "one"},
+                {"GroupId": "sg-two", "GroupName": "two"},
+            ]
+        }
+    )
+
+    assert group_ids == {"sg-one", "sg-two"}
