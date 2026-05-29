@@ -84,7 +84,12 @@ def validate_runtime_payloads(
     )
 
     realtime = _check(checks, "realtime", errors)
-    _require(realtime.get("ably_key") == "ok", "realtime.ably_key must be ok.", errors)
+    ably_key_status = realtime.get("ably_key")
+    _require(
+        ably_key_status == "ok",
+        f"realtime.ably_key must be ok (current: {ably_key_status!r}).",
+        errors,
+    )
     _require(realtime.get("outbox_secret_configured") is True, "realtime.outbox_secret_configured must be true.", errors)
     outbox_counts = realtime.get("outbox") if isinstance(realtime.get("outbox"), dict) else {}
     _require(outbox_counts.get("status") == "ok", "realtime.outbox.status must be ok.", errors)
