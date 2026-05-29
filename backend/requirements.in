@@ -1,5 +1,6 @@
 fastapi==0.136.1
 sqlalchemy[asyncio]==2.0.49
+greenlet==3.2.5
 asyncpg==0.31.0
 aiosqlite==0.22.1
 alembic==1.18.4

@@ -670,6 +670,8 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert 'python scripts/render_zappa_settings.py zappa_settings.json "$ZAPPA_STAGE"' in workflow
     assert 'zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"' in workflow
     assert 'zappa schedule "$ZAPPA_STAGE"' in workflow
+    assert "--platform manylinux2014_x86_64" in workflow
+    assert "--python-version 311" in workflow
     assert "DATABASE_CONNECTION_STRATEGY: rds_proxy" in workflow
     assert 'DATABASE_URL="${{ secrets.DATABASE_URL }}"' not in workflow
     render_step = workflow[

@@ -118,6 +118,22 @@ jobs:
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
+      - name: Install Lambda-compatible runtime wheels
+        run: |
+          cd backend
+          source venv/bin/activate
+          site_packages="$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+          python -m pip install \
+            --upgrade \
+            --force-reinstall \
+            --only-binary=:all: \
+            --platform manylinux2014_x86_64 \
+            --implementation cp \
+            --python-version 311 \
+            --abi cp311 \
+            --target "$site_packages" \
+            -r requirements.txt
+
       - name: Run Alembic migration check on Postgres
         run: |
           cd backend
