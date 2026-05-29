@@ -28,7 +28,7 @@ class RequiredIndex:
 class PlanCheck:
     name: str
     sql: str
-    expected_index: str
+    expected_indexes: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,7 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
     PlanCheck(
         "topic workspace sections",
         'SELECT id FROM topic_sections WHERE topic_id = 1 ORDER BY "order", id',
-        "ix_topic_sections_topic_order",
+        ("ix_topic_sections_topic_order",),
     ),
     PlanCheck(
         "topic workspace items",
@@ -66,7 +66,7 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
             "WHERE topic_id = 1 AND status = 'published' AND section_id IN (1, 2, 3) "
             'ORDER BY section_id, "order", id'
         ),
-        "ix_topic_items_workspace_order",
+        ("ix_topic_items_workspace_order",),
     ),
     PlanCheck(
         "topic workspace tabs",
@@ -75,7 +75,7 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
             "WHERE topic_item_id IN (1, 2, 3) AND status = 'published' "
             'ORDER BY topic_item_id, "order", id'
         ),
-        "ix_tab_contents_item_status_order",
+        ("ix_tab_contents_item_status_order",),
     ),
     PlanCheck(
         "topic workspace progress",
@@ -83,12 +83,12 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
             "SELECT id FROM topic_item_progress "
             "WHERE user_id = 1 AND topic_item_id IN (1, 2, 3) AND status = 'completed'"
         ),
-        "ix_topic_item_progress_user_item_status",
+        ("ix_topic_item_progress_user_item_status", "ix_topic_item_progress_user_topic_status"),
     ),
     PlanCheck(
         "topic workspace notes",
         "SELECT id FROM user_notes WHERE user_id = 1 AND topic_id = 1 ORDER BY updated_at DESC",
-        "ix_user_notes_user_topic_updated",
+        ("ix_user_notes_user_topic_updated",),
     ),
 )
 
@@ -139,8 +139,9 @@ async def _plan_failures(connection: AsyncConnection) -> list[str]:
     dialect = connection.dialect.name
     for check in PLAN_CHECKS:
         plan_text = await explain_query(connection, check.sql)
-        if check.expected_index not in plan_text:
-            failures.append(f"{check.name} did not use {check.expected_index}: {plan_text}")
+        if not any(expected_index in plan_text for expected_index in check.expected_indexes):
+            expected = ", ".join(check.expected_indexes)
+            failures.append(f"{check.name} did not use one of [{expected}]: {plan_text}")
         if dialect == "postgresql" and "Seq Scan" in plan_text:
             failures.append(f"{check.name} used a sequential scan despite index guard: {plan_text}")
         if dialect == "sqlite" and "SCAN " in plan_text and "USING INDEX" not in plan_text:

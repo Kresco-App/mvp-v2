@@ -56,7 +56,21 @@ def test_query_plan_audit_accepts_expected_index_plans(monkeypatch):
     audit = _load_query_plan_audit_module()
 
     async def fake_explain(_connection, _sql):
-        return "\n".join(f"Index Scan using {check.expected_index}" for check in audit.PLAN_CHECKS)
+        return "\n".join(f"Index Scan using {check.expected_indexes[0]}" for check in audit.PLAN_CHECKS)
+
+    monkeypatch.setattr(audit, "explain_query", fake_explain)
+    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+    assert asyncio.run(audit._plan_failures(connection)) == []
+
+
+def test_query_plan_audit_accepts_alternate_valid_progress_index(monkeypatch):
+    audit = _load_query_plan_audit_module()
+
+    async def fake_explain(_connection, sql):
+        if "topic_item_progress" in sql:
+            return "Index Scan using ix_topic_item_progress_user_topic_status on topic_item_progress"
+        return "\n".join(f"Index Scan using {check.expected_indexes[0]}" for check in audit.PLAN_CHECKS)
 
     monkeypatch.setattr(audit, "explain_query", fake_explain)
     connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
