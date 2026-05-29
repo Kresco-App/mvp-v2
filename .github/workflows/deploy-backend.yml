@@ -176,27 +176,6 @@ jobs:
           RDS_DB_CLUSTER_IDENTIFIER: ${{ vars.RDS_DB_CLUSTER_IDENTIFIER }}
           RDS_DB_INSTANCE_IDENTIFIER: ${{ vars.RDS_DB_INSTANCE_IDENTIFIER }}
 
-      - name: Record production migration revision before migration
-        if: ${{ env.ZAPPA_STAGE == 'production' }}
-        run: |
-          cd backend
-          source venv/bin/activate
-          alembic current
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DATABASE_CONNECTION_STRATEGY: rds_proxy
-          PGSSLROOTCERT: certs/rds-global-bundle.pem
-
-      - name: Run Alembic Migrations
-        run: |
-          cd backend
-          source venv/bin/activate
-          alembic upgrade head
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DATABASE_CONNECTION_STRATEGY: rds_proxy
-          PGSSLROOTCERT: certs/rds-global-bundle.pem
-
       - name: Render Zappa environment
         run: |
           cd backend
@@ -210,12 +189,20 @@ jobs:
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           CORS_ALLOW_ORIGIN_REGEX: ${{ vars.CORS_ALLOW_ORIGIN_REGEX }}
+          ZAPPA_SUBNET_IDS: ${{ vars.ZAPPA_SUBNET_IDS }}
+          ZAPPA_SECURITY_GROUP_IDS: ${{ vars.ZAPPA_SECURITY_GROUP_IDS }}
 
       - name: Deploy to Lambda
         run: |
           cd backend
           source venv/bin/activate
           zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"
+
+      - name: Run Alembic Migrations
+        run: |
+          cd backend
+          source venv/bin/activate
+          zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event
 
       - name: Schedule realtime outbox worker
         run: |

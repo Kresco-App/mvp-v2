@@ -44,6 +44,8 @@ DEPLOY_RENDER_ENV = {
     "KRESCO_RELEASE_SHA": "0123456789abcdef0123456789abcdef01234567",
     "FRONTEND_URL": "https://app.example.com",
     "CORS_ALLOWED_ORIGINS": "https://app.example.com",
+    "ZAPPA_SUBNET_IDS": "subnet-11111111,subnet-22222222",
+    "ZAPPA_SECURITY_GROUP_IDS": "sg-11111111",
 }
 
 
@@ -579,6 +581,10 @@ def test_render_zappa_settings_substitutes_placeholders_and_validates(tmp_path):
     assert rendered["MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS"] == "365"
     assert rendered["STRIPE_PK"] == ""
     assert rendered_doc["production"]["extra_permissions"][0]["Resource"] == RUNTIME_SECRET_ARN
+    assert rendered_doc["production"]["vpc_config"] == {
+        "SubnetIds": ["subnet-11111111", "subnet-22222222"],
+        "SecurityGroupIds": ["sg-11111111"],
+    }
     assert result.stage == "production"
     assert RUNTIME_SECRET_ID_ENV in result.replaced_keys
     assert "KRESCO_RELEASE_SHA" in result.replaced_keys
@@ -609,6 +615,10 @@ def test_render_zappa_settings_supports_staging_stage(tmp_path):
     assert rendered["CORS_ALLOWED_ORIGINS"] == SECRET_PLACEHOLDERS["CORS_ALLOWED_ORIGINS"]
     assert rendered["MEDIA_S3_PREFIX"] == "staging"
     assert rendered_doc["staging"]["extra_permissions"][0]["Resource"] == RUNTIME_SECRET_ARN
+    assert rendered_doc["staging"]["vpc_config"] == {
+        "SubnetIds": ["subnet-11111111", "subnet-22222222"],
+        "SecurityGroupIds": ["sg-11111111"],
+    }
     assert rendered_doc["production"]["environment_variables"]["KRESCO_RELEASE_SHA"] == PLACEHOLDER
     assert rendered_doc["production"]["environment_variables"][RUNTIME_SECRET_ID_ENV] == PLACEHOLDER
 

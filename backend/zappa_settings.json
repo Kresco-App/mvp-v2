@@ -35,6 +35,10 @@
                 "Resource": "__SET_IN_AWS_SECRETS__"
             }
         ],
+        "vpc_config": {
+            "SubnetIds": "__SET_IN_AWS_SECRETS__",
+            "SecurityGroupIds": "__SET_IN_AWS_SECRETS__"
+        },
         "events": [
             {
                 "function": "app.scheduled.process_realtime_outbox_event",
@@ -85,6 +89,10 @@
                 "Resource": "__SET_IN_AWS_SECRETS__"
             }
         ],
+        "vpc_config": {
+            "SubnetIds": "__SET_IN_AWS_SECRETS__",
+            "SecurityGroupIds": "__SET_IN_AWS_SECRETS__"
+        },
         "events": [
             {
                 "function": "app.scheduled.process_realtime_outbox_event",

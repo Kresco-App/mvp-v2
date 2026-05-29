@@ -97,7 +97,7 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "Capture production database snapshot before migration" in backend_workflow
     assert "aws rds create-db-cluster-snapshot" in backend_workflow
     assert "aws rds create-db-snapshot" in backend_workflow
-    assert "Record production migration revision before migration" in backend_workflow
+    assert 'zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event' in backend_workflow
     assert "Require production CloudWatch alarms" in backend_workflow
     assert "CLOUDWATCH_ALARM_NAMES: ${{ vars.CLOUDWATCH_ALARM_NAMES }}" in backend_workflow
     assert "aws cloudwatch describe-alarms" in backend_workflow

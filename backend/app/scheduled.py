@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Mapping
 from typing import Any
 
+from alembic import command
+from alembic.config import Config
+
+from app.config import BACKEND_DIR
 from app.config import Settings, get_settings
 from app.database import get_session_factory, init_engine
 from app.services.realtime_outbox import process_realtime_outbox
@@ -13,6 +18,25 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_OUTBOX_LIMIT = 100
 MAX_OUTBOX_LIMIT = 500
+
+
+def run_alembic_migrations_event(
+    event: Mapping[str, Any] | None = None,
+    context: Any = None,
+) -> dict[str, str | bool]:
+    del context
+    revision = str((event or {}).get("revision") or "head").strip()
+    if revision != "head":
+        raise ValueError("Only Alembic upgrade to head is supported by the deployment worker.")
+
+    settings = get_settings()
+    os.environ["DATABASE_URL"] = settings.database_url
+    os.environ["PGSSLROOTCERT"] = settings.pgsslrootcert
+
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    command.upgrade(config, revision)
+    return {"ok": True, "revision": revision}
 
 
 def process_realtime_outbox_event(

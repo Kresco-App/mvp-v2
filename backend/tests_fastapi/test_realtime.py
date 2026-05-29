@@ -644,6 +644,23 @@ def test_scheduled_realtime_outbox_event_drains_queue(app_client, run_db, monkey
     ]
 
 
+def test_scheduled_alembic_migration_event_runs_head(monkeypatch, test_settings):
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(scheduled, "get_settings", lambda: test_settings)
+    monkeypatch.setattr(
+        scheduled.command,
+        "upgrade",
+        lambda config, revision: calls.append((config.get_main_option("script_location"), revision)),
+    )
+
+    result = scheduled.run_alembic_migrations_event()
+
+    assert result == {"ok": True, "revision": "head"}
+    assert calls == [(str(scheduled.BACKEND_DIR / "alembic"), "head")]
+    assert scheduled.os.environ["DATABASE_URL"] == test_settings.database_url
+    assert scheduled.os.environ["PGSSLROOTCERT"] == test_settings.pgsslrootcert
+
+
 def test_scheduled_realtime_outbox_limit_parsing():
     assert scheduled._outbox_limit_from_event({}) == scheduled.DEFAULT_OUTBOX_LIMIT
     assert scheduled._outbox_limit_from_event({"limit": "7"}) == 7

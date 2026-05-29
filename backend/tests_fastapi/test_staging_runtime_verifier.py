@@ -121,8 +121,11 @@ def test_staging_runtime_verifier_derives_internal_urls_from_ready_url():
 def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
+    deploy_index = workflow.index('zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"')
+    migration_index = workflow.index('zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event')
     schedule_index = workflow.index('zappa schedule "$ZAPPA_STAGE"')
     verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"')
 
+    assert deploy_index < migration_index < schedule_index
     assert schedule_index < verifier_index
     assert "KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}" in workflow

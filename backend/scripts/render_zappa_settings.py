@@ -51,6 +51,10 @@ OPTIONAL_OVERRIDE_KEYS = {
     "FRONTEND_URL",
     "STRIPE_PK",
 }
+VPC_CONFIG_ENV_KEYS = {
+    "SubnetIds": "ZAPPA_SUBNET_IDS",
+    "SecurityGroupIds": "ZAPPA_SECURITY_GROUP_IDS",
+}
 
 ENV_TO_SETTINGS_FIELD = {
     "KRESCO_ENV": "environment",
@@ -125,6 +129,7 @@ def render_zappa_settings(
         )
 
     resolved_env, replaced_keys, overridden_keys = _resolve_environment_variables(zappa_env, env)
+    _resolve_vpc_config(zappa_stage, env)
     _resolve_runtime_secret_permission(zappa_stage, resolved_env)
     _validate_rendered_environment(resolved_env, target_stage)
 
@@ -174,6 +179,56 @@ def _resolve_environment_variables(
         raise ZappaRenderError(f"Unresolved Zappa placeholders remain: {joined}")
 
     return resolved_env, replaced_keys, overridden_keys
+
+
+def _resolve_vpc_config(zappa_stage: dict[str, object], runtime_env: Mapping[str, str]) -> None:
+    vpc_config = zappa_stage.get("vpc_config")
+    if vpc_config is None:
+        return
+    if not isinstance(vpc_config, dict):
+        raise ZappaRenderError("zappa_settings.json vpc_config must be an object.")
+
+    missing_keys: list[str] = []
+    for config_key, env_key in VPC_CONFIG_ENV_KEYS.items():
+        configured_value = vpc_config.get(config_key)
+        if configured_value != PLACEHOLDER:
+            continue
+        runtime_value = str(runtime_env.get(env_key, "")).strip()
+        if not runtime_value:
+            missing_keys.append(env_key)
+            continue
+        vpc_config[config_key] = _parse_vpc_id_list(runtime_value, env_key)
+
+    if missing_keys:
+        joined = ", ".join(sorted(missing_keys))
+        raise ZappaRenderError(f"Missing required deploy environment variables: {joined}")
+
+    subnet_ids = vpc_config.get("SubnetIds")
+    security_group_ids = vpc_config.get("SecurityGroupIds")
+    if not _valid_prefixed_id_list(subnet_ids, "subnet-"):
+        raise ZappaRenderError("ZAPPA_SUBNET_IDS must contain one or more subnet IDs.")
+    if not _valid_prefixed_id_list(security_group_ids, "sg-"):
+        raise ZappaRenderError("ZAPPA_SECURITY_GROUP_IDS must contain one or more security group IDs.")
+
+
+def _parse_vpc_id_list(raw_value: str, env_key: str) -> list[str]:
+    try:
+        decoded = json.loads(raw_value)
+    except json.JSONDecodeError:
+        decoded = raw_value
+
+    if isinstance(decoded, list):
+        values = [str(item).strip() for item in decoded]
+    else:
+        values = [part.strip() for part in str(decoded).split(",")]
+    values = [value for value in values if value]
+    if not values:
+        raise ZappaRenderError(f"{env_key} must contain one or more comma-separated IDs.")
+    return values
+
+
+def _valid_prefixed_id_list(value: object, prefix: str) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(item, str) and item.startswith(prefix) for item in value)
 
 
 def _resolve_runtime_secret_permission(zappa_stage: dict[str, object], resolved_env: Mapping[str, str]) -> None:
