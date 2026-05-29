@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import ssl
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse, urlunparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -16,6 +16,7 @@ _POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "ver
 def _build_async_url(url: str, pgsslrootcert: str | None = None) -> tuple[str, dict]:
     """Convert a standard DB URL to an async SQLAlchemy URL."""
     connect_args: dict = {}
+    url = _quote_postgres_url_credentials(url.strip())
 
     if url.startswith("postgresql://") or url.startswith("postgres://") or url.startswith("postgresql+asyncpg://"):
         parsed = urlparse(url)
@@ -42,6 +43,27 @@ def _build_async_url(url: str, pgsslrootcert: str | None = None) -> tuple[str, d
         return urlunparse(clean_parsed), connect_args
 
     return url, connect_args
+
+
+def _quote_postgres_url_credentials(url: str) -> str:
+    """Percent-encode PostgreSQL credentials while preserving already encoded values."""
+    if not (url.startswith("postgresql://") or url.startswith("postgres://") or url.startswith("postgresql+asyncpg://")):
+        return url
+    if "://" not in url or "@" not in url:
+        return url
+
+    scheme, rest = url.split("://", 1)
+    userinfo, location = rest.rsplit("@", 1)
+    if ":" not in userinfo:
+        return url
+
+    username, password = userinfo.split(":", 1)
+    if not username:
+        return url
+
+    quoted_username = quote(unquote(username), safe="")
+    quoted_password = quote(unquote(password), safe="")
+    return f"{scheme}://{quoted_username}:{quoted_password}@{location}"
 
 
 def _ssl_for_postgres(sslmode: str, sslrootcert: str = "") -> bool | ssl.SSLContext:
