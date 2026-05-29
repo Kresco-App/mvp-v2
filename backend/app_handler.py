@@ -1,4 +1,5 @@
 import os
+import asyncio
 from collections.abc import Callable
 
 os.environ.setdefault("LAMBDA_TASK_ROOT", "/var/task")
@@ -6,11 +7,12 @@ os.environ.setdefault("LAMBDA_TASK_ROOT", "/var/task")
 from a2wsgi import ASGIMiddleware
 
 from app.config import get_settings
-from app.main import create_app
+from app.main import create_app, initialize_app_runtime
 from app.stage_prefix import strip_stage_prefix
 
 _settings = get_settings()
 _app = create_app(_settings)
+asyncio.run(initialize_app_runtime(_app, _settings))
 
 
 class StripApiGatewayStagePrefix:

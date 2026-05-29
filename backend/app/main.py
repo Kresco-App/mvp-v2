@@ -153,6 +153,24 @@ def _register_sqladmin(app: FastAPI, settings: Settings, engine) -> None:
     register_admin_views(admin)
 
 
+async def initialize_app_runtime(app: FastAPI, settings: Settings):
+    if app.state.db_engine is not None:
+        return app.state.db_engine
+
+    engine, _ = init_engine(
+        settings.database_url,
+        settings.is_lambda,
+        settings.pgsslrootcert,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+        pool_timeout=settings.database_pool_timeout,
+    )
+    app.state.db_engine = engine
+    await warm_media_storage_client(settings)
+    _register_sqladmin(app, settings, engine)
+    return engine
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = get_settings()
@@ -164,17 +182,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        engine, _ = init_engine(
-            settings.database_url,
-            settings.is_lambda,
-            settings.pgsslrootcert,
-            pool_size=settings.database_pool_size,
-            max_overflow=settings.database_max_overflow,
-            pool_timeout=settings.database_pool_timeout,
-        )
-        app.state.db_engine = engine
-        await warm_media_storage_client(settings)
-        _register_sqladmin(app, settings, engine)
+        await initialize_app_runtime(app, settings)
         try:
             yield
         finally:
