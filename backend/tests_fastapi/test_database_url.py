@@ -63,6 +63,19 @@ def test_postgres_url_preserves_existing_percent_encoded_credentials():
     assert parsed.port == 5432
 
 
+def test_postgres_url_normalizes_sync_dialect_to_asyncpg():
+    async_url, connect_args = _build_async_url(
+        "postgresql+psycopg2://user:p@ss:word@db.example.com:5432/kresco?sslmode=require"
+    )
+
+    parsed = make_url(async_url)
+    assert parsed.drivername == "postgresql+asyncpg"
+    assert parsed.password == "p@ss:word"
+    assert parsed.host == "db.example.com"
+    assert parsed.port == 5432
+    assert connect_args == {"ssl": True}
+
+
 def test_postgres_sslmode_rejects_unknown_value():
     with pytest.raises(ValueError, match="Unsupported PostgreSQL sslmode"):
         _build_async_url("postgresql://user:pass@db.example.com/kresco?sslmode=trust-me")

@@ -13,12 +13,16 @@ _engine_cache_key = None
 _POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
 
+def _is_postgres_url(url: str) -> bool:
+    return url.startswith("postgresql://") or url.startswith("postgres://") or url.startswith("postgresql+")
+
+
 def _build_async_url(url: str, pgsslrootcert: str | None = None) -> tuple[str, dict]:
     """Convert a standard DB URL to an async SQLAlchemy URL."""
     connect_args: dict = {}
     url = _quote_postgres_url_credentials(url.strip())
 
-    if url.startswith("postgresql://") or url.startswith("postgres://") or url.startswith("postgresql+asyncpg://"):
+    if _is_postgres_url(url):
         parsed = urlparse(url)
         qs = parse_qs(parsed.query)
 
@@ -47,7 +51,7 @@ def _build_async_url(url: str, pgsslrootcert: str | None = None) -> tuple[str, d
 
 def _quote_postgres_url_credentials(url: str) -> str:
     """Percent-encode PostgreSQL credentials while preserving already encoded values."""
-    if not (url.startswith("postgresql://") or url.startswith("postgres://") or url.startswith("postgresql+asyncpg://")):
+    if not _is_postgres_url(url):
         return url
     if "://" not in url or "@" not in url:
         return url
