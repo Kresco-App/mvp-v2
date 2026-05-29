@@ -121,11 +121,17 @@ def test_staging_runtime_verifier_derives_internal_urls_from_ready_url():
 def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
+    vpc_index = workflow.index("- name: Resolve Lambda VPC config")
+    render_index = workflow.index("- name: Render Zappa environment")
     deploy_index = workflow.index('zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"')
     migration_index = workflow.index('zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event')
     schedule_index = workflow.index('zappa schedule "$ZAPPA_STAGE"')
     verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"')
 
+    assert vpc_index < render_index < deploy_index
     assert deploy_index < migration_index < schedule_index
     assert schedule_index < verifier_index
+    assert "python scripts/resolve_zappa_vpc_config.py" in workflow
+    assert "ZAPPA_SUBNET_IDS: ${{ steps.vpc_config.outputs.subnet_ids }}" in workflow
+    assert "ZAPPA_SECURITY_GROUP_IDS: ${{ steps.vpc_config.outputs.security_group_ids }}" in workflow
     assert "KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}" in workflow
