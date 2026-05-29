@@ -87,6 +87,12 @@ def _resolve_sslrootcert(value: str) -> Path | None:
     cleaned = value.strip()
     if not cleaned:
         return None
+    if cleaned.lower() == "certifi":
+        import certifi
+
+        return Path(certifi.where())
+    if cleaned.lower() in {"system", "default"}:
+        return None
     return Path(cleaned).expanduser()
 
 

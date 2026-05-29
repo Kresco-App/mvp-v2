@@ -73,8 +73,8 @@ Evidence:
 - `backend/certs/rds-global-bundle.pem`: present in repo ✓
 - `app/config.py:Settings.pgsslrootcert`: defaults to `certs/rds-global-bundle.pem` ✓
 - `app/database.py:_ssl_for_postgres()`: constructs `ssl.SSLContext` with `cafile=rds-global-bundle.pem` and `check_hostname=True` when `sslmode=verify-full` ✓
-- `app/config.py:production_config_errors()`: validates `sslmode=verify-full` in `DATABASE_URL` and that `PGSSLROOTCERT` points to a readable file ✓
-- `zappa_settings.json` staging: `DATABASE_CONNECTION_STRATEGY=rds_proxy`, `PGSSLROOTCERT=certs/rds-global-bundle.pem` ✓
+- `app/config.py:production_config_errors()`: validates `sslmode=verify-full` in `DATABASE_URL` and that `PGSSLROOTCERT` points to a readable CA trust store ✓
+- `zappa_settings.json` staging: `DATABASE_CONNECTION_STRATEGY=rds_proxy`, `PGSSLROOTCERT=certifi` for RDS Proxy's ACM/Amazon Trust Services certificate chain ✓
 - `/ready` endpoint uses `SELECT 1` over the same engine (exercises TLS path on staging) ✓
 
 Failures: none in code

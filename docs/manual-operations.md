@@ -41,7 +41,7 @@ Backend:
 ```text
 DATABASE_URL=
 DATABASE_CONNECTION_STRATEGY=rds_proxy
-PGSSLROOTCERT=certs/rds-global-bundle.pem
+PGSSLROOTCERT=certifi
 JWT_SECRET_KEY=
 STRIPE_SK=
 STRIPE_PRODUCT_ID=
@@ -160,7 +160,7 @@ The response reports database reachability, Alembic head state, S3 media configu
 
 ## RDS TLS
 
-Production database URLs must include `sslmode=verify-full`, and `PGSSLROOTCERT` must point to the bundled AWS RDS CA file at `certs/rds-global-bundle.pem`. The bundle comes from the AWS RDS trust store URL documented by AWS: `https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem`.
+Production database URLs must include `sslmode=verify-full`. For RDS Proxy endpoints, set `PGSSLROOTCERT=certifi` so Python uses the certifi CA store, which includes the Amazon Trust Services roots used by AWS Certificate Manager certificates on RDS Proxy. Direct RDS instance connections may still use the bundled AWS RDS CA file at `certs/rds-global-bundle.pem`.
 
 Production-like deployments must also declare `DATABASE_CONNECTION_STRATEGY=rds_proxy`. The Lambda SQLAlchemy engine uses short-lived connections in Lambda, and the database URL must point at the RDS Proxy endpoint so concurrency spikes do not connect directly to the database writer.
 

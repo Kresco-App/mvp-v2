@@ -571,7 +571,7 @@ def test_render_zappa_settings_substitutes_placeholders_and_validates(tmp_path):
     assert rendered[RUNTIME_SECRET_ID_ENV] == RUNTIME_SECRET_ARN
     assert rendered["KRESCO_RELEASE_SHA"] == DEPLOY_RENDER_ENV["KRESCO_RELEASE_SHA"]
     assert rendered["DATABASE_CONNECTION_STRATEGY"] == "rds_proxy"
-    assert rendered["PGSSLROOTCERT"] == "certs/rds-global-bundle.pem"
+    assert rendered["PGSSLROOTCERT"] == "certifi"
     assert rendered["FRONTEND_URL"] == "https://app.example.com"
     assert rendered["CORS_ALLOWED_ORIGINS"] == "https://app.example.com"
     assert rendered["MEDIA_STORAGE_BACKEND"] == "s3"

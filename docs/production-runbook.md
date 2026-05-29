@@ -5,7 +5,7 @@ Production remains frozen until the traceability gate says otherwise. Use this r
 ## Release Preflight
 
 1. Confirm the target GitHub Environment has separate `DATABASE_URL`, `MEDIA_S3_BUCKET`, `FRONTEND_URL`, `CORS_ALLOWED_ORIGINS`, `REALTIME_OUTBOX_SECRET`, JWT, Stripe, Resend, Ably, Google, and VdoCipher secrets.
-2. Confirm `DATABASE_URL` points at the RDS Proxy endpoint, includes `sslmode=verify-full`, and uses `PGSSLROOTCERT=certs/rds-global-bundle.pem`.
+2. Confirm `DATABASE_URL` points at the RDS Proxy endpoint, includes `sslmode=verify-full`, and uses `PGSSLROOTCERT=certifi` for the AWS Certificate Manager / Amazon Trust Services certificate chain used by RDS Proxy.
 3. Confirm backend Zappa settings for the stage use `DATABASE_CONNECTION_STRATEGY=rds_proxy`, `memory_size >= 1024`, `timeout_seconds >= 45`, and `keep_warm=true`.
 4. Confirm the S3 bucket has Block Public Access, no public read policy, and lifecycle rules for the stage prefix.
 5. Confirm `CLOUDWATCH_ALARM_NAMES` is configured on the production GitHub Environment and points to alarms covering `Request5xx`, `UnhandledException`, `ClientError`, and `ReadinessError` from the `Kresco/Api` metric namespace.

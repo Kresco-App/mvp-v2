@@ -237,8 +237,8 @@ class Settings(BaseSettings):
             sslmode = _database_sslmode(self.database_url)
             if sslmode != "verify-full":
                 errors.append("DATABASE_URL must include sslmode=verify-full in production environments.")
-            if not _is_readable_file(self.pgsslrootcert):
-                errors.append("PGSSLROOTCERT must point to the bundled readable RDS CA PEM file.")
+            if not _is_readable_trust_store(self.pgsslrootcert):
+                errors.append("PGSSLROOTCERT must point to a readable CA trust store.")
 
         if self.database_connection_strategy.strip().lower() != "rds_proxy":
             errors.append("DATABASE_CONNECTION_STRATEGY must be rds_proxy in production environments.")
@@ -370,8 +370,11 @@ def _database_sslmode(value: str) -> str:
     return parse_qs(parsed.query).get("sslmode", [""])[0].strip().lower()
 
 
-def _is_readable_file(value: str) -> bool:
+def _is_readable_trust_store(value: str) -> bool:
     try:
+        cleaned = value.strip().lower()
+        if cleaned in {"certifi", "system", "default"}:
+            return True
         path = Path(value).expanduser()
         return path.is_file()
     except OSError:

@@ -39,6 +39,18 @@ def test_postgres_sslmode_verify_ca_disables_hostname_check_but_verifies_ca():
     assert connect_args["ssl"].verify_mode == ssl.CERT_REQUIRED
 
 
+def test_postgres_sslmode_verify_full_accepts_certifi_trust_store_alias():
+    async_url, connect_args = _build_async_url(
+        "postgresql+asyncpg://user:pass@proxy.example.com/kresco?sslmode=verify-full",
+        pgsslrootcert="certifi",
+    )
+
+    assert async_url == "postgresql+asyncpg://user:pass@proxy.example.com/kresco"
+    assert isinstance(connect_args["ssl"], ssl.SSLContext)
+    assert connect_args["ssl"].check_hostname is True
+    assert connect_args["ssl"].verify_mode == ssl.CERT_REQUIRED
+
+
 def test_postgres_url_quotes_raw_reserved_password_characters():
     async_url, connect_args = _build_async_url(
         "postgresql+asyncpg://kresco_admin:abc@n!cMm*dxqIQfB*67GB@proxy.example.com:5432/kresco?sslmode=require"
