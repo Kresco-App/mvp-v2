@@ -51,7 +51,8 @@
         "manage_roles": true,
         "apigateway_enabled": true,
         "slim_handler": true,
-        "keep_warm": true
+        "keep_warm": true,
+        "touch": false
     },
     "staging": {
         "app_function": "app_handler.application",
@@ -105,6 +106,7 @@
         "manage_roles": true,
         "apigateway_enabled": true,
         "slim_handler": true,
-        "keep_warm": true
+        "keep_warm": true,
+        "touch": false
     }
 }

@@ -585,6 +585,7 @@ def test_render_zappa_settings_substitutes_placeholders_and_validates(tmp_path):
         "SubnetIds": ["subnet-11111111", "subnet-22222222"],
         "SecurityGroupIds": ["sg-11111111"],
     }
+    assert rendered_doc["production"]["touch"] is False
     assert result.stage == "production"
     assert RUNTIME_SECRET_ID_ENV in result.replaced_keys
     assert "KRESCO_RELEASE_SHA" in result.replaced_keys
@@ -619,6 +620,7 @@ def test_render_zappa_settings_supports_staging_stage(tmp_path):
         "SubnetIds": ["subnet-11111111", "subnet-22222222"],
         "SecurityGroupIds": ["sg-11111111"],
     }
+    assert rendered_doc["staging"]["touch"] is False
     assert rendered_doc["production"]["environment_variables"]["KRESCO_RELEASE_SHA"] == PLACEHOLDER
     assert rendered_doc["production"]["environment_variables"][RUNTIME_SECRET_ID_ENV] == PLACEHOLDER
 
