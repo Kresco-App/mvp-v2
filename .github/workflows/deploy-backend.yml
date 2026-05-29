@@ -181,7 +181,7 @@ jobs:
         run: |
           cd backend
           source venv/bin/activate
-          DATABASE_URL="${{ secrets.DATABASE_URL }}" alembic current
+          alembic current
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_CONNECTION_STRATEGY: rds_proxy
@@ -191,7 +191,7 @@ jobs:
         run: |
           cd backend
           source venv/bin/activate
-          DATABASE_URL="${{ secrets.DATABASE_URL }}" alembic upgrade head
+          alembic upgrade head
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_CONNECTION_STRATEGY: rds_proxy
