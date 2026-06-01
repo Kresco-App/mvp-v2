@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import Image from 'next/image'
 import { ListChecks, Search, Send } from 'lucide-react'
 import { toast } from 'sonner'
@@ -42,9 +43,9 @@ export function LockedContentPanel({
         <span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">
           {lockedContentReason(reason)}
         </span>
-        <span className="rounded-full bg-[#fff7df] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#b76b00]">
+        <Link className="rounded-full bg-[#fff7df] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#b76b00] transition hover:bg-[#ffe8ad]" href="/pricing">
           Upgrade to unlock
-        </span>
+        </Link>
       </div>
     </div>
   )

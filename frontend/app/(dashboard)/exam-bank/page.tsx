@@ -193,10 +193,15 @@ export default function ExamBankPage() {
                         </Link>
                       )}
                       {problem.can_access === false && (
-                        <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-[#f4f4f5] px-4 text-xs font-black text-[#71717b]">
-                          <Lock size={14} />
-                          {lockedExamReason(problem.locked_reason)}{lockMetadata(problem) ? ` - ${lockMetadata(problem)}` : ''}
-                        </span>
+                        <>
+                          <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-[#f4f4f5] px-4 text-xs font-black text-[#71717b]">
+                            <Lock size={14} />
+                            {lockedExamReason(problem.locked_reason)}{lockMetadata(problem) ? ` - ${lockMetadata(problem)}` : ''}
+                          </span>
+                          <Link href="/pricing" className="inline-flex h-11 items-center rounded-[14px] bg-[#5b60f9] px-4 text-xs font-black text-white transition hover:brightness-[1.03]">
+                            Unlock options
+                          </Link>
+                        </>
                       )}
                       <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-white px-4 text-xs font-black text-[#71717b]">
                         <FileText size={14} />
@@ -233,7 +238,12 @@ function LockedExamPreview({ exam }: { exam: VisibleExam }) {
       <p className="m-0 text-sm font-black leading-relaxed text-[#52525c]">
         Locked preview: {exam.subject_title} {exam.year} {exam.session}. {exam.totalProblemCount} problem(s) are listed so you can inspect the exam structure before unlocking.
       </p>
-      {metadata && <p className="m-0 mt-1 text-xs font-black capitalize text-[#9f9fa9]">{metadata}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        {metadata && <p className="m-0 text-xs font-black capitalize text-[#9f9fa9]">{metadata}</p>}
+        <Link href="/pricing" className="inline-flex h-9 items-center rounded-[12px] bg-[#5b60f9] px-4 text-xs font-black text-white transition hover:brightness-[1.03]">
+          View unlock options
+        </Link>
+      </div>
     </div>
   )
 }

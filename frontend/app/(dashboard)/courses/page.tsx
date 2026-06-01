@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -294,13 +295,21 @@ function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () 
           </div>
         )}
 
-        <button
-          className="mt-6 h-[44px] w-full rounded-[12px] bg-[#5b60f9] px-[34px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition hover:brightness-[1.03]"
-          type="button"
-          onClick={onClose}
-        >
-          Got it
-        </button>
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <Link
+            className="inline-flex h-[44px] flex-1 items-center justify-center rounded-[12px] bg-[#5b60f9] px-[24px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition hover:brightness-[1.03]"
+            href="/pricing"
+          >
+            View unlock options
+          </Link>
+          <button
+            className="h-[44px] flex-1 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-[24px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#71717b] transition hover:bg-[#f4f4f5]"
+            type="button"
+            onClick={onClose}
+          >
+            Keep browsing
+          </button>
+        </div>
       </section>
     </div>
   )

@@ -580,6 +580,7 @@ Fixed and validated:
 - [x] **[HIGH]** `backend/app/services/course_tab_quiz_submission.py` / `backend/app/routers/courses.py` / `frontend/components/topic-workspace/TopicWorkspaceQuizTab.tsx` - Quiz tabs now expose recent attempts, score/pass state, per-question correctness, retry, and reset. Backend responses return safe grading summaries without answer secrets.
 - [x] **[MEDIUM]** `backend/app/routers/interactions.py` / `backend/app/services/interaction_mutations.py` / `frontend/components/topic-workspace/TopicWorkspaceNotesTab.tsx` - Workspace notes now support list/review by item/tab context, create, owner-only update, and owner-only delete.
 - [x] **[MEDIUM]** `backend/app/routers/courses.py` / `backend/app/services/interaction_mutations.py` / `frontend/components/topic-workspace/TopicWorkspaceResourcePanel.tsx` - Resource tabs now expose open/preview/download controls and call a backend resource-open tracking endpoint that requires access, resolves workspace context, and marks item progress started without regressing completed state.
+- [x] **[MEDIUM]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` / `frontend/app/(dashboard)/courses/page.tsx` / `frontend/app/(dashboard)/exam-bank/page.tsx` - Locked previews now route to `/pricing` with explicit unlock CTAs instead of ending at static "upgrade" text or a close-only modal.
 - [x] **[STRUCTURE]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` - Prevented the workspace panel from growing past 1k lines by extracting quiz, notes, resource, and common panel modules. Current line counts: root panel 349, quiz tab 468, notes tab 265, resource panel 140.
 
 Validated commands:
@@ -600,7 +601,6 @@ Round 8 items still open after this implementation:
 - [ ] **[MEDIUM]** `backend/app/services/course_topic_mutations.py` / `backend/app/services/interaction_mutations.py` / `frontend/app/(dashboard)/exam-bank/page.tsx` - Full activity/XP coverage is still partial beyond resource-open tracking and quiz attempts.
 - [ ] **[LOW]** Topic search still lacks difficulty-tag API fields.
 - [ ] **[LOW]** Embedded source-port course navigation is still inert.
-- [ ] **[MEDIUM]** Locked previews still need real pricing/checkout/unlock CTAs.
 - [ ] **[LOW]** Account settings and notifications inbox remain shallow.
 - [ ] **[HIGH]** Seed-first Bac content pipeline and full course-authoring UI/API are still missing.
 - [ ] **[MEDIUM]** Activity builder persistence and ops emergency disable controls are still missing.
