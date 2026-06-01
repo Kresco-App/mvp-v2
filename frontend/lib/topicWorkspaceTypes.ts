@@ -6,8 +6,10 @@ export interface Resource {
   provider_resource_id: string
   url: string
   summary: string
+  metadata_json?: Record<string, unknown>
   can_access?: boolean
   locked_reason?: string
+  access_reason?: string
 }
 
 export interface TabContent {
@@ -54,7 +56,9 @@ export interface TopicSection {
 
 export interface TopicWorkspace {
   id: number
+  subject_id?: number
   subject_title: string
+  slug?: string
   title: string
   description: string
   progress_pct: number
@@ -67,6 +71,17 @@ export interface TopicWorkspace {
   can_access?: boolean
   locked_reason?: string
   access_reason?: string
+}
+
+export interface TopicWorkspaceNote {
+  id: number
+  subject_id?: number | null
+  topic_id?: number | null
+  topic_item_id?: number | null
+  tab_content_id?: number | null
+  body: string
+  created_at?: string
+  updated_at?: string
 }
 
 export type WorkspaceTabSlot = 'course' | 'lab' | 'quiz' | 'resources' | 'notes' | 'comments'

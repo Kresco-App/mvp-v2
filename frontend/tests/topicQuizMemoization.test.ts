@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 describe('topic quiz render isolation', () => {
   it('keeps quiz question rows memoized behind a stable answer dispatcher', () => {
-    const source = readFileSync(join(process.cwd(), 'components', 'topic-workspace', 'TopicWorkspacePanels.tsx'), 'utf8')
+    const source = readFileSync(join(process.cwd(), 'components', 'topic-workspace', 'TopicWorkspaceQuizTab.tsx'), 'utf8')
 
     expect(source).toContain('import { memo, useCallback, useEffect, useMemo, useState }')
     expect(source).toContain('const QuizQuestionCard = memo(function QuizQuestionCard')

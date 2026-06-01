@@ -65,6 +65,16 @@ const calendarEvent = {
   color: '#453dee',
 }
 
+const topicVideoResource = {
+  id: 601,
+  title: 'Continuity stream',
+  resource_type: 'video',
+  provider: 'vdocipher',
+  provider_resource_id: 'demo-preview',
+  url: 'https://video.example/stream',
+  summary: 'Provider-backed continuity lesson stream.',
+}
+
 const topicItem = {
   id: 101,
   topic_id: 42,
@@ -76,8 +86,31 @@ const topicItem = {
   duration_seconds: 600,
   progress_status: 'in_progress',
   can_access: true,
-  primary_resource: null,
+  primary_resource: topicVideoResource,
+  primary_tab_content_id: 500,
+  primary_tab: {
+    id: 500,
+    label: 'Lesson video',
+    tab_type: 'video',
+    content: '',
+    config_json: {},
+    renderer_key: 'vdocipher',
+    order: 0,
+    can_access: true,
+    resource: topicVideoResource,
+  },
   tabs: [
+    {
+      id: 500,
+      label: 'Lesson video',
+      tab_type: 'video',
+      content: '',
+      config_json: {},
+      renderer_key: 'vdocipher',
+      order: 0,
+      can_access: true,
+      resource: topicVideoResource,
+    },
     {
       id: 501,
       label: 'Course',
@@ -762,6 +795,16 @@ async function mockApi(page: Page) {
       return
     }
 
+    if (path === '/courses/topic-items/101/stream') {
+      await route.fulfill({
+        json: {
+          otp: 'mock-otp-token',
+          playback_info: 'smoke-playback',
+        },
+      })
+      return
+    }
+
 
 
     await route.fulfill({ json: {} })
@@ -835,6 +878,7 @@ test('topic workspace hydrates with mocked course data', async ({ page }) => {
 
   await page.goto('/topics/42')
   await expect(page.getByRole('heading', { name: /Mathematics: Continuity introduction/i })).toBeVisible()
+  await expect(page.getByText('Apercu video local')).toBeVisible()
   await expect(page.getByText('Mock course content for continuity and limits.')).toBeVisible()
   await expect(page.getByLabel('Search this topic')).toBeVisible()
   await page.getByRole('button', { name: /Lab/i }).click()

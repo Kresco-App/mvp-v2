@@ -2,6 +2,8 @@ import { nextImageOptimizerSrc } from '@/lib/nextImageOptimizer'
 import { normalizeRendererKey } from '@/lib/topicWorkspaceTabs'
 import type { Resource, TabContent, TopicItem, TopicRailSection, TopicSection, TopicWorkspace } from '@/lib/topicWorkspaceTypes'
 
+const YOUTUBE_PROVIDER_MARKERS = ['youtube', 'youtu']
+
 export function formatTopicItemDuration(seconds: number) {
   if (!seconds) return ''
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
@@ -23,20 +25,44 @@ export function resourceVideoId(resource?: Resource | null) {
   return match?.[1] || match?.[0] || null
 }
 
+export function isVideoResource(resource?: Resource | null) {
+  return resource?.resource_type?.toLowerCase() === 'video'
+}
+
+export function isYouTubeResource(resource?: Resource | null) {
+  const provider = resource?.provider?.trim().toLowerCase() || ''
+  if (YOUTUBE_PROVIDER_MARKERS.some((marker) => provider.includes(marker))) return true
+  const raw = `${resource?.provider_resource_id || ''} ${resource?.url || ''}`.toLowerCase()
+  return raw.includes('youtube.com') || raw.includes('youtu.be') || raw.includes('youtube-nocookie.com')
+}
+
+export function primaryVideoResourceForDisplay(tab: TabContent | null | undefined, item: TopicItem) {
+  if (tab?.resource && isVideoResource(tab.resource)) return tab.resource
+  if (!tab) return isVideoResource(item.primary_resource) ? item.primary_resource : null
+  const type = tab.tab_type.toLowerCase()
+  const rendererKey = normalizeRendererKey(tab.renderer_key).toLowerCase()
+  if (type === 'video' || rendererKey === 'youtube_embed' || rendererKey === 'video' || rendererKey === 'vdocipher') {
+    return isVideoResource(item.primary_resource) ? item.primary_resource : null
+  }
+  return null
+}
+
 export function youtubeVideoId(item: TopicItem) {
-  return resourceVideoId(item.primary_resource)
+  return isYouTubeResource(item.primary_resource) ? resourceVideoId(item.primary_resource) : null
 }
 
 export function youtubeVideoIdForTab(tab: TabContent | null | undefined, item: TopicItem) {
-  if (!tab) return null
-  const tabVideoId = resourceVideoId(tab.resource)
-  if (tabVideoId) return tabVideoId
-  const type = tab.tab_type.toLowerCase()
-  const rendererKey = normalizeRendererKey(tab.renderer_key).toLowerCase()
-  if (type === 'video' || rendererKey === 'youtube_embed' || rendererKey === 'video') {
-    return resourceVideoId(item.primary_resource)
-  }
-  return null
+  const resource = primaryVideoResourceForDisplay(tab, item)
+  if (!isYouTubeResource(resource)) return null
+  return resourceVideoId(resource)
+}
+
+export function shouldUseTopicItemVideoPlayer(tab: TabContent | null | undefined, item: TopicItem) {
+  const resource = primaryVideoResourceForDisplay(tab, item)
+  if (!resource || !isVideoResource(resource)) return false
+  if (!item.primary_resource || resource.id !== item.primary_resource.id) return false
+  if (isYouTubeResource(resource)) return false
+  return Boolean(resource.provider_resource_id || resource.url)
 }
 
 export function youtubeSrcDoc(item: TopicItem, videoId: string) {

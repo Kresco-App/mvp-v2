@@ -1,8 +1,9 @@
+from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.schemas.limits import ShortText, StrictInputModel
+from app.schemas.limits import ShortText, StrictInputModel, validate_quiz_answers_payload
 
 
 class SubjectListOut(BaseModel):
@@ -163,6 +164,34 @@ class TabQuizSubmitIn(StrictInputModel):
     answers: dict[ShortText, Any]
     duration_seconds: int = 0
 
+    @field_validator("answers")
+    @classmethod
+    def validate_answers(cls, value: dict[ShortText, Any]) -> dict[ShortText, Any]:
+        return validate_quiz_answers_payload(value)
+
+
+class TabQuizQuestionGradeOut(BaseModel):
+    id: str
+    type: str
+    correct: bool
+    answered: bool
+
+
+class TabQuizGradingOut(BaseModel):
+    questions: list[TabQuizQuestionGradeOut] = Field(default_factory=list)
+
+
+class TabQuizAttemptSummaryOut(BaseModel):
+    id: int
+    attempt_number: int
+    score: int
+    passed: bool
+    correct: int
+    total: int
+    pass_score: int
+    submitted_at: Optional[datetime] = None
+    grading: TabQuizGradingOut = Field(default_factory=TabQuizGradingOut)
+
 
 class TabQuizResultOut(BaseModel):
     score: int
@@ -171,7 +200,8 @@ class TabQuizResultOut(BaseModel):
     total: int
     pass_score: int
     xp_earned: int
-    grading: dict
+    grading: TabQuizGradingOut
+    attempt: Optional[TabQuizAttemptSummaryOut] = None
 
 
 class ExamProblemOut(BaseModel):

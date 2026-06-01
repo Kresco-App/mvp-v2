@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { ListChecks, Search, Send } from 'lucide-react'
 import { toast } from 'sonner'
@@ -10,16 +10,17 @@ import {
   isAnimatedTab,
   isCommentsTab,
   lockedContentReason,
-  normalizeOptionKey,
   resolveAnimatedRendererKey,
-  splitOrderingInput,
   tabMatchesSlot,
-  toggleMultiAnswer,
   type TabContent,
   type TopicItem,
 } from '@/lib/topicWorkspaceViewModel'
 import { AnimatedContentRenderer } from '@/components/animated/registry'
 import type { AnimatedCompletionEvent, AnimatedRendererProps } from '@/components/animated/types'
+import { EmptyTabPanel } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
+import { TopicWorkspaceNotesTab } from '@/components/topic-workspace/TopicWorkspaceNotesTab'
+import { TopicWorkspaceQuizTab } from '@/components/topic-workspace/TopicWorkspaceQuizTab'
+import { TopicWorkspaceResourcePanel } from '@/components/topic-workspace/TopicWorkspaceResourcePanel'
 
 export function LockedContentPanel({
   reason,
@@ -74,248 +75,6 @@ function AnimatedTabPanel({
   }
 
   return <AnimatedContentRenderer {...rendererProps} />
-}
-
-function QuizQuestion({
-  question,
-  value,
-  onChange,
-}: {
-  question: any
-  value: any
-  onChange: (value: any) => void
-}) {
-  const type = question.type || 'multiple_choice'
-  const options = question.options || ['true', 'false']
-  const normalizeOption = (option: any) => {
-    if (option && typeof option === 'object' && !Array.isArray(option)) {
-      const optionValue = option.id ?? option.value ?? option.key ?? option.text ?? option.label
-      return {
-        key: String(optionValue),
-        value: optionValue,
-        label: String(option.text ?? option.label ?? optionValue),
-      }
-    }
-    return {
-      key: String(option),
-      value: option,
-      label: String(option),
-    }
-  }
-
-  if (type === 'multiple_choice' || type === 'true_false') {
-    return (
-      <div className="grid gap-2">
-        {options.map((rawOption: any) => {
-          const option = normalizeOption(rawOption)
-          return (
-          <button
-            key={option.key}
-            type="button"
-            onClick={() => onChange(option.value)}
-            className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
-              String(value) === String(option.value) ? 'border-[#29aee4] bg-[#29aee4] text-white' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
-            }`}
-          >
-            {option.label}
-          </button>
-        )})}
-      </div>
-    )
-  }
-
-  if (type === 'multi_select') {
-    const selected = Array.isArray(value) ? value.map(String) : []
-    return (
-      <div className="grid gap-2">
-        {(question.options || []).map((rawOption: any) => {
-          const option = normalizeOption(rawOption)
-          const isSelected = selected.includes(String(option.value))
-          return (
-          <button
-            key={option.key}
-            type="button"
-            onClick={() => onChange(toggleMultiAnswer(value, option.value))}
-            className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
-              isSelected ? 'border-[#29aee4] bg-[#eaf8ff] text-[#1292cf]' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
-            }`}
-          >
-            {isSelected ? 'Selected: ' : ''}{option.label}
-          </button>
-        )})}
-      </div>
-    )
-  }
-
-  if (type === 'matching') {
-    const pairs = question.pairs || Object.keys(question.answer || {}).map((left) => ({ left, right: question.answer[left] }))
-    const answers = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-    return (
-      <div className="grid gap-2">
-        {pairs.map((pair: any) => (
-          <label key={pair.left} className="grid gap-1 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-3">
-            <span className="text-xs font-black text-[#71717b]">{pair.left}</span>
-            <input
-              aria-label={`Match for ${pair.left}`}
-              className="figma-input w-full bg-white"
-              value={answers[pair.left] || ''}
-              onChange={(event) => onChange({ ...answers, [pair.left]: event.target.value })}
-              placeholder="Match"
-            />
-          </label>
-        ))}
-      </div>
-    )
-  }
-
-  if (type === 'ordering') {
-    const orderingValue = Array.isArray(value) ? value.join(', ') : normalizeOptionKey(value)
-    return (
-      <div className="grid gap-2">
-        {question.items && (
-          <div className="flex flex-wrap gap-2">
-            {question.items.map((item: string) => (
-              <span key={item} className="rounded-full bg-[#f7f8fb] px-3 py-1 text-xs font-black text-[#71717b]">{item}</span>
-            ))}
-          </div>
-        )}
-        <input
-          aria-label="Comma-separated order"
-          className="figma-input w-full"
-          value={orderingValue}
-          onChange={(event) => onChange(splitOrderingInput(event.target.value))}
-          placeholder="Comma-separated order"
-        />
-      </div>
-    )
-  }
-
-  if (type === 'drag_and_drop') {
-    const answers = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-    const items = question.items || Object.keys(question.answer || {}).map((id) => ({ id, label: id }))
-    const zones = question.zones || Array.from(new Set(Object.values(question.answer || {})))
-    return (
-      <div className="grid gap-2">
-        {items.map((item: any) => (
-          <label key={item.id} className="grid gap-1 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-3">
-            <span className="text-xs font-black text-[#71717b]">{item.label || item.id}</span>
-            <select
-              aria-label={`Zone for ${item.label || item.id}`}
-              className="figma-input w-full bg-white"
-              value={answers[item.id] || ''}
-              onChange={(event) => onChange({ ...answers, [item.id]: event.target.value })}
-            >
-              <option value="">Choose zone</option>
-              {zones.map((zone: any) => (
-                <option key={String(zone)} value={String(zone)}>{String(zone)}</option>
-              ))}
-            </select>
-          </label>
-        ))}
-      </div>
-    )
-  }
-
-  const placeholder = type === 'numeric_answer' ? 'Numeric answer' : type === 'fill_in_blank' ? 'Fill the blank' : type === 'interactive_checkpoint' ? 'Checkpoint answer' : 'Short answer'
-
-  return (
-    <input
-      aria-label={placeholder}
-      className="figma-input w-full"
-      value={value || ''}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={placeholder}
-      inputMode={type === 'numeric_answer' ? 'decimal' : 'text'}
-    />
-  )
-}
-
-const QuizQuestionCard = memo(function QuizQuestionCard({
-  question,
-  index,
-  value,
-  onAnswerChange,
-}: {
-  question: any
-  index: number
-  value: any
-  onAnswerChange: (questionId: string | number, value: any) => void
-}) {
-  return (
-    <div className="rounded-2xl border border-[#e4e4e7] bg-white p-4">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <p className="m-0 text-sm font-black text-[#3f3f46]">{index + 1}. {question.prompt}</p>
-        <span className="rounded-full bg-[#f7f8fb] px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">
-          {String(question.type || 'multiple_choice').replace(/_/g, ' ')}
-        </span>
-      </div>
-      <QuizQuestion
-        question={question}
-        value={value}
-        onChange={(nextValue) => onAnswerChange(question.id, nextValue)}
-      />
-    </div>
-  )
-})
-
-function QuizTab({ tab }: { tab: TabContent }) {
-  const questions = useMemo(
-    () => (Array.isArray(tab.config_json?.questions) ? tab.config_json.questions : []),
-    [tab.config_json],
-  )
-  const [answers, setAnswers] = useState<Record<string, any>>({})
-  const [result, setResult] = useState<any>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const setQuestionAnswer = useCallback((questionId: string | number, value: any) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }))
-  }, [])
-
-  if (questions.length === 0) {
-    return (
-      <EmptyTabPanel
-        title="No quiz questions yet"
-        message="This quiz tab is present, but it does not contain any questions."
-      />
-    )
-  }
-
-  async function submit() {
-    if (!tab.id) return
-    setSubmitting(true)
-    try {
-      const data = await postJson<any>(`/courses/tabs/${tab.id}/quiz/submit`, { answers })
-      setResult(data)
-      toast.success(`Quiz submitted: ${data.score}%`)
-    } catch {
-      toast.error('Quiz submission failed.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      {questions.map((question: any, index: number) => (
-        <QuizQuestionCard
-          key={question.id}
-          question={question}
-          index={index}
-          value={answers[question.id]}
-          onAnswerChange={setQuestionAnswer}
-        />
-      ))}
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={submit} disabled={submitting} className="figma-button disabled:opacity-50">
-          {submitting ? 'Submitting...' : 'Submit quiz'}
-        </button>
-        {result && (
-          <span className="rounded-full bg-[#fff7df] px-4 py-2 text-xs font-black text-[#b76b00]">
-            Score {result.score}% - +{result.xp_earned} XP
-          </span>
-        )}
-      </div>
-    </div>
-  )
 }
 
 type TopicComment = {
@@ -438,17 +197,6 @@ function CommentsTab({ item }: { item: TopicItem }) {
   )
 }
 
-function EmptyTabPanel({ title, message }: { title: string; message: string }) {
-  return (
-    <div className="grid min-h-[156px] max-w-[760px] place-items-center rounded-[16px] border border-dashed border-[#d4d4d8] bg-[#f7f8fb] px-6 py-8 text-center">
-      <div>
-        <p className="m-0 text-[16px] font-black text-[#3f3f46]">{title}</p>
-        <p className="m-0 mt-2 text-[13px] font-semibold leading-6 text-[#71717b]">{message}</p>
-      </div>
-    </div>
-  )
-}
-
 export function TabPanel({
   tab,
   item,
@@ -462,8 +210,6 @@ export function TabPanel({
   onNoteSaved: () => void
   onItemComplete?: () => void | Promise<void>
 }) {
-  const [note, setNote] = useState('')
-
   if (item.can_access === false || tab.can_access === false) {
     return (
       <LockedContentPanel
@@ -483,50 +229,12 @@ export function TabPanel({
     )
   }
 
-  async function saveNote() {
-    if (!note.trim()) return
-    try {
-      await postJson('/interactions/notes', {
-        topic_id: topicId,
-        topic_item_id: item.id,
-        ...(tab.id ? { tab_content_id: tab.id } : {}),
-        body: note,
-      })
-      setNote('')
-      onNoteSaved()
-      toast.success('Note saved.')
-    } catch {
-      toast.error('Could not save note.')
-    }
-  }
-
-  if (tabMatchesSlot(tab, 'quiz')) return <QuizTab tab={tab} />
+  if (tabMatchesSlot(tab, 'quiz')) return <TopicWorkspaceQuizTab tab={tab} />
 
   if (isCommentsTab(tab)) return <CommentsTab item={item} />
 
   if (tabMatchesSlot(tab, 'notes')) {
-    return (
-      <div className="max-w-[760px] rounded-[14px] border border-[#e4e4e7] bg-white">
-        <textarea
-          aria-label="Topic note"
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          className="min-h-24 w-full resize-y rounded-t-[14px] border-0 bg-white px-4 py-3 text-[14px] font-semibold leading-6 text-[#3f3f46] outline-none placeholder:text-[#a1a1aa]"
-          placeholder="Write a short note for this item"
-        />
-        <div className="flex items-center justify-between border-t border-[#f4f4f5] px-3 py-2">
-          <span className="text-[11px] font-bold text-[#9f9fa9]">Saved locally to your notes hub</span>
-          <button
-            type="button"
-            onClick={saveNote}
-            disabled={!note.trim()}
-            className="inline-flex h-8 items-center rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9]"
-          >
-            Save note
-          </button>
-        </div>
-      </div>
-    )
+    return <TopicWorkspaceNotesTab tab={tab} item={item} topicId={topicId} onNoteSaved={onNoteSaved} />
   }
 
   if (isAnimatedTab(tab, item)) {
@@ -553,12 +261,7 @@ export function TabPanel({
   return (
     <div>
       {body && <p className="m-0 whitespace-pre-line text-sm font-semibold leading-7 text-[#52525c]">{body}</p>}
-      {tab.resource && (
-        <div className="mt-4 rounded-2xl border border-[#e4e4e7] bg-[#f7f8fb] p-4">
-          <p className="m-0 text-sm font-black text-[#3f3f46]">{tab.resource.title}</p>
-          <p className="m-0 mt-1 text-xs font-bold text-[#71717b]">{tab.resource.resource_type}</p>
-        </div>
-      )}
+      {tab.resource && <TopicWorkspaceResourcePanel resource={tab.resource} item={item} tab={tab} />}
     </div>
   )
 }

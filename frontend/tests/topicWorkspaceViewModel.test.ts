@@ -15,6 +15,7 @@ import {
   lockedVideoSrcDoc,
   missingVideoSrcDoc,
   parseTopicWorkspaceQuery,
+  primaryVideoResourceForDisplay,
   defaultSecondaryTabSlotForItem,
   resolvePrimaryTab,
   resolveAnimatedRendererKey,
@@ -22,11 +23,13 @@ import {
   resolveTabSlotForTopicWorkspaceQuery,
   secondaryTabSlotSpecsForItem,
   selectTopicWorkspaceQueryState,
+  shouldUseTopicItemVideoPlayer,
   splitOrderingInput,
   topicWorkspaceQueryTargetsFromItemId,
   toggleMultiAnswer,
   youtubeSrcDoc,
   youtubeVideoId,
+  youtubeVideoIdForTab,
   type TabContent,
   type TopicItem,
   type TopicWorkspace,
@@ -93,6 +96,25 @@ const commentsTab: TabContent = {
   order: 3,
 }
 
+const providerVideoTab: TabContent = {
+  id: 14,
+  label: 'Lesson video',
+  tab_type: 'video',
+  content: '',
+  config_json: {},
+  renderer_key: 'vdocipher',
+  order: 0,
+  resource: {
+    id: 33,
+    title: 'VdoCipher stream',
+    resource_type: 'video',
+    provider: 'vdocipher',
+    provider_resource_id: 'demo-preview',
+    url: 'https://cdn.example/video',
+    summary: 'Provider stream',
+  },
+}
+
 describe('topic workspace view model', () => {
   it('formats videos and escapes srcdoc content', () => {
     expect(formatTopicItemDuration(125)).toBe('2:05')
@@ -102,6 +124,21 @@ describe('topic workspace view model', () => {
     expect(youtubeSrcDoc(baseItem, 'abc123')).toContain('/_next/image?')
     expect(lockedVideoSrcDoc(baseItem)).toContain('Intro &amp; overview')
     expect(missingVideoSrcDoc({ ...baseItem, title: '' })).toContain('Lesson video')
+  })
+
+  it('keeps provider-backed topic item videos on the provider player path', () => {
+    const providerVideoItem: TopicItem = {
+      ...baseItem,
+      primary_resource: providerVideoTab.resource,
+      primary_tab_content_id: providerVideoTab.id,
+      primary_tab: providerVideoTab,
+      tabs: [providerVideoTab, resourceTab],
+    }
+
+    expect(primaryVideoResourceForDisplay(providerVideoTab, providerVideoItem)).toBe(providerVideoTab.resource)
+    expect(youtubeVideoId(providerVideoItem)).toBeNull()
+    expect(youtubeVideoIdForTab(providerVideoTab, providerVideoItem)).toBeNull()
+    expect(shouldUseTopicItemVideoPlayer(providerVideoTab, providerVideoItem)).toBe(true)
   })
 
   it('maps workspace sections into rail data with lock metadata', () => {

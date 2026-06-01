@@ -34,6 +34,10 @@ class NoteCreateIn(StrictInputModel):
     body: LongText
 
 
+class NoteUpdateIn(StrictInputModel):
+    body: LongText
+
+
 class NoteOut(BaseModel):
     id: int
     subject_id: int | None = None
@@ -73,3 +77,26 @@ class CommentCreateIn(StrictInputModel):
     body: LongText
     topic_item_id: int
     parent_id: Optional[int] = None
+
+
+class InteractionDeleteOut(BaseModel):
+    ok: bool
+    id: int
+
+
+class ResourceOpenIn(StrictInputModel):
+    topic_item_id: int | None = None
+    tab_content_id: int | None = None
+
+
+class ResourceOpenOut(BaseModel):
+    ok: bool
+    resource_id: int
+    title: str
+    resource_type: str
+    subject_id: int | None = None
+    topic_id: int | None = None
+    topic_item_id: int | None = None
+    tab_content_id: int | None = None
+    progress_status: str = "not_tracked"
+    opened_at: datetime

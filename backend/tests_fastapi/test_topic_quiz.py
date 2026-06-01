@@ -68,6 +68,8 @@ def test_tab_quiz_grades_tracks_xp_and_question_attempts(app_client, auth_token,
     assert body["score"] == 100
     assert body["passed"] is True
     assert body["xp_earned"] > 0
+    assert body["attempt"]["correct"] == 5
+    assert body["attempt"]["grading"]["questions"][0]["answered"] is True
 
     async def _assert_tracking():
         session_factory = get_session_factory()
@@ -132,6 +134,7 @@ def test_tab_quiz_reuses_identical_submission(app_client, auth_token, run_db):
     assert duplicate.status_code == 200
     assert first.json()["xp_earned"] > 0
     assert duplicate.json()["xp_earned"] == 0
+    assert duplicate.json()["attempt"]["id"] == first.json()["attempt"]["id"]
 
     async def _assert_single_attempt():
         session_factory = get_session_factory()
@@ -142,6 +145,54 @@ def test_tab_quiz_reuses_identical_submission(app_client, auth_token, run_db):
             assert len(attempts[0].submission_hash or "") == 64
 
     run_db(_assert_single_attempt())
+
+
+def test_tab_quiz_attempt_history_returns_safe_recent_summaries(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="topic-quiz-attempt-history@example.com", is_pro=True)
+    _subject_id, _topic_id, _section_id, _item_id, tab_id = run_db(
+        _seed_quiz_tab(
+            user_id,
+            "topic-quiz-attempt-history",
+            [
+                {"id": "mc", "type": "multiple_choice", "prompt": "Pick A", "options": ["A", "B"], "answer": "A"},
+                {"id": "blank", "type": "fill_in_blank", "prompt": "State the law", "answer": "Ohm"},
+            ],
+        )
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = app_client.post(
+        f"/api/courses/tabs/{tab_id}/quiz/submit",
+        headers=headers,
+        json={"answers": {"mc": "B"}},
+    )
+    second = app_client.post(
+        f"/api/courses/tabs/{tab_id}/quiz/submit",
+        headers=headers,
+        json={"answers": {"mc": "A", "blank": "Ohm"}},
+    )
+    attempts = app_client.get(f"/api/courses/tabs/{tab_id}/quiz/attempts", headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert attempts.status_code == 200
+
+    body = attempts.json()
+    assert [attempt["id"] for attempt in body] == [
+        second.json()["attempt"]["id"],
+        first.json()["attempt"]["id"],
+    ]
+    assert body[0]["score"] == 100
+    assert body[0]["passed"] is True
+    assert body[0]["grading"]["questions"] == [
+        {"id": "mc", "type": "multiple_choice", "correct": True, "answered": True},
+        {"id": "blank", "type": "fill_in_blank", "correct": True, "answered": True},
+    ]
+    assert body[1]["grading"]["questions"] == [
+        {"id": "mc", "type": "multiple_choice", "correct": False, "answered": True},
+        {"id": "blank", "type": "fill_in_blank", "correct": False, "answered": False},
+    ]
+    assert not _contains_any_key(body, {"answers", "answer", "accepted_answers", "correct_answer_json", "selected_answer_json"})
 
 
 def test_standalone_subject_quiz_enforces_subject_access(app_client, auth_token, run_db):

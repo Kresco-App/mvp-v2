@@ -2,6 +2,7 @@ from sqlalchemy import func, select
 
 from app.database import get_session_factory
 from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
+from app.models.gamification import TopicItemProgress
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.quizzes import QuestionSet
 from app.models.users import UserSubjectEntitlement
@@ -22,12 +23,16 @@ async def _seed_context(user_id: int, slug: str):
         resource = Resource(topic_id=topic.id, title="Resource", resource_type="pdf", url="/mock.pdf", status="published")
         db.add(resource)
         await db.flush()
+        secondary_resource = Resource(topic_id=topic.id, title="Worksheet", resource_type="pdf", url="/worksheet.pdf", status="published")
+        db.add(secondary_resource)
+        await db.flush()
         item = TopicItem(topic_id=topic.id, section_id=section.id, primary_resource_id=resource.id, title="Item", item_type="reading", status="published")
         db.add(item)
         await db.flush()
-        tab = TabContent(topic_item_id=item.id, resource_id=resource.id, label="Course", tab_type="course", content="Body", status="published")
-        comments_tab = TabContent(topic_item_id=item.id, label="Discussion", tab_type="comments", status="published")
-        db.add_all([tab, comments_tab])
+        tab = TabContent(topic_item_id=item.id, resource_id=resource.id, label="Course", tab_type="course", content="Body", status="published", order=1)
+        comments_tab = TabContent(topic_item_id=item.id, label="Discussion", tab_type="comments", status="published", order=2)
+        resource_tab = TabContent(topic_item_id=item.id, resource_id=secondary_resource.id, label="Worksheet", tab_type="resource", content="Worksheet body", status="published", order=3)
+        db.add_all([tab, comments_tab, resource_tab])
         await db.flush()
         question_set = QuestionSet(
             title="Interaction quiz",
@@ -46,6 +51,8 @@ async def _seed_context(user_id: int, slug: str):
             "topic_item_id": item.id,
             "tab_content_id": tab.id,
             "resource_id": resource.id,
+            "secondary_tab_content_id": resource_tab.id,
+            "secondary_resource_id": secondary_resource.id,
             "question_set_id": question_set.id,
         }
 
@@ -103,6 +110,59 @@ def test_notes_and_saves_infer_topic_context_and_dedupe(app_client, auth_token, 
     run_db(_assert_persisted_once())
 
 
+def test_notes_support_tab_filters_and_owner_mutations(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-note-mutations@example.com", is_pro=True)
+    other_token, _other_user_id = auth_token(email="interactions-note-other@example.com", is_pro=True)
+    seeded = run_db(_seed_context(user_id, "interactions-note-mutations"))
+    headers = {"Authorization": f"Bearer {token}"}
+    other_headers = {"Authorization": f"Bearer {other_token}"}
+
+    primary_note = app_client.post(
+        "/api/interactions/notes",
+        headers=headers,
+        json={"tab_content_id": seeded["tab_content_id"], "body": "primary note"},
+    )
+    secondary_note = app_client.post(
+        "/api/interactions/notes",
+        headers=headers,
+        json={"tab_content_id": seeded["secondary_tab_content_id"], "body": "secondary note"},
+    )
+
+    assert primary_note.status_code == 200
+    assert secondary_note.status_code == 200
+
+    primary_note_id = primary_note.json()["id"]
+    filtered = app_client.get(
+        f"/api/interactions/notes?topic_item_id={seeded['topic_item_id']}&tab_content_id={seeded['tab_content_id']}",
+        headers=headers,
+    )
+    updated = app_client.patch(
+        f"/api/interactions/notes/{primary_note_id}",
+        headers=headers,
+        json={"body": "updated primary note"},
+    )
+    forbidden_update = app_client.patch(
+        f"/api/interactions/notes/{primary_note_id}",
+        headers=other_headers,
+        json={"body": "intrusion"},
+    )
+    deleted = app_client.delete(f"/api/interactions/notes/{primary_note_id}", headers=headers)
+    filtered_after_delete = app_client.get(
+        f"/api/interactions/notes?topic_item_id={seeded['topic_item_id']}&tab_content_id={seeded['tab_content_id']}",
+        headers=headers,
+    )
+
+    assert filtered.status_code == 200
+    assert [note["id"] for note in filtered.json()] == [primary_note_id]
+    assert updated.status_code == 200
+    assert updated.json()["body"] == "updated primary note"
+    assert forbidden_update.status_code == 404
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True, "id": primary_note_id}
+    assert filtered_after_delete.status_code == 200
+    assert filtered_after_delete.json() == []
+
+
 def test_topic_and_question_set_saves_infer_course_context(app_client, auth_token, run_db):
     token, user_id = auth_token(email="interactions-topic-context@example.com", is_pro=True)
     seeded = run_db(_seed_context(user_id, "interactions-topic-question-set-context"))
@@ -132,6 +192,62 @@ def test_topic_and_question_set_saves_infer_course_context(app_client, auth_toke
     assert question_set_data["subject_id"] == seeded["subject_id"]
     assert question_set_data["topic_id"] == seeded["topic_id"]
     assert question_set_data["topic_item_id"] == seeded["topic_item_id"]
+
+
+def test_resource_open_requires_access_infers_workspace_context_and_marks_progress(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-resource-open@example.com", is_pro=True)
+    locked_token, _locked_user_id = auth_token(email="interactions-resource-locked@example.com", is_pro=True)
+    seeded = run_db(_seed_context(user_id, "interactions-resource-open"))
+    headers = {"Authorization": f"Bearer {token}"}
+    locked_headers = {"Authorization": f"Bearer {locked_token}"}
+
+    opened = app_client.post(
+        f"/api/courses/resources/{seeded['secondary_resource_id']}/open",
+        headers=headers,
+    )
+    locked = app_client.post(
+        f"/api/courses/resources/{seeded['secondary_resource_id']}/open",
+        headers=locked_headers,
+    )
+
+    assert opened.status_code == 200
+    assert locked.status_code == 403
+    opened_data = opened.json()
+    assert opened_data["resource_id"] == seeded["secondary_resource_id"]
+    assert opened_data["subject_id"] == seeded["subject_id"]
+    assert opened_data["topic_id"] == seeded["topic_id"]
+    assert opened_data["topic_item_id"] == seeded["topic_item_id"]
+    assert opened_data["tab_content_id"] == seeded["secondary_tab_content_id"]
+    assert opened_data["progress_status"] == "started"
+
+    complete = app_client.post(
+        f"/api/courses/topic-items/{seeded['topic_item_id']}/complete",
+        headers=headers,
+        json={"watched_seconds": 0},
+    )
+    reopened = app_client.post(
+        f"/api/courses/resources/{seeded['resource_id']}/open",
+        headers=headers,
+        json={"topic_item_id": seeded["topic_item_id"]},
+    )
+
+    assert complete.status_code == 200
+    assert reopened.status_code == 200
+    assert reopened.json()["progress_status"] == "completed"
+
+    async def _assert_progress():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            progress = await db.scalar(
+                select(TopicItemProgress).where(
+                    TopicItemProgress.user_id == user_id,
+                    TopicItemProgress.topic_item_id == seeded["topic_item_id"],
+                )
+            )
+            assert progress is not None
+            assert progress.status == "completed"
+
+    run_db(_assert_progress())
 
 
 def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, auth_token, run_db):

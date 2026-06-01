@@ -9,7 +9,13 @@ from sqlalchemy.orm import selectinload
 from app.models.courses import TabContent, TopicItem
 from app.models.gamification import QuestionAttempt, QuizAttempt
 from app.models.users import User
-from app.schemas.courses import TabQuizResultOut, TabQuizSubmitIn
+from app.schemas.courses import (
+    TabQuizAttemptSummaryOut,
+    TabQuizGradingOut,
+    TabQuizQuestionGradeOut,
+    TabQuizResultOut,
+    TabQuizSubmitIn,
+)
 from app.services.course_access import access_for_tab
 from app.services.course_progress import ensure_question_set_for_tab, get_or_create_topic_item_progress
 from app.services.quiz_grading import (
@@ -19,6 +25,121 @@ from app.services.quiz_grading import (
     tab_quiz_submission_hash,
 )
 from app.services.xp import XPAward, award_xp_bulk
+
+QUIZ_ATTEMPT_HISTORY_LIMIT = 5
+
+
+async def get_accessible_quiz_tab(
+    db: AsyncSession,
+    *,
+    user: User,
+    tab_id: int,
+) -> TabContent:
+    result = await db.execute(
+        select(TabContent)
+        .options(
+            selectinload(TabContent.topic_item).selectinload(TopicItem.topic),
+            selectinload(TabContent.topic_item).selectinload(TopicItem.section),
+        )
+        .where(TabContent.id == tab_id, TabContent.tab_type == "quiz")
+    )
+    tab = result.scalar_one_or_none()
+    if tab is None:
+        raise HTTPException(status_code=404, detail="Quiz tab not found")
+
+    access = await access_for_tab(db, user, tab)
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
+    return tab
+
+
+def _answer_present(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return len(value) > 0
+    if isinstance(value, dict):
+        return any(_answer_present(item) for item in value.values())
+    return True
+
+
+def _quiz_grading_out(grading: dict | None, answers: dict | None = None) -> TabQuizGradingOut:
+    raw_questions = grading.get("questions", []) if isinstance(grading, dict) else []
+    raw_answers = answers if isinstance(answers, dict) else {}
+    safe_questions: list[TabQuizQuestionGradeOut] = []
+    for index, raw_question in enumerate(raw_questions):
+        if not isinstance(raw_question, dict):
+            continue
+        question_id = str(raw_question.get("id") or f"q{index + 1}")
+        safe_questions.append(TabQuizQuestionGradeOut(
+            id=question_id,
+            type=str(raw_question.get("type") or "multiple_choice"),
+            correct=bool(raw_question.get("correct")),
+            answered=bool(raw_question.get("answered")) if "answered" in raw_question else _answer_present(raw_answers.get(question_id)),
+        ))
+    return TabQuizGradingOut(questions=safe_questions)
+
+
+def _quiz_attempt_summary(attempt: QuizAttempt, *, pass_score: int) -> TabQuizAttemptSummaryOut:
+    grading = _quiz_grading_out(attempt.grading, attempt.answers)
+    correct = sum(1 for question in grading.questions if question.correct)
+    return TabQuizAttemptSummaryOut(
+        id=attempt.id,
+        attempt_number=attempt.attempt_number,
+        score=int(attempt.score or 0),
+        passed=bool(attempt.passed),
+        correct=correct,
+        total=len(grading.questions),
+        pass_score=pass_score,
+        submitted_at=attempt.completed_at or attempt.created_at,
+        grading=grading,
+    )
+
+
+async def list_recent_quiz_attempt_summaries(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    pass_score: int,
+    tab_id: int | None = None,
+    question_set_id: int | None = None,
+    limit: int = QUIZ_ATTEMPT_HISTORY_LIMIT,
+) -> list[TabQuizAttemptSummaryOut]:
+    filters = [QuizAttempt.user_id == user_id]
+    if tab_id is not None:
+        filters.append(QuizAttempt.tab_content_id == tab_id)
+    if question_set_id is not None:
+        filters.append(QuizAttempt.question_set_id == question_set_id)
+    if len(filters) == 1:
+        raise ValueError("quiz attempt summary query requires a tab_id or question_set_id")
+
+    attempts = (
+        await db.execute(
+            select(QuizAttempt)
+            .where(*filters)
+            .order_by(QuizAttempt.created_at.desc(), QuizAttempt.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [_quiz_attempt_summary(attempt, pass_score=pass_score) for attempt in attempts]
+
+
+async def get_recent_tab_quiz_attempts(
+    db: AsyncSession,
+    *,
+    user: User,
+    tab_id: int,
+) -> list[TabQuizAttemptSummaryOut]:
+    tab = await get_accessible_quiz_tab(db, user=user, tab_id=tab_id)
+    pass_score = int(tab.config_json.get("pass_score", 70)) if isinstance(tab.config_json, dict) else 70
+    return await list_recent_quiz_attempt_summaries(
+        db,
+        user_id=user.id,
+        tab_id=tab.id,
+        pass_score=pass_score,
+    )
 
 
 async def find_existing_tab_quiz_submission(
@@ -48,40 +169,26 @@ async def submit_tab_quiz_attempt(
     tab_id: int,
     body: TabQuizSubmitIn,
 ) -> TabQuizResultOut:
-    result = await db.execute(
-        select(TabContent)
-        .options(
-            selectinload(TabContent.topic_item).selectinload(TopicItem.topic),
-            selectinload(TabContent.topic_item).selectinload(TopicItem.section),
-        )
-        .where(TabContent.id == tab_id, TabContent.tab_type == "quiz")
-    )
-    tab = result.scalar_one_or_none()
-    if tab is None:
-        raise HTTPException(status_code=404, detail="Quiz tab not found")
-
-    access = await access_for_tab(db, user, tab)
-    if not access.can_access:
-        raise HTTPException(status_code=403, detail=access.locked_reason)
-
+    tab = await get_accessible_quiz_tab(db, user=user, tab_id=tab_id)
     question_set, questions_by_external_id = await ensure_question_set_for_tab(db, tab)
     questions = tab.config_json.get("questions", [])
     pass_score = question_set.pass_score
-    grading = {"questions": []}
+    grading_questions: list[TabQuizQuestionGradeOut] = []
     correct = 0
     question_attempt_rows: list[QuestionAttempt] = []
     for question in questions:
-        qid = question_external_id(question, len(grading["questions"]))
+        qid = question_external_id(question, len(grading_questions))
         submitted = body.answers.get(qid)
         is_correct, expected = grade_quiz_question(question, submitted)
         question_row = questions_by_external_id.get(qid)
         if is_correct:
             correct += 1
-        grading["questions"].append({
-            "id": qid,
-            "type": question.get("type", "multiple_choice"),
-            "correct": is_correct,
-        })
+        grading_questions.append(TabQuizQuestionGradeOut(
+            id=qid,
+            type=str(question.get("type", "multiple_choice")),
+            correct=is_correct,
+            answered=_answer_present(submitted),
+        ))
         if question_row is not None:
             question_attempt_rows.append(QuestionAttempt(
                 quiz_attempt_id=0,
@@ -107,6 +214,7 @@ async def submit_tab_quiz_attempt(
     total = len(questions)
     score = round((correct / total) * 100) if total else 0
     passed = score >= pass_score
+    grading = TabQuizGradingOut(questions=grading_questions)
     result_payload = {
         "score": score,
         "passed": passed,
@@ -124,8 +232,9 @@ async def submit_tab_quiz_attempt(
         submission_hash=submission_hash,
     )
     if existing_attempt is not None:
+        existing_summary = _quiz_attempt_summary(existing_attempt, pass_score=pass_score)
         await db.rollback()
-        return TabQuizResultOut(**result_payload, xp_earned=0)
+        return TabQuizResultOut(**result_payload, xp_earned=0, attempt=existing_summary)
 
     attempts_count = await db.scalar(
         select(func.count()).select_from(QuizAttempt).where(
@@ -147,7 +256,7 @@ async def submit_tab_quiz_attempt(
         score=score,
         passed=passed,
         answers=body.answers,
-        grading=grading,
+        grading=grading.model_dump(mode="json"),
         attempt_number=(attempts_count or 0) + 1,
         duration_seconds=body.duration_seconds,
         started_at=now,
@@ -166,8 +275,9 @@ async def submit_tab_quiz_attempt(
         )
         if existing_after_race is None:
             raise
+        existing_summary = _quiz_attempt_summary(existing_after_race, pass_score=pass_score)
         await db.rollback()
-        return TabQuizResultOut(**result_payload, xp_earned=0)
+        return TabQuizResultOut(**result_payload, xp_earned=0, attempt=existing_summary)
 
     inserted_question_attempts: list[dict] = []
     if question_attempt_rows:
@@ -245,5 +355,6 @@ async def submit_tab_quiz_attempt(
         )
         progress.latest_score = score
         progress.best_score = max(progress.best_score or 0, score)
+    attempt_summary = _quiz_attempt_summary(attempt, pass_score=pass_score)
     await db.commit()
-    return TabQuizResultOut(**result_payload, xp_earned=xp_earned)
+    return TabQuizResultOut(**result_payload, xp_earned=xp_earned, attempt=attempt_summary)

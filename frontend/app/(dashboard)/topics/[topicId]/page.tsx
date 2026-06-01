@@ -38,6 +38,7 @@ import {
   resolveTabForSlot,
   secondaryTabSlotSpecsForItem,
   selectTopicWorkspaceQueryState,
+  shouldUseTopicItemVideoPlayer,
   topicWorkspaceQueryTargetsFromItemId,
   youtubeSrcDoc,
   youtubeVideoId,
@@ -46,6 +47,7 @@ import {
   type TopicWorkspace,
   type WorkspaceTabSlot,
 } from '@/lib/topicWorkspaceViewModel'
+import VideoPlayer from '@/components/VideoPlayer'
 import { LessonBody, PrimaryContentFrame, VideoLearningWorkspace, VideoPlayerFrame, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
 import RouteErrorState from '@/components/RouteErrorState'
@@ -77,6 +79,7 @@ export default function TopicWorkspacePage() {
     ...defaultTopicWorkspaceDataRequest(),
     targets: routeQueryTargets,
   }))
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const lastWorkspaceErrorToastRef = useRef('')
   const previousTopicIdRef = useRef(topicId)
   const {
@@ -204,6 +207,10 @@ export default function TopicWorkspacePage() {
     if (!activeItem || isActiveItemLocked) return null
     return youtubeVideoIdForTab(activePrimaryTab, activeItem) ?? (!activePrimaryTab ? youtubeVideoId(activeItem) : null)
   }, [activeItem, activePrimaryTab, isActiveItemLocked])
+  const shouldUsePrimaryVideoPlayer = useMemo(() => {
+    if (!activeItem || isActiveItemLocked) return false
+    return shouldUseTopicItemVideoPlayer(activePrimaryTab, activeItem)
+  }, [activeItem, activePrimaryTab, isActiveItemLocked])
   const activeDurationLabel = activeItem ? formatTopicItemDuration(activeItem.duration_seconds) : ''
 
   const selectItem = useCallback(async (item: TopicItem) => {
@@ -249,11 +256,12 @@ export default function TopicWorkspacePage() {
   }, [availableTabSlots])
 
   const completeActive = useCallback(async () => {
-    if (!activeItem) return
+    if (!activeItem || isSubmitting) return
     if (activeItem.can_access === false) {
       toast.info(lockedContentReason(activeItem.locked_reason))
       return
     }
+    setIsSubmitting(true)
     try {
       const data = await postJson<any>(`/courses/topic-items/${activeItem.id}/complete`, { watched_seconds: activeItem.duration_seconds || 0 })
       toast.success(`Progress saved${data.xp_earned ? ` (+${data.xp_earned} XP)` : ''}.`)
@@ -263,27 +271,43 @@ export default function TopicWorkspacePage() {
       })
     } catch {
       toast.error('Could not save progress.')
+    } finally {
+      setIsSubmitting(false)
     }
-  }, [activeItem, requestWorkspace, topicQuery])
+  }, [activeItem, isSubmitting, requestWorkspace, topicQuery])
 
   const saveActive = useCallback(async () => {
-    if (!activeItem || !workspace) return
+    if (!activeItem || !workspace || isSubmitting) return
     if (activeItem.can_access === false) {
       toast.info(lockedContentReason(activeItem.locked_reason))
       return
     }
+    setIsSubmitting(true)
     try {
       await postJson('/interactions/saves', { target_type: 'topic_item', target_id: activeItem.id, topic_id: workspace.id, topic_item_id: activeItem.id, label: activeItem.title })
       toast.success('Saved.')
     } catch {
       toast.error('Could not save item.')
+    } finally {
+      setIsSubmitting(false)
     }
-  }, [activeItem, workspace])
+  }, [activeItem, workspace, isSubmitting])
 
   const primaryContent = useMemo(() => {
     if (!activeItem) return null
     if (isActiveItemLocked) {
       return <VideoPlayerFrame videoId="" srcDoc={lockedVideoSrcDoc(activeItem)} />
+    }
+    if (shouldUsePrimaryVideoPlayer) {
+      return (
+        <PrimaryContentFrame>
+          <VideoPlayer
+            lessonId={activeItem.id}
+            durationSeconds={activeItem.duration_seconds || 0}
+            onComplete={completeActive}
+          />
+        </PrimaryContentFrame>
+      )
     }
     if (activePrimaryVideoId) {
       return <VideoPlayerFrame videoId={activePrimaryVideoId} srcDoc={youtubeSrcDoc(activeItem, activePrimaryVideoId)} />
@@ -305,7 +329,7 @@ export default function TopicWorkspacePage() {
       )
     }
     return <VideoPlayerFrame videoId="" srcDoc={missingVideoSrcDoc(activeItem)} />
-  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, requestWorkspace, topicId, topicQuery, workspace?.id])
+  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, requestWorkspace, shouldUsePrimaryVideoPlayer, topicId, topicQuery, workspace?.id])
 
   if (loading && !workspace) {
     return <FigmaVideoWorkspaceSkeleton />
@@ -398,7 +422,8 @@ export default function TopicWorkspacePage() {
                 <button
                   type="button"
                   onClick={completeActive}
-                  className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition hover:bg-[#2f27b8]"
+                  disabled={isSubmitting}
+                  className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition hover:bg-[#2f27b8] disabled:opacity-50"
                 >
                   <Check size={15} />
                   Mark complete
@@ -406,7 +431,8 @@ export default function TopicWorkspacePage() {
                 <button
                   type="button"
                   onClick={saveActive}
-                  className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46]"
+                  disabled={isSubmitting}
+                  className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46] disabled:opacity-50"
                 >
                   <Bookmark size={14} />
                   Save

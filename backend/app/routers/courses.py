@@ -17,24 +17,31 @@ from app.schemas.courses import (
     StreamOut,
     SubjectDetailOut,
     SubjectListOut,
+    TabQuizAttemptSummaryOut,
     TabQuizResultOut,
     TabQuizSubmitIn,
     TopicCardOut,
     TopicItemCompleteIn,
     TopicWorkspaceOut,
 )
+from app.schemas.interactions import ResourceOpenIn, ResourceOpenOut
 from app.schemas.limits import ShortText, StrictInputModel
 from app.services.access import build_access_context
 from app.services.course_access import exam_out, require_topic_item_access
+from app.services.course_tab_quiz_submission import get_recent_tab_quiz_attempts
 from app.services.course_tab_quiz_submission import submit_tab_quiz_attempt
 from app.services.course_topic_mutations import complete_topic_item_state
 from app.services.course_topic_read_models import build_topic_workspace, list_topic_cards
+from app.services.interaction_mutations import open_topic_workspace_resource
+from app.services.search import LIKE_ESCAPE, substring_search_pattern
 from app.services.vdocipher import get_video_stream_data
 
 router = APIRouter(tags=["Courses"])
 
 COURSE_LIST_DEFAULT_LIMIT = 50
 COURSE_LIST_MAX_LIMIT = 100
+COURSE_ADMIN_MUTATION_RATE_LIMIT = "30/minute"
+COURSE_PROGRESS_MUTATION_RATE_LIMIT = "30/minute"
 
 
 class SubjectCreateIn(StrictInputModel):
@@ -121,11 +128,14 @@ async def list_subjects(
 
 
 @router.post("/subjects", response_model=SubjectDetailOut)
+@limiter.limit(COURSE_ADMIN_MUTATION_RATE_LIMIT)
 async def create_subject(
+    request: Request,
     body: SubjectCreateIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    del request
     _require_course_admin(user)
     subject = Subject(title=body.title, description=body.description, is_published=True)
     db.add(subject)
@@ -135,11 +145,14 @@ async def create_subject(
 
 
 @router.post("/topics", response_model=TopicCardOut)
+@limiter.limit(COURSE_ADMIN_MUTATION_RATE_LIMIT)
 async def create_topic(
+    request: Request,
     body: TopicCreateIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    del request
     _require_course_admin(user)
     subject = await db.scalar(select(Subject).where(Subject.id == body.subject_id))
     if subject is None:
@@ -229,12 +242,15 @@ async def get_topic_workspace(
 
 
 @router.post("/topic-items/{item_id}/complete")
+@limiter.limit(COURSE_PROGRESS_MUTATION_RATE_LIMIT)
 async def complete_topic_item(
+    request: Request,
     item_id: int,
     body: TopicItemCompleteIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    del request
     return await complete_topic_item_state(db, user=user, item_id=item_id, body=body)
 
 
@@ -251,6 +267,28 @@ async def get_topic_item_stream(
         raise HTTPException(status_code=404, detail="No video resource configured for this topic item")
     video_id = resource.provider_resource_id or resource.url
     return await get_video_stream_data(video_id, settings)
+
+
+@router.post("/resources/{resource_id}/open", response_model=ResourceOpenOut)
+@limiter.limit(COURSE_PROGRESS_MUTATION_RATE_LIMIT)
+async def open_resource(
+    request: Request,
+    resource_id: int,
+    body: ResourceOpenIn | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await open_topic_workspace_resource(db, user=user, resource_id=resource_id, body=body)
+
+
+@router.get("/tabs/{tab_id}/quiz/attempts", response_model=list[TabQuizAttemptSummaryOut])
+async def get_tab_quiz_attempts(
+    tab_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await get_recent_tab_quiz_attempts(db, user=user, tab_id=tab_id)
 
 
 @router.post("/tabs/{tab_id}/quiz/submit", response_model=TabQuizResultOut)
@@ -289,7 +327,7 @@ async def get_exam_bank(
     if year is not None:
         stmt = stmt.where(Exam.year == year)
     if q:
-        stmt = stmt.where(Exam.title.ilike(f"%{q}%"))
+        stmt = stmt.where(Exam.title.ilike(substring_search_pattern(q), escape=LIKE_ESCAPE))
     exams = (await db.execute(stmt.limit(50))).scalars().unique().all()
     access_context = await build_access_context(db, user)
     output: list[ExamOut] = []
