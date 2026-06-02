@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 from sqlalchemy import delete, text
 
 from app.database import get_session_factory
 from app.models.professor import RealtimeOutbox
+from app.services import diagnostics
 from app.services.diagnostics import expected_migration_heads
 
 
@@ -120,6 +123,77 @@ def test_internal_diagnostics_reports_ready_launch_gate(app_client, run_db, test
         "stripe_product_id_configured": True,
         "stripe_webhook_secret_configured": True,
     }
+
+
+def test_internal_diagnostics_can_check_stripe_provider_reachability(app_client, run_db, test_settings, monkeypatch):
+    class FakeProducts:
+        def retrieve(self, product_id):
+            return SimpleNamespace(id=product_id, active=True)
+
+    class FakeStripeClient:
+        v1 = SimpleNamespace(products=FakeProducts())
+
+    monkeypatch.setattr(diagnostics, "_stripe_client", lambda settings: FakeStripeClient())
+    old_values = _snapshot_diagnostics_settings(test_settings)
+    run_db(_set_alembic_heads(expected_migration_heads()))
+    run_db(_clear_outbox())
+    _set_ready_diagnostics_settings(test_settings)
+    try:
+        response = app_client.get(
+            "/api/internal/diagnostics?include_provider_reachability=true",
+            headers={"x-kresco-internal-secret": test_settings.realtime_outbox_secret},
+        )
+    finally:
+        _restore_settings(test_settings, old_values)
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["status"] == "ready"
+    assert body["checks"]["payment"]["provider_reachability"] == {
+        "status": "ok",
+        "product_id_matches": True,
+        "product_active": True,
+    }
+
+
+def test_internal_diagnostics_reports_stripe_connection_failure_without_secret(
+    app_client,
+    run_db,
+    test_settings,
+    monkeypatch,
+):
+    class FakeProducts:
+        def retrieve(self, product_id):
+            raise diagnostics.stripe.APIConnectionError("network unavailable")
+
+    class FakeStripeClient:
+        v1 = SimpleNamespace(products=FakeProducts())
+
+    monkeypatch.setattr(diagnostics, "_stripe_client", lambda settings: FakeStripeClient())
+    old_values = _snapshot_diagnostics_settings(test_settings)
+    run_db(_set_alembic_heads(expected_migration_heads()))
+    run_db(_clear_outbox())
+    _set_ready_diagnostics_settings(test_settings)
+    configured_stripe_secret = test_settings.stripe_sk
+    try:
+        response = app_client.get(
+            "/api/internal/diagnostics?include_provider_reachability=true",
+            headers={"x-kresco-internal-secret": test_settings.realtime_outbox_secret},
+        )
+    finally:
+        _restore_settings(test_settings, old_values)
+
+    body = response.json()
+    payment = body["checks"]["payment"]
+    assert response.status_code == 200
+    assert body["status"] == "not_ready"
+    assert "payment" in body["errors"]
+    assert payment["provider_reachability"] == {
+        "status": "error",
+        "detail": "api_connection_error",
+        "error_type": "APIConnectionError",
+    }
+    assert configured_stripe_secret not in str(payment)
 
 
 def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_db, test_settings):

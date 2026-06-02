@@ -44,8 +44,13 @@ async def process_realtime_outbox_endpoint(
 async def production_diagnostics_endpoint(
     request: Request,
     _: None = Depends(_require_internal_secret),
+    include_provider_reachability: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     del request
-    return await build_production_diagnostics(db, settings)
+    return await build_production_diagnostics(
+        db,
+        settings,
+        include_provider_reachability=include_provider_reachability,
+    )
