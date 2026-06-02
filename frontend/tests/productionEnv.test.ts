@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { parseEnvFile, validateFrontendProductionEnv } from '@/lib/productionEnv.mjs'
 
@@ -29,7 +29,7 @@ describe('frontend production environment validation', () => {
     expect(validateFrontendProductionEnv({
       ...VALID_PRODUCTION_ENV,
       NEXT_PUBLIC_API_BASE_URL: '/api/',
-    })).toContain('NEXT_PUBLIC_API_BASE_URL must be an absolute HTTPS URL in production.')
+    })).toContain('KRESCO_BACKEND_ORIGIN must be configured when NEXT_PUBLIC_API_BASE_URL is /api in production.')
 
     expect(validateFrontendProductionEnv({
       ...VALID_PRODUCTION_ENV,
@@ -38,6 +38,18 @@ describe('frontend production environment validation', () => {
       'NEXT_PUBLIC_API_BASE_URL must use HTTPS in production.',
       'NEXT_PUBLIC_API_BASE_URL must not point to localhost or tunnel origins in production.',
     ]))
+  })
+
+  it('accepts same-origin API URLs when a production backend rewrite origin is configured', () => {
+    vi.stubEnv('KRESCO_BACKEND_ORIGIN', 'https://api.kresco.example/staging')
+    try {
+      expect(validateFrontendProductionEnv({
+        ...VALID_PRODUCTION_ENV,
+        NEXT_PUBLIC_API_BASE_URL: '/api/',
+      })).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('rejects API URLs that omit the backend api path', () => {

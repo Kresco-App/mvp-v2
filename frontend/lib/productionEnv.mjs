@@ -51,7 +51,10 @@ function validateApiBaseUrl(value, errors) {
 
   const trimmed = value.trim()
   if (trimmed.startsWith('/')) {
-    errors.push('NEXT_PUBLIC_API_BASE_URL must be an absolute HTTPS URL in production.')
+    if (trimmed.replace(/\/+$/, '') !== '/api') {
+      errors.push('NEXT_PUBLIC_API_BASE_URL must be /api or an absolute HTTPS URL in production.')
+    }
+    validateBackendRewriteOrigin(process.env.KRESCO_BACKEND_ORIGIN, errors)
     return
   }
 
@@ -71,6 +74,28 @@ function validateApiBaseUrl(value, errors) {
   }
   if (!parsed.pathname.replace(/\/+$/, '').endsWith('/api')) {
     errors.push('NEXT_PUBLIC_API_BASE_URL must include the backend /api path.')
+  }
+}
+
+function validateBackendRewriteOrigin(value, errors) {
+  if (!hasValue(value)) {
+    errors.push('KRESCO_BACKEND_ORIGIN must be configured when NEXT_PUBLIC_API_BASE_URL is /api in production.')
+    return
+  }
+
+  let parsed
+  try {
+    parsed = new URL(value.trim())
+  } catch {
+    errors.push('KRESCO_BACKEND_ORIGIN must be a valid absolute URL.')
+    return
+  }
+
+  if (parsed.protocol !== 'https:') {
+    errors.push('KRESCO_BACKEND_ORIGIN must use HTTPS in production.')
+  }
+  if (LOCAL_HOST_PATTERN.test(parsed.hostname) || LOCAL_OR_TUNNEL_PATTERN.test(value)) {
+    errors.push('KRESCO_BACKEND_ORIGIN must not point to localhost or tunnel origins in production.')
   }
 }
 

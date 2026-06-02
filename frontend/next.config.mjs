@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const emptyCanvasModule = path.join(__dirname, 'lib/empty-canvas.cjs')
 const localBackendOrigin = process.env.KRESCO_LOCAL_BACKEND_ORIGIN ?? 'http://127.0.0.1:8000'
+const backendOrigin = process.env.KRESCO_BACKEND_ORIGIN ?? ''
 const enableLocalRewrites = shouldEnableLocalRewrites(process.env.NODE_ENV, process.env.KRESCO_ENABLE_LOCAL_REWRITES)
+const enableBackendRewrites = shouldEnableBackendRewrites(process.env.KRESCO_BACKEND_ORIGIN)
 export const optimizePackageImports = ['lucide-react', 'framer-motion', 'recharts']
 
 const productionImageRemotePatterns = [
@@ -22,6 +24,16 @@ const localImageRemotePatterns = [
 
 export function shouldEnableLocalRewrites(nodeEnv = process.env.NODE_ENV, localRewriteFlag = process.env.KRESCO_ENABLE_LOCAL_REWRITES) {
   return nodeEnv !== 'production' && localRewriteFlag !== 'false'
+}
+
+export function shouldEnableBackendRewrites(value = process.env.KRESCO_BACKEND_ORIGIN) {
+  if (!value) return false
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 export function buildImageRemotePatterns(nodeEnv = process.env.NODE_ENV) {
@@ -53,16 +65,17 @@ const nextConfig = {
     return [{ source: '/(.*)', headers: SECURITY_HEADERS }]
   },
   async rewrites() {
-    if (!enableLocalRewrites) return []
+    if (!enableBackendRewrites && !enableLocalRewrites) return []
+    const rewriteOrigin = (enableBackendRewrites ? backendOrigin : localBackendOrigin).replace(/\/+$/, '')
 
     return [
       {
         source: '/api/:path*',
-        destination: `${localBackendOrigin}/api/:path*`,
+        destination: `${rewriteOrigin}/api/:path*`,
       },
       {
         source: '/media/:path*',
-        destination: `${localBackendOrigin}/media/:path*`,
+        destination: `${rewriteOrigin}/media/:path*`,
       },
     ]
   },

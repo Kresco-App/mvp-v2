@@ -8,6 +8,7 @@ import nextConfig, {
 } from '../next.config.mjs'
 import {
   buildImageRemotePatterns,
+  shouldEnableBackendRewrites,
   shouldEnableLocalRewrites,
 } from '../next.config.mjs'
 
@@ -51,6 +52,12 @@ describe('Next production config boundaries', () => {
     expect(shouldEnableLocalRewrites('production', 'true')).toBe(false)
     expect(shouldEnableLocalRewrites('development', 'true')).toBe(true)
     expect(shouldEnableLocalRewrites('development', 'false')).toBe(false)
+  })
+
+  it('allows production backend rewrites only for HTTPS origins', () => {
+    expect(shouldEnableBackendRewrites('https://api.example.com/staging')).toBe(true)
+    expect(shouldEnableBackendRewrites('http://api.example.com')).toBe(false)
+    expect(shouldEnableBackendRewrites('not-a-url')).toBe(false)
   })
 
   it('keeps the strict CSP in proxy.ts instead of emitting a weaker global next.config header', async () => {
