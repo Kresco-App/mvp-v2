@@ -436,8 +436,9 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
     const forbiddenPage = await forbiddenContext.newPage()
     await loginAsSeededUser(forbiddenPage, 'student@example.com')
     await forbiddenPage.goto('/admin')
-    await expect(forbiddenPage).toHaveURL(/\/home$/)
-    await expect(forbiddenPage.getByRole('heading', { name: /Hello Kresco!/i })).toBeVisible()
+    await expect(forbiddenPage).toHaveURL(/\/admin$/)
+    await expect(forbiddenPage.getByRole('heading', { name: 'Staff access required' })).toBeVisible()
+    await expect(forbiddenPage.getByText('Your account is signed in, but it does not have permission to open this area.')).toBeVisible()
     const storedForbiddenUser = await forbiddenPage.evaluate(() => window.localStorage.getItem('kresco_user'))
     expect(storedForbiddenUser).toContain('student@example.com')
 

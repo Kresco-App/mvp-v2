@@ -45,7 +45,11 @@ def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
 @pytest.fixture(scope="session")
 def app_client(test_settings: Settings):
     asyncio.run(reset_engine())
-    engine, _ = init_engine(test_settings.database_url, is_lambda=False)
+    engine, _ = init_engine(
+        test_settings.database_url,
+        is_lambda=False,
+        pgsslrootcert=test_settings.pgsslrootcert,
+    )
 
     async def _init_schema():
         async with engine.begin() as conn:
