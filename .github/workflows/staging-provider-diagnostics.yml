@@ -1,0 +1,48 @@
+name: Staging Provider Diagnostics
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Run provider reachability diagnostics
+        env:
+          BACKEND_READY_URL: ${{ vars.BACKEND_READY_URL }}
+          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BACKEND_READY_URL:-}" ]; then
+            echo "BACKEND_READY_URL is not configured."
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          ready_url = os.environ["BACKEND_READY_URL"].rstrip("/")
+          internal_secret = os.environ["KRESCO_INTERNAL_SECRET"]
+          if ready_url.endswith("/ready"):
+              base_url = ready_url[:-len("/ready")]
+          else:
+              base_url = ready_url
+          diagnostics_url = f"{base_url}/api/internal/diagnostics?include_provider_reachability=true"
+          request = urllib.request.Request(
+              diagnostics_url,
+              headers={"x-kresco-internal-secret": internal_secret},
+              method="GET",
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              payload = json.loads(response.read().decode("utf-8"))
+          print(json.dumps({
+              "status": payload.get("status"),
+              "errors": payload.get("errors", []),
+              "payment": payload.get("checks", {}).get("payment", {}),
+              "video": payload.get("checks", {}).get("video", {}),
+              "email": payload.get("checks", {}).get("email", {}),
+              "realtime": payload.get("checks", {}).get("realtime", {}),
+          }, indent=2, sort_keys=True))
+          PY
