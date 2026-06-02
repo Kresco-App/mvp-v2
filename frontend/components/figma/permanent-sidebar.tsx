@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Check, ChevronLeft, ChevronRight, Clock3, Trophy, Zap } from 'lucide-react'
-import { getJson } from '@/lib/apiClient'
+import { getJson, postJson } from '@/lib/apiClient'
 import {
   buildPermanentSidebarCalendarDays,
   buildStrikeDays,
@@ -118,6 +119,39 @@ export function PermanentSidebar({
     }
   }, [autoLoad, dataEndpoint])
 
+  const [claimingQuestId, setClaimingQuestId] = useState<FigmaDailyQuest['id'] | null>(null)
+
+  // Default quest action: claim the XP reward for a completed-but-unclaimed quest.
+  // (Backend DailyQuest.completed means "reward claimed"; claimable = progress
+  // reached target and not yet claimed.) Wired here so the claim endpoint is not
+  // orphaned when the host layout does not provide its own onQuestSelect.
+  const handleQuestClaim = useCallback(
+    async (quest: FigmaDailyQuest) => {
+      if (
+        typeof quest.id !== 'number' ||
+        quest.completed === true ||
+        quest.progress < quest.target ||
+        claimingQuestId === quest.id
+      ) {
+        return
+      }
+      setClaimingQuestId(quest.id)
+      try {
+        const result = await postJson<{ xp_awarded?: number }>(`/progress/daily-quests/${quest.id}/claim`)
+        const refreshed = await getJson<FigmaDailyQuest[]>('/progress/daily-quests')
+        setLoadedData((prev) => (prev ? { ...prev, quests: refreshed } : prev))
+        toast.success(
+          result?.xp_awarded ? `Récompense réclamée : +${result.xp_awarded} XP` : 'Récompense réclamée !',
+        )
+      } catch {
+        toast.error('Impossible de réclamer cette récompense pour le moment.')
+      } finally {
+        setClaimingQuestId(null)
+      }
+    },
+    [claimingQuestId],
+  )
+
   const sidebarData = data ?? loadedData
   const visibleChronoUnits = chronoUnits ?? sidebarData?.chronoUnits ?? permanentSidebarCountdownDefaults
   const visibleCalendarDays = calendarDays ?? sidebarData?.calendarDays ?? permanentSidebarCalendarDefaults
@@ -146,7 +180,7 @@ export function PermanentSidebar({
         />
       )}
       {visibleSections.has('strike') && <WeeklyStrikeCard days={visibleStrikeDays} onDaySelect={onStrikeDaySelect} />}
-      {visibleSections.has('quests') && <DailyQuestPanel quests={visibleQuests} onQuestSelect={onQuestSelect} />}
+      {visibleSections.has('quests') && <DailyQuestPanel quests={visibleQuests} onQuestSelect={onQuestSelect ?? handleQuestClaim} />}
       {visibleSections.has('leaderboard') && <LeaderboardPanel entries={visibleLeaderboard} href={leaderboardHref} />}
     </aside>
   )
