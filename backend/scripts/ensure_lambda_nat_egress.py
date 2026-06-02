@@ -58,8 +58,9 @@ def main() -> None:
     if mode == "provision":
         if os.environ.get("CONFIRM_CREATE_NAT", "").strip().lower() != "true":
             raise SystemExit("Set CONFIRM_CREATE_NAT=true to create paid NAT Gateway infrastructure.")
-        nat_gateway_id = _ensure_nat_gateway(ec2, vpc_id, stage)
-        _ensure_lambda_route_tables_use_nat(ec2, route_table_ids, nat_gateway_id)
+        nat_gateway_id = _ensure_nat_gateway(ec2, vpc_id, stage, excluded_subnet_ids=set(subnet_ids))
+        _ensure_lambda_subnets_use_nat(ec2, vpc_id, subnet_ids, nat_gateway_id, stage)
+        route_table_ids = _route_table_ids_for_subnets(ec2, vpc_id, subnet_ids)
         result["created_or_reused_nat_gateway_id"] = nat_gateway_id
         result["after"] = _audit(ec2, vpc_id, subnet_ids, route_table_ids)
 
@@ -137,16 +138,25 @@ def _nat_gateways(ec2, vpc_id: str) -> dict[str, dict[str, Any]]:
     return {str(gateway.get("NatGatewayId", "")): gateway for gateway in response.get("NatGateways", [])}
 
 
-def _ensure_nat_gateway(ec2, vpc_id: str, stage: str) -> str:
+def _ensure_nat_gateway(ec2, vpc_id: str, stage: str, *, excluded_subnet_ids: set[str]) -> str:
     existing = _tagged_nat_gateway(ec2, vpc_id, stage)
     if existing:
         nat_gateway_id = str(existing["NatGatewayId"])
         _wait_for_nat_gateway(ec2, nat_gateway_id)
         return nat_gateway_id
 
-    public_subnet_id = os.environ.get("NAT_PUBLIC_SUBNET_ID", "").strip() or _find_public_subnet(ec2, vpc_id)
+    public_subnet_id = os.environ.get("NAT_PUBLIC_SUBNET_ID", "").strip()
+    if public_subnet_id in excluded_subnet_ids:
+        raise SystemExit(
+            "NAT_PUBLIC_SUBNET_ID must not be one of the Lambda/RDS Proxy subnets. "
+            "Create or choose a separate public subnet for the NAT Gateway."
+        )
+    public_subnet_id = public_subnet_id or _find_public_subnet(ec2, vpc_id, excluded_subnet_ids)
     if not public_subnet_id:
-        raise SystemExit("No public subnet with an Internet Gateway default route was found. Set NAT_PUBLIC_SUBNET_ID.")
+        raise SystemExit(
+            "No separate public subnet with an Internet Gateway default route was found. "
+            "Create a public subnet in this VPC, then rerun with NAT_PUBLIC_SUBNET_ID set to that subnet."
+        )
 
     allocation = ec2.allocate_address(
         Domain="vpc",
@@ -176,7 +186,7 @@ def _tagged_nat_gateway(ec2, vpc_id: str, stage: str) -> dict[str, Any] | None:
     return gateways[0] if gateways else None
 
 
-def _find_public_subnet(ec2, vpc_id: str) -> str:
+def _find_public_subnet(ec2, vpc_id: str, excluded_subnet_ids: set[str]) -> str:
     main_route_table_id = _main_route_table_id(ec2, vpc_id)
     response = ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}])
     public_route_table_ids = []
@@ -188,6 +198,8 @@ def _find_public_subnet(ec2, vpc_id: str) -> str:
     subnets = ec2.describe_subnets(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]).get("Subnets", [])
     for subnet in subnets:
         subnet_id = str(subnet.get("SubnetId", ""))
+        if subnet_id in excluded_subnet_ids:
+            continue
         route_table_id = _route_table_id_for_subnet(ec2, vpc_id, subnet_id, main_route_table_id)
         if route_table_id in public_route_table_ids:
             return subnet_id
@@ -219,22 +231,70 @@ def _wait_for_nat_gateway(ec2, nat_gateway_id: str) -> None:
     raise SystemExit(f"NAT Gateway {nat_gateway_id} did not become available before timeout.")
 
 
-def _ensure_lambda_route_tables_use_nat(ec2, route_table_ids: list[str], nat_gateway_id: str) -> None:
-    for route_table_id in route_table_ids:
-        table = _route_tables_by_id(ec2, [route_table_id]).get(route_table_id, {})
-        default_route = _default_ipv4_route(table)
-        if default_route:
-            ec2.replace_route(
+def _ensure_lambda_subnets_use_nat(ec2, vpc_id: str, subnet_ids: list[str], nat_gateway_id: str, stage: str) -> None:
+    route_table_id = _ensure_lambda_private_route_table(ec2, vpc_id, nat_gateway_id, stage)
+    for subnet_id in subnet_ids:
+        association_id = _explicit_route_table_association_id(ec2, vpc_id, subnet_id)
+        if association_id:
+            ec2.replace_route_table_association(
+                AssociationId=association_id,
                 RouteTableId=route_table_id,
-                DestinationCidrBlock="0.0.0.0/0",
-                NatGatewayId=nat_gateway_id,
             )
         else:
-            ec2.create_route(
+            ec2.associate_route_table(
                 RouteTableId=route_table_id,
-                DestinationCidrBlock="0.0.0.0/0",
-                NatGatewayId=nat_gateway_id,
+                SubnetId=subnet_id,
             )
+
+
+def _ensure_lambda_private_route_table(ec2, vpc_id: str, nat_gateway_id: str, stage: str) -> str:
+    table_name = f"kresco-{stage}-lambda-private-egress"
+    existing = ec2.describe_route_tables(
+        Filters=[
+            {"Name": "vpc-id", "Values": [vpc_id]},
+            {"Name": "tag:Name", "Values": [table_name]},
+            {"Name": "tag:Project", "Values": ["kresco"]},
+            {"Name": "tag:Stage", "Values": [stage]},
+        ]
+    ).get("RouteTables", [])
+    if existing:
+        route_table_id = str(existing[0]["RouteTableId"])
+    else:
+        response = ec2.create_route_table(
+            VpcId=vpc_id,
+            TagSpecifications=[_tag_spec("route-table", stage, table_name)],
+        )
+        route_table_id = str(response["RouteTable"]["RouteTableId"])
+
+    table = _route_tables_by_id(ec2, [route_table_id]).get(route_table_id, {})
+    default_route = _default_ipv4_route(table)
+    if default_route:
+        ec2.replace_route(
+            RouteTableId=route_table_id,
+            DestinationCidrBlock="0.0.0.0/0",
+            NatGatewayId=nat_gateway_id,
+        )
+    else:
+        ec2.create_route(
+            RouteTableId=route_table_id,
+            DestinationCidrBlock="0.0.0.0/0",
+            NatGatewayId=nat_gateway_id,
+        )
+    return route_table_id
+
+
+def _explicit_route_table_association_id(ec2, vpc_id: str, subnet_id: str) -> str:
+    response = ec2.describe_route_tables(
+        Filters=[
+            {"Name": "vpc-id", "Values": [vpc_id]},
+            {"Name": "association.subnet-id", "Values": [subnet_id]},
+        ]
+    )
+    for table in response.get("RouteTables", []):
+        for association in table.get("Associations", []):
+            if str(association.get("SubnetId", "")) == subnet_id and not association.get("Main", False):
+                return str(association.get("RouteTableAssociationId", ""))
+    return ""
 
 
 def _tag_spec(resource_type: str, stage: str, name: str) -> dict[str, Any]:
