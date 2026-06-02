@@ -106,3 +106,39 @@ def test_database_engine_cache_tracks_direct_pool_configuration(monkeypatch):
         database_module._engine = saved_engine
         database_module._session_factory = saved_session_factory
         database_module._engine_cache_key = saved_cache_key
+
+
+def test_database_engine_uses_null_pool_for_configured_test_postgres(monkeypatch):
+    saved_engine = database_module._engine
+    saved_session_factory = database_module._session_factory
+    saved_cache_key = database_module._engine_cache_key
+    database_module._engine = None
+    database_module._session_factory = None
+    database_module._engine_cache_key = None
+    created: list[dict] = []
+    database_url = "postgresql://user:pass@localhost:5432/kresco_ci"
+
+    class FakeEngine:
+        async def dispose(self):
+            pass
+
+    def fake_create_async_engine(url, **kwargs):
+        created.append({"url": url, **kwargs})
+        return FakeEngine()
+
+    monkeypatch.setenv("KRESCO_TEST_DATABASE_URL", database_url)
+    monkeypatch.setattr(database_module, "create_async_engine", fake_create_async_engine)
+
+    try:
+        database_module.init_engine(database_url, pool_size=3, max_overflow=4, pool_timeout=5)
+
+        assert created[0]["poolclass"] is database_module.NullPool
+        assert "pool_size" not in created[0]
+        assert "max_overflow" not in created[0]
+        assert "pool_timeout" not in created[0]
+
+        database_module.init_engine(database_url, pool_size=6, max_overflow=7, pool_timeout=8)
+    finally:
+        database_module._engine = saved_engine
+        database_module._session_factory = saved_session_factory
+        database_module._engine_cache_key = saved_cache_key

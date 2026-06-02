@@ -104,6 +104,11 @@ def _safe_url_for_error(url: str) -> str:
     return urlunparse(parsed._replace(netloc=netloc))
 
 
+def _is_configured_test_database_url(database_url: str) -> bool:
+    test_database_url = os.environ.get("KRESCO_TEST_DATABASE_URL", "").strip()
+    return bool(test_database_url) and database_url.strip() == test_database_url
+
+
 def init_engine(
     database_url: str,
     is_lambda: bool = False,
@@ -116,10 +121,11 @@ def init_engine(
     global _engine, _session_factory, _engine_cache_key
 
     async_url, connect_args = _build_async_url(database_url, pgsslrootcert)
+    uses_test_database = _is_configured_test_database_url(database_url)
     normalized_pool_size = max(1, int(pool_size))
     normalized_max_overflow = max(0, int(max_overflow))
     normalized_pool_timeout = max(1, int(pool_timeout))
-    uses_direct_pool = not async_url.startswith("sqlite+aiosqlite") and not is_lambda
+    uses_direct_pool = not async_url.startswith("sqlite+aiosqlite") and not is_lambda and not uses_test_database
     pool_cache_key = (
         normalized_pool_size,
         normalized_max_overflow,
@@ -157,9 +163,11 @@ def init_engine(
 
     if async_url.startswith("sqlite+aiosqlite"):
         engine_kwargs["connect_args"] = {**connect_args, "timeout": 30}
-    elif is_lambda:
+    elif is_lambda or uses_test_database:
         # Lambda should rely on RDS Proxy / short-lived connections rather than
         # pooled connections that survive across warm invocations.
+        # Pytest's TestClient and helper fixtures also span multiple event loops;
+        # asyncpg pooled connections cannot be safely reused across those loops.
         engine_kwargs["poolclass"] = NullPool
     else:
         engine_kwargs["pool_recycle"] = 1800
