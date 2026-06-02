@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  STAGING_API_BASE_URL,
   defaultApiBaseUrl,
   getAdminRootUrl,
   getApiBaseUrl,
@@ -16,8 +15,8 @@ describe('frontend API runtime config', () => {
     expect(getApiBaseUrl(undefined)).toBe('/api/')
   })
 
-  it('falls back to the staging Lambda API for production builds with missing Vercel env', () => {
-    expect(defaultApiBaseUrl('production')).toBe(STAGING_API_BASE_URL)
+  it('defaults to same-origin /api/ even for production builds (cross-site backends must be explicit)', () => {
+    expect(defaultApiBaseUrl()).toBe('/api/')
   })
 
   it('normalizes configured API base URLs', () => {

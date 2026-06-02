@@ -256,14 +256,16 @@ describe('Next proxy auth boundary', () => {
     }
   })
 
-  it('includes the staging backend origin in production CSP when Vercel API env is missing', () => {
+  it('keeps production CSP same-origin when Vercel API env is missing (no cross-site backend default)', () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', '')
     try {
       const csp = buildContentSecurityPolicy('test-nonce')
 
-      expect(cspDirective(csp, 'connect-src')).toContain('https://eizjuuflt7.execute-api.eu-west-3.amazonaws.com')
-      expect(cspDirective(csp, 'img-src')).toContain('https://eizjuuflt7.execute-api.eu-west-3.amazonaws.com')
+      // Same-origin model: with no explicit API URL we must NOT silently whitelist
+      // the cross-site staging Lambda (that path also breaks SameSite=Lax cookie auth).
+      expect(cspDirective(csp, 'connect-src')).not.toContain('execute-api.eu-west-3.amazonaws.com')
+      expect(cspDirective(csp, 'connect-src')).toContain("'self'")
     } finally {
       vi.unstubAllEnvs()
     }

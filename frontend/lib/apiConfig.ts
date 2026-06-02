@@ -1,10 +1,13 @@
-export const STAGING_API_BASE_URL = 'https://eizjuuflt7.execute-api.eu-west-3.amazonaws.com/staging/api/'
 const LOCAL_API_BASE_URL = '/api/'
 const API_SUFFIX_PATTERN = /\/api\/?$/
 const ABSOLUTE_URL_PATTERN = /^(https?:|data:|blob:)/
 
-export function defaultApiBaseUrl(nodeEnv = process.env.NODE_ENV) {
-  return nodeEnv === 'production' ? STAGING_API_BASE_URL : LOCAL_API_BASE_URL
+export function defaultApiBaseUrl() {
+  // Default to same-origin (/api/) in every environment. A cross-site backend
+  // (e.g. the staging Lambda) must be opted into explicitly via
+  // NEXT_PUBLIC_API_BASE_URL, because cross-site cookie auth requires the auth
+  // cookie to be SameSite=None — silently defaulting there 401s after login.
+  return LOCAL_API_BASE_URL
 }
 
 export function normalizeApiBaseUrl(value?: string | null) {
