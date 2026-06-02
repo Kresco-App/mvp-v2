@@ -164,6 +164,10 @@ class Settings(BaseSettings):
         default="lax",
         validation_alias=AliasChoices("auth_cookie_samesite", "AUTH_COOKIE_SAMESITE", "KRESCO_AUTH_COOKIE_SAMESITE"),
     )
+    rate_limit_storage_uri: str = Field(
+        default="",
+        validation_alias=AliasChoices("rate_limit_storage_uri", "KRESCO_RATE_LIMIT_STORAGE_URI"),
+    )
     debug: bool = Field(default=False, validation_alias=AliasChoices("debug", "DEBUG"))
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("resend_api_key", "RESEND_API_KEY"))
     ably_api_key: str = Field(default="", validation_alias=AliasChoices("ably_api_key", "ABLY_API_KEY"))

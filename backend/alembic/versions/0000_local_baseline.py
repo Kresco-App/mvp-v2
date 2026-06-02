@@ -22,4 +22,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    Base.metadata.drop_all(bind=op.get_bind())
+    # Refuse instead of drop_all(): downgrading the baseline would drop every
+    # table and destroy all data. Restore from a database snapshot instead.
+    raise RuntimeError(
+        "Refusing to downgrade the baseline migration: this would drop every table "
+        "and irreversibly destroy all data. Restore from a database snapshot instead."
+    )

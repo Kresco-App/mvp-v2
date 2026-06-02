@@ -77,8 +77,14 @@ def trusted_remote_address(request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for", "")
     return _first_forwarded_for_ip(forwarded_for) or host
 
+RATE_LIMIT_STORAGE_URI_ENV = "KRESCO_RATE_LIMIT_STORAGE_URI"
+# Shared store (e.g. redis://...) makes limits global across Lambda containers.
+# Defaults to in-memory for local/dev; production validation requires a shared URI.
+_rate_limit_storage_uri = os.environ.get(RATE_LIMIT_STORAGE_URI_ENV, "").strip() or "memory://"
+
 limiter = Limiter(
     key_func=trusted_remote_address,
     default_limits=DEFAULT_RATE_LIMITS,
     application_limits=APPLICATION_RATE_LIMITS,
+    storage_uri=_rate_limit_storage_uri,
 )
