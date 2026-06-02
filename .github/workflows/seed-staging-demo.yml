@@ -32,6 +32,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-3
 
+      - name: Resolve Lambda VPC config
+        id: vpc_config
+        run: |
+          cd backend
+          python scripts/resolve_zappa_vpc_config.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          KRESCO_RUNTIME_SECRET_ID: ${{ vars.KRESCO_RUNTIME_SECRET_ID }}
+          ZAPPA_SUBNET_IDS: ${{ vars.ZAPPA_SUBNET_IDS }}
+          ZAPPA_SECURITY_GROUP_IDS: ${{ vars.ZAPPA_SECURITY_GROUP_IDS }}
+
       - name: Render Zappa environment
         run: |
           cd backend
@@ -44,8 +55,8 @@ jobs:
           FRONTEND_URL: ${{ vars.FRONTEND_URL }}
           CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           CORS_ALLOW_ORIGIN_REGEX: ${{ vars.CORS_ALLOW_ORIGIN_REGEX }}
-          ZAPPA_SUBNET_IDS: ${{ vars.ZAPPA_SUBNET_IDS }}
-          ZAPPA_SECURITY_GROUP_IDS: ${{ vars.ZAPPA_SECURITY_GROUP_IDS }}
+          ZAPPA_SUBNET_IDS: ${{ steps.vpc_config.outputs.subnet_ids }}
+          ZAPPA_SECURITY_GROUP_IDS: ${{ steps.vpc_config.outputs.security_group_ids }}
 
       - name: Upsert staging demo accounts inside Lambda VPC
         run: |
