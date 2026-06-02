@@ -23,11 +23,31 @@ jobs:
           cd backend
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
-      - name: Upsert staging demo accounts
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Render Zappa environment
         run: |
           cd backend
-          python scripts/seed_staging_demo.py
+          python scripts/render_zappa_settings.py zappa_settings.json staging
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          KRESCO_ALLOW_STAGING_DEMO_SEED: "true"
+          KRESCO_RUNTIME_SECRET_ID: ${{ vars.KRESCO_RUNTIME_SECRET_ID }}
+          KRESCO_RELEASE_SHA: ${{ github.sha }}
+          DATABASE_CONNECTION_STRATEGY: rds_proxy
+          PGSSLROOTCERT: certifi
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          CORS_ALLOW_ORIGIN_REGEX: ${{ vars.CORS_ALLOW_ORIGIN_REGEX }}
+          ZAPPA_SUBNET_IDS: ${{ vars.ZAPPA_SUBNET_IDS }}
+          ZAPPA_SECURITY_GROUP_IDS: ${{ vars.ZAPPA_SECURITY_GROUP_IDS }}
+
+      - name: Upsert staging demo accounts inside Lambda VPC
+        run: |
+          cd backend
+          zappa invoke staging "app.scheduled.seed_staging_demo_event" --raw '{"confirm":"seed-staging-demo"}'

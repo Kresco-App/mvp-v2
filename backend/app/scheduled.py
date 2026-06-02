@@ -12,12 +12,14 @@ from alembic.config import Config
 from app.config import BACKEND_DIR
 from app.config import Settings, get_settings
 from app.database import get_session_factory, init_engine
+from scripts.seed_staging_demo import seed_staging_demo
 from app.services.realtime_outbox import process_realtime_outbox
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_OUTBOX_LIMIT = 100
 MAX_OUTBOX_LIMIT = 500
+STAGING_DEMO_SEED_CONFIRMATION = "seed-staging-demo"
 
 
 def run_alembic_migrations_event(
@@ -45,6 +47,24 @@ def process_realtime_outbox_event(
 ) -> dict[str, int | bool]:
     del context
     return asyncio.run(process_realtime_outbox_once(event or {}))
+
+
+def seed_staging_demo_event(
+    event: Mapping[str, Any] | None = None,
+    context: Any = None,
+) -> dict[str, bool]:
+    del context
+    payload = event or {}
+    if payload.get("confirm") != STAGING_DEMO_SEED_CONFIRMATION:
+        raise ValueError("seed_staging_demo_event requires confirm=seed-staging-demo.")
+
+    settings = get_settings()
+    if settings.environment.strip().lower() == "production":
+        raise ValueError("Refusing to seed production.")
+
+    os.environ["KRESCO_ALLOW_STAGING_DEMO_SEED"] = "true"
+    asyncio.run(seed_staging_demo(settings.database_url))
+    return {"ok": True}
 
 
 async def process_realtime_outbox_once(
