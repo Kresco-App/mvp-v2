@@ -14,6 +14,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqladmin import Admin
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.admin.auth import StaffAdminAuth
@@ -220,6 +221,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Compress responses (large JSON course plans / workspaces) for clients that
+    # advertise gzip support. Registered last so it wraps the response outermost.
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     # Routers
     app.include_router(users.router, prefix="/api")
