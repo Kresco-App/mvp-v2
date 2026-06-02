@@ -520,6 +520,7 @@ def test_zappa_environments_match_startup_validation(monkeypatch):
         assert stage_config["memory_size"] >= 1024
         assert stage_config["timeout_seconds"] >= 45
         assert stage_config["keep_warm"] is True
+        assert stage_config["cors"] is False
 
         assert "localhost" not in env["CORS_ALLOWED_ORIGINS"]
         assert "127.0.0.1" not in env["CORS_ALLOWED_ORIGINS"]

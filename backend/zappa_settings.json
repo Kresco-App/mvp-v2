@@ -45,7 +45,7 @@
                 "expression": "rate(1 minute)"
             }
         ],
-        "cors": true,
+        "cors": false,
         "timeout_seconds": 45,
         "memory_size": 1024,
         "manage_roles": true,
@@ -100,7 +100,7 @@
                 "expression": "rate(1 minute)"
             }
         ],
-        "cors": true,
+        "cors": false,
         "timeout_seconds": 45,
         "memory_size": 1024,
         "manage_roles": true,
