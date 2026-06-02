@@ -1,0 +1,33 @@
+name: Seed staging demo accounts
+
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Upsert staging demo accounts
+        run: |
+          cd backend
+          python scripts/seed_staging_demo.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          KRESCO_ALLOW_STAGING_DEMO_SEED: "true"
