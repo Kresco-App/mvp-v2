@@ -1,12 +1,13 @@
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_professor_user, get_current_user, get_db, require_professor_active_offering
 from app.models.users import User
 from app.rate_limit import limiter
+from app.services.realtime_outbox import drain_realtime_outbox_in_background
 from app.schemas.professor import (
     ChatConversationPatchIn,
     ChatMessageIn,
@@ -457,16 +458,19 @@ async def list_student_live_checkpoints(
 async def notify_live_session(
     live_session_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await notify_professor_live_session(
+    result = await notify_professor_live_session(
         db,
         professor=professor,
         request=request,
         live_session_id=live_session_id,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.post("/live-sessions/{live_session_id}/start", response_model=ProfessorLiveSessionOut)
@@ -584,11 +588,12 @@ async def send_professor_message(
     conversation_id: int,
     body: ChatMessageIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await send_professor_message_state(
+    result = await send_professor_message_state(
         db,
         professor=professor,
         conversation_id=conversation_id,
@@ -596,6 +601,8 @@ async def send_professor_message(
         request=request,
         settings=settings,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.post("/chat/conversations/{conversation_id}/images", response_model=ProfessorChatMessageOut, status_code=201)
@@ -603,13 +610,14 @@ async def send_professor_message(
 async def send_professor_image_message(
     conversation_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     body: str = Form(default=""),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await send_professor_image_message_state(
+    result = await send_professor_image_message_state(
         db,
         professor=professor,
         conversation_id=conversation_id,
@@ -618,6 +626,8 @@ async def send_professor_image_message(
         request=request,
         settings=settings,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.patch("/chat/messages/{message_id}", response_model=ProfessorChatMessageOut)
@@ -694,18 +704,21 @@ async def get_student_professor_chat(
 @limiter.limit(STUDENT_CHAT_ROUTE_LIMIT)
 async def start_student_conversation(
     request: Request,
+    background_tasks: BackgroundTasks,
     body: StudentStartConversationIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
     del request
-    return await start_student_conversation_state(
+    result = await start_student_conversation_state(
         db,
         user=user,
         body=body,
         settings=settings,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.get("/student-chat/conversations/{conversation_id}/messages", response_model=list[ProfessorChatMessageOut])
@@ -731,6 +744,7 @@ async def list_student_messages(
 @limiter.limit(STUDENT_CHAT_ROUTE_LIMIT)
 async def send_student_message(
     request: Request,
+    background_tasks: BackgroundTasks,
     conversation_id: int,
     body: ChatMessageIn,
     db: AsyncSession = Depends(get_db),
@@ -738,19 +752,22 @@ async def send_student_message(
     settings: Settings = Depends(get_settings),
 ):
     del request
-    return await send_student_message_state(
+    result = await send_student_message_state(
         db,
         user=user,
         conversation_id=conversation_id,
         body=body,
         settings=settings,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.post("/student-chat/conversations/{conversation_id}/images", response_model=ProfessorChatMessageOut, status_code=201)
 @limiter.limit(STUDENT_CHAT_IMAGE_ROUTE_LIMIT)
 async def send_student_image_message(
     request: Request,
+    background_tasks: BackgroundTasks,
     conversation_id: int,
     body: str = Form(default=""),
     file: UploadFile = File(...),
@@ -759,7 +776,7 @@ async def send_student_image_message(
     settings: Settings = Depends(get_settings),
 ):
     del request
-    return await send_student_image_message_state(
+    result = await send_student_image_message_state(
         db,
         user=user,
         conversation_id=conversation_id,
@@ -767,3 +784,5 @@ async def send_student_image_message(
         file=file,
         settings=settings,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result

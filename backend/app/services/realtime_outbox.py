@@ -9,6 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
+from app.database import get_session_factory
 from app.models.professor import RealtimeOutbox
 from app.services.ably import publish_ably_message
 
@@ -120,6 +121,30 @@ async def process_realtime_outbox(
 
     await db.commit()
     return {"claimed": len(events), "published": published, "retry": retry, "dead": dead}
+
+
+FAST_LANE_OUTBOX_LIMIT = 25
+
+
+async def drain_realtime_outbox_in_background(
+    settings: Settings, *, limit: int = FAST_LANE_OUTBOX_LIMIT
+) -> None:
+    """Best-effort immediate outbox drain triggered after a realtime write.
+
+    Scheduled via FastAPI ``BackgroundTasks`` so a just-enqueued chat/live event
+    is delivered without waiting for the ~1 minute cron. Uses its own DB session
+    (the request session is closed by the time background tasks run) and swallows
+    errors because the scheduled worker remains the durable safety net. Claiming
+    uses ``skip_locked``, so overlapping with the cron is safe.
+    """
+    session_factory = get_session_factory()
+    if session_factory is None:
+        return
+    try:
+        async with session_factory() as db:
+            await process_realtime_outbox(db, settings, limit=limit)
+    except Exception:
+        logger.warning("realtime_outbox_fast_lane_drain_failed", exc_info=True)
 
 
 async def _claim_realtime_outbox_batch(db: AsyncSession, *, limit: int, now: datetime) -> list[RealtimeOutbox]:
