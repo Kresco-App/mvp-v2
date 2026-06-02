@@ -16,6 +16,7 @@ from app.services.media_storage import MediaStorage, media_url, profile_media_ke
 MAX_PROFILE_MEDIA_BYTES = 5 * 1024 * 1024
 MediaUrlFn = Callable[[str, Settings], str]
 MediaStorageFactory = Callable[[Settings], MediaStorage]
+TRACK_FIELDS = {"niveau", "filiere"}
 
 
 def profile_media_projected_bytes(user: User, kind: str, incoming_bytes: int) -> int:
@@ -35,6 +36,21 @@ def user_out(user: User, settings: Settings, *, media_url_fn: MediaUrlFn = media
     return out
 
 
+def _normalize_track_field(value: object) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def _enforce_self_service_track_boundary(user: User, updates: dict) -> None:
+    for field in TRACK_FIELDS.intersection(updates):
+        current = _normalize_track_field(getattr(user, field, ""))
+        incoming = _normalize_track_field(updates[field])
+        if current and incoming != current:
+            raise HTTPException(
+                status_code=403,
+                detail="Track changes require staff support",
+            )
+
+
 async def update_profile_state(
     db: AsyncSession,
     *,
@@ -46,6 +62,7 @@ async def update_profile_state(
     updates = body.model_dump(exclude_none=True)
     if not updates:
         return user_out(user, settings, media_url_fn=media_url_fn)
+    _enforce_self_service_track_boundary(user, updates)
     if "avatar_url" in updates:
         avatar_reference = updates["avatar_url"]
         if avatar_reference not in {"", user.avatar_url}:

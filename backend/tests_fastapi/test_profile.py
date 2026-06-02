@@ -63,6 +63,47 @@ def test_patch_profile_updates_identity_fields(app_client, auth_token):
     assert persisted.json()["banner_url"] == ""
 
 
+def test_patch_profile_blocks_track_changes_after_initial_selection(app_client, auth_token):
+    token, _ = auth_token(email="profile-track-boundary@example.com")
+
+    initial = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "niveau": "2BAC",
+            "filiere": "Sciences Physiques",
+        },
+    )
+    assert initial.status_code == 200
+
+    same_value = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "niveau": " 2bac ",
+            "filiere": "sciences physiques",
+        },
+    )
+    assert same_value.status_code == 200
+
+    changed = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "niveau": "1BAC",
+            "filiere": "Sciences Math",
+        },
+    )
+
+    assert changed.status_code == 403
+    assert changed.json()["detail"] == "Track changes require staff support"
+
+    persisted = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {token}"})
+    assert persisted.status_code == 200
+    assert persisted.json()["niveau"] == " 2bac "
+    assert persisted.json()["filiere"] == "sciences physiques"
+
+
 def test_patch_profile_rejects_external_media_urls(app_client, auth_token):
     token, _ = auth_token(email="profile-external-media@example.com")
 
