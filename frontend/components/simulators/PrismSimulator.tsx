@@ -30,8 +30,11 @@ export default function PrismSimulator() {
     }
 
     window.addEventListener('resize', handleResize)
-    setTimeout(handleResize, 100)
-    return () => window.removeEventListener('resize', handleResize)
+    const timerId = setTimeout(handleResize, 100)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      clearTimeout(timerId)
+    }
   }, [])
 
   const simulation: SimulationResult = useMemo(() => {

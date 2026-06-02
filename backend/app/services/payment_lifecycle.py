@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 
 import stripe
 from fastapi import HTTPException
+from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,7 @@ from app.services.payment_entitlements import (
 from app.services.stripe_service import CheckoutSessionVerification
 
 logger = logging.getLogger("kresco.payments")
+DISPUTE_CUSTOMER_LOOKUP_UNAVAILABLE_DETAIL = "Stripe dispute customer lookup is temporarily unavailable"
 
 
 CreateCheckoutSession = Callable[[User, str, Settings], Awaitable[str]]
@@ -77,6 +79,23 @@ async def record_payment_verification_attempt_once(
     return True
 
 
+async def release_payment_verification_attempt(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    session_id: str,
+    idempotency_key: str,
+) -> None:
+    await db.execute(
+        delete(PaymentVerificationAttempt).where(
+            PaymentVerificationAttempt.user_id == user_id,
+            PaymentVerificationAttempt.session_id == session_id,
+            PaymentVerificationAttempt.idempotency_key == idempotency_key,
+        )
+    )
+    await db.commit()
+
+
 async def create_checkout_state(
     db: AsyncSession,
     *,
@@ -116,7 +135,17 @@ async def verify_checkout_session_state(
         refreshed_user = await db.get(User, user_id)
         return VerifyOut(is_pro=bool(refreshed_user.is_pro) if refreshed_user else False)
 
-    verification = await verify_checkout_session_fn(session_id, settings)
+    try:
+        verification = await verify_checkout_session_fn(session_id, settings)
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            await release_payment_verification_attempt(
+                db,
+                user_id=user_id,
+                session_id=session_id,
+                idempotency_key=normalized_idempotency_key,
+            )
+        raise
     if verification.is_paid and verification.user_id != user_id:
         raise HTTPException(status_code=403, detail="Checkout session does not belong to this user")
     if verification.is_paid:
@@ -177,6 +206,12 @@ async def process_stripe_webhook_event(
         charge_id = event_value(data, "charge")
         if not resolved_dispute_customer_id:
             resolved_dispute_customer_id = await customer_id_for_charge_fn(charge_id, settings)
+        if not resolved_dispute_customer_id:
+            logger.warning(
+                "stripe_dispute_created_missing_customer",
+                extra={"stripe_event_id": event_id, "stripe_charge_id": charge_id},
+            )
+            raise HTTPException(status_code=503, detail=DISPUTE_CUSTOMER_LOOKUP_UNAVAILABLE_DETAIL)
 
     if not await record_webhook_event_once_fn(db, event_id, event_type):
         return {"received": True, "duplicate": True}
@@ -206,10 +241,6 @@ async def process_stripe_webhook_event(
         await revoke_paid_access_by_customer_id(db, customer_id=event_value(data, "customer"))
 
     elif event_type == "charge.dispute.created":
-        if not resolved_dispute_customer_id:
-            logger.warning("stripe_dispute_created_missing_customer")
-            await db.commit()
-            return {"received": True}
         await revoke_paid_access_by_customer_id(db, customer_id=resolved_dispute_customer_id)
 
     await db.commit()

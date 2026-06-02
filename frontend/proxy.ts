@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
@@ -7,18 +7,12 @@ import { isJwtExpired, KRESCO_CSRF_COOKIE, KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE
 
 const CSP_HEADER = 'Content-Security-Policy'
 const CSP_NONCE_PLACEHOLDER = '__KRESCO_CSP_NONCE__'
-const JWT_SECRET_MIN_LENGTH = 32
 
 let cachedCspTemplate: { key: string; value: string } | null = null
 
 type ProxyAuthUser = {
   role: string | null
   is_staff: boolean
-}
-
-type ProxyTokenVerification = {
-  expired: boolean
-  user: ProxyAuthUser | null
 }
 
 function normalizeCsp(directives: string[]) {
@@ -41,51 +35,6 @@ function absoluteOrigin(value?: string | null) {
 
 function uniqueSources(sources: string[]) {
   return Array.from(new Set(sources.filter(Boolean)))
-}
-
-function decodeJsonSegment(segment: string): Record<string, unknown> | null {
-  try {
-    return JSON.parse(Buffer.from(segment, 'base64url').toString('utf8'))
-  } catch {
-    return null
-  }
-}
-
-function signatureMatches(signedValue: string, signature: string, secret: string) {
-  const expected = createHmac('sha256', secret).update(signedValue).digest('base64url')
-  const expectedBuffer = Buffer.from(expected)
-  const receivedBuffer = Buffer.from(signature)
-  return expectedBuffer.length === receivedBuffer.length && timingSafeEqual(expectedBuffer, receivedBuffer)
-}
-
-export function verifyProxyAuthToken(token: string | undefined | null, nowMs = Date.now()): ProxyTokenVerification {
-  if (!token) return { expired: true, user: null }
-
-  const secret = (process.env.JWT_SECRET_KEY || '').trim()
-  if (secret.length < JWT_SECRET_MIN_LENGTH) return { expired: true, user: null }
-
-  const parts = token.split('.')
-  if (parts.length !== 3) return { expired: true, user: null }
-
-  const [encodedHeader, encodedPayload, signature] = parts
-  const header = decodeJsonSegment(encodedHeader)
-  if (header?.alg !== 'HS256') return { expired: true, user: null }
-  if (!signatureMatches(`${encodedHeader}.${encodedPayload}`, signature, secret)) {
-    return { expired: true, user: null }
-  }
-
-  const payload = decodeJsonSegment(encodedPayload)
-  if (typeof payload?.exp !== 'number' || payload.exp * 1000 <= nowMs) {
-    return { expired: true, user: null }
-  }
-
-  return {
-    expired: false,
-    user: {
-      role: typeof payload.role === 'string' ? payload.role : null,
-      is_staff: payload.is_staff === true,
-    },
-  }
 }
 
 export function buildContentSecurityPolicy(nonce: string) {
@@ -175,16 +124,14 @@ export function proxy(request: NextRequest) {
   requestHeaders.set(CSP_HEADER, csp)
 
   const token = request.cookies.get(KRESCO_TOKEN_COOKIE)?.value
-  let verifiedToken: ProxyTokenVerification | null = null
-  const getVerifiedToken = () => {
-    verifiedToken ??= verifyProxyAuthToken(token)
-    return verifiedToken
-  }
+  const roleCookie = request.cookies.get(KRESCO_USER_ROLE_COOKIE)?.value?.trim() || null
+  const getProxyUser = (): ProxyAuthUser => ({ role: roleCookie, is_staff: false })
   const decision = getAuthRedirect(
     request.nextUrl.pathname,
     token,
-    token ? () => getVerifiedToken().expired : isJwtExpired,
-    () => getVerifiedToken().user,
+    isJwtExpired,
+    getProxyUser,
+    { enforceClaimAccess: false },
   )
 
   if (decision.action === 'allow') {

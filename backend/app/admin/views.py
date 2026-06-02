@@ -1,5 +1,6 @@
 from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy import Boolean, Date, DateTime, Integer, String, Text, inspect as sa_inspect
 from sqladmin import ModelView
 from sqladmin.filters import AllUniqueStringValuesFilter, BooleanFilter
@@ -59,6 +60,16 @@ def _admin_audit_note(request) -> str:
     return f"admin_user_id={admin_user_id}" if admin_user_id else "admin_user_id=unknown"
 
 
+def _admin_user_id(request) -> int | None:
+    session = getattr(request, "session", None) if request else None
+    if not isinstance(session, dict):
+        return None
+    try:
+        return int(session.get(ADMIN_SESSION_USER_ID) or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
 class PowerModelView(ModelView):
     def is_accessible(self, request) -> bool:
         session = getattr(request, "session", None)
@@ -110,6 +121,27 @@ class UserAdmin(PowerModelView, model=User):
     can_edit = True
     can_delete = True
     can_view_details = True
+
+    async def on_model_change(self, data: dict, model: User, is_created: bool, request) -> None:
+        if is_created:
+            return
+        admin_user_id = _admin_user_id(request)
+        if not admin_user_id:
+            raise HTTPException(status_code=403, detail="Admin session is required")
+        session_factory = get_session_factory()
+        if session_factory is None:
+            raise HTTPException(status_code=503, detail="Admin database session is unavailable")
+        async with session_factory() as db:
+            admin_user = await db.get(User, admin_user_id)
+        if admin_user is None or not admin_user.is_staff:
+            raise HTTPException(status_code=403, detail="Staff access required")
+        if admin_user.is_superuser:
+            return
+        if model.is_staff or model.is_superuser:
+            raise HTTPException(status_code=403, detail="Only superusers can edit staff accounts")
+        next_email = str(data.get("email", model.email) or "").strip().lower()
+        if next_email and next_email != str(model.email or "").strip().lower():
+            raise HTTPException(status_code=403, detail="Only superusers can edit user email addresses")
 
 
 class UserSubjectEntitlementAdmin(PowerModelView, model=UserSubjectEntitlement):

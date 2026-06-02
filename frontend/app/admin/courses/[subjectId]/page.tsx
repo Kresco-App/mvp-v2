@@ -9,7 +9,7 @@ import {
   GripVertical, Eye
 } from 'lucide-react'
 import { getJson } from '@/lib/apiClient'
-import AuthGuard from '@/components/AuthGuard'
+
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -115,16 +115,16 @@ export default function AdminSubjectPage() {
 
   if (loading) {
     return (
-      <AuthGuard>
+      <>
         <div className="min-h-screen bg-slate-950 flex items-center justify-center">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
         </div>
-      </AuthGuard>
+      </>
     )
   }
 
   return (
-    <AuthGuard>
+    <>
       <div className="min-h-screen bg-slate-950">
         {/* Header */}
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
@@ -236,6 +236,6 @@ export default function AdminSubjectPage() {
           </div>
         </div>
       </div>
-    </AuthGuard>
+    </>
   )
 }

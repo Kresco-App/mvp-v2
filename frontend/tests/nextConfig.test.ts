@@ -12,6 +12,8 @@ import {
 } from '../next.config.mjs'
 
 const FRONTEND_ROOT = fileURLToPath(new URL('..', import.meta.url))
+type HeaderEntry = { key: string; value: string }
+type HeaderRule = { headers?: HeaderEntry[] }
 
 function sourceFilesUnder(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -20,6 +22,11 @@ function sourceFilesUnder(dir: string): string[] {
     if (statSync(fullPath).isDirectory()) return sourceFilesUnder(fullPath)
     return /\.(t|j)sx?$/.test(entry) ? [fullPath] : []
   })
+}
+
+async function configuredHeaders() {
+  const rules = await nextConfig.headers?.() as HeaderRule[] | undefined
+  return (rules ?? []).flatMap((rule: HeaderRule) => rule.headers ?? [])
 }
 
 describe('Next production config boundaries', () => {
@@ -44,6 +51,19 @@ describe('Next production config boundaries', () => {
     expect(shouldEnableLocalRewrites('production', 'true')).toBe(false)
     expect(shouldEnableLocalRewrites('development', 'true')).toBe(true)
     expect(shouldEnableLocalRewrites('development', 'false')).toBe(false)
+  })
+
+  it('keeps the strict CSP in proxy.ts instead of emitting a weaker global next.config header', async () => {
+    const headers = await configuredHeaders()
+
+    expect(headers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'Content-Security-Policy' }),
+    ]))
+    expect(headers).toEqual(expect.arrayContaining([
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+    ]))
   })
 
   it('keeps heavy visualization and icon imports modular', () => {

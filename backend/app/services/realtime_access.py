@@ -116,8 +116,8 @@ async def build_ably_token(db: AsyncSession, *, user: User, settings: Settings) 
         live_session_ids = await live_session_ids_for_user(db, user, access_context=access_context)
         offering_ids = await offering_ids_for_user(db, user, access_context=access_context)
         token, expires_at, capability = create_ably_jwt(user, settings, live_session_ids, offering_ids)
-    except AblyConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+    except AblyConfigurationError:
+        raise HTTPException(status_code=503, detail="Realtime services are currently misconfigured: ABLY_API_KEY")
     return AblyTokenOut(
         token=token,
         client_id=ably_client_id(user),

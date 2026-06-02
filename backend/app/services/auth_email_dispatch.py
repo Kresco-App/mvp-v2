@@ -50,7 +50,6 @@ def log_email_dispatch_failure(flow: str, exc: Exception) -> None:
     logger.warning(
         "auth_email_dispatch_failed",
         extra={"flow": flow, "error_type": type(exc).__name__},
-        exc_info=True,
     )
 
 

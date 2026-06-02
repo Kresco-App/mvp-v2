@@ -118,11 +118,11 @@ export function numberValue(value: unknown): number {
 }
 
 export function formatNumber(value: unknown): string {
-  return numberValue(value).toLocaleString()
+  return numberValue(value).toLocaleString('en-US')
 }
 
 export function percent(value: unknown): string {
-  return `${numberValue(value).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`
+  return `${numberValue(value).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`
 }
 
 export function sumValues(values?: Record<string, unknown>): number {

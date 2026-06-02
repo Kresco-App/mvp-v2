@@ -44,7 +44,7 @@ import {
   type AdminOverview,
   type LoadState,
 } from '@/lib/adminOverview'
-import AuthGuard from '@/components/AuthGuard'
+
 
 const DOMAIN_ICONS: Record<string, any> = {
   'knowledge-base': LibraryBig,
@@ -117,7 +117,7 @@ export default function AdminDashboard() {
 
   if (state === 'forbidden') {
     return (
-      <AuthGuard>
+      <>
         <div className="min-h-screen bg-slate-950 px-6 py-10">
           <div className="mx-auto max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-8">
             <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-red-500/10 text-red-500">
@@ -137,12 +137,12 @@ export default function AdminDashboard() {
             </div>
           </div>
         </div>
-      </AuthGuard>
+      </>
     )
   }
 
   return (
-    <AuthGuard>
+    <>
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <div className="border-b border-slate-800 bg-slate-900">
           <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-8">
@@ -391,7 +391,7 @@ export default function AdminDashboard() {
           </div>
         </main>
       </div>
-    </AuthGuard>
+    </>
   )
 }
 

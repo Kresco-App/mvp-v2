@@ -1,25 +1,15 @@
-import { createHmac } from 'node:crypto'
 import { NextRequest } from 'next/server'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-import { buildContentSecurityPolicy, config, proxy, verifyProxyAuthToken } from '@/proxy'
+import { buildContentSecurityPolicy, config, proxy } from '@/proxy'
 import { KRESCO_CSRF_COOKIE, KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE_COOKIE } from '@/lib/authSession'
-
-const TEST_JWT_SECRET_KEY = 'test-secret-key-for-proxy-route-32-bytes'
 
 function encodeSegment(value: unknown) {
   return Buffer.from(JSON.stringify(value)).toString('base64url')
 }
 
-function makeToken(payload: Record<string, unknown>, secret = TEST_JWT_SECRET_KEY) {
-  const signedValue = `${encodeSegment({ alg: 'HS256', typ: 'JWT' })}.${encodeSegment(payload)}`
-  const signature = createHmac('sha256', secret).update(signedValue).digest('base64url')
-  return `${signedValue}.${signature}`
-}
-
-function makeUnsignedToken(payload: Record<string, unknown>) {
-  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
-  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.test`
+function makeToken(payload: Record<string, unknown>) {
+  return `${encodeSegment({ alg: 'none', typ: 'JWT' })}.${encodeSegment(payload)}.proxy-only`
 }
 
 function makeRequest(pathname: string, cookies: Record<string, string> = {}) {
@@ -61,10 +51,6 @@ function expectSecurityHeaders(response: ReturnType<typeof proxy>) {
 }
 
 describe('Next proxy auth boundary', () => {
-  beforeEach(() => {
-    process.env.JWT_SECRET_KEY = TEST_JWT_SECRET_KEY
-  })
-
   it('redirects unauthenticated student routes to landing', () => {
     const response = proxy(makeRequest('/courses'))
 
@@ -98,26 +84,28 @@ describe('Next proxy auth boundary', () => {
   it('redirects authenticated professors away from landing to professor workspace', () => {
     const response = proxy(makeRequest('/', {
       [KRESCO_TOKEN_COOKIE]: validToken({ role: 'professor' }),
-      [KRESCO_USER_ROLE_COOKIE]: 'student',
+      [KRESCO_USER_ROLE_COOKIE]: 'professor',
     }))
 
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe('https://app.kresco.example/professor')
   })
 
-  it('does not trust the writable role cookie for professor routes', () => {
+  it('defers professor role authorization to AuthGuard server verification', () => {
     const response = proxy(makeRequest('/professor', {
       [KRESCO_TOKEN_COOKIE]: validToken({ role: 'student' }),
       [KRESCO_USER_ROLE_COOKIE]: 'professor',
     }))
 
-    expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/home')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-middleware-next')).toBe('1')
   })
 
-  it('rejects forged unsigned JWT cookies before reading privileged claims', () => {
+  it('does not require the backend JWT signing secret in the frontend proxy', () => {
+    delete process.env.JWT_SECRET_KEY
+
     const response = proxy(makeRequest('/admin', {
-      [KRESCO_TOKEN_COOKIE]: makeUnsignedToken({
+      [KRESCO_TOKEN_COOKIE]: makeToken({
         exp: Math.floor(Date.now() / 1000) + 3600,
         role: 'professor',
         is_staff: true,
@@ -125,38 +113,24 @@ describe('Next proxy auth boundary', () => {
       [KRESCO_USER_ROLE_COOKIE]: 'professor',
     }))
 
-    expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-middleware-next')).toBe('1')
   })
 
-  it('fails closed when the proxy JWT verification secret is missing', () => {
-    delete process.env.JWT_SECRET_KEY
-
-    const verification = verifyProxyAuthToken(validToken())
-    const response = proxy(makeRequest('/professor', {
-      [KRESCO_TOKEN_COOKIE]: validToken({ role: 'professor' }),
-      [KRESCO_USER_ROLE_COOKIE]: 'professor',
-    }))
-
-    expect(verification.expired).toBe(true)
-    expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/professor/login')
-  })
-
-  it('requires the JWT staff claim for admin routes', () => {
-    const rejected = proxy(makeRequest('/admin', {
+  it('defers staff authorization to AuthGuard while requiring a nonexpired cookie', () => {
+    const accepted = proxy(makeRequest('/admin', {
       [KRESCO_TOKEN_COOKIE]: validToken({ role: 'professor', is_staff: false }),
       [KRESCO_USER_ROLE_COOKIE]: 'professor',
     }))
-    const accepted = proxy(makeRequest('/admin', {
-      [KRESCO_TOKEN_COOKIE]: validToken({ role: 'student', is_staff: true }),
-      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    const expired = proxy(makeRequest('/admin', {
+      [KRESCO_TOKEN_COOKIE]: expiredToken(),
+      [KRESCO_USER_ROLE_COOKIE]: 'professor',
     }))
 
-    expect(rejected.status).toBe(307)
-    expect(rejected.headers.get('location')).toBe('https://app.kresco.example/home')
     expect(accepted.status).toBe(200)
     expect(accepted.headers.get('x-middleware-next')).toBe('1')
+    expect(expired.status).toBe(307)
+    expect(expired.headers.get('location')).toBe('https://app.kresco.example/')
   })
 
   it('allows protected routes with a valid auth cookie', () => {

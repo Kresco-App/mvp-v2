@@ -167,6 +167,89 @@ def test_schema_limits_reject_oversized_answer_keys():
         TabQuizSubmitIn(answers={"x" * 256: "A"})
 
 
+def test_schema_limits_accept_supported_tab_quiz_answer_shapes():
+    answers = {
+        "single": "A",
+        "multi": ["A", "B"],
+        "matching": {"T": "seconds", "f": "hertz"},
+        "hotspot": {"x": 50, "y": 50, "radius": 10},
+    }
+
+    assert TabQuizSubmitIn(answers=answers).answers == answers
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"nested_dict": {"left": {"too": "deep"}}},
+        {"nested_list": [["too", "deep"]]},
+        {"long_string": "x" * 2001},
+        {"long_list": [str(index) for index in range(101)]},
+        {"long_dict": {f"k{index}": str(index) for index in range(101)}},
+        {f"q{index}": "x" * 1000 for index in range(70)},
+    ],
+)
+def test_schema_limits_reject_nested_or_oversized_tab_quiz_answers(answers):
+    with pytest.raises(ValidationError):
+        TabQuizSubmitIn(answers=answers)
+
+
+def test_schema_limits_accept_bounded_professor_change_request_json():
+    payload = {
+        "course_offering_id": 1,
+        "target_type": "tab_content",
+        "target_id": 1,
+        "proposed_patch_json": {
+            "content": {"blocks": [{"type": "paragraph", "value": "Updated note"}]},
+            "config_json": {"questions": [{"id": "q1", "type": "matching", "pairs": [{"left": "T"}]}]},
+        },
+        "current_snapshot_json": {
+            "title": "Previous note",
+            "config_json": {"questions": [{"id": "q1", "type": "matching"}]},
+        },
+    }
+
+    model = ProfessorChangeRequestIn(**payload)
+
+    assert model.proposed_patch_json == payload["proposed_patch_json"]
+    assert model.current_snapshot_json == payload["current_snapshot_json"]
+
+
+@pytest.mark.parametrize(
+    "field_name, field_value",
+    [
+        (
+            "proposed_patch_json",
+            {"a": {"b": {"c": {"d": {"e": {"f": {"g": "too deep"}}}}}}},
+        ),
+        (
+            "proposed_patch_json",
+            {"items": [f"item-{index}" for index in range(251)]},
+        ),
+        (
+            "proposed_patch_json",
+            {"title": "x" * 10001},
+        ),
+        (
+            "current_snapshot_json",
+            {"items": ["x" * 1000 for _ in range(140)]},
+        ),
+    ],
+)
+def test_schema_limits_reject_nested_or_oversized_professor_change_request_json(field_name, field_value):
+    payload = {
+        "course_offering_id": 1,
+        "target_type": "topic",
+        "target_id": 1,
+        "proposed_patch_json": {},
+        "current_snapshot_json": {},
+    }
+    payload[field_name] = field_value
+
+    with pytest.raises(ValidationError):
+        ProfessorChangeRequestIn(**payload)
+
+
 @pytest.mark.parametrize(
     ("model", "payload"),
     [

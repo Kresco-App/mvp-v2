@@ -192,7 +192,7 @@ describe('auth session JWT helpers', () => {
     expect(getTokenCookieMaxAgeSeconds(makeToken({ exp: 1_700_000_900 }), now)).toBe(900)
   })
 
-  it('stores user context without persisting the JWT in localStorage', () => {
+  it('stores user context without treating localStorage alone as an authenticated session', () => {
     const user = { id: 1, email: 'student@example.com', role: 'student' }
     localStorage.setItem(KRESCO_TOKEN_KEY, 'legacy-token')
 
@@ -200,6 +200,9 @@ describe('auth session JWT helpers', () => {
 
     expect(localStorage.getItem(KRESCO_TOKEN_KEY)).toBeNull()
     expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toMatchObject(user)
+    expect(readStoredAuthSession()).toEqual({ token: null, user })
+
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
     expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user })
   })
 

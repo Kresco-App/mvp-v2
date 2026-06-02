@@ -3,7 +3,6 @@ export const REQUIRED_FRONTEND_PRODUCTION_ENV = [
   'NEXT_PUBLIC_GOOGLE_CLIENT_ID',
   'NEXT_PUBLIC_ABLY_ENABLED',
   'NEXT_PUBLIC_RELEASE_SHA',
-  'JWT_SECRET_KEY',
 ]
 
 const LOCAL_HOST_PATTERN = /(^|\.)localhost$|^127\.|^\[?::1\]?$/
@@ -22,7 +21,6 @@ export function validateFrontendProductionEnv(env) {
   validateGoogleClientId(env.NEXT_PUBLIC_GOOGLE_CLIENT_ID, errors)
   validateRealtimeToggle(env.NEXT_PUBLIC_ABLY_ENABLED, errors)
   validateReleaseSha(env.NEXT_PUBLIC_RELEASE_SHA, errors)
-  validateJwtSecret(env.JWT_SECRET_KEY, errors)
   validateLocalRewritePolicy(env, errors)
   validateLocalDemoFeaturePolicy(env, errors)
 
@@ -95,14 +93,6 @@ function validateReleaseSha(value, errors) {
   const trimmed = value.trim().toLowerCase()
   if (trimmed.length < 7 || ['development', 'local', 'unknown', 'placeholder', 'change-me'].includes(trimmed)) {
     errors.push('NEXT_PUBLIC_RELEASE_SHA must identify the deployed commit or build.')
-  }
-}
-
-function validateJwtSecret(value, errors) {
-  if (!hasValue(value)) return
-  const trimmed = value.trim()
-  if (trimmed === 'change-me' || trimmed === 'fallback-secret-change-in-production' || trimmed.length < 32) {
-    errors.push('JWT_SECRET_KEY must match the backend JWT secret and be at least 32 characters.')
   }
 }
 

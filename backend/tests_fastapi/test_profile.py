@@ -45,8 +45,6 @@ def test_patch_profile_updates_identity_fields(app_client, auth_token):
         headers={"Authorization": f"Bearer {token}"},
         json={
             "full_name": "Updated Student",
-            "avatar_url": "https://example.com/avatar.png",
-            "banner_url": "https://example.com/banner.png",
             "niveau": "2bac",
             "filiere": "Sciences Physiques",
         },
@@ -55,14 +53,64 @@ def test_patch_profile_updates_identity_fields(app_client, auth_token):
     assert response.status_code == 200
     body = response.json()
     assert body["full_name"] == "Updated Student"
-    assert body["avatar_url"] == "https://example.com/avatar.png"
-    assert body["banner_url"] == "https://example.com/banner.png"
+    assert body["avatar_url"] == ""
+    assert body["banner_url"] == ""
     assert body["niveau"] == "2bac"
     assert body["filiere"] == "Sciences Physiques"
 
     persisted = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {token}"})
     assert persisted.status_code == 200
-    assert persisted.json()["banner_url"] == "https://example.com/banner.png"
+    assert persisted.json()["banner_url"] == ""
+
+
+def test_patch_profile_rejects_external_media_urls(app_client, auth_token):
+    token, _ = auth_token(email="profile-external-media@example.com")
+
+    response = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar_url": "https://example.com/avatar.png"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_patch_profile_rejects_media_urls_over_database_limit(app_client, auth_token):
+    token, _ = auth_token(email="profile-long-media@example.com")
+
+    response = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar_url": f"/media/profile/{'a' * 486}.png"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_patch_profile_rejects_direct_local_profile_media_reference_changes(app_client, auth_token):
+    token, _ = auth_token(email="profile-direct-local-media@example.com")
+
+    response = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar_url": "/media/profile/999/avatar-0123456789abcdef0123456789abcdef.png"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Upload new avatar media through the profile media endpoint before referencing it here"
+
+
+def test_patch_profile_rejects_direct_s3_profile_media_reference_changes(app_client, auth_token):
+    token, _ = auth_token(email="profile-direct-s3-media@example.com")
+
+    response = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"banner_url": "s3://kresco-private-media/profile/999/banner-0123456789abcdef0123456789abcdef.png"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Upload new banner media through the profile media endpoint before referencing it here"
 
 
 def test_upload_profile_avatar_persists_storage_url(app_client, auth_token):
@@ -81,6 +129,68 @@ def test_upload_profile_avatar_persists_storage_url(app_client, auth_token):
     persisted = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {token}"})
     assert persisted.status_code == 200
     assert persisted.json()["avatar_url"] == body["url"]
+
+
+def test_patch_profile_allows_current_uploaded_media_reference(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="profile-avatar-current-ref@example.com")
+    avatar_bytes = b"\x89PNG\r\n\x1a\navatar"
+
+    uploaded = app_client.post(
+        "/api/profile/me/media/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("avatar.png", avatar_bytes, "image/png")},
+    )
+
+    assert uploaded.status_code == 200
+    avatar_url = uploaded.json()["url"]
+
+    patched = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"full_name": "Avatar Echo", "avatar_url": avatar_url},
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["avatar_url"] == avatar_url
+    assert patched.json()["full_name"] == "Avatar Echo"
+
+    async def _avatar_size():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            return user.avatar_media_size
+
+    assert run_db(_avatar_size()) == len(avatar_bytes)
+
+
+def test_patch_profile_allows_clearing_uploaded_media_reference(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="profile-avatar-clear@example.com")
+    avatar_bytes = b"\x89PNG\r\n\x1a\navatar"
+
+    uploaded = app_client.post(
+        "/api/profile/me/media/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("avatar.png", avatar_bytes, "image/png")},
+    )
+
+    assert uploaded.status_code == 200
+
+    cleared = app_client.patch(
+        "/api/profile/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"avatar_url": ""},
+    )
+
+    assert cleared.status_code == 200
+    assert cleared.json()["avatar_url"] == ""
+
+    async def _avatar_state():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            return user.avatar_url, user.avatar_media_size
+
+    assert run_db(_avatar_state()) == ("", 0)
 
 
 def test_profile_media_upload_enforces_aggregate_quota(app_client, auth_token, test_settings, run_db):

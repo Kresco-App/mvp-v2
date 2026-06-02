@@ -30,19 +30,28 @@ async def record_client_error(request: Request, payload: ClientErrorIn):
     request_id = getattr(request.state, "request_id", "")
 
     logger.warning(
-        "client_error_reported request_id=%s release_sha=%s source=%s route=%s digest=%s message=%s",
+        "client_error_reported request_id=%s release_sha=%s source=%s digest=%s route_present=%s route_length=%s message_length=%s stack_present=%s component_stack_present=%s user_agent_present=%s",
         request_id,
         release_sha,
         payload.source,
-        payload.route or "",
         payload.digest or "",
-        payload.message,
+        bool(payload.route),
+        len(payload.route or ""),
+        len(payload.message),
+        bool(payload.stack),
+        bool(payload.component_stack),
+        bool(payload.user_agent),
     )
     emit_client_error_metric(
         settings,
         release_sha=release_sha,
         source=payload.source,
-        route=payload.route,
         digest=payload.digest,
+        route_present=bool(payload.route),
+        route_length=len(payload.route or ""),
+        message_length=len(payload.message),
+        stack_present=bool(payload.stack),
+        component_stack_present=bool(payload.component_stack),
+        user_agent_present=bool(payload.user_agent),
     )
     return {"ok": True}

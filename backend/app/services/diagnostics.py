@@ -74,7 +74,8 @@ def _database_runtime_config(settings: Settings) -> dict[str, Any]:
 
 
 async def _migration_check(db: AsyncSession) -> dict[str, Any]:
-    expected_heads = expected_migration_heads()
+    import asyncio
+    expected_heads = await asyncio.to_thread(expected_migration_heads)
     try:
         result = await db.execute(text("SELECT version_num FROM alembic_version"))
     except SQLAlchemyError:

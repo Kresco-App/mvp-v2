@@ -41,6 +41,7 @@ from app.services.professor_serializers import (
     professor_live_session_out,
 )
 from app.services.professor_status import LiveSessionStatus
+from app.services.search import LIKE_ESCAPE, substring_search_pattern
 
 LIVE_SESSION_ACCESS_REQUIREMENT = FeatureAccessRequirement("live_sessions")
 CONVERSATION_LOCKED_DETAIL = "Conversation is busy; retry shortly"
@@ -179,8 +180,11 @@ async def professor_dashboard(db: AsyncSession, professor: User) -> ProfessorDas
         change_requests = list(request_result.scalars().all())
 
         chat_unread_count = int(await db.scalar(
-            select(func.sum(ProfessorChatConversation.unread_for_professor))
-            .where(ProfessorChatConversation.professor_user_id == professor.id)
+            select(func.coalesce(func.sum(ProfessorChatConversation.unread_for_professor), 0))
+            .where(
+                ProfessorChatConversation.professor_user_id == professor.id,
+                ProfessorChatConversation.unread_for_professor > 0
+            )
         ) or 0)
         chat_pinned_count = int(await db.scalar(
             select(func.count())
@@ -420,12 +424,12 @@ async def professor_conversations(
     if pinned:
         stmt = stmt.where(ProfessorChatConversation.is_pinned_by_professor == True)  # noqa: E712
     if q:
-        needle = f"%{q}%"
+        needle = substring_search_pattern(q)
         stmt = stmt.join(User, User.id == ProfessorChatConversation.student_user_id).where(
             or_(
-                User.full_name.ilike(needle),
-                User.email.ilike(needle),
-                ProfessorChatConversation.last_message_preview.ilike(needle),
+                User.full_name.ilike(needle, escape=LIKE_ESCAPE),
+                User.email.ilike(needle, escape=LIKE_ESCAPE),
+                ProfessorChatConversation.last_message_preview.ilike(needle, escape=LIKE_ESCAPE),
             )
         )
     stmt = stmt.order_by(

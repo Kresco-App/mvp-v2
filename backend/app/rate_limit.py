@@ -1,11 +1,21 @@
 import os
+from functools import lru_cache
 from ipaddress import ip_address, ip_network
 
 from slowapi import Limiter
 
-DEFAULT_RATE_LIMITS = ["120/minute"]
-APPLICATION_RATE_LIMITS = ["600/minute"]
+DEFAULT_RATE_LIMITS_ENV = "KRESCO_DEFAULT_RATE_LIMITS"
+APPLICATION_RATE_LIMITS_ENV = "KRESCO_APPLICATION_RATE_LIMITS"
 TRUSTED_PROXY_IPS_ENV = "KRESCO_TRUSTED_PROXY_IPS"
+
+
+def _rate_limit_values(raw: str, fallback: str) -> list[str]:
+    values = [value.strip() for value in raw.split(",") if value.strip()]
+    return values or [fallback]
+
+
+DEFAULT_RATE_LIMITS = _rate_limit_values(os.environ.get(DEFAULT_RATE_LIMITS_ENV, ""), "120/minute")
+APPLICATION_RATE_LIMITS = _rate_limit_values(os.environ.get(APPLICATION_RATE_LIMITS_ENV, ""), "600/minute")
 
 
 def _client_host(request) -> str:
@@ -13,8 +23,8 @@ def _client_host(request) -> str:
     return str(getattr(client, "host", "") or "")
 
 
-def _trusted_proxy_networks():
-    raw = os.environ.get(TRUSTED_PROXY_IPS_ENV, "")
+@lru_cache(maxsize=16)
+def _trusted_proxy_networks_for(raw: str):
     networks = []
     for item in raw.split(","):
         value = item.strip()
@@ -27,6 +37,10 @@ def _trusted_proxy_networks():
     return networks
 
 
+def _trusted_proxy_networks():
+    return _trusted_proxy_networks_for(os.environ.get(TRUSTED_PROXY_IPS_ENV, ""))
+
+
 def _is_trusted_proxy(host: str) -> bool:
     try:
         peer_ip = ip_address(host)
@@ -36,15 +50,23 @@ def _is_trusted_proxy(host: str) -> bool:
 
 
 def _first_forwarded_for_ip(header_value: str) -> str | None:
+    parsed_candidates = []
     for candidate in header_value.split(","):
         value = candidate.strip()
         if not value:
             continue
         try:
-            return str(ip_address(value))
+            parsed_candidates.append(ip_address(value))
         except ValueError:
-            return None
-    return None
+            continue
+    if not parsed_candidates:
+        return None
+
+    trusted_networks = _trusted_proxy_networks()
+    for candidate in reversed(parsed_candidates):
+        if not any(candidate in network for network in trusted_networks):
+            return str(candidate)
+    return str(parsed_candidates[0])
 
 
 def trusted_remote_address(request) -> str:

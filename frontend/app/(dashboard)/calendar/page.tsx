@@ -79,6 +79,7 @@ export default function CalendarPage() {
       .catch(() => {
         if (!alive) return
         setSelectedEvent(null)
+        toast.error('Unable to load event details. Please try again.')
       })
 
     return () => {

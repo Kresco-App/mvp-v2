@@ -190,6 +190,28 @@ def test_rate_limit_key_trusts_forwarded_for_only_from_configured_proxy(monkeypa
     assert rate_limit.trusted_remote_address(untrusted) == "203.0.113.10"
 
 
+def test_rate_limit_key_skips_invalid_forwarded_for_candidates_from_trusted_proxy(monkeypatch):
+    monkeypatch.setenv(rate_limit.TRUSTED_PROXY_IPS_ENV, "10.0.0.0/8")
+
+    trusted = _rate_limit_request("10.1.2.3", {"x-forwarded-for": "bad-value, 198.51.100.77, 10.1.2.3"})
+
+    assert rate_limit.trusted_remote_address(trusted) == "198.51.100.77"
+
+
+def test_global_rate_limit_values_are_env_configurable():
+    assert rate_limit._rate_limit_values(" 10/minute,  100/hour ", "120/minute") == [
+        "10/minute",
+        "100/hour",
+    ]
+    assert rate_limit._rate_limit_values(" ", "120/minute") == ["120/minute"]
+
+
+def test_blank_cors_origin_regex_is_disabled_not_wildcard():
+    settings = Settings(cors_allow_origin_regex="")
+
+    assert settings.cors_allow_origin_regex_value is None
+
+
 def test_deployed_app_rejects_fallback_jwt_secret(monkeypatch):
     monkeypatch.setenv("LAMBDA_TASK_ROOT", "/var/task")
     settings = Settings(

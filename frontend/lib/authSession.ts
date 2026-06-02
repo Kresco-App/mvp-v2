@@ -191,7 +191,7 @@ export function readStoredAuthSession(): StoredAuthSession {
   localStorage.removeItem(KRESCO_TOKEN_KEY)
 
   const user = readStoredJson<AuthUser>(KRESCO_USER_KEY)
-  const hasCookieSession = Boolean(user || readCookie(KRESCO_USER_ROLE_COOKIE))
+  const hasCookieSession = Boolean(readCookie(KRESCO_USER_ROLE_COOKIE))
 
   return {
     token: hasCookieSession ? KRESCO_COOKIE_SESSION : null,

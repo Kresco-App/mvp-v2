@@ -13,7 +13,16 @@ FORBIDDEN_EXACT_NAMES = {
 }
 FORBIDDEN_EXACT_PATHS = {
     "TODO-MANUAL.md": "root scratch/manual file; move durable operational notes under docs/",
+    "ARCHITECTURAL_SUGGESTIONS.md": "generated audit scratch file; fold durable findings into AGENT_BUG_DUMP.md or docs/",
+    "backend/AGENT_BUG_DUMP.md": "duplicate agent dump; keep the root AGENT_BUG_DUMP.md canonical/",
+    "diff_review.txt": "generated review artifact; do not keep large local diffs in the repo/",
 }
+FORBIDDEN_ROOT_SCRIPT_PREFIXES = (
+    "append_bugs",
+    "append_perf",
+    "find_large",
+    "mark_dump",
+)
 FORBIDDEN_SUFFIXES = {
     ".db",
     ".db-journal",
@@ -31,6 +40,7 @@ FORBIDDEN_PARTS = {
     "coverage",
     "node_modules",
     "playwright-report",
+    "package",
     "test-results",
 }
 ALLOWED_ENV_FILES = {
@@ -39,7 +49,7 @@ ALLOWED_ENV_FILES = {
 
 
 def main() -> int:
-    tracked_paths = _git_tracked_paths()
+    tracked_paths = _git_hygiene_paths()
     problems = [
         problem
         for path in tracked_paths
@@ -57,9 +67,9 @@ def main() -> int:
     return 0
 
 
-def _git_tracked_paths() -> list[Path]:
+def _git_hygiene_paths() -> list[Path]:
     result = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=REPO_ROOT,
         check=True,
         stdout=subprocess.PIPE,
@@ -76,6 +86,8 @@ def _hygiene_problems(path: Path) -> list[str]:
     problems: list[str] = []
     if relative_path in FORBIDDEN_EXACT_PATHS:
         problems.append(f"{relative_path} is a {FORBIDDEN_EXACT_PATHS[relative_path]}.")
+    if path.parent == REPO_ROOT and path.suffix == ".py" and path.stem.startswith(FORBIDDEN_ROOT_SCRIPT_PREFIXES):
+        problems.append(f"{relative_path} is a generated audit helper script; keep durable automation under scripts/.")
     if path.name in FORBIDDEN_EXACT_NAMES:
         problems.append(f"{relative_path} is an OS-generated artifact.")
     if any(suffix.endswith(forbidden_suffix) for forbidden_suffix in FORBIDDEN_SUFFIXES):

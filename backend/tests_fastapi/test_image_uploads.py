@@ -43,12 +43,13 @@ def test_local_media_storage_returns_relative_reference_and_url(tmp_path):
 def test_local_media_storage_rejects_traversal_keys(tmp_path):
     storage = LocalMediaStorage(root=tmp_path / "media")
 
-    with pytest.raises(media_storage.MediaStorageError):
-        asyncio.run(storage.put_object(
-            key="../outside.png",
-            content=b"image-bytes",
-            content_type="image/png",
-        ))
+    for key in ("../outside.png", "..\\outside.png", "profile/1/../../outside.png"):
+        with pytest.raises(media_storage.MediaStorageError):
+            asyncio.run(storage.put_object(
+                key=key,
+                content=b"image-bytes",
+                content_type="image/png",
+            ))
 
     assert not (tmp_path / "outside.png").exists()
 
@@ -85,12 +86,13 @@ def test_s3_mock_media_storage_rejects_traversal_keys(tmp_path):
     )
     storage = S3MockMediaStorage(settings)
 
-    with pytest.raises(media_storage.MediaStorageError):
-        asyncio.run(storage.put_object(
-            key="../outside.png",
-            content=b"image-bytes",
-            content_type="image/png",
-        ))
+    for key in ("../outside.png", "..\\outside.png", "profile/1/../../outside.png"):
+        with pytest.raises(media_storage.MediaStorageError):
+            asyncio.run(storage.put_object(
+                key=key,
+                content=b"image-bytes",
+                content_type="image/png",
+            ))
 
     assert not (tmp_path / "s3" / "outside.png").exists()
 

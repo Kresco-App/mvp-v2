@@ -49,7 +49,7 @@ def bounded_watch_progress(
 
     last_updated = coerce_utc(last_updated_at)
     elapsed = max(0, int((now - last_updated).total_seconds())) if last_updated else 0
-    max_increment = int(elapsed * PROGRESS_UPDATE_RATE_MULTIPLIER) + PROGRESS_UPDATE_GRACE_SECONDS
+    max_increment = int(elapsed * PROGRESS_UPDATE_RATE_MULTIPLIER)
     return min(requested, current_seconds + max_increment)
 
 

@@ -311,7 +311,7 @@ async def _sidebar_live_events(db: AsyncSession, user: User) -> list[dict[str, i
         .order_by(CalendarEvent.starts_at, CalendarEvent.id)
         .limit(2)
     )
-    if user.role == "student":
+    if not (user.is_staff or user.is_superuser or user.role == "professor"):
         stmt = stmt.where(
             or_(
                 LiveSession.id.is_(None),

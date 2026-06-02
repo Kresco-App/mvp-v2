@@ -12,6 +12,7 @@ import { useAuthStore } from '@/lib/store'
 import {
   KRESCO_TOKEN_KEY,
   KRESCO_USER_KEY,
+  KRESCO_USER_ROLE_COOKIE,
 } from '@/lib/authSession'
 
 vi.mock('@/lib/browserNavigation', () => ({
@@ -57,6 +58,7 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  document.cookie = `${KRESCO_USER_ROLE_COOKIE}=; Path=/; Max-Age=0`
   document.body.innerHTML = ''
   window.history.pushState({}, '', '/home')
   useAuthStore.setState({
@@ -77,9 +79,11 @@ afterEach(() => {
 })
 
 describe('AuthGuard component behavior', () => {
-  it('renders children for an existing hydrated student session without fetching profile', async () => {
+  it('requires server profile verification before rendering a stored student session', async () => {
     localStorage.setItem(KRESCO_TOKEN_KEY, 'legacy-token')
     localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+    getMyProfileMock.mockResolvedValueOnce(studentUser as never)
 
     const { container } = renderComponent(
       React.createElement(AuthGuard, null, React.createElement('main', null, 'Student child')),
@@ -89,8 +93,23 @@ describe('AuthGuard component behavior', () => {
       expect(container.textContent).toContain('Student child')
     })
     expect(localStorage.getItem(KRESCO_TOKEN_KEY)).toBeNull()
-    expect(getMyProfileMock).not.toHaveBeenCalled()
+    expect(getMyProfileMock).toHaveBeenCalledTimes(1)
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
+  })
+
+  it('does not render children for forged localStorage-only sessions', async () => {
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
+    getMyProfileMock.mockRejectedValueOnce(axiosLikeError(401) as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Student child')),
+    )
+
+    await waitFor(() => {
+      expect(replaceBrowserLocationMock).toHaveBeenCalledWith('/')
+    })
+    expect(container.textContent).not.toContain('Student child')
+    expect(useAuthStore.getState().token).toBeNull()
   })
 
   it('redirects unauthenticated users to the route-specific login destination', async () => {

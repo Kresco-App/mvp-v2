@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.dependencies import get_current_professor_user, get_current_user, get_db, require_professor_active_offering
 from app.models.users import User
+from app.rate_limit import limiter
 from app.schemas.professor import (
     ChatConversationPatchIn,
     ChatMessageIn,
@@ -89,6 +90,11 @@ from app.services.vdocipher import get_live_embed_url
 
 router = APIRouter(tags=["Professor"])
 logger = logging.getLogger(__name__)
+PROFESSOR_MUTATION_ROUTE_LIMIT = "60/minute"
+PROFESSOR_CHAT_ROUTE_LIMIT = "30/minute"
+PROFESSOR_CHAT_IMAGE_ROUTE_LIMIT = "10/minute"
+STUDENT_CHAT_ROUTE_LIMIT = "20/minute"
+STUDENT_CHAT_IMAGE_ROUTE_LIMIT = "6/minute"
 
 
 @router.get("/dashboard", response_model=ProfessorDashboardOut)
@@ -166,6 +172,7 @@ async def get_professor_live_embed(
 
 
 @router.post("/live-sessions/{live_session_id}/stream-credentials/reveal", response_model=LiveSessionStreamCredentialsOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def reveal_professor_live_stream_credentials(
     live_session_id: int,
     request: Request,
@@ -184,6 +191,7 @@ async def reveal_professor_live_stream_credentials(
 
 
 @router.post("/live-sessions", response_model=ProfessorLiveSessionOut, status_code=201)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def create_live_session(
     body: LiveSessionIn,
     request: Request,
@@ -201,6 +209,7 @@ async def create_live_session(
 
 
 @router.delete("/live-sessions/{live_session_id}")
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def delete_live_session(
     live_session_id: int,
     request: Request,
@@ -216,6 +225,7 @@ async def delete_live_session(
 
 
 @router.patch("/live-sessions/{live_session_id}", response_model=ProfessorLiveSessionOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def update_live_session(
     live_session_id: int,
     body: LiveSessionUpdateIn,
@@ -234,6 +244,7 @@ async def update_live_session(
 
 
 @router.post("/live-sessions/{live_session_id}/cancel", response_model=ProfessorLiveSessionOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def cancel_live_session(
     live_session_id: int,
     request: Request,
@@ -300,6 +311,7 @@ async def list_professor_live_interactions(
 
 
 @router.patch("/live-sessions/interactions/{interaction_id}", response_model=LiveSessionInteractionOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def update_professor_live_interaction(
     interaction_id: int,
     body: LiveSessionInteractionPatchIn,
@@ -319,6 +331,7 @@ async def update_professor_live_interaction(
 
 
 @router.delete("/live-sessions/interactions/{interaction_id}", response_model=LiveSessionInteractionOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def delete_professor_live_interaction(
     interaction_id: int,
     request: Request,
@@ -355,14 +368,16 @@ async def list_student_live_interactions(
 
 
 @router.post("/student-live-sessions/{live_session_id}/interactions", response_model=LiveSessionInteractionOut, status_code=201)
+@limiter.limit(STUDENT_CHAT_ROUTE_LIMIT)
 async def create_student_live_interaction(
+    request: Request,
     live_session_id: int,
     body: LiveSessionInteractionIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    del settings
+    del request, settings
     return await create_student_live_interaction_state(
         db,
         user=user,
@@ -389,6 +404,7 @@ async def list_professor_live_checkpoints(
 
 
 @router.post("/live-sessions/{live_session_id}/checkpoints", response_model=LiveSessionCheckpointOut, status_code=201)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def create_professor_live_checkpoint(
     live_session_id: int,
     body: LiveSessionCheckpointIn,
@@ -408,6 +424,7 @@ async def create_professor_live_checkpoint(
 
 
 @router.patch("/live-sessions/checkpoints/{checkpoint_id}", response_model=LiveSessionCheckpointOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def update_professor_live_checkpoint(
     checkpoint_id: int,
     body: LiveSessionCheckpointPatchIn,
@@ -436,6 +453,7 @@ async def list_student_live_checkpoints(
 
 
 @router.post("/live-sessions/{live_session_id}/notify", response_model=ProfessorLiveSessionOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def notify_live_session(
     live_session_id: int,
     request: Request,
@@ -452,6 +470,7 @@ async def notify_live_session(
 
 
 @router.post("/live-sessions/{live_session_id}/start", response_model=ProfessorLiveSessionOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def start_live_session(
     live_session_id: int,
     request: Request,
@@ -468,6 +487,7 @@ async def start_live_session(
 
 
 @router.post("/live-sessions/{live_session_id}/end", response_model=ProfessorLiveSessionOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def end_live_session(
     live_session_id: int,
     request: Request,
@@ -501,6 +521,7 @@ async def list_change_requests(
 
 
 @router.post("/change-requests", response_model=ProfessorChangeRequestOut, status_code=201)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def create_change_request(
     body: ProfessorChangeRequestIn,
     request: Request,
@@ -558,6 +579,7 @@ async def list_professor_messages(
 
 
 @router.post("/chat/conversations/{conversation_id}/messages", response_model=ProfessorChatMessageOut, status_code=201)
+@limiter.limit(PROFESSOR_CHAT_ROUTE_LIMIT)
 async def send_professor_message(
     conversation_id: int,
     body: ChatMessageIn,
@@ -577,6 +599,7 @@ async def send_professor_message(
 
 
 @router.post("/chat/conversations/{conversation_id}/images", response_model=ProfessorChatMessageOut, status_code=201)
+@limiter.limit(PROFESSOR_CHAT_IMAGE_ROUTE_LIMIT)
 async def send_professor_image_message(
     conversation_id: int,
     request: Request,
@@ -598,6 +621,7 @@ async def send_professor_image_message(
 
 
 @router.patch("/chat/messages/{message_id}", response_model=ProfessorChatMessageOut)
+@limiter.limit(PROFESSOR_CHAT_ROUTE_LIMIT)
 async def update_chat_message(
     message_id: int,
     body: ChatMessagePatchIn,
@@ -618,6 +642,7 @@ async def update_chat_message(
 
 
 @router.delete("/chat/messages/{message_id}")
+@limiter.limit(PROFESSOR_CHAT_ROUTE_LIMIT)
 async def delete_chat_message(
     message_id: int,
     request: Request,
@@ -635,6 +660,7 @@ async def delete_chat_message(
 
 
 @router.patch("/chat/conversations/{conversation_id}", response_model=ProfessorChatConversationOut)
+@limiter.limit(PROFESSOR_CHAT_ROUTE_LIMIT)
 async def patch_professor_conversation(
     conversation_id: int,
     body: ChatConversationPatchIn,
@@ -665,12 +691,15 @@ async def get_student_professor_chat(
 
 
 @router.post("/student-chat/conversations", response_model=ProfessorChatConversationOut, status_code=201)
+@limiter.limit(STUDENT_CHAT_ROUTE_LIMIT)
 async def start_student_conversation(
+    request: Request,
     body: StudentStartConversationIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     return await start_student_conversation_state(
         db,
         user=user,
@@ -699,13 +728,16 @@ async def list_student_messages(
 
 
 @router.post("/student-chat/conversations/{conversation_id}/messages", response_model=ProfessorChatMessageOut, status_code=201)
+@limiter.limit(STUDENT_CHAT_ROUTE_LIMIT)
 async def send_student_message(
+    request: Request,
     conversation_id: int,
     body: ChatMessageIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     return await send_student_message_state(
         db,
         user=user,
@@ -716,7 +748,9 @@ async def send_student_message(
 
 
 @router.post("/student-chat/conversations/{conversation_id}/images", response_model=ProfessorChatMessageOut, status_code=201)
+@limiter.limit(STUDENT_CHAT_IMAGE_ROUTE_LIMIT)
 async def send_student_image_message(
+    request: Request,
     conversation_id: int,
     body: str = Form(default=""),
     file: UploadFile = File(...),
@@ -724,6 +758,7 @@ async def send_student_image_message(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     return await send_student_image_message_state(
         db,
         user=user,

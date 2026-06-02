@@ -210,6 +210,11 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_allowed_origins.split(",") if o.strip()]
 
     @property
+    def cors_allow_origin_regex_value(self) -> str | None:
+        value = self.cors_allow_origin_regex.strip()
+        return value or None
+
+    @property
     def is_lambda(self) -> bool:
         return bool(os.environ.get("LAMBDA_TASK_ROOT"))
 

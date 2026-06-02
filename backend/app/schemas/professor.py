@@ -1,9 +1,26 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.limits import LongText, ShortText, StrictInputModel, TokenText, UrlText
+from app.schemas.limits import (
+    JsonBounds,
+    LongText,
+    ShortText,
+    StrictInputModel,
+    TokenText,
+    UrlText,
+    validate_bounded_json_object,
+)
+
+
+PROFESSOR_CHANGE_REQUEST_JSON_BOUNDS = JsonBounds(
+    max_container_depth=6,
+    max_dict_items=250,
+    max_list_items=250,
+    max_string_length=10000,
+    max_total_bytes=128 * 1024,
+)
 
 
 class ProgramTrackOut(BaseModel):
@@ -184,6 +201,11 @@ class ProfessorChangeRequestIn(StrictInputModel):
     change_type: ShortText = "update_fields"
     proposed_patch_json: dict[str, Any]
     current_snapshot_json: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("proposed_patch_json", "current_snapshot_json")
+    @classmethod
+    def validate_change_request_json(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_bounded_json_object(value, bounds=PROFESSOR_CHANGE_REQUEST_JSON_BOUNDS)
 
 
 class ProfessorDashboardOut(BaseModel):

@@ -109,6 +109,20 @@ async def _webhook_event_count(event_id: str) -> int:
         return len(rows.scalars().all())
 
 
+async def _payment_attempt_count(user_id: int, session_id: str, idempotency_key: str) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        return await db.scalar(
+            select(func.count())
+            .select_from(PaymentVerificationAttempt)
+            .where(
+                PaymentVerificationAttempt.user_id == user_id,
+                PaymentVerificationAttempt.session_id == session_id,
+                PaymentVerificationAttempt.idempotency_key == idempotency_key,
+            )
+        )
+
+
 def _install_cookie_session(app_client, test_settings, token: str, user_id: int, *, with_csrf: bool) -> str:
     app_client.cookies.set(AUTH_COOKIE_NAME, token)
     if not with_csrf:
@@ -248,20 +262,55 @@ def test_verify_session_duplicate_idempotency_key_suppresses_remote_replay(
     assert second.json()["is_pro"] is True
     assert calls["count"] == 1
 
-    async def _attempt_count():
-        session_factory = get_session_factory()
-        async with session_factory() as db:
-            return await db.scalar(
-                select(func.count())
-                .select_from(PaymentVerificationAttempt)
-                .where(
-                    PaymentVerificationAttempt.user_id == user_id,
-                    PaymentVerificationAttempt.session_id == "cs_idempotent",
-                    PaymentVerificationAttempt.idempotency_key == "verify-cs_idempotent",
-                )
+    assert run_db(_payment_attempt_count(user_id, "cs_idempotent", "verify-cs_idempotent")) == 1
+
+
+def test_verify_session_retryable_stripe_failure_releases_idempotency_attempt(
+    app_client,
+    auth_token,
+    monkeypatch,
+    run_db,
+):
+    import app.services.stripe_service as stripe_service
+
+    token, user_id = auth_token(email="verify-retryable@example.com")
+    calls = {"count": 0}
+
+    class FakeRetryableSessions:
+        def retrieve(self, session_id):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise stripe_service.stripe.APIConnectionError("temporary transport failure", should_retry=True)
+            return SimpleNamespace(
+                id=session_id,
+                payment_status="paid",
+                metadata={"user_id": str(user_id)},
+                customer="cus_retryable",
             )
 
-    assert run_db(_attempt_count()) == 1
+    fake_client = SimpleNamespace(
+        v1=SimpleNamespace(
+            checkout=SimpleNamespace(sessions=FakeRetryableSessions()),
+        )
+    )
+    monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: fake_client)
+    headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": "verify-cs_retryable"}
+
+    first = app_client.get("/api/payments/verify-session?session_id=cs_retryable", headers=headers)
+
+    assert first.status_code == 503
+    assert "temporarily unavailable" in first.text
+    assert run_db(_payment_attempt_count(user_id, "cs_retryable", "verify-cs_retryable")) == 0
+
+    second = app_client.get("/api/payments/verify-session?session_id=cs_retryable", headers=headers)
+
+    assert second.status_code == 200
+    assert second.json()["is_pro"] is True
+    assert calls["count"] == 2
+    user = run_db(_get_user(user_id))
+    assert user.is_pro is True
+    assert user.stripe_customer_id == "cus_retryable"
+    assert run_db(_payment_attempt_count(user_id, "cs_retryable", "verify-cs_retryable")) == 1
 
 
 def test_create_checkout_session_reuses_existing_customer_id(app_client, test_settings, monkeypatch, run_db):
@@ -547,28 +596,43 @@ def test_webhook_charge_dispute_created_marks_user_not_pro(app_client, test_sett
     assert run_db(_get_user(user_id)).is_pro is False
 
 
-def test_webhook_charge_dispute_lookup_failure_acknowledges_without_retry(app_client, test_settings, monkeypatch, run_db):
+def test_webhook_charge_dispute_lookup_failure_retries_without_recording_event(
+    app_client, test_settings, monkeypatch, run_db
+):
     import app.routers.payments as payments_router
 
     user_id = run_db(_seed_user("charge-dispute-retry@example.com", is_pro=True, stripe_customer_id="cus_retry"))
+    lookups = {"count": 0}
 
     async def fake_customer_id_for_charge(charge_id, settings):
-        return ""
+        del settings
+        assert charge_id == "ch_retry"
+        lookups["count"] += 1
+        return "" if lookups["count"] == 1 else "cus_retry"
 
     monkeypatch.setattr(payments_router, "customer_id_for_charge", fake_customer_id_for_charge)
     monkeypatch.setattr(
         payments_router.stripe.Webhook,
         "construct_event",
-        lambda *_: {"type": "charge.dispute.created", "data": {"object": {"charge": "ch_retry"}}},
+        lambda *_: {
+            "id": "evt_dispute_retry",
+            "type": "charge.dispute.created",
+            "data": {"object": {"charge": "ch_retry"}},
+        },
     )
     original_secret = _with_webhook_secret(test_settings)
     try:
-        response = app_client.post("/api/payments/webhook", content=b"{}", headers={"stripe-signature": "sig"})
+        first = app_client.post("/api/payments/webhook", content=b"{}", headers={"stripe-signature": "sig"})
+        second = app_client.post("/api/payments/webhook", content=b"{}", headers={"stripe-signature": "sig"})
     finally:
         test_settings.stripe_webhook_secret = original_secret
 
-    assert response.status_code == 200
-    assert run_db(_get_user(user_id)).is_pro is True
+    assert first.status_code == 503
+    assert "temporarily unavailable" in first.text
+    assert second.status_code == 200
+    assert lookups["count"] == 2
+    assert run_db(_get_user(user_id)).is_pro is False
+    assert run_db(_webhook_event_count("evt_dispute_retry")) == 1
 
 
 def test_webhook_resolves_dispute_customer_before_recording_event(app_client, test_settings, monkeypatch):

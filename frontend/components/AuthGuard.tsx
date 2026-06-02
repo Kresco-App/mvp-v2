@@ -85,7 +85,6 @@ function isUnauthorizedError(error: unknown) {
 
 export default function AuthGuard({ children, requireRole = null, requireStaff = false }: AuthGuardProps) {
   const token = useAuthStore((state) => state.token)
-  const user = useAuthStore((state) => state.user)
   const hydrate = useAuthStore((state) => state.hydrate)
   const isHydrated = useAuthStore((state) => state.isHydrated)
   const login = useAuthStore((state) => state.login)
@@ -93,8 +92,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
   const logout = useAuthStore((state) => state.logout)
   const [accessState, setAccessState] = useState('pending')
   const [retryCount, setRetryCount] = useState(0)
-  const verificationStateRef = useRef<'idle' | 'checking' | 'denied' | 'error'>('idle')
-  const needsServerProfile = Boolean(requireRole || requireStaff || !user || !token)
+  const verificationStateRef = useRef<'idle' | 'checking' | 'denied' | 'error' | 'verified'>('idle')
 
   function retryVerification() {
     verificationStateRef.current = 'idle'
@@ -109,9 +107,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
   useEffect(() => {
     if (!isHydrated) return
     if (verificationStateRef.current === 'checking' || verificationStateRef.current === 'denied') return
-
-    if (!needsServerProfile) {
-      verificationStateRef.current = 'idle'
+    if (verificationStateRef.current === 'verified') {
       setAccessState('ready')
       return
     }
@@ -135,7 +131,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
           return
         }
 
-        verificationStateRef.current = 'idle'
+        verificationStateRef.current = 'verified'
         setAccessState('ready')
       })
       .catch((error) => {
@@ -152,7 +148,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
       })
 
     return () => { cancelled = true }
-  }, [isHydrated, token, needsServerProfile, requireRole, requireStaff, login, updateUser, logout, retryCount])
+  }, [isHydrated, token, requireRole, requireStaff, login, updateUser, logout, retryCount])
 
   if (!isHydrated) {
     return <LoadingScreen message="Loading Kresco..." />

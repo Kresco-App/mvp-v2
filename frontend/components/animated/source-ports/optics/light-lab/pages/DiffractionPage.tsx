@@ -54,8 +54,11 @@ export default function DiffractionPage({
             }
         };
         window.addEventListener('resize', handleResize);
-        setTimeout(handleResize, 100);
-        return () => window.removeEventListener('resize', handleResize);
+        const timerId = setTimeout(handleResize, 100);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            clearTimeout(timerId);
+        };
     }, []);
 
     // Interactive Dragging Logic

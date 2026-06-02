@@ -47,9 +47,12 @@ def bounded_topic_watch_seconds(
     if requested <= current_seconds:
         return current_seconds
 
+    if current_seconds <= 0:
+        return min(requested, TOPIC_ITEM_COMPLETION_GRACE_SECONDS)
+
     last_updated = coerce_utc(progress.updated_at)
     elapsed = max(0, int((now - last_updated).total_seconds())) if last_updated else 0
-    max_increment = int(elapsed * TOPIC_ITEM_COMPLETION_RATE_MULTIPLIER) + TOPIC_ITEM_COMPLETION_GRACE_SECONDS
+    max_increment = int(elapsed * TOPIC_ITEM_COMPLETION_RATE_MULTIPLIER)
     return min(requested, current_seconds + max_increment)
 
 

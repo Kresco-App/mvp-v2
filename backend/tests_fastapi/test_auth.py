@@ -557,6 +557,20 @@ def test_signup_does_not_block_when_verification_email_fails(app_client, monkeyp
     )
 
 
+def test_email_dispatch_failure_logging_preserves_flow_without_exc_info(caplog):
+    caplog.set_level("WARNING", logger="kresco.auth")
+
+    auth_email_dispatch.log_email_dispatch_failure("signup_verification", RuntimeError("email provider unavailable"))
+
+    [record] = [
+        entry for entry in caplog.records
+        if entry.message == "auth_email_dispatch_failed"
+    ]
+    assert getattr(record, "flow", "") == "signup_verification"
+    assert getattr(record, "error_type", "") == "RuntimeError"
+    assert record.exc_info is None
+
+
 def test_resend_verification_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
     import app.routers.users as users_router
 

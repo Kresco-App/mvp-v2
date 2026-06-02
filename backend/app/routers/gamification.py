@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
+from app.rate_limit import limiter
 from app.schemas.gamification import (
     DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
     LeaderboardEntryOut, SidebarSummaryOut,
@@ -76,7 +77,9 @@ async def get_sidebar_summary(
 
 
 @router.post("/daily-quests/{quest_id}/claim")
+@limiter.limit("10/minute")
 async def claim_daily_quest(
+    request: Request,
     quest_id: int,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),

@@ -28,6 +28,10 @@ export type AuthRedirectDecision =
   | { action: 'allow' }
   | { action: 'redirect'; destination: string; clearCookie?: boolean }
 
+type AuthRedirectOptions = {
+  enforceClaimAccess?: boolean
+}
+
 export function isProtectedRoute(pathname: string) {
   if (pathname === '/professor/login') return false
   return protectedRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
@@ -42,16 +46,19 @@ export function getAuthRedirect(
   token: string | undefined,
   isExpired: (token: string) => boolean,
   getUser: (token: string | undefined | null) => ReturnType<typeof getAuthUserFromJwt> = getAuthUserFromJwt,
+  options: AuthRedirectOptions = {},
 ): AuthRedirectDecision {
+  const enforceClaimAccess = options.enforceClaimAccess ?? true
+
   if (isProtectedRoute(pathname)) {
     const destination = getUnauthorizedDestination(pathname)
     if (!token) return { action: 'redirect', destination }
     if (isExpired(token)) return { action: 'redirect', destination, clearCookie: true }
     const user = getUser(token)
-    if (isAdminRoute(pathname) && user?.is_staff !== true) {
+    if (enforceClaimAccess && isAdminRoute(pathname) && user?.is_staff !== true) {
       return { action: 'redirect', destination: getAccessDeniedDestination({ staff: true }, pathname) }
     }
-    if (isProfessorRoute(pathname) && user?.role !== 'professor') {
+    if (enforceClaimAccess && isProfessorRoute(pathname) && user?.role !== 'professor') {
       return { action: 'redirect', destination: getAccessDeniedDestination({ role: 'professor' }, pathname) }
     }
     return { action: 'allow' }

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, UploadFile
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -429,7 +430,11 @@ async def start_student_conversation_state(
         last_message_at=datetime.now(timezone.utc),
     )
     db.add(conversation)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Conversation already exists")
     db.add(ProfessorChatMessage(conversation_id=conversation.id, sender_user_id=user.id, body=body.body))
     await enqueue_realtime_event(
         db,

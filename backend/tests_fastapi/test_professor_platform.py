@@ -240,6 +240,34 @@ def test_professor_dashboard_requires_professor_and_returns_scope(app_client, qu
     assert invalid_offerings_limit.status_code == 422
 
 
+def test_professor_dashboard_sums_unread_chat_messages(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+
+    async def _seed_unread_conversation():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            conversation = ProfessorChatConversation(
+                course_offering_id=seeded["offering_id"],
+                professor_user_id=seeded["professor_id"],
+                student_user_id=seeded["vip_student_id"],
+                unread_for_professor=4,
+                last_message_preview="Four unread messages",
+                last_message_at=datetime.now(timezone.utc),
+            )
+            db.add(conversation)
+            await db.commit()
+
+    run_db(_seed_unread_conversation())
+
+    response = app_client.get(
+        "/api/professor/dashboard",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["chat_unread_count"] == 4
+
+
 def test_professor_requires_active_offering_for_login_and_area(app_client, run_db, test_settings):
     seeded = run_db(_seed_unassigned_professor(test_settings))
 
@@ -1501,6 +1529,29 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
         headers={"Authorization": f"Bearer {seeded['other_professor_token']}"},
     )
     assert blocked_reply.status_code == 404
+
+
+def test_student_conversation_duplicate_flush_race_returns_409(app_client, run_db, test_settings, monkeypatch):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    original_flush = professor_chat_mutations.AsyncSession.flush
+    raised = {"value": False}
+
+    async def duplicate_flush_once(self, *args, **kwargs):
+        if not raised["value"]:
+            raised["value"] = True
+            raise professor_chat_mutations.IntegrityError("insert conversation", {}, Exception("duplicate"))
+        return await original_flush(self, *args, **kwargs)
+
+    monkeypatch.setattr(professor_chat_mutations.AsyncSession, "flush", duplicate_flush_once)
+
+    response = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Race duplicate"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Conversation already exists"
 
 
 def test_revoked_student_cannot_delete_existing_professor_chat_message(app_client, run_db, test_settings):

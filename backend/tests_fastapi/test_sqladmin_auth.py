@@ -1,3 +1,5 @@
+import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -179,3 +181,27 @@ def test_sqladmin_model_action_audit_includes_admin_actor(app_client, run_db):
     assert audit.model_name == "User"
     assert audit.note == f"admin_user_id={users['staff_id']}"
     assert audit.changed_data == {"full_name": "Updated Staff Admin"}
+
+
+def test_sqladmin_non_superuser_cannot_edit_account_takeover_fields(run_db):
+    users = run_db(_seed_admin_auth_users("sqladmin-user-boundary"))
+
+    class _Request:
+        session = {"admin_authenticated": True, "admin_user_id": users["staff_id"]}
+
+    async def _check_boundaries():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            student = await db.get(User, int(users["student_id"]))
+            staff = await db.get(User, int(users["staff_id"]))
+            view = UserAdmin()
+
+            with pytest.raises(HTTPException) as email_error:
+                await view.on_model_change({"email": "takeover@example.com"}, student, False, _Request())
+            assert email_error.value.status_code == 403
+
+            with pytest.raises(HTTPException) as staff_error:
+                await view.on_model_change({"full_name": "Edited Staff"}, staff, False, _Request())
+            assert staff_error.value.status_code == 403
+
+    run_db(_check_boundaries())

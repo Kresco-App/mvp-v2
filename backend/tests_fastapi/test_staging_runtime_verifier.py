@@ -136,6 +136,7 @@ def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
     assert deploy_index < migration_index < schedule_index
     assert schedule_index < verifier_index
     assert "python scripts/resolve_zappa_vpc_config.py" in workflow
+    assert "KRESCO_TEST_DATABASE_URL: ${{ env.CI_POSTGRES_DATABASE_URL }}" in workflow
     assert "ZAPPA_SUBNET_IDS: ${{ steps.vpc_config.outputs.subnet_ids }}" in workflow
     assert "ZAPPA_SECURITY_GROUP_IDS: ${{ steps.vpc_config.outputs.security_group_ids }}" in workflow
     assert "KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}" in workflow

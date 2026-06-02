@@ -15,6 +15,7 @@ PRICES = {
 }
 VALID_PLAN_DETAIL = "Invalid plan. Use 'pro'"
 MISSING_CHECKOUT_CONFIG_DETAIL = "Stripe checkout is not configured"
+VERIFY_CHECKOUT_UNAVAILABLE_DETAIL = "Stripe checkout verification is temporarily unavailable"
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,15 @@ def _require_checkout_config(settings: Settings) -> None:
 
 def _frontend_url(settings: Settings, path: str) -> str:
     return f"{settings.frontend_url.rstrip('/')}/{path.lstrip('/')}"
+
+
+def _is_retryable_checkout_verification_error(exc: stripe.StripeError) -> bool:
+    if isinstance(exc, (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)):
+        return True
+    if getattr(exc, "should_retry", False):
+        return True
+    http_status = getattr(exc, "http_status", None)
+    return isinstance(http_status, int) and http_status >= 500
 
 
 async def create_checkout_session(user: User, plan: str, settings: Settings) -> str:
@@ -101,7 +111,9 @@ async def verify_checkout_session(session_id: str, settings: Settings) -> Checko
             user_id=user_id,
             customer_id=str(getattr(session, "customer", "") or ""),
         )
-    except stripe.StripeError:
+    except stripe.StripeError as exc:
+        if _is_retryable_checkout_verification_error(exc):
+            raise HTTPException(status_code=503, detail=VERIFY_CHECKOUT_UNAVAILABLE_DETAIL) from exc
         return CheckoutSessionVerification(is_paid=False)
 
 

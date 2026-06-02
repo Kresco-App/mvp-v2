@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+import threading
 import time
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.config import Settings
 
 METRIC_NAMESPACE = "Kresco/Api"
 SERVICE_NAME = "kresco-api"
+_STDOUT_EXECUTOR_MAX_PENDING = 64
+_STDOUT_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kresco-telemetry")
+_STDOUT_EXECUTOR_SLOTS = threading.BoundedSemaphore(_STDOUT_EXECUTOR_MAX_PENDING)
 
 
 def emit_request_metric(
@@ -87,8 +93,13 @@ def emit_client_error_metric(
     *,
     release_sha: str,
     source: str,
-    route: str | None,
     digest: str | None,
+    route_present: bool,
+    route_length: int,
+    message_length: int,
+    stack_present: bool,
+    component_stack_present: bool,
+    user_agent_present: bool,
 ) -> None:
     emit_metrics(
         settings,
@@ -97,8 +108,13 @@ def emit_client_error_metric(
         properties={
             "event_type": "frontend_client_error",
             "source": _bounded(source, 80),
-            "route": _bounded(route or "", 300),
             "digest": _bounded(digest or "", 200),
+            "route_present": bool(route_present),
+            "route_length": max(int(route_length), 0),
+            "message_length": max(int(message_length), 0),
+            "stack_present": bool(stack_present),
+            "component_stack_present": bool(component_stack_present),
+            "user_agent_present": bool(user_agent_present),
         },
     )
 
@@ -140,12 +156,46 @@ def emit_metrics(
     if properties:
         event.update({key: _json_safe(value) for key, value in properties.items()})
 
+    line = json.dumps(event, separators=(",", ":"), sort_keys=True) + "\n"
+    _emit_stdout_line(line)
+
+
+def _emit_stdout_line(output_line: str) -> None:
     try:
-        sys.stdout.write(json.dumps(event, separators=(",", ":"), sort_keys=True) + "\n")
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _write_stdout(output_line)
+        return
+
+    if _submit_stdout_write(loop, output_line):
+        return
+    _write_stdout(output_line)
+
+
+def _submit_stdout_write(loop: asyncio.AbstractEventLoop, output_line: str) -> bool:
+    if not _STDOUT_EXECUTOR_SLOTS.acquire(blocking=False):
+        return False
+
+    try:
+        future = loop.run_in_executor(_STDOUT_EXECUTOR, _write_stdout, output_line)
+    except Exception:
+        _STDOUT_EXECUTOR_SLOTS.release()
+        return False
+
+    future.add_done_callback(_release_stdout_executor_slot)
+    return True
+
+
+def _release_stdout_executor_slot(_future: object) -> None:
+    _STDOUT_EXECUTOR_SLOTS.release()
+
+
+def _write_stdout(output_line: str) -> None:
+    try:
+        sys.stdout.write(output_line)
         sys.stdout.flush()
     except Exception:
-        # Telemetry must never break request handling.
-        return
+        pass
 
 
 def _bounded(value: str, max_length: int) -> str:

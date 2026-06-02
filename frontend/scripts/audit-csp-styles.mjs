@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import nextConfig from '../next.config.mjs'
 
 const root = process.cwd()
 const json = process.argv.includes('--json')
@@ -41,17 +42,53 @@ function countMatches(content, pattern) {
   return matches
 }
 
-function cspDirectives() {
-  const proxy = readFileSync(join(root, 'proxy.ts'), 'utf8')
+function directiveMapFromStrings(strings) {
   const directives = {}
+  for (const value of strings) {
+    for (const directive of value.split(';')) {
+      const trimmed = directive.trim()
+      const [name] = trimmed.split(/\s+/, 1)
+      if (name) directives[name] = trimmed
+    }
+  }
+  return directives
+}
+
+function proxyCspDirectives() {
+  const proxy = readFileSync(join(root, 'proxy.ts'), 'utf8')
+  const directives = []
   for (const match of proxy.matchAll(/"([^"]+)"/g)) {
     const directive = match[1].trim()
     const [name] = directive.split(/\s+/, 1)
     if (name?.endsWith('-src') || name === 'style-src-elem' || name === 'style-src-attr') {
-      directives[name] = directive
+      directives.push(directive)
     }
   }
-  return directives
+  return directiveMapFromStrings(directives)
+}
+
+async function nextConfigCspAudit() {
+  if (typeof nextConfig.headers !== 'function') {
+    return {
+      emitsContentSecurityPolicy: false,
+      contentSecurityPolicyCount: 0,
+      scriptSrcAllowsUnsafeInline: false,
+      styleSrcAllowsUnsafeInline: false,
+    }
+  }
+
+  const headerGroups = await nextConfig.headers()
+  const cspValues = headerGroups
+    .flatMap((group) => group.headers ?? [])
+    .filter((header) => header?.key?.toLowerCase() === 'content-security-policy')
+    .map((header) => String(header.value ?? ''))
+
+  return {
+    emitsContentSecurityPolicy: cspValues.length > 0,
+    contentSecurityPolicyCount: cspValues.length,
+    scriptSrcAllowsUnsafeInline: cspValues.some((value) => /\bscript-src\b[^;"]*'unsafe-inline'/.test(value)),
+    styleSrcAllowsUnsafeInline: cspValues.some((value) => /\bstyle-src\b[^;"]*'unsafe-inline'/.test(value)),
+  }
 }
 
 const files = scanRoots.flatMap((dir) => walk(join(root, dir)))
@@ -105,8 +142,9 @@ fileSummaries.sort((a, b) => {
 
 cssomSummaries.sort((a, b) => b.cssomStyleWrites - a.cssomStyleWrites || a.file.localeCompare(b.file))
 
-const directives = cspDirectives()
+const directives = proxyCspDirectives()
 const broadStyleSrcAllowsInline = /\bstyle-src\b[^;"]*'unsafe-inline'/.test(directives['style-src'] ?? '')
+const nextConfigAudit = await nextConfigCspAudit()
 const result = {
   broadStyleSrcAllowsInline,
   directives: {
@@ -114,6 +152,7 @@ const result = {
     styleSrcElem: directives['style-src-elem'] ?? '',
     styleSrcAttr: directives['style-src-attr'] ?? '',
   },
+  nextConfig: nextConfigAudit,
   budget: debtBudget,
   totals: {
     filesWithInlineStyleDebt: fileSummaries.length,
@@ -130,6 +169,11 @@ const result = {
 if (json) {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 } else {
+  console.log(`next.config emits CSP: ${nextConfigAudit.emitsContentSecurityPolicy ? 'yes' : 'no'}`)
+  if (nextConfigAudit.emitsContentSecurityPolicy) {
+    console.log(`next.config script-src unsafe-inline: ${nextConfigAudit.scriptSrcAllowsUnsafeInline ? 'yes' : 'no'}`)
+    console.log(`next.config style-src unsafe-inline: ${nextConfigAudit.styleSrcAllowsUnsafeInline ? 'yes' : 'no'}`)
+  }
   console.log(`broad style-src unsafe-inline: ${broadStyleSrcAllowsInline ? 'yes' : 'no'}`)
   console.log(`style-src: ${result.directives.styleSrc}`)
   console.log(`style-src-elem: ${result.directives.styleSrcElem}`)
@@ -145,6 +189,18 @@ if (json) {
     const total = item.inlineStyleAttributes + item.styleJsxBlocks + item.dangerouslySetInnerHTML
     console.log(`- ${item.file}: ${total}`)
   }
+}
+
+if (nextConfigAudit.emitsContentSecurityPolicy) {
+  const inlineAllowances = [
+    nextConfigAudit.scriptSrcAllowsUnsafeInline ? "script-src 'unsafe-inline'" : '',
+    nextConfigAudit.styleSrcAllowsUnsafeInline ? "style-src 'unsafe-inline'" : '',
+  ].filter(Boolean)
+  const suffix = inlineAllowances.length
+    ? ` Detected ${inlineAllowances.join(' and ')} in next.config.mjs.`
+    : ''
+  console.error(`next.config.mjs must not emit a global Content-Security-Policy header; proxy.ts owns the stricter page CSP.${suffix}`)
+  process.exit(1)
 }
 
 if (broadStyleSrcAllowsInline) {

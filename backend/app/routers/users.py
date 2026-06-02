@@ -51,6 +51,10 @@ from app.services.user_profile import (
 router = APIRouter(tags=["Auth & Users"])
 
 AUTH_LOGIN_RATE_LIMIT = os.environ.get("KRESCO_AUTH_LOGIN_RATE_LIMIT", "5/minute")
+AUTH_SENSITIVE_RATE_LIMIT = os.environ.get("KRESCO_AUTH_SENSITIVE_RATE_LIMIT", "3/minute")
+AUTH_SESSION_RATE_LIMIT = os.environ.get("KRESCO_AUTH_SESSION_RATE_LIMIT", "20/minute")
+PROFILE_MUTATION_RATE_LIMIT = os.environ.get("KRESCO_PROFILE_MUTATION_RATE_LIMIT", "20/minute")
+PROFILE_MEDIA_RATE_LIMIT = os.environ.get("KRESCO_PROFILE_MEDIA_RATE_LIMIT", "10/minute")
 MIN_PASSWORD_LENGTH = 8
 
 
@@ -128,12 +132,15 @@ def _user_out(user: User, settings: Settings) -> UserOut:
 
 
 @router.post("/google-login", response_model=AuthSessionOut)
+@limiter.limit(AUTH_LOGIN_RATE_LIMIT)
 async def google_login(
+    request: Request,
     body: GoogleLoginIn,
     response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     try:
         verification = verify_google_token(body.credential, settings.google_client_id)
         payload = await verification if inspect.isawaitable(verification) else verification
@@ -193,12 +200,15 @@ async def signup(
 
 
 @router.post("/auth/verify-email", response_model=AuthSessionOut)
+@limiter.limit(AUTH_SENSITIVE_RATE_LIMIT)
 async def verify_email(
+    request: Request,
     body: VerifyEmailIn,
     response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     user = await verify_email_account(db, token=body.token, settings=settings)
     token = create_token(user, settings)
     csrf_token = _set_auth_cookies(response, token, user, settings)
@@ -249,12 +259,15 @@ async def login(
 
 
 @router.post("/auth/logout", response_model=MessageOut)
+@limiter.limit(AUTH_SESSION_RATE_LIMIT)
 async def logout(
+    request: Request,
     response: Response,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     await revoke_user_sessions(db, user)
     _clear_auth_cookies(response, settings)
     return MessageOut(message="Deconnecte.")
@@ -293,11 +306,14 @@ async def forgot_password(
 
 
 @router.post("/auth/reset-password", response_model=MessageOut)
+@limiter.limit(AUTH_SENSITIVE_RATE_LIMIT)
 async def reset_password(
+    request: Request,
     body: ResetPasswordIn,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     if len(body.password) < MIN_PASSWORD_LENGTH:
         raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 8 caracteres")
 
@@ -314,23 +330,29 @@ async def get_profile(
 
 
 @router.patch("/profile/me", response_model=UserOut)
+@limiter.limit(PROFILE_MUTATION_RATE_LIMIT)
 async def update_profile(
+    request: Request,
     body: UserUpdateIn,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     return await update_profile_state(db, user=user, body=body, settings=settings, media_url_fn=media_url)
 
 
 @router.post("/profile/me/media/{kind}", response_model=ProfileMediaOut)
+@limiter.limit(PROFILE_MEDIA_RATE_LIMIT)
 async def upload_profile_media(
+    request: Request,
     kind: str,
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    del request
     return await upload_profile_media_state(
         db,
         user=user,

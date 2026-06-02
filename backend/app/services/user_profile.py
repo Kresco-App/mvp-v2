@@ -47,9 +47,23 @@ async def update_profile_state(
     if not updates:
         return user_out(user, settings, media_url_fn=media_url_fn)
     if "avatar_url" in updates:
-        user.avatar_media_size = 0
+        avatar_reference = updates["avatar_url"]
+        if avatar_reference not in {"", user.avatar_url}:
+            raise HTTPException(
+                status_code=422,
+                detail="Upload new avatar media through the profile media endpoint before referencing it here",
+            )
+        if avatar_reference == "":
+            user.avatar_media_size = 0
     if "banner_url" in updates:
-        user.banner_media_size = 0
+        banner_reference = updates["banner_url"]
+        if banner_reference not in {"", user.banner_url}:
+            raise HTTPException(
+                status_code=422,
+                detail="Upload new banner media through the profile media endpoint before referencing it here",
+            )
+        if banner_reference == "":
+            user.banner_media_size = 0
     for field, value in updates.items():
         setattr(user, field, value)
     await db.commit()

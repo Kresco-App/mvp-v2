@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, Check, BookOpen, FileText } from 'lucide-react'
 import { postJson } from '@/lib/apiClient'
-import AuthGuard from '@/components/AuthGuard'
+
 import { toast } from 'sonner'
 import { apiDataErrorMessage } from '@/lib/apiData'
 
@@ -85,7 +85,7 @@ export default function NewCoursePage() {
   }
 
   return (
-    <AuthGuard>
+    <>
       <div className="min-h-screen bg-slate-950">
         {/* Top bar */}
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
@@ -292,6 +292,6 @@ export default function NewCoursePage() {
           )}
         </div>
       </div>
-    </AuthGuard>
+    </>
   )
 }

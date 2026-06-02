@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ArrowLeft, BookOpen, ChevronRight, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { getJson } from '@/lib/apiClient'
-import AuthGuard from '@/components/AuthGuard'
+
 
 export default function AdminCoursesPage() {
   const [subjects, setSubjects] = useState<any[]>([])
@@ -27,7 +27,7 @@ export default function AdminCoursesPage() {
   }, [])
 
   return (
-    <AuthGuard>
+    <>
       <div className="min-h-screen bg-slate-950">
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
           <button type="button" onClick={() => router.push('/admin')} className="text-slate-400 hover:text-white transition">
@@ -80,6 +80,6 @@ export default function AdminCoursesPage() {
           )}
         </div>
       </div>
-    </AuthGuard>
+    </>
   )
 }

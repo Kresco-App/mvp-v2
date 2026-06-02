@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ArrowLeft, Copy } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import AuthGuard from '@/components/AuthGuard'
+
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -127,7 +127,7 @@ export default function ActivityBuilderPage() {
   }
 
   return (
-    <AuthGuard>
+    <>
       <div className="min-h-screen bg-slate-950">
         {/* Top bar */}
         <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
@@ -280,7 +280,7 @@ export default function ActivityBuilderPage() {
           </div>
         </div>
       </div>
-    </AuthGuard>
+    </>
   )
 }
 

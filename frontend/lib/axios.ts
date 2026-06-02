@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
-import { getApiBaseUrl, getBackendUrl } from './apiConfig'
+import { getApiBaseUrl, getApiOrigin, getBackendUrl } from './apiConfig'
 import { KRESCO_CSRF_HEADER, clearStoredAuthSession, readCsrfToken, writeCsrfToken } from './authSession'
 import { getUnauthorizedDestination } from './authPolicy'
 
@@ -37,6 +37,22 @@ function isCsrfExemptRequest(config: Pick<InternalAxiosRequestConfig, 'url'>) {
   }
 }
 
+export function isAllowedCsrfRequestTarget(
+  config: Pick<InternalAxiosRequestConfig, 'baseURL' | 'url'>,
+  apiBaseUrl = getApiBaseUrl(),
+) {
+  const configuredApiOrigin = getApiOrigin(apiBaseUrl)
+  const requestBaseUrl = config.baseURL || apiBaseUrl
+  const browserOrigin = typeof window !== 'undefined' ? window.location.origin : 'http://kresco.local'
+  try {
+    const target = new URL(config.url || '', new URL(requestBaseUrl, browserOrigin))
+    if (configuredApiOrigin) return target.origin === configuredApiOrigin
+    return target.origin === browserOrigin
+  } catch {
+    return false
+  }
+}
+
 async function refreshCsrfToken() {
   if (csrfRefreshPromise) return csrfRefreshPromise
 
@@ -61,7 +77,7 @@ async function refreshCsrfToken() {
 
 api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const method = (config.method || 'get').toLowerCase()
-  const needsCsrf = UNSAFE_METHODS.has(method) && !isCsrfExemptRequest(config)
+  const needsCsrf = UNSAFE_METHODS.has(method) && !isCsrfExemptRequest(config) && isAllowedCsrfRequestTarget(config)
   const csrfToken = needsCsrf ? readCsrfToken() || await refreshCsrfToken() : null
   if (csrfToken) {
     const typedConfig = config as CsrfConfig

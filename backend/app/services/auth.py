@@ -14,11 +14,15 @@ AUTH_COOKIE_NAME = "kresco_token"
 AUTH_ROLE_COOKIE_NAME = "kresco_user_role"
 GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 GOOGLE_JWKS_DEFAULT_TTL_SECONDS = 3600
+GOOGLE_JWKS_FORCE_REFRESH_MIN_INTERVAL_SECONDS = 60
 GOOGLE_ID_TOKEN_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 GOOGLE_ID_TOKEN_ALGORITHMS = ["RS256"]
 
 _google_jwks_cache: tuple[float, dict] | None = None
+_google_jwks_cache_fingerprint: str | None = None
 _google_jwks_lock: asyncio.Lock | None = None
+_google_jwks_last_refresh_at = 0.0
+_google_jwks_kid_miss_cache: dict[str, tuple[str, float]] = {}
 
 
 @dataclass(frozen=True)
@@ -116,21 +120,56 @@ def _cache_ttl_seconds(cache_control: str) -> int:
     return GOOGLE_JWKS_DEFAULT_TTL_SECONDS
 
 
-async def _google_jwks(*, force_refresh: bool = False) -> dict:
-    global _google_jwks_cache
+def _google_jwks_fingerprint(jwks: dict) -> str:
+    return json.dumps(jwks, sort_keys=True, separators=(",", ":"))
+
+
+def _record_google_jwks_kid_miss(kid: str) -> None:
+    fingerprint = _google_jwks_cache_fingerprint
+    if fingerprint is None:
+        return
+    _google_jwks_kid_miss_cache[kid] = (fingerprint, time.time())
+    while len(_google_jwks_kid_miss_cache) > 128:
+        _google_jwks_kid_miss_cache.pop(next(iter(_google_jwks_kid_miss_cache)))
+
+
+def _clear_google_jwks_kid_miss(kid: str) -> None:
+    _google_jwks_kid_miss_cache.pop(kid, None)
+
+
+def _should_force_refresh_google_jwks_for_kid(kid: str) -> bool:
+    cached_miss = _google_jwks_kid_miss_cache.get(kid)
+    if cached_miss is None:
+        return True
+
+    cached_fingerprint, recorded_at = cached_miss
+    if cached_fingerprint != _google_jwks_cache_fingerprint:
+        return True
+    return time.time() - recorded_at >= GOOGLE_JWKS_FORCE_REFRESH_MIN_INTERVAL_SECONDS
+
+
+async def _google_jwks_with_metadata(
+    *,
+    force_refresh: bool = False,
+    respect_recent_refresh_throttle: bool = True,
+) -> tuple[dict, bool]:
+    global _google_jwks_cache, _google_jwks_cache_fingerprint, _google_jwks_last_refresh_at
 
     now = time.time()
     if not force_refresh and _google_jwks_cache is not None:
         expires_at, cached_jwks = _google_jwks_cache
         if expires_at > now:
-            return cached_jwks
+            return cached_jwks, False
 
     async with _get_google_jwks_lock():
         now = time.time()
-        if not force_refresh and _google_jwks_cache is not None:
+        if _google_jwks_cache is not None:
             expires_at, cached_jwks = _google_jwks_cache
-            if expires_at > now:
-                return cached_jwks
+            recently_refreshed = now - _google_jwks_last_refresh_at < GOOGLE_JWKS_FORCE_REFRESH_MIN_INTERVAL_SECONDS
+            if expires_at > now and (
+                not force_refresh or (respect_recent_refresh_throttle and recently_refreshed)
+            ):
+                return cached_jwks, False
 
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(GOOGLE_JWKS_URL)
@@ -141,7 +180,14 @@ async def _google_jwks(*, force_refresh: bool = False) -> dict:
 
         ttl = _cache_ttl_seconds(response.headers.get("cache-control", ""))
         _google_jwks_cache = (now + ttl, jwks)
-        return jwks
+        _google_jwks_cache_fingerprint = _google_jwks_fingerprint(jwks)
+        _google_jwks_last_refresh_at = now
+        return jwks, True
+
+
+async def _google_jwks(*, force_refresh: bool = False) -> dict:
+    jwks, _ = await _google_jwks_with_metadata(force_refresh=force_refresh)
+    return jwks
 
 
 def _get_google_jwks_lock() -> asyncio.Lock:
@@ -151,27 +197,52 @@ def _get_google_jwks_lock() -> asyncio.Lock:
     return _google_jwks_lock
 
 
-def _public_key_for_google_token(credential: str, jwks: dict):
+def _google_token_key_id(credential: str) -> str:
     header = jwt.get_unverified_header(credential)
     if header.get("alg") not in GOOGLE_ID_TOKEN_ALGORITHMS:
         raise jwt.InvalidTokenError("Unsupported Google token algorithm")
     kid = header.get("kid")
+    if not isinstance(kid, str) or not kid:
+        raise jwt.InvalidTokenError("Google token signing key not found")
+    return kid
+
+
+def _public_key_for_google_kid(kid: str, jwks: dict):
     for jwk in jwks.get("keys", []):
         if jwk.get("kid") == kid:
             return RSAAlgorithm.from_jwk(json.dumps(jwk))
     raise jwt.InvalidTokenError("Google token signing key not found")
 
 
+def _public_key_for_google_token(credential: str, jwks: dict):
+    return _public_key_for_google_kid(_google_token_key_id(credential), jwks)
+
+
 async def verify_google_token(credential: str, client_id: str) -> dict:
     if not client_id:
         raise jwt.InvalidAudienceError("Google client id is not configured")
 
-    jwks = await _google_jwks()
+    kid = _google_token_key_id(credential)
+    jwks, fetched_initial_jwks = await _google_jwks_with_metadata()
     try:
-        public_key = _public_key_for_google_token(credential, jwks)
+        public_key = _public_key_for_google_kid(kid, jwks)
     except jwt.InvalidTokenError:
-        jwks = await _google_jwks(force_refresh=True)
-        public_key = _public_key_for_google_token(credential, jwks)
+        if fetched_initial_jwks:
+            _record_google_jwks_kid_miss(kid)
+            raise
+        if not _should_force_refresh_google_jwks_for_kid(kid):
+            raise
+        jwks, _ = await _google_jwks_with_metadata(
+            force_refresh=True,
+            respect_recent_refresh_throttle=False,
+        )
+        try:
+            public_key = _public_key_for_google_kid(kid, jwks)
+        except jwt.InvalidTokenError:
+            _record_google_jwks_kid_miss(kid)
+            raise
+
+    _clear_google_jwks_kid_miss(kid)
 
     payload = jwt.decode(
         credential,

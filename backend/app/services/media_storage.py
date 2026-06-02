@@ -35,8 +35,8 @@ class LocalMediaStorage:
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
         del content_type
         destination = _safe_local_destination(self.root, key)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
+        await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(destination.write_bytes, content)
         url = f"{self.public_prefix}/{quote(key, safe='/')}"
         return StoredMedia(key=key, reference=url, url=url)
 
@@ -83,8 +83,8 @@ class S3MockMediaStorage:
         del content_type
         object_key = "/".join(part for part in [self.prefix, key] if part)
         destination = _safe_local_destination(self.root / self.bucket, object_key)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
+        await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(destination.write_bytes, content)
         reference = s3_reference(self.bucket, object_key)
         return StoredMedia(
             key=object_key,
