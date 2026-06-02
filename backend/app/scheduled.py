@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_OUTBOX_LIMIT = 100
 MAX_OUTBOX_LIMIT = 500
-STAGING_DEMO_SEED_CONFIRMATION = "seed-staging-demo"
 
 
 def run_alembic_migrations_event(
@@ -53,11 +52,8 @@ def seed_staging_demo_event(
     event: Mapping[str, Any] | None = None,
     context: Any = None,
 ) -> dict[str, bool]:
+    del event
     del context
-    payload = event or {}
-    if payload.get("confirm") != STAGING_DEMO_SEED_CONFIRMATION:
-        raise ValueError("seed_staging_demo_event requires confirm=seed-staging-demo.")
-
     settings = get_settings()
     if settings.environment.strip().lower() == "production":
         raise ValueError("Refusing to seed production.")

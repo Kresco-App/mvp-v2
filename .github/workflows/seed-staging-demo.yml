@@ -61,4 +61,4 @@ jobs:
       - name: Upsert staging demo accounts inside Lambda VPC
         run: |
           cd backend
-          zappa invoke staging "app.scheduled.seed_staging_demo_event" --raw '{"confirm":"seed-staging-demo"}'
+          zappa invoke staging app.scheduled.seed_staging_demo_event
