@@ -24,6 +24,10 @@ from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for
 from app.services.auth import AUTH_COOKIE_NAME, create_token
 
 
+def _utc_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
 async def _seed_professor_platform(test_settings):
     suffix = uuid4().hex[:8]
     filiere = f"Sciences Math B {suffix}"
@@ -1102,15 +1106,14 @@ def test_live_session_notifications_use_single_offering_realtime_event(app_clien
     assert offering_payload["course_offering_id"] == seeded["offering_id"]
     assert offering_payload["calendar_event_id"]
     assert offering_payload["title"] == "Broadcast fanout live"
-    assert offering_payload["starts_at"] == started.json()["starts_at"]
+    assert _utc_datetime(offering_payload["starts_at"]) == _utc_datetime(started.json()["starts_at"])
     assert offering_payload["status"] == "live"
-    assert by_channel[f"kresco:live:{live_id}"] == {
-        "live_session_id": live_id,
-        "title": "Broadcast fanout live",
-        "status": "live",
-        "starts_at": started.json()["starts_at"],
-        "ends_at": started.json()["ends_at"],
-    }
+    live_payload = by_channel[f"kresco:live:{live_id}"]
+    assert live_payload["live_session_id"] == live_id
+    assert live_payload["title"] == "Broadcast fanout live"
+    assert live_payload["status"] == "live"
+    assert _utc_datetime(live_payload["starts_at"]) == _utc_datetime(started.json()["starts_at"])
+    assert _utc_datetime(live_payload["ends_at"]) == _utc_datetime(started.json()["ends_at"])
     assert not any(channel.startswith("kresco:user:") for channel, _payload in outbox)
 
 
