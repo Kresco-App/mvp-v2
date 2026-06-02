@@ -17,6 +17,14 @@ declare global {
 export type AuthStep = 'auth' | 'niveau' | 'filiere'
 export type AuthMode = 'options' | 'login' | 'signup' | 'verify-pending' | 'forgot' | 'forgot-sent'
 
+const UNVERIFIED_EMAIL_LOGIN_DETAIL = 'Veuillez verifier votre email avant de vous connecter'
+
+export function isUnverifiedEmailLoginError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } }).response
+  return response?.status === 403 && response.data?.detail === UNVERIFIED_EMAIL_LOGIN_DETAIL
+}
+
 export function useAuthPageController() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -172,7 +180,7 @@ export function useAuthPageController() {
       toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
       handleAuthResolution(data.user)
     } catch (err: any) {
-      if (err?.response?.status === 403) {
+      if (isUnverifiedEmailLoginError(err)) {
         setPendingEmail(email)
         setAuthMode('verify-pending')
         toast.error('Vérifiez votre email avant de vous connecter.')

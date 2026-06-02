@@ -9,7 +9,7 @@ from app.config import Settings, get_settings
 from app.dependencies import get_db
 from app.rate_limit import limiter
 from app.services.diagnostics import build_production_diagnostics
-from app.services.realtime_outbox import process_realtime_outbox
+from app.services.realtime_outbox import process_realtime_outbox, requeue_failed_realtime_outbox
 
 router = APIRouter(tags=["Internal"])
 
@@ -36,6 +36,19 @@ async def process_realtime_outbox_endpoint(
 ):
     del request
     result = await process_realtime_outbox(db, settings, limit=limit)
+    return {"ok": True, **result}
+
+
+@router.post("/realtime/requeue-failed-outbox")
+@limiter.limit("10/minute")
+async def requeue_failed_realtime_outbox_endpoint(
+    request: Request,
+    _: None = Depends(_require_internal_secret),
+    limit: int = Query(default=500, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    del request
+    result = await requeue_failed_realtime_outbox(db, limit=limit)
     return {"ok": True, **result}
 
 

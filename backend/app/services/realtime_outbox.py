@@ -123,6 +123,34 @@ async def process_realtime_outbox(
     return {"claimed": len(events), "published": published, "retry": retry, "dead": dead}
 
 
+async def requeue_failed_realtime_outbox(
+    db: AsyncSession,
+    *,
+    limit: int = 500,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    batch_now = now or _utc_now()
+    stmt = (
+        select(RealtimeOutbox)
+        .where(RealtimeOutbox.status.in_([OUTBOX_DEAD, OUTBOX_RETRY]))
+        .order_by(RealtimeOutbox.updated_at, RealtimeOutbox.id)
+        .limit(max(1, min(limit, 500)))
+        .with_for_update(skip_locked=True)
+    )
+    result = await db.execute(stmt)
+    events = list(result.scalars().all())
+    for event in events:
+        event.status = OUTBOX_RETRY
+        event.attempts = 0
+        event.locked_at = None
+        event.available_at = batch_now
+        event.published_at = None
+        event.last_error = ""
+    if events:
+        await db.commit()
+    return {"requeued": len(events)}
+
+
 FAST_LANE_OUTBOX_LIMIT = 25
 
 

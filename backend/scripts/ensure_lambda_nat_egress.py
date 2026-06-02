@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import sys
@@ -153,10 +154,7 @@ def _ensure_nat_gateway(ec2, vpc_id: str, stage: str, *, excluded_subnet_ids: se
         )
     public_subnet_id = public_subnet_id or _find_public_subnet(ec2, vpc_id, excluded_subnet_ids)
     if not public_subnet_id:
-        raise SystemExit(
-            "No separate public subnet with an Internet Gateway default route was found. "
-            "Create a public subnet in this VPC, then rerun with NAT_PUBLIC_SUBNET_ID set to that subnet."
-        )
+        public_subnet_id = _create_public_nat_subnet(ec2, vpc_id, stage, excluded_subnet_ids)
 
     allocation = ec2.allocate_address(
         Domain="vpc",
@@ -203,6 +201,63 @@ def _find_public_subnet(ec2, vpc_id: str, excluded_subnet_ids: set[str]) -> str:
         route_table_id = _route_table_id_for_subnet(ec2, vpc_id, subnet_id, main_route_table_id)
         if route_table_id in public_route_table_ids:
             return subnet_id
+    return ""
+
+
+def _create_public_nat_subnet(ec2, vpc_id: str, stage: str, excluded_subnet_ids: set[str]) -> str:
+    public_route_table_id = _public_route_table_id(ec2, vpc_id)
+    if not public_route_table_id:
+        raise SystemExit(
+            "No route table with an Internet Gateway default route was found. "
+            "Create or attach an Internet Gateway before provisioning NAT egress."
+        )
+
+    cidr_block = _available_subnet_cidr(ec2, vpc_id)
+    availability_zone = _nat_subnet_availability_zone(ec2, vpc_id, excluded_subnet_ids)
+    kwargs: dict[str, str] = {"VpcId": vpc_id, "CidrBlock": cidr_block}
+    if availability_zone:
+        kwargs["AvailabilityZone"] = availability_zone
+
+    response = ec2.create_subnet(
+        **kwargs,
+        TagSpecifications=[_tag_spec("subnet", stage, f"kresco-{stage}-nat-public")],
+    )
+    subnet_id = str(response["Subnet"]["SubnetId"])
+    ec2.associate_route_table(RouteTableId=public_route_table_id, SubnetId=subnet_id)
+    return subnet_id
+
+
+def _public_route_table_id(ec2, vpc_id: str) -> str:
+    response = ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}])
+    for table in response.get("RouteTables", []):
+        target_type, target_id = _route_target(_default_ipv4_route(table))
+        if target_type == "gateway" and target_id.startswith("igw-"):
+            return str(table.get("RouteTableId", ""))
+    return ""
+
+
+def _available_subnet_cidr(ec2, vpc_id: str, *, prefixlen: int = 28) -> str:
+    vpc_response = ec2.describe_vpcs(VpcIds=[vpc_id])
+    vpc_cidr = str(vpc_response["Vpcs"][0]["CidrBlock"])
+    vpc_network = ipaddress.ip_network(vpc_cidr)
+    used_networks = [
+        ipaddress.ip_network(str(subnet["CidrBlock"]))
+        for subnet in ec2.describe_subnets(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}]).get("Subnets", [])
+    ]
+    for candidate in vpc_network.subnets(new_prefix=prefixlen):
+        if all(not candidate.overlaps(used) for used in used_networks):
+            return str(candidate)
+    raise SystemExit(f"No available /{prefixlen} subnet CIDR was found in VPC {vpc_id}.")
+
+
+def _nat_subnet_availability_zone(ec2, vpc_id: str, excluded_subnet_ids: set[str]) -> str:
+    if not excluded_subnet_ids:
+        return ""
+    response = ec2.describe_subnets(SubnetIds=sorted(excluded_subnet_ids))
+    for subnet in response.get("Subnets", []):
+        availability_zone = str(subnet.get("AvailabilityZone", ""))
+        if availability_zone:
+            return availability_zone
     return ""
 
 

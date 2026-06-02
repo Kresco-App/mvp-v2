@@ -694,6 +694,30 @@ def test_internal_process_outbox_requires_worker_secret(app_client, monkeypatch,
     assert ok.json() == {"ok": True, "claimed": 7, "published": 0, "retry": 0, "dead": 0}
 
 
+def test_internal_requeue_failed_outbox_requires_worker_secret(app_client, monkeypatch, test_settings):
+    async def fake_requeue(db, *, limit):
+        return {"requeued": limit}
+
+    monkeypatch.setattr("app.routers.internal.requeue_failed_realtime_outbox", fake_requeue)
+    old_secret = test_settings.realtime_outbox_secret
+    test_settings.realtime_outbox_secret = "test-internal-worker-secret-32-bytes"
+    try:
+        forbidden = app_client.post(
+            "/api/internal/realtime/requeue-failed-outbox",
+            headers={"x-kresco-internal-secret": "wrong"},
+        )
+        ok = app_client.post(
+            "/api/internal/realtime/requeue-failed-outbox?limit=9",
+            headers={"x-kresco-internal-secret": test_settings.realtime_outbox_secret},
+        )
+    finally:
+        test_settings.realtime_outbox_secret = old_secret
+
+    assert forbidden.status_code == 403
+    assert ok.status_code == 200
+    assert ok.json() == {"ok": True, "requeued": 9}
+
+
 def test_ably_token_omits_live_session_channel_without_live_session_feature(app_client, run_db, test_settings):
     token, live_id, offering_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="basic"))
     old_key = test_settings.ably_api_key

@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.database import get_session_factory
 from app.models.professor import RealtimeOutbox
@@ -120,3 +120,63 @@ def test_realtime_outbox_records_retry_and_dead_letter_states(run_db, monkeypatc
     assert dead_row.status == realtime_outbox.OUTBOX_DEAD
     assert dead_row.locked_at is None
     assert "RuntimeError" in dead_row.last_error
+
+
+def test_requeue_failed_realtime_outbox_resets_retryable_rows(run_db):
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            pending = RealtimeOutbox(
+                channel="kresco:user:1:notifications",
+                event_name="pending.event",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_PENDING,
+            )
+            published = RealtimeOutbox(
+                channel="kresco:user:2:notifications",
+                event_name="published.event",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_PUBLISHED,
+            )
+            retry = RealtimeOutbox(
+                channel="kresco:user:3:notifications",
+                event_name="retry.event",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_RETRY,
+                attempts=5,
+                locked_at=datetime.now(timezone.utc),
+                last_error="temporary failure",
+            )
+            dead = RealtimeOutbox(
+                channel="kresco:user:4:notifications",
+                event_name="dead.event",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_DEAD,
+                attempts=8,
+                locked_at=datetime.now(timezone.utc),
+                last_error="old failure",
+            )
+            db.add_all([pending, published, retry, dead])
+            await db.commit()
+
+        async with session_factory() as db:
+            result = await realtime_outbox.requeue_failed_realtime_outbox(db)
+            rows = (await db.execute(select(RealtimeOutbox).order_by(RealtimeOutbox.id))).scalars().all()
+            return result, rows
+
+    result, rows = run_db(_case())
+
+    assert result == {"requeued": 2}
+    assert [row.status for row in rows] == [
+        realtime_outbox.OUTBOX_PENDING,
+        realtime_outbox.OUTBOX_PUBLISHED,
+        realtime_outbox.OUTBOX_RETRY,
+        realtime_outbox.OUTBOX_RETRY,
+    ]
+    assert rows[2].attempts == 0
+    assert rows[2].locked_at is None
+    assert rows[2].last_error == ""
+    assert rows[3].attempts == 0
+    assert rows[3].locked_at is None
+    assert rows[3].last_error == ""
