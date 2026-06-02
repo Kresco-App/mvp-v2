@@ -122,9 +122,12 @@ class UserAdmin(PowerModelView, model=User):
     can_delete = True
     can_view_details = True
 
+    # Roles that grant elevated access — anything outside the safe baseline set
+    # is considered privileged and may not be assigned by non-superusers.
+    _NON_PRIVILEGED_ROLES: frozenset[str | None] = frozenset({"student", "", None})
+
     async def on_model_change(self, data: dict, model: User, is_created: bool, request) -> None:
-        if is_created:
-            return
+        # Always resolve the acting admin first — applies to both create and edit.
         admin_user_id = _admin_user_id(request)
         if not admin_user_id:
             raise HTTPException(status_code=403, detail="Admin session is required")
@@ -135,13 +138,59 @@ class UserAdmin(PowerModelView, model=User):
             admin_user = await db.get(User, admin_user_id)
         if admin_user is None or not admin_user.is_staff:
             raise HTTPException(status_code=403, detail="Staff access required")
+
+        # Superusers may do anything.
         if admin_user.is_superuser:
             return
-        if model.is_staff or model.is_superuser:
+
+        # ── Non-superuser staff: enforce privilege-escalation rules ──────────
+
+        # 1. Block setting is_superuser or is_staff to a truthy value.
+        proposed_is_superuser = data.get("is_superuser", getattr(model, "is_superuser", False))
+        proposed_is_staff = data.get("is_staff", getattr(model, "is_staff", False))
+        if proposed_is_superuser:
+            raise HTTPException(
+                status_code=403,
+                detail="Only superusers can set is_superuser on a user account",
+            )
+        if proposed_is_staff:
+            raise HTTPException(
+                status_code=403,
+                detail="Only superusers can set is_staff on a user account",
+            )
+
+        # 2. Block assigning an elevated role.
+        proposed_role = data.get("role", getattr(model, "role", "student"))
+        if proposed_role not in self._NON_PRIVILEGED_ROLES:
+            raise HTTPException(
+                status_code=403,
+                detail="Only superusers can assign elevated roles (professor/admin/…)",
+            )
+
+        # 3. Block editing a user that is already staff or superuser (pre-edit state).
+        if not is_created and (model.is_staff or model.is_superuser):
             raise HTTPException(status_code=403, detail="Only superusers can edit staff accounts")
-        next_email = str(data.get("email", model.email) or "").strip().lower()
-        if next_email and next_email != str(model.email or "").strip().lower():
-            raise HTTPException(status_code=403, detail="Only superusers can edit user email addresses")
+
+        # 4. Block changing another user's email address.
+        if not is_created:
+            next_email = str(data.get("email", model.email) or "").strip().lower()
+            if next_email and next_email != str(model.email or "").strip().lower():
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only superusers can edit user email addresses",
+                )
+
+        # 5. Block modifying sensitive identity/billing fields.
+        if "auth_token_version" in data:
+            raise HTTPException(
+                status_code=403,
+                detail="Only superusers can modify auth_token_version",
+            )
+        if "stripe_customer_id" in data:
+            raise HTTPException(
+                status_code=403,
+                detail="Only superusers can modify stripe_customer_id",
+            )
 
 
 class UserSubjectEntitlementAdmin(PowerModelView, model=UserSubjectEntitlement):

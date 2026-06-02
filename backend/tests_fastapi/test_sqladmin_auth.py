@@ -205,3 +205,295 @@ def test_sqladmin_non_superuser_cannot_edit_account_takeover_fields(run_db):
             assert staff_error.value.status_code == 403
 
     run_db(_check_boundaries())
+
+
+# ─── Privilege-escalation tests ────────────────────────────────────────────────
+
+
+async def _seed_priv_esc_users(prefix: str) -> dict:
+    """Seed a superuser, a non-superuser staff member, and a plain student."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:  # type: AsyncSession
+        superuser = User(
+            email=f"{prefix}-superuser@example.com",
+            full_name="Super Admin",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=True,
+            is_superuser=True,
+            password=hash_password(STAFF_PASSWORD),
+        )
+        staff = User(
+            email=f"{prefix}-staff@example.com",
+            full_name="Staff Only",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=True,
+            is_superuser=False,
+            password=hash_password(STAFF_PASSWORD),
+        )
+        student = User(
+            email=f"{prefix}-student@example.com",
+            full_name="Plain Student",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=False,
+            is_superuser=False,
+            role="student",
+            password=hash_password(STAFF_PASSWORD),
+        )
+        db.add_all([superuser, staff, student])
+        await db.commit()
+        await db.refresh(superuser)
+        await db.refresh(staff)
+        await db.refresh(student)
+        return {
+            "superuser_id": superuser.id,
+            "staff_id": staff.id,
+            "student_id": student.id,
+        }
+
+
+def _make_request(admin_user_id: int) -> object:
+    """Return a minimal fake request with an admin session."""
+    class _Request:
+        session = {"admin_authenticated": True, "admin_user_id": admin_user_id}
+    return _Request()
+
+
+def test_non_superuser_staff_cannot_create_superuser(run_db):
+    """Hole 1: is_created=True must NOT be skipped — privilege check must still run."""
+    users = run_db(_seed_priv_esc_users("priv-create-super"))
+    request = _make_request(int(users["staff_id"]))
+
+    async def _run():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            # The model is a fresh (unsaved) User — simulate the "create" path.
+            new_user = User(
+                email="new-super@example.com",
+                full_name="New Super",
+                is_active=True,
+                is_email_verified=False,
+                is_staff=False,
+                is_superuser=False,
+                role="student",
+            )
+            view = UserAdmin()
+
+            # Attempt to create with is_superuser=True in the submitted data.
+            with pytest.raises(HTTPException) as exc_info:
+                await view.on_model_change(
+                    {"email": "new-super@example.com", "is_superuser": True},
+                    new_user,
+                    True,  # is_created
+                    request,
+                )
+            assert exc_info.value.status_code == 403
+
+            # Attempt to create with is_staff=True in the submitted data.
+            with pytest.raises(HTTPException) as exc_info2:
+                await view.on_model_change(
+                    {"email": "new-staff@example.com", "is_staff": True},
+                    new_user,
+                    True,
+                    request,
+                )
+            assert exc_info2.value.status_code == 403
+
+    run_db(_run())
+
+
+def test_non_superuser_staff_cannot_create_elevated_role(run_db):
+    """Non-superuser staff cannot create a user with role='professor' or 'admin'."""
+    users = run_db(_seed_priv_esc_users("priv-create-role"))
+    request = _make_request(int(users["staff_id"]))
+
+    async def _run():
+        new_user = User(
+            email="new-prof@example.com",
+            full_name="New Prof",
+            is_active=True,
+            is_email_verified=False,
+            is_staff=False,
+            is_superuser=False,
+            role="student",
+        )
+        view = UserAdmin()
+
+        for elevated_role in ("professor", "admin"):
+            with pytest.raises(HTTPException) as exc_info:
+                await view.on_model_change(
+                    {"email": "new-prof@example.com", "role": elevated_role},
+                    new_user,
+                    True,
+                    request,
+                )
+            assert exc_info.value.status_code == 403, f"Expected 403 for role={elevated_role!r}"
+
+    run_db(_run())
+
+
+def test_non_superuser_staff_cannot_escalate_existing_user_to_superuser(run_db):
+    """Hole 2: non-superuser cannot flip is_superuser/is_staff on an existing plain user."""
+    users = run_db(_seed_priv_esc_users("priv-escalate"))
+    request = _make_request(int(users["staff_id"]))
+
+    async def _run():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            student = await db.get(User, int(users["student_id"]))
+            view = UserAdmin()
+
+            # Attempt to elevate is_superuser on an existing regular user.
+            with pytest.raises(HTTPException) as exc_info:
+                await view.on_model_change(
+                    {"full_name": student.full_name, "is_superuser": True},
+                    student,
+                    False,
+                    request,
+                )
+            assert exc_info.value.status_code == 403
+
+            # Attempt to elevate is_staff.
+            with pytest.raises(HTTPException) as exc_info2:
+                await view.on_model_change(
+                    {"full_name": student.full_name, "is_staff": True},
+                    student,
+                    False,
+                    request,
+                )
+            assert exc_info2.value.status_code == 403
+
+    run_db(_run())
+
+
+def test_non_superuser_staff_cannot_escalate_role_on_existing_user(run_db):
+    """Non-superuser staff cannot change an existing student's role to professor/admin."""
+    users = run_db(_seed_priv_esc_users("priv-escalate-role"))
+    request = _make_request(int(users["staff_id"]))
+
+    async def _run():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            student = await db.get(User, int(users["student_id"]))
+            view = UserAdmin()
+
+            for elevated_role in ("professor", "admin"):
+                with pytest.raises(HTTPException) as exc_info:
+                    await view.on_model_change(
+                        {"role": elevated_role},
+                        student,
+                        False,
+                        request,
+                    )
+                assert exc_info.value.status_code == 403, f"Expected 403 for role={elevated_role!r}"
+
+    run_db(_run())
+
+
+def test_superuser_can_create_and_edit_users_normally(run_db):
+    """Superusers must still be able to create/edit users without any restrictions."""
+    users = run_db(_seed_priv_esc_users("priv-superuser-ok"))
+    request = _make_request(int(users["superuser_id"]))
+
+    async def _run():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            student = await db.get(User, int(users["student_id"]))
+            view = UserAdmin()
+
+            # Superuser can edit a regular user without restrictions.
+            await view.on_model_change(
+                {"full_name": "Updated by Superuser", "role": "professor"},
+                student,
+                False,
+                request,
+            )
+
+            # Superuser can create a new superuser (is_created=True with elevated flags).
+            new_user = User(
+                email="super-created@example.com",
+                full_name="New Super",
+                is_active=True,
+                is_email_verified=False,
+                is_staff=False,
+                is_superuser=False,
+                role="student",
+            )
+            await view.on_model_change(
+                {"email": "super-created@example.com", "is_superuser": True},
+                new_user,
+                True,
+                request,
+            )
+
+    run_db(_run())
+
+
+def test_non_superuser_staff_cannot_modify_auth_token_version(run_db):
+    """Non-superuser staff cannot touch auth_token_version (invalidates all sessions)."""
+    users = run_db(_seed_priv_esc_users("priv-auth-token"))
+    request = _make_request(int(users["staff_id"]))
+
+    async def _run():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            student = await db.get(User, int(users["student_id"]))
+            view = UserAdmin()
+
+            with pytest.raises(HTTPException) as exc_info:
+                await view.on_model_change(
+                    {"auth_token_version": 99},
+                    student,
+                    False,
+                    request,
+                )
+            assert exc_info.value.status_code == 403
+
+    run_db(_run())
+
+
+def test_non_superuser_staff_cannot_modify_stripe_customer_id(run_db):
+    """Non-superuser staff cannot touch stripe_customer_id."""
+    users = run_db(_seed_priv_esc_users("priv-stripe"))
+    request = _make_request(int(users["staff_id"]))
+
+    async def _run():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            student = await db.get(User, int(users["student_id"]))
+            view = UserAdmin()
+
+            with pytest.raises(HTTPException) as exc_info:
+                await view.on_model_change(
+                    {"stripe_customer_id": "cus_evil123"},
+                    student,
+                    False,
+                    request,
+                )
+            assert exc_info.value.status_code == 403
+
+    run_db(_run())
+
+
+def test_non_superuser_staff_can_edit_benign_fields(run_db):
+    """Non-superuser staff CAN edit innocuous fields like full_name on a regular user."""
+    users = run_db(_seed_priv_esc_users("priv-benign-edit"))
+    request = _make_request(int(users["staff_id"]))
+
+    async def _run():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            student = await db.get(User, int(users["student_id"]))
+            view = UserAdmin()
+
+            # This must NOT raise.
+            await view.on_model_change(
+                {"full_name": "Corrected Name"},
+                student,
+                False,
+                request,
+            )
+
+    run_db(_run())
