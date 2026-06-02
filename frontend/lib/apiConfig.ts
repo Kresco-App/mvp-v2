@@ -1,10 +1,15 @@
-const DEFAULT_API_BASE_URL = '/api/'
+export const STAGING_API_BASE_URL = 'https://eizjuuflt7.execute-api.eu-west-3.amazonaws.com/staging/api/'
+const LOCAL_API_BASE_URL = '/api/'
 const API_SUFFIX_PATTERN = /\/api\/?$/
 const ABSOLUTE_URL_PATTERN = /^(https?:|data:|blob:)/
 
+export function defaultApiBaseUrl(nodeEnv = process.env.NODE_ENV) {
+  return nodeEnv === 'production' ? STAGING_API_BASE_URL : LOCAL_API_BASE_URL
+}
+
 export function normalizeApiBaseUrl(value?: string | null) {
   const trimmed = value?.trim()
-  if (!trimmed) return DEFAULT_API_BASE_URL
+  if (!trimmed) return defaultApiBaseUrl()
   return trimmed.endsWith('/') ? trimmed : `${trimmed}/`
 }
 

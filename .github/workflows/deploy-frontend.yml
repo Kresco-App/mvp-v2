@@ -76,9 +76,13 @@ jobs:
 
       - name: Build frontend for browser smoke
         run: npm run build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: "/api/"
 
       - name: Run browser smoke tests
         run: npm run test:e2e
+        env:
+          NEXT_PUBLIC_API_BASE_URL: "/api/"
 
       - name: Run real browser integration test
         run: npm run test:e2e:integration

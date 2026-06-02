@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
 import { getAuthRedirect } from '@/lib/authRedirect'
+import { getApiOrigin } from '@/lib/apiConfig'
 import { isJwtExpired, KRESCO_CSRF_COOKIE, KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE_COOKIE } from '@/lib/authSession'
 
 const CSP_HEADER = 'Content-Security-Policy'
@@ -45,6 +46,7 @@ function cspTemplateCacheKey() {
   return [
     process.env.NODE_ENV ?? '',
     process.env.NEXT_PUBLIC_API_BASE_URL ?? '',
+    getApiOrigin(),
   ].join('\0')
 }
 
@@ -55,7 +57,7 @@ function getContentSecurityPolicyTemplate() {
   }
 
   const isDevelopment = process.env.NODE_ENV !== 'production'
-  const apiOrigin = absoluteOrigin(process.env.NEXT_PUBLIC_API_BASE_URL)
+  const apiOrigin = absoluteOrigin(process.env.NEXT_PUBLIC_API_BASE_URL) ?? (getApiOrigin() || null)
   const devConnectSources = isDevelopment
     ? ['http://localhost:*', 'http://127.0.0.1:*', 'ws://localhost:*', 'ws://127.0.0.1:*']
     : []

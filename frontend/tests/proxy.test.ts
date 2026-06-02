@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { buildContentSecurityPolicy, config, proxy } from '@/proxy'
 import { KRESCO_CSRF_COOKIE, KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE_COOKIE } from '@/lib/authSession'
@@ -253,6 +253,19 @@ describe('Next proxy auth boundary', () => {
     } finally {
       if (original === undefined) delete process.env.NEXT_PUBLIC_API_BASE_URL
       else process.env.NEXT_PUBLIC_API_BASE_URL = original
+    }
+  })
+
+  it('includes the staging backend origin in production CSP when Vercel API env is missing', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', '')
+    try {
+      const csp = buildContentSecurityPolicy('test-nonce')
+
+      expect(cspDirective(csp, 'connect-src')).toContain('https://eizjuuflt7.execute-api.eu-west-3.amazonaws.com')
+      expect(cspDirective(csp, 'img-src')).toContain('https://eizjuuflt7.execute-api.eu-west-3.amazonaws.com')
+    } finally {
+      vi.unstubAllEnvs()
     }
   })
 

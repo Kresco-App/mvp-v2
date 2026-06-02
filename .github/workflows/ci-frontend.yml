@@ -24,6 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_API_BASE_URL: "/api/"
     defaults:
       run:
         working-directory: frontend
