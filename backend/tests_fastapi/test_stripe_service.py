@@ -19,14 +19,17 @@ class FakeCustomers:
 
 
 class FakeSessions:
-    def __init__(self, payment_status="paid", retrieve_error=None, metadata=None, customer="cus_test"):
+    def __init__(self, payment_status="paid", retrieve_error=None, create_error=None, metadata=None, customer="cus_test"):
         self.created_params = None
         self.payment_status = payment_status
         self.retrieve_error = retrieve_error
+        self.create_error = create_error
         self.metadata = metadata or {}
         self.customer = customer
 
     def create(self, params):
+        if self.create_error:
+            raise self.create_error
         self.created_params = params
         return SimpleNamespace(url="https://checkout.example/session")
 
@@ -146,6 +149,54 @@ def test_create_checkout_session_fails_fast_when_checkout_config_is_missing(monk
 
     assert exc.value.status_code == 503
     assert "Stripe checkout is not configured" in exc.value.detail
+
+
+def test_create_checkout_session_returns_unavailable_on_stripe_error(monkeypatch, test_settings):
+    client = FakeStripeClient(
+        sessions=FakeSessions(create_error=stripe_service.stripe.APIConnectionError("temporary transport failure"))
+    )
+    monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
+    settings = test_settings.model_copy(
+        update={
+            "frontend_url": "https://app.example",
+            "stripe_product_id": "prod_kresco",
+            "stripe_sk": "sk_test",
+        }
+    )
+    user = User(id=123, email="buyer@example.com", full_name="Buyer", stripe_customer_id="cus_existing")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(create_checkout_session(user, "pro", settings))
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail == stripe_service.CHECKOUT_UNAVAILABLE_DETAIL
+
+
+def test_stripe_client_uses_bounded_network_timeout(monkeypatch, test_settings):
+    captured = {}
+
+    class FakeRequestsClient:
+        def __init__(self, *, timeout):
+            captured["timeout"] = timeout
+
+    class FakeStripeClient:
+        def __init__(self, api_key, *, max_network_retries, http_client):
+            captured["api_key"] = api_key
+            captured["max_network_retries"] = max_network_retries
+            captured["http_client"] = http_client
+
+    monkeypatch.setattr(stripe_service.stripe, "RequestsClient", FakeRequestsClient)
+    monkeypatch.setattr(stripe_service.stripe, "StripeClient", FakeStripeClient)
+
+    client = stripe_service._stripe_client(test_settings.model_copy(update={"stripe_sk": "sk_test"}))
+
+    assert client is captured["http_client"] or isinstance(captured["http_client"], FakeRequestsClient)
+    assert captured["api_key"] == "sk_test"
+    assert captured["max_network_retries"] == 1
+    assert captured["timeout"] == (
+        stripe_service.STRIPE_CONNECT_TIMEOUT_SECONDS,
+        stripe_service.STRIPE_READ_TIMEOUT_SECONDS,
+    )
 
 
 @pytest.mark.parametrize(("payment_status", "expected"), [("paid", True), ("unpaid", False)])

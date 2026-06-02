@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import stripe
 from dataclasses import dataclass
 
@@ -15,7 +16,12 @@ PRICES = {
 }
 VALID_PLAN_DETAIL = "Invalid plan. Use 'pro'"
 MISSING_CHECKOUT_CONFIG_DETAIL = "Stripe checkout is not configured"
+CHECKOUT_UNAVAILABLE_DETAIL = "Stripe checkout is temporarily unavailable"
 VERIFY_CHECKOUT_UNAVAILABLE_DETAIL = "Stripe checkout verification is temporarily unavailable"
+STRIPE_CONNECT_TIMEOUT_SECONDS = 3.0
+STRIPE_READ_TIMEOUT_SECONDS = 8.0
+
+logger = logging.getLogger("kresco.payments")
 
 
 @dataclass(frozen=True)
@@ -26,7 +32,13 @@ class CheckoutSessionVerification:
 
 
 def _stripe_client(settings: Settings) -> stripe.StripeClient:
-    return stripe.StripeClient(settings.stripe_sk)
+    return stripe.StripeClient(
+        settings.stripe_sk,
+        max_network_retries=1,
+        http_client=stripe.RequestsClient(
+            timeout=(STRIPE_CONNECT_TIMEOUT_SECONDS, STRIPE_READ_TIMEOUT_SECONDS),
+        ),
+    )
 
 
 async def _call_stripe(func, *args, **kwargs):
@@ -60,39 +72,47 @@ async def create_checkout_session(user: User, plan: str, settings: Settings) -> 
 
     # Ensure stripe customer exists
     customer_id = user.stripe_customer_id or None
-    if not customer_id:
-        customer = await _call_stripe(
-            client.v1.customers.create,
-            params={"email": user.email, "name": user.full_name, "metadata": {"user_id": str(user.id)}}
-        )
-        customer_id = customer.id
-        user.stripe_customer_id = customer_id
+    try:
+        if not customer_id:
+            customer = await _call_stripe(
+                client.v1.customers.create,
+                params={"email": user.email, "name": user.full_name, "metadata": {"user_id": str(user.id)}}
+            )
+            customer_id = customer.id
+            user.stripe_customer_id = customer_id
 
-    session = await _call_stripe(
-        client.v1.checkout.sessions.create,
-        params={
-            "customer": customer_id,
-            "payment_method_types": ["card"],
-            "line_items": [
-                {
-                    "price_data": {
-                        "currency": "mad",
-                        "unit_amount": PRICES[plan],
-                        "product": settings.stripe_product_id,
-                    },
-                    "quantity": 1,
-                }
-            ],
-            "mode": "payment",
-            "success_url": _frontend_url(settings, "payment-success?session_id={CHECKOUT_SESSION_ID}"),
-            "cancel_url": _frontend_url(settings, "pricing"),
-            "metadata": {
-                "user_id": str(user.id),
-                "plan": plan,
-                "access_model": "one_time_pro_unlock",
-            },
-        }
-    )
+        session = await _call_stripe(
+            client.v1.checkout.sessions.create,
+            params={
+                "customer": customer_id,
+                "payment_method_types": ["card"],
+                "line_items": [
+                    {
+                        "price_data": {
+                            "currency": "mad",
+                            "unit_amount": PRICES[plan],
+                            "product": settings.stripe_product_id,
+                        },
+                        "quantity": 1,
+                    }
+                ],
+                "mode": "payment",
+                "success_url": _frontend_url(settings, "payment-success?session_id={CHECKOUT_SESSION_ID}"),
+                "cancel_url": _frontend_url(settings, "pricing"),
+                "metadata": {
+                    "user_id": str(user.id),
+                    "plan": plan,
+                    "access_model": "one_time_pro_unlock",
+                },
+            }
+        )
+    except stripe.StripeError as exc:
+        logger.warning(
+            "stripe_checkout_create_failed user_id=%s error_type=%s",
+            user.id,
+            type(exc).__name__,
+        )
+        raise HTTPException(status_code=503, detail=CHECKOUT_UNAVAILABLE_DETAIL) from exc
     return session.url
 
 
