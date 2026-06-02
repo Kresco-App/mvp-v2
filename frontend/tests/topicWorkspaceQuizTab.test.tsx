@@ -134,8 +134,7 @@ describe('topic workspace quiz tab', () => {
 
     const input = getInput(container, 'Fill the blank')
     act(() => {
-      input.value = 'Faraday'
-      input.dispatchEvent(new Event('input', { bubbles: true }))
+      setInputValue(input, 'Faraday')
     })
 
     await act(async () => {
@@ -224,6 +223,12 @@ function getInput(container: HTMLElement, ariaLabel: string) {
   const input = Array.from(container.querySelectorAll('input')).find((item) => item.getAttribute('aria-label') === ariaLabel)
   if (!(input instanceof HTMLInputElement)) throw new Error(`input not found: ${ariaLabel}`)
   return input
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  valueSetter?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 async function flushPromises() {
