@@ -51,7 +51,7 @@ import VideoPlayer from '@/components/VideoPlayer'
 import { LessonBody, PrimaryContentFrame, VideoLearningWorkspace, VideoPlayerFrame, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
 import RouteErrorState from '@/components/RouteErrorState'
-import { TabPanel, TopicSearchResults, TopicWorkspaceToolbar } from '@/components/topic-workspace/TopicWorkspacePanels'
+import { TabPanel } from '@/components/topic-workspace/TopicWorkspacePanels'
 
 const workspaceTabIcons: Record<WorkspaceTabSlot, LucideIcon> = {
   course: BookOpen,
@@ -73,7 +73,6 @@ export default function TopicWorkspacePage() {
   const [workspace, setWorkspace] = useState<TopicWorkspace | null>(null)
   const [activeItemId, setActiveItemId] = useState<number | null>(null)
   const [activeTabSlot, setActiveTabSlot] = useState<WorkspaceTabSlot>('course')
-  const [topicQuery, setTopicQuery] = useState('')
   const [openSectionIds, setOpenSectionIds] = useState<Set<string | number>>(new Set())
   const [workspaceRequest, setWorkspaceRequest] = useState<TopicWorkspaceDataRequest>(() => ({
     ...defaultTopicWorkspaceDataRequest(),
@@ -143,15 +142,13 @@ export default function TopicWorkspacePage() {
 
   const requestWorkspace = useCallback((
     targets = topicWorkspaceQueryTargetsFromItemId(null),
-    q = '',
     options: Pick<TopicWorkspaceDataRequest, 'preserveActiveTab' | 'preserveOpenSections'> = {},
   ) => {
     setWorkspaceRequest({
       targets,
-      q,
       ...options,
     })
-    if (topicWorkspaceSWRKey(topicId, targets, q) === workspaceKey) {
+    if (topicWorkspaceSWRKey(topicId, targets) === workspaceKey) {
       void mutateWorkspace()
     }
   }, [mutateWorkspace, topicId, workspaceKey])
@@ -226,14 +223,6 @@ export default function TopicWorkspacePage() {
     router.replace(`/topics/${topicId}?item=${item.id}`, { scroll: false })
   }, [router, topicId])
 
-  const runTopicSearch = useCallback(() => {
-    if (!activeItem) return
-    requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
-      preserveActiveTab: true,
-      preserveOpenSections: true,
-    })
-  }, [activeItem, requestWorkspace, topicQuery])
-
   const toggleSection = useCallback((section: FigmaRailSection) => {
     setOpenSectionIds((prev) => {
       const next = new Set(prev)
@@ -265,7 +254,7 @@ export default function TopicWorkspacePage() {
     try {
       const data = await postJson<any>(`/courses/topic-items/${activeItem.id}/complete`, { watched_seconds: activeItem.duration_seconds || 0 })
       toast.success(`Progress saved${data.xp_earned ? ` (+${data.xp_earned} XP)` : ''}.`)
-      requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
+      requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), {
         preserveActiveTab: true,
         preserveOpenSections: true,
       })
@@ -274,7 +263,7 @@ export default function TopicWorkspacePage() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [activeItem, isSubmitting, requestWorkspace, topicQuery])
+  }, [activeItem, isSubmitting, requestWorkspace])
 
   const saveActive = useCallback(async () => {
     if (!activeItem || !workspace || isSubmitting) return
@@ -319,7 +308,7 @@ export default function TopicWorkspacePage() {
             tab={activePrimaryTab}
             item={activeItem}
             topicId={workspace?.id ?? Number(topicId)}
-            onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
+            onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), {
               preserveActiveTab: true,
               preserveOpenSections: true,
             })}
@@ -329,7 +318,7 @@ export default function TopicWorkspacePage() {
       )
     }
     return <VideoPlayerFrame videoId="" srcDoc={missingVideoSrcDoc(activeItem)} />
-  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, requestWorkspace, shouldUsePrimaryVideoPlayer, topicId, topicQuery, workspace?.id])
+  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, requestWorkspace, shouldUsePrimaryVideoPlayer, topicId, workspace?.id])
 
   if (loading && !workspace) {
     return <FigmaVideoWorkspaceSkeleton />
@@ -355,14 +344,6 @@ export default function TopicWorkspacePage() {
       breadcrumb={`2eme Bac / ${workspace.subject_title} / ${workspace.title}`}
       title={`${workspace.subject_title}: ${activeItem.title}`}
       primaryContent={primaryContent}
-      toolbar={(
-        <TopicWorkspaceToolbar
-          query={topicQuery}
-          resultCount={workspace.search_results.length}
-          onQueryChange={setTopicQuery}
-          onSearch={runTopicSearch}
-        />
-      )}
       tabs={workspaceTabs}
       onTabSelect={selectWorkspaceTab}
       rail={{
@@ -393,7 +374,6 @@ export default function TopicWorkspacePage() {
               </button>
             </section>
           )}
-          <TopicSearchResults query={topicQuery} items={workspace.search_results} onSelect={selectItem} />
           <AnimatePresence mode="wait" initial={false}>
             {activeTab && (
               <motion.div
@@ -407,7 +387,7 @@ export default function TopicWorkspacePage() {
                   tab={activeTab}
                   item={activeItem}
                   topicId={workspace.id}
-                  onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), topicQuery, {
+                  onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), {
                     preserveActiveTab: true,
                     preserveOpenSections: true,
                   })}

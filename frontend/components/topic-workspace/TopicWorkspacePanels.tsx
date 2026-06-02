@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ListChecks, Search, Send } from 'lucide-react'
+import { Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { getJson, postJson } from '@/lib/apiClient'
 import {
@@ -264,87 +264,5 @@ export function TabPanel({
       {body && <p className="m-0 whitespace-pre-line text-sm font-semibold leading-7 text-[#52525c]">{body}</p>}
       {tab.resource && <TopicWorkspaceResourcePanel resource={tab.resource} item={item} tab={tab} />}
     </div>
-  )
-}
-
-export function TopicWorkspaceToolbar({
-  query,
-  resultCount,
-  onQueryChange,
-  onSearch,
-}: {
-  query: string
-  resultCount: number
-  onQueryChange: (value: string) => void
-  onSearch: () => void
-}) {
-  return (
-    <div className="kresco-enter grid w-[351px] max-w-full justify-items-start gap-3" style={{ animationDelay: '40ms' }}>
-      <form
-        className="relative w-full"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onSearch()
-        }}
-      >
-        <Search size={17} className="pointer-events-none absolute left-[18px] top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
-        <input
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          className="figma-input h-[52px] w-full !pl-[52px] !pr-[18px] text-[15px]"
-          placeholder="Search this topic"
-          aria-label="Search this topic"
-        />
-      </form>
-
-      <div className="inline-flex h-[48px] items-center gap-2 rounded-[16px] bg-[#f7f8fb] px-4 text-[13px] font-black text-[#3f3f46]">
-        <ListChecks size={15} />
-        Main Path
-      </div>
-
-      {query.trim() && (
-        <span className="text-[12px] font-black text-[#71717b]">
-          {resultCount} result{resultCount === 1 ? '' : 's'}
-        </span>
-      )}
-    </div>
-  )
-}
-
-export function TopicSearchResults({
-  query,
-  items,
-  onSelect,
-}: {
-  query: string
-  items: TopicItem[]
-  onSelect: (item: TopicItem) => void
-}) {
-  if (!query.trim()) return null
-
-  return (
-    <section className="rounded-[16px] border border-[#e4e4e7] bg-[#f7f8fb] p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <strong className="text-[13px] font-black text-[#3f3f46]">Topic search</strong>
-        <span className="text-[12px] font-black text-[#9f9fa9]">{items.length} match{items.length === 1 ? '' : 'es'}</span>
-      </div>
-      {items.length > 0 ? (
-        <div className="grid gap-2">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect(item)}
-              className="rounded-[12px] bg-white px-4 py-3 text-left text-[13px] font-black text-[#3f3f46] transition hover:-translate-y-0.5 hover:shadow-[0_10px_22px_rgba(24,24,27,0.08)]"
-            >
-              {item.title}
-              <span className="ml-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#9f9fa9]">{item.item_type}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="m-0 text-[13px] font-bold text-[#71717b]">No item, tab, resource, or concept tag matched this search.</p>
-      )}
-    </section>
   )
 }

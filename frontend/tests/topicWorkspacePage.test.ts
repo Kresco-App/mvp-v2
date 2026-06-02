@@ -70,12 +70,10 @@ vi.mock('@/components/RouteErrorState', () => ({
 
 vi.mock('@/components/topic-workspace/TopicWorkspacePanels', () => ({
   TabPanel: () => React.createElement('div', null, 'tab panel'),
-  TopicSearchResults: () => null,
-  TopicWorkspaceToolbar: () => React.createElement('div', null, 'toolbar'),
 }))
 
 vi.mock('@/lib/topicWorkspaceData', () => ({
-  defaultTopicWorkspaceDataRequest: () => ({ targets: { itemId: null, tabId: null, resourceId: null, quizId: null, questionId: null }, q: '' }),
+  defaultTopicWorkspaceDataRequest: () => ({ targets: { itemId: null, tabId: null, resourceId: null, quizId: null, questionId: null } }),
   topicWorkspaceSWRKey: () => '/courses/topics/42/workspace',
   useTopicWorkspaceData: () => ({
     key: '/courses/topics/42/workspace',

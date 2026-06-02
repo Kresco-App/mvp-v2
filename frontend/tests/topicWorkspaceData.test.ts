@@ -29,7 +29,7 @@ vi.mock('@/lib/axios', () => ({
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const baseWorkspace = workspaceFixture('Continuity introduction')
-const searchWorkspace = workspaceFixture('Limits search result')
+const itemWorkspace = workspaceFixture('Selected topic item')
 
 let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
@@ -50,20 +50,20 @@ afterEach(() => {
 })
 
 describe('topic workspace SWR data', () => {
-  it('builds stable workspace keys from topic, item, and search query inputs', () => {
-    expect(topicWorkspaceSWRKey(42, topicWorkspaceQueryTargetsFromItemId(null), '')).toBe('/courses/topics/42/workspace')
-    expect(topicWorkspaceSWRKey(42, topicWorkspaceQueryTargetsFromItemId(7), ' limits ')).toBe('/courses/topics/42/workspace?item_id=7&q=limits')
-    expect(topicWorkspaceSWRKey(null, topicWorkspaceQueryTargetsFromItemId(7), 'limits')).toBeNull()
+  it('builds stable workspace keys from topic and item inputs', () => {
+    expect(topicWorkspaceSWRKey(42, topicWorkspaceQueryTargetsFromItemId(null))).toBe('/courses/topics/42/workspace')
+    expect(topicWorkspaceSWRKey(42, topicWorkspaceQueryTargetsFromItemId(7))).toBe('/courses/topics/42/workspace?item_id=7')
+    expect(topicWorkspaceSWRKey(null, topicWorkspaceQueryTargetsFromItemId(7))).toBeNull()
   })
 
-  it('keeps previous workspace data visible while a new workspace query fails and retries', async () => {
-    let searchShouldFail = true
+  it('keeps previous workspace data visible while a new item query fails and retries', async () => {
+    let itemRequestShouldFail = true
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url.includes('q=limits')) {
-        if (searchShouldFail) {
-          throw { response: { status: 500, data: { detail: 'Controlled topic search failure' } } }
+      if (url.includes('item_id=7')) {
+        if (itemRequestShouldFail) {
+          throw { response: { status: 500, data: { detail: 'Controlled topic item failure' } } }
         }
-        return { data: searchWorkspace }
+        return { data: itemWorkspace }
       }
       return { data: baseWorkspace }
     })
@@ -76,22 +76,22 @@ describe('topic workspace SWR data', () => {
     })
 
     await act(async () => {
-      getButton(container, 'Search limits').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton(container, 'Open item 7').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     await waitFor(() => {
       expect(container.textContent).toContain('title: Continuity introduction')
       expect(container.textContent).toContain('error: yes')
     })
-    expect(mocks.apiGet).toHaveBeenCalledWith('/courses/topics/42/workspace?item_id=7&q=limits')
+    expect(mocks.apiGet).toHaveBeenCalledWith('/courses/topics/42/workspace?item_id=7')
 
-    searchShouldFail = false
+    itemRequestShouldFail = false
     await act(async () => {
       getButton(container, 'Retry').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     await waitFor(() => {
-      expect(container.textContent).toContain('title: Limits search result')
+      expect(container.textContent).toContain('title: Selected topic item')
       expect(container.textContent).toContain('error: no')
     })
   })
@@ -100,7 +100,6 @@ describe('topic workspace SWR data', () => {
 function TopicWorkspaceHarness() {
   const [request, setRequest] = useState<TopicWorkspaceDataRequest>({
     targets: topicWorkspaceQueryTargetsFromItemId(null),
-    q: '',
   })
   const { workspace, error, loading, mutate } = useTopicWorkspaceData('42', request)
 
@@ -116,12 +115,11 @@ function TopicWorkspaceHarness() {
         type: 'button',
         onClick: () => setRequest({
           targets: topicWorkspaceQueryTargetsFromItemId(7),
-          q: 'limits',
           preserveActiveTab: true,
           preserveOpenSections: true,
         }),
       },
-      'Search limits',
+      'Open item 7',
     ),
     React.createElement(
       'button',

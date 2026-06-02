@@ -880,7 +880,6 @@ test('topic workspace hydrates with mocked course data', async ({ page }) => {
   await expect(page.getByRole('heading', { name: /Mathematics: Continuity introduction/i })).toBeVisible()
   await expect(page.getByText('Apercu video local')).toBeVisible()
   await expect(page.getByText('Mock course content for continuity and limits.')).toBeVisible()
-  await expect(page.getByLabel('Search this topic')).toBeVisible()
   await page.getByRole('button', { name: /Lab/i }).click()
   await expect(page.getByText('Periodicite des ondes')).toBeVisible()
 
