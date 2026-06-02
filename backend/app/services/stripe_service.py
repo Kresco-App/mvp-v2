@@ -18,8 +18,8 @@ VALID_PLAN_DETAIL = "Invalid plan. Use 'pro'"
 MISSING_CHECKOUT_CONFIG_DETAIL = "Stripe checkout is not configured"
 CHECKOUT_UNAVAILABLE_DETAIL = "Stripe checkout is temporarily unavailable"
 VERIFY_CHECKOUT_UNAVAILABLE_DETAIL = "Stripe checkout verification is temporarily unavailable"
-STRIPE_CONNECT_TIMEOUT_SECONDS = 3.0
-STRIPE_READ_TIMEOUT_SECONDS = 8.0
+STRIPE_CONNECT_TIMEOUT_SECONDS = 2.0
+STRIPE_READ_TIMEOUT_SECONDS = 5.0
 
 logger = logging.getLogger("kresco.payments")
 
@@ -34,7 +34,7 @@ class CheckoutSessionVerification:
 def _stripe_client(settings: Settings) -> stripe.StripeClient:
     return stripe.StripeClient(
         settings.stripe_sk,
-        max_network_retries=1,
+        max_network_retries=0,
         http_client=stripe.RequestsClient(
             timeout=(STRIPE_CONNECT_TIMEOUT_SECONDS, STRIPE_READ_TIMEOUT_SECONDS),
         ),

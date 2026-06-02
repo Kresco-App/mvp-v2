@@ -192,7 +192,7 @@ def test_stripe_client_uses_bounded_network_timeout(monkeypatch, test_settings):
 
     assert client is captured["http_client"] or isinstance(captured["http_client"], FakeRequestsClient)
     assert captured["api_key"] == "sk_test"
-    assert captured["max_network_retries"] == 1
+    assert captured["max_network_retries"] == 0
     assert captured["timeout"] == (
         stripe_service.STRIPE_CONNECT_TIMEOUT_SECONDS,
         stripe_service.STRIPE_READ_TIMEOUT_SECONDS,
