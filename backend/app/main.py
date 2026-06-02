@@ -178,7 +178,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     validate_production_settings(settings)
 
-    root_path = "/production" if settings.is_lambda else ""
+    # The API Gateway stage prefix (e.g. /production) is stripped before requests
+    # reach FastAPI (see StripApiGatewayStagePrefix in app_handler.py), so root_path
+    # must stay empty. A non-empty root_path makes the docs page fetch the spec at
+    # /<stage>/openapi.json, which the same-origin /api/* proxy does not forward.
+    root_path = ""
     release_sha = settings.release_sha.strip() or "development"
 
     @asynccontextmanager
@@ -195,6 +199,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=APP_VERSION,
         docs_url="/api/docs",
         redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
         root_path=root_path,
         lifespan=lifespan,
         default_response_class=ORJSONResponse,
