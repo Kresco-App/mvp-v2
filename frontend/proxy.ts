@@ -57,7 +57,9 @@ function getContentSecurityPolicyTemplate() {
   }
 
   const isDevelopment = process.env.NODE_ENV !== 'production'
-  const apiOrigin = absoluteOrigin(process.env.NEXT_PUBLIC_API_BASE_URL) ?? (getApiOrigin() || null)
+  const apiBase = getApiOrigin()
+  const apiOrigin = absoluteOrigin(process.env.NEXT_PUBLIC_API_BASE_URL) ?? (apiBase || null)
+  const apiNetworkOrigin = absoluteOrigin(apiBase)
   const devConnectSources = isDevelopment
     ? ['http://localhost:*', 'http://127.0.0.1:*', 'ws://localhost:*', 'ws://127.0.0.1:*']
     : []
@@ -73,6 +75,7 @@ function getContentSecurityPolicyTemplate() {
     `connect-src ${uniqueSources([
       "'self'",
       apiOrigin ?? '',
+      apiNetworkOrigin ?? '',
       'https://accounts.google.com',
       'https://player.vdocipher.com',
       'https://*.ably.io',
@@ -88,6 +91,7 @@ function getContentSecurityPolicyTemplate() {
       'data:',
       'blob:',
       apiOrigin ?? '',
+      apiNetworkOrigin ?? '',
       'https://images.unsplash.com',
       'https://lh3.googleusercontent.com',
       'https://*.googleusercontent.com',
