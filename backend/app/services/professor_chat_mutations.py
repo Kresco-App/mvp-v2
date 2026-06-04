@@ -204,9 +204,17 @@ async def list_professor_messages_for_conversation(
     limit: int,
     before_id: int | None,
 ) -> list[ProfessorChatMessageOut]:
-    conversation = await require_professor_conversation(db, professor, conversation_id, for_update=True)
-    conversation.unread_for_professor = 0
-    await db.commit()
+    conversation = await require_professor_conversation(db, professor, conversation_id)
+    if conversation.unread_for_professor > 0:
+        await db.execute(
+            update(ProfessorChatConversation)
+            .where(
+                ProfessorChatConversation.id == conversation.id,
+                ProfessorChatConversation.unread_for_professor > 0,
+            )
+            .values(unread_for_professor=0)
+        )
+        await db.commit()
     return await messages_for_conversation(db, conversation_id, settings, limit=limit, before_id=before_id)
 
 
@@ -466,9 +474,17 @@ async def list_student_messages_for_conversation(
     before_id: int | None,
 ) -> list[ProfessorChatMessageOut]:
     ensure_student_professor_chat_access(user)
-    conversation = await require_student_conversation(db, user, conversation_id, for_update=True)
-    conversation.unread_for_student = 0
-    await db.commit()
+    conversation = await require_student_conversation(db, user, conversation_id)
+    if conversation.unread_for_student > 0:
+        await db.execute(
+            update(ProfessorChatConversation)
+            .where(
+                ProfessorChatConversation.id == conversation.id,
+                ProfessorChatConversation.unread_for_student > 0,
+            )
+            .values(unread_for_student=0)
+        )
+        await db.commit()
     return await messages_for_conversation(db, conversation_id, settings, limit=limit, before_id=before_id)
 
 

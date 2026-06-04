@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.routers.professor as professor_router
 import app.services.professor_audit as professor_audit
@@ -1988,6 +1989,54 @@ def test_professor_chat_messages_are_cursor_paginated(app_client, run_db, test_s
             return conversation.unread_for_professor, conversation.unread_for_student
 
     assert run_db(_conversation_unread_counts()) == (0, 0)
+
+
+def test_professor_chat_message_reads_skip_commit_when_unread_counts_are_zero(
+    app_client,
+    run_db,
+    test_settings,
+    monkeypatch,
+):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    created = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Initial question"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert created.status_code == 201
+    conversation_id = created.json()["id"]
+
+    async def _clear_unread_counts():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            conversation = await db.get(ProfessorChatConversation, conversation_id)
+            conversation.unread_for_professor = 0
+            conversation.unread_for_student = 0
+            await db.commit()
+
+    run_db(_clear_unread_counts())
+
+    commit_calls = []
+    original_commit = AsyncSession.commit
+
+    async def tracked_commit(self):
+        commit_calls.append(True)
+        await original_commit(self)
+
+    monkeypatch.setattr(AsyncSession, "commit", tracked_commit)
+
+    professor_page = app_client.get(
+        f"/api/professor/chat/conversations/{conversation_id}/messages",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert professor_page.status_code == 200
+
+    student_page = app_client.get(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert student_page.status_code == 200
+    assert commit_calls == []
 
 
 def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db, test_settings, monkeypatch):
