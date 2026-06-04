@@ -63,8 +63,33 @@ describe('Pro checkout creation', () => {
     })
     expect(apiClient.post).toHaveBeenCalledWith(
       '/payments/create-checkout-session',
-      null,
-      { params: { plan: PRO_CHECKOUT_PLAN } },
+      {
+        plan: PRO_CHECKOUT_PLAN,
+        success_path: '/payment-success?session_id={CHECKOUT_SESSION_ID}',
+        cancel_path: '/pricing',
+      },
+    )
+  })
+
+  it('passes caller return paths to checkout creation', async () => {
+    const apiClient = {
+      post: vi.fn().mockResolvedValue({ data: { checkout_url: 'https://checkout.stripe.test/session' } }),
+    }
+
+    await expect(createProCheckoutSession(apiClient, {
+      successPath: '/payment-success?return_to=%2Ftopics%2F42',
+      cancelPath: '/topics/42',
+    })).resolves.toEqual({
+      status: 'success',
+      checkoutUrl: 'https://checkout.stripe.test/session',
+    })
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/payments/create-checkout-session',
+      {
+        plan: PRO_CHECKOUT_PLAN,
+        success_path: '/payment-success?return_to=%2Ftopics%2F42',
+        cancel_path: '/topics/42',
+      },
     )
   })
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import stripe
 from dataclasses import dataclass
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from fastapi import HTTPException
 
@@ -66,6 +67,26 @@ def _frontend_url(settings: Settings, path: str) -> str:
     return f"{settings.frontend_url.rstrip('/')}/{path.lstrip('/')}"
 
 
+def _safe_relative_checkout_path(path: str, *, fallback: str) -> str:
+    value = (path or fallback).strip() or fallback
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc or value.startswith("//") or "\\" in value:
+        raise HTTPException(status_code=400, detail="Checkout return paths must be safe relative URLs")
+    if not value.startswith("/"):
+        raise HTTPException(status_code=400, detail="Checkout return paths must be safe relative URLs")
+    return value
+
+
+def _success_path_with_session_id(path: str) -> str:
+    parsed = urlsplit(path)
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    if not any(key == "session_id" for key, _value in query):
+        separator = "&" if parsed.query else ""
+        query_string = f"{parsed.query}{separator}session_id={{CHECKOUT_SESSION_ID}}"
+        return urlunsplit(("", "", parsed.path, query_string, parsed.fragment))
+    return path
+
+
 def _is_retryable_stripe_error(exc: stripe.StripeError) -> bool:
     if isinstance(exc, (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)):
         return True
@@ -79,10 +100,21 @@ def _is_retryable_checkout_verification_error(exc: stripe.StripeError) -> bool:
     return _is_retryable_stripe_error(exc)
 
 
-async def create_checkout_session(user: User, plan: str, settings: Settings) -> str:
+async def create_checkout_session(
+    user: User,
+    plan: str,
+    settings: Settings,
+    *,
+    success_path: str = "/payment-success?session_id={CHECKOUT_SESSION_ID}",
+    cancel_path: str = "/pricing",
+) -> str:
     if plan not in PRICES:
         raise HTTPException(status_code=400, detail=VALID_PLAN_DETAIL)
     _require_checkout_config(settings)
+    safe_success_path = _success_path_with_session_id(
+        _safe_relative_checkout_path(success_path, fallback="/payment-success?session_id={CHECKOUT_SESSION_ID}")
+    )
+    safe_cancel_path = _safe_relative_checkout_path(cancel_path, fallback="/pricing")
 
     client = _stripe_client(settings)
 
@@ -113,8 +145,8 @@ async def create_checkout_session(user: User, plan: str, settings: Settings) -> 
                     }
                 ],
                 "mode": "payment",
-                "success_url": _frontend_url(settings, "payment-success?session_id={CHECKOUT_SESSION_ID}"),
-                "cancel_url": _frontend_url(settings, "pricing"),
+                "success_url": _frontend_url(settings, safe_success_path),
+                "cancel_url": _frontend_url(settings, safe_cancel_path),
                 "metadata": {
                     "user_id": str(user.id),
                     "plan": plan,

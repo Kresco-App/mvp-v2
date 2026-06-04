@@ -25,7 +25,7 @@ logger = logging.getLogger("kresco.payments")
 DISPUTE_CUSTOMER_LOOKUP_UNAVAILABLE_DETAIL = "Stripe dispute customer lookup is temporarily unavailable"
 
 
-CreateCheckoutSession = Callable[[User, str, Settings], Awaitable[str]]
+CreateCheckoutSession = Callable[..., Awaitable[str]]
 VerifyCheckoutSession = Callable[[str, Settings], Awaitable[CheckoutSessionVerification]]
 CustomerIdForCharge = Callable[[str, Settings], Awaitable[str]]
 ConstructStripeEvent = Callable[[bytes, str, str], object]
@@ -101,12 +101,20 @@ async def create_checkout_state(
     *,
     user: User,
     plan: str,
+    success_path: str,
+    cancel_path: str,
     settings: Settings,
     create_checkout_session_fn: CreateCheckoutSession,
 ) -> CheckoutOut:
     previous_customer_id = user.stripe_customer_id
     await db.commit()
-    checkout_url = await create_checkout_session_fn(user, plan, settings)
+    checkout_url = await create_checkout_session_fn(
+        user,
+        plan,
+        settings,
+        success_path=success_path,
+        cancel_path=cancel_path,
+    )
     await persist_created_stripe_customer(db, user, previous_customer_id=previous_customer_id)
     return CheckoutOut(checkout_url=checkout_url)
 

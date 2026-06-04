@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 49.
+- Current active bug count after this deep audit append: 48.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,13 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-043 - Payment checkout API drops frontend success and cancel redirect paths
-Status: OPEN
-Files: `backend/app/routers/payments.py`, `backend/app/services/stripe_service.py`, `frontend/lib/payments.ts`
-Current evidence: The frontend `createProCheckoutSession` in `frontend/lib/payments.ts` posts to `/payments/create-checkout-session` using `apiClient.post` but passes `plan` as a query parameter (`{ params: { plan: PRO_CHECKOUT_PLAN } }`). Even if the frontend were to pass `{ success_path, cancel_path }` in the POST body to return the user to the course they were viewing, the backend `create_checkout` router does not declare a Pydantic body model to accept them. Consequently, `create_checkout_session` in `stripe_service.py` uses hardcoded URLs (`payment-success?session_id=...` and `pricing`), completely dropping the frontend's intent for where to return the user after checkout.
-Risk: Product checkout flows break UX expectations because they cannot preserve the user's intent to return to a specific locked course/topic page after successfully paying or canceling.
-Fix direction: Update the backend router to accept a Pydantic JSON body model containing `plan`, `success_path`, and `cancel_path`. Plumb these paths down to `create_checkout_session`, validate them as safe relative URLs, and build the Stripe `success_url` and `cancel_url` from them rather than hardcoding static fallback endpoints.
 
 #### BUG-P1-001 - Admin overview fans out per-metric request-time reads
 

@@ -129,6 +129,52 @@ def test_create_checkout_session_reuses_existing_customer_and_normalizes_return_
     }
 
 
+def test_create_checkout_session_uses_safe_relative_return_paths(monkeypatch, test_settings):
+    client = FakeStripeClient()
+    monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
+    settings = test_settings.model_copy(
+        update={
+            "frontend_url": "https://app.example/",
+            "stripe_product_id": "prod_kresco",
+            "stripe_sk": "sk_test",
+        }
+    )
+    user = User(id=125, email="return-path-buyer@example.com", full_name="Return Buyer", stripe_customer_id="cus_existing")
+
+    checkout_url = asyncio.run(create_checkout_session(
+        user,
+        "pro",
+        settings,
+        success_path="/payment-success?return_to=/topics/42",
+        cancel_path="/topics/42",
+    ))
+
+    assert checkout_url == "https://checkout.example/session"
+    assert client.v1.checkout.sessions.created_params["success_url"] == (
+        "https://app.example/payment-success?return_to=/topics/42&session_id={CHECKOUT_SESSION_ID}"
+    )
+    assert client.v1.checkout.sessions.created_params["cancel_url"] == "https://app.example/topics/42"
+
+
+@pytest.mark.parametrize("return_path", ["https://evil.example/pay", "//evil.example/pay", "/\\evil"])
+def test_create_checkout_session_rejects_unsafe_return_paths(monkeypatch, test_settings, return_path):
+    monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: pytest.fail("Stripe client should not be created"))
+    settings = test_settings.model_copy(
+        update={
+            "frontend_url": "https://app.example/",
+            "stripe_product_id": "prod_kresco",
+            "stripe_sk": "sk_test",
+        }
+    )
+    user = User(id=126, email="unsafe-return@example.com", full_name="Unsafe Buyer", stripe_customer_id="cus_existing")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(create_checkout_session(user, "pro", settings, success_path=return_path))
+
+    assert exc.value.status_code == 400
+    assert "safe relative URLs" in exc.value.detail
+
+
 def test_create_checkout_session_rejects_unknown_plan(test_settings):
     user = User(id=123, email="buyer@example.com", full_name="Buyer")
 

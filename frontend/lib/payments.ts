@@ -14,6 +14,11 @@ export type CheckoutSessionResult =
   | { status: 'success'; checkoutUrl: string }
   | { status: 'error'; message: string }
 
+export type CheckoutReturnPaths = {
+  successPath?: string
+  cancelPath?: string
+}
+
 export async function verifyCheckoutSession(
   apiClient: Pick<PaymentApiClient, 'get'>,
   sessionId: string | null | undefined,
@@ -43,12 +48,16 @@ export function paymentVerificationIdempotencyKey(sessionId: string) {
 
 export async function createProCheckoutSession(
   apiClient: Pick<PaymentApiClient, 'post'>,
+  returnPaths: CheckoutReturnPaths = {},
 ): Promise<CheckoutSessionResult> {
   try {
     const { data } = await apiClient.post<{ checkout_url?: string }>(
       '/payments/create-checkout-session',
-      null,
-      { params: { plan: PRO_CHECKOUT_PLAN } },
+      {
+        plan: PRO_CHECKOUT_PLAN,
+        success_path: returnPaths.successPath ?? '/payment-success?session_id={CHECKOUT_SESSION_ID}',
+        cancel_path: returnPaths.cancelPath ?? '/pricing',
+      },
     )
     const checkoutUrl = data?.checkout_url?.trim()
     if (checkoutUrl) return { status: 'success', checkoutUrl }

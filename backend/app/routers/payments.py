@@ -6,7 +6,7 @@ from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
 from app.rate_limit import limiter
-from app.schemas.payments import CheckoutOut, VerifyOut
+from app.schemas.payments import CheckoutCreateIn, CheckoutOut, VerifyOut
 from app.services.payment_lifecycle import (
     create_checkout_state,
     process_stripe_webhook_event,
@@ -23,6 +23,7 @@ router = APIRouter(tags=["Payments"])
 async def create_checkout(
     request: Request,
     plan: str = "pro",
+    checkout: CheckoutCreateIn | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -31,7 +32,9 @@ async def create_checkout(
     return await create_checkout_state(
         db,
         user=user,
-        plan=plan,
+        plan=checkout.plan if checkout is not None else plan,
+        success_path=checkout.success_path if checkout is not None else CheckoutCreateIn().success_path,
+        cancel_path=checkout.cancel_path if checkout is not None else CheckoutCreateIn().cancel_path,
         settings=settings,
         create_checkout_session_fn=create_checkout_session,
     )

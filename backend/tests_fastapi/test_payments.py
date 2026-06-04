@@ -151,10 +151,10 @@ def test_create_checkout_session_persists_new_customer_id(app_client, auth_token
     token, user_id = auth_token(email="checkout-router-new@example.com")
     calls = []
 
-    async def fake_create_checkout_session(user, plan, settings):
+    async def fake_create_checkout_session(user, plan, settings, **return_paths):
         orm_session = inspect_sa(user).session
         assert orm_session is None or not orm_session.in_transaction()
-        calls.append({"user_id": user.id, "plan": plan})
+        calls.append({"user_id": user.id, "plan": plan, **return_paths})
         user.stripe_customer_id = "cus_router_created"
         return "https://checkout.example/router-created"
 
@@ -166,8 +166,45 @@ def test_create_checkout_session_persists_new_customer_id(app_client, auth_token
 
     assert response.status_code == 200
     assert response.json() == {"checkout_url": "https://checkout.example/router-created"}
-    assert calls == [{"user_id": user_id, "plan": "pro"}]
+    assert calls == [{
+        "user_id": user_id,
+        "plan": "pro",
+        "success_path": "/payment-success?session_id={CHECKOUT_SESSION_ID}",
+        "cancel_path": "/pricing",
+    }]
     assert run_db(_get_user(user_id)).stripe_customer_id == "cus_router_created"
+
+
+def test_create_checkout_session_accepts_return_paths_in_body(app_client, auth_token, monkeypatch):
+    import app.routers.payments as payments_router
+
+    token, user_id = auth_token(email="checkout-router-return-paths@example.com")
+    calls = []
+
+    async def fake_create_checkout_session(user, plan, settings, **return_paths):
+        del settings
+        calls.append({"user_id": user.id, "plan": plan, **return_paths})
+        return "https://checkout.example/return-paths"
+
+    monkeypatch.setattr(payments_router, "create_checkout_session", fake_create_checkout_session)
+    response = app_client.post(
+        "/api/payments/create-checkout-session",
+        json={
+            "plan": "pro",
+            "success_path": "/payment-success?return_to=/topics/42",
+            "cancel_path": "/topics/42",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"checkout_url": "https://checkout.example/return-paths"}
+    assert calls == [{
+        "user_id": user_id,
+        "plan": "pro",
+        "success_path": "/payment-success?return_to=/topics/42",
+        "cancel_path": "/topics/42",
+    }]
 
 
 def test_cookie_checkout_session_requires_and_accepts_csrf_token(app_client, auth_token, test_settings, monkeypatch):
@@ -176,9 +213,9 @@ def test_cookie_checkout_session_requires_and_accepts_csrf_token(app_client, aut
     token, user_id = auth_token(email="checkout-router-csrf@example.com")
     calls = []
 
-    async def fake_create_checkout_session(user, plan, settings):
+    async def fake_create_checkout_session(user, plan, settings, **return_paths):
         del settings
-        calls.append({"user_id": user.id, "plan": plan})
+        calls.append({"user_id": user.id, "plan": plan, **return_paths})
         return "https://checkout.example/csrf"
 
     monkeypatch.setattr(payments_router, "create_checkout_session", fake_create_checkout_session)
@@ -201,7 +238,12 @@ def test_cookie_checkout_session_requires_and_accepts_csrf_token(app_client, aut
 
     assert accepted.status_code == 200
     assert accepted.json() == {"checkout_url": "https://checkout.example/csrf"}
-    assert calls == [{"user_id": user_id, "plan": "pro"}]
+    assert calls == [{
+        "user_id": user_id,
+        "plan": "pro",
+        "success_path": "/payment-success?session_id={CHECKOUT_SESSION_ID}",
+        "cancel_path": "/pricing",
+    }]
 
 
 def test_verify_session_commits_before_remote_stripe_lookup(app_client, auth_token, monkeypatch):
@@ -372,8 +414,8 @@ def test_create_checkout_session_reuses_existing_customer_id(app_client, test_se
     token = create_token(user_id, test_settings)
     calls = []
 
-    async def fake_create_checkout_session(user, plan, settings):
-        calls.append({"customer_id": user.stripe_customer_id, "plan": plan})
+    async def fake_create_checkout_session(user, plan, settings, **return_paths):
+        calls.append({"customer_id": user.stripe_customer_id, "plan": plan, **return_paths})
         return "https://checkout.example/router-existing"
 
     monkeypatch.setattr(payments_router, "create_checkout_session", fake_create_checkout_session)
@@ -384,7 +426,12 @@ def test_create_checkout_session_reuses_existing_customer_id(app_client, test_se
 
     assert response.status_code == 200
     assert response.json() == {"checkout_url": "https://checkout.example/router-existing"}
-    assert calls == [{"customer_id": "cus_existing", "plan": "pro"}]
+    assert calls == [{
+        "customer_id": "cus_existing",
+        "plan": "pro",
+        "success_path": "/payment-success?session_id={CHECKOUT_SESSION_ID}",
+        "cancel_path": "/pricing",
+    }]
     assert run_db(_get_user(user_id)).stripe_customer_id == "cus_existing"
 
 
