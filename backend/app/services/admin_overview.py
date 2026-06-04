@@ -141,30 +141,23 @@ async def _run_read(operation: ReadOperation) -> Any:
 
 
 async def _gather_reads(*operations: ReadOperation) -> list[Any]:
-    semaphore = asyncio.Semaphore(ADMIN_OVERVIEW_PARALLELISM)
+    async def _run_group(session: AsyncSession) -> list[Any]:
+        values: list[Any] = []
+        for index, operation in enumerate(operations):
+            try:
+                values.append(await operation(session))
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:
+                logger.warning(
+                    "Admin overview read operation %s failed; using zero fallback",
+                    index,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
+                values.append(0)
+        return values
 
-    async def _run(operation: ReadOperation) -> Any:
-        async with semaphore:
-            return await _run_read(operation)
-
-    results = await asyncio.gather(
-        *(_run(operation) for operation in operations),
-        return_exceptions=True,
-    )
-    values: list[Any] = []
-    for index, result in enumerate(results):
-        if isinstance(result, asyncio.CancelledError):
-            raise result
-        if isinstance(result, BaseException):
-            logger.warning(
-                "Admin overview read operation %s failed; using zero fallback",
-                index,
-                exc_info=(type(result), result, result.__traceback__),
-            )
-            values.append(0)
-            continue
-        values.append(result)
-    return values
+    return await _run_read(_run_group)
 
 
 async def _model_counts(db: AsyncSession, specs: tuple[tuple[str, type[Any]], ...]) -> dict[str, int]:

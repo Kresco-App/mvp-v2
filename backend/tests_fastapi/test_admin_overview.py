@@ -183,6 +183,30 @@ def test_admin_overview_caps_parallel_database_reads():
     assert admin_overview.ADMIN_OVERVIEW_PARALLELISM <= 2
 
 
+def test_admin_overview_batches_metric_reads_by_phase(monkeypatch, run_db):
+    from app.services import admin_overview
+
+    calls = 0
+    original_run_read = admin_overview._run_read
+
+    async def counted_run_read(operation):
+        nonlocal calls
+        calls += 1
+        return await original_run_read(operation)
+
+    async def build_empty_overview():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            return await admin_overview.build_admin_overview(db)
+
+    monkeypatch.setattr(admin_overview, "_run_read", counted_run_read)
+
+    overview = run_db(build_empty_overview())
+
+    assert overview.totals["users"] >= 0
+    assert calls <= 20
+
+
 def test_admin_overview_gather_reads_keeps_partial_results(monkeypatch, run_db, caplog):
     from app.services import admin_overview
 
