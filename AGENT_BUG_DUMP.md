@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 57.
+- Current active bug count after this deep audit append: 56.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -109,18 +109,6 @@ Current evidence: `python scripts/check_production_launch_gate.py --json` fails 
 Risk: release readiness can be claimed while required security, media, realtime, performance, frontend demo, and ops evidence is missing or stale.
 
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
-
-#### BUG-P0-008 - Topic item stream bypasses resource-level locks
-
-Status: OPEN
-
-Files: `backend/app/routers/courses.py`, `backend/app/services/course_access.py`, `backend/app/services/interaction_mutations.py`, `backend/tests_fastapi/test_course_access.py`
-
-Current evidence: `/api/courses/topic-items/{item_id}/stream` authorizes only `require_topic_item_access`, then loads `Resource` by `item.primary_resource_id` without checking `Resource.status == "published"` or running `access_context.decide_child(item_access, resource, subject_id=...)`. The canonical `/api/courses/resources/{resource_id}/open` path does both checks. Existing tests prove locked child resources are redacted from the workspace and locked topic items reject stream access, but there is no regression where the item is accessible and the primary video resource is `required_tier="pro"` or unpublished.
-
-Risk: a student with access to a free/basic topic item can request stream credentials for a locked or draft primary video resource, bypassing paid-content and publish-state gates.
-
-Fix direction: add a shared helper for primary-resource stream authorization, require published video resources, evaluate the resource decision as a child of the item decision, and add regressions for locked-resource and unpublished-resource stream requests.
 
 ### P1 - Correctness, Security, and Scalability Bugs
 

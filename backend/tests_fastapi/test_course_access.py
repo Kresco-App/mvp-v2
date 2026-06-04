@@ -7,7 +7,14 @@ from app.models.users import User, UserSubjectEntitlement
 from app.services.auth import create_token
 
 
-async def _seed_topic(user_id: int, slug: str, *, item_tier: str = "", tab_tier: str = ""):
+async def _seed_topic(
+    user_id: int,
+    slug: str,
+    *,
+    item_tier: str = "",
+    tab_tier: str = "",
+    resource_status: str = "published",
+):
     session_factory = get_session_factory()
     async with session_factory() as db:
         subject = Subject(title=f"Subject {slug}", description="", is_published=True, order=1)
@@ -26,7 +33,7 @@ async def _seed_topic(user_id: int, slug: str, *, item_tier: str = "", tab_tier:
             provider="vdocipher",
             provider_resource_id="secret-video",
             url="https://secret.example/video",
-            status="published",
+            status=resource_status,
             required_tier=tab_tier,
         )
         db.add(resource)
@@ -92,6 +99,36 @@ def test_locked_topic_item_stream_and_completion_are_forbidden(app_client, auth_
 
     assert stream.status_code == 403
     assert complete.status_code == 403
+
+
+def test_topic_item_stream_enforces_primary_resource_access(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="access-locked-primary-resource@example.com", is_pro=False)
+    _subject_id, _topic_id, item_id, _tab_id = run_db(
+        _seed_topic(user_id, "access-locked-primary-resource", tab_tier="pro")
+    )
+
+    stream = app_client.get(
+        f"/api/courses/topic-items/{item_id}/stream",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert stream.status_code == 403
+    assert stream.json()["detail"] == "pro_required"
+
+
+def test_topic_item_stream_rejects_unpublished_primary_resource(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="access-draft-primary-resource@example.com", is_pro=True)
+    _subject_id, _topic_id, item_id, _tab_id = run_db(
+        _seed_topic(user_id, "access-draft-primary-resource", resource_status="draft")
+    )
+
+    stream = app_client.get(
+        f"/api/courses/topic-items/{item_id}/stream",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert stream.status_code == 404
+    assert stream.json()["detail"] == "No video resource configured for this topic item"
 
 
 def test_create_topic_returns_created_card_for_unpublished_subject(app_client, run_db, test_settings):

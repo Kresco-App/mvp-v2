@@ -254,8 +254,19 @@ def test_save_item_rejects_inferred_locked_topic_item_context(app_client, auth_t
 
 def test_resource_open_requires_access_infers_workspace_context_and_marks_progress(app_client, auth_token, run_db):
     token, user_id = auth_token(email="interactions-resource-open@example.com", is_pro=True)
-    locked_token, _locked_user_id = auth_token(email="interactions-resource-locked@example.com", is_pro=True)
+    locked_token, locked_user_id = auth_token(email="interactions-resource-locked@example.com", is_pro=True)
     seeded = run_db(_seed_context(user_id, "interactions-resource-open"))
+
+    async def _scope_locked_user_to_other_subject():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            other_subject = Subject(title="Other subject", description="", is_published=True, order=99)
+            db.add(other_subject)
+            await db.flush()
+            db.add(UserSubjectEntitlement(user_id=locked_user_id, subject_id=other_subject.id, status="active", source="test"))
+            await db.commit()
+
+    run_db(_scope_locked_user_to_other_subject())
     headers = {"Authorization": f"Bearer {token}"}
     locked_headers = {"Authorization": f"Bearer {locked_token}"}
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
-from app.models.courses import Exam, ExamProblem, Resource, Subject, Topic, TopicItem
+from app.models.courses import Exam, ExamProblem, Subject, Topic, TopicItem
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.courses import (
@@ -27,7 +27,7 @@ from app.schemas.courses import (
 from app.schemas.interactions import ResourceOpenIn, ResourceOpenOut
 from app.schemas.limits import ShortText, StrictInputModel
 from app.services.access import build_access_context
-from app.services.course_access import exam_out, require_topic_item_access
+from app.services.course_access import exam_out, require_topic_item_primary_video_resource_access
 from app.services.course_tab_quiz_submission import get_recent_tab_quiz_attempts
 from app.services.course_tab_quiz_submission import submit_tab_quiz_attempt
 from app.services.course_topic_mutations import complete_topic_item_state
@@ -261,10 +261,7 @@ async def get_topic_item_stream(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    item = await require_topic_item_access(db, user, item_id)
-    resource = await db.scalar(select(Resource).where(Resource.id == item.primary_resource_id))
-    if resource is None or resource.resource_type != "video":
-        raise HTTPException(status_code=404, detail="No video resource configured for this topic item")
+    _item, resource = await require_topic_item_primary_video_resource_access(db, user, item_id)
     video_id = resource.provider_resource_id or resource.url
     await db.rollback()
     return await get_video_stream_data(video_id, settings)

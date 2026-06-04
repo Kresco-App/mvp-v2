@@ -320,3 +320,39 @@ async def require_topic_item_access(
     if not decision.can_access:
         raise HTTPException(status_code=403, detail=decision.locked_reason)
     return item
+
+
+async def require_topic_item_primary_video_resource_access(
+    db: AsyncSession,
+    user: User,
+    topic_item_id: int,
+) -> tuple[TopicItem, Resource]:
+    item = await db.scalar(
+        select(TopicItem)
+        .options(selectinload(TopicItem.topic))
+        .where(TopicItem.id == topic_item_id)
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Topic item not found")
+    access_context = await build_access_context(db, user)
+    topic = item.topic
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
+    item_access = access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
+    if not item_access.can_access:
+        raise HTTPException(status_code=403, detail=item_access.locked_reason)
+    if item.primary_resource_id is None:
+        raise HTTPException(status_code=404, detail="No video resource configured for this topic item")
+    resource = await db.scalar(
+        select(Resource).where(
+            Resource.id == item.primary_resource_id,
+            Resource.status == "published",
+        )
+    )
+    if resource is None or resource.resource_type != "video":
+        raise HTTPException(status_code=404, detail="No video resource configured for this topic item")
+    resource_access = access_context.decide_child(item_access, resource, subject_id=topic.subject_id)
+    if not resource_access.can_access:
+        raise HTTPException(status_code=403, detail=resource_access.locked_reason)
+    return item, resource
