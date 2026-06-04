@@ -27,7 +27,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after `beaef01`: 34.
+- Current active bug count after `f9536c1`: 33.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -204,89 +204,77 @@ Risk: email/name/avatar/tier/staff/profile context is readable by any script run
 
 Fix direction: minimize stored fields, move sensitive context to server verification, or use session-only memory where practical.
 
-#### BUG-P1-014 - Failed logout clears local state before server revocation succeeds
+#### BUG-P1-015 - YouTube topic videos do not auto-track playback progress
 
 Status: OPEN
 
-Files: `frontend/lib/store.ts`
+Files: `frontend/app/(dashboard)/topics/[topicId]/page.tsx`, `frontend/lib/topicWorkspaceRendering.ts`
 
-Current evidence: `logout()` clears local auth/session state and SWR cache before `/api/auth/logout` succeeds; on fetch failure the UI is logged out while the backend cookie/token-version session may remain valid.
+Current evidence: YouTube resources are rejected from the tracked `VideoPlayer` path and render through `VideoPlayerFrame`/iframe instead. Manual "Mark complete" still exists, but playback-based watched seconds/completion are not emitted.
 
-Risk: if backend revocation fails, the HttpOnly cookie can remain valid while the client appears logged out; refresh can recover the server-backed session.
-
-Fix direction: keep a pending logout state until revocation finishes, then clear local state; expose a hard failure state when the server cookie cannot be revoked.
-
-#### BUG-P1-015 - YouTube topic videos bypass progress tracking
-
-Status: OPEN
-
-Files: `frontend/app/(dashboard)/topics/[topicId]/page.tsx`
-
-Current evidence: YouTube resources render through `VideoPlayerFrame`/iframe instead of the tracked `VideoPlayer` path.
-
-Risk: watched seconds and auto-completion are never reported for YouTube lessons.
+Risk: YouTube-backed lessons do not auto-report watched seconds or completion based on playback.
 
 Fix direction: use the YouTube IFrame Player API or a tracked wrapper that emits the same progress contract as VdoCipher.
 
-#### BUG-P1-016 - VdoCipher completion has progress edge failures
+#### BUG-P1-016 - VdoCipher completion can duplicate writes and lock after failed saves
 
 Status: OPEN
 
 Files: `frontend/components/VideoPlayer.tsx`
 
-Current evidence: zero/missing duration creates the old zero-duration completion lock; the iframe sandbox lacks `allow-same-origin`; completion is marked reported before network success, creating the old offline completion permanent lock; parent and player can both trigger duplicate completion API requests.
+Current evidence: `reportCompletion` saves progress and then calls the parent `onComplete`, which can issue a second complete POST. It also sets the local completion lock before the async save succeeds, and missing/wrong backend duration has no native-duration fallback for the 90% path.
 
-Risk: videos can fail to complete, fire duplicate writes, or permanently lock progress after a network failure.
+Risk: videos can fire duplicate completion writes or get stuck locally completed after a failed save until the lesson changes.
 
-Fix direction: read native player duration when backend duration is missing, allow the required sandbox origin, dedupe parent/player completion, and reset completion locks on failed saves.
+Fix direction: make one layer own completion persistence, reset completion locks on failed saves, and fall back to native player duration when backend duration is missing or wrong.
 
-#### BUG-P1-017 - Video progress does not resume after reload/tab switch
+#### BUG-P1-017 - Video read contract lacks a resume checkpoint
 
 Status: OPEN
 
 Files: `frontend/components/VideoPlayer.tsx`, `backend/app/routers/courses.py`
 
-Current evidence: the stream/progress path does not provide a resume checkpoint to seek the player on mount.
+Current evidence: `/topic-items/{item_id}/stream` returns only stream credentials, workspace `TopicItemOut` exposes progress status/best score but not watched/resume seconds, and `VideoPlayer` has no prop or seek path for saved position.
 
 Risk: students lose their place and progress state is inconsistent.
 
-Fix direction: return latest checkpoint from the backend and seek the player after load.
+Fix direction: expose `watched_seconds`/`resume_seconds` in the read contract, thread it into `VideoPlayer`, seek after player load, and flush progress on pagehide/unmount if needed.
 
-#### BUG-P1-018 - Exam mode timer and answers are volatile client state
+#### BUG-P1-018 - Exam attempt state is not persisted across reloads
 
 Status: OPEN
 
 Files: `frontend/app/(dashboard)/exam/[subjectId]/page.tsx`
 
-Current evidence: `started`, `timeLeft`, and `answers` are React state only.
+Current evidence: `answers`, `currentIdx`, `timeLeft`, `started`, submission state, and result are React state only; answers are sent only on final submit and the countdown is a plain interval.
 
 Risk: refresh/crash resets timer and wipes in-progress exam answers.
 
 Fix direction: persist start time and draft answers in localStorage or backend draft storage; derive remaining time from wall clock.
 
-#### BUG-P1-019 - SectionQuiz crashes or hides failures on empty/offline submits
+#### BUG-P1-019 - SectionQuiz crashes on empty sets and hides submit failures
 
 Status: OPEN
 
 Files: `frontend/components/SectionQuiz.tsx`
 
-Current evidence: it dereferences `data.questions[currentIndex]` without an empty guard, and `submitQuiz` has `try/finally` without a user-visible catch.
+Current evidence: it dereferences `data.questions[currentIndex]` before an empty guard, and submit failure clears loading without visible error or retry state.
 
-Risk: empty question sets crash the tree; offline submission failures silently reset the loading state.
+Risk: empty question sets crash the component, and rejected submissions leave the user without a clear retry/error affordance.
 
 Fix direction: add empty-state UI, catch submission errors, and keep/retry draft answers.
 
-#### BUG-P1-020 - Zed PDF viewer cannot reliably pin or capture PDF content
+#### BUG-P1-020 - Zed PDF viewer cannot pin embedded text or capture real snippets
 
 Status: OPEN
 
 Files: `frontend/components/zed/PdfViewer.tsx`
 
-Current evidence: the iframe sandbox is only `allow-downloads`; pin text reads parent `window.getSelection`; snipping stores hardcoded text instead of an image.
+Current evidence: pin text reads parent `window.getSelection` while the PDF is in an iframe, and snip mode emits a text snippet containing only file/zone coordinates instead of extracted text or an image payload.
 
 Risk: local/offline PDF viewing and study snippets are broken or degraded.
 
-Fix direction: allow the required viewer permissions or use pdf.js, implement a selection bridge, and capture snippets as images.
+Fix direction: use pdf.js or a real selection bridge, and make snip mode emit actual PDF content, preferably an image snippet.
 
 #### BUG-P1-021 - Zed scratchpad overwrites history across tabs
 
