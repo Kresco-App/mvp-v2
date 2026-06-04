@@ -61,9 +61,10 @@ export default function TopNav() {
     return isActiveNavHref(pathname, href, [AUTH_ROUTES.studentHome])
   }
 
-  function doLogout() {
-    logout()
-    router.push('/')
+  async function doLogout() {
+    if (await logout()) {
+      router.push('/')
+    }
   }
 
   async function showInfoToast(message: string) {

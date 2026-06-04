@@ -19,6 +19,7 @@ import { getBackendUrl } from './apiConfig'
 type AuthUserPatch = Partial<AuthUser> & Record<string, unknown>
 
 const AUTH_STORAGE_KEYS = new Set([KRESCO_TOKEN_KEY, KRESCO_USER_KEY])
+const LOGOUT_REVOCATION_ERROR = 'We could not revoke your server session. Please sign in again to finish logging out.'
 
 type AuthStoreState = {
   user: AuthUser | null
@@ -31,7 +32,8 @@ type AuthStoreState = {
     (tokenOrUser: string, maybeUser: AuthUser, maybeCsrfToken?: string | null): void
     (user: AuthUser, csrfToken?: string | null): void
   }
-  logout: () => void
+  logout: () => Promise<boolean>
+  clearSession: () => void
   updateUser: (patch: AuthUserPatch) => void
   readonly isAuthenticated: boolean
 }
@@ -80,37 +82,41 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
     set({ token: KRESCO_COOKIE_SESSION, user: user as AuthUser, logoutError: null, isLoggingOut: false })
   },
 
-  logout() {
+  async logout() {
     set({ isLoggingOut: true, logoutError: null })
     const csrfToken = readCsrfToken() || ''
-    clearStoredAuthSession()
-    void mutate(() => true, undefined, { revalidate: false })
 
     if (typeof window !== 'undefined') {
-      void (async () => {
-        try {
-          const response = await fetch(getBackendUrl('/api/auth/logout'), {
-            method: 'POST',
-            credentials: 'include',
-            headers: {
-              [KRESCO_CSRF_HEADER]: csrfToken,
-            },
-          })
-          if (!response.ok) {
-            set({
-              logoutError: 'We could not revoke your server session. Please sign in again to finish logging out.',
-            })
-          }
-        } catch {
-          set({
-            logoutError: 'We could not revoke your server session. Please sign in again to finish logging out.',
-          })
-        } finally {
-          set({ isLoggingOut: false })
+      try {
+        const response = await fetch(getBackendUrl('/api/auth/logout'), {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            [KRESCO_CSRF_HEADER]: csrfToken,
+          },
+        })
+        if (!response.ok) {
+          throw new Error('Logout revocation failed')
         }
-      })()
+      } catch {
+        set({
+          logoutError: LOGOUT_REVOCATION_ERROR,
+          isLoggingOut: false,
+        })
+        return false
+      }
     }
-    set({ token: null, user: null })
+
+    clearStoredAuthSession()
+    await mutate(() => true, undefined, { revalidate: false })
+    set({ token: null, user: null, logoutError: null, isLoggingOut: false })
+    return true
+  },
+
+  clearSession() {
+    clearStoredAuthSession()
+    void mutate(() => true, undefined, { revalidate: false })
+    set({ token: null, user: null, logoutError: null, isLoggingOut: false })
   },
 
   updateUser(patch) {

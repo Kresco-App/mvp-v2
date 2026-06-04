@@ -27,9 +27,10 @@ export default function ProfessorTopNav() {
     return isActiveNavHref(pathname, href, [AUTH_ROUTES.professorHome])
   }
 
-  function doLogout() {
-    logout()
-    router.push(AUTH_ROUTES.professorLogin)
+  async function doLogout() {
+    if (await logout()) {
+      router.push(AUTH_ROUTES.professorLogin)
+    }
   }
 
   return (

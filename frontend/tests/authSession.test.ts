@@ -300,13 +300,14 @@ describe('auth store session writes', () => {
     expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('legacy-csrf-token')
   })
 
-  it('clears the SWR cache and revokes the backend cookie session on logout', () => {
+  it('clears the SWR cache and local session after backend logout revocation succeeds', async () => {
+    const user = { id: 3, email: 'logout@kresco.local', role: 'student' }
     const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })))
     vi.stubGlobal('fetch', fetchMock)
-    writeCsrfToken('logout-csrf')
+    writeStoredAuthSession(user, 'logout-csrf')
     useAuthStore.setState({
       token: KRESCO_COOKIE_SESSION,
-      user: { id: 3, email: 'logout@kresco.local', role: 'student' },
+      user,
       isHydrated: true,
       logoutError: 'stale error',
       isLoggingOut: false,
@@ -314,9 +315,11 @@ describe('auth store session writes', () => {
 
     useAuthStore.getState().logout()
 
-    expect(mutate).toHaveBeenCalledWith(expect.any(Function), undefined, { revalidate: false })
-    const predicate = vi.mocked(mutate).mock.calls[0][0] as (key: unknown) => boolean
-    expect(predicate('/progress/xp')).toBe(true)
+    expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
+    expect(useAuthStore.getState().user).toEqual(user)
+    expect(useAuthStore.getState().logoutError).toBeNull()
+    expect(useAuthStore.getState().isLoggingOut).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/api/auth/logout'),
       expect.objectContaining({
@@ -327,19 +330,30 @@ describe('auth store session writes', () => {
         }),
       }),
     )
+
+    await vi.waitFor(() => {
+      expect(useAuthStore.getState().token).toBeNull()
+    })
+
+    expect(mutate).toHaveBeenCalledWith(expect.any(Function), undefined, { revalidate: false })
+    const predicate = vi.mocked(mutate).mock.calls[0][0] as (key: unknown) => boolean
+    expect(predicate('/progress/xp')).toBe(true)
     expect(useAuthStore.getState().token).toBeNull()
     expect(useAuthStore.getState().user).toBeNull()
     expect(useAuthStore.getState().logoutError).toBeNull()
-    expect(useAuthStore.getState().isLoggingOut).toBe(true)
+    expect(useAuthStore.getState().isLoggingOut).toBe(false)
+    expect(localStorage.getItem(KRESCO_USER_KEY)).toBeNull()
+    expect(readCsrfToken()).toBeNull()
   })
 
-  it('keeps the local logout but records a backend revocation failure', async () => {
+  it('keeps the local session when backend logout revocation fails', async () => {
+    const user = { id: 4, email: 'failure@kresco.local', role: 'student' }
     const fetchMock = vi.fn(() => Promise.reject(new Error('network down')))
     vi.stubGlobal('fetch', fetchMock)
-    writeCsrfToken('logout-csrf')
+    writeStoredAuthSession(user, 'logout-csrf')
     useAuthStore.setState({
       token: KRESCO_COOKIE_SESSION,
-      user: { id: 4, email: 'failure@kresco.local', role: 'student' },
+      user,
       isHydrated: true,
       logoutError: null,
       isLoggingOut: false,
@@ -347,9 +361,11 @@ describe('auth store session writes', () => {
 
     useAuthStore.getState().logout()
 
-    expect(useAuthStore.getState().token).toBeNull()
-    expect(useAuthStore.getState().user).toBeNull()
+    expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
+    expect(useAuthStore.getState().user).toEqual(user)
     expect(useAuthStore.getState().logoutError).toBeNull()
+    expect(useAuthStore.getState().isLoggingOut).toBe(true)
+    expect(mutate).not.toHaveBeenCalled()
 
     await vi.waitFor(() => {
       expect(useAuthStore.getState().logoutError).toBe(
@@ -357,5 +373,10 @@ describe('auth store session writes', () => {
       )
     })
     expect(useAuthStore.getState().isLoggingOut).toBe(false)
+    expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
+    expect(useAuthStore.getState().user).toEqual(user)
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(user)
+    expect(readCsrfToken()).toBe('logout-csrf')
+    expect(mutate).not.toHaveBeenCalled()
   })
 })

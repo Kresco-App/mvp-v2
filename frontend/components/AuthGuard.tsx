@@ -93,7 +93,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
   const isHydrated = useAuthStore((state) => state.isHydrated)
   const login = useAuthStore((state) => state.login)
   const updateUser = useAuthStore((state) => state.updateUser)
-  const logout = useAuthStore((state) => state.logout)
+  const clearSession = useAuthStore((state) => state.clearSession)
   const [accessState, setAccessState] = useState('pending')
   const [retryCount, setRetryCount] = useState(0)
   const verificationStateRef = useRef<'idle' | 'checking' | 'denied' | 'error' | 'verified'>('idle')
@@ -161,7 +161,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
         if (isUnauthorizedError(error)) {
           verificationStateRef.current = 'denied'
           setAccessState('denied')
-          logout()
+          clearSession()
           replaceBrowserLocation(getUnauthorizedDestination(window.location.pathname))
           return
         }
@@ -170,7 +170,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
       })
 
     return () => { cancelled = true }
-  }, [isHydrated, token, requireRole, requireStaff, login, updateUser, logout, retryCount])
+  }, [isHydrated, token, requireRole, requireStaff, login, updateUser, clearSession, retryCount])
 
   if (!isHydrated) {
     return <LoadingScreen message="Loading Kresco..." />
