@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Trophy, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { getJson } from '@/lib/apiClient'
@@ -104,9 +104,12 @@ export function LeaderboardPage() {
   const [page, setPage] = useState(1)
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const requestGenerationRef = useRef(0)
   const PAGE_SIZE = 20
 
   const fetchLeaderboard = useCallback(async () => {
+    const requestGeneration = requestGenerationRef.current + 1
+    requestGenerationRef.current = requestGeneration
     setLoading(true)
     setError('')
     try {
@@ -115,14 +118,18 @@ export function LeaderboardPage() {
         params: { limit: PAGE_SIZE, offset, ...(searchQuery ? { search: searchQuery } : {}) }
       })
       const mapped = (data ?? []).map((entry: LeaderboardEntry) => enrichEntry(entry))
+      if (requestGenerationRef.current !== requestGeneration) return
       setEntries(mapped)
     } catch {
+      if (requestGenerationRef.current !== requestGeneration) return
       const message = 'Could not load leaderboard.'
       setEntries([])
       setError(message)
       toast.error(message)
     } finally {
-      setLoading(false)
+      if (requestGenerationRef.current === requestGeneration) {
+        setLoading(false)
+      }
     }
   }, [page, searchQuery])
 

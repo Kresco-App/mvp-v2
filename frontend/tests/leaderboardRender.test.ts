@@ -160,6 +160,59 @@ describe('leaderboard rendering', () => {
       vi.useRealTimers()
     }
   })
+
+  it('ignores stale leaderboard responses after a newer search resolves', async () => {
+    vi.useFakeTimers()
+    const slowSearch = createDeferred<{ data: ReturnType<typeof leaderboardEntries> }>()
+    const fastSearch = createDeferred<{ data: ReturnType<typeof leaderboardEntries> }>()
+
+    mocks.apiGet
+      .mockResolvedValueOnce({ data: leaderboardEntries(3) })
+      .mockReturnValueOnce(slowSearch.promise)
+      .mockReturnValueOnce(fastSearch.promise)
+
+    try {
+      const { container } = renderComponent(React.createElement(LeaderboardPage))
+      await act(async () => {
+        await flushPromises()
+      })
+
+      const input = container.querySelector('input[aria-label="Rechercher un joueur"]') as HTMLInputElement | null
+      expect(input).not.toBeNull()
+
+      await act(async () => {
+        setInputValue(input!, 'slow')
+        input!.dispatchEvent(new Event('input', { bubbles: true }))
+        vi.advanceTimersByTime(250)
+        await flushPromises()
+      })
+
+      await act(async () => {
+        setInputValue(input!, 'fast')
+        input!.dispatchEvent(new Event('input', { bubbles: true }))
+        vi.advanceTimersByTime(250)
+        await flushPromises()
+      })
+
+      await act(async () => {
+        fastSearch.resolve({ data: namedLeaderboardEntries('Fast Result') })
+        await flushPromises()
+      })
+
+      expect(container.textContent).toContain('Fast Result')
+      expect(container.textContent).not.toContain('Slow Result')
+
+      await act(async () => {
+        slowSearch.resolve({ data: namedLeaderboardEntries('Slow Result') })
+        await flushPromises()
+      })
+
+      expect(container.textContent).toContain('Fast Result')
+      expect(container.textContent).not.toContain('Slow Result')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 function leaderboardEntries(count: number) {
@@ -184,6 +237,30 @@ function leaderboardEntriesWithoutCurrentUser(count: number) {
     full_name: `Player ${entry.rank}`,
     is_current_user: false,
   }))
+}
+
+function namedLeaderboardEntries(name: string) {
+  return [
+    {
+      rank: 1,
+      user_id: name.length,
+      full_name: name,
+      avatar_url: '',
+      total_xp: 9000,
+      level: 9,
+      is_current_user: true,
+    },
+  ]
+}
+
+function createDeferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  let reject: (error: unknown) => void = () => {}
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
 }
 
 function renderComponent(element: React.ReactElement) {
