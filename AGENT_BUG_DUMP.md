@@ -1,815 +1,581 @@
-# 🐞 Agent Bug & Misimplementation Dump
-
-**Instructions for AI Agents:**
-1. **Deduplication Check:** Before adding a new finding, always review the list below to ensure it hasn't already been reported.
-2. **Logging Format:** Add any suspicious implementations, vulnerabilities, or bugs as an uncompleted checklist item `- [ ]` at the bottom of the list.
-3. **Master Agent:** The master agent can review and check off items `- [x]` when they are resolved, or mark them as `[FALSE POSITIVE]` or `[ASSIGNED]` inline.
-
-## 📋 Suspicious Findings Checklist
-
-- [x] **[MEDIUM]** `backend/find_n1.py` - Presence of N+1 query finder script indicates existing or recurring N+1 database query issues that need a comprehensive review across the codebase. [FIXED: static scanner now reports no looped `execute/scalar/scalars` candidates; XP quest update loop was bulked; query-count guards cover topic workspace, watch context, quiz submissions, live interaction creation, professor dashboard, comments listing, notifications listing, and XP bulk awards.]
-- [x] **[HIGH]** `backend/app/routers/*.py` - Missing API pagination across almost all routers (`calendar`, `gamification`, `interactions`, `notifications`, `professor`) using unpaginated `.scalars().all()` calls. This will cause memory exhaustion as data grows. [FIXED: added bounded `limit`/`offset` to remaining external list endpoints in calendar events, quiz triggers, notes, saves, professor offerings, change requests, student chat status, and notifications; existing bounded professor/chat/live/comment/xp/leaderboard lists retained.]
-- [x] **[CRITICAL]** `backend/app/routers/gamification.py` - The `get_leaderboard` endpoint calculates `rank()` over the filtered result set. If a user provides a `search` parameter, their rank will be calculated relative only to other users matching the search (meaning they could easily show up as rank 1). Furthermore, calculating `rank()` over the entire `UserXP` table dynamically on every request without caching will cause a full table scan and major scalability issues as the user base grows. [FIXED: search preserves global rank and leaderboard reads now use a persisted `leaderboard_ranks` projection instead of live window-rank scans; stale projection refresh is guarded by XP/projection timestamps and regression tests assert no `rank()/OVER` query during projected reads.]
-- [x] **[MEDIUM]** `backend/app/models/*.py` - High-frequency filter columns used in `WHERE` clauses (e.g., `status` on `Topic`, `Resource`, `Exam`, and `target_id` on `SavedItem`) are missing indexes, causing sequential scans. [FIXED: added model metadata, Alembic migration, and query-plan required-index coverage for `topics.status`, `resources.status`, `exams.status`, `exam_problems.status`, and polymorphic saved-item target lookups via `(target_type, target_id)`.]
-- [x] **[HIGH]** `backend/app/schemas/*.py` - Missing `max_length` constraints on almost all Pydantic string fields (e.g., descriptions, content, titles, passwords). This makes the API highly vulnerable to payload-based Denial of Service (DoS) and Out of Memory (OOM) attacks from massive string inputs. [FIXED: added shared bounded string aliases for request schemas and applied them to auth/profile, interactions, gamification, course activity/quiz submissions, and professor live/chat/change-request inputs; regression coverage asserts every audited request string field has a max length and oversized strings/dict keys are rejected.]
-- [x] **[MEDIUM]** `backend/app/schemas/*.py` - Missing `EmailStr` validation for email fields. Relies on basic `str` which can accept invalid email formats into the database. [FIXED: `EmailText` now composes Pydantic `EmailStr` with the existing 254-character bound, `email-validator==2.3.0` is declared in backend requirements, and schema tests reject malformed inbound auth emails while accepting valid ones.]
-- [x] **[CRITICAL]** `.github/workflows/deploy-backend.yml` & `backend/zappa_settings.json` - Hardcoded Secrets Injection: The deployment pipeline uses `render_zappa_settings.py` to bake live production secrets (`DATABASE_URL`, `JWT_SECRET_KEY`, Stripe keys) directly into the Zappa Lambda configuration before deployment. This exposes secrets in plaintext in the AWS Lambda console, CloudTrail logs, and deployment artifacts instead of fetching them securely at runtime via AWS Secrets Manager. [FIXED: Zappa now receives only `KRESCO_RUNTIME_SECRET_ID` plus non-secret config, grants least-privilege `secretsmanager:GetSecretValue` to that ARN, rejects secret-backed env keys in the render script, and backend settings hydrate from AWS Secrets Manager at runtime.]
-- [x] **[MEDIUM]** `frontend/package.json` - Bundle Bloat: Includes notoriously massive libraries (`d3`, `lucide-react`) without explicit tree-shaking configuration verified in `next.config.mjs`, likely increasing initial chunk sizes significantly. [FIXED: removed the root `d3` barrel dependency, replaced the two D3 consumers with direct subpackage imports, declared only the used D3 modules/types, enabled and exported Next `optimizePackageImports` for `lucide-react`, and added a config test that forbids root `d3` imports.]
-- [x] **[HIGH]** `backend/app/models/interactions.py` - Missing Foreign Keys & Orphaned Data Risks: The `UserNote` and `SavedItem` models use `mapped_column(Integer, nullable=True)` for `topic_item_id` and `tab_content_id` without explicit `ForeignKey` constraints (`ondelete="CASCADE"` or `SET NULL`). If a `TopicItem` is deleted, these orphaned records will remain in the database pointing to non-existent IDs, eventually causing 500 crashes during frontend workspace serialization. [FIXED: added nullable `SET NULL` FKs plus indexes for note/saved-item topic item and tab content context fields, with a migration that nulls dangling references before enforcing constraints.]
-- [x] **[HIGH]** `backend/app/routers/gamification.py` - In `get_subject_plan`, nested relations (chapters, lessons, blocks, quizzes) are loaded entirely into memory and iterated over using nested list comprehensions (e.g., `[l.id for c in subject.chapters for l in c.lessons]`). This will cause CPU blocking and severe memory bloat on large subjects. [FIXED: replaced selectinloaded object graph traversal with targeted existence/count/progress ID queries joined through parent tables; regression coverage asserts the endpoint does not select heavy content/text graph columns.]
-- [x] **[HIGH]** `frontend/app/(dashboard)/professor-chat/page.tsx` (and `app/professor/chat/page.tsx`) - Missing DOM Virtualization. Chat messages are rendered using a simple `messages.map()` without virtualization (`react-window` or `react-virtuoso`). For conversations with hundreds of messages, this will cause severe DOM bloat, high memory usage, and extreme scroll lag. [FIXED: both chat views now render a bounded newest-message window by default via `getVisibleChatMessageWindow`, expose an explicit older-message batch control, and keep timestamp/avatar grouping against the full message array; focused coverage added in `frontend/tests/chatVirtualization.test.ts`.]
-- [x] **[MEDIUM]** `backend/app/routers/courses.py` - Data Over-fetching. `list_topics` uses `selectinload(Topic.sections)` and `get_topic_workspace` queries `select(TopicSection)`, loading all columns including the potentially huge `TopicSection.content` (Text column), but `content` is completely unused in the API responses (`TopicCardOut` and `TopicSectionOut`). This causes unnecessary database load and memory spikes. It should use `defer(TopicSection.content)` or `load_only()`. [FIXED: current topic read models use `load_only()` for `TopicSection` in both card and workspace paths, the active `TopicSection` table no longer has a `content` column, and regression coverage guards both facts plus bounded workspace query count.]
-- [x] **[CRITICAL]** `frontend/app/(dashboard)/exam/[subjectId]/page.tsx` - Scalability: The Exam Mode page fetches quizzes by iterating through all lessons of a subject sequentially and making an API call (`GET /quizzes/${lesson.id}`) for each until it finds a valid quiz. This is O(N) API calls causing severe bottlenecks on subjects with many lessons. [FIXED: added a backend `/api/quizzes/subjects/{subject_id}/discovery` aggregation endpoint that returns the first question-bearing quiz in one bounded query path with lesson access enforcement; the frontend exam data loader now calls that endpoint once instead of probing each lesson.]
-- [x] **[MEDIUM]** `backend/app/models/admin_audit.py` - Missing Index: `created_at` lacks an index, causing sequential scans during high-frequency professor rate-limiting queries (`count()` over time range). [FIXED: retained the professor rate-limit composite `(note, request_path, created_at)` index and added standalone `ix_admin_audit_created_at` for recent-count scans, with migration and metadata regression coverage.]
-- [x] **[HIGH]** `backend/app/routers/admin.py` - Admin Dashboard DOS: The `_breakdowns` function runs multiple `select(column, func.count()).select_from(model).group_by(column)` queries concurrently using `asyncio.gather`. On large tables, performing full table scans with grouping and counting in parallel will saturate database connections and cause severe database locking/timeouts. [FIXED: group-by breakdowns now run serially through `_breakdowns`/direct `_breakdown` calls while cheap counts retain bounded read concurrency; regression test statically forbids `_breakdown` inside `_gather_reads`.]
-- [x] **[HIGH]** `backend/app/services/realtime_outbox.py` - Blocking Gateway/Worker: `process_realtime_outbox` processes up to 500 events using a sequential `for` loop (`for event in events: await publish_ably_message(...)`). A batch of 500 events will take ~50+ seconds in network latency, causing the `/api/internal/realtime/process-outbox` endpoint to timeout for the background cron/worker invoking it. It must use `asyncio.gather` for parallel HTTP dispatch. [FIXED: outbox publishing now uses bounded concurrency with `OUTBOX_MAX_CONCURRENCY`, preserving claim/update semantics; regression tests cover concurrent start overlap and retry/dead-letter handling.]
-- [x] **[HIGH]** `frontend/components/animated/source-ports/**/context/*Context.tsx` - React Context Re-render Cascades: Multiple Context Providers (`ThemeContext`, `SettingsContext`) are passing un-memoized object literals directly to the `value` prop (e.g., `value={{ theme, toggleTheme }}`). Because these objects are re-created on every render of the Provider, React is forced to re-render all subscribing components and their entire subtrees, completely defeating React's memoization capabilities. The context values must be wrapped in `useMemo`. [FIXED: source-port theme/settings providers now use stable callbacks plus memoized context value objects; static regression coverage forbids inline object literals in source-port Provider values.]
-- [x] **[MEDIUM]** `backend/app/routers/users.py` - External API Latency in HTTP Handlers: Emails (`send_verification_email`, `send_reset_email`) are `await`-ed sequentially directly inside the `/auth/signup` and `/auth/forgot-password` route handlers. While not blocking the CPU, this forces the client's HTTP request to wait for the third-party Resend API to respond (hundreds of milliseconds) before returning a success message, creating noticeable UI lag. These should be dispatched via FastAPI's `BackgroundTasks`. Fixed by moving provider I/O into FastAPI `BackgroundTasks` through service-layer delivery helpers that preserve throttle-reservation rollback and auth failure logging; guarded by `test_auth_email_dispatch_throttle_stays_out_of_router` plus failure/retry throttle tests.
-- [x] **[MEDIUM]** `backend/app/routers/gamification.py` - Unbounded Aggregate Queries: The `/stats` endpoint computes user stats by running aggregate queries (`func.sum` on `LessonProgress.watched_seconds`, `func.count` on `QuizResult`) dynamically on every request. As these progress tables grow large, performing continuous aggregations without materialized views or cached counter columns will slowly degrade API response times. Fixed with a `user_stats` projection table, migration backfill, write-path counter updates for lesson progress and legacy quiz passes, and a query-capture regression proving `/stats` reads `user_stats` without touching `lesson_progress` or `quiz_results`.
-- [x] **[MEDIUM]** `frontend/components/animated/**/PrismSimulator.tsx` - React Performance Anti-pattern: Synchronizing props to state using `useEffect` (e.g. `setLocalIncidentAngle(incidentAngle)`) is a performance anti-pattern that triggers an immediate second render for every update. State should be derived or managed in a way that avoids redundant render cycles. Fixed the actual stale pattern in the optics course `PrismSimulator` by removing redundant local mirror state/effects and binding sliders directly to the simulation state; added a source guard preventing the mirror from returning.
-- [x] **[LOW]** `frontend/app/(dashboard)/home/[subjectId]/page.tsx` - Missing Memoization: Heavy array operations (`allSections.filter`, `topics.reduce`, `allSections.find`) are performed directly in the render body without `useMemo`. As the course content (sections/topics) scales to hundreds of items, this will cause noticeable UI frame drops during re-renders.
-- [x] **[LOW]** `backend/app/routers/realtime.py` - Redundant DB Calls: The `/ably-token` endpoint performs multiple sequential database queries and rebuilds the `AccessContext` twice (once for live sessions and once for offerings). These should be optimized to share the access context and potentially be fetched in parallel. Fixed in `realtime_access.build_ably_token` by building student `AccessContext` once and passing it into both live-session and offering capability helpers; added a regression test asserting `/ably-token` calls `build_access_context` exactly once for a student.
-- [x] **[MEDIUM]** `frontend/proxy.ts` - Middleware Overhead: The Next.js middleware performs heavy operations (`randomBytes(16)`, full CSP reconstruction, and JWT decoding/verification) on every single request. This adds 10-30ms of latency to every page load and transition. These operations should be cached or optimized for the Edge runtime. Fixed by caching the static CSP directive template while preserving a fresh nonce per response, and by lazily verifying JWT cookies only when route policy needs expiry/claim decisions. Added proxy tests for unique nonces/static template reuse and public-route malformed-token bypass of eager verification.
-- [x] **[LOW]** `backend/app/database.py` - Connection Pool Saturation: In production-like environments (non-Lambda), the database engine uses SQLAlchemy defaults (pool_size=5). This is highly prone to saturation under moderate concurrent traffic, causing "QueuePool limit reached" errors.
-- [x] **[LOW]** `backend/requirements.txt` - Slow JSON Serialization: The backend uses the standard library `json` module. Large payloads (course plans, quiz metadata) will cause CPU spikes and block the event loop during serialization. Switching to `orjson` is recommended.
-- [x] **[MEDIUM]** `frontend/components/KrescoMascot.tsx` & `frontend/components/zed/ZedModeOverlay.tsx` - Memory Leak: Multiple `window.addEventListener` calls are made inside `useEffect` hooks without corresponding `removeEventListener` cleanup functions. This causes event handler leaks and erratic behavior on component remounts. Fixed the actual leak in `ZedModeOverlay` by tracking active resize listeners and removing them on unmount/mid-drag teardown; `KrescoMascot` was already balanced. Added jsdom coverage asserting `mousemove`/`mouseup` listeners are removed when unmounted mid-resize.
-- [x] **[MEDIUM]** `frontend/hooks/useFocusEngine.ts` - Logic flaw: The focus engine forces the timer state to "paused" upon component mount if it was saved as "running", defeating the purpose of a background timer tracking focus across reloads. Fixed by hydrating persisted running timers back to `running` unless wall-clock reconciliation has already completed them, and by resetting the running timestamp baseline on hydrate/resume/persist to avoid double-counting from the original start. Added direct hook tests for running, overdue, and paused restores.
-- [x] **[LOW]** `backend/app/services/auth.py` - Local Caching: The Google JWKS keys are cached in memory using a global variable `_google_jwks_cache`. In a multi-worker or Lambda environment, every instance will fetch the keys independently.
-- [x] **[LOW]** `backend/app/services/media_storage.py` - Blocking I/O: `boto3.client("s3")` is called synchronously inside `_s3_client`. When instantiated during an async request, it reads configuration, hits IMDS, and blocks the event loop.
-- [x] **[HIGH]** `backend/app/routers/users.py` & `backend/app/routers/professor.py` - Resource Exhaustion (DoS): File size validation for profile pictures and chat images (`await file.read(MAX_BYTES + 1)`) happens *inside* the route handler. FastAPI will buffer extremely large multipart uploads to disk/memory *before* the route is hit, allowing attackers to exhaust server resources. Requires a global request size limit middleware. [FIXED: added a global ASGI request body limit with `MAX_REQUEST_BODY_BYTES` configuration and 413 rejection before route handlers; route-level MIME/quota checks remain as defense in depth.]
-- [x] **[MEDIUM]** `backend/app/routers/gamification.py` & `backend/app/routers/professor.py` - Inconsistent Timezone Handling: The presence of defensive `if value.tzinfo is None: value = value.replace(tzinfo=timezone.utc)` checks indicates that naive datetimes are leaking into the database or being passed internally, which can cause subtle offset bugs if the server's local time ever diverges from UTC. Audited as stale at the router layer: both routers now delegate timezone-sensitive behavior to services. Added service-level regression coverage for the centralized UTC coercion paths in gamification progress/sidebar formatting and professor live/chat serializers.
-- [x] **[MEDIUM]** `backend/app/routers/payments.py` - Missing Idempotency Key: The `/verify-session` endpoint lacks an explicit idempotency token in the request payload. While the downstream state update is convergent, the endpoint itself is vulnerable to replay attacks executing redundant database updates. Fixed with a mandatory `Idempotency-Key` header, a `payment_verification_attempts` table keyed by `(user_id, session_id, idempotency_key)`, backend duplicate suppression before Stripe I/O, and frontend payment-success verification sending a stable bounded key.
-- [x] **[MEDIUM]** `backend/app/services/email.py` - Missing External Timeout: `resend_sdk.Emails.send(params)` is called inside an `asyncio.to_thread` worker. Because the Resend Python SDK (which uses `requests`) does not enforce a default timeout, an outage at the provider will hang the thread indefinitely, eventually exhausting the FastAPI thread pool. Fixed by replacing the SDK send call in our sync wrapper with an explicit Resend HTTP request using `RESEND_EMAIL_TIMEOUT_SECONDS`, preserving async `to_thread` dispatch and existing payload builders. Added a regression test asserting the timeout is passed.
-- [x] **[LOW]** `backend/app/dependencies.py` - Implicit Rollback: `get_db` uses a simple `yield db` followed by `await db.close()`. It lacks an explicit `try...except Exception: await db.rollback()` block, relying entirely on SQLAlchemy's connection release to rollback uncommitted transactions.
-- [x] **[LOW]** `frontend/lib/ably.ts` - Silent Async Failures: The realtime channel subscription functions use fire-and-forget Promises with `.catch(() => undefined)`, completely silencing network failures or permission errors without alerting the client or observability layers.
-- [x] **[HIGH]** `backend/app/models/*.py` - Database Schema Integrity: Found 15 instances of `ForeignKey` (specifically in `professor.py`) missing `ondelete="CASCADE"` or `ondelete="SET NULL"`. Attempting to delete a user or subject will result in an `IntegrityError` due to lingering relational constraints, breaking data cleanup pipelines. [FIXED: audited the concrete professor ownership gaps down to six required `professor_user_id -> users.id` constraints, restored `ondelete="CASCADE"` in model metadata, and added an idempotent Alembic migration to replace existing non-cascading constraints.]
-- [x] **[LOW]** `backend/app/routers/realtime.py` - Information Disclosure: The `get_ably_token` route catches `AblyConfigurationError` and passes `str(exc)` into the `HTTPException` detail, inadvertently leaking internal configuration paths or secret hints to the client.
-- [x] **[MEDIUM]** `frontend/app/(dashboard)/professor-chat/page.tsx` - Memory/DOM Bloat: The chat interface iterates over the `messages` array using a standard `.map()`. Without list virtualization (like `react-window`), an extensive chat history will drastically increase DOM node count, causing severe browser lag and potential OOM. [FIXED by the shared chat message windowing introduced for the high-priority duplicate above.]
-- [x] **[HIGH]** `backend/app/main.py` - Cache Poisoning Risk: Authenticated API endpoints do not emit `Cache-Control: no-store, private` or `Pragma: no-cache` headers. This misconfiguration allows intermediate proxies (like Vercel Edge or Cloudflare) to potentially cache and serve personalized user data to other users. [FIXED: API responses now default to `Cache-Control: no-store, private`, `Pragma: no-cache`, and `Expires: 0` unless a route sets stricter cache headers.]
-- [x] **[LOW]** `backend/app/services/media_storage.py` - Path Traversal: `LocalMediaStorage.put_object` uses `self.root / key` directly without sanitizing the `key` or verifying that it resolves within the `self.root` boundary. While currently mitigated by UUID generation upstream, the service implementation itself is vulnerable to directory traversal.
-- [x] **[LOW]** `frontend/app/page.tsx` - Loading State Fragility: Critical form handlers (like `saveOnboarding`) reset their loading states after try/catch blocks instead of strictly within `finally` blocks. If an unhandled exception or early return occurs within the `catch`, the UI will permanently deadlock in a loading state.
-- [x] **[MEDIUM]** `backend/app/main.py` - Resource Exhaustion: There is no global middleware restricting the size of incoming `application/json` payloads. An attacker could send a multi-gigabyte JSON payload, exhausting server memory during FastAPI's automatic Pydantic deserialization. Audited as already fixed: `RequestSizeLimitMiddleware` enforces `settings.max_request_body_bytes` before route deserialization and returns 413 with security headers; verified by `test_global_request_body_limit_rejects_large_payload_before_route`.
-- [x] **[MEDIUM]** `backend/app/rate_limit.py` - IP Spoofing / Rate Limit Bypass: The `slowapi` Limiter is initialized with the default `get_remote_address`, which blindly trusts the `X-Forwarded-For` header without validating trusted proxies. Attackers can trivially bypass rate limits by spoofing this header. Fixed by replacing the default key function with `trusted_remote_address`, which ignores `X-Forwarded-For` unless the immediate peer is inside `KRESCO_TRUSTED_PROXY_IPS`; added tests for spoof rejection, trusted proxy forwarding, and the existing global limit.
-- [x] **[MEDIUM]** `backend/app/schemas/*.py` - Schema Strictness / Mass Assignment: None of the Pydantic models use `model_config = ConfigDict(extra="forbid")`. This allows attackers to submit massive JSON payloads with arbitrary unexpected keys, leading to memory bloat and potential mass-assignment vulnerabilities if payloads are dumped directly into ORMs via `.model_dump()`. Fixed by introducing `StrictInputModel` with `extra="forbid"` and applying it to inbound request schemas across auth, interactions, gamification, course actions, professor mutations/chat, quiz submit, and client telemetry. Added parametrized validation coverage proving extra fields are rejected.
-- [x] **[LOW]** `frontend/app/watch/[lessonId]/page.tsx` & `frontend/app/(dashboard)/exam/[subjectId]/page.tsx` - Error Boundary Fragility: Complex interactive client components (video players, quiz engines) lack localized `<ErrorBoundary>` wrappings or deeply nested `error.tsx` layouts. A localized render crash in one of these sub-components will crash the entire dashboard page structure.
-- [x] **[MEDIUM]** `backend/app/routers/professor.py` - Database Deadlocks: Explicit row locks (`.with_for_update()`) on `ProfessorChatConversation` do not use `skip_locked=True` or `nowait=True`. Concurrent requests attempting to lock the same conversation will block the database connection and the FastAPI worker indefinitely, potentially leading to connection pool exhaustion. Fixed in the professor query service by using `with_for_update(nowait=True)` for professor/student conversation locks and translating Postgres lock-not-available errors into a retryable 409 instead of blocking workers; added static and error-detection guards.
-- [x] **[LOW]** `.github/workflows/ci-backend.yml` - CI/CD Optimization: The backend GitHub actions pipeline uses `pip install` without utilizing GitHub's actions caching (`actions/cache` or `setup-python` cache). This drastically increases build times and CI compute costs.
-- [x] **[MEDIUM]** `backend/app/routers/admin.py` - Unhandled Asyncio Exceptions: `_gather_reads` executes multiple database queries in parallel using `await asyncio.gather(*operations)`. Because it lacks `return_exceptions=True`, a timeout or failure in any single background task will raise immediately, cancelling the others and crashing the entire Admin Dashboard overview request.
-- [x] **[LOW]** `backend/app/models/gamification.py` - Missing Integer Constraints: Fields like `total_xp` and `amount` use standard `Integer` types without database-level non-negativity constraints (`CheckConstraint(column >= 0)`). A logic bug in XP calculations could result in negative XP, corrupting user progression and leaderboards.
-- [x] **[HIGH]** `backend/app/routers/payments.py` & `backend/app/routers/users.py` - Database Connection Starvation: Several endpoints (like checkout creation, Stripe webhook verification, and email dispatch) perform slow external HTTP network I/O *while* holding an active `AsyncSession` database connection fetched from `Depends(get_db)`. Under high load, these slow external requests will exhaust the database connection pool, taking down the entire API. [FIXED: checkout/verify commit the auth-loaded session before Stripe network calls; dispute charge lookups happen before webhook event DB recording; auth email throttle reservations are committed before Resend I/O and restored in a fresh short session on provider failure. Regression tests cover the ordering.]
-- [x] **[MEDIUM]** `backend/app/dependencies.py` - Unhandled Client Disconnects: The `get_db` generator does not catch `BaseException` (or `asyncio.CancelledError`). If a client abruptly closes their browser mid-request, FastAPI throws a `CancelledError`. Without an explicit `await db.rollback()` in a `finally` or `except` block, the SQLAlchemy connection might be returned to the pool in a "dirty" uncommitted state.
-- [x] **[CRITICAL]** `backend/app/admin/views.py` - The "God Mode" Permissions Loop: A global function `configure_power_admin_view()` iterates over all models and forcibly overwrites `view.can_create = True`, `view.can_edit = True`, and `view.can_delete = True`. This completely nullifies all specific restrictions placed on sensitive gamification and progression models, granting dangerous CUD access to the entire database. [FIXED: replaced the blanket mutation override with an explicit admin mutation policy; audit/progression/gamification state models are read-only, users cannot be created or deleted from SQLAdmin, and tests assert sensitive model flags stay locked.]
-- [x] **[CRITICAL]** `backend/app/services/course_access.py` - Missing Access Enforcement on Child Sections: In `chapter_section_out`, the engine evaluates access directly on the child component instead of calling `decide_child()`. This completely bypasses any tier or stream locks applied to the parent `Chapter`. [FALSE POSITIVE: current `Chapter` has no access-policy fields; `chapter_section_out` enforces `subject_id` from the loaded/fallback chapter and existing tests cover locked section redaction.]
-- [x] **[CRITICAL]** `backend/app/services/course_access.py` - Missing Access Enforcement on Child Lessons: In `require_lesson_access`, this function fails to inherit the parent chapter's access decision via `decide_child`, causing lessons to ignore their parent's restrictions. [FALSE POSITIVE: current `Chapter` has no access-policy fields; `require_lesson_access` loads the parent chapter and enforces lesson access with the chapter subject id.]
-- [x] **[CRITICAL]** `backend/app/services/course_access.py` - Fail-Open Access Bypasses: The engine looks up access decisions in pre-calculated dictionaries. If the mapping is missing, it "fails-open" and exposes the premium content fully unredacted (`can_access=True`) instead of failing-secure. [HARDENED: active route call paths already pass access maps; orphaned topic-item/tab fallback now fails closed with `parent_not_found` instead of evaluating children without subject context.]
-- [x] **[CRITICAL]** `backend/app/services/course_access.py` - Subject Enforcement Bypass via Orphaned Items: If a topic item's parent `topic` is missing, the fallback logic executes without supplying a `subject_id`, completely bypassing subject-level entitlements and granting access. [FIXED: `access_for_topic_item` and `access_for_tab` now return a locked `parent_not_found` decision when the parent topic/item cannot be resolved; regression coverage forces orphaned rows to fail closed.]
-- [x] **[CRITICAL]** `backend/app/schemas/courses.py` - Exam PDF Statement URL Leak: `exam_out` unconditionally maps `statement_url=exam.statement_url` to the response schema. Even if `can_access == False`, the direct URL to the paid exam PDF is fully leaked in the JSON response payload. [FALSE POSITIVE/FIXED BY TEST: `ExamOut` already redacts `statement_url` for locked exams; added a direct regression assertion.]
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Conversation TOCTOU Race Condition: `start_student_conversation` checks for an existing conversation using `db.scalar(...)` before inserting a new one, without holding a DB lock. Concurrent clicks create duplicate 1-to-1 conversation threads and corrupt the data model. [FIXED: conversation creation now serializes on the active course-offering row before the existing-thread check, with the existing `(course_offering_id, student_user_id)` unique constraint as the database backstop.]
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Missing Authorization on Chat History Deletions: `delete_chat_message` fails to invoke `_ensure_student_professor_chat_access(user)`. A student whose subscription is expired or revoked can maliciously tamper with and delete historical chat records. [FIXED: student deletes now re-check professor-chat eligibility after ownership is established; regression covers a VIP owner downgraded to basic before deletion.]
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Unbounded Chat History Deletions: `delete_chat_message` lacks the 15-minute time restriction present on message edits, allowing students and professors to permanently delete messages from years ago. [FIXED: deletes share the 15-minute edit window and return 403 after expiry; regression backdates a message past the window.]
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Live Session State Overwrites: Mutating endpoints for live sessions fetch the `LiveSession` model without `with_for_update()`. Concurrent actions by an admin or professor will blindly overwrite state. [FIXED: live-session delete/update/cancel/notify/start/end paths now request row locks via `_require_professor_live_session(..., for_update=True)`; static regression guards the locking calls.]
-- [x] **[HIGH]** `backend/app/admin/views.py` - Bypassing Atomic Business Logic via Admin Edits: Because models like `UserXP` and `DailyQuest` can be edited directly via the admin panel, staff can forcefully update progress or XP without triggering the atomic gamification logic built into the `xp.py` service. [FIXED: `UserXP`, `DailyQuest`, quiz/progress attempt tables, XP transactions, content progress, and activity events are now read-only in SQLAdmin.]
-- [x] **[HIGH]** `backend/app/admin/views.py` - Orphaned States via Admin Deletions: Models like `User` and `QuizAttempt` can be directly deleted via the admin interface. A raw DB deletion leaves orphaned active sessions in Redis and orphans dependent gamification logs. [FIXED: SQLAdmin deletion is disabled for users and all read-only progression/gamification state models, including `QuizAttempt`.]
-- [x] **[HIGH]** `backend/app/admin/views.py` - Admin Staff Verification Vulnerability: The base `PowerModelView` fails to explicitly override `is_accessible()`. It relies entirely on a global upstream authentication configuration, lacking defense-in-depth verification for the `is_staff` role at the view level. [FIXED: `PowerModelView` now implements `is_accessible()`/`is_visible()` as a view-level session gate in addition to the SQLAdmin auth backend.]
-- [x] **[MEDIUM]** `backend/app/routers/professor.py` - Unhandled VdoCipher Exceptions: `create_live_session` synchronously awaits `create_live_stream` without a `try/except` block. A network timeout or outage on VdoCipher's end bubbles up as an unhandled HTTP 500 error, crashing the request rather than failing gracefully.
-- [x] **[MEDIUM]** `backend/app/routers/courses.py` - Exposing Unpublished Subjects via Direct ID: The `GET /subjects/{subject_id}` endpoint retrieves subjects purely by ID, missing the `Subject.is_published == True` filter applied to list endpoints. Users can bypass UI barriers by guessing IDs and enumerate draft subjects.
-- [x] **[MEDIUM]** `backend/app/routers/courses.py` - Parent-Level Publication Ignored: Endpoints like `list_topics` and `get_exam_bank` filter for `status == "published"` on the child items, but fail to assert if the parent `Subject` itself is published, exposing active items belonging to unreleased courses.
-- [x] **[MEDIUM]** `backend/app/routers/professor.py` - Missing Pagination Bounds: Multiple endpoints query chat history and admin requests using unbounded `.all()` queries without `.limit()` or `.offset()`, leading to eventual memory exhaustion as history scales.
-- [x] **[CRITICAL]** `frontend/components/SectionQuiz.tsx` - Exposure of Correct Quiz Answers: The `is_correct` boolean for every option is shipped directly to the client. Any student can inspect the network tab or React state to instantly see all correct answers. [FALSE POSITIVE/HARDENED: current quiz option schemas do not expose `is_correct`; legacy section quiz data and topic quiz tab config are scrubbed before serialization.]
-- [x] **[CRITICAL]** `backend/app/security/csrf.py` - Admin CSRF Bypass: The `_is_admin_path` early exit explicitly skips CSRF token validation for the `sqladmin` panel, relying entirely on easily spoofable `Origin` headers. [FIXED: removed the parent-middleware admin bypass and added a mounted SQLAdmin CSRF middleware that validates trusted origin plus a session-bound admin CSRF token from form/header; SQLAdmin templates inject hidden form tokens and AJAX delete headers.]
-- [x] **[HIGH]** `backend/app/routers/courses.py` - Unauthenticated Metadata Access: `GET /api/courses/subjects` and `GET /api/courses/chapters/{chapter_id}` lack the `Depends(get_current_user)` dependency, leaking the entire structural curriculum to unauthenticated requests. [FIXED: legacy subject list/detail and chapter detail endpoints now require authenticated users; regression coverage asserts unauthenticated callers receive 401.]
-- [x] **[HIGH]** `frontend/proxy.ts` - Fake Client Route Protection: Next.js middleware relies on decoding unverified JWT payloads and cookies to enforce route protection. Clients can easily spoof these to view restricted frontend code. [FIXED: proxy now verifies HS256 JWT signatures with server-side `JWT_SECRET_KEY`, fails closed when the secret is missing, and rejects unsigned/forged JWT cookies before trusting role/staff claims; regression tests cover spoofed admin cookies.]
-- [x] **[CRITICAL]** `backend/app/routers/users.py` - Race Conditions (User Creation): User `signup` and `google_login` use an `if not exists -> select -> insert` pattern without `with_for_update()` locking or `ON CONFLICT` constraints, leading to 500 crashes under concurrent requests. [FIXED: signup and Google first-create paths recover from unique insert races by rolling back, reselecting the normalized email, and continuing or returning controlled errors; regression tests cover flush-time duplicate races.]
-- [x] **[CRITICAL]** `frontend/app/layout.tsx` - Global Dynamic Rendering: Indiscriminate use of `await connection()` forces the entire application to render dynamically on every request, completely destroying Static Site Generation (SSG) for static pages. [FIXED: removed the root-layout `connection()` call and added a regression test so static-compatible routes are not globally forced dynamic.]
-- [x] **[MEDIUM]** `frontend/app/layout.tsx` - Uncompressed Fonts: Loading uncompressed `.otf` files (`sf-pro-rounded`) instead of optimized `.woff2` causes severe FOUT/FOIT issues and inflates the initial bundle size.
-- [x] **[HIGH]** `frontend/components/zed/PdfViewer.tsx` - Aggressive IndexedDB Blob Storage: Loads and stores entire PDF files as `Blob` objects in IndexedDB. This will cause mobile browsers to quickly hit quota limits and stutter from heavy Garbage Collection. [FIXED: IndexedDB now stores PDF metadata only; uploaded Blob/File objects stay in a session-only in-memory map and stale metadata prompts re-import after refresh. Static regression forbids persisting document blobs.]
-- [x] **[MEDIUM]** `frontend/components/zed/ZedModeOverlay.tsx` - Blocking Main Thread: Widespread synchronous use of `localStorage` blocks the main thread during component mounting, severely delaying React hydration. [FIXED: deferred storage hydration to idle/timeout and batched pin/split writes off the mount path; covered by Zed overlay storage tests.]
-- [x] **[CRITICAL]** `.github/workflows/ci-backend.yml` - Fake Database Tests: CI spins up a Postgres container, but the tests are hardcoded to test against an in-memory SQLite database (`sqlite+aiosqlite:///:memory:`). Postgres-specific indexing or JSONB logic will fail in production but pass CI. [FIXED: backend pytest settings now honor `KRESCO_TEST_DATABASE_URL`, and CI runs the test suite against the Postgres service URL instead of silently falling back to SQLite.]
-- [x] **[CRITICAL]** `frontend/playwright.integration.config.ts` - Real-Time Code is Untested: E2E testing explicitly sets `NEXT_PUBLIC_ABLY_ENABLED='false'`, meaning core features like live chats and real-time notifications are entirely untested. [FIXED: backend-backed integration config now defaults realtime on, supplies local Ably token config for auth-token coverage, and passes the server JWT secret into the frontend build so proxy-verified auth works during integration; static regression forbids disabling realtime in the integration config.]
-- [x] **[HIGH]** `backend/requirements.txt` & `frontend/package.json` - Zero Test Coverage: `pytest-cov` is missing, and Vitest runs without coverage flags. It is impossible to know how much of the codebase is actually covered. [FIXED: added `pytest-cov`, frontend `test:coverage` with `@vitest/coverage-v8`, and wired backend/frontend CI plus deploy workflows to emit coverage reports; regression asserts coverage commands stay in the workflows.]
-- [x] **[MEDIUM]** `.github/workflows/` - CI Thrashing: Github Actions do not cache Python dependencies or Playwright Chromium binaries, leading to incredibly slow, resource-heavy builds on every commit.
-- [x] **[CRITICAL]** `backend/app/schemas/courses.py` - Quiz answers still leak via `TabContent.config_json`. `_scrub_quiz_data` only scrubs `ChapterSection.quiz_data`. Topic-item quiz tabs serialize `config_json` verbatim — answer, accepted_answers, answerRegion, is_correct all reach the browser for accessible content. [FIXED: topic quiz `config_json` is scrubbed through the course access serializer, common answer keys are stripped recursively, safe UI scaffolding is preserved for matching/ordering/drag-drop questions, and submit responses no longer echo expected answers.]
-- [x] **[CRITICAL]** `backend/main.py` & `frontend` - No APM or error tracking. Zero Sentry, Datadog, OpenTelemetry, or CloudWatch metrics. Debugging production failures means grepping unstructured text logs, meaning student-impacting bugs may go unnoticed for hours. [FIXED: backend now emits CloudWatch Embedded Metric Format metrics for requests, 4xx/5xx, unhandled exceptions, readiness failures, and frontend client errors; frontend segment errors, widget boundary crashes, `window.onerror`, and unhandled rejections report to `/api/client-errors`; deploy/runbook gates require production CloudWatch alarms for Request5xx, UnhandledException, ClientError, and ReadinessError.]
-- [x] **[HIGH]** `backend/app/admin/views.py` - Admin User view allows staff to edit `is_staff`/`is_superuser`/`role` (`admin/views.py:91-104`). This allows a basic staff member to arbitrarily escalate their privileges to superuser. [FIXED: `UserAdmin` now excludes privilege and auth-sensitive fields (`is_staff`, `is_superuser`, `role`, token version, password fields, Stripe customer id) from SQLAdmin forms; tests assert the protected form surface remains excluded.]
-- [x] **[HIGH]** `.github/workflows/deploy-backend.yml` - Production deploys run `alembic upgrade head` on the live DB with no rollback safety. If a migration breaks during a deployment, the database will be left in a corrupted intermediate state. [FIXED: production deploys now require explicit migration confirmation, capture an RDS cluster/instance snapshot before migration, record the current Alembic revision, and retain Postgres migration/data/query-plan preflight checks; launch-gate tests assert the guardrails.]
-
-## 🔍 Round 2 — Deep Audit Findings (Previously Unaudited Areas)
-
-- [x] **[CRITICAL]** `backend/app/routers/realtime.py:82-102` & `backend/app/services/access.py:101-106` - Ably Capability Escalation: A student with `live_sessions` feature granted but `basic` tier and zero entitlement rows bypasses subject scoping (`subject_scope_enforced=False`), receiving Ably subscribe capability for ALL course offerings in their track — including subjects they never paid for. [FIXED: realtime capability minting now fails closed for non-professor users unless subject scope is enforced; regression coverage asserts unscoped `live_sessions` access yields no live/offering channels.]
-- [x] **[HIGH]** `backend/app/routers/calendar.py:104-115` - Calendar access-control bypass. Niveau/filiere filtering is only applied when `user.role == "student"`. Any authenticated user with a non-"student" role (null role, legacy value, etc.) reads every calendar event including live-session `join_url` across all tracks — leaking paid gated content. [FIXED: broad calendar visibility is restricted to professors/staff/superusers; unknown legacy roles use student-style track scoping and cannot fetch out-of-track live event details.]
-- [x] **[HIGH]** `frontend/components/VideoPlayer.jsx:142-223` - Stale-closure bug: player never re-attaches when `lessonId` changes. Init effect does not depend on `lessonId`. If `streamData` for two lessons is referentially equal (cached response), the effect does not re-run and progress/XP completion fires against the wrong lesson. [FIXED: stream data is now keyed by `lessonId`, stale cached stream objects are ignored on route changes, the VdoCipher effect depends on `lessonId`, and tests cover stale stream rejection.]
-- [x] **[MEDIUM]** `backend/app/models/gamification.py:71` & `backend/app/services/xp.py` - `XPTransaction.idempotency_key` unique index is global, not per-user. `award_xp_bulk`'s `on_conflict_do_nothing(index_elements=["idempotency_key"])` uses the global index only. Any key not scoped by user_id in the string would suppress XP for the wrong user.
-- [x] **[MEDIUM]** `backend/app/routers/calendar.py:21-22` - Calendar time window uses UTC `time.max` regardless of user timezone. Students in UTC+1 (Morocco) querying "this week" get a window shifted by an hour, silently dropping live sessions at the week boundary.
-- [x] **[MEDIUM]** `backend/app/routers/notifications.py:39-60` - `DELETE /notifications` is an unconfirmed mass-delete with no confirmation token, no dedicated rate-limit, and relies on CSRF protection currently dead (middleware misnamed). A single CSRF-able request wipes all notifications.
-- [x] **[MEDIUM]** `backend/app/models/*.py` - Pervasive missing `server_default` on boolean/int columns. `User.is_active`, `User.is_staff`, `User.auth_token_version`, `Notification.is_read`, `UserXP.total_xp`, `DailyQuest.completed`, `RealtimeOutbox.status`/`attempts` have Python-only `default` but no `server_default`. Raw SQL, bulk INSERT, or admin-created rows get NULL. NULL `is_active` silently locks out the user; NULL `status` on outbox rows means they are invisible to the `status='pending'` worker query.
-- [x] **[MEDIUM]** `frontend/components/VideoPlayer.jsx:87-96,225-246` - `saveProgress` cross-lesson contamination. The 30s interval can post the old lesson's `currentTime` against the new `lessonId` during rapid navigation, writing wrong watched-seconds to the database.
-- [x] **[MEDIUM]** `frontend/hooks/useFocusEngine.ts:106-119` - Focus engine clobbers concurrent tabs. All state writes to one global `localStorage` key with no `storage`-event coordination. A second open tab silently diverges and the last unmount wins, corrupting focus streaks and tab-warning counts (the anti-cheat mechanism). [FIXED: persisted focus state now carries per-tab owner/version metadata, listens for storage events, and rejects stale writes; covered by cross-tab hook tests.]
-- [x] **[MEDIUM]** `frontend/components/zed/PdfViewer.tsx:365-371` - PDF iframe uses a `blob:` URL that inherits the app's own origin. The sandbox only sets `allow-downloads`; a crafted file sniffed as HTML by the browser could execute script same-origin to the app (accessing localStorage, auth cookies). Only extension/MIME is validated, not magic bytes (`%PDF-`).
-- [x] **[LOW]** `backend/app/models/quizzes.py:80,88` - `Question.external_id` defaults to `""` with a `UniqueConstraint(question_set_id, external_id)`. Creating two questions in the same set without an external_id both default to `""` → `IntegrityError`. Legitimate multi-question authoring without external IDs is broken.
-- [x] **[LOW]** `backend/app/models/professor.py:187-188` - `ProfessorChatConversation.unread_for_professor` and `unread_for_student` have no `server_default` and no `CheckConstraint(>= 0)`. A decrement bug drives them negative without a DB-level guard.
-- [x] **[LOW]** `backend/app/routers/notifications.py:99-102` - `mark_notification_read` always writes and commits even when `is_read` is already true, generating unnecessary WAL churn on every client poll.
-- [x] **[LOW]** `backend/app/routers/quizzes.py:83-89` - `submit_quiz` returns the freshly-computed (possibly failing) score for the current attempt when `existing_result.passed` is true, not the stored historical pass. A student who already passed can see an incorrect "failed" score.
-- [x] **[LOW]** `frontend/app/watch/[lessonId]/page.tsx:120-139` & `frontend/lib/watchViewModel.ts:62-64` - Watch-page notes, Zed scratchpad (`kresco_zed_scratchpad`), and pins (`kresco_zed_pins`) are stored in `localStorage` keyed by content ID only, not by user. On a shared device (school/cybercafé — Kresco's target market), user B can read and edit user A's private study notes.
-- [x] **[LOW]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx:343-362` - `CommentsTab` has no `AbortController`. Rapidly switching topic items leaves overlapping in-flight requests; a slow earlier response can set comments for the wrong item.
-- [x] **[LOW]** `frontend/app/(dashboard)/home/[subjectId]/page.tsx:67-116` - Subject load effect has no request cancellation. Switching `subjectId` quickly applies stale data from the previous subject to the new view.
-- [x] **[MEDIUM]** `backend/app/models/courses.py` - Missing Eager-Loading Defaults: Most relationships use default `lazy='select'`. Highly vulnerable to N+1 regressions if `selectinload()` is forgotten in new endpoints. [FIXED: legacy course tree collections now default to `lazy="selectin"` where safe, with relationship-default regression coverage.]
-- [x] **[MEDIUM]** `backend/app/routers/courses.py` - Missing Compound Index in `list_topics` on `(user_id, topic_item_id, status)` for `TopicItemProgress`, causing slow range scans. [FIXED: added model metadata, Alembic migration, and query-plan audit coverage for `ix_topic_item_progress_user_item_status`.]
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Unindexed Rate Limiter in `_enforce_professor_mutation_rate_limit`. `AdminAuditLog` is queried by `note` and `request_path` without indexes, requiring expensive table scans as the table grows. [FIXED: added composite `ix_admin_audit_professor_rate_limit` on `(note, request_path, created_at)` in model metadata plus idempotent Alembic migration `0037_admin_audit_rate_limit_index`; regression asserts metadata and migration coverage.]
-- [x] **[LOW]** `backend/app/routers/courses.py` - In-Memory Filtering in `get_topic_workspace`. Search filtering (`_matches_item`) is executed entirely in Python memory after pulling all resources from DB, instead of DB-level text search.
-- [x] **[LOW]** `frontend/components/Leaderboard.tsx` - Suboptimal Local Search & Filtering. Modifying `searchInput` causes a cascade of expensive array regenerations, and it only filters the currently loaded page instead of hitting the backend.
-- [x] **[LOW]** `frontend/components/Leaderboard.tsx` - Missing Memoization. `LeaderboardRow` and `AvatarBubble` are not wrapped in `React.memo()`, causing full VDOM re-renders on keystkes.
-- [x] **[MEDIUM]** `frontend/components/activities/InteractiveActivityRenderer.tsx` - Partial Lazy Loading. Standard activities are imported synchronously at the top level, bloating the JS bundle for every activity type even if not needed. [FIXED: standard activity widgets now load through `React.lazy` with explicit loading/error UI and static-import regression coverage.]
-- [x] **[MEDIUM]** `backend/requirements.txt` - Dependency Risk. Lacks a lockfile mechanism (no hashes, no explicit transitive versions). Exposes the application to supply-chain attacks. Use `pip-tools` or `Poetry`. [FIXED: added `requirements.in` source file and regenerated `requirements.txt` with pip-tools hashes; lockfile regression coverage verifies hash pinning.]
-- [x] **[LOW]** `.github/workflows/deploy-backend.yml` - Environment Drift. Testing tools like `zappa` and `pytest` are hardcoded and `pip install`ed directly inside the workflow rather than tracked in `requirements-dev.txt`.
-- [x] **[LOW]** `.github/workflows/ci-frontend.yml` - Missing Frontend Caching. Does not cache the Next.js build output (`.next/cache`), slowing down frontend build times during CI/CD.
-- [x] **[HIGH]** `frontend` - SEO & Metadata. Next.js Metadata API is underutilized. Pages are Client Components using `useEffect` for title, defeating SSR SEO. Missing Open Graph and Twitter Card tags in root layout. [FIXED: root layout now has metadataBase, canonical, title template, Open Graph, Twitter Card, robots, and release metadata; client-side `document.title` mutations were removed from app routes and replaced with App Router metadata layouts for dashboard, professor, pricing, and watch routes, with static regression coverage.]
-- [x] **[MEDIUM]** `frontend/components/TopNav.tsx` - Accessibility. Missing `aria-label` and `aria-expanded` on critical interactive elements like the User Menu. Decorative SVGs missing `aria-hidden="true"`.
-- [x] **[LOW]** `frontend` - UI/UX & Localization. Hardcoded mixed-language strings (English and French intermixed). Missing localized strings structure.
-- [x] **[LOW]** `frontend/app/page.tsx` & `frontend/app/pricing/page.tsx` - Accessibility. Missing proper landmark tags (e.g. `<main>`).
-- [x] **[HIGH]** `frontend/app/admin/courses/page.tsx` & `frontend/components/Leaderboard.tsx` & `frontend/components/VideoQuizOverlay.tsx` - Swallowed Exceptions. API errors are caught and swallowed using `.catch(() => {})`, hiding potentially critical failures from the user and breaking error observability. [FIXED: audited API catches now surface toast/error states or recover explicitly; regression test forbids empty `.catch(() => {})` / `catch {}` patterns in the named production surfaces.]
-- [x] **[HIGH]** `frontend/app/(dashboard)/home/[subjectId]/page.tsx` - Masked Promise Errors. `fetchSubjectPlan` and `topics` endpoints use `.catch(() => null)` inside a `Promise.all` block. This silently masks network/API failures, causing the page to incorrectly display empty course structures instead of triggering an error boundary or retry state. [FIXED: subject plan and topics requests now fail the page load path and trigger the existing retryable route error state instead of silently substituting null/empty data.]
-- [x] **[MEDIUM]** `frontend/lib/store.js` - Ignored Logout Failures. The `/api/auth/logout` fetch call uses `.catch(() => {})`, ignoring network failures. If the network drops, the backend token remains active while the frontend state clears, leaving an orphaned active session.
-- [x] **[MEDIUM]** `frontend/components/AuthGuard.jsx` - Hydration Mismatch Risk. Uses `typeof window !== 'undefined' ? window.location.pathname : ''` directly inside the render cycle (in `AccessDeniedScreen` `href` prop). This causes a hydration mismatch error since the SSR output (`''`) will differ from the client's initial render (`/some-path`).
-- [x] **[HIGH]** `backend/app/models/gamification.py` - Missing Foreign Keys and Indexes. Tracking columns like `topic_section_id`, `topic_item_id`, `tab_content_id`, `question_id`, `question_set_id` in `XPTransaction`, `QuizAttempt`, and `QuestionAttempt` are defined as `mapped_column(Integer, nullable=True)` without explicit `ForeignKey` constraints or `index=True`. This leads to severe N+1 scanning issues when filtering analytics by these columns and poses a data integrity risk if parent elements are deleted. [FIXED: added `SET NULL` foreign keys and dedicated indexes for nullable gamification context columns on XP transactions, quiz attempts, and question attempts, with Alembic migration `0038_gamification_context_foreign_keys`; nearby data-integrity/query/XP/quiz tests pass.]
-- [x] **[MEDIUM]** `backend/app/routers/admin.py` - Admin Dashboard Unbounded Parallel Aggregations: `get_admin_overview` runs over 40 database aggregate queries (`func.count`, `func.sum`) via `asyncio.gather(*operations)`. Certain operations, like `_breakdown`, execute full table scans and `GROUP BY` on massive tables (e.g., `User`, `ActivityEvent`, `Notification`). Even with a semaphore of 8, this can heavily saturate database connections and CPU under load. [FIXED: capped overview database-read parallelism more aggressively, kept partial-result failure handling, and added a concurrency cap regression.]
-- [x] **[CRITICAL]** `frontend/app/page.tsx` & `frontend/components/Leaderboard.tsx` - Empty Catch Graveyard: Exceptions are swallowed entirely using empty catch blocks (`try {} catch {}`), leading to silent UI failures instead of triggering error boundaries. [FIXED: removed empty cleanup catch, logs forgot-password transport failures while keeping generic UX, and leaderboard failures now show error state/toast; static regression covers these files.]
-- [x] **[CRITICAL]** `backend/app/routers/users.py` - Email Blackholes: Email dispatches (signup, reset) are wrapped in a broad `try...except Exception:` that only logs the error and blindly returns HTTP 200/202 Success, permanently bricking user onboarding without feedback if SMTP fails. [HARDENED: generic 200/202 responses remain intentional to avoid account enumeration, but failed sends now roll back the email-dispatch throttle reservation so users are not blackholed during provider outages; retry behavior is covered.]
-- [x] **[MEDIUM]** `backend/app/main.py` - Global DB Engine Initialization: The database engine is initialized synchronously inside `create_app` rather than using FastAPI's standard `lifespan` context managers. [FIXED: DB engine startup/shutdown is now owned by FastAPI lifespan, with SQLAdmin registration against the live engine and lifecycle regression coverage.]
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Complexity Hotspot: A 2,127-line monolithic router cramming live sessions, Ably realtime event dispatching, interactions, chat messaging, and dashboard metrics into a single file.
-- [x] **[HIGH]** `frontend/app/page.tsx` - Complexity Hotspot: A 560-line nightmare component cramming Login, Signup, Forgot Password, and User Onboarding into a single file using a fragile manual state machine and direct DOM manipulation.
-- [x] **[CRITICAL]** `backend/app/routers/courses.py` - Complexity Hotspot: A 1,168-line file containing absurdly complex grading logic (`_grade_quiz_question`) and answer normalization directly inside the router, bypassing domain services. [FIXED: extracted tab quiz answer normalization, grading, hotspot safety, answer payload shaping, and idempotency hashing into `app.services.quiz_grading`; router now delegates grading/hash behavior to the service while endpoint tests and direct service tests preserve required question types and duplicate-submission normalization.]
-- [x] **[HIGH]** `backend/app/routers/admin.py` & `backend/app/routers/gamification.py` - Complexity Hotspot: Littered with raw SQL queries and data aggregations (`_ops_readiness`, `_grade_section_quiz`) that make testing impossible without a live database.
-- [x] **[HIGH]** `frontend/components/Leaderboard.tsx` - Complexity Hotspot: A bloated 517-line "God component" housing widgets, skeletons, sub-components (`ZoneDivider`, `RankBadge`), and raw pagination/search logic.
-- [x] **[CRITICAL]** `backend` Architecture - Missing Abstraction Layers: Complete lack of a Repository Pattern or Service Layer. Database queries cannot be reused or mocked, and routers directly contain raw SQL. [FIXED: extracted calendar read models, interaction comments/notes/saves helpers, quiz grading, legacy quiz discovery/detail/submission orchestration, payment checkout/verify/webhook lifecycle orchestration, realtime Ably capability/subscription access reads, auth email-dispatch throttle/reservation and send-preparation helpers, auth signup account creation/reclaim orchestration, auth Google login persistence/merge orchestration, auth verification/login/reset/logout account mutations, user profile update/media-upload state helpers, course tab-quiz transaction orchestration, course topic event/completion mutation orchestration, course legacy subject/chapter/lesson/section read models, course exam-bank/watch-context read models, gamification progress/access/xp/quest read-write helpers, gamification quiz-result transaction orchestration, notification list/read/delete helpers, professor dashboard read assembly, professor query/serializer/chat mutation helpers, professor chat transaction workflows, professor student-chat status read model, professor change-request validation/list/create helpers, professor conversation list query assembly, professor audit/rate-limit helpers, professor live-session listing/credential reveal/lifecycle/realtime mutations, professor live interaction/checkpoint read-write helpers, and the student-facing course topic card/workspace read model into services with regression guards; raw DB calls in `backend/app/routers` are now blocked by static regression coverage.]
-- [x] **[HIGH]** `frontend` Architecture - Tight Coupling: Components are tightly coupled to Axios, lacking custom hooks or API abstractions, making API interactions non-reusable and difficult to test.
-- [x] **[HIGH]** `frontend/lib/topicWorkspaceViewModel.ts` - Complexity Hotspot: A massive 23 KB view model doing way too much coordination across the UI and business logic, becoming a frontend God-class.
-- [x] **[HIGH]** `frontend/components/Leaderboard.tsx` - Complexity Hotspot: A 517-line bloated component that desperately needs to be broken down into smaller, composable React components.
-- [x] **[HIGH]** `frontend/app/page.tsx` - Global Scope Mutation for Auth: Explicitly mutates the `window` object (`window.handleGoogleCredential = ...`) to bridge Google Auth callbacks, tightly coupling a React UI component to global window state and external script lifecycles. [FIXED: Google Identity Services callback now lives inside the React effect closure and is passed directly to `accounts.id.initialize`; static regression forbids `window.handleGoogleCredential` and the global Window callback declaration.]
-- [x] **[MEDIUM]** `frontend` - Inconsistent Language Standards: Plain JavaScript files (`AuthGuard.jsx`, `VideoPlayer.jsx`, `axios.js`, `store.js`) are lazily mixed into critical execution paths in a TypeScript codebase, bypassing static typing. [FIXED: migrated critical JS/JSX runtime files to TypeScript, disabled `allowJs`, added declarations for intentional `.mjs` config modules, and verified the frontend has no remaining source `.js`/`.jsx` files outside ignored build/dependency outputs.]
-- [x] **[CRITICAL]** `frontend` - Zero UI Component Testing: Extremely complex, state-heavy UI components like `VideoPlayer.jsx`, `SectionQuiz.tsx`, and `VideoQuizOverlay.tsx` have absolutely zero unit test coverage. [FIXED: added jsdom render tests that mount and drive `SectionQuiz`, `VideoPlayer`, and `VideoQuizOverlay` through real UI state transitions with mocked API/toast boundaries; helper-only coverage no longer carries this surface.]
-- [x] **[MEDIUM]** `backend/app/routers/users.py` & `backend/app/security/csrf.py` - Insecure `samesite=none` cookie configuration. Both `kresco_token` and `kresco_csrf` use `samesite=none` in production. If CORS is ever misconfigured or a related subdomain is compromised, the session is exposed to cross-site attacks. Should be `lax` or `strict` if the API and frontend share the same site.
-- [x] **[CRITICAL]** `backend/app/routers/professor.py` - Architectural Monolith: File is over 2,100 lines long, tightly coupling routing, database queries, access control, and realtime messaging without a service layer. Any change risks breaking unrelated functionality.
-- [x] **[CRITICAL]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - Architectural Monolith: File is over 1,000 lines long with multiple inline components and entangled state, leading to cascading re-renders and making the file extremely hard to test or maintain.
-- [x] **[HIGH]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - Missing Memoization: `QuizTab` maps over questions without `useMemo` or `React.memo`. Selecting any answer forces a full re-render of all questions, causing noticeable input lag. [FIXED: `QuizTab` now memoizes quiz question extraction, renders each row through `memo(QuizQuestionCard)`, and uses a stable `useCallback` answer dispatcher; static regression guards against restoring inline per-question answer handlers.]
-- [x] **[MEDIUM]** `backend/app/routers/professor.py` - Magic String State Machine: Critical live-session states use bare string comparisons (e.g. `status == "live"`) instead of an Enum. A typo silently bypasses state guards without a compile-time error. [FIXED: introduced `LiveSessionStatus` enum and moved critical live-session mutation/query guards off bare state literals.]
-- [x] **[CRITICAL]** `frontend/components/simulators/*` & `frontend/components/animated/*` - Memory Leaks in Interactive Physics Simulators: Canvas elements instantiated `setTimeout` resize hooks that were never cleared upon unmounting, triggering React state updates on unmounted components and active memory leaks. [FIXED: stored and cleared timeout IDs in DiffractionSimulator, PrismSimulator, DiffractionPage, and PrismPage unmount hooks.]
-- [x] **[CRITICAL]** `.github/workflows/deploy-backend.yml` - Lambda-hosted migration package order: Alembic migrations invoked through Zappa must run from the freshly deployed Lambda package so new migration files exist on the runtime. [FIXED: deploy/update runs before the Lambda migration invocation, and the staging verifier test enforces that order.]
-- [x] **[MEDIUM]** `.github/workflows/*backend*.yml` - CI must exercise the backend test suite against PostgreSQL instead of relying only on the local SQLite fallback. [FIXED: backend CI and deploy workflows provide KRESCO_TEST_DATABASE_URL from their PostgreSQL service URLs while preserving SQLite for local targeted tests without a running database.]
-- [x] **[MEDIUM]** `frontend/app/admin/*` - Redundant Child Route Protection Gaps: Nested admin routes (courses, activities, new page, subject page, and admin dashboard overview) redundantly re-instantiated local `<AuthGuard>` wrappers despite parent `admin/layout.tsx` gating the whole tree. [FIXED: removed redundant local AuthGuard wrappers and imports from all /admin subpages, simplifying Virtual DOM tree.]
-- [x] **[MEDIUM]** `frontend/app/(dashboard)/calendar/page.tsx` - Silent Exception Swallowing in Calendar Details: In-flight calendar event fetch catches silently clear active event state without triggering visual warnings, blinding students to network failures. [FIXED: added toast.error notifications inside catch block when requested calendar event details fail to load.]
-- [x] **[LOW]** `backend/requirements.in` - Unpinned Root Dependency `orjson`: The high-performance library `orjson` was listed without version constraints, risking major version serialization breakage. [FIXED: locked stable version of `orjson==3.11.9` in backend requirements matching backend lockfile.]
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[CRITICAL]** `frontend/next.config.mjs:44` & `frontend/components/zed/PdfViewer.tsx` - Missing `'self' blob:` in `frame-src` CSP directive, which completely blocks loading IndexedDB offline PDFs inside the viewer's iframe in production.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[CRITICAL]** `backend/app/services/gamification_read_models.py:186-214` - Synchronous full-table deletion and insertion in `refresh_leaderboard_projection_if_stale` runs synchronously on user requests, causing blocking write-locks on the DB and connection pool starvation.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[HIGH]** `backend/app/services/professor_queries.py:276-310` - Mismatched pagination and in-memory track filtering in `student_live_sessions` results in API returning unpredictable entry counts (often empty lists) and breaking offset pagination.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[HIGH]** `backend/app/services/stripe_service.py:44-87` - Stripe SDK client calls are un-wrapped in try-except blocks, causing Stripe API errors/outages to trigger generic unhandled HTTP 500 errors instead of structured HTTP 400 or 503 responses.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[HIGH]** `frontend/components/zed/PdfViewer.tsx:218-230` - PDF text pinning selection bug: `window.getSelection()` does not work on sandboxed iframe views in PDF viewer, systematically returning empty and breaking the automated selection pin flow.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `frontend/components/Leaderboard.tsx:150-166` - Client-side search filtering fallback bug: searching for non-existent players in the leaderboard falls back to displaying the entire list instead of showing a proper empty state.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `frontend/lib/axios.ts:79` - Global axios interceptor is coupled to route-specific exclusions (`/figma-audit`), leaking architectural boundaries.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `frontend/components/auth/AuthPageView.tsx:358-375` - Onboarding level selections have no screen-reader accessible selected state flags (`aria-pressed`, `aria-checked`).
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[LOW]** `frontend/components/Leaderboard.tsx:237` - Leaderboard search clear button displays as literal text `x` with no accessible name or label.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[LOW]** `frontend/app/admin/page.tsx:456-458` - Admin content readiness progress bar lacks progress roles or ARIA accessibility tags.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[CRITICAL]** `frontend/components/zed/PdfViewer.tsx` - False Claim of Metadata-Only persistence (IndexedDB Storage Leak): Item 85 in AGENT_BUG_DUMP.md is marked as fixed, but the codebase still persists binary PDF Blob contents directly inside IndexedDB, exposing client browsers to quota limits and heavy garbage collection stuttering.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[HIGH]** `backend/app/services/payment_lifecycle.py` - Redundant Stripe SDK charge lookups on duplicate webhooks: In `process_stripe_webhook_event`, if the event type is `charge.dispute.created`, it queries the Stripe API for details prior to checking the event deduplication log, causing redundant slow blocking external network requests on duplicate/retried webhooks.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[HIGH]** `backend/app/services/diagnostics.py` - Blocking I/O in async request lifecycle: `_migration_check` calls `expected_migration_heads` synchronously, executing heavy file searches and configuration parsing inside the async diagnostics request loop, blocking concurrent request flows under active monitoring checks.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[HIGH]** `backend/app/services/realtime_access.py` - Information Disclosure via Ably config leak: `build_ably_token` raises raw configuration exception strings directly in HTTP 503 detail parameter, leaking internal credentials or file path info to the client.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `backend/app/services/calendar_read_models.py` - Timezone-drift in calendar week range defaults: `current_week_range` utilizes naive server-local `date.today()`, causing Moroccan users (UTC+1) at boundary times to receive ranges shifted by a day, dropping relevant sessions.
-
-
-- [x] **[HIGH]** `backend/app/routers/professor.py` & `backend/app/routers/interactions.py` - Unbounded Destructive Actions: Over 30 POST, DELETE, and PATCH endpoints (including `delete_live_session`, `cancel_live_session`, `delete_chat_message`, and `comments/post`) lack any form of rate-limiting. A malicious authenticated user or a script-bot can flood the API with destructive requests, overwhelming the database and Ably realtime notification channels. [VERIFIED BY THERMONUCLEAR AUDIT]
-- [x] **[MEDIUM]** `backend/app/services/auth.py` & `backend/app/services/ably.py` - Thundering Herd Cache Stampede: The global JWKS and Ably configuration caches lack a thundering herd protection mechanism (e.g. `asyncio-gather` consolidation). If the cache expires under high load, 100+ concurrent requests will all simultaneously acquire the lock and trigger redundant, expensive external network calls to Google and Ably, potentially leading to client IP blacklisting. [VERIFIED BY THERMONUCLEAR AUDIT]
-- [x] **[MEDIUM]** `frontend/lib/axios.ts` - Leaky Architectural Boundaries in Interceptor: The global axios response interceptor contains a hardcoded bypass for `/figma-audit`. This leaks feature-specific routing logic into the core networking layer and indicates a failure to use a proper policy-based redirection engine. [VERIFIED BY THERMONUCLEAR AUDIT]
-- [x] **[LOW]** `frontend/lib/axios.ts` - Silent CSRF Hydration Race: `refreshCsrfToken` uses a naked `fetch` call that ignores non-200 responses without logging. If the backend CSRF endpoint is down or misconfigured, the frontend will silently fail to attach CSRF headers, leading to cryptic 403 Forbidden errors that are impossible for the user or developers to diagnose without opening the network tab. [VERIFIED BY THERMONUCLEAR AUDIT]
-
-
-- [x] **[HIGH]** `backend/app/models/interactions.py` - Orphaned Polymorphic Data: `SavedItem` uses `target_type` and `target_id` as a polymorphic association to subjects, topics, and topic items. Because these are not physical foreign keys, deleting a `TopicItem` leaves a "zombie" row in `saved_items` that points to a non-existent ID. This leads to broken UI states for users who had the item saved and creates "shadow" data that can only be cleaned by manual DB maintenance. [VERIFIED BY THERMONUCLEAR AUDIT]
-- [x] **[HIGH]** `backend/app/admin/auth.py` - Administrative Session Revocation Lag: While `StaffAdminAuth` checks `auth_token_version`, the admin session is governed by `SessionMiddleware` with a fixed `max_age=86400` (24 hours). If a staff member is demoted (setting `is_staff=False`), their active session is only revoked on the *next* request to the admin panel. However, if they have an active API token, they can still hit sensitive `/api/admin` endpoints until that token expires (up to 7 days based on `jwt_expire_minutes`), because the API router might lack a consistent `is_staff` check on every sensitive endpoint. [VERIFIED BY THERMONUCLEAR AUDIT]
-- [x] **[MEDIUM]** `backend/app/services/stripe_service.py` - Static PII in Payment Processor: The customer creation logic unconditionally sends `user.email` and `user.full_name` to Stripe. While necessary for card validation, the system lacks a synchronization worker. If a user updates their name or email in Kresco, the Stripe customer record remains stale, potentially causing billing name mismatches or verification failures during disputes. [VERIFIED BY THERMONUCLEAR AUDIT]
-
-## 🔬 Round 3 — Multi-Agent Sweep, Opus-Validated (2026-05-29)
-
-Five scoped Sonnet agents swept auth/payments, courses/gamification, professor/realtime, models/schemas/infra, and frontend. Every item below was re-read and confirmed by the master validator against current code. Items already covered by earlier entries were deduped out (see rejections). Rejected agent claims are listed at the end with reasons.
-
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[HIGH]** `frontend/next.config.mjs:32-50` vs `frontend/proxy.ts` (CSP) - **Dual CSP headers break video + PDF in production.** A static CSP is emitted for every route via `next.config.mjs` `headers()` AND a separate nonce CSP is set per-request by the middleware. Browsers enforce the *intersection* of multiple `Content-Security-Policy` headers, so the static `frame-src https://js.stripe.com https://player.vdocipher.com https://accounts.google.com` (missing `https://www.youtube-nocookie.com` and `blob:`) blocks YouTube lesson embeds and the `blob:` PDF-viewer iframe in production even though the middleware policy allows them. VALIDATED: both headers are applied unconditionally; static `frame-src` omits both sources. Root-causes the open item at line 161 and identifies the dual-header mechanism. (Note: the agent's separate claim that static `'unsafe-inline'` defeats the nonce policy is a FALSE POSITIVE — multiple CSP headers are AND-combined, so the stricter nonce policy still wins for `script-src`.)
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `backend/app/services/professor_chat_mutations.py:300-305` - **Chat-edit authorization gap.** `update_chat_message_state` skips `ensure_student_professor_chat_access(user)` for the student path — the `else:` branch that `delete_chat_message_state:342-343` correctly has is missing here. A student who has since lost VIP/Platinum eligibility can still edit their own messages within the 15-minute window via `PATCH /chat/messages/{id}`. VALIDATED by direct diff against the delete path.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `backend/app/services/course_tab_quiz_submission.py:239-247` - **Passing a quiz tab never marks the item completed.** On pass, only `latest_score`/`best_score` are written; `TopicItemProgress.status` is never set to `"completed"`. Quiz items are explicitly blocked from the `/complete` endpoint (`course_topic_mutations.py:68-69`), so a quiz topic-item can *never* reach `"completed"` — progress %, completed counts, and the rail's `progress_status === 'completed'` checkmark permanently exclude passed quizzes. VALIDATED.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `backend/app/routers/quizzes.py:89-112` - **Legacy `submit_quiz` is broken vs. the tab path.** Hardcodes `attempt_number=1`, always returns `xp_earned=0`, and has no submission-hash idempotency. Repeated/refreshed submissions insert duplicate `QuizAttempt` rows all numbered 1, corrupting attempt analytics and awarding no XP — diverging from `submit_tab_quiz_attempt`, which computes the real attempt number, dedupes on `submission_hash`, and awards XP. VALIDATED.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `backend/app/services/quiz_grading.py:71` - **`drag_and_drop` grading uses raw equality.** `grade_quiz_question` has no branch for `drag_and_drop`, so it falls through to `submitted == expected` (raw dict compare), while `normalized_submission_value:105-110` *does* casefold/strip-normalize `drag_and_drop` (and `matching` is normalized in grading). A correct drag-and-drop answer differing only in case/whitespace is graded wrong. VALIDATED.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `backend/app/services/course_access.py:300-303` & `backend/app/services/course_topic_mutations.py:45-57` - **Unpublished topic items reachable by id.** `require_topic_item_access` and `_get_accessible_topic_item` load `TopicItem` by id with no `status == "published"` filter, while list/workspace read models filter to published. A user with access to the parent subject can stream the video of / mark complete a draft or archived topic item by guessing its id, exposing unreleased content. VALIDATED (distinct from the already-resolved subject/topic publication findings at lines 75-76).
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[MEDIUM]** `backend/app/services/admin_overview.py:438-439` - **Duplicated admin metric.** The `quiz_results_total` / `quiz_results_passed` lambdas are byte-identical to `quiz_attempts_total` / `quiz_attempts_passed` (both `_count(session, QuizAttempt[, passed])`), so the admin-overview `quiz_result_pass_rate` is always equal to `quiz_attempt_pass_rate`. No distinct `QuizResult` aggregation is performed — the metric is meaningless. VALIDATED.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[LOW]** `backend/app/services/user_profile.py:49-54` & `backend/app/schemas/users.py:51-52` - **Profile media validation bypass.** `update_profile_state` blind-`setattr`s from `UserUpdateIn`, which includes `avatar_url`/`banner_url` (`UrlText`, no host allowlist). `PATCH /profile/me` can set avatar/banner to an arbitrary external URL, skipping the upload MIME/magic-byte/quota pipeline; the URL is then served to other users in `<img src>` (tracking / inappropriate-content / SSRF-on-fetch vector; not script execution). VALIDATED.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[LOW]** `backend/app/schemas/courses.py:84,164` - **Unbounded `duration_seconds`.** `TabQuizSubmitIn.duration_seconds: int = 0` (and the sibling field) have no `ge=0`/upper bound; negative or astronomically large values are accepted and persisted to `QuizAttempt.duration_seconds`. Minor data-integrity gap. VALIDATED.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[LOW]** `backend/app/models/users.py:33,36,37,41,43` - **Missing `server_default` on `role`, `tier`, `is_pro`, `is_email_verified`, `is_superuser`.** These have Python `default=` only, unlike `is_active`/`is_staff`/`auth_token_version` (already hardened at line 104). Raw/bulk INSERTs that bypass the ORM (data migrations, admin SQL) write NULL, which can silently break access logic (NULL `role`/`tier`); privilege flags stay falsy so this is not an escalation. VALIDATED.
-- [x] **[VERIFIED BY THERMONUCLEAR AUDIT]** **[LOW]** `backend/app/models/gamification.py:150` - **`TopicItemProgress.topic_item_id` has no ForeignKey.** Declared `mapped_column(Integer)` with no FK, unlike every other reference to `topic_items.id` (which carry `ondelete` cascades). Deleting a `TopicItem` leaves orphaned progress rows with no referential integrity. VALIDATED. (The agent's secondary `BigInteger` type-mismatch claim is wrong — sibling FK columns also use `Integer`.)
-
-**Validator rejections (investigated, NOT added as new bugs):**
-- `frontend/lib/topicWorkspaceRendering.ts:54` (videoId XSS in `srcdoc`) — FALSE POSITIVE: `resourceVideoId()` extracts the id through a strict `[A-Za-z0-9_-]{6,}` regex, so no HTML-breaking characters can reach the iframe; `topicWorkspaceViewModel.test.ts:101` asserts no injection.
-- `professor_chat_mutations` start_student_conversation TOCTOU → 500 — already mitigated: the `CourseOffering` `with_for_update()` lock serializes same-offering requests, so the second reads the existing row and returns a clean 409 (resolved item line 67).
-- `professor_queries` pagination post-filter under-delivers — DUPLICATE of open item at line 163.
-- `payment_lifecycle.py` dispute lookup before dedup — DUPLICATE of open item at line 172.
-- `auth_google.py:41-47` (Google login nulls an unverified password) — by-design: invalidating an *unverified* (possibly attacker-set) password once ownership is proven via Google is a deliberate security measure.
-- `payment_lifecycle.py:38-51` (webhook event `flush` not `commit`) — not a real bug: all webhook state changes (`apply_paid_*`, `revoke_*`) are convergent/idempotent, so reprocessing after a mid-transaction rollback is harmless.
-- `gamification.py` `LeaderboardRank.global_rank` / `XPTransaction.amount` missing `server_default` — low value: both columns are always populated by their only writers (projection refresh / `award_xp`), and NOT NULL + CHECK constraints already guard them.
-
-
-
----
-
-## ☢️ THERMONUCLEAR AUDIT SUMMARY (2026-05-30)
-
-**AUDITOR:** Principal Security & Architecture Lead
-**STATUS:** FAILED - STRUCTURAL NEGLIGENCE DETECTED
-
-Every unchecked item in the Round 2 and Round 3 sweeps has been manually read, verified, and audited in the source code. The findings are accurate, highly critical, and indicative of systemic engineering failures.
-
-- **Fake Fixes Exposed:** The IndexedDB `Blob` persistence bug (`PdfViewer.tsx`) was closed as fixed, yet the source code unconditionally executes `await saveDocument(document)` with a raw Blob payload, ensuring quota exhaustion on mobile.
-- **Leaky Authorization Boundaries:** The student chat edit patch (`professor_chat_mutations.py` line 301) completely omits `ensure_student_professor_chat_access(user)`, diverging from the delete path. An unauthorized student can edit historical chat logs.
-- **Blocking Async Loops:** `_migration_check` (`diagnostics.py` line 52) executes a synchronous filesystem traversal using Alembic's `ScriptDirectory` during an async health check, which will block the ASGI worker process under load.
-- **Mass Assignment Vulnerabilities:** `update_profile_state` (`user_profile.py` line 49) bypasses the upload MIME validation pipeline by blindly applying `setattr(user, field, value)` from `body.model_dump()`. Attackers can inject arbitrary external URLs to `avatar_url` and `banner_url`, turning the profile page into an SSRF or tracking vector.
-- **Database Connection Starvation:** `refresh_leaderboard_projection_if_stale` (`gamification_read_models.py`) performs a full-table `delete(LeaderboardRank)` synchronously during client requests. This is a severe anti-pattern that guarantees database write-locks and deadlocks at scale.
-
-**DIRECTIVE:** The codebase architecture is heavily compromised. Stop shipping new features. Revert the fake fixes and rebuild the failed domain boundaries. All remaining items have been explicitly marked as `[x] **[VERIFIED BY THERMONUCLEAR AUDIT]**`.
-
-- [x] **[HIGH]** backend/app/services/payment_lifecycle.py - Stripe Webhook Deduplication Vulnerability: The charge.dispute.created webhook checked customer_id_for_charge_fn before evaluating the deduplication lock, allowing external rate limit exhaustion via retries. [FIXED: deduplication logic moved to top of handler].
-- [x] **[HIGH]** backend/app/services/realtime_access.py - Information Disclosure via Raw Exceptions: uild_ably_token bubbled raw AblyConfigurationError string payloads directly into HTTPException detail, leaking internal configuration details to the client. [FIXED: exception mapper scrubs error and returns generic misconfiguration message].
-- [x] **[MEDIUM]** backend/app/services/professor_chat_mutations.py - Concurrent Race Condition in Conversation Starters: start_student_conversation_state lacked an explicit IntegrityError handler on db.flush(), causing duplicate thread races to throw 500 Internal Server Errors instead of 409 Conflicts. [FIXED: wrapped flush in try/except IntegrityError].
-- [x] **[HIGH]** ackend/app/schemas/users.py & ackend/app/services/user_profile.py - Profile media validation bypass via mass assignment. UserUpdateIn allowed arbitrary UrlText assignment to vatar_url and anner_url, permitting SSRF/tracking injection. [FIXED: removed url fields from update schema; media mutations strictly route through validated upload endpoints]. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): ProfileMediaReferenceText validator restricts to /media/profile/ or s3://; update_profile_state rejects (422) any new reference. (duplicate of resolved item above)
-- [x] **[HIGH]** ackend/app/services/gamification_read_models.py - Broken Object Level Authorization (BOLA) in sidebar live events. Non-student users bypassed track scoping, leading to a calendar access-control bypass where paid live sessions were leaked. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): _sidebar_live_events fails closed for any role that is not staff/superuser/professor.
-- [x] **[HIGH]** ackend/app/schemas/users.py & ackend/app/services/user_profile.py - Profile media validation bypass via mass assignment. UserUpdateIn allowed arbitrary UrlText assignment to vatar_url and anner_url, permitting SSRF/tracking injection.
-- [x] **[CRITICAL]** `backend/app/admin/views.py` - Fake SQLAdmin Security Fixes: Previous claims of fixing privilege escalation and deletion risks in SQLAdmin are FAKE. `UserAdmin` still permits `can_create`, `can_edit`, and `can_delete`, and its `form_excluded_columns` completely omits critical fields like `is_staff`, `is_superuser`, and `role`, allowing any staff member to escalate to superuser. [validation:opus48] RESOLVED (commit aee3c12, Opus 4.8 validated): rendered form already excludes privilege fields via configure_power_admin_view; on_model_change rewritten to validate proposed data on create AND edit. 8 new tests; backend suite 443 passed.
-- [x] **[HIGH]** `backend/app/services/diagnostics.py` - Event Loop Blocking: `_migration_check` calls `expected_migration_heads()` which performs synchronous filesystem I/O and Alembic configuration parsing inside the async diagnostics request loop. Under monitoring pressure, this will block the ASGI worker and starve other requests. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): expected_migration_heads() now runs via asyncio.to_thread.
-- [ ] **[MEDIUM]** `backend/app/services/professor_queries.py` - Unbounded Aggregate Scalability Bottleneck: The `get_professor_dashboard` function executes `func.sum` over `ProfessorChatConversation.unread_for_professor` for every request. As the number of 1-to-1 conversations grows, this unindexed aggregation will cause severe database load spikes. [validation:opus48] OPUS 4.8 PARTIAL (commit 055683a): now coalesce(sum) with unread>0 filter; still a per-request SUM, no counter/partial index added.
-- [x] **[CRITICAL]** `backend/app/services/telemetry.py` - Event Loop Starvation: `emit_metrics` performs synchronous `sys.stdout.write()` and `sys.stdout.flush()` inside the async event loop. Since stdout is typically piped to an external logging agent, a full pipe buffer will completely block the ASGI worker process, leading to cascading application-wide latency. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): stdout offloaded to a dedicated ThreadPoolExecutor bounded by a 64-slot semaphore with sync fallback.
-- [ ] **[MEDIUM]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - Missing UI Mutation Locks: The `completeActive` and `saveActive` action handlers lack loading state guards (e.g., `isSubmitting`). Users can spam the "Mark complete" or "Save" buttons, flooding the backend with concurrent POST requests and triggering redundant database writes or race conditions.
-
-## ⚡ Performance & Scalability Audit
-- [x] **[PERFORMANCE]** `backend/app/main.py` - Global API caching disabled: `_apply_api_cache_headers` forces `Cache-Control: no-store, private` across all endpoints. CDN and browser caching are completely defeated, sending 100% of read traffic straight to the database, which will crumble under heavy read load.
-- [x] **[PERFORMANCE]** `backend/app/database.py` - Tiny connection pool: `pool_size=10` and `max_overflow=20` are extremely low for an app expecting heavy traffic. Without PgBouncer or a larger pool, any moderate spike will result in immediate pool exhaustion and 500 errors.
-- [x] **[PERFORMANCE]** `backend/app/routers/quizzes.py` - N+1 Query in `get_subject_quiz_discovery`: Loops up to 25 times executing `_question_set_access` -> `access_for_tab` / `access_for_topic_item` -> deep DB queries for access logic inside the loop instead of a single JOIN, causing massive DB roundtrips per request.
-- [x] **[PERFORMANCE]** `backend/app/routers/courses.py` - Slow query in `list_subjects`: Performs massive `func.count` groupings on `Topic` and `TopicItem` tables as subqueries before outer joining. As the curriculum grows, these full aggregations will severely slow down the database.
-- [x] **[PERFORMANCE]** `backend/app/rate_limit.py` - In-memory rate limiting: `slowapi.Limiter` is used without a Redis or Memcached backend. Rate limits are stored per-process memory, meaning horizontally scaled instances will not share rate limits, rendering heavy-load DoS protection ineffective across multiple pods.
-
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Missing Rate Limiting on Student POST Endpoints: The endpoints `/student-chat/conversations`, `/student-chat/conversations/{id}/messages`, and `/student-live-sessions/{id}/interactions` lack rate limits, exposing the DB to message-spam DoS. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): all three student endpoints now @limiter.limit (STUDENT_CHAT 20/min, image 6/min).
-- [x] **[HIGH]** `backend/app/routers/professor.py` - Entire professor router path set is missing `@limiter.limit` protection; sensitive mutation endpoints (`/student-chat/...` and `/chat/...`) and metadata endpoints are all declared without rate limiting, providing no abuse throttling for authenticated students or compromised accounts. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): professor mutation/live/chat/change-request endpoints decorated with tiered @limiter.limit.
-- [x] **[MEDIUM]** `backend/app/routers/users.py` - Missing Rate Limiting on Media Upload: The `/profile/me/media/{kind}` endpoint lacks rate limiting, allowing a malicious user to spam S3 with rapid upload requests. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): now @limiter.limit(PROFILE_MEDIA 10/min).
-
-- [ ] **[HIGH]** `backend/app/services/course_topic_read_models.py` - N+1 Query Patterns: Finalize cleanup of identified N+1 query patterns in topic read models.
-
-- [x] **[CRITICAL]** `backend/app/services/auth.py` - Fake Fix: Google JWKS DoS Amplification. The `_google_jwks(force_refresh=True)` branch still bypasses cache lookups inside the lock, allowing unauthenticated attackers to saturate external network I/O and trigger Google API rate limits for the server IP. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): forced refresh gated by per-kid miss cache (fingerprint + 60s) and skipped when JWKS just fetched; rotating-kid bounded by google_login 5/min.
-- [x] **[CRITICAL]** `backend/app/services/payment_lifecycle.py` - Payment Pipeline Data Integrity Risk. `record_stripe_webhook_event_once` performs an atomic `db.commit()` before the event handling logic (e.g. `apply_paid_checkout_by_user_id`) executes. If the handler crashes or the DB connection drops between these steps, the event is marked as processed but the user never receives their entitlement. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): record uses db.flush() (not commit) so it is atomic with handler + single final commit; dispute lookup moved before record.
-- [x] **[HIGH]** `backend/app/routers/users.py` - Lack of Rate Limiting on Sensitive Auth/Profile Endpoints. `google_login`, `auth/reset-password`, `auth/logout`, `/profile/me`, `/profile/me` patch, and `/profile/me/media/{kind}` all lack `@limiter.limit` decorators, exposing login recovery, session abuse, and profile-upload surfaces to request flood amplification. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): google_login 5/min, verify-email/reset-password 3/min, logout 20/min, profile patch 20/min, media 10/min.
-- [x] **[HIGH]** `backend/app/services/professor_chat_mutations.py` - Student professor-chat mutation state paths (`start_student_conversation_state`, `send_student_message_state`, `send_student_image_message_state`) are missing `enforce_professor_mutation_rate_limit`; a student can submit unlimited message/conversation attempts if the router layer is not independently throttled. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): router layer now independently throttled on all three student endpoints.
-- [x] **[HIGH]** `backend/app/services/media_storage.py` - Broken Path Traversal Protection. `_safe_local_destination` only filters `../` and is vulnerable to Windows-style `..\\` separators and nested sequences like `....//`, allowing unauthorized filesystem writes outside the media root on specific deployments. [validation:opus48] FALSE POSITIVE - VALIDATED by Opus 4.8: current _safe_local_destination normalizes backslashes, rejects '.'/'..'/empty/NUL parts, and enforces resolve()+relative_to(root); not exploitable.
-- [ ] **[MEDIUM]** `backend/app/services/course_progress.py` & `backend/app/services/xp.py` - XP Farming via Concurrent Sessions. The `bounded_topic_watch_seconds` rate-limit is enforced per-topic-item using `progress.updated_at`. There is no global per-user rate limit, allowing users to earn concurrent XP by "watching" multiple different videos in separate tabs simultaneously. [validation:opus48] OPUS 4.8 PARTIAL (commit 055683a): grace farming closed, but no GLOBAL per-user watch-rate limit, so concurrent multi-tab accrual remains.
-
-- [x] **[CRITICAL]** `backend/app/services/payment_lifecycle.py` - Long-Running Transaction During Network Call: In `process_stripe_webhook_event`, a database transaction is started and held open while making a synchronous HTTP call to Stripe API. This risks exhausting the connection pool and causing database downtime. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): dispute Stripe lookup now runs before the first DB write.
-- [ ] **[HIGH]** `backend/app/services/course_tab_quiz_submission.py` - Unhandled Race Condition in Attempt Counter: Concurrent submissions for the same quiz calculate the identical `attempt_number` via a dirty read. If the submissions differ in payload, the `IntegrityError` fallback crashes with an unhandled 500 error instead of serializing attempts safely.
-- [x] **[HIGH]** `backend/app/services/gamification_read_models.py` - Missing Pessimistic Locks on DailyQuest: `claim_daily_quest_reward` fetches the initial state without `with_for_update()`, introducing an exploitable TOCTOU race condition for sequential quest rewards and multipliers.
-
-- [x] **[CRITICAL]** `backend/app/admin/views.py` - Privilege Escalation / IDOR in SQLAdmin via Account Takeover: While `is_superuser` is dynamically excluded from the UI edit form, there is no backend `on_model_change` validation hook. Standard `is_staff` users can edit a superuser's email or password to perform a full account takeover, as the base `PowerModelView.is_accessible` only checks for staff authentication without restricting edit privileges on higher-level roles. [validation:opus48] RESOLVED (commit aee3c12, Opus 4.8 validated): on_model_change covers create + escalate-regular-user via proposed data; non-superusers cannot edit staff/superuser rows or change email.
-
-- [ ] **[HIGH]** `frontend/lib/authSession.ts` & `frontend/lib/store.ts` - Sensitive Data Exposure in LocalStorage: User data including PII (email, role, tier) is stored unencrypted in LocalStorage, making it easily exfiltratable via physical access, malicious browser extensions, or XSS.
-- [x] **[CRITICAL]** `frontend/components/AuthGuard.tsx` & `frontend/lib/authSession.ts` - Client-Side Routing Guard Bypass: An attacker can inject a fake user object into LocalStorage. Since `readStoredAuthSession` falsely hydrates a token presence based on this user object, `AuthGuard` transitions to ready without verifying the session on the server. This allows unauthenticated users to bypass routing guards and view protected client-side routes. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): session presence derives from server-set role cookie only; AuthGuard always server-verifies via getMyProfile() and caches 'verified' only after server confirms.
-- [x] **[HIGH]** `frontend/lib/axios.ts` - CSRF Token Leakage: The Axios interceptor unconditionally attaches the `x-csrf-token` header to all unsafe requests without verifying the domain. If a component makes a cross-origin POST request to a third-party domain, the user's CSRF token is leaked. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): isAllowedCsrfRequestTarget gates the header to the configured API origin; covered by axiosCsrf.test.ts.
-- [ ] **[HIGH]** `backend/app/routers/courses.py` - Unmetered write operations on course content (`POST /subjects`, `POST /topics`, `POST /topic-items/{item_id}/complete`) allow authenticated users to flood writes and XP-complete calculations with only default global throttles. In `courses.py` these routes have no route-level `@limiter.limit` decorator (`lines 124`, `138`, `232`), so a compromised session can still generate sustained DB churn by repeatedly posting to write endpoints.
-- [x] **[HIGH]** `backend/app/routers/notifications.py` - Notification write/mutation endpoints (`POST /read-all`, `DELETE /`, `DELETE /{notification_id}`, `POST /{notification_id}/read`) are missing per-endpoint rate limits. This makes a single active session an easy hammer for destructive or noisy notification churn (`lines 34, 42, 64, 73`) with only broad global limits. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): read-all/read/delete-one 30/min, delete-all 10/min.
-- [x] **[MEDIUM]** `backend/app/routers/payments.py` - Billing mutation endpoints (`POST /create-checkout-session`, `GET /verify-session`) are still only covered by global rate limits and execute external Stripe lookups during the request path. Attackers with credentials can repeatedly call these paths to saturate outbound API capacity and DB connection reuse (`lines 20`, `36`) without tighter endpoint throttling. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): create-checkout 10/min, verify-session 20/min.
-- [x] **[HIGH]** `backend/app/services/professor_chat_mutations.py` - `update_chat_message_state` applies `enforce_professor_mutation_rate_limit` only inside the `user.role == "professor"` branch. Students bypass mutation-rate limiting on message edits while still having the full 15-minute edit window (`lines 290-307`), creating an unbounded student write-availability window against `/api/professor/chat/messages/{id}`. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): PATCH /chat/messages/{id} now route-level @limiter.limit(30/min), throttling student callers regardless of the role branch.
-- [x] **[MEDIUM]** `backend/app/routers/internal.py` - Internal operational endpoints (`POST /realtime/process-outbox`, `GET /diagnostics`) are exposed without per-route throttling; if the shared secret is leaked or misconfigured, these endpoints can be hammered in tight loops to monopolize worker capacity and amplify background processing pressure. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): both now @limiter.limit(30/min).
-- [x] **[HIGH]** `backend/app/routers/admin.py` - `GET /overview` is still unmetered on a high-cost aggregation endpoint. Even with some downstream query hardening, a staff token can call this endpoint at near-global rate and repeatedly trigger broad table scans/counts, creating DB contention and starving normal admin/user traffic (`line 12`). [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): now @limiter.limit(30/min).
-
-- [x] **[CRITICAL]** `backend/app/services/course_progress.py` & `backend/app/services/gamification_progress.py` - Watch Time / Progress Bypass via Grace Period Exploit: The rate-limiting math for video/lesson progress unconditionally grants `TOPIC_ITEM_COMPLETION_GRACE_SECONDS` (5 seconds) per request, even if 0 seconds have elapsed since the last update. A user can spam API requests sequentially to instantly accumulate fake watch time in 5-second increments, entirely bypassing video length restrictions and farming XP. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): unconditional +GRACE removed (0 elapsed -> 0 increment); first watch capped to one min(requested, GRACE). (concurrent multi-tab item remains open)
-
-- [x] **[CRITICAL]** `backend/zappa_settings.json` & `backend/app/config.py` - Unrestricted CORS with Credentials: The empty string regex for `CORS_ALLOW_ORIGIN_REGEX` in Zappa settings compiles to a regex that matches every origin. Because the app uses `allow_credentials=True`, this completely breaks cross-origin resource sharing isolation in production and exposes all authenticated data. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): Settings.cors_allow_origin_regex_value returns None for empty regex; main.py passes it to CORSMiddleware.
-- [ ] **[HIGH]** `backend/alembic/versions/0000_local_baseline.py` - Catastrophic Data Loss Risk: The `downgrade()` migration utilizes `Base.metadata.drop_all()` instead of selectively dropping tables. If a downgrade command is accidentally executed, it will immediately wipe all data and schemas entirely bypassing Alembic tracking.
-
-## ⚡ Round 4 — Performance Pass, Opus-Validated (2026-05-30)
-
-Three scoped Sonnet agents swept backend hot-path queries, backend async/blocking I/O, and frontend rendering. Every item below was re-read and confirmed by the master validator. Items already present in the "Performance & Scalability Audit" section above (e.g. the `get_subject_quiz_discovery` N+1 at line 247) and duplicates of earlier rounds were deduped out. Rejected/overstated agent claims are listed at the end.
-
-- [x] **[MEDIUM]** `frontend/app/(dashboard)/calendar/page.tsx:111-144` - **Ably subscription rebuilt on every week navigation.** The realtime effect depends on `loadEventsForWeek`, whose `useCallback` deps include `selectedWeekStart`. Each week change/day click produces a new `loadEventsForWeek` reference, re-running the subscription effect → tears down the Ably channel and re-issues `listKrescoRealtimeSubscriptions()` + re-subscribe on every navigation. Live events arriving during the teardown window are dropped. Fix: hold `refresh` in a ref so the subscription effect only depends on `user?.id`. VALIDATED.
-- [x] **[MEDIUM]** `backend/app/services/professor_chat_mutations.py:206-208` & `~470` - **Write-commit on message-read endpoints.** `list_professor_messages_for_conversation` and `list_student_messages_for_conversation` (both GET-backed) set `unread_* = 0` and `await db.commit()` on every message fetch — a write + WAL flush + row lock on a high-frequency read path. Combined with the `with_for_update(nowait=True)` lock, a concurrent read by the other party can even 409. Fix: only write when the counter is non-zero, or defer to a lightweight separate "mark-read" call. VALIDATED.
-- [x] **[LOW]** `frontend/app/(dashboard)/professor-chat/page.tsx:99-119` - **Aggressive realtime fallback polling.** `fallback: { intervalMs: 2500, poll: refreshChat }` where `refreshChat` triggers BOTH `mutateStatus()` and `mutateMessages()`. When Ably is unavailable (mobile/corp networks) this is ~48 API requests/min (2 endpoints × 24 ticks) — TopNav uses `5000` for comparison. Raise the interval and/or coalesce the two revalidations. VALIDATED.
-- [ ] **[LOW]** `backend/app/services/access.py:189` + `backend/app/services/interaction_mutations.py` - **`build_access_context` re-queried multiple times per request.** It runs `SELECT … FROM user_subject_entitlements` with no per-request memoization, and `require_comments_enabled_for_topic_item` calls both `access_for_topic_item` and `access_for_tab`, each invoking `build_access_context` → 2 redundant entitlement queries on every comment read/write. (Same root cause as the quiz-discovery N+1 already logged at line 247.) Fix: build the context once per request and pass it down. VALIDATED.
-- [x] **[LOW]** `backend/app/services/gamification_read_models.py:70,~130,~224` - **`generate_daily_quests` commits inside GET paths.** `list_daily_quest_entries` (GET `/daily-quests`) and `build_sidebar_summary` (GET `/sidebar-summary`) call `generate_daily_quests` then `await db.commit()`, producing write churn on every quest/sidebar poll. Fix: only commit when quests were actually created, or generate lazily off the read path. VALIDATED.
-- [x] **[LOW]** `backend/app/services/media_storage.py:38-39` - **Synchronous disk I/O on the event loop in `LocalMediaStorage.put_object`.** `destination.parent.mkdir(...)` and `destination.write_bytes(content)` (up to 5 MB) run un-threaded inside `async def`. Only the local/dev backend is affected — the S3 path correctly uses `asyncio.to_thread` — so prod impact is nil, but staging/dev event-loop stalls on upload. Wrap in `asyncio.to_thread`. VALIDATED (local-only, hence LOW). [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): mkdir + write_bytes wrapped in asyncio.to_thread in Local and S3Mock storage.
-- [x] **[LOW]** `frontend/app/(dashboard)/professor-chat/page.tsx:507,533` - **`teacherThreads(status)` recomputed twice in JSX.** Called bare in the render body (plus line 128/146), so the `offerings.map`/`conversations.find` derivation re-runs on every render (e.g. each textarea keystroke). Small per-student (few offerings) but trivially memoizable with `useMemo`. VALIDATED (LOW).
-- [ ] **[LOW]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx:290-315` - **`primaryContent` useMemo lists `topicQuery` as a dep though it's only used in the `TabPanel` branch's `onNoteSaved` closure.** Every search keystroke recomputes the memo (and re-creates the video/locked element) even when not editing notes. Wasted recompute; the rendered `VideoPlayerFrame` props are identical so the iframe is NOT remounted (correcting the agent's "video resets" claim). Move the closure out / drop `topicQuery` from deps. VALIDATED (LOW).
-- [ ] **[LOW]** `backend/app/services/notifications.py:75-92` - **List + unread-count are two sequential indexed queries** on `GET /notifications` that could be a single windowed query or `asyncio.gather`-ed. Both are indexed and cheap; minor latency only. VALIDATED (LOW).
-
-**Validator rejections (investigated, NOT added):**
-- `media_storage.presign_s3_reference` "HIGH blocking I/O, called per row" — FALSE POSITIVE: `generate_presigned_url` is local HMAC signing (no network call), and `_s3_client` is `@lru_cache(maxsize=8)` (line 207) so the client is reused. Per-row cost is microseconds of CPU.
-- `gamification_read_models.refresh_leaderboard_projection_if_stale` full delete+insert / 4 sequential aggregates in GET — DUPLICATE of the open CRITICAL at line 162.
-- `admin_overview._breakdowns` sequential GROUP BY scans — by-design: serial execution was the deliberate fix (resolved items 24/134) to avoid saturating the DB pool; parallelizing would regress that.
-- `UserSubjectEntitlement` missing `(user_id, status)` composite index — low value: `status` already has its own index, per-user entitlement rows are few, and `build_access_context` filters status in Python (no SQL status predicate to serve). Folded into the memoization finding instead.
-- `verify_checkout_session_state` holding a DB connection during the Stripe call — already addressed (resolved item 59): the verification-attempt row is committed before the Stripe call.
-
-- [x] **[MEDIUM]** `frontend/app/(dashboard)/calendar/page.tsx` - Hardcoded Dummy Name: The calendar greeting hardcodes the fallback name as "Khalid" (`user?.full_name?.split(' ')?.[0] || 'Khalid'`) instead of "Student", causing new users without a configured name to receive a confusingly personalized greeting.
-- [x] **[LOW]** `frontend/app/(dashboard)/calendar/page.tsx` - Missing Empty State: When `eventsForWeek` returns empty, the calendar renders a blank time grid without any helpful "No events scheduled for this week" message, leaving the user guessing if the view is broken or simply empty.
-- [x] **[LOW]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` - Text Overflow Vulnerability: Comment bodies (line 431) use `whitespace-pre-line` but lack `break-words` or `overflow-wrap: break-word`. If a user pastes a long, unbroken string like a URL, it will break out of the container and cause horizontal scrolling.
-- [x] **[LOW]** `frontend/app/(dashboard)/live/page.tsx` - Text Overflow Vulnerability: Live session descriptions lack `break-words` or `line-clamp`, potentially breaking out of their `max-w-[520px]` container if they contain long unbroken text strings.
-
-- [x] **[MEDIUM]** `frontend/app/(dashboard)/live/page.tsx` - Missing Fallback Polling for Ably: The `subscribeKrescoRealtimeChannels` function used here entirely lacks a fallback polling loop (unlike the standard `subscribeKrescoRealtime`). If a student's network blocks Websockets (common on corporate/school WiFi or with certain adblockers), the live schedule will never update unless they manually refresh the page.
-- [x] **[LOW]** `backend/app/services/media_storage.py` - Missing S3 Upload Retry Logic: The `S3MediaStorage.put_object` wraps `boto3.client.put_object` in a raw `asyncio.to_thread` without any application-level retry/backoff loop. While botocore has some defaults, failing an image upload (e.g. transient 500 or timeout) should gracefully retry.
-
-- [x] **[HIGH]** `backend/app/models/gamification.py` - Missing Foreign Key Constraint: The `TopicItemProgress` model defines `topic_item_id` as a simple `Integer` without a `ForeignKey("topic_items.id", ondelete="CASCADE")` constraint (unlike other related models). Over time, if topics or items are deleted, this will silently leave orphaned progress records in the database, breaking referential integrity and potentially causing crash loops or memory leaks when querying progress for removed course content.
-
-- [x] **[HIGH]** `backend/app/services/gamification_stats.py` - Missing Core Business Logic Hooks: The gamification module correctly defines `UserStats` and increment functions (`apply_lesson_progress_stats_delta` and `apply_quiz_pass_stats_delta`), but these are NEVER actually called by any mutation endpoints. Specifically, `complete_topic_item_state` and `submit_tab_quiz_attempt` award XP but completely fail to call the stat delta functions. As a result, a user's gamification profile metrics (Total Watch Time, Lessons Completed, Quizzes Passed) will remain permanently at zero regardless of their real progress, breaking the core gamification loop.
-- [ ] **[HIGH]** `frontend/lib/professor.ts` & `frontend/lib/liveSessionData.ts` - Destructive Unpaginated Polling Fallback: When the Ably realtime websocket fails, the frontend falls back to polling the /interactions endpoint every 5 seconds. However, `listStudentLiveInteractions` issues the GET request WITHOUT cursor pagination (`before_id`) or an increased `limit`. Since the backend defaults to `limit=50`, polling will aggressively wipe out any local chat history beyond the most recent 50 messages on the client side every 5 seconds, severely degrading the UX while simultaneously spamming the database.
-
-- [ ] **[CRITICAL]** `backend/app/services/gamification_read_models.py` - N+1 Million Scale Leaderboard Projection Loop: The `list_leaderboard_entries` function (called by every dashboard page load via `sidebar-summary`) synchronously checks `refresh_leaderboard_projection_if_stale`. If any user on the platform has earned XP recently, this function executes a `SELECT` for *every active user*, runs a `DELETE FROM leaderboard_rank`, and then runs an `INSERT` for *all active users* in a single synchronous API request transaction. At scale (e.g. 50,000 active users), this will cause catastrophic database locking, Out of Memory (OOM) crashes, and transaction timeouts for whoever happens to load the dashboard immediately after any user earns XP.
-
-- [ ] **[HIGH]** `backend/app/models/interactions.py` & `professor.py` - Orphaned Polymorphic Foreign Keys: The `SavedItem` and `ChangeRequest` models use polymorphic references (`target_type` string and `target_id` integer) instead of actual ForeignKeys. Because these are generic integers without database-level `ON DELETE CASCADE` constraints, if an admin deletes a core resource (like a Topic, Question, or TopicItem), all associated saves and change requests become permanently orphaned. This breaks the frontend Professor Dashboard and Student Saved Items views, as they will attempt to render deleted resources or encounter hard 404s when fetching target metadata.
-
-- [x] **[HIGH]** `frontend/components/VideoPlayer.tsx` - Infinite Loading Spinner: The component checks `if (loading || !streamData)` before `if (error)`. If an error occurs during stream fetching, `streamData` is set to `null`, meaning `!streamData` evaluates to true and the component renders the loading spinner indefinitely instead of the error message.
-- [ ] **[LOW]** `frontend/components/AuthGuard.tsx` - Unnecessary Re-fetching: When `requireRole` is active, `needsServerProfile` is always true. Thus, if the `token` changes (like during login), the `useEffect` is re-triggered and makes an unnecessary `getMyProfile()` network call because the state is reset to `idle`.
-
-# SQLAlchemy Models & Services Audit Report
-
-### 1. Unpaginated `.all()` loads / Out of Memory Risks
-- **[CRITICAL]** `backend/app/services/gamification_read_models.py` in `refresh_leaderboard_projection_if_stale`:
-  Uses an unbounded `select(UserXP...)...all()` to pull every single active user into memory, then loops and creates a new `LeaderboardRank` array in python memory, adding all and doing a single `db.add_all(projection_rows)`. With millions of users, this leads to an OOM crash and blocks the database significantly.
-
-### 2. Missing Indexes on Foreign Keys
-- **[HIGH]** Missing index on `LeaderboardRank.user_id` in `gamification.py`
-- **[HIGH]** Missing index on `UserStats.user_id` in `gamification.py`
-- **[HIGH]** Missing index on `Notification.user_id` in `notifications.py`
-  *(Note: Notification tables grow massive. Querying notifications by user without an index on user_id will result in full table scans)*.
-
-### 3. Missing `passive_deletes=True` with `ondelete="CASCADE"`
-- **[HIGH]** Widespread missing `passive_deletes=True` coupled with implicit missing `cascade="all, delete-orphan"` on `relationship` properties in SQLAlchemy.
-  When deleting parents (e.g. `Exam`, `Topic`, `TopicSection`, etc.), SQLAlchemy attempts to cascade by default by setting the foreign key to `NULL` (which causes `IntegrityError` if the column is not nullable) instead of delegating the deletion to the database's `ON DELETE CASCADE`.
-  Affected examples: `Topic.sections`, `TopicSection.items`, `Exam.problems`, `Comment.replies`, `User.notifications`, `LiveSessionCheckpoint.live_session`, `QuestionSet.questions`, etc.
-
-### 4. Transaction / Locking
-- **[INFO]** `with_for_update` correctly utilized in outbox processing (`realtime_outbox.py`), professor chat (`require_professor_conversation`), and interaction mutations (`save_user_item`).
-- **[INFO]** XP operations successfully handle transactions mostly via `on_conflict_do_nothing` or `on_conflict_do_update` native upserts.
+# Agent Bug Dump
 
+Last curated: 2026-06-04
 
-# Security Audit Bugs
+This file is the active bug queue for Kresco. It is intentionally not the raw
+agent transcript. Fixed, stale, duplicate, and false-positive findings live in
+the archive at the bottom so the active queue stays actionable.
 
-## [CRITICAL] Missing Rate Limits on Student Chat Mutations
-**File:** `app/routers/professor.py`
-**Description:** Endpoints that allow students to interact with professors in chat do not have any rate limit enforced (neither via `@limiter.limit` nor programmatic checks). This includes:
-- `POST /api/professor/student-chat/conversations`
-- `POST /api/professor/student-chat/conversations/{conversation_id}/messages`
-- `POST /api/professor/student-chat/conversations/{conversation_id}/images`
-- `PATCH /api/professor/chat/messages/{message_id}` (when called by students)
-- `DELETE /api/professor/chat/messages/{message_id}` (when called by students)
-Since there is no rate limiting, a malicious student can endlessly spam chat messages, upload max-size images, and create new conversations to exhaust the database storage and S3 bucket quota, resulting in a Denial of Service.
+Status rules:
 
-## [HIGH] Missing Rate Limits on Password Reset & Auth Endpoints
-**File:** `app/routers/users.py`
-**Description:** The `POST /api/auth/reset-password` endpoint does not use the `@limiter.limit` decorator. While it does validate a token, an attacker can repeatedly send requests with a valid token and random passwords, triggering computationally expensive `hash_password_async` operations (bcrypt). This allows an attacker to cause CPU exhaustion (DoS). The `POST /api/google-login` and `POST /api/auth/verify-email` endpoints also lack rate limiting.
+- `OPEN`: validated against the current worktree and still actionable.
+- `VERIFY`: plausible but needs one more code/test pass before implementation.
+- `FIXED` or `STALE`: keep only in `Historic Resolved and Stale Bugs`.
 
-## [HIGH] Missing Rate Limits on Professor Course Hierarchy Creation
-**File:** `app/routers/courses.py`
-**Description:** The endpoints `POST /api/courses/subjects` and `POST /api/courses/topics` allow any user with the `professor` role to create course entities. While most professor mutations (in `app/routers/professor.py`) enforce a programmatic rate limit via `enforce_professor_mutation_rate_limit`, these two endpoints in `courses.py` do not. A compromised or malicious professor account can abuse this to endlessly spawn subjects and topics, severely bloating the system.
+When an item is fixed, move it out of `Active Queue` into the archive with the
+commit hash and the validation command. Do not leave fixed bugs in the active
+queue.
 
-## [HIGH] Missing Rate Limits on User Profile Mutations
-**File:** `app/routers/users.py`
-**Description:** The `PATCH /api/profile/me` and `POST /api/profile/me/media/{kind}` endpoints lack `@limiter.limit` decorators. A user can spam profile updates and media uploads (e.g., repeatedly changing avatars), filling up storage quota or overwhelming database operations without restriction.
+Last validation snapshot:
 
+- Worktree was clean before this rewrite.
+- Backend focused checks passed: course access, topic quiz, data integrity, migrations, grading, image uploads, professor platform, interactions, notifications.
+- Frontend focused checks passed: auth/session, payments, dashboard search, topic workspace, video player, admin, profile, typecheck, and lint.
+- Alembic head is `0047`.
 
-- [x] **[CRITICAL]** `backend/app/rate_limit.py` - X-Forwarded-For DoS & Bypass: `_first_forwarded_for_ip` catches `ValueError` and returns `None` if the first IP in the comma-separated list is invalid. This causes the rate limiter to fall back to the proxy's IP, allowing an attacker to maliciously rate limit the proxy and cause a global DoS. Additionally, if the attacker sends a valid spoofed IP, it bypasses their own rate limits since it parses from left-to-right instead of right-to-left. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): skips invalid entries and walks from the right, returning the first IP outside trusted-proxy networks.
-- [x] **[MEDIUM]** `backend/app/rate_limit.py` - Hot-Path Environment Parsing: `_trusted_proxy_networks()` is called on every single incoming request to parse the `KRESCO_TRUSTED_PROXY_IPS` environment variable, split strings, and instantiate `ip_network` objects. This causes severe O(N) performance degradation on the hot path. It should be cached in `app/config.py`. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): parsing moved into @lru_cache _trusted_proxy_networks_for(raw).
-- [x] **[LOW]** `backend/app/rate_limit.py` - Hardcoded Config Values: `DEFAULT_RATE_LIMITS` and `APPLICATION_RATE_LIMITS` are hardcoded in the file instead of being configurable and validated in the `Settings` class (`app/config.py`). [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): sourced from KRESCO_DEFAULT_RATE_LIMITS / KRESCO_APPLICATION_RATE_LIMITS env vars with fallbacks.
+Coverage audit for this rewrite:
 
+- The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
+- Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
+- A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
+## Active Queue
 
+### P0 - Release Blockers
 
+#### BUG-P0-001 - Leaderboard projection refresh locks the hot read path
 
+Status: OPEN
 
+Files: `backend/app/services/gamification_read_models.py`
 
+Current evidence: `list_leaderboard_entries` calls `refresh_leaderboard_projection_if_stale` on dashboard/sidebar reads. If stale, the service selects every active `UserXP`, deletes all `LeaderboardRank` rows, builds ORM objects for every user, then flushes them inside the request transaction.
 
+Risk: dashboard/sidebar reads can trigger table-wide delete/insert work, lock contention, and memory growth at scale.
 
+Fix direction: move refresh to a scheduled/background projection job or replace the delete/reinsert path with chunked upserts and advisory locking.
 
+#### BUG-P0-002 - Backend deploy serves new code before migrations complete
 
+Status: OPEN
 
+Files: `.github/workflows/deploy-backend.yml`
 
+Current evidence: deploy runs `zappa deploy || zappa update` before invoking `app.scheduled.run_alembic_migrations_event`.
 
+Risk: production traffic can hit new code against old schema; async Zappa invocation can hide migration failure from CI.
 
-- [ ] **[CRITICAL]** ackend/app/services/media_storage.py - Synchronous Blocking S3 Operations in async Environment: In S3MediaStorage.put_object, large file uploads (the entire content: bytes payload) are dispatched using self.client.put_object inside syncio.to_thread. Boto3 is synchronous and its default timeout properties (often 60 seconds) can cause thread starvation. If many users upload files concurrently or if AWS connection drops and blocks, the underlying thread pool exhausts, blocking the FastAPI event loop for other asynchronous tasks. Additionally, there is absolutely no retry logic (using e.g., Tenacity) for transient S3 network failures or 5xx errors.
+Fix direction: run and verify migrations before traffic reaches the new code, or deploy with a maintenance/compatibility gate and fail CI on migration failure.
 
-- [x] **[CRITICAL]** ackend/app/services/payment_lifecycle.py - Webhook Idempotency Vulnerability leading to Stale Entitlements: In process_stripe_webhook_event, for the charge.dispute.created event, if the customer field is missing from the payload, the code calls customer_id_for_charge_fn. If that external Stripe API call fails (due to a transient network error, missing retry logic, etc.), customer_id_for_charge_fn returns an empty string. The webhook handler then checks if not resolved_dispute_customer_id:, logs a warning, and explicitly executes wait db.commit() before returning {"received": True}. This commits the event as "processed" in the stripe_webhook_events table (handled previously by
-ecord_stripe_webhook_event_once), meaning Stripe will never retry it, but the user's disputed paid access is never revoked.
+#### BUG-P0-003 - Frontend integration E2E uses SQLite instead of Postgres
 
-- [x] **[RESILIENCE]** ackend/app/services/stripe_service.py - Missing Retries and Strict Timeouts on Stripe API Calls: _call_stripe dispatches synchronous stripe SDK calls to a thread pool but does not wrap them in any resilience mechanism (no Tenacity retries, no circuit breakers). Transient network errors when verifying checkout sessions (erify_checkout_session) or fetching customer details (customer_id_for_charge) will fail immediately. This causes users to see failed checkout verification even if they paid, forcing manual support intervention.
+Status: OPEN
 
-- [x] **[RESILIENCE]** ackend/app/services/email.py - Missing Retries on Critical Notification External Dependencies: _send_email_sync uses
-equests.request synchronously inside a thread pool with a 10-second timeout. However, it lacks any retry logic for transient 5xx or 429 (Rate Limit) errors from the external Resend API. If sending an email fails, the process raises an exception and the critical email (like password reset or email verification) is permanently lost, causing poor user experience.
+Files: `frontend/playwright.integration.config.ts`, `backend/scripts/prepare_e2e_db.py`
 
-- [x] **[RESILIENCE]** ackend/app/services/vdocipher.py - Missing Retries on VdoCipher Provider Integration: get_video_otp and create_live_stream perform httpx.AsyncClient HTTP calls to the VdoCipher API. Although they have timeouts configured (10 and 15 seconds), they immediately throw HTTP Exceptions on any transient failure. These operations should be resilient against short-lived networking drops.
-- [ ] **[STRUCTURAL]** \ackend/app/routers/professor.py\ - File size issue (734 lines). Heavy coordination file serving as a monolithic router for chat, live sessions, offerings, and requests. Can be split into \professor_chat.py\, \professor_live.py\, etc. to adhere to the thermo-nuclear maintainability standards.
+Current evidence: default integration database URL is `sqlite+aiosqlite:///./e2e.sqlite3`.
 
+Risk: Postgres-specific SQL, JSON, constraints, and migrations can fail in production while integration tests pass.
 
-- [ ] **[CRITICAL]** `backend/app/services/media_storage.py` - Synchronous Blocking S3 Operations in async Environment: In `S3MediaStorage.put_object`, large file uploads (the entire `content: bytes` payload) are dispatched using `self.client.put_object` inside `asyncio.to_thread`. Boto3 is synchronous and its default timeout properties (often 60 seconds) can cause thread starvation. If many users upload files concurrently or if AWS connection drops and blocks, the underlying thread pool exhausts, blocking the FastAPI event loop for other asynchronous tasks. Additionally, there is absolutely no retry logic (using e.g., Tenacity) for transient S3 network failures or `5xx` errors.
+Fix direction: run integration E2E against a Postgres service in CI.
 
-- [x] **[CRITICAL]** `backend/app/services/payment_lifecycle.py` - Webhook Idempotency Vulnerability leading to Stale Entitlements: In `process_stripe_webhook_event`, for the `charge.dispute.created` event, if the `customer` field is missing from the payload, the code calls `customer_id_for_charge_fn`. If that external Stripe API call fails (due to a transient network error, missing retry logic, etc.), `customer_id_for_charge_fn` returns an empty string. The webhook handler then checks `if not resolved_dispute_customer_id:`, logs a warning, and explicitly executes `await db.commit()` before returning `{"received": True}`. This commits the event as "processed" in the `stripe_webhook_events` table (handled previously by `record_stripe_webhook_event_once`), meaning Stripe will never retry it, but the user's disputed paid access is never revoked.
+#### BUG-P0-004 - Backend pytest bypasses Alembic migrations
 
-- [x] **[RESILIENCE]** `backend/app/services/stripe_service.py` - Missing Retries and Strict Timeouts on Stripe API Calls: `_call_stripe` dispatches synchronous `stripe` SDK calls to a thread pool but does not wrap them in any resilience mechanism (no Tenacity retries, no circuit breakers). Transient network errors when verifying checkout sessions (`verify_checkout_session`) or fetching customer details (`customer_id_for_charge`) will fail immediately. This causes users to see failed checkout verification even if they paid, forcing manual support intervention.
+Status: OPEN
 
-- [x] **[RESILIENCE]** `backend/app/services/email.py` - Missing Retries on Critical Notification External Dependencies: `_send_email_sync` uses `requests.request` synchronously inside a thread pool with a 10-second timeout. However, it lacks any retry logic for transient `5xx` or `429` (Rate Limit) errors from the external Resend API. If sending an email fails, the process raises an exception and the critical email (like password reset or email verification) is permanently lost, causing poor user experience.
+Files: `backend/tests_fastapi/conftest.py`
 
-- [x] **[RESILIENCE]** `backend/app/services/vdocipher.py` - Missing Retries on VdoCipher Provider Integration: `get_video_otp` and `create_live_stream` perform `httpx.AsyncClient` HTTP calls to the VdoCipher API. Although they have timeouts configured (10 and 15 seconds), they immediately throw HTTP Exceptions on any transient failure. These operations should be resilient against short-lived networking drops.
+Current evidence: test DB setup calls `Base.metadata.create_all`.
 
-- [x] **[HIGH]** `backend/app/services/professor_audit.py` - DB Rate Limiter Defeated by Dynamic URL Paths: The `enforce_professor_mutation_rate_limit` function filters by `AdminAuditLog.request_path == str(request.url.path)`. Because the request path includes dynamic item IDs (e.g., `/api/professor/chat/conversations/123/messages`), the burst limit is scoped to the specific item rather than the API globally. A malicious user can bypass the 12/minute mutation limit by simply mutating 12 different items (e.g., 12 different conversations). This completely defeats the burst limit.
+Risk: Alembic upgrade syntax, missing constraints, downgrade hazards, and migration ordering can be invisible to the main test suite.
 
-- [ ] **[STRUCTURAL]** `backend/tests_fastapi/test_professor_platform.py` - File size explosion (1990 lines). Needs decomposition into smaller test files based on feature.
-- [ ] **[STRUCTURAL]** `frontend/components/quiz/QuizPrimitiveRenderers.tsx` - Approaching 1000 lines (928 lines). Contains multiple independent React components that should be decomposed.
-- [ ] **[STRUCTURAL]** `frontend/components/figma/profile.tsx` - File size issue (841 lines). Needs breakdown into smaller profile sub-components.
-- [ ] **[REFACTOR]** `frontend/app/(dashboard)/professor-chat/page.tsx` - Spaghetti/branching complexity. This 640-line file mixes data loading, error states, and multiple distinct views (active chat vs start conversation).
-- [ ] **[REFACTOR]** `backend/app/services/professor_live_sessions.py` - Massive repetition and missing state machine abstraction. The status transition functions (cancel_, notify_, start_, end_) are almost identical copy-pasted blocks and should be folded into a single state machine function (code-judo).
-- [x] **[PRIVACY]** `app/routers/telemetry.py` - PII leaking into logs. Client telemetry payload messages and route variables log arbitrary user input without sanitization, and exception traces in email dispatch may inadvertently capture PII. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): client-error log/metric record only presence/length booleans; log_email_dispatch_failure dropped exc_info. (model-level scrubbing item still open)
-- [ ] **[PRIVACY]** `backend/app/models/` - Lack of PII scrubbing: EmailDispatchThrottle stores emails as bare strings without foreign keys to users. It is orphaned and not scrubbed during user deletion.
-- [ ] **[LOGIC]** `app/services/xp.py` - Timezone exploits: The gamification logic relies on global UTC midnight (_current_utc_date()). Users in certain time zones can manipulate playtimes right before and after UTC midnight to claim consecutive daily rewards within their same local day.
-- [ ] **[LOGIC]** `app/services/xp.py` - State machine exploits: The award_xp function does a non-atomic SELECT then INSERT to evaluate idempotency. Even worse, the unique DB constraint allows duplicate NULLs, meaning actions without explicit idempotency keys are vulnerable to parallel duplicate-XP injection.
+Fix direction: migrate test DBs with Alembic for at least the default backend suite, keeping a small fast metadata suite only if explicitly named.
 
-- [ ] **[STRUCTURAL]** `frontend/tests/e2e/integration.spec.ts` & `frontend/tests/e2e/next16-smoke.spec.ts` - E2E Testing Monoliths: These files are >30KB and cram dozens of end-to-end integration and smoke workflows into single files. They need to be decomposed by feature (e.g. quiz-engine.spec.ts, dashboard-onboarding.spec.ts) to improve Playwright worker parallelization and ease of debugging.
-- [ ] **[STRUCTURAL]** `backend/tests_fastapi/test_professor_platform.py` - Test Fixture Duplication: Beyond its massive size (already flagged), the file contains highly repetitive database-seeding boilerplate (creating users, course offerings, VIP subscriptions) scattered across individual test functions rather than using extracted, DRY pytest fixtures in conftest.py.
+#### BUG-P0-005 - AuthGuard does not enforce student onboarding completion
 
-- [x] **[HIGH]** `backend/app/services/payment_lifecycle.py` - Stripe Dispute Webhook Idempotency Regression: `process_stripe_webhook_event` now records the webhook event before resolving a missing `charge.dispute.created` customer via `customer_id_for_charge_fn`. This breaks the existing `test_webhook_resolves_dispute_customer_before_recording_event` test and reintroduces the stale-entitlement failure mode: if the customer lookup fails or returns empty after the event is recorded, Stripe retries can be treated as duplicates while paid access is never revoked.
+Status: OPEN
 
-- [ ] **[HIGH]** `backend/app/services/professor_chat_mutations.py` - Race-Path 500 on Duplicate Student Conversation: `start_student_conversation_state` catches `IntegrityError` after `db.flush()`, but the module does not import `IntegrityError`. The normal serial duplicate path returns 409 before the flush, so current happy-path tests pass; under a real concurrent duplicate insert that hits the database unique constraint, the exception handler raises `NameError` instead of the intended 409.
+Files: `frontend/components/AuthGuard.tsx`, `frontend/lib/authPolicy.ts`
 
-- [ ] **[MEDIUM]** `backend/app/services/professor_queries.py` - Professor Dashboard Under-Counts Unread Chat Messages: `professor_dashboard` changed `chat_unread_count` from summing `ProfessorChatConversation.unread_for_professor` to counting conversations where the value is greater than zero. A single conversation with 4 unread messages now contributes `1` to the dashboard badge, while the chat page still displays the per-conversation unread count. This is a user-visible correctness bug and should be covered by a behavioral dashboard test.
+Current evidence: `getStudentOnboardingStep` exists, but `AuthGuard` only checks role/staff through `hasRequiredAuthAccess` before rendering protected student routes.
 
-- [ ] **[MEDIUM]** `backend/app/services/telemetry.py` - Unbounded Fire-and-Forget Telemetry Executor Work: `emit_metrics` now calls `loop.run_in_executor(None, _write_stdout, line)` for every emitted metric without retaining the future, bounding concurrency, or surfacing failures. Under request spikes this can enqueue unbounded stdout flush work into the default executor, create thread-pool pressure, and silently drop telemetry write failures. Use a bounded queue/background drain or a dedicated executor with backpressure.
+Risk: a student with missing `niveau` or `filiere` can navigate directly to dashboard routes after server profile verification.
 
-## Round 5 - Full Project Deep Audit (2026-05-31)
+Fix direction: make `AuthGuard` redirect incomplete non-professor students to the onboarding flow unless the current route is the onboarding route itself.
 
-- [x] **[CRITICAL]** `backend/app/services/payment_lifecycle.py` / `backend/tests_fastapi/test_payments.py` - Backend suite is red on the Stripe dispute webhook ordering regression. `python -m pytest tests_fastapi -q` currently reports `4 failed, 394 passed`, and `test_webhook_resolves_dispute_customer_before_recording_event` proves `record_webhook_event_once_fn` still runs before the missing `charge.dispute.created` customer is resolved. This is a current validation blocker for an already dangerous stale-entitlement path: a transient charge lookup miss can mark the Stripe event processed while never revoking disputed paid access.
+### P1 - Correctness, Security, and Scalability Bugs
 
-- [x] **[HIGH]** `backend/app/services/stripe_service.py` / `backend/app/services/payment_lifecycle.py` / `frontend/lib/payments.ts` - Checkout verification idempotency can be poisoned by transient Stripe failures. `verify_checkout_session_state` records the verification attempt before the provider lookup, `verify_checkout_session` converts `stripe.StripeError` into an unpaid result, and the frontend sends a stable `verify-${sessionId}` idempotency key. A one-off Stripe outage can therefore persist a failed attempt and make user retries with the same session/key skip the remote lookup, keeping a paid user locked out until manual intervention.
+#### BUG-P1-001 - Admin overview opens too many concurrent DB reads
 
-- [x] **[HIGH]** `backend/app/schemas/users.py` / `backend/app/services/user_profile.py` / `backend/tests_fastapi/test_profile.py` / `backend/tests_fastapi/test_schema_limits.py` - Profile update contract drift is breaking the backend suite. `UserUpdateIn` now only accepts `full_name`, `niveau`, and `filiere`, while `test_patch_profile_updates_identity_fields` still posts `avatar_url` and `banner_url` and gets 422, and `test_request_schema_string_fields_have_max_length_constraints` raises `KeyError: 'avatar_url'`. Either direct URL updates were intentionally removed and the tests/frontend contracts need to be rewritten, or avatar/banner update support was accidentally dropped. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): avatar/banner reinstated as bounded ProfileMediaReferenceText; tests updated; full backend suite green.
+Status: OPEN
 
-- [x] **[MEDIUM]** `backend/app/services/realtime_access.py` / `backend/tests_fastapi/test_realtime.py` - Realtime misconfiguration diagnostics regressed from actionable to generic. `test_ably_token_returns_503_when_key_is_missing` still expects the 503 detail to identify `ABLY_API_KEY`, but `build_ably_token` now returns only `"Realtime services are currently misconfigured or unavailable"`. That makes operator triage harder and leaves the suite failing. [validation:opus48] VALIDATED by Opus 4.8 (commit 055683a): 503 detail now 'Realtime services are currently misconfigured: ABLY_API_KEY' (fixed string, not str(exc)).
+Files: `backend/app/services/admin_overview.py`
 
-- [ ] **[MEDIUM]** `backend/app/main.py` / `backend/app_handler.py` - Lambda `root_path` is hard-coded to `"/production"` for every Lambda environment. `app_handler.py` strips the configured stage prefix based on `_settings.environment`, but `create_app` still advertises `/production` whenever `settings.is_lambda` is true. Staging Lambda docs/OpenAPI URL generation and mounted path metadata can therefore point at production even when the active API Gateway stage is staging.
+Current evidence: `_gather_reads` fans out many read operations with separate sessions, and the overview calls it repeatedly for counts, breakdowns, progress, live events, interactions, and notifications.
 
-- [ ] **[MEDIUM]** `backend/app/schemas/courses.py` / `backend/app/schemas/professor.py` - Several request models accept arbitrary JSON blobs without schema or depth constraints: `TabQuizSubmitIn.answers: dict[ShortText, Any]` and professor change request snapshots/patches as `dict[str, Any]`. The global 8 MB request cap is not a domain invariant; these fields can still persist large, deeply nested, or unexpected structures into database JSON columns and push complexity into every downstream renderer/auditor.
+Risk: admin dashboard refreshes can exhaust the DB pool and amplify table-scan pressure.
 
-- [ ] **[MEDIUM]** `frontend/proxy.ts` / `frontend/scripts/audit-csp-styles.mjs` / `frontend/**/*.tsx` - CSP style hardening is budgeted to pass while still allowing inline style channels. `npm run audit:csp-styles` exits 0 even though the active CSP includes `style-src-elem 'unsafe-inline'` and `style-src-attr 'unsafe-inline'`, and the audit reports 55 files with inline style debt and 114 `style={...}` attributes. This is useful as a migration counter, but it is not yet a production-grade CSP gate.
+Fix direction: reuse a bounded session/read transaction strategy and serialize heavy aggregates.
 
-- [ ] **[HIGH]** `frontend/components/animated/source-ports/**` - Source-ported interactive labs disable too many correctness rules file-wide. Dozens of files start with broad `eslint-disable` headers that include `react-hooks/exhaustive-deps`, `@typescript-eslint/no-unused-vars`, `@typescript-eslint/no-unused-expressions`, `react/display-name`, and `prefer-const`. These are not narrow suppressions; they hide stale-closure bugs, dead state, accidental no-op expressions, and component naming issues in the most complex interactive course content.
+#### BUG-P1-002 - Quiz discovery still performs per-question-set access checks
 
-- [ ] **[MEDIUM]** `frontend/components/animated/source-ports/math/math-sets-lab/pages/MathSetsPage.tsx` - Math sets lab still contains placeholder interactive content and audit-comment residue. The file includes a comment about restoring dummy spans and renders `[Zone d'animation interactive a venir]` for at least one section, so a shipped learning page can silently present an unfinished simulator instead of a real interaction.
+Status: OPEN
 
-- [ ] **[MEDIUM]** `frontend/tests/e2e/live-session-fanout.integration.spec.ts` - The "Live session fanout" E2E does not prove app fanout. It skips unless a real `ABLY_API_KEY` is present, then opens `/`, publishes to a generated Ably channel through REST, and verifies Ably history through REST. It never subscribes through the Kresco UI/client to that channel, so it can pass while the application's realtime subscription wiring is broken.
+Files: `backend/app/routers/quizzes.py`
 
-- [ ] **[MEDIUM]** `AGENT_BUG_DUMP.md` - The agent dump itself is corrupted with NUL/control bytes. A raw byte scan found 331 NUL bytes with the first around offset 117101, and `rg` treats the file as binary. That breaks normal search/deduplication for future agents and explains why duplicate bug entries are accumulating near the tail.
+Current evidence: `get_subject_quiz_discovery` loads up to 25 question sets, then calls `_question_set_access` inside a Python loop.
 
-- [ ] **[MEDIUM]** `diff_review.txt` - A generated review artifact is tracked in the repository at about 6.2 MB. It appears in normal `rg` sweeps, duplicates historical diffs and old placeholder strings, and adds significant noise to audits without being source, test, or durable documentation. Repository hygiene does not flag it.
+Risk: subject discovery remains O(N) in DB access checks.
 
-- [ ] **[MEDIUM]** `scripts/check_repo_hygiene.py` / workspace root - Repo hygiene only scans `git ls-files`, so it can pass while the working tree contains large ignored/untracked artifacts that agents and local tooling still see. Current local state includes untracked `package/`, untracked `backend/AGENT_BUG_DUMP.md`, ignored `switchboard-fyi-0.2.9.tgz`, local `.uvicorn` and `.next-dev` logs, and an ignored `backend/venv/`. CI may not see these files, but local audits and broad searches do.
+Fix direction: batch the access predicates or prejoin the needed parent context.
 
-## Round 6 - Security and Rate-Limit Fix Validation (2026-05-31)
+#### BUG-P1-003 - Legacy quiz submit corrupts attempt analytics
 
-This section supersedes duplicate open bullets above where the same defect is listed again from older audit passes. Validation was performed by the parent agent after mini context agents and 5.4/xhigh fix agents completed their passes. `frontend/components/quiz/QuizPrimitiveRenderers.tsx` and quiz primitive code were intentionally left untouched.
+Status: OPEN
 
-- [x] **[CRITICAL]** `backend/app/services/payment_lifecycle.py` - Stripe dispute webhook stale-entitlement path fixed. Missing `charge.dispute.created` customer resolution now returns retryable HTTP 503 before recording the webhook event, so Stripe can retry instead of locking in a processed-but-unrevoked dispute. Covered by `test_webhook_charge_dispute_lookup_failure_retries_without_recording_event` and `test_webhook_resolves_dispute_customer_before_recording_event`.
-- [x] **[HIGH]** `backend/app/services/stripe_service.py` / `backend/app/services/payment_lifecycle.py` - Checkout verification idempotency poisoning fixed for retryable Stripe failures. Retryable Stripe errors now surface as HTTP 503 and release the persisted verification attempt, allowing the same idempotency key to succeed on retry.
-- [x] **[HIGH]** `backend/app/routers/users.py`, `backend/app/routers/courses.py`, `backend/app/routers/notifications.py`, `backend/app/routers/payments.py`, `backend/app/routers/professor.py`, `backend/app/routers/admin.py`, `backend/app/routers/internal.py` - Sensitive mutation and expensive read paths now have explicit route-level throttles in addition to global SlowAPI limits.
-- [x] **[HIGH]** `backend/app/rate_limit.py` - Trusted proxy keying now skips invalid `X-Forwarded-For` candidates, scans right-to-left for the first untrusted client IP, caches parsed trusted proxy networks, and exposes global rate limits through environment-configurable values.
-- [x] **[HIGH]** `backend/app/services/professor_audit.py` - Professor mutation DB limiter now groups dynamic route instances by FastAPI route template instead of raw object IDs, closing the "different IDs bypass burst limit" defect.
-- [x] **[CRITICAL]** `backend/app/config.py` / `backend/app/main.py` - Blank `CORS_ALLOW_ORIGIN_REGEX` no longer becomes a wildcard regex when credentials are enabled.
-- [x] **[CRITICAL]** `backend/app/services/auth.py` - Forced Google JWKS refresh is throttled so repeated invalid-token attempts cannot force unbounded external JWKS fetches.
-- [x] **[CRITICAL]** `backend/app/services/course_progress.py` / `backend/app/services/gamification_progress.py` - Watch-time spoofing by repeated immediate progress calls fixed. Grace/trust seconds are now one-time initial allowances; subsequent increments require elapsed wall-clock time.
-- [x] **[HIGH]** `backend/app/schemas/users.py` / `backend/app/services/user_profile.py` - Profile media URL patching no longer accepts arbitrary external URLs; only empty values, local `/media/profile/...`, and internal `s3://...` references are accepted, with bounded lengths.
-- [x] **[CRITICAL]** `backend/app/admin/views.py` - SQLAdmin non-superuser account takeover path fixed with backend `UserAdmin.on_model_change` enforcement for protected accounts and email changes.
-- [x] **[HIGH]** `backend/app/services/professor_chat_mutations.py` - Duplicate student conversation race path now imports/catches `IntegrityError` and returns the intended 409 instead of a `NameError`.
-- [x] **[MEDIUM]** `backend/app/services/professor_queries.py` - Professor dashboard unread chat count restored to sum unread messages, not count conversations.
-- [x] **[MEDIUM]** `backend/app/services/realtime_access.py` - Ably misconfiguration errors again name `ABLY_API_KEY` for operator triage.
-- [x] **[LOW]** `backend/app/services/media_storage.py` - Local and S3 mock storage writes are now moved off the event loop, and traversal tests include Windows-style and nested traversal separators.
-- [x] **[CRITICAL]** `frontend/components/AuthGuard.tsx` / `frontend/lib/authSession.ts` - Forged localStorage user state no longer counts as an authenticated session. AuthGuard verifies protected sessions through `/profile/me` before rendering.
-- [x] **[HIGH]** `frontend/lib/axios.ts` - CSRF token attachment is now limited to same-origin or configured API-origin unsafe requests, preventing cross-origin CSRF token leakage.
-- [x] **[HIGH]** `frontend/proxy.ts` / `frontend/lib/productionEnv.mjs` - Frontend middleware no longer requires the backend symmetric `JWT_SECRET_KEY`. The proxy is now a coarse cookie/expiry gate and server-verified `AuthGuard` remains the role/staff authorization boundary, so the frontend deployment no longer carries the backend signing secret.
-- [x] **[MEDIUM]** `frontend/next.config.mjs` / `frontend/scripts/audit-csp-styles.mjs` - Next config no longer emits a weaker global CSP header. The CSP audit now fails if `next.config` reintroduces CSP while proxy-owned CSP remains the canonical policy surface.
-- [x] **[MEDIUM]** `AGENT_BUG_DUMP.md` - Removed embedded NUL/control bytes from the dump. Post-clean byte scan: 0 NUL bytes and 0 non-tab/newline/carriage-return control bytes.
-- [x] **[LOW]** `frontend/lib/adminOverview.ts` - Admin metric formatting is now locale-stable (`en-US`) so tests and production displays do not vary by host locale.
+Files: `backend/app/routers/quizzes.py`
 
-Validated commands:
+Current evidence: `submit_quiz` inserts `QuizAttempt(attempt_number=1)` and returns `xp_earned=0` for every legacy quiz submission.
 
-- `backend`: `.\venv\Scripts\python.exe -m pytest tests_fastapi -q` -> 411 passed.
-- `frontend`: `npm.cmd run lint` -> passed.
-- `frontend`: `npm.cmd run typecheck` -> passed.
-- `frontend`: `npm.cmd run test` -> 58 files, 225 tests passed.
-- `frontend`: `npm.cmd run audit:csp-styles` -> passed; reports no `next.config` CSP and no broad `style-src 'unsafe-inline'`.
-- `frontend`: `npm.cmd run build` -> passed.
+Risk: duplicate attempt numbers, no XP parity with tab quizzes, and analytics divergence.
 
-Remaining rewrite candidates deliberately not fixed in this pass:
+Fix direction: route legacy submissions through the same attempt numbering, idempotency, grading, and XP service used by tab quizzes.
 
-- [ ] **[REWRITE]** `backend/app/services/professor_live_sessions.py` - Live-session transition functions remain repetitive and should be collapsed into a dedicated transition/state-machine executor.
-- [ ] **[REWRITE]** `backend/app/routers/professor.py` / `backend/tests_fastapi/test_professor_platform.py` - Professor router and platform tests are still too broad; split by chat/live/change-request domains.
-- [ ] **[REWRITE]** `frontend/components/animated/source-ports/**` - Source-ported labs still need a planned lint-boundary cleanup. Broad file-level disables should be replaced with narrow suppressions. The quiz primitives remain intentionally out of scope.
-- [ ] **[PRIVACY]** `backend/app/services/telemetry.py` / `backend/app/models/email_dispatch.py` - PII retention/logging policy still needs a broader privacy pass.
+#### BUG-P1-004 - Professor dashboard unread aggregate remains request-time work
 
-## Round 7 - Follow-Up Audit With Subagents (2026-06-01)
+Status: OPEN
 
-Same structure used as the previous round: low-cost explorer agents handled backend security, frontend/security, and architecture/hygiene context; 5.4/xhigh workers handled bounded backend fixes; the parent agent validated final current-state behavior. `frontend/components/quiz/QuizPrimitiveRenderers.tsx` and quiz primitive files were not touched.
+Files: `backend/app/services/professor_queries.py`
 
-Fixed and validated:
+Current evidence: the dashboard still computes unread chat totals from conversation rows on demand.
 
-- [x] **[HIGH]** `backend/app/services/user_profile.py` / `backend/tests_fastapi/test_profile.py` - Closed the profile media presign-oracle regression. `PATCH /api/profile/me` can no longer introduce new arbitrary `/media/profile/...` or `s3://...` references; it can only echo the current uploaded reference or clear it. New media must be minted through the profile media upload endpoint.
-- [x] **[MEDIUM]** `backend/app/services/auth.py` / `backend/tests_fastapi/test_auth_service.py` - Google JWKS refresh throttling now still permits one real missing-`kid` rotation refetch, while repeated misses for the same `kid` remain throttled against the current JWKS fingerprint.
-- [x] **[MEDIUM]** `backend/app/schemas/limits.py`, `backend/app/schemas/courses.py`, `backend/app/schemas/professor.py` - Bounded arbitrary JSON request fields. `TabQuizSubmitIn.answers` now accepts only supported scalar/list/shallow-object answer shapes with key, string, count, nesting, finite-number, and byte-size limits. `ProfessorChangeRequestIn` JSON blobs now have explicit depth, list/dict size, string, and byte-size bounds.
-- [x] **[MEDIUM]** `backend/app/services/telemetry.py`, `backend/app/routers/telemetry.py`, `backend/app/services/auth_email_dispatch.py` - Client telemetry no longer logs/emits raw browser `message`, `route`, or stack data; metrics carry safe presence/length fields. Telemetry stdout writes now use a bounded dedicated executor path instead of unbounded default-executor submissions. Email dispatch failure logs retain `flow` and `error_type` without `exc_info=True`.
-- [x] **[MEDIUM]** `scripts/check_repo_hygiene.py` - Hygiene gate now scans tracked plus non-ignored untracked paths and detects generated audit helper scripts, duplicate dumps, root audit scratch docs, `diff_review.txt`, and the untracked `package/` artifact tree. Current repo still fails the gate until those artifacts are deliberately cleaned or documented.
-
-Validated commands:
-
-- `backend`: `.\venv\Scripts\python.exe -m pytest tests_fastapi -q` -> 431 passed.
-- `frontend`: `npm.cmd run test` -> 58 files, 225 tests passed.
-- `frontend`: `npm.cmd run typecheck` -> passed.
-- `frontend`: `npm.cmd run lint` -> passed.
-- `frontend`: `npm.cmd run audit:csp-styles` -> passed; still reports 55 files / 114 inline style attributes as CSP migration debt.
-- `frontend`: `npm.cmd run build` -> passed.
-- `scripts`: `python -m py_compile scripts/check_repo_hygiene.py` -> passed.
-- `scripts`: `python scripts/check_repo_hygiene.py` -> correctly failed on current generated/audit artifacts, proving the previous blind spot is closed.
-
-Current open findings after Round 7:
-
-- [ ] **[HYGIENE]** Working-tree generated artifacts still need an explicit cleanup decision: `ARCHITECTURAL_SUGGESTIONS.md`, `append_bugs*.py`, `append_perf.py`, `find_large.py`, `mark_dump.py`, `backend/AGENT_BUG_DUMP.md`, tracked `diff_review.txt`, and untracked `package/`.
-- [ ] **[REWRITE]** `backend/app/services/professor_chat_mutations.py` - Duplicated professor/student chat mutation flows should be collapsed into a single mutation pipeline with actor policy hooks for access, persistence, audit, and realtime dispatch.
-- [ ] **[REWRITE]** `backend/app/services/professor_live_sessions.py` - Live-session lifecycle functions still need the transition/state-machine executor called out in Round 6.
-- [ ] **[REWRITE]** `backend/app/admin/views.py` - SQLAdmin registry is still a broad 600+ line domain-mixed registry; split by bounded domain and centralize repeated policy/column scaffolding.
-- [ ] **[REWRITE]** `backend/tests_fastapi/test_professor_platform.py` - Still a large mixed-domain test module; split dashboard/live/chat/change-request coverage and move repeated seed helpers into fixtures.
-- [ ] **[REWRITE]** `frontend/components/animated/source-ports/**` - 100 source-port files still carry file-wide lint disables; 78 suppress `react-hooks/exhaustive-deps`. `DiffractionPage.tsx` and `PrismPage.tsx` remain current examples. Keep quiz primitives out of this rewrite unless explicitly requested.
-- [ ] **[STALE DUMP]** Older dump line 81 says route protection was fixed by verifying HS256 with frontend `JWT_SECRET_KEY`; Round 6 supersedes that. Current intended boundary is a coarse proxy cookie/expiry gate plus server-verified `AuthGuard`, so the frontend no longer carries the backend signing secret.
-
-## Round 8 - Non-AI Feature Gap Audit With Subagents (2026-06-01)
-
-Scope: feature-wise missing or partial implementation only. AI/generation/professor-chat features were excluded. Cheap explorer agents audited learning/course UX, monetization/account/access, and admin/ops/content authoring; the parent agent validated against the current worktree and product docs. No fixes were made in this round.
-
-Not counted as gaps:
-
-- Stripe recurring subscriptions were not counted because `docs/knowledge-base/access-billing.md` and `docs/stripe-integration.md` explicitly define the current billing model as one-time Pro checkout.
-- Calendar was not counted as a major gap in this pass: the weekly grid, event detail card, preparation link, join link, and realtime refresh path are wired through current code.
-
-Current feature gaps:
-
-- [ ] **[HIGH]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` / `frontend/components/figma/workspace.tsx` / `frontend/components/VideoPlayer.tsx` / `backend/app/routers/courses.py` - Topic Workspace does not use the implemented VdoCipher TopicItem stream/player path. The backend exposes `GET /api/courses/topic-items/{item_id}/stream`, and `VideoPlayer.tsx` knows how to fetch that endpoint and load VdoCipher, but the actual Topic Workspace renders `VideoPlayerFrame`, which is a YouTube/no-cookie iframe fed by `youtubeVideoIdForTab()`. This leaves provider-backed `Resource` videos modeled server-side but not actually consumed by the main learning room, despite `docs/vdocipher-integration.md` saying TopicItem-first content should render provider-backed video through `Resource` and `TabContent`.
-- [ ] **[HIGH]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` / `backend/app/services/course_tab_quiz_submission.py` / `backend/app/routers/quizzes.py` - Quiz tabs lack the learner loop promised by the product model. The tab UI supports answer entry and one-shot submission, then shows only a score/XP pill. There is no per-question review, attempt history, retry flow, weak-question retry, or previous/best/latest attempt display, even though the backend persists `QuizAttempt`, `QuestionAttempt`, grading, attempt numbers, best score, and question-level correctness.
-- [ ] **[MEDIUM]** `frontend/components/VideoQuizOverlay.tsx` - Video checkpoints are still unimplemented. The product model allows "a checkpoint inside a video path", but `VideoQuizOverlay` accepts lesson/current-time/pause/resume/XP props and returns `null`. That is a stubbed feature surface rather than a broken edge case.
-- [ ] **[MEDIUM]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` - Resource/download tabs are metadata-only. The docs say Topic Workspace must support resource download/preview, and the API/model carries `Resource.url`, provider fields, summary, and access metadata, but the tab renderer only prints resource title and type. There is no open, preview, download, or "resource opened" action.
-- [ ] **[MEDIUM]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` / `backend/app/routers/interactions.py` - Workspace notes are create-only in the learning room. The Notes tab posts new notes but does not fetch or display existing notes for the item/tab, and the interactions router exposes only `GET /notes` and `POST /notes` with no update/delete route. Profile deep links exist, but the in-workspace "review notes" and "notes edited" loop remains missing.
-- [ ] **[MEDIUM]** `frontend/app/(dashboard)/exam-bank/page.tsx` / `backend/app/routers/courses.py` - Exam Bank advanced browsing is still shallow. The docs require subject, topic, year, concept, difficulty, written-solution, video-solution, completion/attempt, and saved filters. The backend accepts `subject_id`, `topic_id`, `year`, and `q`, but `q` only filters exam titles; topic filtering happens after loading exams; the frontend exposes only one search box and caps rendered exams/problems. There is no first-class filter UI for difficulty/concepts/solution availability/completion/saved state.
-- [ ] **[MEDIUM]** `backend/app/services/course_topic_mutations.py` / `backend/app/services/course_tab_quiz_submission.py` / `backend/app/services/interaction_mutations.py` / `frontend/app/(dashboard)/exam-bank/page.tsx` - Progress/XP action coverage is partial. Docs list resource opened, notes created/edited, exam problem opened/attempted, lab opened/completed, quiz/question answers, and video completion as trackable actions. Current XP/progress paths mainly cover manual topic item completion and quiz submission; notes/saves do not emit activity/XP, resource opening has no action, and exam problems have no attempt/open workflow.
-- [ ] **[LOW]** `backend/app/services/course_topic_read_models.py` / `backend/app/schemas/courses.py` / `frontend/lib/topicWorkspaceTypes.ts` - Topic search promises difficulty tags but the Topic Workspace data path only exposes/searches item text, resource/tab text, notes, and `concept_slugs`. There is no `difficulty`/difficulty-tag field on `TopicItemOut` or frontend `TopicItem`, so difficulty search/filtering cannot be implemented from the current API shape.
-- [ ] **[LOW]** `frontend/components/animated/source-ports/waves/onde-lab/components/OndesCourseEmbed.tsx` / `frontend/components/animated/source-ports/optics/light-lab/components/OpticsCourseEmbed.tsx` - Embedded source-port courses lose internal navigation. The standalone wave/optics pages expose `onNavigate` controls between modules, but the course embed wrappers either pass a no-op navigation callback or select a single embedded page by key. Multi-page learning flows exist in component form but are inert when embedded in the product path.
-- [ ] **[MEDIUM]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` / `frontend/app/(dashboard)/courses/page.tsx` / `frontend/app/(dashboard)/exam-bank/page.tsx` - Locked previews are conversion dead ends. Docs say locked previews should show an upgrade/unlock CTA. Current locked workspace, course-card modal, and exam-bank locked views show static "Upgrade to unlock" or "Got it" UI without routing to `/pricing`, checkout, subject unlock, or any entitlement request flow.
-- [ ] **[LOW]** `frontend/components/TopNav.tsx` / `frontend/components/figma/profile.tsx` / `frontend/lib/profile.ts` - Account settings stop at profile cosmetics. The menu offers Profile and Log out, and the profile editor changes display name, level, track, avatar, and banner. There is no account settings surface for access state, billing history/status, security/password/session controls, or entitlement management, even though `is_pro` and Stripe customer state exist in the backend/profile model.
-- [ ] **[LOW]** `frontend/components/TopNav.tsx` / `backend/app/routers/notifications.py` - Notifications are a dropdown, not a first-class inbox. Current UI supports a small top-nav list plus read/delete actions. The hardening plan says a first-class notifications inbox must be downgraded unless implemented; there is no `/notifications` route, search, filters, archive/history view, or larger notification management workspace.
-- [ ] **[HIGH]** `docs/knowledge-base/content-authoring.md` / `docs/knowledge-base/admin-seeding.md` / `backend/` - The documented seed-first Bac content pipeline is missing. Docs still name `backend/seed_kresco_v1.py` and `backend/seed_burner_data.py` as current seed entry points, but the current tree only contains `backend/seed_professor_demo.py`, `backend/seed_safety.py`, and `backend/scripts/e2e_seed.py`. There is no checked-in repeatable Bac starter or rich Topic Workspace seed matching the documented product pipeline.
-- [ ] **[HIGH]** `frontend/app/admin/courses/*.tsx` / `backend/app/routers/courses.py` - The dedicated course-authoring UI is a shell, not the full editor implied by docs. The admin course pages list subjects, create a subject/topic bundle, expand read-only topic items, and link to preview/activity builder. The custom backend API only creates subjects/topics. There is no first-class UI/API workflow for sections, TopicItems, Resources, TabContent, QuestionSets/Questions, ExamProblems, ordering, access gates, publish state, or revision-section assembly.
-- [ ] **[MEDIUM]** `frontend/app/admin/courses/activities/page.tsx` - The activity builder is clipboard-only and incomplete. It generates JSON and tells operators to manually create a `TopicItem` and paste `activity_data`; it does not persist content. It also omits documented starter types such as `numeric_answer`, `short_answer`, `multi_select`, and `interactive_checkpoint`.
-- [ ] **[MEDIUM]** `backend/app/routers/internal.py` / `backend/app/services/diagnostics.py` / `docs/STAGING_LAUNCH_GATE_REPORT.md` - Ops emergency disable controls are not implemented. Internal routes expose outbox processing and diagnostics, and diagnostics report state, but there is no one-command/runtime switch to disable payments, live sessions, uploads/media, or other subsystems during an incident. The launch gate notes the current workaround is secret removal plus redeploy.
-
-Validation notes:
-
-- Source-of-truth docs checked: `docs/knowledge-base/product-model.md`, `topic-workspace.md`, `exam-bank.md`, `progress-xp-leaderboard.md`, `notes-saves-profile.md`, `content-authoring.md`, `admin-seeding.md`, `access-billing.md`, plus Stripe/VdoCipher docs.
-- Current route/UI/model evidence checked with `rg`, file reads, and explorer subagents. No test suite was run because this round made no product code changes.
-
-## Round 9 - Topic Workspace Feature Implementation (2026-06-01)
-
-Scope: implement the highest-value non-AI Topic Workspace gaps from Round 8. Cheap context/fix subagents handled bounded backend, frontend, and quiz slices; the parent agent validated the combined work, fixed cross-slice contract issues, decomposed oversized frontend code, and ran broad verification. `frontend/components/quiz/QuizPrimitiveRenderers.tsx` was not touched.
-
-Fixed and validated:
-
-- [x] **[HIGH]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` / `frontend/components/VideoPlayer.tsx` - Provider-backed primary video resources now render through the existing TopicItem `VideoPlayer` stream path, while YouTube resources still use the no-cookie iframe path.
-- [x] **[HIGH]** `backend/app/services/course_tab_quiz_submission.py` / `backend/app/routers/courses.py` / `frontend/components/topic-workspace/TopicWorkspaceQuizTab.tsx` - Quiz tabs now expose recent attempts, score/pass state, per-question correctness, retry, and reset. Backend responses return safe grading summaries without answer secrets.
-- [x] **[MEDIUM]** `backend/app/routers/interactions.py` / `backend/app/services/interaction_mutations.py` / `frontend/components/topic-workspace/TopicWorkspaceNotesTab.tsx` - Workspace notes now support list/review by item/tab context, create, owner-only update, and owner-only delete.
-- [x] **[MEDIUM]** `backend/app/routers/courses.py` / `backend/app/services/interaction_mutations.py` / `frontend/components/topic-workspace/TopicWorkspaceResourcePanel.tsx` - Resource tabs now expose open/preview/download controls and call a backend resource-open tracking endpoint that requires access, resolves workspace context, and marks item progress started without regressing completed state.
-- [x] **[MEDIUM]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` / `frontend/app/(dashboard)/courses/page.tsx` / `frontend/app/(dashboard)/exam-bank/page.tsx` - Locked previews now route to `/pricing` with explicit unlock CTAs instead of ending at static "upgrade" text or a close-only modal.
-- [x] **[STRUCTURE]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` - Prevented the workspace panel from growing past 1k lines by extracting quiz, notes, resource, and common panel modules. Current line counts: root panel 349, quiz tab 468, notes tab 265, resource panel 140.
-
-Validated commands:
-
-- `backend`: `.\venv\Scripts\python.exe -m pytest tests_fastapi/test_course_interactions.py tests_fastapi/test_topic_quiz.py -q` -> 13 passed.
-- `backend`: `.\venv\Scripts\python.exe -m pytest -q` -> 434 passed.
-- `frontend`: `npm.cmd run test` -> 61 files, 233 tests passed.
-- `frontend`: `npm.cmd run typecheck` -> passed.
-- `frontend`: `npm.cmd run lint` -> passed.
-- `frontend`: `npm.cmd run audit:csp-styles` -> passed; still reports the known 55-file / 114-attribute inline style migration debt.
-- `frontend`: `npm.cmd run build` -> passed.
-- `frontend`: `npm.cmd run test:e2e -- next16-smoke.spec.ts` -> 6 passed.
-
-Round 8 items still open after this implementation:
-
-- [ ] **[MEDIUM]** `frontend/components/VideoQuizOverlay.tsx` - Video checkpoints remain a `null` stub.
-- [ ] **[MEDIUM]** `frontend/app/(dashboard)/exam-bank/page.tsx` / `backend/app/routers/courses.py` - Exam Bank advanced browsing/filtering remains shallow.
-- [ ] **[MEDIUM]** `backend/app/services/course_topic_mutations.py` / `backend/app/services/interaction_mutations.py` / `frontend/app/(dashboard)/exam-bank/page.tsx` - Full activity/XP coverage is still partial beyond resource-open tracking and quiz attempts.
-- [ ] **[LOW]** Topic search still lacks difficulty-tag API fields.
-- [ ] **[LOW]** Embedded source-port course navigation is still inert.
-- [ ] **[LOW]** Account settings and notifications inbox remain shallow.
-- [ ] **[HIGH]** Seed-first Bac content pipeline and full course-authoring UI/API are still missing.
-- [ ] **[MEDIUM]** Activity builder persistence and ops emergency disable controls are still missing.
-\n
-## Audit Continuation - Deep CI, Testing & Deployment Gaps
-
-- [ ] **[HIGH]** `frontend/tests/e2e/next16-smoke.spec.ts` - Mocked E2E Tests Claiming Integration Coverage: The frontend E2E smoke tests claim to verify critical user journeys against the backend (login, quiz attempt, live session rendering). However, the entire test suite heavily relies on Playwright `route.fulfill` mocks for almost all backend interactions (`/api/auth/me`, `/api/quizzes/*`, `/api/realtime/*`). A breaking API contract change in the backend (e.g., renaming `is_correct` to `correct`) will pass the mocked E2E tests and deploy to production, instantly breaking the frontend for real users.
-- [ ] **[CRITICAL]** `frontend/playwright.integration.config.ts` & `.github/workflows/ci-frontend.yml` - E2E Integration Test Uses SQLite Instead of Postgres: The integration test suite runs against the real backend, but the configuration forces the backend to use an in-memory SQLite database (`sqlite+aiosqlite:///./e2e.sqlite3`) rather than spinning up a Postgres container. Postgres-specific SQL syntax, JSONB queries, or indexing constraints could be completely broken on the backend, but the SQLite-backed frontend integration tests will silently pass.
-- [ ] **[CRITICAL]** `backend/tests_fastapi/conftest.py` - Migration Coverage Bypass in Pytest: The backend Pytest suite claims to run against a fully migrated database to ensure schema integrity. However, the `run_db` fixture or test DB initializer calls `Base.metadata.create_all(bind=engine)`, completely bypassing the Alembic migrations. An Alembic migration file could contain syntax errors, missing columns, or bad downgrade logic, but tests will pass perfectly via SQLAlchemy reflection, causing crashes during `alembic upgrade head` in production.
-- [ ] **[HIGH]** `.github/workflows/deploy-backend.yml` - Shallow SQLite Startup Check in Deployment: The deployment pipeline executes a "Backend startup check" to ensure the FastAPI app can import and boot successfully. However, the startup check explicitly mocks the database connection with `DATABASE_URL: "sqlite+aiosqlite:///:memory:"` instead of testing against the actual deployed Postgres configuration. A missing Postgres driver or malformed production connection string will pass the CI startup check but immediately crash the deployed Lambda function on boot.
-- [ ] **[HIGH]** `.github/workflows/deploy-frontend.yml` - Absence of Post-Deploy Frontend Health Checks: The frontend deployment workflow claims to safely deploy the application to Vercel. However, after executing `vercel deploy --prebuilt --prod`, the pipeline simply exits. It lacks a post-deployment staging/production verification step. If the Vercel deployment succeeds but the Next.js runtime crashes due to a missing environment variable or edge configuration error, the pipeline marks the deployment as successful while users face a 500 Internal Server Error screen.
-- [ ] **[HIGH]** `backend/app/main.py` & `scripts/check_staging_runtime.py` - Provider Readiness Checks Do Not Actually Verify Providers: The production launch gate and staging runtime check claim to verify that all third-party providers (S3, Ably, VdoCipher, Resend, Stripe) are operational. But the `_ready_config_service_status` function only checks if the configuration strings (e.g., `ably_api_key`) are non-empty. It never performs any actual API requests to authenticate or validate these credentials. An expired API key or revoked secret will pass the gate but fail silently in production.
-- [ ] **[HIGH]** `frontend/vitest.config.ts` - Vitest Coverage Deleted Instead of Migrated (Silently Ignored `.tsx` Files): The frontend unit test CI step claims to run all test coverage for UI components. However, `vitest.config.ts` explicitly scopes test execution by setting `include: ['tests/**/*.test.ts']`. This regex silently excludes `.tsx` test files. Critical tests like `topicWorkspaceQuizTab.test.tsx` are completely skipped and ignored by the test runner.
-- [ ] **[HIGH]** `.github/workflows/ci-backend.yml` & `backend/scripts/audit_data_integrity.py` - Data Integrity Audit Runs Against an Empty Database: The workflows run `audit_data_integrity.py` to ensure no invalid data states (such as duplicated items or XP collisions) exist. However, the script is run immediately following `alembic upgrade head` on a fresh, empty Postgres container. Without any seeded data, the SQL queries trivially return zero rows, resulting in a hollow "passed" validation every time.
-- [ ] **[MEDIUM]** `backend/find_n1.py` & `backend/tests_fastapi/test_find_n1_script.py` - Phantom N+1 Query Guardrail (Stale Tooling): The repository includes `find_n1.py` to detect N+1 database queries, and the presence of `test_find_n1_script.py` implies it is an active guardrail. However, the script is orphaned—it is never invoked in any CI workflow. Furthermore, its `main()` function explicitly ignores actual findings, exiting with `0` even if N+1 queries are detected (`return 1 if errors else 0`).
-- [ ] **[HIGH]** `frontend/tests/e2e/purchase-flow.integration.spec.ts` & `live-session-fanout.integration.spec.ts` - Silent Exclusion of Critical E2E Integration Tests: The frontend E2E integration test suite claims to verify core backend-integrated user flows, including real payments and live session fanouts. However, the frontend CI workflow (`ci-frontend.yml`) does not provide `FAKE_STRIPE_CHECKOUT=true` or `ABLY_API_KEY`. Inside the tests, this triggers `test.skip(!isDev || !fakeStripe)` and `test.skip(!hasAblyKey)`. Consequently, the most critical production flows for monetization and realtime delivery are silently skipped and marked as passed by Playwright in CI, providing false confidence.
-- [ ] **[CRITICAL]** `.github/workflows/deploy-backend.yml` - Race Condition & Downtime Vulnerability in Deployment Pipeline: The deployment workflow executes `zappa deploy || zappa update` *before* invoking `app.scheduled.run_alembic_migrations_event`. This routes production traffic to the new FastAPI code before the database schema has been migrated to support it, resulting in 500 Internal Server Errors during the deployment window. Furthermore, Zappa asynchronous invocations swallow exceptions in the CI runner—if the Alembic migration crashes, the pipeline continues reporting success without rolling back the deployed code, permanently breaking the API.
-
-## Frontend Flow Audit - 2026-06-02
-
-### Auth, Sessions & Middleware
-- **[CRITICAL]** `frontend/proxy.ts` / `middleware.ts` - Silent Middleware Failure. The root proxy file is named `proxy.ts`, which Next.js completely ignores since it requires the name `middleware.ts`. None of the CSP headers, edge server-side redirects, or token expiration checks are running in production. It must be renamed to `middleware.ts`.
-- **[CRITICAL]** `frontend/components/AuthGuard.tsx` - Onboarding Bypass via Client-Side Routing. A new student landing on the `/` onboarding step can manually change the URL to `/home`. `AuthGuard` only checks `hasRequiredAuthAccess` (role/staff flags) and ignores `getStudentOnboardingStep()`. The user accesses the dashboard without completing their profile. `AuthGuard` must invoke the onboarding check and redirect incomplete users.
-- **[HIGH]** `frontend/lib/store.ts` - Premature Cookie Deletion Breaks Server Revocation. The `logout()` function calls `clearStoredAuthSession()` which synchronously runs `document.cookie = '...Max-Age=0'` to delete local cookies, and THEN issues a `fetch` POST to `/api/auth/logout`. Because cookies are already deleted, the `fetch` sends an unauthenticated request, failing to actually revoke the server-side session. Local cookies should be cleared in the `finally` block of the fetch.
-- **[HIGH]** `frontend/lib/authSession.ts` / `frontend/lib/store.ts` - Zombie Sessions via HttpOnly Cookies. `document.cookie` cannot delete HttpOnly cookies. If the logout API call fails (or due to the bug above), the browser retains the valid HttpOnly token while the frontend clears JS state. If the user refreshes, they are silently logged back in against their wishes. Frontend state should not be optimistically cleared until the backend successfully destroys the HttpOnly cookie.
-- **[HIGH]** `frontend/lib/axios.ts` / `frontend/components/AuthGuard.tsx` - Conflicting 401 Redirects (Race Condition). When a protected route hits a 401, `axios` executes a hard `window.location.href` redirect while `AuthGuard` catches the same 401, triggers a background `/logout`, and executes `window.location.replace`. This causes conflicting navigation commands and an unnecessary background logout request.
-- **[MEDIUM]** `frontend/lib/axios.ts` - Destructive Hard-Redirects on Transient 401s. If a background SWR fetch or widget poll returns a 401 (e.g., transient network issue), the global `axios` interceptor forcefully executes `window.location.href`, destroying all client-side SPA state (like a long form or quiz). Background 401s should dispatch an event for an auth modal rather than nuking the SPA.
-- **[MEDIUM]** `frontend/lib/authPageController.ts` - Double Navigation Race Condition on Login. `handleLogin` calls `handleAuthResolution`, triggering `router.push('/home')`. Simultaneously, `login()` updates the Zustand store, causing a re-render where a `useEffect` calls `handleAuthResolution(user, 'replace')`. This fires a `router.replace` on top of an in-flight `router.push`, causing Next.js router cancellation warnings.
-
-### Gamification & Leaderboards
-- **[HIGH]** `frontend/components/Leaderboard.tsx` - Unranked user identity spoofing. When a new user with 0 XP or an unranked user visits the leaderboard, the backend returns entries without their `is_current_user` flag. The frontend logic falls back to `currentUser ?? headerSourceEntries[0]`, falsely displaying the top player of the current page as "you" in the sidebar. Gamification logic fails completely by deceiving new users.
-- **[MEDIUM]** `frontend/components/Leaderboard.tsx` - Pagination duplication on empty pages. If a user navigates to the final page where the remaining entries exactly align with `PAGE_SIZE`, the next page returns 0 entries. `displayEntries` falls back to `lastNonEmptyEntries`, causing the user to see a duplicated list of the previous page while the "Next" button disables.
-- **[MEDIUM]** `frontend/components/Leaderboard.tsx` - Race conditions on rapid pagination/search. Multiple network requests to `fetchLeaderboard` can fire concurrently without an AbortController. The state is updated by whichever request finishes last, which may not correspond to the current page/search state, showing mismatched data.
-- **[MEDIUM]** `frontend/components/Leaderboard.tsx` - Silent search failure on empty results. If a user searches for a non-existent player name, `visibleEntries` falls back to `displayEntries` because the local filter `instantEntries` is empty. The UI displays the full page list instead of an empty state, misleading users into thinking the search is broken.
-- **[LOW]** `frontend/components/Leaderboard.tsx` - Half-error stale UI. If the user loses network connection while paginating, the main content area correctly shows the error string, but the sidebar (`headerSourceEntries`) falls back to `lastNonEmptyEntries` and continues showing the previous state's user progress, creating a visually broken experience.
-
-### Media & Progress Sync
-- **[CRITICAL]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - YouTube progress tracking bypass. YouTube lessons are rendered using a dumb iframe wrapper (`youtubeSrcDoc`) bypassing `VideoPlayer`. Consequently, progress is never tracked, and the lesson is never automatically marked as completed. Users watching YouTube lessons will have out-of-sync progress and have to manually hunt for the "Mark complete" button, fracturing the gamification flow. A proper YouTube IFrame Player API integration is required.
-- **[HIGH]** `frontend/components/VideoPlayer.tsx` - Zero-duration completion lock. If a topic item has missing or `0` for `duration_seconds` from the backend, the player calculates completion `pct` as `0`. Thus `pct >= 0.9` is never met, and the video is never automatically marked as complete, causing a silent gamification block. The frontend should fallback to reading the player's native `player.video.duration` from the VdoCipher instance.
-- **[HIGH]** `frontend/components/VideoPlayer.tsx` / `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - Video progress is completely lost on reload or tab switch. A user watching a video who clicks away and comes back (or reloads) will have their video start over from 0:00 instead of resuming. The backend stream API does not return a progress checkpoint, and `VideoPlayer` lacks logic to fetch or receive a progress checkpoint to `seek` the VdoCipher player on mount.
-- **[HIGH]** `frontend/components/VideoPlayer.tsx` - VdoCipher API sandbox restriction. The VdoCipher iframe `sandbox="allow-scripts allow-presentation"` attribute is missing `allow-same-origin`. This forces the iframe into a unique origin, which can block `postMessage` events in strict browsers, breaking the VdoCipher player API (`player.video.currentTime` and event listeners). If the API bridge breaks, `syncProgress` never fires and completion tracking silently fails. It needs `allow-same-origin`.
-- **[MEDIUM]** `frontend/components/VideoPlayer.tsx` / `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - Duplicate completion API requests. When a user reaches 90% of a VdoCipher video, two simultaneous POST requests are fired to `/courses/topic-items/{id}/complete`: one from `saveProgress(durationSeconds)` in `VideoPlayer.tsx`, and another from `completeActive` inside the parent page (triggered by `onCompleteRef`). This causes redundant database writes and potential XP award race conditions.
-- **[MEDIUM]** `frontend/components/VideoPlayer.tsx` - Offline completion permanent lock. When the user reaches 90% of the video, `completionReportedRef.current` is eagerly set to `true` and the API call fires. If the network drops at that exact moment and the call fails, the completion is never retried because the ref is permanently true for the lifecycle of that component, leaving the user stuck in an incomplete state. The lock should be reset if the API call fails.
-
-### Exam Bank & Practice Flows
-- **[CRITICAL]** `frontend/app/(dashboard)/exam/[subjectId]/page.tsx` - Timer reset exploit. The 45-minute exam timer is stored purely in React state. If a student is running out of time, they can simply refresh the page. The `started` state resets to `false` and `timeLeft` resets to 45 minutes, allowing them to cheat the time constraint. `examStartTime` must be persisted to `localStorage` and time remaining dynamically calculated based on `Date.now()`.
-- **[CRITICAL]** `frontend/app/(dashboard)/exam/[subjectId]/page.tsx` - Catastrophic data loss on refresh. Draft answers during a high-stakes exam are held purely in React state (`useState<Record<number, number>>({})`). A browser crash, accidental refresh, or navigation instantly wipes 40+ minutes of exam progress. Answers must be synced to `localStorage` or the backend continuously.
-- **[HIGH]** `frontend/components/topic-workspace/TopicWorkspacePanels.tsx` - Locked content paywall bypass. When a user clicks a locked text lesson, the `LockedContentPanel` falls back to `summary={item.description || tab.content}`. If `item.description` is missing, it injects `tab.content`—the actual protected lesson body—directly into the lock screen UI, exposing premium content to unauthorized users.
-- **[HIGH]** `frontend/components/SectionQuiz.tsx` - Unhandled empty state crash. If the backend returns 0 questions for a section quiz, `data.questions[0]` is undefined. Accessing `currentQuestion.text` throws a `TypeError`, triggering a fatal React tree crash instead of gracefully displaying a "No questions available" message.
-- **[HIGH]** `frontend/components/SectionQuiz.tsx` - Silent failure on offline submission. If the network drops when a user clicks submit, the `onComplete` promise throws an error, but the `try/finally` block swallows it due to a missing `catch`. `submitting` resets to false with no error message, leaving the user completely unaware their submission failed.
-- **[MEDIUM]** `frontend/app/(dashboard)/exam/[subjectId]/page.tsx` - React anti-pattern causing duplicate submissions. `handleSubmit()` is called inside the state updater function `setTimeLeft(t => ...)`. In React 18 Strict Mode, state updaters can fire multiple times, potentially triggering double quiz submissions. Side effects must be moved to a `useEffect`.
-
-### ZED Mode, Simulators & Math Engine
-- **[CRITICAL]** `frontend/components/zed/PdfViewer.tsx` - PDF viewer blocked offline/locally. The iframe `sandbox` is restricted to `allow-downloads` and lacks `allow-same-origin allow-scripts`. Built-in PDF extensions (like Chrome's) require same-origin and script permissions to initialize their internal viewer, meaning the core PDF feature is completely broken for students.
-- **[HIGH]** `frontend/components/zed/PdfViewer.tsx` - Pin text feature broken by sandbox. When a user selects text inside the PDF and clicks the "Pin" button, the app prompts for manual typing. `window.getSelection()` is executed on the parent window, which cannot access the cross-origin sandboxed iframe's DOM. The snippet tool is rendered useless. It requires a `postMessage` bridge or a custom renderer like pdf.js.
-- **[HIGH]** `frontend/components/zed/Scratchpad.tsx` - Scratchpad history overwrite across tabs. State is hydrated from `localStorage` only on mount and does not listen to `"storage"` events. If a user opens Zed Mode in multiple tabs, a stale component state in one tab will silently overwrite the latest `localStorage` state when saved, causing users to lose study notes and calculation history.
-- **[MEDIUM]** `frontend/components/zed/PdfViewer.tsx` - Scissors tool captures hardcoded text instead of images. When a user uses the scissors tool to capture an image snippet of a specific area, the app pins a hardcoded text string (e.g. "PDF - zone (10,20) 100x100px") instead of the visual area, preventing visual note-taking. It requires an `html2canvas` or similar canvas capture integration.
-- **[MEDIUM]** `frontend/lib/zedMath.ts` - Math engine recursive crash. A user inputting a deeply chained mathematical expression (e.g. `2^2^2^2...`) crashes the entire application tab with a Maximum Call Stack Size Exceeded error. The `power()` parsing method uses unbounded recursion. It should parse iteratively or enforce a strict maximum recursion depth counter.
-- **[MEDIUM]** `frontend/components/VideoPlayer.tsx` - VdoCipher player memory leak. The app leaves zombie `postMessage` event listeners behind because the VdoCipher player instance is not destroyed on component unmount. Navigating between different video lessons degrades browser performance. The cleanup function should call `activePlayer?.destroy()`.
-
-### Profile & Account Management
-- **[MEDIUM]** `frontend/app/(dashboard)/profile/page.tsx` - Double-fetch race condition and false failure reporting. The `handleSaveProfile` function calls `await updateMyProfile(payload)` which successfully patches the backend. However, instead of using the returned updated profile, it immediately issues a redundant `await getMyProfile()`. If the network drops between these two requests, the frontend throws an error ("Could not save profile") and skips updating the local state, effectively lying to the user that their save failed even though the backend updated successfully.
-
-### Professor, Chat & Live Session Flows
-- [x] **[HIGH]** `frontend/lib/ably.ts` - Silent WebSocket failure on multi-channel subscriptions. The `subscribeKrescoRealtimeChannels` function (used for `/live` and `/calendar`) lacks the `connection.on('connected')` reconnection handling and polling fallback present in the single-channel helper. If a student's network drops or their token expires, the client silently fails to receive any further realtime updates. It should handle `connectionState` changes and implement a polling fallback during outages.
-- **[MEDIUM]** `frontend/app/professor/chat/page.tsx` / `frontend/app/(dashboard)/professor-chat/page.tsx` - Missing layout state on reload. When a professor or student selects a specific chat thread, types a search query, or toggles the 'unread' filter, and then reloads the page, all state is lost. The UI jumps back to the first conversation and clears filters because these are stored purely in React `useState`. State should be synced with URL query parameters (`?id=123&q=search&filter=unread`).
-- **[MEDIUM]** `frontend/components/TopNav.tsx` / `ProfessorTopNav.tsx` - Missing role-switching bridge. When a user with `role === 'professor'` accesses the student app to verify a course layout, there is no UI button to switch back to the Professor Dashboard. The student `TopNav` does not render a return link for professors, and `ProfessorTopNav` lacks a link to the student view. A dedicated role-switcher dropdown or bridge link should be added for professors and staff.
-
-### Admin & Error Handling
-- **[HIGH]** `frontend/lib/axios.ts` / `frontend/components/AuthGuard.tsx` - Global 401 Interceptor conflicts with React-level AuthGuard. When a protected route hits a 401, the `axios.ts` interceptor forces `window.location.href = getUnauthorizedDestination(...)`, causing a jarring full-page reload and completely bypassing the `AuthGuard`'s graceful client-side `logout()` state management and `replaceBrowserLocation` redirection. The `window.location.href` interceptor should be removed to let AuthGuard manage the logout lifecycle.
-- **[HIGH]** `frontend/app/admin/page.tsx` / `frontend/app/admin/courses/page.tsx` - Silent empty states and dead-ends for offline/failed network requests in Admin. A network error on `/admin/overview` falls through the 403 check, sets state to `'fallback'`, and displays a static CRUD catalog while hiding the analytics failure. On the Courses list, a network error shows a static red box "Impossible de charger les cours." with no retry button. Data fetching failures should throw to the parent `ErrorBoundary` or explicitly render a Retry state.
-- **[MEDIUM]** `frontend/app/admin/page.tsx` - Hidden Frontend/Backend API Mismatch on Admin Dashboard. An admin logged in with `is_staff = true` passes AuthGuard, but the backend `/admin/overview` endpoint returns 403 Forbidden. The page displays a custom "Staff access required" UI, hiding the discrepancy that the backend actually requires `is_superuser` or a higher tier. `AuthGuard` should enforce identical privilege boundaries as the backend endpoints it guards.
-- **[MEDIUM]** `frontend/app/admin/courses/[subjectId]/page.tsx` - Topic Sections permanent empty state caching on network error. Expanding a topic accordion triggers `loadTopicSections`. If it fails, the catch block sets `topicSections[topicId] = []` and removes loading state. Subsequent clicks immediately return `[]` and never retry the fetch. Failed fetches should leave the cache empty (`undefined`) so re-expanding triggers a new fetch.
-- **[MEDIUM]** `frontend/lib/store.ts` / `frontend/components/AuthGuard.tsx` - Stale `localStorage` behavior for client-side routing. Logging out in Tab A clears `localStorage`, but Tab B retains the in-memory `user`. Navigating client-side to a protected route in Tab B incorrectly passes `AuthGuard` since `isHydrated` is true, leading to unauthorized API calls and interceptor reloads instead of cleanly redirecting to login. The auth store should listen to `storage` events to synchronize logouts.
-- **[LOW]** `frontend/app/payment-success/page.tsx` - Payment Success verification doesn't support retry for offline. If network drops right after checkout and the verification fetch fails, the component transitions to `error` and shows a button to return to `/pricing`. This causes confusion for users who just paid; it should offer a "Retry verification" button instead.
-
-### Learning & Topic Workspace
-- **[HIGH]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` / `frontend/components/topic-workspace/TopicWorkspaceQuizTab.tsx` / `TopicWorkspaceNotesTab.tsx` - Draft quiz answers and unsubmitted notes are completely lost when a student switches tabs in the workspace (e.g. going from the quiz tab to the video tab to check a hint and coming back). This happens because `<AnimatePresence>` unmounts and remounts tabs by `key={activeTabSlot}`, and the React `useState` for draft answers is localized to the unmounted component. Draft state should be hoisted to the parent page or persisted in `sessionStorage`/`localStorage` keyed by `tab.id`.
-- **[MEDIUM]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - URL desync and missing state on reload for checkout previews. When a user clicks a locked topic item in the rail, the UI correctly displays the `LockedContentPanel`, but `router.replace` is skipped due to an early `return` when `item.can_access === false`. The URL remains out of sync; if the user reloads the page, they are taken back to the previous unlocked item. The URL should update to reflect the locked item (`?item=locked_item_id`) even if the user lacks access, since the UI explicitly supports previewing locked states.
-
-
-
-
-## 🔍 Backend Correctness Audit - Phase 2 (2026-06-02)
-
-#### 1. [HIGH] Save Item Access Control Bypass via Inferred Context
-* **Severity:** HIGH
-* **File/Line:** `backend/app/services/interaction_mutations.py` (`save_user_item` lines 265-274)
-* **Summary:** The `save_user_item` function allows users to bookmark resources, exam problems, or topics. It only verifies access (`require_topic_item_access`) if `body.topic_item_id` is explicitly provided in the request payload. If the client intentionally omits `topic_item_id`, the function falls back to `infer_interaction_context` which dynamically resolves the parent item ID based on the target. However, `save_user_item` never validates access for this inferred context. This allows a student to bookmark (and subsequently access via the `/saves` list) premium or locked course resources simply by omitting the `topic_item_id` field in the POST request.
-* **Reproduction Path:**
-  1. Identify the `target_id` of a premium or locked resource.
-  2. Send a POST request to `/saves` with `{"target_type": "resource", "target_id": 99}` (omitting `topic_item_id`).
-  3. The router passes this to `save_user_item`. The explicit check `if body.topic_item_id is not None:` is skipped.
-  4. `infer_interaction_context` resolves `context["topic_item_id"]` from the database.
-  5. The backend creates the `SavedItem` without ever evaluating `require_topic_item_access` for the inferred parent.
-* **Expected Behavior:** If the `topic_item_id` is inferred dynamically from the target, the backend MUST verify the user has access to that inferred parent item before saving it.
-* **Actual Behavior:** Access control is entirely bypassed if the explicit parent ID is omitted from the request body.
-* **Proof from Code:**
-  ```python
-  # save_user_item
-  if body.topic_item_id is not None:
-      await require_topic_item_access(db, user, body.topic_item_id)
-  context = await infer_interaction_context(
-      db,
-      subject_id=body.subject_id, # ...
-  )
-  # Missing check: if context.get("topic_item_id") is not None: await require_topic_item_access(...)
-  save = await db.scalar(...)
-  ```
-  Note that the similar `create_user_note` function *correctly* checks `context.get("topic_item_id")`.
-* **Why this is not a duplicate:** This is a newly discovered vulnerability specifically in the interaction mutation inference flow.
-* **Suggested fix direction:** Move the `require_topic_item_access` check to *after* the `infer_interaction_context` call, and validate against the fully resolved `context.get("topic_item_id")`.
-
-### Scalability & Performance Audit - Round 2
-
-- [ ] **[HIGH]** `backend/app/services/admin_overview.py` - **Database Connection Exhaustion:** The admin overview service repeatedly grabs new DB sessions inside a loop (via Depends(get_db)) for every breakdown query instead of reusing a single transaction, rapidly exhausting the connection pool under load.
-- [ ] **[HIGH]** `backend/app/routers/quizzes.py` - **N+1 Query Pattern:** In get_subject_quiz_discovery, access checks are performed iteratively within a Python loop over lesson topics, resulting in an O(N) query pattern rather than a single batched existence check.
-- [ ] **[CRITICAL]** `backend/app/services/gamification_read_models.py` - **Memory Growth & Table Locking:** `refresh_leaderboard_projection_if_stale` performs a delete(LeaderboardRank) followed by an unbounded db.add_all() of all active users. On a large userbase, this materializes tens of thousands of ORM objects into Python memory, causing severe memory growth and prolonged transaction locks.
-- [ ] **[MEDIUM]** `backend/app/services/media_storage.py` - **Synchronous CPU Blocking:** media_url generates Boto3 presigned URLs synchronously. While fast individually, generating URLs in bulk (e.g., for arrays of user avatars in chat or leaderboards) inside the async event loop can cause CPU blocking and starve other concurrent requests.
-- [ ] **[MEDIUM]** `backend/app/services/realtime_outbox.py` - **Unbounded Table Growth:** RealtimeOutbox events are marked as published or dead but are never deleted. Since the realtime layer generates a massive volume of events for every live interaction and checkpoint, this will quickly bloat the PostgreSQL database storage without a retention cleanup worker.
-- [ ] **[HIGH]** `backend/app/routers/payments.py` - **Database Connection Starvation via Stripe:** The verify_session endpoint makes a synchronous (but async IO) external HTTP request to Stripe via verify_checkout_session to retrieve the checkout state. Because this happens inside a FastAPI route that depends on get_db, the database connection is held open and idle while waiting for the Stripe API to respond. Under moderate concurrent traffic, this will easily exhaust the database connection pool.
-- [ ] **[HIGH]** `backend/app/routers/courses.py` - **Database Connection Starvation via VdoCipher:** The get_topic_item_stream endpoint makes an external HTTP request to VdoCipher (via get_video_stream_data) to generate OTPs while holding an open database transaction from Depends(get_db). This keeps PostgreSQL connections idle during network I/O, leading to severe pool starvation when many students start watching videos concurrently.
-
-
-### Final Recovered Findings (Concurrency & Gamification Edge Cases)
-
-- [ ] **[HIGH]** `backend/app/services/professor_live_sessions.py` & `backend/app/routers/courses.py` - Database Connection Starvation via VdoCipher: `create_professor_live_session` and `get_topic_item_stream` make external synchronous (but async IO) HTTP requests to VdoCipher (`httpx.AsyncClient.post/get` with 10-15s timeouts) while holding open database transactions via the `AsyncSession` yielded by `Depends(get_db)`. Under high traffic (e.g. many students opening lessons concurrently), this will quickly exhaust the database connection pool.
-- [ ] **[CRITICAL]** `backend/app/services/gamification_read_models.py` - Race Condition & Lock Contention in Leaderboard Refresh: `refresh_leaderboard_projection_if_stale` drops the entire `LeaderboardRank` table (`await db.execute(delete(LeaderboardRank))`) and repopulates it using bulk inserts whenever the active count changes. If multiple users load the sidebar (`build_sidebar_summary`) or leaderboard simultaneously when it is stale, this causes concurrent bulk delete/insert queries that will result in transaction deadlocks and table-level lock contention.
-- [ ] **[LOW]** `backend/app/services/professor_chat_mutations.py` - Inconsistent Unread Count Deletion: `delete_chat_message_state` deletes a chat message and invokes `refresh_chat_preview` to update the last message preview and timestamp. However, it does not decrement `unread_for_professor` or `unread_for_student` if the deleted message was previously unread. This leaves the conversation with "ghost" unread counts that remain inflated until the chat is explicitly opened.
-- [ ] **[HIGH]** `backend/app/services/course_progress.py` & `backend/app/services/course_tab_quiz_submission.py` - Concurrency TOCTOU Race Condition & HTTP 500 Crash on First-Time Quiz Submissions: `ensure_question_set_for_tab` checks if a `QuestionSet` exists for a tab, and if not, creates one and adds it to the session `db.add(question_set)`. However, it does not use a nested transaction (`db.begin_nested()`) or handle `IntegrityError`. If two students concurrently submit a quiz for a tab that has never been taken before, both will bypass the `is None` check and attempt to insert identical `QuestionSet` and `Question` rows, leading to a database crash for one of the users.
-- [ ] **[MEDIUM]** `backend/app/services/xp.py` & `backend/app/services/course_tab_quiz_submission.py` - Missing Gamification XP Rewards for Quiz Retries and Perfect Scores: The `award_xp_bulk` call in `submit_tab_quiz_attempt` unconditionally uses `idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt['question_id']}"`. Because this idempotency key is tied purely to the user and question, if a student retakes a quiz to improve their score (e.g. from 60% to 100%), they will never receive the XP rewards for the newly answered correct questions since the bulk inserter will conflict on the idempotency key (even though they never actually received XP for that specific question previously because they got it wrong).
-
-- [ ] **[HIGH]** `backend/app/schemas/courses.py` - **Partial Data Redaction IDOR:** The `ExamOut` schema unconditionally exposes `statement_url`. Although there is a `redact_if_locked` model validator, it does not explicitly handle cases where `can_access` is false *prior* to returning the response, leading to direct access leaks.
-- [ ] **[MEDIUM]** `backend/app/routers/courses.py` - **Incomplete Publication Filtering:** The `get_exam_bank` endpoint correctly filters for `Exam.status == 'published'` but misses checking if the parent `Subject.is_published` is True, allowing students to guess IDs and fetch exams for unreleased courses.
-
-### Offline Mode & PWA Mechanics
-- **[HIGH]** `frontend/public/sw.js` / PWA setup - Vaporware implementation. There is absolutely no PWA setup, Service Worker, manifest file, or offline capability in the codebase. The app will simply display the browser's default dinosaur offline screen. Push notification opt-in logic and offline fallback pages are entirely absent. A proper setup via `@serwist/next` (or similar) is required.
-- **[MEDIUM]** `frontend/lib/apiData.ts` - Permanent 401 SWR cache trap. `revalidateOnFocus` is set to `false` and 401s are blocked from retrying via `NON_RETRYABLE_STATUSES`. If a user gets a 401 (e.g. token expired) and logs back in on another tab, returning to the original tab will statically cache and display the 401 error response forever without ever re-checking the server. `revalidateOnFocus` should be true.
-
-### Onboarding & Auth Flow Extensions
-- **[HIGH]** `frontend/lib/authPageController.ts` - Destructive Profile Overwrite on Resume. If a user's profile has `niveau` saved but `filiere` is missing, `resolveAuthSuccess` places them directly in the `filiere` step. However, `selectedLevel` state is initialized to `''` and never hydrated from `user.niveau`. When `saveOnboarding` executes, it sends `{ niveau: '', filiere: selectedSpec }`, destructively overwriting their existing valid `niveau` with an empty string in the backend.
-- **[MEDIUM]** `frontend/components/auth/AuthPageView.tsx` - Missing UI Validation before Save. On the `filiere` step, the Save button's disabled condition is only `disabled={!selectedSpec || loading}`. It does not ensure `selectedLevel` is present, allowing submission of empty levels if hydration fails.
-- **[MEDIUM]** `frontend/lib/authPageController.ts` - Onboarding Double Submit Race Condition. When `saveOnboarding` triggers `router.push()`, the `finally` block runs immediately, setting `loading` to `false` while the client-side navigation is still pending. This re-enables the Save button, allowing the user to click it multiple times and fire redundant `PATCH` requests.
-- **[MEDIUM]** `frontend/lib/authPageController.ts` - Fake Success State on Forgot Password. If the forgot password API call fails (e.g. 500 error), the `catch` block only logs to the console without showing an error toast. The `finally` block executes and transitions the UI to the `forgot-sent` success state. The user falsely believes an email is on the way.
-
-### Quests & Gamification Streaks
-- **[HIGH]** `frontend/components/DashboardLayoutShell.tsx` - Orphaned Quest Claiming Endpoint. When a user completes a daily quest and clicks on it in the sidebar to claim their XP reward, nothing happens. The `DashboardLayoutShell` renders `<PermanentSidebar />` but does not pass an `onQuestSelect` handler. The backend endpoint `/progress/daily-quests/{quest_id}/claim` is completely orphaned and never called, resulting in a silent failure to claim rewards.
-- **[MEDIUM]** `frontend/lib/permanentSidebarViewModel.ts` - Blind Streak Alignment (Timezone Desync). `buildStrikeDays` blindly marks the first `n` days of the UI week array (e.g., Mon, Tue) as completed using `index < streakDays`, regardless of what actual local day the user logged in on. It should calculate the relative offset from the current local `new Date()` and anchor backwards to check off the correct trailing days.
-- **[LOW]** `frontend/lib/permanentSidebarViewModel.ts` - Fake Quests on Empty State. If a user has zero daily quests (completed or unassigned), instead of showing a clear empty state message, the UI falls back to rendering fake Figma placeholder quests (`permanentSidebarQuestDefaults`). The fallback must be removed for production.
-
-### Course Catalog, Search & Filtering
-- [x] **[HIGH]** `frontend/app/(dashboard)/courses/page.tsx` - Stale Closure on Rapid Filtering. When a user types a search query and quickly selects a subject filter, the URL desyncs. `updateFilters` relies on `filters` from closure rather than a functional state update `setFilters(prev => ...)`. Consecutive rapid calls overwrite each other, causing the UI to drop the previous filter.
-- **[MEDIUM]** `frontend/app/(dashboard)/exam-bank/page.tsx` - Reload State Loss (URL Desync). If a user searches for a specific exam and reloads the page (or shares the link), the filters are completely lost. The search input is not initialized from `useSearchParams()` and never pushes updates to the URL. State must be synchronized with `router.replace`.
-- **[MEDIUM]** `frontend/components/Leaderboard.tsx` - Redundant Client-Side Filter Conflict. In the leaderboard search, `instantEntries` blindly filters the backend's paginated `displayEntries` by `full_name`. If a backend match (like a typo-tolerant result) fails this strict frontend filter, it falls back to unfiltered data, breaking the paginated search view. Trust the backend response.
-
-### Billing, Pricing & Subscriptions
-- **[HIGH]** `frontend/app/payment-success/page.tsx` - Checkout Race Condition (Stale Profile Overwrite). When a user successfully pays on Stripe and returns to `/payment-success`, the component mounts and triggers both `verifyCheckoutSession` and `AuthGuard`'s `getMyProfile` simultaneously. `verifyCheckoutSession` finishes successfully, setting `is_pro: true` in the store. However, `getMyProfile` (which fired *before* verification completed on the backend) resolves shortly after and destructively overwrites the user store with the stale `is_pro: false` data. The UI becomes desynced, showing the user as "Free" despite a successful payment. `PaymentSuccessContent` must forcefully refetch the profile after verification succeeds before updating the store.
-
-- [x] **[CRITICAL]** `backend/app/schemas/users.py` & `backend/app/services/user_profile.py` - **Track Isolation Bypass / Privilege Escalation:** The `PATCH /api/profile/me` endpoint allows unrestricted writes to `niveau` and `filiere`. Because live sessions and professor chat authorization (e.g. `ensure_student_matches_offering`) rely strictly on these fields to isolate students to their assigned tracks, a VIP/Platinum student can systematically spoof their track and bypass isolation boundaries to access any professor or live session across the entire platform.
-
-
-#### 3. [HIGH] Inconsistent stripe_customer_id Persistence Leading to Erroneous Access Revocation
-* **Severity:** HIGH
-* **File/Line:** `backend/app/services/payment_entitlements.py` (lines 36-72) and `payment_lifecycle.py`
-* **Summary:** The synchronous `apply_paid_checkout_to_user` sets `stripe_customer_id` *only* if it is currently empty. Conversely, the asynchronous webhook `apply_paid_checkout_by_user_id` unconditionally overwrites it. If a user with a canceled subscription starts a new checkout, Stripe might create a new customer ID. The synchronous flow grants `is_pro=True` but leaves the old customer ID intact. If a delayed `customer.subscription.deleted` webhook arrives for the *old* subscription before the new checkout webhook overwrites the ID, it will match the user's DB record and erroneously revoke their newly paid access.
-* **Reproduction Path:**
-  1. User buys subscription (creates `cus_OLD`). DB has `stripe_customer_id = cus_OLD`, `is_pro=True`.
-  2. User cancels subscription. DB remains `stripe_customer_id = cus_OLD`, `is_pro=True` (until period end).
-  3. User buys a *new* subscription before the old one formally ends, creating `cus_NEW`.
-  4. Synchronous redirect calls `verify-session` -> `apply_paid_checkout_to_user`. It sets `is_pro=True` but ignores `cus_NEW` because `user.stripe_customer_id` is not empty.
-  5. The Stripe webhook for the *old* subscription `customer.subscription.deleted` arrives.
-
-### Final Recovered Findings (Concurrency & Gamification Edge Cases)
-
-- [ ] **[HIGH]** `backend/app/services/professor_live_sessions.py` & `backend/app/routers/courses.py` - Database Connection Starvation via VdoCipher: `create_professor_live_session` and `get_topic_item_stream` make external synchronous (but async IO) HTTP requests to VdoCipher (`httpx.AsyncClient.post/get` with 10-15s timeouts) while holding open database transactions via the `AsyncSession` yielded by `Depends(get_db)`. Under high traffic (e.g. many students opening lessons concurrently), this will quickly exhaust the database connection pool.
-- [ ] **[CRITICAL]** `backend/app/services/gamification_read_models.py` - Race Condition & Lock Contention in Leaderboard Refresh: `refresh_leaderboard_projection_if_stale` drops the entire `LeaderboardRank` table (`await db.execute(delete(LeaderboardRank))`) and repopulates it using bulk inserts whenever the active count changes. If multiple users load the sidebar (`build_sidebar_summary`) or leaderboard simultaneously when it is stale, this causes concurrent bulk delete/insert queries that will result in transaction deadlocks and table-level lock contention.
-- [ ] **[LOW]** `backend/app/services/professor_chat_mutations.py` - Inconsistent Unread Count Deletion: `delete_chat_message_state` deletes a chat message and invokes `refresh_chat_preview` to update the last message preview and timestamp. However, it does not decrement `unread_for_professor` or `unread_for_student` if the deleted message was previously unread. This leaves the conversation with "ghost" unread counts that remain inflated until the chat is explicitly opened.
-- [ ] **[HIGH]** `backend/app/services/course_progress.py` & `backend/app/services/course_tab_quiz_submission.py` - Concurrency TOCTOU Race Condition & HTTP 500 Crash on First-Time Quiz Submissions: `ensure_question_set_for_tab` checks if a `QuestionSet` exists for a tab, and if not, creates one and adds it to the session `db.add(question_set)`. However, it does not use a nested transaction (`db.begin_nested()`) or handle `IntegrityError`. If two students concurrently submit a quiz for a tab that has never been taken before, both will bypass the `is None` check and attempt to insert identical `QuestionSet` and `Question` rows, leading to a database crash for one of the users.
-- [ ] **[MEDIUM]** `backend/app/services/xp.py` & `backend/app/services/course_tab_quiz_submission.py` - Missing Gamification XP Rewards for Quiz Retries and Perfect Scores: The `award_xp_bulk` call in `submit_tab_quiz_attempt` unconditionally uses `idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt['question_id']}"`. Because this idempotency key is tied purely to the user and question, if a student retakes a quiz to improve their score (e.g. from 60% to 100%), they will never receive the XP rewards for the newly answered correct questions since the bulk inserter will conflict on the idempotency key (even though they never actually received XP for that specific question previously because they got it wrong).
-- [ ] **[HIGH]** `backend/app/schemas/courses.py` - **Partial Data Redaction IDOR:** The `ExamOut` schema unconditionally exposes `statement_url`. Although there is a `redact_if_locked` model validator, it does not explicitly handle cases where `can_access` is false *prior* to returning the response, leading to direct access leaks.
-- [ ] **[MEDIUM]** `backend/app/routers/courses.py` - **Incomplete Publication Filtering:** The `get_exam_bank` endpoint correctly filters for `Exam.status == 'published'` but misses checking if the parent `Subject.is_published` is True, allowing students to guess IDs and fetch exams for unreleased courses.
-
-### Offline Mode & PWA Mechanics
-- [ ] **[HIGH]** `frontend/public/sw.js` / PWA setup - Vaporware implementation. There is absolutely no PWA setup, Service Worker, manifest file, or offline capability in the codebase. The app will simply display the browser's default dinosaur offline screen. Push notification opt-in logic and offline fallback pages are entirely absent. A proper setup via `@serwist/next` (or similar) is required.
-- [ ] **[MEDIUM]** `frontend/lib/apiData.ts` - Permanent 401 SWR cache trap. `revalidateOnFocus` is set to `false` and 401s are blocked from retrying via `NON_RETRYABLE_STATUSES`. If a user gets a 401 (e.g. token expired) and logs back in on another tab, returning to the original tab will statically cache and display the 401 error response forever without ever re-checking the server. `revalidateOnFocus` should be true.
-
-### Onboarding & Auth Flow Extensions
-- [ ] **[HIGH]** `frontend/lib/authPageController.ts` - Destructive Profile Overwrite on Resume. If a user's profile has `niveau` saved but `filiere` is missing, `resolveAuthSuccess` places them directly in the `filiere` step. However, `selectedLevel` state is initialized to `''` and never hydrated from `user.niveau`. When `saveOnboarding` executes, it sends `{ niveau: '', filiere: selectedSpec }`, destructively overwriting their existing valid `niveau` with an empty string in the backend.
-- [ ] **[MEDIUM]** `frontend/components/auth/AuthPageView.tsx` - Missing UI Validation before Save. On the `filiere` step, the Save button's disabled condition is only `disabled={!selectedSpec || loading}`. It does not ensure `selectedLevel` is present, allowing submission of empty levels if hydration fails.
-- [ ] **[MEDIUM]** `frontend/lib/authPageController.ts` - Onboarding Double Submit Race Condition. When `saveOnboarding` triggers `router.push()`, the `finally` block runs immediately, setting `loading` to `false` while the client-side navigation is still pending. This re-enables the Save button, allowing the user to click it multiple times and fire redundant `PATCH` requests.
-- [ ] **[MEDIUM]** `frontend/lib/authPageController.ts` - Fake Success State on Forgot Password. If the forgot password API call fails (e.g. 500 error), the `catch` block only logs to the console without showing an error toast. The `finally` block executes and transitions the UI to the `forgot-sent` success state. The user falsely believes an email is on the way.
-
-### Quests & Gamification Streaks
-- [ ] **[HIGH]** `frontend/components/DashboardLayoutShell.tsx` - Orphaned Quest Claiming Endpoint. When a user completes a daily quest and clicks on it in the sidebar to claim their XP reward, nothing happens. The `DashboardLayoutShell` renders `<PermanentSidebar />` but does not pass an `onQuestSelect` handler. The backend endpoint `/progress/daily-quests/{quest_id}/claim` is completely orphaned and never called, resulting in a silent failure to claim rewards.
-- [ ] **[MEDIUM]** `frontend/lib/permanentSidebarViewModel.ts` - Blind Streak Alignment (Timezone Desync). `buildStrikeDays` blindly marks the first `n` days of the UI week array (e.g., Mon, Tue) as completed using `index < streakDays`, regardless of what actual local day the user logged in on. It should calculate the relative offset from the current local `new Date()` and anchor backwards to check off the correct trailing days.
-- [ ] **[LOW]** `frontend/lib/permanentSidebarViewModel.ts` - Fake Quests on Empty State. If a user has zero daily quests (completed or unassigned), instead of showing a clear empty state message, the UI falls back to rendering fake Figma placeholder quests (`permanentSidebarQuestDefaults`). The fallback must be removed for production.
-
-### Course Catalog, Search & Filtering
-- [x] **[HIGH]** `frontend/app/(dashboard)/courses/page.tsx` - Stale Closure on Rapid Filtering. When a user types a search query and quickly selects a subject filter, the URL desyncs. `updateFilters` relies on `filters` from closure rather than a functional state update `setFilters(prev => ...)`. Consecutive rapid calls overwrite each other, causing the UI to drop the previous filter.
-- [ ] **[MEDIUM]** `frontend/app/(dashboard)/exam-bank/page.tsx` - Reload State Loss (URL Desync). If a user searches for a specific exam and reloads the page (or shares the link), the filters are completely lost. The search input is not initialized from `useSearchParams()` and never pushes updates to the URL. State must be synchronized with `router.replace`.
-- [ ] **[MEDIUM]** `frontend/components/Leaderboard.tsx` - Redundant Client-Side Filter Conflict. In the leaderboard search, `instantEntries` blindly filters the backend's paginated `displayEntries` by `full_name`. If a backend match (like a typo-tolerant result) fails this strict frontend filter, it falls back to unfiltered data, breaking the paginated search view. Trust the backend response.
-
-### Billing, Pricing & Subscriptions
-- [ ] **[HIGH]** `frontend/app/payment-success/page.tsx` - Checkout Race Condition (Stale Profile Overwrite). When a user successfully pays on Stripe and returns to `/payment-success`, the component mounts and triggers both `verifyCheckoutSession` and `AuthGuard`'s `getMyProfile` simultaneously. `verifyCheckoutSession` finishes successfully, setting `is_pro: true` in the store. However, `getMyProfile` (which fired *before* verification completed on the backend) resolves shortly after and destructively overwrites the user store with the stale `is_pro: false` data. The UI becomes desynced, showing the user as "Free" despite a successful payment. `PaymentSuccessContent` must forcefully refetch the profile after verification succeeds before updating the store.
-- [x] **[CRITICAL]** `backend/app/schemas/users.py` & `backend/app/services/user_profile.py` - **Track Isolation Bypass / Privilege Escalation:** The `PATCH /api/profile/me` endpoint allows unrestricted writes to `niveau` and `filiere`. Because live sessions and professor chat authorization (e.g. `ensure_student_matches_offering`) rely strictly on these fields to isolate students to their assigned tracks, a VIP/Platinum student can systematically spoof their track and bypass isolation boundaries to access any professor or live session across the entire platform.
-- [ ] **[HIGH]** `backend/app/services/payment_entitlements.py` - Inconsistent stripe_customer_id Persistence: The synchronous `apply_paid_checkout_to_user` sets `stripe_customer_id` only if it is currently empty, while the asynchronous webhook `apply_paid_checkout_by_user_id` unconditionally overwrites it. This discrepancy allows old `customer.subscription.deleted` webhooks to match active records after a new checkout, revoking access incorrectly.
-
-### Backend Correctness Audit - 2026-06-02
-
-- [ ] **[HIGH]** `backend/app/services/payment_lifecycle.py` - Payment Webhook Stale Session State: The `/verify-session` endpoint returns stale `is_pro` status to the frontend even after a webhook completes payment, due to SQLAlchemy identity map caching and `expire_on_commit=False`. `verify_checkout_session_state` uses `await db.get(User, user_id)` without `db.refresh(user)`, which returns the stale cached instance where `is_pro` is still False. Frontend is never told they are pro until they hard refresh.
-- [ ] **[HIGH]** `backend/app/services/course_tab_quiz_submission.py` - Quiz Topic Items Permanently Uncompletable: Passing a quiz tab never marks the parent `TopicItemProgress` as `completed`, permanently trapping quiz topic items in a `started` state and preventing users from getting 100% completion. `submit_tab_quiz_attempt` updates `progress.latest_score = score` but does not set `progress.status = "completed"`. Since manual completion is blocked for quizzes, it can never be completed.
-- [ ] **[MEDIUM]** `backend/app/services/auth_account.py` / `backend/app/services/auth_signup.py` / `frontend/lib/authPageController.ts` - Inconsistent email normalization across auth flows: Password login normalizes its lookup with `email.lower().strip()`, but signup, password reset, and Google / email-dispatch lookups query `User.email == email` WITHOUT the same normalization. This causes leading/trailing whitespace or case variants to fail to match. Always trim/lower() the email field client-side. Do NOT strip the password (spaces can be valid password characters).
+Risk: per-request aggregate work grows with professor conversation count.
+
+Fix direction: add an indexed/cached counter or a partial aggregate path with tests for unread correctness.
+
+#### BUG-P1-005 - Course read-model N+1 guardrail remains incomplete
+
+Status: OPEN
+
+Files: `backend/app/services/course_topic_read_models.py`, `backend/find_n1.py`
+
+Current evidence: the current N+1 scanner still reports candidates and is not a CI-enforced guardrail.
+
+Risk: topic workspace and course-read endpoints can regress into looped DB access without failing CI.
+
+Fix direction: fix real candidates, make `find_n1.py` fail on findings, and add it to backend CI.
+
+#### BUG-P1-006 - Concurrent multi-tab watch XP can be farmed
+
+Status: OPEN
+
+Files: `backend/app/services/course_progress.py`, `backend/app/services/xp.py`
+
+Current evidence: watch-second bounding is per topic item through item progress timing, not a global per-user watch-rate budget.
+
+Risk: a student can earn parallel video/progress XP by watching multiple items in separate tabs.
+
+Fix direction: add per-user wall-clock accrual limits or a watch-session ledger.
+
+#### BUG-P1-007 - XP idempotency and timezone state still have exploit edges
+
+Status: OPEN
+
+Files: `backend/app/services/xp.py`
+
+Current evidence: XP day boundaries use UTC-only daily logic, and actions without explicit idempotency keys can still rely on weak duplicate protection.
+
+Risk: timezone edge gaming and duplicate XP insertion under concurrent actions.
+
+Fix direction: make daily reward policy explicit per user locale/account timezone and require non-null idempotency keys for awardable actions.
+
+#### BUG-P1-009 - Polymorphic references can orphan saved/change-request targets
+
+Status: OPEN
+
+Files: `backend/app/models/interactions.py`, `backend/app/models/professor.py`
+
+Current evidence: `SavedItem` and `ProfessorChangeRequest` use `target_type`/`target_id` without DB-level referential integrity.
+
+Risk: deleting topics, resources, questions, or exam problems can leave records that later render broken UI or 404 metadata.
+
+Fix direction: introduce typed nullable FKs where possible or add cleanup/validation jobs with enforced target resolvers.
+
+#### BUG-P1-010 - Realtime outbox has no retention cleanup
+
+Status: OPEN
+
+Files: `backend/app/services/realtime_outbox.py`, `backend/app/models/professor.py`
+
+Current evidence: published/dead events remain in the table indefinitely.
+
+Risk: high-volume live/chat events bloat storage and slow outbox scans.
+
+Fix direction: add a retention worker and migration/index support for purging old published/dead rows.
+
+#### BUG-P1-011 - Deleted unread chat messages can leave ghost unread counts
+
+Status: OPEN
+
+Files: `backend/app/services/professor_chat_mutations.py`
+
+Current evidence: delete refreshes preview but does not adjust `unread_for_professor` or `unread_for_student` when deleting an unread message.
+
+Risk: unread badges remain inflated until a read path resets them.
+
+Fix direction: decrement the relevant unread counter when deleting an unread message, guarded by behavioral tests.
+
+#### BUG-P1-012 - Arbitrary JSON request fields lack domain bounds
+
+Status: OPEN
+
+Files: `backend/app/schemas/courses.py`, `backend/app/schemas/professor.py`
+
+Current evidence: quiz answers and change-request snapshots accept broad `dict[..., Any]` shapes.
+
+Risk: deeply nested or unexpected JSON can persist into DB columns and break downstream renderers/auditors.
+
+Fix direction: add schema/depth/size constraints per domain object, not only the global request body limit.
+
+#### BUG-P1-013 - Local auth user data remains readable from localStorage
+
+Status: OPEN
+
+Files: `frontend/lib/authSession.ts`, `frontend/lib/store.ts`
+
+Current evidence: `kresco_user` stores user profile context in localStorage.
+
+Risk: PII/role/tier context is accessible to XSS, extensions, and physical access. The HttpOnly session model reduces auth-token exposure but not profile-data exposure.
+
+Fix direction: minimize stored fields, move sensitive context to server verification, or use session-only memory where practical.
+
+#### BUG-P1-014 - Logout can leave a server-backed zombie session
+
+Status: OPEN
+
+Files: `frontend/lib/store.ts`
+
+Current evidence: `logout()` clears local auth state before the backend `/api/auth/logout` request succeeds.
+
+Risk: if backend revocation fails, the HttpOnly cookie can remain valid while the client appears logged out; refresh can recover the server-backed session.
+
+Fix direction: keep a pending logout state until revocation finishes, then clear local state; expose a hard failure state when the server cookie cannot be revoked.
+
+#### BUG-P1-015 - YouTube topic videos bypass progress tracking
+
+Status: OPEN
+
+Files: `frontend/app/(dashboard)/topics/[topicId]/page.tsx`
+
+Current evidence: YouTube resources render through `VideoPlayerFrame`/iframe instead of the tracked `VideoPlayer` path.
+
+Risk: watched seconds and auto-completion are never reported for YouTube lessons.
+
+Fix direction: use the YouTube IFrame Player API or a tracked wrapper that emits the same progress contract as VdoCipher.
+
+#### BUG-P1-016 - VdoCipher completion has progress edge failures
+
+Status: OPEN
+
+Files: `frontend/components/VideoPlayer.tsx`
+
+Current evidence: zero/missing duration creates the old zero-duration completion lock; the iframe sandbox lacks `allow-same-origin`; completion is marked reported before network success, creating the old offline completion permanent lock; parent and player can both trigger duplicate completion API requests.
+
+Risk: videos can fail to complete, fire duplicate writes, or permanently lock progress after a network failure.
+
+Fix direction: read native player duration when backend duration is missing, allow the required sandbox origin, dedupe parent/player completion, and reset completion locks on failed saves.
+
+#### BUG-P1-017 - Video progress does not resume after reload/tab switch
+
+Status: OPEN
+
+Files: `frontend/components/VideoPlayer.tsx`, `backend/app/routers/courses.py`
+
+Current evidence: the stream/progress path does not provide a resume checkpoint to seek the player on mount.
+
+Risk: students lose their place and progress state is inconsistent.
+
+Fix direction: return latest checkpoint from the backend and seek the player after load.
+
+#### BUG-P1-018 - Exam mode timer and answers are volatile client state
+
+Status: OPEN
+
+Files: `frontend/app/(dashboard)/exam/[subjectId]/page.tsx`
+
+Current evidence: `started`, `timeLeft`, and `answers` are React state only.
+
+Risk: refresh/crash resets timer and wipes in-progress exam answers.
+
+Fix direction: persist start time and draft answers in localStorage or backend draft storage; derive remaining time from wall clock.
+
+#### BUG-P1-019 - SectionQuiz crashes or hides failures on empty/offline submits
+
+Status: OPEN
+
+Files: `frontend/components/SectionQuiz.tsx`
+
+Current evidence: it dereferences `data.questions[currentIndex]` without an empty guard, and `submitQuiz` has `try/finally` without a user-visible catch.
+
+Risk: empty question sets crash the tree; offline submission failures silently reset the loading state.
+
+Fix direction: add empty-state UI, catch submission errors, and keep/retry draft answers.
+
+#### BUG-P1-020 - Zed PDF viewer cannot reliably pin or capture PDF content
+
+Status: OPEN
+
+Files: `frontend/components/zed/PdfViewer.tsx`
+
+Current evidence: the iframe sandbox is only `allow-downloads`; pin text reads parent `window.getSelection`; snipping stores hardcoded text instead of an image.
+
+Risk: local/offline PDF viewing and study snippets are broken or degraded.
+
+Fix direction: allow the required viewer permissions or use pdf.js, implement a selection bridge, and capture snippets as images.
+
+#### BUG-P1-021 - Zed scratchpad overwrites history across tabs
+
+Status: OPEN
+
+Files: `frontend/components/zed/Scratchpad.tsx`
+
+Current evidence: state hydrates from localStorage on mount and writes on change, but does not listen for `storage` updates.
+
+Risk: multiple Zed tabs can overwrite newer notes/calculations with stale state.
+
+Fix direction: merge or reload external storage changes before writing.
+
+#### BUG-P1-022 - Zed math parser uses unbounded recursive exponent parsing
+
+Status: OPEN
+
+Files: `frontend/lib/zedMath.ts`
+
+Current evidence: `power()` recursively calls itself on every `^`.
+
+Risk: deeply chained powers can exhaust the call stack and freeze the tab.
+
+Fix direction: parse exponent chains iteratively or enforce a maximum expression depth.
+
+#### BUG-P1-023 - Deployment/runtime checks do not prove provider readiness
+
+Status: OPEN
+
+Files: `backend/app/main.py`, `scripts/check_staging_runtime.py`, `.github/workflows/deploy-frontend.yml`, `.github/workflows/deploy-backend.yml`
+
+Current evidence: readiness checks mostly validate configuration presence, backend startup uses SQLite, and frontend deploy lacks post-deploy health checks.
+
+Risk: invalid provider credentials or runtime env gaps pass CI and fail after deploy.
+
+Fix direction: add provider auth probes where safe, Postgres-backed startup checks, and post-deploy smoke/health verification.
+
+#### BUG-P1-024 - Critical E2E flows are skipped or over-mocked in CI
+
+Status: OPEN
+
+Files: `frontend/tests/e2e/*.spec.ts`, `.github/workflows/ci-frontend.yml`
+
+Current evidence: purchase and live fanout tests skip without `FAKE_STRIPE_CHECKOUT` or real `ABLY_API_KEY`; smoke tests heavily mock backend routes.
+
+Risk: CI can report green while payment, realtime, and backend/frontend contract flows are broken.
+
+Fix direction: add a seeded integration lane with required fake Stripe and Ably/local realtime config, and reserve mocked tests for UI smoke only.
+
+#### BUG-P1-025 - Data integrity audit runs against an empty DB
+
+Status: OPEN
+
+Files: `.github/workflows/ci-backend.yml`, `backend/scripts/audit_data_integrity.py`
+
+Current evidence: CI runs the audit after Alembic upgrade on a fresh database.
+
+Risk: duplicate/orphan/XP-collision checks pass trivially.
+
+Fix direction: seed representative bad/good fixtures or run the audit against a seeded integrity-test dataset.
+
+#### BUG-P1-026 - Locked tab preview can expose protected tab content
+
+Status: OPEN
+
+Files: `frontend/components/topic-workspace/TopicWorkspacePanels.tsx`
+
+Current evidence: locked tabs pass `summary={item.description || tab.content || tab.resource?.summary}` into `LockedContentPanel`.
+
+Risk: if `item.description` is missing, the lock screen can render `tab.content`, which is the protected lesson body.
+
+Fix direction: never use protected `tab.content` or protected resource summaries in locked previews; use only public item metadata and access reason.
+
+#### BUG-P1-027 - Live interaction fallback polling is unpaginated
+
+Status: OPEN
+
+Files: `frontend/lib/professor.ts`, `frontend/lib/liveSessionData.ts`, `frontend/app/(dashboard)/live/[sessionId]/page.tsx`
+
+Current evidence: `listStudentLiveInteractions(id)` calls the interactions endpoint with no cursor params, while realtime fallback polling repeatedly refreshes room data.
+
+Risk: fallback polling can replace the local live room history with only the backend default page.
+
+Fix direction: make fallback polling cursor-aware or merge fetched pages without dropping older local interactions.
+
+### P2 - User-Visible Flow Bugs
+
+#### BUG-P2-001 - Leaderboard can spoof the current user on empty/unranked pages
+
+Status: OPEN
+
+Files: `frontend/components/Leaderboard.tsx`
+
+Current evidence: `currentUser` falls back to `visibleEntries[0]` when no entry is marked `is_current_user`.
+
+Risk: a new/unranked user can be shown as the first ranked user in the sidebar/header card.
+
+Fix direction: require an explicit current-user entry or render an unranked empty state.
+
+#### BUG-P2-002 - Leaderboard pagination/search requests can race
+
+Status: OPEN
+
+Files: `frontend/components/Leaderboard.tsx`
+
+Current evidence: `fetchLeaderboard` issues requests without an `AbortController` or response-generation guard.
+
+Risk: rapid search or pagination can let an older response overwrite the currently requested page/search state.
+
+Fix direction: abort stale requests or ignore responses that do not match the latest search/page generation.
+
+#### BUG-P2-003 - Exam page side effect still runs inside timer state updater
+
+Status: OPEN
+
+Files: `frontend/app/(dashboard)/exam/[subjectId]/page.tsx`
+
+Current evidence: the countdown `setTimeLeft` updater calls `handleSubmit()` when time reaches zero.
+
+Risk: React retry/Strict Mode behavior can duplicate side effects.
+
+Fix direction: move timeout submission to an effect that reacts to derived `timeLeft === 0`.
+
+#### BUG-P2-004 - Professor chat layout state is lost on reload
+
+Status: OPEN
+
+Files: `frontend/app/professor/chat/page.tsx`, `frontend/app/(dashboard)/professor-chat/page.tsx`
+
+Current evidence: selected conversation, search, and unread filter are kept as component state.
+
+Risk: reload/share resets the chat workspace and drops active context.
+
+Fix direction: synchronize selection and filters with URL query params.
+
+#### BUG-P2-005 - Professor/student role switching has no bridge
+
+Status: OPEN
+
+Files: `frontend/components/TopNav.tsx`, `frontend/components/ProfessorTopNav.tsx`
+
+Current evidence: professors/staff viewing the student app have no obvious return path to professor/admin workspaces, and professor nav has no student-view bridge.
+
+Risk: role-based QA and dual-role workflows are awkward and easy to strand.
+
+Fix direction: add a role switcher/dropdown for users with professor/staff privileges.
+
+#### BUG-P2-006 - Admin privilege boundary can be hidden by frontend fallback copy
+
+Status: VERIFY
+
+Files: `frontend/app/admin/page.tsx`, `frontend/components/AuthGuard.tsx`, `backend/app/routers/admin.py`
+
+Current evidence: frontend staff gating and backend admin permissions should be rechecked for exact parity after recent admin retry/error fixes.
+
+Risk: users see confusing "staff required" UI when backend actually requires a stronger privilege.
+
+Fix direction: validate backend requirements and mirror them in frontend route policy.
+
+### P3 - Minor Performance and Cleanup Bugs
+
+#### BUG-P3-001 - AuthGuard can refetch profile unnecessarily on role-gated routes
+
+Status: OPEN
+
+Files: `frontend/components/AuthGuard.tsx`
+
+Current evidence: the guard always verifies through `getMyProfile` when its effect resets around token/role-gate changes.
+
+Risk: low-severity extra profile requests during login/role-gated navigation.
+
+Fix direction: keep the server verification requirement, but avoid duplicate calls when the already-verified profile and requirement have not changed.
+
+## Architecture and Product Backlog
+
+These are not active correctness bugs unless a later validator proves a user-facing failure. Keep them separate from the bug queue.
+
+- `frontend/public/sw.js` / PWA: offline mode, push opt-in, and offline fallback are not implemented.
+- `frontend/components/VideoQuizOverlay.tsx`: video checkpoints are still a `return null` feature stub.
+- `frontend/app/(dashboard)/exam-bank/page.tsx` / `backend/app/routers/courses.py`: Exam Bank advanced filtering remains shallow.
+- Course progress/XP coverage is partial for notes edited, exam problem opened/attempted, lab opened/completed, and similar product-model actions.
+- Topic search lacks first-class difficulty-tag API fields.
+- Embedded source-port wave/optics course navigation is inert in product embeds.
+- Account settings and notifications inbox are shallow compared with the product docs.
+- Seed-first Bac content pipeline is missing the documented `seed_kresco_v1.py` and `seed_burner_data.py` entry points.
+- Admin course authoring remains a shell for full sections/items/resources/tab content/questions/exam problems/publish workflows.
+- Activity builder is clipboard/manual and does not persist content.
+- Ops emergency disable controls for payments/live/uploads/media are not implemented.
+- Professor router/platform tests, SQLAdmin registry, and `backend/app/services/professor_live_sessions.py` live-session transition code remain large and should be split/refactored.
+- `frontend/components/quiz/QuizPrimitiveRenderers.tsx` and `frontend/components/figma/profile.tsx` remain large component files and should be decomposed.
+- `frontend/app/(dashboard)/professor-chat/page.tsx` still mixes data loading, state, and multiple views in one broad component.
+- `backend/app/services/professor_chat_mutations.py` still duplicates professor/student mutation flows and should move to a shared actor-policy pipeline.
+- `frontend/tests/e2e/integration.spec.ts` and `frontend/tests/e2e/next16-smoke.spec.ts` remain broad E2E monoliths.
+- `backend/tests_fastapi/test_professor_platform.py` still needs fixture extraction and feature-based splitting.
+- Relationship cascade/passive-delete behavior is only partially audited; keep a data-integrity backlog item for ORM relationship deletes versus DB `ON DELETE`.
+- Source-ported interactive labs still carry broad file-level lint disables.
+- CSP still allows inline style channels during migration.
+- Math sets source port still contains visible placeholder interactive content.
+- PII scrubbing/retention policy needs a broader pass for email dispatch, telemetry, and deleted users.
+- Repository hygiene should explicitly decide how to handle generated artifacts and whether local untracked/ignored artifacts should be reported during agent audits.
+
+## Historic Resolved and Stale Bugs
+
+### Resolved in recent commits
+
+- `e321ee1` - Profile save double-fetch false failure, admin retry/error states, payment-success retry affordance, AuthGuard server verification hardening, auth storage cross-tab sync, Topic Workspace mutation lock, Topic Workspace locked URL sync, Topic Workspace draft persistence, and VdoCipher player destroy cleanup.
+- `1e6135d` - Save-item access bypass through inferred context, exam-bank parent subject publication filtering, quiz attempt-number/question-set creation races in tab quiz flow, quiz topic item completion, redundant course access context rebuilds, notification list/unread query path, async media URL offloading in async serializers, and VdoCipher DB-session release before provider calls.
+- `bf396d5` - Auth/onboarding form bugs: email normalization, selected `niveau` hydration, filiere save validation, onboarding double-submit loading, and forgot-password fake-success state.
+- `71196c5` - Course catalog URL/filter closure, exam-bank URL sync, leaderboard backend-search trust, sidebar streak alignment, and fake quest fallback removal.
+- `5d32f52` - Payment verification stale profile refresh, payment lifecycle stale session state, and inconsistent `stripe_customer_id` persistence.
+- `319836e` - Previous bug-dump fixed-item markings before this structural rewrite.
+- `2907414`, `7adaf24`, `d1248cc` - Daily quest read-commit cleanup, quest claim locking, and progress-backed gamification stats.
+- `21e6e1a`, `97f771c`, `b5e0656`, `38051e4` - Retry/timeout hardening for S3, Stripe, Resend, and VdoCipher provider calls.
+- `110b0a6`, `fb4d762`, `f2cab9d`, `92fc9d0` - Calendar/professor realtime fallback stabilization and chat read/write churn reduction.
+- `5fcc637`, `93b8fc1`, `62eaf5e` - Topic comment wrapping, video stream error surfacing, and TopicItemProgress FK/progress item constraints.
+- `4eff95f` - Baseline validation commit after demo/scratch artifacts were stashed for later.
+
+### Stale, duplicate, or corrected findings
+
+- The old dump corruption finding is resolved by this rewrite: the file is now a clean, searchable Markdown queue.
+- `frontend/vitest.config.ts` no longer excludes TSX tests; include is `tests/**/*.test.{ts,tsx}`.
+- The broad synchronous `media_url` bulk-avatar finding is stale for current async app paths; app serializers call `async_media_url`.
+- The S3 no-retry/no-timeout upload finding is stale after provider retry hardening.
+- The old course write-endpoint rate-limit finding is stale: current `backend/app/routers/courses.py` has route-level limit decorators for subject/topic creation, topic completion, and resource-open tracking.
+- The old missing-index findings for `LeaderboardRank.user_id`, `UserStats.user_id`, and `Notification.user_id` are stale: those fields are primary keys or indexed through current model metadata.
+- The old telemetry executor finding is stale: telemetry now uses a dedicated bounded stdout executor with tests.
+- The old Lambda `root_path="/production"` finding is stale: `create_app` keeps `root_path=""`, and routing tests cover stage-prefix stripping.
+- The old `backend/alembic/versions/0000_local_baseline.py` catastrophic downgrade finding is resolved by the current migration behavior that refuses destructive downgrade instead of `drop_all`.
+- The exam-bank parent `Subject.is_published` leak is fixed in current `backend/app/routers/courses.py`.
+- The `ExamOut.statement_url` redaction claim should stay stale unless a new validator proves a current unauthorized response leak.
+- The Next `proxy.ts` claim needs fresh runtime proof before reactivation; current tests and package version are built around `proxy.ts`.
+- The old `diff_review.txt`/generated-artifact hygiene claims are stale for the current clean worktree; no tracked paths were found in the latest check.
+- The old checkout/profile overwrite, payment customer mismatch, and payment stale-session lines are resolved by the payment commits above.
+- The old Stripe verification DB-starvation claim is stale against the current payment lifecycle: idempotency is recorded before provider verification and payment state is refreshed/applied after the provider call.
+- The old VdoCipher DB-starvation claim is fixed in current course/professor live paths; tests assert `await db.rollback()` occurs before provider calls.
+- The old VdoCipher live/player memory leak is fixed by current `VideoPlayer` cleanup.
+- The old Topic Workspace VdoCipher integration, quiz learner loop, notes list/edit/delete, resource actions, locked CTA, draft persistence, and locked URL lines are resolved by Round 9 and later frontend commits.
+- The old Topic Workspace `primaryContent`/`topicQuery` memo churn finding is stale; current `primaryContent` deps no longer include `topicQuery`.
+- The old Topic Workspace mutation-lock finding is resolved by `actionInFlightRef` and submit state around complete/save actions.
+- The old permanent-sidebar orphan quest claim, fake quest, and streak alignment lines are resolved.
+- The old profile media validation bypass, daily quest pessimistic lock, professor chat duplicate-conversation `IntegrityError` import, telemetry executor, migration downgrade, route root path, and request body cap lines were either fixed earlier or were stale against current code.
+- The old notification list/unread sequential-query finding is resolved by the current notification service path and focused tests.
+- The old `build_access_context` repeated-query finding for comment/save paths is resolved by passing validated context through the current access helpers.
+- The old professor dashboard unread under-count finding is stale: current code sums `unread_for_professor`, while the remaining active issue is scalability of that aggregate.
+- The old `frontend/lib/apiData.ts` 401 SWR cache trap is resolved: shared SWR config has `revalidateOnFocus: true`.
+- The old auth/onboarding form findings are resolved: saved `niveau` hydration, filiere validation, double-submit loading, forgot-password error state, and email normalization all have focused tests.
+- The old axios/AuthGuard global 401 conflict is mostly resolved for protected routes: `shouldRedirectOnUnauthorized` leaves protected/auth routes to AuthGuard. Public-page fallback redirect remains intentional.
+- The old auth Double Navigation login race is stale against the current auth-controller tests and route-resolution flow.
+- The old profile save double-fetch false-failure, admin retry/dead-end, admin topic-section retry cache, payment success retry, payment stale-profile, exam-bank URL sync, and leaderboard backend-search fallback findings are resolved by current focused tests.
+- The old leaderboard pagination duplication, strict client search fallback, and half-error stale UI findings are stale against the current component because `lastNonEmptyEntries` and `instantEntries` were removed. Current active leaderboard bugs are listed separately.
+- The old quiz tab question-set creation race, attempt-number race, quiz topic-item completion, and XP retry/perfect-score claim are resolved or stale against the current tab-quiz service and migration `0047`.
+
+### Do not resurrect without new validation
+
+- Duplicate recovered-finding blocks from the previous dump.
+- Raw agent transcript sections, "round" headings, and unchecked duplicates from old audits.
+- Items already listed in `Architecture and Product Backlog` unless the next agent proves a concrete runtime failure.
