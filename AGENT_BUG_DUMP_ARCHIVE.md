@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `04dffa9` - Fixed BUG-P0-002 by running Alembic against the target database before rendering/deploying the Lambda package and removing the old post-deploy Zappa migration invoke; validation: `python -m pytest tests_fastapi/test_staging_runtime_verifier.py -q` and `python -m pytest tests_fastapi/test_launch_gate.py -q`.
 - `011896d` - Fixed BUG-P0-001 by removing leaderboard projection refresh/commit from `list_leaderboard_entries` and adding explicit internal and scheduled refresh entry points; validation: `python -m pytest tests_fastapi/test_gamification_routes.py -q` and `python -m pytest tests_fastapi/test_readiness.py -q -k diagnostics`.
 - `8541ccb` - Fixed BUG-P0-008 by routing topic-item stream authorization through a primary-video resource access helper that requires a published resource and evaluates resource access as a child of the authorized topic item; validation: `python -m pytest tests_fastapi/test_course_access.py -q`, `python -m pytest tests_fastapi/test_course_interactions.py -q -k "resource_open or completion_stats or comment_access"`, and `python -m pytest tests_fastapi/test_topic_quiz.py -q -k "completion_rejects_spoofed_video"`.
 - `f5bb0e0` - Fixed BUG-P0-006 by adding a leading `topic_item_id` index to `TopicItemProgress` model metadata plus Alembic migration `0048_topic_item_progress_topic_item_index.py`; validation: `python -m pytest tests_fastapi/test_query_plan_audit.py -q` and `python -m pytest tests_fastapi/test_data_integrity_audit.py -q`.
