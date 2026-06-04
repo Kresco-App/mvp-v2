@@ -133,6 +133,8 @@ async def verify_checkout_session_state(
     )
     if not first_attempt:
         refreshed_user = await db.get(User, user_id)
+        if refreshed_user is not None:
+            await db.refresh(refreshed_user)
         return VerifyOut(is_pro=bool(refreshed_user.is_pro) if refreshed_user else False)
 
     try:

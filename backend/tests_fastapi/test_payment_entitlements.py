@@ -81,15 +81,41 @@ def test_apply_paid_checkout_to_user_sets_pro_and_customer(run_db):
     assert persisted.stripe_customer_id == "cus_loaded"
 
 
-def test_apply_paid_checkout_to_user_is_noop_when_state_already_matches(run_db):
+def test_apply_paid_checkout_to_user_updates_customer_when_paid_checkout_returns_new_customer(run_db):
     user_id = run_db(_seed_user("entitlement-existing@example.com", is_pro=True, stripe_customer_id="cus_existing"))
 
     changed, is_pro, customer_id = run_db(_apply_paid_to_loaded_user(user_id, "cus_new"))
+
+    assert changed is True
+    assert is_pro is True
+    assert customer_id == "cus_new"
+    assert run_db(_get_user(user_id)).stripe_customer_id == "cus_new"
+
+
+def test_apply_paid_checkout_to_user_is_noop_when_state_already_matches(run_db):
+    user_id = run_db(_seed_user("entitlement-matching@example.com", is_pro=True, stripe_customer_id="cus_existing"))
+
+    changed, is_pro, customer_id = run_db(_apply_paid_to_loaded_user(user_id, "cus_existing"))
 
     assert changed is False
     assert is_pro is True
     assert customer_id == "cus_existing"
     assert run_db(_get_user(user_id)).stripe_customer_id == "cus_existing"
+
+
+def test_old_customer_webhook_cannot_revoke_after_new_checkout_customer_is_persisted(run_db):
+    user_id = run_db(_seed_user("entitlement-replace-customer@example.com", is_pro=True, stripe_customer_id="cus_old"))
+
+    changed, is_pro, customer_id = run_db(_apply_paid_to_loaded_user(user_id, "cus_new"))
+
+    assert changed is True
+    assert is_pro is True
+    assert customer_id == "cus_new"
+    assert run_db(_revoke_by_customer("cus_old")) is False
+
+    user = run_db(_get_user(user_id))
+    assert user.is_pro is True
+    assert user.stripe_customer_id == "cus_new"
 
 
 def test_apply_paid_checkout_by_user_id_preserves_customer_when_missing(run_db):

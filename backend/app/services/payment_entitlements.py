@@ -46,7 +46,7 @@ async def apply_paid_checkout_to_user(
         user.is_pro = True
         changed = True
 
-    if normalized_customer_id and not user.stripe_customer_id:
+    if normalized_customer_id and user.stripe_customer_id != normalized_customer_id:
         user.stripe_customer_id = normalized_customer_id
         changed = True
 

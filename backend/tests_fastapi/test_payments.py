@@ -102,6 +102,17 @@ async def _set_user_pro(user_id: int, is_pro: bool) -> None:
         await db.commit()
 
 
+async def _record_payment_attempt(user_id: int, session_id: str, idempotency_key: str) -> bool:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        return await payment_lifecycle.record_payment_verification_attempt_once(
+            db,
+            user_id=user_id,
+            session_id=session_id,
+            idempotency_key=idempotency_key,
+        )
+
+
 async def _webhook_event_count(event_id: str) -> int:
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -263,6 +274,46 @@ def test_verify_session_duplicate_idempotency_key_suppresses_remote_replay(
     assert calls["count"] == 1
 
     assert run_db(_payment_attempt_count(user_id, "cs_idempotent", "verify-cs_idempotent")) == 1
+
+
+def test_verify_session_duplicate_idempotency_key_refreshes_current_user_state(test_settings, run_db):
+    user_id = run_db(_seed_user("verify-duplicate-refresh@example.com", is_pro=False))
+    assert run_db(_record_payment_attempt(user_id, "cs_refresh", "verify-cs_refresh")) is True
+
+    async def duplicate_verification_after_external_update() -> bool:
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            assert user is not None
+            assert user.is_pro is False
+
+            async with session_factory() as external_db:
+                external_user = await external_db.get(User, user_id)
+                assert external_user is not None
+                external_user.is_pro = True
+                await external_db.commit()
+
+            async def unexpected_verify_checkout_session(session_id, settings):
+                del session_id, settings
+                raise AssertionError("duplicate idempotency key must not replay Stripe verification")
+
+            result = await payment_lifecycle.verify_checkout_session_state(
+                db,
+                user=user,
+                session_id="cs_refresh",
+                idempotency_key="verify-cs_refresh",
+                settings=test_settings,
+                verify_checkout_session_fn=unexpected_verify_checkout_session,
+            )
+            return result.is_pro
+
+    assert run_db(duplicate_verification_after_external_update()) is True
+
+    duplicate_branch = inspect.getsource(payment_lifecycle.verify_checkout_session_state).split(
+        "if not first_attempt:",
+        1,
+    )[1].split("try:", 1)[0]
+    assert "await db.refresh(refreshed_user)" in duplicate_branch
 
 
 def test_verify_session_retryable_stripe_failure_is_retried_without_releasing_idempotency_attempt(
