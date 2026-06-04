@@ -1,8 +1,10 @@
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import func, select
 
 from app.database import get_session_factory
 from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
-from app.models.gamification import TopicItemProgress
+from app.models.gamification import TopicItemProgress, UserStats
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.quizzes import QuestionSet
 from app.models.users import UserSubjectEntitlement
@@ -248,6 +250,71 @@ def test_resource_open_requires_access_infers_workspace_context_and_marks_progre
             assert progress.status == "completed"
 
     run_db(_assert_progress())
+
+
+def test_topic_item_completion_updates_user_stats(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-completion-stats@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Completion stats", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(
+                subject_id=subject.id,
+                slug="interactions-completion-stats",
+                title="Completion stats",
+                status="published",
+                is_free_preview=True,
+            )
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Main", section_type="main", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Reading with progress",
+                item_type="reading",
+                status="published",
+                duration_seconds=60,
+            )
+            db.add(item)
+            await db.flush()
+            db.add_all([
+                UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"),
+                TopicItemProgress(
+                    user_id=user_id,
+                    topic_id=topic.id,
+                    topic_item_id=item.id,
+                    status="started",
+                    watched_seconds=10,
+                    updated_at=datetime.now(timezone.utc) - timedelta(seconds=30),
+                ),
+            ])
+            await db.commit()
+            return item.id
+
+    item_id = run_db(_seed())
+    completed = app_client.post(
+        f"/api/courses/topic-items/{item_id}/complete",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"watched_seconds": 30},
+    )
+
+    assert completed.status_code == 200
+
+    async def _assert_stats():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            stats = await db.get(UserStats, user_id)
+            assert stats is not None
+            assert stats.total_watch_seconds == 20
+            assert stats.lessons_completed == 1
+
+    run_db(_assert_stats())
 
 
 def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, auth_token, run_db):

@@ -15,6 +15,7 @@ from app.services.course_progress import (
     required_topic_watch_seconds,
     requires_timed_topic_completion,
 )
+from app.services.gamification_stats import apply_lesson_progress_stats_delta
 from app.services.xp import award_xp
 
 QUIZ_ITEM_TYPES = {"quiz", "checkpoint_quiz", "quiz_set", "question_set"}
@@ -74,6 +75,7 @@ async def complete_topic_item_state(
         topic_item_id=item.id,
     )
     was_completed = progress.status == "completed" if progress else False
+    previous_watched_seconds = progress.watched_seconds or 0
     now = datetime.now(timezone.utc)
     bounded_watched_seconds = bounded_topic_watch_seconds(
         item=item,
@@ -81,8 +83,14 @@ async def complete_topic_item_state(
         requested_seconds=body.watched_seconds,
         now=now,
     )
-    if bounded_watched_seconds > (progress.watched_seconds or 0):
+    watched_seconds_delta = max(0, bounded_watched_seconds - previous_watched_seconds)
+    if watched_seconds_delta > 0:
         progress.watched_seconds = bounded_watched_seconds
+        await apply_lesson_progress_stats_delta(
+            db,
+            user_id=user.id,
+            watched_seconds_delta=watched_seconds_delta,
+        )
     if (
         not was_completed
         and requires_timed_topic_completion(item)
@@ -95,6 +103,11 @@ async def complete_topic_item_state(
     xp_reason = _xp_reason_for_item_type(item.item_type)
     xp_earned = 0
     if not was_completed:
+        await apply_lesson_progress_stats_delta(
+            db,
+            user_id=user.id,
+            lessons_completed_delta=1,
+        )
         xp_earned = await award_xp(
             user.id,
             xp_reason,

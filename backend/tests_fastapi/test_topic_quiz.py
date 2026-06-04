@@ -2,7 +2,7 @@ from sqlalchemy import func, select
 
 from app.database import get_session_factory
 from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
-from app.models.gamification import QuestionAttempt, QuizAttempt, TopicItemProgress, XPTransaction
+from app.models.gamification import QuestionAttempt, QuizAttempt, TopicItemProgress, UserStats, XPTransaction
 from app.models.quizzes import Question, QuestionSet
 from app.models.users import UserSubjectEntitlement
 
@@ -80,12 +80,15 @@ def test_tab_quiz_grades_tracks_xp_and_question_attempts(app_client, auth_token,
             attempt_count = await db.scalar(select(func.count()).select_from(QuestionAttempt).where(QuestionAttempt.quiz_attempt_id == attempt.id))
             xp_count = await db.scalar(select(func.count()).select_from(XPTransaction).where(XPTransaction.quiz_attempt_id == attempt.id))
             progress = await db.scalar(select(TopicItemProgress).where(TopicItemProgress.user_id == user_id, TopicItemProgress.topic_item_id == item_id))
+            stats = await db.get(UserStats, user_id)
             assert question_set.topic_section_id == section_id
             assert questions_count == 5
             assert attempt_count == 5
             assert xp_count == 6
             assert progress is not None
             assert progress.best_score == 100
+            assert stats is not None
+            assert stats.quizzes_passed == 1
 
     run_db(_assert_tracking())
 
@@ -141,8 +144,11 @@ def test_tab_quiz_reuses_identical_submission(app_client, auth_token, run_db):
         async with session_factory() as db:
             question_set = (await db.execute(select(QuestionSet).where(QuestionSet.tab_content_id == tab_id))).scalar_one()
             attempts = (await db.execute(select(QuizAttempt).where(QuizAttempt.user_id == user_id, QuizAttempt.question_set_id == question_set.id))).scalars().all()
+            stats = await db.get(UserStats, user_id)
             assert len(attempts) == 1
             assert len(attempts[0].submission_hash or "") == 64
+            assert stats is not None
+            assert stats.quizzes_passed == 1
 
     run_db(_assert_single_attempt())
 

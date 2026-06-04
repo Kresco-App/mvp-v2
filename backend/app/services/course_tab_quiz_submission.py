@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.courses import TabContent, TopicItem
-from app.models.gamification import QuestionAttempt, QuizAttempt
+from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
 from app.models.users import User
 from app.schemas.courses import (
     TabQuizAttemptSummaryOut,
@@ -18,6 +18,7 @@ from app.schemas.courses import (
 )
 from app.services.course_access import access_for_tab
 from app.services.course_progress import ensure_question_set_for_tab, get_or_create_topic_item_progress
+from app.services.gamification_stats import apply_quiz_pass_stats_delta
 from app.services.quiz_grading import (
     answer_payload,
     grade_quiz_question,
@@ -332,6 +333,7 @@ async def submit_tab_quiz_attempt(
             question_attempt_id=question_attempt["id"],
             idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt['question_id']}",
         ))
+    quiz_pass_idempotency_key = f"quiz_pass:user:{user.id}:question_set:{question_set.id}"
     if passed:
         xp_awards.append(XPAward(
             reason="quiz_pass",
@@ -342,11 +344,19 @@ async def submit_tab_quiz_attempt(
             topic_item_id=question_set.topic_item_id,
             question_set_id=question_set.id,
             quiz_attempt_id=attempt.id,
-            idempotency_key=f"quiz_pass:user:{user.id}:question_set:{question_set.id}",
+            idempotency_key=quiz_pass_idempotency_key,
         ))
     xp_earned = await award_xp_bulk(user.id, xp_awards, db)
 
     if passed:
+        quiz_pass_transaction = await db.scalar(
+            select(XPTransaction).where(
+                XPTransaction.user_id == user.id,
+                XPTransaction.idempotency_key == quiz_pass_idempotency_key,
+            )
+        )
+        if quiz_pass_transaction is not None and quiz_pass_transaction.quiz_attempt_id == attempt.id:
+            await apply_quiz_pass_stats_delta(db, user_id=user.id, quizzes_passed_delta=1)
         progress = await get_or_create_topic_item_progress(
             db,
             user_id=user.id,
