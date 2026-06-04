@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 39.
+- Current active bug count after this deep audit append: 38.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-015 - YouTube topic videos do not auto-track playback progress
-
-Status: OPEN
-
-Files: `frontend/app/(dashboard)/topics/[topicId]/page.tsx`, `frontend/lib/topicWorkspaceRendering.ts`
-
-Current evidence: YouTube resources are rejected from the tracked `VideoPlayer` path and render through `VideoPlayerFrame`/iframe instead. Manual "Mark complete" still exists, but playback-based watched seconds/completion are not emitted.
-
-Risk: YouTube-backed lessons do not auto-report watched seconds or completion based on playback.
-
-Fix direction: use the YouTube IFrame Player API or a tracked wrapper that emits the same progress contract as VdoCipher.
 
 #### BUG-P1-016 - VdoCipher completion can duplicate writes and lock after failed saves
 

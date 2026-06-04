@@ -40,7 +40,6 @@ import {
   selectTopicWorkspaceQueryState,
   shouldUseTopicItemVideoPlayer,
   topicWorkspaceQueryTargetsFromItemId,
-  youtubeSrcDoc,
   youtubeVideoId,
   youtubeVideoIdForTab,
   type TopicItem,
@@ -48,6 +47,7 @@ import {
   type WorkspaceTabSlot,
 } from '@/lib/topicWorkspaceViewModel'
 import VideoPlayer from '@/components/VideoPlayer'
+import YouTubeVideoPlayer from '@/components/YouTubeVideoPlayer'
 import { LessonBody, PrimaryContentFrame, VideoLearningWorkspace, VideoPlayerFrame, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
 import RouteErrorState from '@/components/RouteErrorState'
@@ -303,7 +303,16 @@ export default function TopicWorkspacePage() {
       )
     }
     if (activePrimaryVideoId) {
-      return <VideoPlayerFrame videoId={activePrimaryVideoId} srcDoc={youtubeSrcDoc(activeItem, activePrimaryVideoId)} />
+      return (
+        <PrimaryContentFrame>
+          <YouTubeVideoPlayer
+            lessonId={activeItem.id}
+            videoId={activePrimaryVideoId}
+            durationSeconds={activeItem.duration_seconds || 0}
+            onComplete={completeActive}
+          />
+        </PrimaryContentFrame>
+      )
     }
     if (activePrimaryTab) {
       return (

@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TopicWorkspacePage from '@/app/(dashboard)/topics/[topicId]/page'
-import type { TopicWorkspace } from '@/lib/topicWorkspaceViewModel'
+import type { TopicItem, TopicWorkspace } from '@/lib/topicWorkspaceViewModel'
 
 const mocks = vi.hoisted(() => ({
   mutateWorkspace: vi.fn(),
@@ -36,6 +36,12 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/components/VideoPlayer', () => ({
   default: ({ lessonId }: { lessonId: number }) => React.createElement('div', { 'data-testid': 'video-player' }, `Video player ${lessonId}`),
+}))
+
+vi.mock('@/components/YouTubeVideoPlayer', () => ({
+  default: ({ lessonId, videoId }: { lessonId: number; videoId: string }) => (
+    React.createElement('div', { 'data-testid': 'youtube-tracked-player' }, `YouTube player ${lessonId}:${videoId}`)
+  ),
 }))
 
 vi.mock('@/components/figma', () => ({
@@ -77,7 +83,7 @@ vi.mock('@/lib/topicWorkspaceData', () => ({
   topicWorkspaceSWRKey: () => '/courses/topics/42/workspace',
   useTopicWorkspaceData: () => ({
     key: '/courses/topics/42/workspace',
-    workspace: providerVideoWorkspace,
+    workspace: currentWorkspace,
     error: null,
     loading: false,
     isValidating: false,
@@ -88,6 +94,7 @@ vi.mock('@/lib/topicWorkspaceData', () => ({
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let mountedRoot: { root: Root; container: HTMLDivElement } | null = null
+let currentWorkspace: TopicWorkspace
 
 const providerVideoWorkspace: TopicWorkspace = {
   id: 42,
@@ -249,9 +256,92 @@ const providerVideoWorkspace: TopicWorkspace = {
   search_results: [],
 }
 
+const providerActiveItem = providerVideoWorkspace.active_item as TopicItem
+const providerSectionItem = providerVideoWorkspace.sections[0].items[0]
+
+const youtubeWorkspace: TopicWorkspace = {
+  ...providerVideoWorkspace,
+  active_item: {
+    ...providerActiveItem,
+    title: 'YouTube continuity introduction',
+    primary_resource: {
+      id: 701,
+      title: 'YouTube continuity stream',
+      resource_type: 'video',
+      provider: 'youtube',
+      provider_resource_id: 'dQw4w9WgXcQ',
+      url: '',
+      summary: 'Watch the YouTube lesson',
+    },
+    primary_tab: {
+      ...providerActiveItem.primary_tab!,
+      renderer_key: 'youtube_embed',
+      resource: {
+        id: 701,
+        title: 'YouTube continuity stream',
+        resource_type: 'video',
+        provider: 'youtube',
+        provider_resource_id: 'dQw4w9WgXcQ',
+        url: '',
+        summary: 'Watch the YouTube lesson',
+      },
+    },
+  },
+  sections: [
+    {
+      ...providerVideoWorkspace.sections[0],
+      items: [
+        {
+          ...providerSectionItem,
+          title: 'YouTube continuity introduction',
+          primary_resource: {
+            id: 701,
+            title: 'YouTube continuity stream',
+            resource_type: 'video',
+            provider: 'youtube',
+            provider_resource_id: 'dQw4w9WgXcQ',
+            url: '',
+            summary: 'Watch the YouTube lesson',
+          },
+          primary_tab: {
+            ...providerSectionItem.primary_tab!,
+            renderer_key: 'youtube_embed',
+            resource: {
+              id: 701,
+              title: 'YouTube continuity stream',
+              resource_type: 'video',
+              provider: 'youtube',
+              provider_resource_id: 'dQw4w9WgXcQ',
+              url: '',
+              summary: 'Watch the YouTube lesson',
+            },
+          },
+          tabs: [
+            {
+              ...providerSectionItem.tabs[0],
+              renderer_key: 'youtube_embed',
+              resource: {
+                id: 701,
+                title: 'YouTube continuity stream',
+                resource_type: 'video',
+                provider: 'youtube',
+                provider_resource_id: 'dQw4w9WgXcQ',
+                url: '',
+                summary: 'Watch the YouTube lesson',
+              },
+            },
+            providerSectionItem.tabs[1],
+          ],
+        },
+      ],
+    },
+  ],
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
+  currentWorkspace = providerVideoWorkspace
 })
 
 afterEach(() => {
@@ -270,6 +360,17 @@ describe('TopicWorkspacePage primary playback', () => {
 
     expect(container.textContent).toContain('Mathematics: Continuity introduction')
     expect(container.querySelector('[data-testid="video-player"]')?.textContent).toContain('Video player 101')
+    expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
+  })
+
+  it('renders YouTube lessons with the tracked player instead of the static frame', () => {
+    currentWorkspace = youtubeWorkspace
+
+    const { container } = renderPage()
+
+    expect(container.textContent).toContain('Mathematics: YouTube continuity introduction')
+    expect(container.querySelector('[data-testid="youtube-tracked-player"]')?.textContent).toContain('YouTube player 101:dQw4w9WgXcQ')
+    expect(container.querySelector('[data-testid="video-player"]')).toBeNull()
     expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
   })
 })
