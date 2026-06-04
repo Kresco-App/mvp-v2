@@ -9,8 +9,10 @@ import type { TopicItem, TopicWorkspace } from '@/lib/topicWorkspaceViewModel'
 
 const mocks = vi.hoisted(() => ({
   mutateWorkspace: vi.fn(),
+  postJson: vi.fn(),
   replace: vi.fn(),
   toastError: vi.fn(),
+  videoComplete: null as null | (() => void | Promise<void>),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -35,7 +37,10 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/components/VideoPlayer', () => ({
-  default: ({ lessonId }: { lessonId: number }) => React.createElement('div', { 'data-testid': 'video-player' }, `Video player ${lessonId}`),
+  default: ({ lessonId, onComplete }: { lessonId: number; onComplete?: () => void | Promise<void> }) => {
+    mocks.videoComplete = onComplete ?? null
+    return React.createElement('div', { 'data-testid': 'video-player' }, `Video player ${lessonId}`)
+  },
 }))
 
 vi.mock('@/components/YouTubeVideoPlayer', () => ({
@@ -72,6 +77,10 @@ vi.mock('@/components/figma/skeletons', () => ({
 
 vi.mock('@/components/RouteErrorState', () => ({
   default: ({ title }: { title: string }) => React.createElement('div', null, title),
+}))
+
+vi.mock('@/lib/apiClient', () => ({
+  postJson: mocks.postJson,
 }))
 
 vi.mock('@/components/topic-workspace/TopicWorkspacePanels', () => ({
@@ -342,6 +351,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
   currentWorkspace = providerVideoWorkspace
+  mocks.videoComplete = null
 })
 
 afterEach(() => {
@@ -361,6 +371,17 @@ describe('TopicWorkspacePage primary playback', () => {
     expect(container.textContent).toContain('Mathematics: Continuity introduction')
     expect(container.querySelector('[data-testid="video-player"]')?.textContent).toContain('Video player 101')
     expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
+  })
+
+  it('refreshes workspace after tracked video completion without a duplicate completion post', () => {
+    renderPage()
+
+    act(() => {
+      mocks.videoComplete?.()
+    })
+
+    expect(mocks.postJson).not.toHaveBeenCalled()
+    expect(mocks.mutateWorkspace).toHaveBeenCalled()
   })
 
   it('renders YouTube lessons with the tracked player instead of the static frame', () => {

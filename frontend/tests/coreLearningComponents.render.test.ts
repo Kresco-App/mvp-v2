@@ -131,6 +131,43 @@ describe('core learning component rendering', () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Lecon marquee comme terminee !')
   })
 
+  it('lets VideoPlayer demo completion retry after a failed save', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'mock-otp-token' } })
+    mocks.apiPost
+      .mockRejectedValueOnce(new Error('save failed'))
+      .mockResolvedValueOnce({ data: {} })
+    mocks.isLocalDemoVideoStream.mockReturnValue(true)
+    const onComplete = vi.fn()
+    const { container } = renderComponent(React.createElement(VideoPlayer, {
+      lessonId: 42,
+      durationSeconds: 120,
+      onProgress: vi.fn(),
+      onComplete,
+    }))
+
+    await act(async () => {
+      await flushPromises()
+    })
+
+    await act(async () => {
+      buttonByText(container, 'Marquer comme terminee')?.click()
+      await flushPromises()
+    })
+
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1)
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalledWith('Could not save video completion.')
+
+    await act(async () => {
+      buttonByText(container, 'Marquer comme terminee')?.click()
+      await flushPromises()
+    })
+
+    expect(mocks.apiPost).toHaveBeenCalledTimes(2)
+    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Lecon marquee comme terminee !')
+  })
+
 })
 
 function renderComponent(element: React.ReactElement) {

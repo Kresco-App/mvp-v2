@@ -22,6 +22,7 @@ type LessonStreamState = {
 
 type VdoCipherVideoElement = HTMLVideoElement & {
   currentTime: number
+  duration?: number
 }
 
 type VdoCipherPlayer = {
@@ -34,7 +35,7 @@ type VdoCipherApi = {
 }
 
 type ProgressCallback = ((currentSeconds: number, progress: number) => void) | undefined
-type CompleteCallback = (() => void) | undefined
+type CompleteCallback = (() => void | Promise<void>) | undefined
 
 declare global {
   interface Window {
@@ -124,6 +125,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lessonIdentityRef = useRef(lessonId)
   const completionReportedRef = useRef(false)
+  const completionSaveInFlightRef = useRef(false)
   const onProgressRef = useRef<ProgressCallback>(onProgress)
   const onCompleteRef = useRef<CompleteCallback>(onComplete)
   const [streamState, setStreamState] = useState<LessonStreamState>({ topicItemId: null, data: null })
@@ -142,27 +144,45 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
 
   const saveProgress = useCallback(async (watchedSeconds: number) => {
     if (!isActiveLesson(lessonId, lessonIdentityRef.current)) {
-      return
+      return false
     }
 
     try {
       await postJson(`/courses/topic-items/${lessonId}/complete`, {
-        watched_seconds: watchedSeconds,
+        watched_seconds: Math.max(0, Math.round(watchedSeconds)),
       })
+      return true
     } catch {
-      // Silent: not critical.
+      return false
     }
   }, [lessonId])
 
-  const reportCompletion = useCallback(() => {
-    if (completionReportedRef.current) return
+  const currentDuration = useCallback(() => {
+    const nativeDuration = playerRef.current?.video?.duration ?? 0
+    return Number.isFinite(nativeDuration) && nativeDuration > 0 ? nativeDuration : durationSeconds
+  }, [durationSeconds])
 
-    completionReportedRef.current = true
+  const reportCompletion = useCallback(async () => {
+    if (completionReportedRef.current || completionSaveInFlightRef.current) return
+
+    completionSaveInFlightRef.current = true
     setIsPlaying(false)
     clearProgressInterval()
-    void saveProgress(durationSeconds)
-    onCompleteRef.current?.()
-  }, [clearProgressInterval, durationSeconds, saveProgress])
+    const saved = await saveProgress(currentDuration() || durationSeconds)
+    if (!isActiveLesson(lessonId, lessonIdentityRef.current)) {
+      completionSaveInFlightRef.current = false
+      return
+    }
+    if (!saved) {
+      completionSaveInFlightRef.current = false
+      completionReportedRef.current = false
+      toast.error('Could not save video completion.')
+      return
+    }
+    completionReportedRef.current = true
+    completionSaveInFlightRef.current = false
+    await onCompleteRef.current?.()
+  }, [clearProgressInterval, currentDuration, durationSeconds, lessonId, saveProgress])
 
   useEffect(() => {
     onProgressRef.current = onProgress
@@ -172,6 +192,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   useEffect(() => {
     lessonIdentityRef.current = lessonId
     completionReportedRef.current = false
+    completionSaveInFlightRef.current = false
     lastSavedRef.current = 0
     clearProgressInterval()
 
@@ -223,12 +244,13 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
       }
 
       const current = activePlayer?.video?.currentTime ?? 0
-      const pct = durationSeconds > 0 ? current / durationSeconds : 0
+      const duration = currentDuration()
+      const pct = duration > 0 ? current / duration : 0
 
       onProgressRef.current?.(current, pct)
 
       if (pct >= 0.9) {
-        reportCompletion()
+        void reportCompletion()
       }
     }
 
@@ -255,7 +277,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
         }
 
         const handleEnded = () => {
-          reportCompletion()
+          void reportCompletion()
         }
 
         video.addEventListener('play', handlePlay)
@@ -287,6 +309,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     }
   }, [
     clearProgressInterval,
+    currentDuration,
     durationSeconds,
     lessonId,
     reportCompletion,
@@ -362,9 +385,11 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
           <button
             type="button"
             onClick={() => {
-              void saveProgress(durationSeconds)
-              toast.success('Lecon marquee comme terminee !')
-              onCompleteRef.current?.()
+              void reportCompletion().then(() => {
+                if (completionReportedRef.current) {
+                  toast.success('Lecon marquee comme terminee !')
+                }
+              })
             }}
             className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
           >

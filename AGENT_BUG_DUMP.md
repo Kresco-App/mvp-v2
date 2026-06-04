@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 38.
+- Current active bug count after this deep audit append: 37.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-016 - VdoCipher completion can duplicate writes and lock after failed saves
-
-Status: OPEN
-
-Files: `frontend/components/VideoPlayer.tsx`
-
-Current evidence: `reportCompletion` saves progress and then calls the parent `onComplete`, which can issue a second complete POST. It also sets the local completion lock before the async save succeeds, and missing/wrong backend duration has no native-duration fallback for the 90% path.
-
-Risk: videos can fire duplicate completion writes or get stuck locally completed after a failed save until the lesson changes.
-
-Fix direction: make one layer own completion persistence, reset completion locks on failed saves, and fall back to native player duration when backend duration is missing or wrong.
 
 #### BUG-P1-017 - Video read contract lacks a resume checkpoint
 

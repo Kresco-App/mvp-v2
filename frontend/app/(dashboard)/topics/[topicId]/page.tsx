@@ -267,6 +267,14 @@ export default function TopicWorkspacePage() {
     }
   }, [activeItem, requestWorkspace])
 
+  const refreshActiveProgress = useCallback(() => {
+    if (!activeItem) return
+    requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), {
+      preserveActiveTab: true,
+      preserveOpenSections: true,
+    })
+  }, [activeItem, requestWorkspace])
+
   const saveActive = useCallback(async () => {
     if (!activeItem || !workspace || actionInFlightRef.current) return
     if (activeItem.can_access === false) {
@@ -297,7 +305,7 @@ export default function TopicWorkspacePage() {
           <VideoPlayer
             lessonId={activeItem.id}
             durationSeconds={activeItem.duration_seconds || 0}
-            onComplete={completeActive}
+            onComplete={refreshActiveProgress}
           />
         </PrimaryContentFrame>
       )
@@ -309,7 +317,7 @@ export default function TopicWorkspacePage() {
             lessonId={activeItem.id}
             videoId={activePrimaryVideoId}
             durationSeconds={activeItem.duration_seconds || 0}
-            onComplete={completeActive}
+            onComplete={refreshActiveProgress}
           />
         </PrimaryContentFrame>
       )
@@ -331,7 +339,7 @@ export default function TopicWorkspacePage() {
       )
     }
     return <VideoPlayerFrame videoId="" srcDoc={missingVideoSrcDoc(activeItem)} />
-  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, requestWorkspace, shouldUsePrimaryVideoPlayer, topicId, workspace?.id])
+  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, refreshActiveProgress, requestWorkspace, shouldUsePrimaryVideoPlayer, topicId, workspace?.id])
 
   if (loading && !workspace) {
     return <FigmaVideoWorkspaceSkeleton />
