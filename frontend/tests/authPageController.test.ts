@@ -11,6 +11,7 @@ import {
   normalizeEmailInput,
   useAuthPageController,
 } from '@/lib/authPageController'
+import { KRESCO_STORED_AUTH_SNAPSHOT } from '@/lib/authSession'
 
 const mocks = vi.hoisted(() => {
   const authState = {
@@ -129,6 +130,21 @@ describe('auth page login error handling', () => {
 })
 
 describe('auth page onboarding state', () => {
+  it('does not infer onboarding from minimal stored auth snapshots', async () => {
+    mocks.authState.user = {
+      [KRESCO_STORED_AUTH_SNAPSHOT]: true,
+      role: 'student',
+    } as typeof mocks.authState.user
+    mocks.authState.token = 'cookie-session'
+
+    renderController()
+
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith('/home')
+    })
+    expect(latestController?.step).toBe('auth')
+  })
+
   it('hydrates the saved niveau when resuming at the filiere step', async () => {
     mocks.authState.user = {
       role: 'student',

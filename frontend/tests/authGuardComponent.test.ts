@@ -10,6 +10,7 @@ import { replaceBrowserLocation } from '@/lib/browserNavigation'
 import { getMyProfile } from '@/lib/profile'
 import { useAuthStore } from '@/lib/store'
 import {
+  KRESCO_STORED_AUTH_SNAPSHOT,
   KRESCO_TOKEN_KEY,
   KRESCO_USER_KEY,
   KRESCO_USER_ROLE_COOKIE,
@@ -143,7 +144,12 @@ describe('AuthGuard component behavior', () => {
       expect(container.textContent).toContain('Student child')
     })
     expect(useAuthStore.getState().token).toBe('cookie-session')
-    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toMatchObject(studentUser)
+    expect(useAuthStore.getState().user).toMatchObject(studentUser)
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual({
+      [KRESCO_STORED_AUTH_SNAPSHOT]: true,
+      role: 'student',
+      is_staff: false,
+    })
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
   })
 
@@ -240,7 +246,11 @@ describe('AuthGuard component behavior', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('We could not verify your session')
     })
-    expect(useAuthStore.getState().user).toMatchObject(studentUser)
+    expect(useAuthStore.getState().user).toEqual({
+      [KRESCO_STORED_AUTH_SNAPSHOT]: true,
+      role: 'student',
+      is_staff: false,
+    })
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
 
     const retry = container.querySelector('button')

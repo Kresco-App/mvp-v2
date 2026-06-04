@@ -89,6 +89,7 @@ function isUnauthorizedError(error: unknown) {
 
 export default function AuthGuard({ children, requireRole = null, requireStaff = false }: AuthGuardProps) {
   const token = useAuthStore((state) => state.token)
+  const user = useAuthStore((state) => state.user)
   const hydrate = useAuthStore((state) => state.hydrate)
   const isHydrated = useAuthStore((state) => state.isHydrated)
   const login = useAuthStore((state) => state.login)
@@ -110,7 +111,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
 
   useEffect(() => {
     if (!isHydrated) return
-    if (!token && verificationStateRef.current === 'verified') {
+    if ((!token || !user) && verificationStateRef.current === 'verified') {
       verificationStateRef.current = 'idle'
       setAccessState('pending')
     }
@@ -170,7 +171,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
       })
 
     return () => { cancelled = true }
-  }, [isHydrated, token, requireRole, requireStaff, login, updateUser, clearSession, retryCount])
+  }, [isHydrated, token, user, requireRole, requireStaff, login, updateUser, clearSession, retryCount])
 
   if (!isHydrated) {
     return <LoadingScreen message="Loading Kresco..." />

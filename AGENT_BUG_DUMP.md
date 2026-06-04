@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 40.
+- Current active bug count after this deep audit append: 39.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-013 - Cached user profile data is persisted in localStorage
-
-Status: OPEN
-
-Files: `frontend/lib/authSession.ts`, `frontend/lib/store.ts`
-
-Current evidence: `writeStoredAuthSession` and `updateStoredAuthUser` persist the full `AuthUser` object in `localStorage["kresco_user"]`; server verification prevents auth-token forgery but not profile-data exposure.
-
-Risk: email/name/avatar/tier/staff/profile context is readable by any script running in the origin, extensions, and local physical access.
-
-Fix direction: minimize stored fields, move sensitive context to server verification, or use session-only memory where practical.
 
 #### BUG-P1-015 - YouTube topic videos do not auto-track playback progress
 

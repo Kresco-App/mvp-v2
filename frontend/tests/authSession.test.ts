@@ -27,6 +27,7 @@ import {
   KRESCO_CSRF_COOKIE,
   KRESCO_CSRF_HEADER,
   KRESCO_CSRF_KEY,
+  KRESCO_STORED_AUTH_SNAPSHOT,
   KRESCO_TOKEN_KEY,
   KRESCO_TOKEN_COOKIE,
   KRESCO_USER_KEY,
@@ -34,6 +35,7 @@ import {
   clearStoredAuthSession,
   getAuthUserFromJwt,
   getTokenCookieMaxAgeSeconds,
+  isStoredAuthSnapshot,
   isJwtExpired,
   readCsrfToken,
   readStoredAuthSession,
@@ -45,6 +47,14 @@ import { useAuthStore } from '@/lib/store'
 function makeToken(payload: Record<string, unknown>) {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.test`
+}
+
+function storedAuthSnapshot(user: { role?: string; is_staff?: boolean }) {
+  return {
+    [KRESCO_STORED_AUTH_SNAPSHOT]: true,
+    ...(typeof user.role === 'string' ? { role: user.role } : {}),
+    ...(typeof user.is_staff === 'boolean' ? { is_staff: user.is_staff } : {}),
+  }
 }
 
 afterEach(() => {
@@ -196,18 +206,52 @@ describe('auth session JWT helpers', () => {
     expect(getTokenCookieMaxAgeSeconds(makeToken({ exp: 1_700_000_900 }), now)).toBe(900)
   })
 
-  it('stores user context without treating localStorage alone as an authenticated session', () => {
-    const user = { id: 1, email: 'student@example.com', role: 'student' }
+  it('stores only minimal auth hints without treating localStorage alone as an authenticated session', () => {
+    const user = {
+      id: 1,
+      email: 'student@example.com',
+      full_name: 'Stored Student',
+      role: 'student',
+      tier: 'vip',
+      avatar_url: '/avatar.png',
+      is_staff: false,
+    }
+    const snapshot = storedAuthSnapshot(user)
     localStorage.setItem(KRESCO_TOKEN_KEY, 'legacy-token')
 
     writeStoredAuthSession(user)
 
     expect(localStorage.getItem(KRESCO_TOKEN_KEY)).toBeNull()
-    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toMatchObject(user)
-    expect(readStoredAuthSession()).toEqual({ token: null, user })
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(snapshot)
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('student@example.com')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('Stored Student')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('vip')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('/avatar.png')
+    expect(readStoredAuthSession()).toEqual({ token: null, user: snapshot })
 
     document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
-    expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user })
+    expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: snapshot })
+    expect(isStoredAuthSnapshot(snapshot)).toBe(true)
+  })
+
+  it('scrubs legacy full user cache entries when reading stored auth', () => {
+    const legacyUser = {
+      id: 1,
+      email: 'legacy@example.com',
+      full_name: 'Legacy Student',
+      role: 'student',
+      is_staff: false,
+      banner_url: '/banner.png',
+    }
+    const snapshot = storedAuthSnapshot(legacyUser)
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(legacyUser))
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+
+    expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: snapshot })
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(snapshot)
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('legacy@example.com')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('Legacy Student')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('/banner.png')
   })
 
   it('extracts immutable route authorization claims from the JWT payload', () => {
@@ -242,7 +286,7 @@ describe('auth session JWT helpers', () => {
 })
 
 describe('auth store session writes', () => {
-  it('stores the user object when login is called with the current user/csrf signature', () => {
+  it('keeps full user data in memory but only writes auth hints to localStorage', () => {
     const user = { id: 1, email: 'student@kresco.local', role: 'student' }
 
     clearStoredAuthSession()
@@ -251,7 +295,7 @@ describe('auth store session writes', () => {
 
     expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
     expect(useAuthStore.getState().user).toEqual(user)
-    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(user)
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(storedAuthSnapshot(user))
     expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('csrf-token')
   })
 
@@ -296,7 +340,7 @@ describe('auth store session writes', () => {
 
     expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
     expect(useAuthStore.getState().user).toEqual(user)
-    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(user)
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(storedAuthSnapshot(user))
     expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('legacy-csrf-token')
   })
 
@@ -375,7 +419,7 @@ describe('auth store session writes', () => {
     expect(useAuthStore.getState().isLoggingOut).toBe(false)
     expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
     expect(useAuthStore.getState().user).toEqual(user)
-    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(user)
+    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(storedAuthSnapshot(user))
     expect(readCsrfToken()).toBe('logout-csrf')
     expect(mutate).not.toHaveBeenCalled()
   })

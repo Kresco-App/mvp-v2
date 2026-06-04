@@ -6,6 +6,7 @@ export const KRESCO_USER_ROLE_COOKIE = 'kresco_user_role'
 export const KRESCO_CSRF_COOKIE = 'kresco_csrf'
 export const KRESCO_CSRF_HEADER = 'x-csrf-token'
 export const KRESCO_COOKIE_SESSION = 'cookie-session'
+export const KRESCO_STORED_AUTH_SNAPSHOT = '__kresco_minimal_auth_snapshot'
 
 const DEFAULT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
 const BASE64URL_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
@@ -34,6 +35,22 @@ export type StoredAuthSession = {
 }
 
 let csrfTokenCache: string | null = null
+
+export function sanitizeStoredAuthUser(user: AuthUser | null | undefined): AuthUser | null {
+  if (!user || typeof user !== 'object') return null
+
+  const snapshot: AuthUser = {
+    [KRESCO_STORED_AUTH_SNAPSHOT]: true,
+  }
+  if (typeof user.role === 'string') snapshot.role = user.role
+  if (typeof user.is_staff === 'boolean') snapshot.is_staff = user.is_staff
+
+  return snapshot
+}
+
+export function isStoredAuthSnapshot(user: AuthUser | null | undefined) {
+  return user?.[KRESCO_STORED_AUTH_SNAPSHOT] === true
+}
 
 function readStoredJson<T = unknown>(key: string): T | null {
   if (typeof window === 'undefined') return null
@@ -190,7 +207,16 @@ export function readStoredAuthSession(): StoredAuthSession {
 
   localStorage.removeItem(KRESCO_TOKEN_KEY)
 
-  const user = readStoredJson<AuthUser>(KRESCO_USER_KEY)
+  const storedUser = readStoredJson<AuthUser>(KRESCO_USER_KEY)
+  const user = sanitizeStoredAuthUser(storedUser)
+  if (storedUser && user) {
+    const sanitized = JSON.stringify(user)
+    if (JSON.stringify(storedUser) !== sanitized) {
+      localStorage.setItem(KRESCO_USER_KEY, sanitized)
+    }
+  } else if (storedUser) {
+    localStorage.removeItem(KRESCO_USER_KEY)
+  }
   const hasCookieSession = Boolean(readCookie(KRESCO_USER_ROLE_COOKIE))
 
   return {
@@ -203,7 +229,9 @@ export function writeStoredAuthSession(user: AuthUser, csrfToken?: string | null
   if (typeof window === 'undefined') return
 
   localStorage.removeItem(KRESCO_TOKEN_KEY)
-  localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(user))
+  const authSnapshot = sanitizeStoredAuthUser(user)
+  if (authSnapshot) localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(authSnapshot))
+  else localStorage.removeItem(KRESCO_USER_KEY)
   if (csrfToken !== undefined) writeCsrfToken(csrfToken)
 }
 
@@ -211,5 +239,7 @@ export function updateStoredAuthUser(user: AuthUser) {
   if (typeof window === 'undefined') return
 
   localStorage.removeItem(KRESCO_TOKEN_KEY)
-  localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(user))
+  const authSnapshot = sanitizeStoredAuthUser(user)
+  if (authSnapshot) localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(authSnapshot))
+  else localStorage.removeItem(KRESCO_USER_KEY)
 }

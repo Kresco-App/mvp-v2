@@ -4,7 +4,8 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { patchJson, postJson } from '@/lib/apiClient'
-import { resolveAuthSuccess } from '@/lib/authPolicy'
+import { getAuthenticatedDestination, resolveAuthSuccess } from '@/lib/authPolicy'
+import { isStoredAuthSnapshot } from '@/lib/authSession'
 import { useAuthStore } from '@/lib/store'
 import { apiDataErrorMessage } from '@/lib/apiData'
 
@@ -90,9 +91,13 @@ export function useAuthPageController() {
   useEffect(() => {
     if (!isHydrated) return
     if (token && user) {
+      if (isStoredAuthSnapshot(user)) {
+        router.replace(getAuthenticatedDestination(user))
+        return
+      }
       handleAuthResolution(user, 'replace')
     }
-  }, [handleAuthResolution, isHydrated, token, user])
+  }, [handleAuthResolution, isHydrated, router, token, user])
 
   useEffect(() => {
     const handleGoogleCredential = async (response: any) => {
