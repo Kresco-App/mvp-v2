@@ -21,7 +21,7 @@ Last validation snapshot:
 - Worktree was clean before this rewrite.
 - Backend focused checks passed: course access, topic quiz, data integrity, migrations, grading, image uploads, professor platform, interactions, notifications.
 - Frontend focused checks passed: auth/session, payments, dashboard search, topic workspace, video player, admin, profile, typecheck, and lint.
-- Alembic head is `0047`.
+- Alembic head is `0048`.
 - 2026-06-04 audit append: `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build`, `npm audit --omit=dev`, `python scripts/check_secret_hygiene.py`, and `python scripts/check_repo_hygiene.py` passed.
 - 2026-06-04 audit append: `python -m pytest -q` failed with 2 failures / 484 passes; see `BUG-P0-001` and `BUG-P0-006`.
 - 2026-06-04 audit append: `python scripts/check_production_launch_gate.py --json` failed at score 5.5 / 9.0; see `BUG-P0-007`. `python scripts/check_http_readiness.py` failed because `BACKEND_READY_URL` is unset; see `BUG-P1-023`.
@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 58.
+- Current active bug count after this deep audit append: 57.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -97,18 +97,6 @@ Current evidence: backend CI runs a separate Alembic upgrade check, but the Fast
 Risk: Alembic upgrade syntax, missing constraints, downgrade hazards, and migration ordering can be invisible to the main test suite.
 
 Fix direction: migrate test DBs with Alembic for at least the default backend suite, keeping a small fast metadata suite only if explicitly named.
-
-#### BUG-P0-006 - TopicItemProgress topic_item_id FK lacks a leading index
-
-Status: OPEN
-
-Files: `backend/app/models/gamification.py`, `backend/alembic/versions/0044_topic_item_progress_user_item_status_index.py`, `backend/alembic/versions/0046_topic_item_progress_topic_item_fk.py`, `backend/alembic/versions/e34496201734_add_index_to_foreign_keys.py`, `backend/tests_fastapi/test_query_plan_audit.py`
-
-Current evidence: `python -m pytest tests_fastapi/test_query_plan_audit.py -q` is red on `test_foreign_key_columns_are_indexed_or_index_leading` because `topic_item_progress.topic_item_id` is a cascading foreign key without a matching leading index. Existing indexes lead with `user_id`, so they do not satisfy lookups/cascades by `topic_item_id`.
-
-Risk: topic-item deletes, joins, and query plans can degrade as progress rows grow, and the full backend suite is currently red.
-
-Fix direction: add a migration and model index with `topic_item_id` as the leading column, then rerun the query-plan audit and full backend pytest.
 
 #### BUG-P0-007 - Production launch gate remains below release threshold
 

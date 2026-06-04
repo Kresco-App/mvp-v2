@@ -115,6 +115,20 @@ def test_topic_item_progress_model_includes_user_item_status_index():
     indexes = {index.name: tuple(column.name for column in index.columns) for index in table.indexes}
 
     assert indexes["ix_topic_item_progress_user_item_status"] == ("user_id", "topic_item_id", "status")
+    assert indexes["ix_topic_item_progress_topic_item_id"] == ("topic_item_id",)
+
+
+def test_topic_item_progress_topic_item_index_migration_declares_fk_index():
+    migration = (
+        BACKEND_ROOT
+        / "alembic"
+        / "versions"
+        / "0048_topic_item_progress_topic_item_index.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'down_revision: Union[str, None] = "0047"' in migration
+    assert 'INDEX_NAME = "ix_topic_item_progress_topic_item_id"' in migration
+    assert 'COLUMNS = ("topic_item_id",)' in migration
 
 
 def test_user_hot_path_indexes_exist_in_model_metadata():

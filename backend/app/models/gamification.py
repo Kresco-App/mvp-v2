@@ -141,6 +141,7 @@ class TopicItemProgress(Base):
         Index("ix_topic_item_progress_user_item_status", "user_id", "topic_item_id", "status"),
         Index("ix_topic_item_progress_user_topic_item", "user_id", "topic_id", "topic_item_id"),
         Index("ix_topic_item_progress_user_topic_status", "user_id", "topic_id", "status"),
+        Index("ix_topic_item_progress_topic_item_id", "topic_item_id"),
         Index("ix_topic_item_progress_status", "status"),
     )
 
