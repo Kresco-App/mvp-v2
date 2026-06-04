@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -34,5 +36,22 @@ describe('calendar view model helpers', () => {
     expect(days).toHaveLength(42)
     expect(formatCalendarDate(days[0].date)).toBe('2026-04-27')
     expect(formatCalendarDate(days[41].date)).toBe('2026-06-07')
+  })
+
+  it('keeps realtime subscriptions stable across week navigation', () => {
+    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8')
+
+    expect(source).toContain('const loadEventsForWeekRef = useRef(loadEventsForWeek)')
+    expect(source).toContain('useEffect(() => {\n    loadEventsForWeekRef.current = loadEventsForWeek\n  }, [loadEventsForWeek])')
+    expect(source).toContain('const refresh = () => void loadEventsForWeekRef.current(() => !stopped)')
+    expect(source).not.toContain('}, [loadEventsForWeek, user?.id])')
+  })
+
+  it('keeps calendar fallback UI generic and explicit', () => {
+    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8')
+
+    expect(source).not.toContain("|| 'Khalid'")
+    expect(source).toContain("|| 'Student'")
+    expect(source).toContain('No events scheduled this week.')
   })
 })

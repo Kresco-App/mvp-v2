@@ -63,8 +63,9 @@ export default function CalendarPage() {
 
   const selectedWeekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index)), [selectedWeekStart])
+  const weekEvents = useMemo(() => eventsForWeek(events, selectedWeekStart), [events, selectedWeekStart])
   const calendarTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', [])
-  const firstName = user?.full_name?.split(' ')?.[0] || 'Khalid'
+  const firstName = user?.full_name?.split(' ')?.[0] || 'Student'
 
   useEffect(() => {
     if (!requestedEventId) return
@@ -110,6 +111,11 @@ export default function CalendarPage() {
       if (alive()) setLoading(false)
     }
   }, [calendarTimeZone, requestedEventId, selectedWeekStart])
+  const loadEventsForWeekRef = useRef(loadEventsForWeek)
+
+  useEffect(() => {
+    loadEventsForWeekRef.current = loadEventsForWeek
+  }, [loadEventsForWeek])
 
   useEffect(() => {
     let alive = true
@@ -121,7 +127,6 @@ export default function CalendarPage() {
     if (loading) return
     const scrollContainer = calendarScrollRef.current
     if (!scrollContainer) return
-    const weekEvents = eventsForWeek(events, selectedWeekStart)
     if (weekEvents.length === 0) {
       scrollContainer.scrollTop = 0
       return
@@ -132,14 +137,14 @@ export default function CalendarPage() {
       return Math.min(current, startsAt.getHours() * 60 + startsAt.getMinutes())
     }, 24 * 60)
     scrollContainer.scrollTop = Math.max(0, (earliest / 60) * hourHeight - hourHeight)
-  }, [events, loading, selectedWeekStart])
+  }, [loading, weekEvents])
 
   useEffect(() => {
     if (!user?.id) return
     const userId = user.id
     let cleanup = () => {}
     let stopped = false
-    const refresh = () => void loadEventsForWeek(() => true)
+    const refresh = () => void loadEventsForWeekRef.current(() => !stopped)
     void listKrescoRealtimeSubscriptions()
       .then(({ notification_channels }) => {
         if (stopped) return
@@ -159,7 +164,7 @@ export default function CalendarPage() {
       stopped = true
       cleanup()
     }
-  }, [loadEventsForWeek, user?.id])
+  }, [user?.id])
 
   function moveWeek(direction: -1 | 1) {
     setSelectedDate((current) => addDays(current, direction * 7))
@@ -227,7 +232,7 @@ export default function CalendarPage() {
                         ))}
                       </div>
                     ))}
-                    {eventsForWeek(events, selectedWeekStart).map((event) => (
+                    {weekEvents.map((event) => (
                       <CalendarEventBlock
                         key={event.id}
                         event={event}
@@ -235,6 +240,12 @@ export default function CalendarPage() {
                         onSelect={setSelectedEvent}
                       />
                     ))}
+                    {!loading && weekEvents.length === 0 && (
+                      <div className="pointer-events-none absolute inset-x-4 top-20 z-10 rounded-[12px] border-2 border-dashed border-[#d4d4d8] bg-white/90 px-5 py-4 text-center">
+                        <p className="m-0 text-[14px] font-black text-[#52525c]">No events scheduled this week.</p>
+                        <p className="m-0 mt-1 text-[12px] font-bold text-[#9f9fa9]">Use the arrows to browse another week.</p>
+                      </div>
+                    )}
                     {loading && (
                       <div className="absolute inset-0 grid place-items-center bg-white/60">
                         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#5b60f9] border-t-transparent" />
