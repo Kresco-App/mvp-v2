@@ -10,7 +10,7 @@ from app.dependencies import get_db
 from app.rate_limit import limiter
 from app.services.diagnostics import build_production_diagnostics
 from app.services.gamification_read_models import refresh_leaderboard_projection_if_stale
-from app.services.realtime_outbox import process_realtime_outbox, requeue_failed_realtime_outbox
+from app.services.realtime_outbox import process_realtime_outbox, purge_realtime_outbox, requeue_failed_realtime_outbox
 
 router = APIRouter(tags=["Internal"])
 
@@ -50,6 +50,20 @@ async def requeue_failed_realtime_outbox_endpoint(
 ):
     del request
     result = await requeue_failed_realtime_outbox(db, limit=limit)
+    return {"ok": True, **result}
+
+
+@router.post("/realtime/purge-outbox")
+@limiter.limit("10/minute")
+async def purge_realtime_outbox_endpoint(
+    request: Request,
+    _: None = Depends(_require_internal_secret),
+    retention_days: int = Query(default=14, ge=1, le=365),
+    limit: int = Query(default=250, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    del request
+    result = await purge_realtime_outbox(db, retention_days=retention_days, limit=limit)
     return {"ok": True, **result}
 
 

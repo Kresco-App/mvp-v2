@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 
 import httpx
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -19,8 +19,11 @@ OUTBOX_PUBLISHING = "publishing"
 OUTBOX_PUBLISHED = "published"
 OUTBOX_DEAD = "dead"
 OUTBOX_DELIVERABLE_STATUSES = {OUTBOX_PENDING, OUTBOX_RETRY}
+OUTBOX_TERMINAL_STATUSES = {OUTBOX_PUBLISHED, OUTBOX_DEAD}
 OUTBOX_STALE_LOCK_SECONDS = 300
 OUTBOX_MAX_CONCURRENCY = 8
+OUTBOX_DEFAULT_RETENTION_DAYS = 14
+OUTBOX_MAX_PURGE_LIMIT = 1000
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +152,34 @@ async def requeue_failed_realtime_outbox(
     if events:
         await db.commit()
     return {"requeued": len(events)}
+
+
+async def purge_realtime_outbox(
+    db: AsyncSession,
+    *,
+    retention_days: int = OUTBOX_DEFAULT_RETENTION_DAYS,
+    limit: int = OUTBOX_MAX_PURGE_LIMIT,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    batch_now = now or _utc_now()
+    retention_days = max(int(retention_days), 1)
+    limit = max(1, min(int(limit), OUTBOX_MAX_PURGE_LIMIT))
+    cutoff = batch_now - timedelta(days=retention_days)
+    result = await db.execute(
+        select(RealtimeOutbox.id)
+        .where(
+            RealtimeOutbox.status.in_(OUTBOX_TERMINAL_STATUSES),
+            RealtimeOutbox.updated_at < cutoff,
+        )
+        .order_by(RealtimeOutbox.updated_at, RealtimeOutbox.id)
+        .limit(limit)
+    )
+    event_ids = list(result.scalars().all())
+    if not event_ids:
+        return {"purged": 0}
+    await db.execute(delete(RealtimeOutbox).where(RealtimeOutbox.id.in_(event_ids)))
+    await db.commit()
+    return {"purged": len(event_ids)}
 
 
 FAST_LANE_OUTBOX_LIMIT = 25

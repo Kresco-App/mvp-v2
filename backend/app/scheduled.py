@@ -14,12 +14,18 @@ from app.config import Settings, get_settings
 from app.database import get_session_factory, init_engine
 from scripts.seed_staging_demo import seed_staging_demo
 from app.services.gamification_read_models import refresh_leaderboard_projection_if_stale
-from app.services.realtime_outbox import process_realtime_outbox
+from app.services.realtime_outbox import (
+    OUTBOX_DEFAULT_RETENTION_DAYS,
+    OUTBOX_MAX_PURGE_LIMIT,
+    process_realtime_outbox,
+    purge_realtime_outbox,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_OUTBOX_LIMIT = 100
 MAX_OUTBOX_LIMIT = 500
+DEFAULT_OUTBOX_PURGE_LIMIT = 250
 
 
 def run_alembic_migrations_event(
@@ -85,17 +91,26 @@ async def process_realtime_outbox_once(
         raise RuntimeError("Database engine was not initialized for scheduled outbox processing.")
 
     limit = _outbox_limit_from_event(event or {})
+    purge_retention_days = _outbox_retention_days_from_event(event or {})
+    purge_limit = _outbox_purge_limit_from_event(event or {})
     async with session_factory() as db:
         result = await process_realtime_outbox(db, resolved_settings, limit=limit)
+    async with session_factory() as db:
+        purge_result = await purge_realtime_outbox(
+            db,
+            retention_days=purge_retention_days,
+            limit=purge_limit,
+        )
 
     logger.info(
-        "scheduled_realtime_outbox_processed claimed=%s published=%s retry=%s dead=%s",
+        "scheduled_realtime_outbox_processed claimed=%s published=%s retry=%s dead=%s purged=%s",
         result["claimed"],
         result["published"],
         result["retry"],
         result["dead"],
+        purge_result["purged"],
     )
-    return {"ok": True, **result}
+    return {"ok": True, **result, **purge_result}
 
 
 async def refresh_leaderboard_projection_once(
@@ -129,3 +144,31 @@ def _outbox_limit_from_event(event: Mapping[str, Any]) -> int:
         limit = DEFAULT_OUTBOX_LIMIT
 
     return max(1, min(limit, MAX_OUTBOX_LIMIT))
+
+
+def _outbox_retention_days_from_event(event: Mapping[str, Any]) -> int:
+    raw_days = event.get("retention_days")
+    detail = event.get("detail")
+    if raw_days is None and isinstance(detail, Mapping):
+        raw_days = detail.get("retention_days")
+
+    try:
+        retention_days = int(raw_days) if raw_days is not None else OUTBOX_DEFAULT_RETENTION_DAYS
+    except (TypeError, ValueError):
+        retention_days = OUTBOX_DEFAULT_RETENTION_DAYS
+
+    return max(1, retention_days)
+
+
+def _outbox_purge_limit_from_event(event: Mapping[str, Any]) -> int:
+    raw_limit = event.get("purge_limit")
+    detail = event.get("detail")
+    if raw_limit is None and isinstance(detail, Mapping):
+        raw_limit = detail.get("purge_limit")
+
+    try:
+        limit = int(raw_limit) if raw_limit is not None else DEFAULT_OUTBOX_PURGE_LIMIT
+    except (TypeError, ValueError):
+        limit = DEFAULT_OUTBOX_PURGE_LIMIT
+
+    return max(1, min(limit, OUTBOX_MAX_PURGE_LIMIT))

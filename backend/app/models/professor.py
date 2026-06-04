@@ -229,6 +229,7 @@ class RealtimeOutbox(Base):
     __tablename__ = "realtime_outbox"
     __table_args__ = (
         Index("ix_realtime_outbox_status_available", "status", "available_at", "id"),
+        Index("ix_realtime_outbox_status_updated", "status", "updated_at", "id"),
         Index("ix_realtime_outbox_channel_created", "channel", "created_at"),
     )
 

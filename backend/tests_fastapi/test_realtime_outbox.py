@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 
@@ -180,3 +180,67 @@ def test_requeue_failed_realtime_outbox_resets_retryable_rows(run_db):
     assert rows[3].attempts == 0
     assert rows[3].locked_at is None
     assert rows[3].last_error == ""
+
+
+def test_purge_realtime_outbox_deletes_only_old_terminal_rows(run_db):
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=30)
+    fresh = now - timedelta(days=1)
+
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            rows = [
+                RealtimeOutbox(
+                    channel="kresco:user:1:notifications",
+                    event_name="old.published",
+                    payload_json={},
+                    status=realtime_outbox.OUTBOX_PUBLISHED,
+                    updated_at=old,
+                ),
+                RealtimeOutbox(
+                    channel="kresco:user:2:notifications",
+                    event_name="old.dead",
+                    payload_json={},
+                    status=realtime_outbox.OUTBOX_DEAD,
+                    updated_at=old,
+                ),
+                RealtimeOutbox(
+                    channel="kresco:user:3:notifications",
+                    event_name="fresh.published",
+                    payload_json={},
+                    status=realtime_outbox.OUTBOX_PUBLISHED,
+                    updated_at=fresh,
+                ),
+                RealtimeOutbox(
+                    channel="kresco:user:4:notifications",
+                    event_name="old.retry",
+                    payload_json={},
+                    status=realtime_outbox.OUTBOX_RETRY,
+                    updated_at=old,
+                ),
+                RealtimeOutbox(
+                    channel="kresco:user:5:notifications",
+                    event_name="old.pending",
+                    payload_json={},
+                    status=realtime_outbox.OUTBOX_PENDING,
+                    updated_at=old,
+                ),
+            ]
+            db.add_all(rows)
+            await db.commit()
+
+        async with session_factory() as db:
+            first = await realtime_outbox.purge_realtime_outbox(db, retention_days=14, limit=1, now=now)
+        async with session_factory() as db:
+            second = await realtime_outbox.purge_realtime_outbox(db, retention_days=14, limit=100, now=now)
+        async with session_factory() as db:
+            remaining = (await db.execute(select(RealtimeOutbox).order_by(RealtimeOutbox.event_name))).scalars().all()
+            return first, second, remaining
+
+    first, second, remaining = run_db(_case())
+
+    assert first == {"purged": 1}
+    assert second == {"purged": 1}
+    assert [row.event_name for row in remaining] == ["fresh.published", "old.pending", "old.retry"]

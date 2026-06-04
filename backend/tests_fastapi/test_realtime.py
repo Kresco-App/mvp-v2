@@ -633,7 +633,7 @@ def test_scheduled_realtime_outbox_event_drains_queue(app_client, run_db, monkey
             event_ids = [first.id, second.id, third.id]
 
         result = await scheduled.process_realtime_outbox_once(
-            {"detail": {"limit": "2"}},
+            {"detail": {"limit": "2", "retention_days": "14", "purge_limit": "3"}},
             settings=test_settings,
         )
 
@@ -643,7 +643,7 @@ def test_scheduled_realtime_outbox_event_drains_queue(app_client, run_db, monkey
 
     result, stored = run_db(_case())
 
-    assert result == {"ok": True, "claimed": 2, "published": 2, "retry": 0, "dead": 0}
+    assert result == {"ok": True, "claimed": 2, "published": 2, "retry": 0, "dead": 0, "purged": 0}
     assert published == ["kresco:offering:1:notifications", "kresco:live:1"]
     assert [row.status for row in stored] == [
         realtime_outbox.OUTBOX_PUBLISHED,
@@ -676,6 +676,17 @@ def test_scheduled_realtime_outbox_limit_parsing():
     assert scheduled._outbox_limit_from_event({"limit": "not-a-number"}) == scheduled.DEFAULT_OUTBOX_LIMIT
     assert scheduled._outbox_limit_from_event({"limit": 0}) == 1
     assert scheduled._outbox_limit_from_event({"limit": 9999}) == scheduled.MAX_OUTBOX_LIMIT
+    assert scheduled._outbox_retention_days_from_event({}) == realtime_outbox.OUTBOX_DEFAULT_RETENTION_DAYS
+    assert scheduled._outbox_retention_days_from_event({"retention_days": "9"}) == 9
+    assert scheduled._outbox_retention_days_from_event({"detail": {"retention_days": 6}}) == 6
+    assert scheduled._outbox_retention_days_from_event({"retention_days": "bad"}) == realtime_outbox.OUTBOX_DEFAULT_RETENTION_DAYS
+    assert scheduled._outbox_retention_days_from_event({"retention_days": 0}) == 1
+    assert scheduled._outbox_purge_limit_from_event({}) == scheduled.DEFAULT_OUTBOX_PURGE_LIMIT
+    assert scheduled._outbox_purge_limit_from_event({"purge_limit": "7"}) == 7
+    assert scheduled._outbox_purge_limit_from_event({"detail": {"purge_limit": 3}}) == 3
+    assert scheduled._outbox_purge_limit_from_event({"purge_limit": "bad"}) == scheduled.DEFAULT_OUTBOX_PURGE_LIMIT
+    assert scheduled._outbox_purge_limit_from_event({"purge_limit": 0}) == 1
+    assert scheduled._outbox_purge_limit_from_event({"purge_limit": 9999}) == realtime_outbox.OUTBOX_MAX_PURGE_LIMIT
 
 
 def test_internal_process_outbox_requires_worker_secret(app_client, monkeypatch, test_settings):
@@ -724,6 +735,30 @@ def test_internal_requeue_failed_outbox_requires_worker_secret(app_client, monke
     assert forbidden.status_code == 403
     assert ok.status_code == 200
     assert ok.json() == {"ok": True, "requeued": 9}
+
+
+def test_internal_purge_outbox_requires_worker_secret(app_client, monkeypatch, test_settings):
+    async def fake_purge(db, *, retention_days, limit):
+        return {"purged": retention_days + limit}
+
+    monkeypatch.setattr("app.routers.internal.purge_realtime_outbox", fake_purge)
+    old_secret = test_settings.realtime_outbox_secret
+    test_settings.realtime_outbox_secret = "test-internal-worker-secret-32-bytes"
+    try:
+        forbidden = app_client.post(
+            "/api/internal/realtime/purge-outbox",
+            headers={"x-kresco-internal-secret": "wrong"},
+        )
+        ok = app_client.post(
+            "/api/internal/realtime/purge-outbox?retention_days=8&limit=9",
+            headers={"x-kresco-internal-secret": test_settings.realtime_outbox_secret},
+        )
+    finally:
+        test_settings.realtime_outbox_secret = old_secret
+
+    assert forbidden.status_code == 403
+    assert ok.status_code == 200
+    assert ok.json() == {"ok": True, "purged": 17}
 
 
 def test_ably_token_omits_live_session_channel_without_live_session_feature(app_client, run_db, test_settings):
