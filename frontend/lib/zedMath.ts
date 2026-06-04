@@ -43,9 +43,17 @@ class MathParser {
   }
 
   private power(): number {
-    const value = this.unary()
-    this.skipWhitespace()
-    if (this.consume('^')) return Math.pow(value, this.power())
+    const values = [this.unary()]
+    while (true) {
+      this.skipWhitespace()
+      if (!this.consume('^')) break
+      values.push(this.unary())
+    }
+
+    let value = values[values.length - 1]
+    for (let index = values.length - 2; index >= 0; index -= 1) {
+      value = Math.pow(values[index], value)
+    }
     return value
   }
 
