@@ -41,24 +41,12 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 54.
+- Current active bug count after this deep audit append: 53.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
 
 ### P0 - Release Blockers
-
-#### BUG-P0-004 - Backend FastAPI pytest fixture bypasses Alembic migrations
-
-Status: OPEN
-
-Files: `backend/tests_fastapi/conftest.py`, `.github/workflows/ci-backend.yml`
-
-Current evidence: backend CI runs a separate Alembic upgrade check, but the FastAPI pytest fixture rebuilds the test schema with `Base.metadata.drop_all` / `Base.metadata.create_all` instead of migrating the pytest database through Alembic.
-
-Risk: Alembic upgrade syntax, missing constraints, downgrade hazards, and migration ordering can be invisible to the main test suite.
-
-Fix direction: migrate test DBs with Alembic for at least the default backend suite, keeping a small fast metadata suite only if explicitly named.
 
 #### BUG-P0-007 - Production launch gate remains below release threshold
 

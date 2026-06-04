@@ -118,6 +118,7 @@ def test_ci_and_deploy_workflows_report_test_coverage():
     frontend_ci = (REPO_ROOT / ".github" / "workflows" / "ci-frontend.yml").read_text(encoding="utf-8")
     frontend_deploy = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
     e2e_db_prep = (REPO_ROOT / "backend" / "scripts" / "prepare_e2e_db.py").read_text(encoding="utf-8")
+    backend_conftest = (REPO_ROOT / "backend" / "tests_fastapi" / "conftest.py").read_text(encoding="utf-8")
 
     assert "pytest-cov" in (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
     assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_ci
@@ -131,3 +132,7 @@ def test_ci_and_deploy_workflows_report_test_coverage():
     assert "command.upgrade(config, \"head\")" in e2e_db_prep
     assert "DROP SCHEMA IF EXISTS public CASCADE" in e2e_db_prep
     assert "KRESCO_E2E_DATABASE_URL is required for CI integration tests." in e2e_db_prep
+    assert "command.upgrade(config, \"head\")" in backend_conftest
+    assert "KRESCO_TEST_DATABASE_URL is required for CI backend tests." in backend_conftest
+    assert "KRESCO_TEST_DATABASE_URL: ${{ env.CI_POSTGRES_DATABASE_URL }}" in backend_ci
+    assert "if _is_postgres_url(test_settings.database_url):" in backend_conftest
