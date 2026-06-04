@@ -13,6 +13,7 @@ from app.services.ably import AblyConfigurationError, ably_client_id, create_abl
 
 LIVE_SESSION_ACCESS_REQUIREMENT = FeatureAccessRequirement("live_sessions")
 LIVE_SESSION_TOKEN_LOOKAHEAD = timedelta(days=7)
+GLOBAL_PAID_REALTIME_TIERS = {"pro", "vip", "platinum"}
 
 
 def active_live_session_filters(now: datetime) -> tuple:
@@ -45,7 +46,7 @@ async def live_session_ids_for_user(
     access_context = access_context or await build_access_context(db, user)
     if not access_context.decide_for(LIVE_SESSION_ACCESS_REQUIREMENT).can_access:
         return []
-    if not access_context.subject_scope_enforced:
+    if not _allows_unscoped_realtime(access_context):
         return []
 
     filters = [
@@ -54,8 +55,9 @@ async def live_session_ids_for_user(
         ProgramTrack.filiere == user.filiere,
         CourseOffering.status == "active",
         ProgramTrack.status == "active",
-        CourseOffering.subject_id.in_(access_context.active_subject_ids),
     ]
+    if access_context.subject_scope_enforced:
+        filters.append(CourseOffering.subject_id.in_(access_context.active_subject_ids))
 
     result = await db.execute(
         select(LiveSession.id)
@@ -89,7 +91,7 @@ async def offering_ids_for_user(
     access_context = access_context or await build_access_context(db, user)
     if not access_context.decide_for(LIVE_SESSION_ACCESS_REQUIREMENT).can_access:
         return []
-    if not access_context.subject_scope_enforced:
+    if not _allows_unscoped_realtime(access_context):
         return []
 
     filters = [
@@ -97,8 +99,9 @@ async def offering_ids_for_user(
         ProgramTrack.filiere == user.filiere,
         CourseOffering.status == "active",
         ProgramTrack.status == "active",
-        CourseOffering.subject_id.in_(access_context.active_subject_ids),
     ]
+    if access_context.subject_scope_enforced:
+        filters.append(CourseOffering.subject_id.in_(access_context.active_subject_ids))
 
     result = await db.execute(
         select(CourseOffering.id)
@@ -108,6 +111,10 @@ async def offering_ids_for_user(
         .limit(500)
     )
     return [int(row[0]) for row in result.all()]
+
+
+def _allows_unscoped_realtime(access_context: AccessContext) -> bool:
+    return access_context.subject_scope_enforced or access_context.effective_tier in GLOBAL_PAID_REALTIME_TIERS
 
 
 async def build_ably_token(db: AsyncSession, *, user: User, settings: Settings) -> AblyTokenOut:

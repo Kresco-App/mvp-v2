@@ -27,6 +27,7 @@ FEATURES_BY_TIER: dict[str, set[str]] = {
         "downloads",
         "exam_bank_video_solutions",
         "interactive_course",
+        "live_sessions",
         "simulated_exams",
     },
     "vip": {

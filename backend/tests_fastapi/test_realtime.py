@@ -21,7 +21,13 @@ from app.services import realtime_outbox
 from app.services.access import AccessContext
 
 
-async def _seed_live_session_for_realtime(test_settings, *, student_tier: str = "vip"):
+async def _seed_live_session_for_realtime(
+    test_settings,
+    *,
+    student_tier: str = "vip",
+    student_is_pro: bool = False,
+    include_subject_entitlement: bool = True,
+):
     suffix = uuid4().hex[:8]
     filiere = f"Sciences Math B {suffix}"
     session_factory = get_session_factory()
@@ -39,6 +45,7 @@ async def _seed_live_session_for_realtime(test_settings, *, student_tier: str = 
             full_name="Realtime Student",
             role="student",
             tier=student_tier,
+            is_pro=student_is_pro,
             niveau="2BAC",
             filiere=filiere,
             is_active=True,
@@ -52,13 +59,14 @@ async def _seed_live_session_for_realtime(test_settings, *, student_tier: str = 
         offering = CourseOffering(subject_id=subject.id, track_id=track.id, professor_user_id=professor.id)
         db.add(offering)
         await db.flush()
-        db.add(UserSubjectEntitlement(
-            user_id=student.id,
-            subject_id=subject.id,
-            starts_at=datetime.now(timezone.utc) - timedelta(days=1),
-            source="test",
-            status="active",
-        ))
+        if include_subject_entitlement:
+            db.add(UserSubjectEntitlement(
+                user_id=student.id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
         live = LiveSession(
             course_offering_id=offering.id,
             professor_user_id=professor.id,
@@ -733,6 +741,29 @@ def test_ably_token_omits_live_session_channel_without_live_session_feature(app_
     assert response.status_code == 200
     assert f"kresco:live:{live_id}" not in response.json()["capability"]
     assert f"kresco:offering:{offering_id}:notifications" not in response.json()["capability"]
+
+
+def test_global_pro_ably_token_includes_unscoped_live_session_channels(app_client, run_db, test_settings):
+    token, live_id, offering_id = run_db(_seed_live_session_for_realtime(
+        test_settings,
+        student_tier="basic",
+        student_is_pro=True,
+        include_subject_entitlement=False,
+    ))
+    old_key = test_settings.ably_api_key
+    test_settings.ably_api_key = "test.key:ably-test-secret"
+    try:
+        response = app_client.get(
+            "/api/realtime/ably-token",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        test_settings.ably_api_key = old_key
+
+    assert response.status_code == 200
+    capability = response.json()["capability"]
+    assert capability[f"kresco:live:{live_id}"] == ["subscribe"]
+    assert capability[f"kresco:offering:{offering_id}:notifications"] == ["subscribe"]
 
 
 def test_ably_token_fails_closed_when_live_session_access_is_unscoped(

@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 53.
+- Current active bug count after this deep audit append: 52.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-047 - Global PRO users are denied all realtime live session subscriptions
-
-Status: OPEN
-
-Files: `backend/app/services/realtime_access.py`
-
-Current evidence: `live_session_ids_for_user` and `offering_ids_for_user` both short-circuit and return `[]` if `not access_context.subject_scope_enforced`. Global PRO users (who just have `is_pro = True` without specific `UserSubjectEntitlement` rows) have `subject_scope_enforced = False` because they have global access. This means PRO users are granted zero live sessions and zero offering channels in their Ably tokens.
-
-Risk: Users who pay for a global PRO tier upgrade are completely locked out of live session chats and stream realtime updates because their Ably tokens lack the necessary subscription capabilities.
-
-Fix direction: Remove the `if not access_context.subject_scope_enforced: return []` check, and conditionally omit the `CourseOffering.subject_id.in_(access_context.active_subject_ids)` filter if `subject_scope_enforced` is false.
 
 #### BUG-P1-046 - Student live sessions ignore program track deactivation
 
