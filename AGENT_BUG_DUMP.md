@@ -48,20 +48,6 @@ Coverage audit for this rewrite:
 
 ### P0 - Release Blockers
 
-#### BUG-P0-001 - Leaderboard projection refresh locks the hot read path
-
-Status: OPEN
-
-Files: `backend/app/services/gamification_read_models.py`
-
-Current evidence: `list_leaderboard_entries` calls `refresh_leaderboard_projection_if_stale` on dashboard/sidebar reads. If stale, the service selects every active `UserXP`, deletes all `LeaderboardRank` rows, builds ORM objects for every user, then flushes them inside the request transaction.
-
-Current validation: `python -m pytest -q` is red on `tests_fastapi/test_gamification_routes.py::test_daily_quest_get_paths_skip_commit_when_quests_already_exist`; the test expected a read path not to commit, but observed `[True]`.
-
-Risk: dashboard/sidebar reads can trigger table-wide delete/insert work, lock contention, and memory growth at scale.
-
-Fix direction: move refresh to a scheduled/background projection job or replace the delete/reinsert path with chunked upserts and advisory locking.
-
 #### BUG-P0-002 - Backend deploy serves new code before migrations complete
 
 Status: OPEN
@@ -111,6 +97,18 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
+
+#### BUG-P1-047 - Global PRO users are denied all realtime live session subscriptions
+
+Status: OPEN
+
+Files: `backend/app/services/realtime_access.py`
+
+Current evidence: `live_session_ids_for_user` and `offering_ids_for_user` both short-circuit and return `[]` if `not access_context.subject_scope_enforced`. Global PRO users (who just have `is_pro = True` without specific `UserSubjectEntitlement` rows) have `subject_scope_enforced = False` because they have global access. This means PRO users are granted zero live sessions and zero offering channels in their Ably tokens.
+
+Risk: Users who pay for a global PRO tier upgrade are completely locked out of live session chats and stream realtime updates because their Ably tokens lack the necessary subscription capabilities.
+
+Fix direction: Remove the `if not access_context.subject_scope_enforced: return []` check, and conditionally omit the `CourseOffering.subject_id.in_(access_context.active_subject_ids)` filter if `subject_scope_enforced` is false.
 
 #### BUG-P1-046 - Student live sessions ignore program track deactivation
 

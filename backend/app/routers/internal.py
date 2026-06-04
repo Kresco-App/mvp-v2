@@ -9,6 +9,7 @@ from app.config import Settings, get_settings
 from app.dependencies import get_db
 from app.rate_limit import limiter
 from app.services.diagnostics import build_production_diagnostics
+from app.services.gamification_read_models import refresh_leaderboard_projection_if_stale
 from app.services.realtime_outbox import process_realtime_outbox, requeue_failed_realtime_outbox
 
 router = APIRouter(tags=["Internal"])
@@ -50,6 +51,20 @@ async def requeue_failed_realtime_outbox_endpoint(
     del request
     result = await requeue_failed_realtime_outbox(db, limit=limit)
     return {"ok": True, **result}
+
+
+@router.post("/leaderboard/refresh")
+@limiter.limit("10/minute")
+async def refresh_leaderboard_endpoint(
+    request: Request,
+    _: None = Depends(_require_internal_secret),
+    db: AsyncSession = Depends(get_db),
+):
+    del request
+    refreshed = await refresh_leaderboard_projection_if_stale(db)
+    if refreshed:
+        await db.commit()
+    return {"ok": True, "refreshed": refreshed}
 
 
 @router.get("/diagnostics")

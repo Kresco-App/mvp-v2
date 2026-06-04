@@ -132,8 +132,6 @@ async def list_leaderboard_entries(
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
     search = normalize_substring_search(search)
-    if await refresh_leaderboard_projection_if_stale(db):
-        await db.commit()
 
     stmt = (
         select(LeaderboardRank.user_id, LeaderboardRank.total_xp, LeaderboardRank.global_rank, User)

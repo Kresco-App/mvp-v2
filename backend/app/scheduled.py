@@ -13,6 +13,7 @@ from app.config import BACKEND_DIR
 from app.config import Settings, get_settings
 from app.database import get_session_factory, init_engine
 from scripts.seed_staging_demo import seed_staging_demo
+from app.services.gamification_read_models import refresh_leaderboard_projection_if_stale
 from app.services.realtime_outbox import process_realtime_outbox
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,15 @@ def seed_staging_demo_event(
     return {"ok": True}
 
 
+def refresh_leaderboard_projection_event(
+    event: Mapping[str, Any] | None = None,
+    context: Any = None,
+) -> dict[str, bool]:
+    del event
+    del context
+    return asyncio.run(refresh_leaderboard_projection_once())
+
+
 async def process_realtime_outbox_once(
     event: Mapping[str, Any] | None = None,
     *,
@@ -86,6 +96,25 @@ async def process_realtime_outbox_once(
         result["dead"],
     )
     return {"ok": True, **result}
+
+
+async def refresh_leaderboard_projection_once(
+    *,
+    settings: Settings | None = None,
+) -> dict[str, bool]:
+    resolved_settings = settings or get_settings()
+    init_engine(resolved_settings.database_url, resolved_settings.is_lambda, resolved_settings.pgsslrootcert)
+    session_factory = get_session_factory()
+    if session_factory is None:
+        raise RuntimeError("Database engine was not initialized for scheduled leaderboard refresh.")
+
+    async with session_factory() as db:
+        refreshed = await refresh_leaderboard_projection_if_stale(db)
+        if refreshed:
+            await db.commit()
+
+    logger.info("scheduled_leaderboard_projection_refreshed refreshed=%s", refreshed)
+    return {"ok": True, "refreshed": refreshed}
 
 
 def _outbox_limit_from_event(event: Mapping[str, Any]) -> int:

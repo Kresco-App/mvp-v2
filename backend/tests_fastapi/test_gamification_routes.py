@@ -5,6 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.gamification_read_models as gamification_read_models
+import app.routers.internal as internal_router
+import app.scheduled as scheduled
 from app.database import get_session_factory
 from app.models.gamification import DailyQuest, LeaderboardRank, UserStats, UserXP, XPTransaction
 from app.models.users import User
@@ -165,3 +167,20 @@ def test_daily_quest_get_paths_skip_commit_when_quests_already_exist(
 
     assert run_db(_read_existing_quests()) == (3, 3)
     assert commit_calls == []
+
+
+def test_leaderboard_read_path_does_not_refresh_projection():
+    source = inspect.getsource(gamification_read_models.list_leaderboard_entries)
+
+    assert "refresh_leaderboard_projection_if_stale" not in source
+    assert "await db.commit()" not in source
+
+
+def test_leaderboard_projection_refresh_has_worker_entrypoints():
+    internal_source = inspect.getsource(internal_router.refresh_leaderboard_endpoint)
+    scheduled_source = inspect.getsource(scheduled.refresh_leaderboard_projection_once)
+
+    assert "refresh_leaderboard_projection_if_stale" in internal_source
+    assert "await db.commit()" in internal_source
+    assert "refresh_leaderboard_projection_if_stale" in scheduled_source
+    assert "await db.commit()" in scheduled_source
