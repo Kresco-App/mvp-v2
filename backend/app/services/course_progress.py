@@ -83,6 +83,8 @@ async def latest_other_watch_progress_updated_at(
     )
 
 
+from app.database import get_or_create
+
 async def get_or_create_topic_item_progress(
     db: AsyncSession,
     *,
@@ -91,38 +93,13 @@ async def get_or_create_topic_item_progress(
     topic_item_id: int,
     status: str = "started",
 ) -> TopicItemProgress:
-    progress = await db.scalar(
-        select(TopicItemProgress)
-        .where(
-            TopicItemProgress.user_id == user_id,
-            TopicItemProgress.topic_item_id == topic_item_id,
-        )
-        .with_for_update()
+    progress, _ = await get_or_create(
+        db, 
+        TopicItemProgress, 
+        defaults={"topic_id": topic_id, "status": status},
+        user_id=user_id, 
+        topic_item_id=topic_item_id
     )
-    if progress is not None:
-        return progress
-
-    progress = TopicItemProgress(
-        user_id=user_id,
-        topic_id=topic_id,
-        topic_item_id=topic_item_id,
-        status=status,
-    )
-    try:
-        async with db.begin_nested():
-            db.add(progress)
-            await db.flush()
-    except IntegrityError:
-        progress = await db.scalar(
-            select(TopicItemProgress)
-            .where(
-                TopicItemProgress.user_id == user_id,
-                TopicItemProgress.topic_item_id == topic_item_id,
-            )
-            .with_for_update()
-        )
-        if progress is None:
-            raise
     return progress
 
 

@@ -192,3 +192,34 @@ async def reset_engine() -> None:
     _engine = None
     _session_factory = None
     _engine_cache_key = None
+
+
+from typing import TypeVar, Type
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+T = TypeVar("T")
+
+async def get_or_create(
+    db: AsyncSession,
+    model: Type[T],
+    defaults: dict | None = None,
+    **kwargs
+) -> tuple[T, bool]:
+    stmt = select(model).filter_by(**kwargs).with_for_update()
+    instance = await db.scalar(stmt)
+    if instance is not None:
+        return instance, False
+
+    params = {**kwargs, **(defaults or {})}
+    instance = model(**params)
+    try:
+        async with db.begin_nested():
+            db.add(instance)
+            await db.flush()
+        return instance, True
+    except IntegrityError:
+        instance = await db.scalar(stmt)
+        if instance is None:
+            raise
+        return instance, False

@@ -275,6 +275,8 @@ async def list_user_saves(
     return [SavedItemOut.model_validate(save) for save in result.scalars().all()]
 
 
+from app.database import get_or_create
+
 async def save_user_item(
     db: AsyncSession,
     *,
@@ -296,43 +298,20 @@ async def save_user_item(
     )
     if context.get("topic_item_id") is not None:
         await require_topic_item_access(db, user, int(context["topic_item_id"]))
-    save = await db.scalar(
-        select(SavedItem)
-        .where(
-            SavedItem.user_id == user.id,
-            SavedItem.target_type == body.target_type,
-            SavedItem.target_id == body.target_id,
-        )
-        .with_for_update()
+    
+    save, created = await get_or_create(
+        db,
+        SavedItem,
+        defaults={
+            "subject_id": context.get("subject_id"),
+            "topic_id": context.get("topic_id"),
+            "topic_item_id": context.get("topic_item_id"),
+            "label": body.label,
+        },
+        user_id=user.id,
+        target_type=body.target_type,
+        target_id=body.target_id,
     )
-    created = False
-    if save is None:
-        save = SavedItem(
-            user_id=user.id,
-            target_type=body.target_type,
-            target_id=body.target_id,
-            subject_id=context.get("subject_id"),
-            topic_id=context.get("topic_id"),
-            topic_item_id=context.get("topic_item_id"),
-            label=body.label,
-        )
-        try:
-            async with db.begin_nested():
-                db.add(save)
-                await db.flush()
-            created = True
-        except IntegrityError:
-            save = await db.scalar(
-                select(SavedItem)
-                .where(
-                    SavedItem.user_id == user.id,
-                    SavedItem.target_type == body.target_type,
-                    SavedItem.target_id == body.target_id,
-                )
-                .with_for_update()
-            )
-            if save is None:
-                raise
 
     if not created:
         save.subject_id = save.subject_id if save.subject_id is not None else context.get("subject_id")

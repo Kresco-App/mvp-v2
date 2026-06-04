@@ -5,20 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.gamification import UserStats
 
 
-async def get_or_create_user_stats(db: AsyncSession, *, user_id: int) -> UserStats:
-    stats = await db.scalar(select(UserStats).where(UserStats.user_id == user_id).with_for_update())
-    if stats is not None:
-        return stats
+from app.database import get_or_create
 
-    stats = UserStats(user_id=user_id)
-    try:
-        async with db.begin_nested():
-            db.add(stats)
-            await db.flush()
-    except IntegrityError:
-        stats = await db.scalar(select(UserStats).where(UserStats.user_id == user_id).with_for_update())
-        if stats is None:
-            raise
+async def get_or_create_user_stats(db: AsyncSession, *, user_id: int) -> UserStats:
+    stats, _ = await get_or_create(db, UserStats, user_id=user_id)
     return stats
 
 
