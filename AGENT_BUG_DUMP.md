@@ -41,24 +41,12 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 56.
+- Current active bug count after this deep audit append: 55.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
 
 ### P0 - Release Blockers
-
-#### BUG-P0-002 - Backend deploy serves new code before migrations complete
-
-Status: OPEN
-
-Files: `.github/workflows/deploy-backend.yml`
-
-Current evidence: deploy runs `zappa deploy || zappa update` before invoking `app.scheduled.run_alembic_migrations_event`.
-
-Risk: production traffic can hit new code against old schema; async Zappa invocation can hide migration failure from CI.
-
-Fix direction: run and verify migrations before traffic reaches the new code, or deploy with a maintenance/compatibility gate and fail CI on migration failure.
 
 #### BUG-P0-003 - Frontend integration E2E defaults to SQLite in CI
 

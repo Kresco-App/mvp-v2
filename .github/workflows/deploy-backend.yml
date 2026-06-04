@@ -216,6 +216,20 @@ jobs:
           RDS_DB_CLUSTER_IDENTIFIER: ${{ vars.RDS_DB_CLUSTER_IDENTIFIER }}
           RDS_DB_INSTANCE_IDENTIFIER: ${{ vars.RDS_DB_INSTANCE_IDENTIFIER }}
 
+      - name: Run Alembic migrations on target database
+        run: |
+          set -euo pipefail
+          cd backend
+          source venv/bin/activate
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "DATABASE_URL secret is required before backend deployment."
+            exit 1
+          fi
+          alembic upgrade head
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PGSSLROOTCERT: certifi
+
       - name: Resolve Lambda VPC config
         id: vpc_config
         run: |
@@ -249,12 +263,6 @@ jobs:
           cd backend
           source venv/bin/activate
           zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"
-
-      - name: Run Alembic Migrations
-        run: |
-          cd backend
-          source venv/bin/activate
-          zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event
 
       - name: Schedule realtime outbox worker
         run: |

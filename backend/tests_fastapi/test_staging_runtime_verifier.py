@@ -125,16 +125,18 @@ def test_staging_runtime_verifier_derives_internal_urls_from_ready_url():
 def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
+    migration_index = workflow.index("- name: Run Alembic migrations on target database")
     vpc_index = workflow.index("- name: Resolve Lambda VPC config")
     render_index = workflow.index("- name: Render Zappa environment")
     deploy_index = workflow.index('zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"')
-    migration_index = workflow.index('zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event')
     schedule_index = workflow.index('zappa schedule "$ZAPPA_STAGE"')
     verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"')
 
-    assert vpc_index < render_index < deploy_index
-    assert deploy_index < migration_index < schedule_index
+    assert migration_index < vpc_index < render_index < deploy_index
+    assert deploy_index < schedule_index
     assert schedule_index < verifier_index
+    assert 'zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event' not in workflow
+    assert "DATABASE_URL: ${{ secrets.DATABASE_URL }}" in workflow
     assert "python scripts/resolve_zappa_vpc_config.py" in workflow
     assert "KRESCO_TEST_DATABASE_URL: ${{ env.CI_POSTGRES_DATABASE_URL }}" in workflow
     assert "ZAPPA_SUBNET_IDS: ${{ steps.vpc_config.outputs.subnet_ids }}" in workflow
