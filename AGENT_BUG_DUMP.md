@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 36.
+- Current active bug count after this deep audit append: 35.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-018 - Exam attempt state is not persisted across reloads
-
-Status: OPEN
-
-Files: `frontend/app/(dashboard)/exam/[subjectId]/page.tsx`
-
-Current evidence: `answers`, `currentIdx`, `timeLeft`, `started`, submission state, and result are React state only; answers are sent only on final submit and the countdown is a plain interval.
-
-Risk: refresh/crash resets timer and wipes in-progress exam answers.
-
-Fix direction: persist start time and draft answers in localStorage or backend draft storage; derive remaining time from wall clock.
 
 #### BUG-P1-019 - SectionQuiz crashes on empty sets and hides submit failures
 

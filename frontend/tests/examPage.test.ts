@@ -65,8 +65,10 @@ let mountedRoot: { root: Root; container: HTMLDivElement } | null = null
 
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-06-04T12:00:00Z'))
   vi.clearAllMocks()
   document.body.innerHTML = ''
+  localStorage.clear()
   mocks.apiPost.mockResolvedValue({
     data: { score: 100, passed: true, correct: 1, total: 1, pass_score: 80, xp_earned: 0 },
   })
@@ -81,6 +83,7 @@ afterEach(() => {
     mountedRoot = null
   }
   vi.useRealTimers()
+  localStorage.clear()
 })
 
 describe('ExamPage timer', () => {
@@ -102,6 +105,49 @@ describe('ExamPage timer', () => {
     expect(container.textContent).toContain('44:59')
     expect(container.textContent).toContain('1/1 repondu(s)')
   })
+
+  it('restores answers and remaining wall-clock time after a remount', async () => {
+    const { container } = renderExamPage()
+
+    clickButton(container, 'Commencer')
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+
+    clickButton(container, 'First option')
+    unmountExamPage()
+
+    const restored = renderExamPage()
+
+    expect(restored.container.textContent).toContain('44:55')
+    expect(restored.container.textContent).toContain('1/1 repondu(s)')
+    const selectedOption = Array.from(restored.container.querySelectorAll('button'))
+      .find(button => button.textContent?.includes('First option'))
+    expect(selectedOption?.className).toContain('border-kresco')
+  })
+
+  it('submits a restored attempt when wall-clock time has expired', async () => {
+    localStorage.setItem('kresco:exam-draft:v1:42:7', JSON.stringify({
+      subjectId: '42',
+      quizId: 7,
+      questionIds: [101],
+      answers: { 101: 202 },
+      currentIdx: 0,
+      started: true,
+      startedAt: Date.now() - (45 * 60 * 1000),
+      submitted: false,
+      result: null,
+    }))
+
+    renderExamPage()
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mocks.apiPost).toHaveBeenCalledWith('/quizzes/7/submit', { answers: { 101: 202 } })
+  })
 })
 
 function renderExamPage() {
@@ -115,6 +161,15 @@ function renderExamPage() {
   })
 
   return { container, root }
+}
+
+function unmountExamPage() {
+  if (!mountedRoot) return
+  act(() => {
+    mountedRoot?.root.unmount()
+  })
+  mountedRoot.container.remove()
+  mountedRoot = null
 }
 
 function clickButton(container: HTMLElement, name: string) {
