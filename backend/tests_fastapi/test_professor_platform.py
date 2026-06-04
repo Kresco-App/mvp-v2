@@ -1998,6 +1998,86 @@ def test_professor_chat_messages_are_cursor_paginated(app_client, run_db, test_s
     assert run_db(_conversation_unread_counts()) == (0, 0)
 
 
+def test_deleting_unread_student_message_decrements_professor_unread_total(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    created = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Unread question"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert created.status_code == 201
+    conversation_id = created.json()["id"]
+
+    messages = app_client.get(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert messages.status_code == 200
+    message_id = messages.json()[0]["id"]
+
+    dashboard_before = app_client.get(
+        "/api/professor/dashboard",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert dashboard_before.status_code == 200
+    assert dashboard_before.json()["chat_unread_count"] == 1
+
+    deleted = app_client.delete(
+        f"/api/professor/chat/messages/{message_id}",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert deleted.status_code == 200
+
+    async def _conversation_unread_counts():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            conversation = await db.get(ProfessorChatConversation, conversation_id)
+            return conversation.unread_for_professor, conversation.unread_for_student
+
+    assert run_db(_conversation_unread_counts()) == (0, 0)
+
+    dashboard_after = app_client.get(
+        "/api/professor/dashboard",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert dashboard_after.status_code == 200
+    assert dashboard_after.json()["chat_unread_count"] == 0
+
+
+def test_deleting_unread_professor_message_decrements_student_unread_counter(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    created = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["offering_id"], "body": "Initial question"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert created.status_code == 201
+    conversation_id = created.json()["id"]
+
+    reply = app_client.post(
+        f"/api/professor/chat/conversations/{conversation_id}/messages",
+        json={"body": "Unread answer"},
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert reply.status_code == 201
+    message_id = reply.json()["id"]
+
+    async def _conversation_unread_counts():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            conversation = await db.get(ProfessorChatConversation, conversation_id)
+            return conversation.unread_for_professor, conversation.unread_for_student
+
+    assert run_db(_conversation_unread_counts()) == (0, 1)
+
+    deleted = app_client.delete(
+        f"/api/professor/chat/messages/{message_id}",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert deleted.status_code == 200
+    assert run_db(_conversation_unread_counts()) == (0, 0)
+
+
 def test_professor_chat_message_reads_skip_commit_when_unread_counts_are_zero(
     app_client,
     run_db,

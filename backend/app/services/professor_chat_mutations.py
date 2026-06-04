@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, UploadFile
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -85,6 +85,66 @@ async def apply_student_sent_message_update(
         )
         .execution_options(synchronize_session=False)
     )
+
+
+async def deleted_message_is_unread_tail(
+    db: AsyncSession,
+    message: ProfessorChatMessage,
+    conversation: ProfessorChatConversation,
+    unread_count: int,
+) -> bool:
+    if unread_count <= 0:
+        return False
+
+    rank_from_newest = int(await db.scalar(
+        select(func.count())
+        .select_from(ProfessorChatMessage)
+        .where(
+            ProfessorChatMessage.conversation_id == conversation.id,
+            ProfessorChatMessage.sender_user_id == message.sender_user_id,
+            or_(
+                ProfessorChatMessage.created_at > message.created_at,
+                and_(
+                    ProfessorChatMessage.created_at == message.created_at,
+                    ProfessorChatMessage.id >= message.id,
+                ),
+            ),
+        )
+    ) or 0)
+    return rank_from_newest <= unread_count
+
+
+async def reconcile_deleted_message_unread_counter(
+    db: AsyncSession,
+    message: ProfessorChatMessage,
+    conversation: ProfessorChatConversation,
+) -> None:
+    if message.sender_user_id == conversation.student_user_id:
+        if not await deleted_message_is_unread_tail(db, message, conversation, conversation.unread_for_professor):
+            return
+        await db.execute(
+            update(ProfessorChatConversation)
+            .where(
+                ProfessorChatConversation.id == conversation.id,
+                ProfessorChatConversation.unread_for_professor > 0,
+            )
+            .values(unread_for_professor=ProfessorChatConversation.unread_for_professor - 1)
+            .execution_options(synchronize_session=False)
+        )
+        return
+
+    if message.sender_user_id == conversation.professor_user_id:
+        if not await deleted_message_is_unread_tail(db, message, conversation, conversation.unread_for_student):
+            return
+        await db.execute(
+            update(ProfessorChatConversation)
+            .where(
+                ProfessorChatConversation.id == conversation.id,
+                ProfessorChatConversation.unread_for_student > 0,
+            )
+            .values(unread_for_student=ProfessorChatConversation.unread_for_student - 1)
+            .execution_options(synchronize_session=False)
+        )
 
 
 async def refresh_chat_preview(db: AsyncSession, conversation: ProfessorChatConversation) -> None:
@@ -352,6 +412,7 @@ async def delete_chat_message_state(
         ensure_student_professor_chat_access(user)
     if datetime.now(timezone.utc) - chat_datetime(message.created_at) > CHAT_MESSAGE_EDIT_WINDOW:
         raise HTTPException(status_code=403, detail="Messages can only be deleted for 15 minutes")
+    await reconcile_deleted_message_unread_counter(db, message, conversation)
     await db.delete(message)
     await db.flush()
     await refresh_chat_preview(db, conversation)
