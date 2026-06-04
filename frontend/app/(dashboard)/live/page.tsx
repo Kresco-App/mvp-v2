@@ -42,6 +42,7 @@ export default function LivePage() {
         cleanup = subscribeKrescoRealtimeChannels({
           channelNames: notification_channels,
           onMessage: refresh,
+          fallback: { intervalMs: 5000, poll: refresh },
         })
       })
       .catch(() => {
@@ -49,6 +50,7 @@ export default function LivePage() {
         cleanup = subscribeKrescoRealtimeChannels({
           channelNames: [userNotificationsChannelName(userId)],
           onMessage: refresh,
+          fallback: { intervalMs: 5000, poll: refresh },
         })
       })
     return () => {
@@ -97,7 +99,7 @@ export default function LivePage() {
                         <p className="text-sm font-black uppercase tracking-[0.12em] text-[#9f9fa9]">{session.subject_title || session.offering_title}</p>
                         <h2 className="mt-1 text-[24px] font-bold leading-tight tracking-normal text-[#3f3f46]">{session.title}</h2>
                         <p className="mt-1 text-[16px] font-semibold text-[#71717b]">{formatDateTime(session.starts_at)}</p>
-                        {session.description && <p className="mt-3 max-w-[520px] text-[14px] font-semibold leading-[1.4] text-[#52525c]">{session.description}</p>}
+                        {session.description && <p className="mt-3 max-w-[520px] break-words text-[14px] font-semibold leading-[1.4] text-[#52525c]">{session.description}</p>}
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">

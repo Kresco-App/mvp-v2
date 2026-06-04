@@ -25,4 +25,15 @@ describe('Ably channel naming', () => {
     expect(source).toContain('reportRealtimeAsyncFailure')
     expect(source).not.toContain('.catch(() => undefined)')
   })
+
+  it('supports fallback polling for multi-channel subscriptions', () => {
+    const source = readFileSync(resolve(process.cwd(), 'lib/ably.ts'), 'utf8')
+    const helperStart = source.indexOf('export function subscribeKrescoRealtimeChannels')
+    const helperSource = source.slice(helperStart)
+
+    expect(helperSource).toContain('fallback?: RealtimeFallback')
+    expect(helperSource).toContain('startFallback?.(false)')
+    expect(helperSource).toContain('startFallback?.(true)')
+    expect(helperSource).toContain("change.current === 'suspended' || change.current === 'failed'")
+  })
 })

@@ -191,20 +191,68 @@ export function subscribeKrescoRealtimeChannels({
   channelNames,
   onMessage,
   beforeSubscribe,
+  fallback,
 }: {
   channelNames: string[]
   onMessage: (message: Ably.InboundMessage) => void
   beforeSubscribe?: () => void | Promise<void>
+  fallback?: RealtimeFallback
 }) {
   let stopped = false
+  let fallbackTimer: number | null = null
+  let pollInFlight = false
   const subscribedChannels: Array<{ unsubscribe: (listener?: (message: Ably.InboundMessage) => void) => void }> = []
   const uniqueChannelNames = Array.from(new Set(channelNames.map((name) => name.trim()).filter(Boolean)))
-  const realtime = getKrescoRealtime()
 
+  const runPoll = async () => {
+    if (!fallback || pollInFlight || stopped) return
+    pollInFlight = true
+    try {
+      await fallback.poll()
+    } finally {
+      pollInFlight = false
+    }
+  }
+
+  const startFallback = fallback
+    ? (runNow: boolean) => {
+        if (fallbackTimer || stopped) return
+        if (runNow) void runPoll()
+        fallbackTimer = window.setInterval(() => {
+          void runPoll()
+        }, fallback.intervalMs)
+      }
+    : undefined
+
+  const stopFallback = () => {
+    if (!fallbackTimer) return
+    window.clearInterval(fallbackTimer)
+    fallbackTimer = null
+  }
+
+  const realtime = getKrescoRealtime()
   if (!realtime || uniqueChannelNames.length === 0) {
+    startFallback?.(false)
     return () => {
       stopped = true
+      stopFallback()
     }
+  }
+
+  const handleConnectionState: Ably.connectionEventCallback = (change) => {
+    if (change.current === 'connected') {
+      stopFallback()
+      void runPoll()
+      return
+    }
+    if (change.current === 'suspended' || change.current === 'failed') {
+      startFallback?.(true)
+    }
+  }
+
+  realtime.connection.on(['connected', 'suspended', 'failed'], handleConnectionState)
+  if (realtime.connection.state === 'suspended' || realtime.connection.state === 'failed') {
+    startFallback?.(true)
   }
 
   void (async () => {
@@ -216,12 +264,17 @@ export function subscribeKrescoRealtimeChannels({
       await channel.subscribe(onMessage)
       subscribedChannels.push(channel)
     }
+    stopFallback()
+    void runPoll()
   })().catch((error) => {
     reportRealtimeAsyncFailure(error, { operation: 'subscribe-channels' })
+    startFallback?.(true)
   })
 
   return () => {
     stopped = true
+    stopFallback()
+    realtime.connection.off(handleConnectionState)
     subscribedChannels.forEach((channel) => channel.unsubscribe(onMessage))
   }
 }
