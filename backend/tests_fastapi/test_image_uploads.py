@@ -108,7 +108,7 @@ def test_s3_media_storage_uses_private_server_side_encrypted_objects(monkeypatch
         def generate_presigned_url(self, operation, Params, ExpiresIn):
             return f"https://signed.example.com/{Params['Bucket']}/{Params['Key']}?ttl={ExpiresIn}"
 
-    fake_boto3 = SimpleNamespace(client=lambda service, region_name=None, endpoint_url=None: FakeClient())
+    fake_boto3 = SimpleNamespace(client=lambda service, region_name=None, endpoint_url=None, **kwargs: FakeClient())
     monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
     settings = SimpleNamespace(
         media_s3_bucket="kresco-private-media",
@@ -138,6 +138,45 @@ def test_s3_media_storage_uses_private_server_side_encrypted_objects(monkeypatch
     media_storage._s3_client.cache_clear()
 
 
+def test_s3_media_storage_retries_transient_put_failures(monkeypatch):
+    media_storage._s3_client.cache_clear()
+    put_calls = []
+
+    class TransientS3Error(Exception):
+        response = {"Error": {"Code": "SlowDown"}, "ResponseMetadata": {"HTTPStatusCode": 503}}
+
+    class FakeClient:
+        def put_object(self, **kwargs):
+            put_calls.append(kwargs)
+            if len(put_calls) == 1:
+                raise TransientS3Error("temporary throttle")
+
+        def generate_presigned_url(self, operation, Params, ExpiresIn):
+            return f"https://signed.example.com/{Params['Bucket']}/{Params['Key']}?ttl={ExpiresIn}"
+
+    fake_boto3 = SimpleNamespace(client=lambda service, region_name=None, endpoint_url=None, **kwargs: FakeClient())
+    monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
+    monkeypatch.setattr(media_storage, "S3_PUT_RETRY_BASE_SECONDS", 0)
+    settings = SimpleNamespace(
+        media_s3_bucket="kresco-private-media",
+        media_s3_region="eu-north-1",
+        media_s3_prefix="production",
+        media_s3_endpoint_url="",
+        media_s3_presign_ttl_seconds=300,
+    )
+
+    storage = S3MediaStorage(settings)
+    stored = asyncio.run(storage.put_object(
+        key="profile/1/avatar.png",
+        content=b"image-bytes",
+        content_type="image/png",
+    ))
+
+    assert stored.reference == "s3://kresco-private-media/production/profile/1/avatar.png"
+    assert len(put_calls) == 2
+    media_storage._s3_client.cache_clear()
+
+
 def test_s3_presign_reuses_cached_boto3_client(monkeypatch):
     media_storage._s3_client.cache_clear()
     calls = []
@@ -146,7 +185,7 @@ def test_s3_presign_reuses_cached_boto3_client(monkeypatch):
         def generate_presigned_url(self, operation, Params, ExpiresIn):
             return f"https://signed.example.com/{Params['Bucket']}/{Params['Key']}?ttl={ExpiresIn}"
 
-    fake_boto3 = SimpleNamespace(client=lambda service, region_name=None, endpoint_url=None: calls.append((service, region_name, endpoint_url)) or FakeClient())
+    fake_boto3 = SimpleNamespace(client=lambda service, region_name=None, endpoint_url=None, **kwargs: calls.append((service, region_name, endpoint_url)) or FakeClient())
     monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
     settings = SimpleNamespace(media_s3_region="eu-north-1", media_s3_presign_ttl_seconds=300)
 
@@ -172,7 +211,7 @@ def test_warm_media_storage_client_initializes_s3_client_once(monkeypatch):
     class FakeClient:
         pass
 
-    fake_boto3 = SimpleNamespace(client=lambda service, region_name=None, endpoint_url=None: calls.append((service, region_name, endpoint_url)) or FakeClient())
+    fake_boto3 = SimpleNamespace(client=lambda service, region_name=None, endpoint_url=None, **kwargs: calls.append((service, region_name, endpoint_url)) or FakeClient())
     monkeypatch.setitem(sys.modules, "boto3", fake_boto3)
     settings = SimpleNamespace(
         media_storage_backend="s3",

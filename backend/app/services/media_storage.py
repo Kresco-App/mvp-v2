@@ -10,6 +10,25 @@ import uuid
 
 from app.config import DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS, MEDIA_STORAGE_S3, MEDIA_STORAGE_S3_MOCK, Settings
 
+S3_CONNECT_TIMEOUT_SECONDS = 5
+S3_READ_TIMEOUT_SECONDS = 15
+S3_CLIENT_ATTEMPTS_PER_UPLOAD_ATTEMPT = 1
+S3_PUT_ATTEMPTS = 3
+S3_PUT_RETRY_BASE_SECONDS = 0.1
+RETRYABLE_S3_ERROR_CODES = {
+    "500",
+    "502",
+    "503",
+    "504",
+    "InternalError",
+    "RequestTimeout",
+    "RequestTimeoutException",
+    "ServiceUnavailable",
+    "SlowDown",
+    "Throttling",
+    "ThrottlingException",
+}
+
 
 class MediaStorageError(RuntimeError):
     pass
@@ -54,13 +73,12 @@ class S3MediaStorage:
 
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
         object_key = "/".join(part for part in [self.prefix, key] if part)
-        await asyncio.to_thread(
-            self.client.put_object,
-            Bucket=self.bucket,
-            Key=object_key,
-            Body=content,
-            ContentType=content_type,
-            ServerSideEncryption="AES256",
+        await _put_s3_object_with_retry(
+            self.client,
+            bucket=self.bucket,
+            key=object_key,
+            content=content,
+            content_type=content_type,
         )
         return StoredMedia(
             key=object_key,
@@ -204,8 +222,70 @@ def _safe_local_destination(root: Path, key: str) -> Path:
     return destination
 
 
+async def _put_s3_object_with_retry(
+    client: object,
+    *,
+    bucket: str,
+    key: str,
+    content: bytes,
+    content_type: str,
+) -> None:
+    for attempt in range(1, S3_PUT_ATTEMPTS + 1):
+        try:
+            await asyncio.to_thread(
+                client.put_object,
+                Bucket=bucket,
+                Key=key,
+                Body=content,
+                ContentType=content_type,
+                ServerSideEncryption="AES256",
+            )
+            return
+        except Exception as exc:
+            if attempt >= S3_PUT_ATTEMPTS or not _is_retryable_s3_error(exc):
+                raise MediaStorageError("S3 media upload failed.") from exc
+            await asyncio.sleep(S3_PUT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+
+
+def _is_retryable_s3_error(exc: Exception) -> bool:
+    code = _s3_error_code(exc)
+    if code in RETRYABLE_S3_ERROR_CODES:
+        return True
+
+    status_code = getattr(exc, "response", {}).get("ResponseMetadata", {}).get("HTTPStatusCode")
+    if isinstance(status_code, int) and status_code >= 500:
+        return True
+
+    try:
+        from botocore.exceptions import (
+            ConnectionClosedError,
+            ConnectTimeoutError,
+            EndpointConnectionError,
+            ReadTimeoutError,
+        )
+    except Exception:
+        return False
+    return isinstance(exc, (ConnectionClosedError, ConnectTimeoutError, EndpointConnectionError, ReadTimeoutError))
+
+
+def _s3_error_code(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = response.get("Error", {}).get("Code")
+        if code is not None:
+            return str(code)
+    code = getattr(exc, "code", None)
+    return str(code) if code is not None else ""
+
+
 @lru_cache(maxsize=8)
 def _s3_client(region_name: str, endpoint_url: str = ""):
     import boto3
+    from botocore.config import Config
 
-    return boto3.client("s3", region_name=region_name or None, endpoint_url=endpoint_url or None)
+    config = Config(
+        connect_timeout=S3_CONNECT_TIMEOUT_SECONDS,
+        read_timeout=S3_READ_TIMEOUT_SECONDS,
+        retries={"max_attempts": S3_CLIENT_ATTEMPTS_PER_UPLOAD_ATTEMPT, "mode": "standard"},
+    )
+    return boto3.client("s3", region_name=region_name or None, endpoint_url=endpoint_url or None, config=config)
