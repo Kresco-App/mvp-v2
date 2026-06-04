@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { RotateCcw } from 'lucide-react'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { useProfileData } from '@/lib/profileData'
-import { getMyProfile, updateMyProfile, uploadProfileMedia, type ProfileUpdateInput } from '@/lib/profile'
+import { updateMyProfile, uploadProfileMedia, type ProfileUpdateInput } from '@/lib/profile'
 import { useAuthStore } from '@/lib/store'
 import {
   FigmaProfile,
@@ -79,10 +79,9 @@ export default function ProfilePage() {
       if (nextBannerUrl !== (currentProfile?.banner_url?.trim() ?? '') && !uploadedMediaUrlsRef.current.has(nextBannerUrl)) {
         payload.banner_url = nextBannerUrl
       }
-      await updateMyProfile(payload)
-      const latestProfile = await getMyProfile()
-      await mutateProfile(latestProfile, { revalidate: false })
-      updateUser(latestProfile)
+      const savedProfile = await updateMyProfile(payload)
+      await mutateProfile(savedProfile, { revalidate: false })
+      updateUser(savedProfile)
       uploadedMediaUrlsRef.current.clear()
       toast.success('Profile saved.')
     } catch (error) {

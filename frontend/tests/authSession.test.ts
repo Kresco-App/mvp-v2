@@ -251,6 +251,38 @@ describe('auth store session writes', () => {
     expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('csrf-token')
   })
 
+  it('syncs the in-memory auth session when another tab clears shared storage', () => {
+    const user = { id: 11, email: 'shared@kresco.local', role: 'student' }
+
+    useAuthStore.setState({
+      token: KRESCO_COOKIE_SESSION,
+      user,
+      isHydrated: true,
+      logoutError: 'stale',
+      isLoggingOut: true,
+    })
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(user))
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=; Path=/; Max-Age=0`
+    localStorage.removeItem(KRESCO_USER_KEY)
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: KRESCO_USER_KEY,
+      oldValue: JSON.stringify(user),
+      newValue: null,
+      storageArea: localStorage,
+      url: window.location.href,
+    }))
+
+    expect(useAuthStore.getState()).toMatchObject({
+      token: null,
+      user: null,
+      isHydrated: true,
+      logoutError: null,
+      isLoggingOut: false,
+    })
+  })
+
   it('continues to support the legacy token/user/csrf signature', () => {
     const user = { id: 2, email: 'vip@kresco.local', role: 'student', tier: 'vip' }
 

@@ -25,6 +25,7 @@ import {
   NotebookPen,
   Search,
   ShieldCheck,
+  RotateCcw,
   Trophy,
   Users,
   Wand2,
@@ -69,10 +70,12 @@ export default function AdminDashboard() {
   const [overview, setOverview] = useState<AdminOverview>(EMPTY_OVERVIEW)
   const [state, setState] = useState<LoadState>('loading')
   const [query, setQuery] = useState('')
+  const [reloadNonce, setReloadNonce] = useState(0)
   const root = useMemo(adminRoot, [])
 
   useEffect(() => {
     let mounted = true
+    setState('loading')
     getJson<AdminOverview>('/admin/overview')
       .then((data) => {
         if (!mounted) return
@@ -89,7 +92,7 @@ export default function AdminDashboard() {
         setState('fallback')
       })
     return () => { mounted = false }
-  }, [])
+  }, [reloadNonce])
 
   const filteredCrud = useMemo(() => {
     return filterCrudCatalog(overview.crud_catalog, query)
@@ -200,8 +203,16 @@ export default function AdminDashboard() {
 
           <div className="space-y-6">
             {state === 'fallback' && (
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
-                Live analytics could not be loaded. The CRUD catalog is still available from the known SQLAdmin registry.
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
+                <p>Live analytics could not be loaded. The CRUD catalog is still available from the known SQLAdmin registry.</p>
+                <button
+                  type="button"
+                  onClick={() => setReloadNonce((value) => value + 1)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-amber-600/30 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-500/25"
+                >
+                  <RotateCcw size={14} />
+                  Retry analytics
+                </button>
               </div>
             )}
 

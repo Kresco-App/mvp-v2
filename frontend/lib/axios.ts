@@ -3,6 +3,8 @@ import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import { getApiBaseUrl, getApiOrigin, getBackendUrl } from './apiConfig'
 import { KRESCO_CSRF_HEADER, clearStoredAuthSession, readCsrfToken, writeCsrfToken } from './authSession'
 import { getUnauthorizedDestination } from './authPolicy'
+import { isProtectedRoute } from './authRedirect'
+import { replaceBrowserLocation } from './browserNavigation'
 
 type CsrfConfig = InternalAxiosRequestConfig & {
   headers: InternalAxiosRequestConfig['headers'] & Record<string, string>
@@ -26,6 +28,10 @@ const CSRF_EXEMPT_PATHS = new Set([
   '/auth/logout',
 ])
 let csrfRefreshPromise: Promise<string | null> | null = null
+
+export function shouldRedirectOnUnauthorized(pathname: string) {
+  return !isProtectedRoute(pathname) && !pathname.startsWith('/auth/') && pathname !== '/professor/login'
+}
 
 function isCsrfExemptRequest(config: Pick<InternalAxiosRequestConfig, 'url'>) {
   const url = config.url || ''
@@ -94,7 +100,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/figma-audit')) {
         clearStoredAuthSession()
-        window.location.href = getUnauthorizedDestination(window.location.pathname)
+        if (shouldRedirectOnUnauthorized(window.location.pathname)) {
+          replaceBrowserLocation(getUnauthorizedDestination(window.location.pathname))
+        }
       }
     }
     return Promise.reject(error)

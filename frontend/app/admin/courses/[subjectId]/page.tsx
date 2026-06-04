@@ -60,6 +60,7 @@ export default function AdminSubjectPage() {
   const [topics, setTopics] = useState<Topic[]>([])
   const [expandedTopics, setExpandedTopics] = useState<Set<number>>(new Set())
   const [topicSections, setTopicSections] = useState<Record<number, TopicSection[]>>({})
+  const [topicSectionErrors, setTopicSectionErrors] = useState<Record<number, boolean>>({})
   const [loadingTopicIds, setLoadingTopicIds] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
 
@@ -85,12 +86,18 @@ export default function AdminSubjectPage() {
   const loadTopicSections = useCallback(async (topicId: number) => {
     if (topicSections[topicId] || loadingTopicIds.has(topicId)) return
     setLoadingTopicIds(prev => new Set(prev).add(topicId))
+    setTopicSectionErrors(prev => {
+      if (!prev[topicId]) return prev
+      const next = { ...prev }
+      delete next[topicId]
+      return next
+    })
     try {
       const workspace = await getJson<TopicWorkspace>(`/courses/topics/${topicId}/workspace`)
       setTopicSections(prev => ({ ...prev, [topicId]: workspace.sections ?? [] }))
     } catch {
       toast.error('Impossible de charger les items du topic')
-      setTopicSections(prev => ({ ...prev, [topicId]: [] }))
+      setTopicSectionErrors(prev => ({ ...prev, [topicId]: true }))
     } finally {
       setLoadingTopicIds(prev => {
         const next = new Set(prev)
@@ -143,6 +150,7 @@ export default function AdminSubjectPage() {
             const isExpanded = expandedTopics.has(topic.id)
             const isLoadingTopic = loadingTopicIds.has(topic.id)
             const sections = topicSections[topic.id]
+            const hasTopicSectionError = topicSectionErrors[topic.id] === true && !sections
             const items = sections?.flatMap(sec => sec.items ?? []) ?? []
 
             return (
@@ -168,6 +176,17 @@ export default function AdminSubjectPage() {
                     {isLoadingTopic ? (
                       <div className="flex justify-center py-6">
                         <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    ) : hasTopicSectionError ? (
+                      <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-slate-400">
+                        <p>Impossible de charger les sections de ce topic.</p>
+                        <button
+                          type="button"
+                          onClick={() => { void loadTopicSections(topic.id) }}
+                          className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:border-slate-500 hover:bg-slate-800 transition"
+                        >
+                          Réessayer
+                        </button>
                       </div>
                     ) : items.length === 0 ? (
                       <div className="py-6 text-center text-slate-400 text-sm">

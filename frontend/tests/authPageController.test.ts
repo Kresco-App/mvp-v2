@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => {
     token: null as string | null,
     isHydrated: true,
     hydrate: vi.fn(),
-    login: vi.fn((user: { role?: string; niveau?: string | null; filiere?: string | null }, _csrfToken?: string | null) => {
+    login: vi.fn((user: { role?: string; niveau?: string | null; filiere?: string | null }) => {
       authState.user = user
       authState.token = 'cookie-session'
     }),
@@ -220,7 +220,10 @@ function renderController() {
 }
 
 function ControllerHarness() {
-  latestController = useAuthPageController()
+  const controller = useAuthPageController()
+  React.useEffect(() => {
+    latestController = controller
+  }, [controller])
   return null
 }
 

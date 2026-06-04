@@ -79,6 +79,7 @@ export default function TopicWorkspacePage() {
     targets: routeQueryTargets,
   }))
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const actionInFlightRef = useRef(false)
   const lastWorkspaceErrorToastRef = useRef('')
   const previousTopicIdRef = useRef(topicId)
   const {
@@ -214,13 +215,12 @@ export default function TopicWorkspacePage() {
     setActiveItemId(item.id)
     setActiveTabSlot(defaultSecondaryTabSlotForItem(item, resolvePrimaryTab(item)))
     setOpenSectionIds((prev) => new Set(prev).add(item.section_id))
+    router.replace(`/topics/${topicId}?item=${item.id}`, { scroll: false })
 
     if (item.can_access === false) {
       toast.info(lockedContentReason(item.locked_reason))
       return
     }
-
-    router.replace(`/topics/${topicId}?item=${item.id}`, { scroll: false })
   }, [router, topicId])
 
   const toggleSection = useCallback((section: FigmaRailSection) => {
@@ -245,11 +245,12 @@ export default function TopicWorkspacePage() {
   }, [availableTabSlots])
 
   const completeActive = useCallback(async () => {
-    if (!activeItem || isSubmitting) return
+    if (!activeItem || actionInFlightRef.current) return
     if (activeItem.can_access === false) {
       toast.info(lockedContentReason(activeItem.locked_reason))
       return
     }
+    actionInFlightRef.current = true
     setIsSubmitting(true)
     try {
       const data = await postJson<any>(`/courses/topic-items/${activeItem.id}/complete`, { watched_seconds: activeItem.duration_seconds || 0 })
@@ -261,16 +262,18 @@ export default function TopicWorkspacePage() {
     } catch {
       toast.error('Could not save progress.')
     } finally {
+      actionInFlightRef.current = false
       setIsSubmitting(false)
     }
-  }, [activeItem, isSubmitting, requestWorkspace])
+  }, [activeItem, requestWorkspace])
 
   const saveActive = useCallback(async () => {
-    if (!activeItem || !workspace || isSubmitting) return
+    if (!activeItem || !workspace || actionInFlightRef.current) return
     if (activeItem.can_access === false) {
       toast.info(lockedContentReason(activeItem.locked_reason))
       return
     }
+    actionInFlightRef.current = true
     setIsSubmitting(true)
     try {
       await postJson('/interactions/saves', { target_type: 'topic_item', target_id: activeItem.id, topic_id: workspace.id, topic_item_id: activeItem.id, label: activeItem.title })
@@ -278,9 +281,10 @@ export default function TopicWorkspacePage() {
     } catch {
       toast.error('Could not save item.')
     } finally {
+      actionInFlightRef.current = false
       setIsSubmitting(false)
     }
-  }, [activeItem, workspace, isSubmitting])
+  }, [activeItem, workspace])
 
   const primaryContent = useMemo(() => {
     if (!activeItem) return null

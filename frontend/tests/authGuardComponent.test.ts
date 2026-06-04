@@ -218,6 +218,40 @@ describe('AuthGuard component behavior', () => {
     })
     expect(getMyProfileMock).toHaveBeenCalledTimes(2)
   })
+
+  it('rechecks access when another tab logs out and clears the shared session', async () => {
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+    getMyProfileMock.mockResolvedValueOnce(studentUser as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Student child')),
+    )
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Student child')
+    })
+
+    getMyProfileMock.mockRejectedValueOnce(axiosLikeError(401) as never)
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=; Path=/; Max-Age=0`
+    localStorage.removeItem(KRESCO_USER_KEY)
+
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: KRESCO_USER_KEY,
+        oldValue: JSON.stringify(studentUser),
+        newValue: null,
+        storageArea: localStorage,
+        url: window.location.href,
+      }))
+    })
+
+    await waitFor(() => {
+      expect(replaceBrowserLocationMock).toHaveBeenCalledWith('/')
+    })
+    expect(useAuthStore.getState().token).toBeNull()
+    expect(container.textContent).not.toContain('Student child')
+  })
 })
 
 function renderComponent(element: React.ReactElement) {

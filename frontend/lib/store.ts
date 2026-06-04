@@ -5,6 +5,8 @@ import { mutate } from 'swr'
 import {
   KRESCO_COOKIE_SESSION,
   KRESCO_CSRF_HEADER,
+  KRESCO_TOKEN_KEY,
+  KRESCO_USER_KEY,
   clearStoredAuthSession,
   readStoredAuthSession,
   readCsrfToken,
@@ -15,6 +17,8 @@ import type { AuthUser } from './authSession'
 import { getBackendUrl } from './apiConfig'
 
 type AuthUserPatch = Partial<AuthUser> & Record<string, unknown>
+
+const AUTH_STORAGE_KEYS = new Set([KRESCO_TOKEN_KEY, KRESCO_USER_KEY])
 
 type AuthStoreState = {
   user: AuthUser | null
@@ -32,6 +36,27 @@ type AuthStoreState = {
   readonly isAuthenticated: boolean
 }
 
+function readAuthStoreSnapshot() {
+  const { token, user } = readStoredAuthSession()
+  return {
+    token,
+    user,
+    logoutError: null,
+    isLoggingOut: false,
+    isHydrated: true,
+  }
+}
+
+function syncAuthStoreFromStorage(event?: StorageEvent) {
+  if (typeof window === 'undefined') return
+  if (event && event.storageArea !== localStorage) return
+  if (event?.key && !AUTH_STORAGE_KEYS.has(event.key)) {
+    return
+  }
+
+  useAuthStore.setState(readAuthStoreSnapshot())
+}
+
 export const useAuthStore = create<AuthStoreState>()((set, get) => ({
   user: null,
   token: null,
@@ -40,8 +65,7 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
   isLoggingOut: false,
 
   hydrate() {
-    const { token, user } = readStoredAuthSession()
-    set({ token, user, isHydrated: true })
+    set(readAuthStoreSnapshot())
   },
 
   login(tokenOrUser: string | AuthUser, maybeUser?: AuthUser | string | null, maybeCsrfToken?: string | null) {
@@ -99,3 +123,11 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
     return !!get().token
   },
 }))
+
+if (typeof window !== 'undefined') {
+  const globalWindow = window as typeof window & { __krescoAuthStorageListenerInstalled?: boolean }
+  if (!globalWindow.__krescoAuthStorageListenerInstalled) {
+    globalWindow.addEventListener('storage', syncAuthStoreFromStorage)
+    globalWindow.__krescoAuthStorageListenerInstalled = true
+  }
+}

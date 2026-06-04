@@ -106,6 +106,10 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
 
   useEffect(() => {
     if (!isHydrated) return
+    if (!token && verificationStateRef.current === 'verified') {
+      verificationStateRef.current = 'idle'
+      setAccessState('pending')
+    }
     if (verificationStateRef.current === 'checking' || verificationStateRef.current === 'denied') return
     if (verificationStateRef.current === 'verified') {
       setAccessState('ready')

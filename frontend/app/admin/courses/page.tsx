@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, BookOpen, ChevronRight, Plus } from 'lucide-react'
+import { ArrowLeft, BookOpen, ChevronRight, Plus, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { getJson } from '@/lib/apiClient'
 
@@ -12,10 +12,12 @@ export default function AdminCoursesPage() {
   const [subjects, setSubjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [reloadNonce, setReloadNonce] = useState(0)
   const router = useRouter()
 
   useEffect(() => {
     setError('')
+    setLoading(true)
     getJson<any[]>('/courses/subjects')
       .then(data => setSubjects(data ?? []))
       .catch(() => {
@@ -24,7 +26,7 @@ export default function AdminCoursesPage() {
         toast.error(message)
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [reloadNonce])
 
   return (
     <>
@@ -48,8 +50,16 @@ export default function AdminCoursesPage() {
               {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-900 rounded-xl animate-pulse" />)}
             </div>
           ) : error ? (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-              {error}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              <p>{error}</p>
+              <button
+                type="button"
+                onClick={() => setReloadNonce((value) => value + 1)}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-50 hover:bg-red-500/20"
+              >
+                <RotateCcw size={14} />
+                Réessayer
+              </button>
             </div>
           ) : subjects.length === 0 ? (
             <div className="text-center py-16 text-slate-500">

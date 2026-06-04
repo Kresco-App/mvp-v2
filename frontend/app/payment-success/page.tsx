@@ -15,6 +15,7 @@ function PaymentSuccessContent() {
   const router = useRouter()
   const updateUser = useAuthStore((state) => state.updateUser)
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
+  const [retryNonce, setRetryNonce] = useState(0)
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id')
@@ -45,7 +46,7 @@ function PaymentSuccessContent() {
       })
 
     return () => { cancelled = true }
-  }, [searchParams, updateUser])
+  }, [searchParams, updateUser, retryNonce])
 
   return (
     <div className="text-center max-w-sm">
@@ -69,9 +70,14 @@ function PaymentSuccessContent() {
       {status === 'error' && (
         <>
           <p className="text-red-500 font-bold mb-4">Une erreur est survenue.</p>
-          <button type="button" onClick={() => router.push('/pricing')} className="px-6 py-3 bg-slate-200 text-slate-300 rounded-xl font-bold hover:bg-slate-300 transition">
-            Retour
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button type="button" onClick={() => setRetryNonce((value) => value + 1)} className="px-6 py-3 bg-kresco text-white rounded-xl font-bold hover:opacity-90 transition">
+              Réessayer
+            </button>
+            <button type="button" onClick={() => router.push('/pricing')} className="px-6 py-3 bg-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-300 transition">
+              Retour
+            </button>
+          </div>
         </>
       )}
     </div>

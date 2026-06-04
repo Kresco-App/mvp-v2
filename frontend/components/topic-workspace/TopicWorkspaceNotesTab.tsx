@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteJson, getJson, patchJson, postJson } from '@/lib/apiClient'
 import { apiDataErrorMessage, apiErrorStatus } from '@/lib/apiData'
 import type { TabContent, TopicItem, TopicWorkspaceNote } from '@/lib/topicWorkspaceViewModel'
 import { EmptyTabPanel, resolvedTabContentId } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
+import { readTopicWorkspaceDraft, writeTopicWorkspaceDraft } from '@/components/topic-workspace/topicWorkspaceDraftCache'
 
 const NOTE_MUTATION_UNAVAILABLE_STATUSES = new Set([404, 405, 501])
 
@@ -32,6 +33,10 @@ function isNoteMutationUnavailable(error: unknown) {
   return typeof status === 'number' && NOTE_MUTATION_UNAVAILABLE_STATUSES.has(status)
 }
 
+function noteDraftKey(topicId: number, itemId: number, tabContentId: number | null) {
+  return `topic-note:${topicId}:${itemId}:${tabContentId ?? 'lesson'}`
+}
+
 export function TopicWorkspaceNotesTab({
   tab,
   item,
@@ -43,7 +48,6 @@ export function TopicWorkspaceNotesTab({
   topicId: number
   onNoteSaved: () => void
 }) {
-  const [note, setNote] = useState('')
   const [notes, setNotes] = useState<TopicWorkspaceNote[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -53,6 +57,17 @@ export function TopicWorkspaceNotesTab({
   const [canEditNotes, setCanEditNotes] = useState(true)
   const [canDeleteNotes, setCanDeleteNotes] = useState(true)
   const tabContentId = useMemo(() => resolvedTabContentId(tab), [tab])
+  const draftKey = useMemo(() => noteDraftKey(topicId, item.id, tabContentId), [item.id, tabContentId, topicId])
+  const [note, setNoteState] = useState(() => readTopicWorkspaceDraft(draftKey, ''))
+
+  useEffect(() => {
+    setNoteState(readTopicWorkspaceDraft(draftKey, ''))
+  }, [draftKey])
+
+  const setNote = useCallback((nextValue: string) => {
+    writeTopicWorkspaceDraft(draftKey, nextValue)
+    setNoteState(nextValue)
+  }, [draftKey])
 
   useEffect(() => {
     const controller = new AbortController()

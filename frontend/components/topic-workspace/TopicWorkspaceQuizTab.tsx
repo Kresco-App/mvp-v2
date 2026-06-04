@@ -10,6 +10,11 @@ import {
   type TabContent,
 } from '@/lib/topicWorkspaceViewModel'
 import { EmptyTabPanel } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
+import { readTopicWorkspaceDraft, writeTopicWorkspaceDraft } from '@/components/topic-workspace/topicWorkspaceDraftCache'
+
+function quizDraftKey(tabId: number) {
+  return `topic-quiz:${tabId}`
+}
 
 function QuizQuestion({
   question,
@@ -257,7 +262,8 @@ export function TopicWorkspaceQuizTab({ tab }: { tab: TabContent }) {
     () => (Array.isArray(tab.config_json?.questions) ? tab.config_json.questions : []),
     [tab.config_json],
   )
-  const [answers, setAnswers] = useState<Record<string, any>>({})
+  const draftKey = useMemo(() => quizDraftKey(Number(tab.id || 0)), [tab.id])
+  const [answers, setAnswersState] = useState<Record<string, any>>(() => readTopicWorkspaceDraft(draftKey, {}))
   const [result, setResult] = useState<QuizResult | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [recentAttempts, setRecentAttempts] = useState<QuizAttemptSummary[]>([])
@@ -268,11 +274,15 @@ export function TopicWorkspaceQuizTab({ tab }: { tab: TabContent }) {
     return new Map<string, number>(entries)
   }, [questions])
   const setQuestionAnswer = useCallback((questionId: string | number, value: any) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }))
-  }, [])
+    setAnswersState((prev) => {
+      const next = { ...prev, [questionId]: value }
+      writeTopicWorkspaceDraft(draftKey, next)
+      return next
+    })
+  }, [draftKey])
 
   useEffect(() => {
-    setAnswers({})
+    setAnswersState(readTopicWorkspaceDraft(draftKey, {}))
     setResult(null)
     setRecentAttempts([])
     setAttemptsError('')
@@ -299,7 +309,7 @@ export function TopicWorkspaceQuizTab({ tab }: { tab: TabContent }) {
     return () => {
       active = false
     }
-  }, [tab.id])
+  }, [draftKey, tab.id])
 
   if (questions.length === 0) {
     return (
@@ -331,7 +341,8 @@ export function TopicWorkspaceQuizTab({ tab }: { tab: TabContent }) {
   }
 
   function resetQuiz() {
-    setAnswers({})
+    writeTopicWorkspaceDraft(draftKey, {})
+    setAnswersState({})
     setResult(null)
   }
 

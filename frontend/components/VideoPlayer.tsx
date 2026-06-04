@@ -26,6 +26,7 @@ type VdoCipherVideoElement = HTMLVideoElement & {
 
 type VdoCipherPlayer = {
   video?: VdoCipherVideoElement
+  destroy?: () => void
 }
 
 type VdoCipherApi = {
@@ -281,6 +282,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
       cancelled = true
       cleanupVideoEvents?.()
       clearProgressInterval()
+      playerRef.current?.destroy?.()
       playerRef.current = null
     }
   }, [

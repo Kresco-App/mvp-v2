@@ -56,7 +56,7 @@ export default function ExamBankPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
-  const routeQuery = useMemo(() => searchParams.get('q')?.trim() || '', [searchKey])
+  const routeQuery = searchParams.get('q')?.trim() || ''
   const [exams, setExams] = useState<Exam[]>([])
   const [queryInput, setQueryInput] = useState(routeQuery)
   const [loading, setLoading] = useState(true)
