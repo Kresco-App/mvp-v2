@@ -42,6 +42,11 @@ const studentUser = {
   filiere: 'Sciences Physiques',
 }
 
+const incompleteStudentUser = {
+  ...studentUser,
+  filiere: '',
+}
+
 const professorUser = {
   id: 2,
   email: 'professor@example.com',
@@ -140,6 +145,37 @@ describe('AuthGuard component behavior', () => {
     expect(useAuthStore.getState().token).toBe('cookie-session')
     expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toMatchObject(studentUser)
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
+  })
+
+  it('redirects server-verified incomplete students to onboarding before rendering protected routes', async () => {
+    window.history.pushState({}, '', '/topics/42?tab=quiz')
+    getMyProfileMock.mockResolvedValueOnce(incompleteStudentUser as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Student child')),
+    )
+
+    await waitFor(() => {
+      expect(replaceBrowserLocationMock).toHaveBeenCalledWith('/onboarding?next=%2Ftopics%2F42%3Ftab%3Dquiz')
+    })
+    expect(container.textContent).toContain('Completing setup')
+    expect(container.textContent).not.toContain('Student child')
+    expect(useAuthStore.getState().user).toMatchObject(incompleteStudentUser)
+  })
+
+  it('renders onboarding children for incomplete students already on the onboarding route', async () => {
+    window.history.pushState({}, '', '/onboarding?next=%2Ftopics%2F42')
+    getMyProfileMock.mockResolvedValueOnce(incompleteStudentUser as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Onboarding child')),
+    )
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Onboarding child')
+    })
+    expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
+    expect(useAuthStore.getState().user).toMatchObject(incompleteStudentUser)
   })
 
   it('renders ProfessorAuthGate children after the server confirms professor role', async () => {

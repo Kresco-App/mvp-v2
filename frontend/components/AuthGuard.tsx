@@ -4,8 +4,12 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuthStore } from '@/lib/store'
 import {
   getAccessDeniedDestination,
+  getStudentOnboardingDestination,
+  getStudentOnboardingStep,
   getUnauthorizedDestination,
   hasRequiredAuthAccess,
+  isProfessorUser,
+  isStudentOnboardingRoute,
 } from '@/lib/authPolicy'
 import { replaceBrowserLocation } from '@/lib/browserNavigation'
 import { getMyProfile } from '@/lib/profile'
@@ -135,6 +139,20 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
           return
         }
 
+        const currentPathname = window.location.pathname
+        const currentLocation = `${currentPathname}${window.location.search}`
+        if (
+          !requireStaff
+          && !isProfessorUser(profile)
+          && !isStudentOnboardingRoute(currentPathname)
+          && getStudentOnboardingStep(profile)
+        ) {
+          verificationStateRef.current = 'denied'
+          setAccessState('redirecting')
+          replaceBrowserLocation(getStudentOnboardingDestination(currentLocation))
+          return
+        }
+
         verificationStateRef.current = 'verified'
         setAccessState('ready')
       })
@@ -167,7 +185,12 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
   }
 
   if (accessState !== 'ready') {
-    return <LoadingScreen message={accessState === 'denied' ? 'Redirecting to login...' : 'Checking access...'} />
+    const message = accessState === 'denied'
+      ? 'Redirecting to login...'
+      : accessState === 'redirecting'
+        ? 'Completing setup...'
+        : 'Checking access...'
+    return <LoadingScreen message={message} />
   }
 
   return children

@@ -15,6 +15,7 @@ const protectedRoutePrefixes = [
   '/exam-bank',
   '/home',
   '/live',
+  '/onboarding',
   '/payment-success',
   '/pricing',
   '/profile',

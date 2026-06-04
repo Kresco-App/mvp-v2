@@ -58,6 +58,19 @@ describe('Next proxy auth boundary', () => {
     expect(response.headers.get('location')).toBe('https://app.kresco.example/')
   })
 
+  it('protects the onboarding route with the same cookie boundary as student routes', () => {
+    const unauthenticated = proxy(makeRequest('/onboarding'))
+    const authenticated = proxy(makeRequest('/onboarding', {
+      [KRESCO_TOKEN_COOKIE]: validToken(),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }))
+
+    expect(unauthenticated.status).toBe(307)
+    expect(unauthenticated.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(authenticated.status).toBe(200)
+    expect(authenticated.headers.get('x-middleware-next')).toBe('1')
+  })
+
   it('redirects unauthenticated professor routes to professor login', () => {
     const response = proxy(makeRequest('/professor/chat'))
 

@@ -17,6 +17,7 @@ import {
   getUnauthorizedDestination,
   hasRequiredAuthAccess,
   isProfessorUser,
+  isStudentOnboardingRoute,
   isStaffUser,
   resolveAuthSuccess,
 } from '@/lib/authPolicy'
@@ -55,6 +56,7 @@ describe('auth redirect decisions', () => {
   it('classifies dashboard and protected feature routes', () => {
     expect(isProtectedRoute('/home')).toBe(true)
     expect(isProtectedRoute('/topics/42')).toBe(true)
+    expect(isProtectedRoute('/onboarding')).toBe(true)
     expect(isProtectedRoute('/auth/reset-password')).toBe(false)
   })
 
@@ -111,6 +113,7 @@ describe('auth policy decisions', () => {
     expect(getStudentOnboardingStep({})).toBe('niveau')
     expect(getStudentOnboardingStep({ niveau: '2bac' })).toBe('filiere')
     expect(getStudentOnboardingStep({ niveau: '2bac', filiere: 'Bac Sciences Physiques' })).toBeNull()
+    expect(isStudentOnboardingRoute('/onboarding')).toBe(true)
 
     expect(resolveAuthSuccess({ niveau: '2bac' })).toEqual({ action: 'onboarding', step: 'filiere' })
     expect(resolveAuthSuccess({ niveau: '2bac', filiere: 'Bac Sciences Physiques' })).toEqual({
@@ -148,6 +151,7 @@ describe('auth policy decisions', () => {
     expect(getSafePostLoginDestination('https://evil.example/home', student)).toBeNull()
     expect(getSafePostLoginDestination('//evil.example/home', student)).toBeNull()
     expect(getSafePostLoginDestination('/auth/reset-password', student)).toBeNull()
+    expect(getSafePostLoginDestination('/onboarding?next=%2Ftopics%2F42', student)).toBeNull()
     expect(getSafePostLoginDestination('/professor', student)).toBeNull()
     expect(getSafePostLoginDestination('/admin', student)).toBeNull()
     expect(getSafePostLoginDestination('/admin', staff)).toBe('/admin')

@@ -15,6 +15,7 @@ export type StudentOnboardingStep = 'niveau' | 'filiere'
 
 export const AUTH_ROUTES = {
   landing: '/',
+  studentOnboarding: '/onboarding',
   studentHome: '/home',
   studentProfessorChat: '/professor-chat',
   professorHome: '/professor',
@@ -30,6 +31,10 @@ function normalizeTier(tier: string | null | undefined) {
 
 export function isProfessorRoute(pathname: string) {
   return pathname === AUTH_ROUTES.professorHome || pathname.startsWith(`${AUTH_ROUTES.professorHome}/`)
+}
+
+export function isStudentOnboardingRoute(pathname: string) {
+  return pathname === AUTH_ROUTES.studentOnboarding || pathname.startsWith(`${AUTH_ROUTES.studentOnboarding}/`)
 }
 
 export function isProfessorUser(user: AuthUserLike | null | undefined) {
@@ -75,7 +80,14 @@ export function getSafePostLoginDestination(
 ) {
   const value = String(nextDestination ?? '').trim()
   if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return null
-  if (value === AUTH_ROUTES.landing || value.startsWith('/auth/') || value === AUTH_ROUTES.professorLogin) return null
+  if (
+    value === AUTH_ROUTES.landing
+    || value === AUTH_ROUTES.studentOnboarding
+    || value.startsWith(`${AUTH_ROUTES.studentOnboarding}?`)
+    || value.startsWith(`${AUTH_ROUTES.studentOnboarding}/`)
+    || value.startsWith('/auth/')
+    || value === AUTH_ROUTES.professorLogin
+  ) return null
   if (isProfessorRoute(value)) return isProfessorUser(user) ? value : null
   if (value === '/admin' || value.startsWith('/admin/')) return isStaffUser(user) ? value : null
   return isProfessorUser(user) ? null : value
@@ -83,6 +95,16 @@ export function getSafePostLoginDestination(
 
 export function getUnauthorizedDestination(pathname = '') {
   return isProfessorRoute(pathname) ? AUTH_ROUTES.professorLogin : AUTH_ROUTES.landing
+}
+
+export function getStudentOnboardingDestination(pathname = '') {
+  const safeNextDestination = getSafePostLoginDestination(pathname, {
+    role: 'student',
+    niveau: '__pending__',
+    filiere: '__pending__',
+  })
+  if (!safeNextDestination) return AUTH_ROUTES.studentOnboarding
+  return `${AUTH_ROUTES.studentOnboarding}?next=${encodeURIComponent(safeNextDestination)}`
 }
 
 export function resolveAuthSuccess(user: AuthUserLike | null | undefined, nextDestination?: string | null) {
