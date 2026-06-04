@@ -219,6 +219,33 @@ def test_verify_checkout_session_returns_false_on_stripe_error(monkeypatch, test
     assert verification.user_id is None
 
 
+def test_verify_checkout_session_retries_transient_fetch_errors(monkeypatch, test_settings):
+    calls = {"count": 0}
+
+    class RetryOnceSessions(FakeSessions):
+        def retrieve(self, session_id):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise stripe_service.stripe.APIConnectionError("temporary transport failure", should_retry=True)
+            return SimpleNamespace(
+                id=session_id,
+                payment_status="paid",
+                metadata={"user_id": "123"},
+                customer="cus_retry",
+            )
+
+    client = FakeStripeClient(sessions=RetryOnceSessions())
+    monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
+    monkeypatch.setattr(stripe_service, "STRIPE_FETCH_RETRY_BASE_SECONDS", 0)
+
+    verification = asyncio.run(verify_checkout_session("cs_retry", test_settings))
+
+    assert verification.is_paid is True
+    assert verification.user_id == 123
+    assert verification.customer_id == "cus_retry"
+    assert calls["count"] == 2
+
+
 def test_customer_id_for_charge_retrieves_charge_customer(monkeypatch, test_settings):
     charges = FakeCharges(customer="cus_from_charge")
     client = FakeStripeClient(charges=charges)
@@ -229,3 +256,27 @@ def test_customer_id_for_charge_retrieves_charge_customer(monkeypatch, test_sett
 
     assert customer_id == "cus_from_charge"
     assert charges.retrieved_charge_id == "ch_test"
+
+
+def test_customer_id_for_charge_retries_transient_fetch_errors(monkeypatch, test_settings):
+    calls = {"count": 0}
+
+    class RetryOnceCharges(FakeCharges):
+        def retrieve(self, charge_id):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise stripe_service.stripe.APIConnectionError("temporary transport failure", should_retry=True)
+            self.retrieved_charge_id = charge_id
+            return SimpleNamespace(id=charge_id, customer="cus_retry_charge")
+
+    charges = RetryOnceCharges()
+    client = FakeStripeClient(charges=charges)
+    monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
+    monkeypatch.setattr(stripe_service, "STRIPE_FETCH_RETRY_BASE_SECONDS", 0)
+    settings = test_settings.model_copy(update={"stripe_sk": "sk_test"})
+
+    customer_id = asyncio.run(customer_id_for_charge("ch_retry", settings))
+
+    assert customer_id == "cus_retry_charge"
+    assert charges.retrieved_charge_id == "ch_retry"
+    assert calls["count"] == 2

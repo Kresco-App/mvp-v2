@@ -265,7 +265,7 @@ def test_verify_session_duplicate_idempotency_key_suppresses_remote_replay(
     assert run_db(_payment_attempt_count(user_id, "cs_idempotent", "verify-cs_idempotent")) == 1
 
 
-def test_verify_session_retryable_stripe_failure_releases_idempotency_attempt(
+def test_verify_session_retryable_stripe_failure_is_retried_without_releasing_idempotency_attempt(
     app_client,
     auth_token,
     monkeypatch,
@@ -298,9 +298,10 @@ def test_verify_session_retryable_stripe_failure_releases_idempotency_attempt(
 
     first = app_client.get("/api/payments/verify-session?session_id=cs_retryable", headers=headers)
 
-    assert first.status_code == 503
-    assert "temporarily unavailable" in first.text
-    assert run_db(_payment_attempt_count(user_id, "cs_retryable", "verify-cs_retryable")) == 0
+    assert first.status_code == 200
+    assert first.json()["is_pro"] is True
+    assert calls["count"] == 2
+    assert run_db(_payment_attempt_count(user_id, "cs_retryable", "verify-cs_retryable")) == 1
 
     second = app_client.get("/api/payments/verify-session?session_id=cs_retryable", headers=headers)
 

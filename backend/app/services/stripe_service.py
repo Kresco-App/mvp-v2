@@ -20,6 +20,8 @@ CHECKOUT_UNAVAILABLE_DETAIL = "Stripe checkout is temporarily unavailable"
 VERIFY_CHECKOUT_UNAVAILABLE_DETAIL = "Stripe checkout verification is temporarily unavailable"
 STRIPE_CONNECT_TIMEOUT_SECONDS = 2.0
 STRIPE_READ_TIMEOUT_SECONDS = 5.0
+STRIPE_FETCH_ATTEMPTS = 3
+STRIPE_FETCH_RETRY_BASE_SECONDS = 0.1
 
 logger = logging.getLogger("kresco.payments")
 
@@ -45,6 +47,16 @@ async def _call_stripe(func, *args, **kwargs):
     return await asyncio.to_thread(func, *args, **kwargs)
 
 
+async def _call_stripe_fetch_with_retries(func, *args, **kwargs):
+    for attempt in range(1, STRIPE_FETCH_ATTEMPTS + 1):
+        try:
+            return await _call_stripe(func, *args, **kwargs)
+        except stripe.StripeError as exc:
+            if attempt >= STRIPE_FETCH_ATTEMPTS or not _is_retryable_stripe_error(exc):
+                raise
+            await asyncio.sleep(STRIPE_FETCH_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+
+
 def _require_checkout_config(settings: Settings) -> None:
     if not settings.stripe_sk.strip() or not settings.stripe_product_id.strip():
         raise HTTPException(status_code=503, detail=MISSING_CHECKOUT_CONFIG_DETAIL)
@@ -54,13 +66,17 @@ def _frontend_url(settings: Settings, path: str) -> str:
     return f"{settings.frontend_url.rstrip('/')}/{path.lstrip('/')}"
 
 
-def _is_retryable_checkout_verification_error(exc: stripe.StripeError) -> bool:
+def _is_retryable_stripe_error(exc: stripe.StripeError) -> bool:
     if isinstance(exc, (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)):
         return True
     if getattr(exc, "should_retry", False):
         return True
     http_status = getattr(exc, "http_status", None)
     return isinstance(http_status, int) and http_status >= 500
+
+
+def _is_retryable_checkout_verification_error(exc: stripe.StripeError) -> bool:
+    return _is_retryable_stripe_error(exc)
 
 
 async def create_checkout_session(user: User, plan: str, settings: Settings) -> str:
@@ -119,7 +135,7 @@ async def create_checkout_session(user: User, plan: str, settings: Settings) -> 
 async def verify_checkout_session(session_id: str, settings: Settings) -> CheckoutSessionVerification:
     client = _stripe_client(settings)
     try:
-        session = await _call_stripe(client.v1.checkout.sessions.retrieve, session_id)
+        session = await _call_stripe_fetch_with_retries(client.v1.checkout.sessions.retrieve, session_id)
         metadata = getattr(session, "metadata", {}) or {}
         raw_user_id = metadata.get("user_id") if isinstance(metadata, dict) else getattr(metadata, "user_id", None)
         try:
@@ -144,7 +160,7 @@ async def customer_id_for_charge(charge_id: str | None, settings: Settings) -> s
 
     client = _stripe_client(settings)
     try:
-        charge = await _call_stripe(client.v1.charges.retrieve, normalized_charge_id)
+        charge = await _call_stripe_fetch_with_retries(client.v1.charges.retrieve, normalized_charge_id)
     except stripe.StripeError:
         return ""
 
