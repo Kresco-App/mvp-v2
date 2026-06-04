@@ -27,6 +27,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
+- Current active bug count after `dbd011c`: 37.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -382,18 +383,6 @@ Current evidence: CI runs the audit after Alembic upgrade on a fresh database.
 Risk: duplicate/orphan/XP-collision checks pass trivially.
 
 Fix direction: seed representative bad/good fixtures or run the audit against a seeded integrity-test dataset.
-
-#### BUG-P1-026 - Locked tab preview can expose protected tab content
-
-Status: OPEN
-
-Files: `frontend/components/topic-workspace/TopicWorkspacePanels.tsx`
-
-Current evidence: locked tabs pass `summary={item.description || tab.content || tab.resource?.summary}` into `LockedContentPanel`.
-
-Risk: if `item.description` is missing, the lock screen can render `tab.content`, which is the protected lesson body.
-
-Fix direction: never use protected `tab.content` or protected resource summaries in locked previews; use only public item metadata and access reason.
 
 #### BUG-P1-027 - Live interaction fallback polling is unpaginated
 

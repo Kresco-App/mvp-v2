@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `dbd011c` - Fixed BUG-P1-026 by preventing locked topic-workspace tab previews from falling back to protected `tab.content` or protected resource summaries; validation: `npm test -- --run tests/topicWorkspacePanels.test.ts` and `npm test -- --run tests/topicWorkspacePanels.test.ts tests/topicWorkspacePage.test.ts tests/topicWorkspaceViewModel.test.ts tests/topicWorkspaceResources.test.ts`.
 - `e321ee1` - Profile save double-fetch false failure, admin retry/error states, payment-success retry affordance, AuthGuard server verification hardening, auth storage cross-tab sync, Topic Workspace mutation lock, Topic Workspace locked URL sync, Topic Workspace draft persistence, and VdoCipher player destroy cleanup.
 - `1e6135d` - Save-item access bypass through inferred context, exam-bank parent subject publication filtering, quiz attempt-number/question-set creation races in tab quiz flow, quiz topic item completion, redundant course access context rebuilds, notification list/unread query path, async media URL offloading in async serializers, and VdoCipher DB-session release before provider calls.
 - `bf396d5` - Auth/onboarding form bugs: email normalization, selected `niveau` hydration, filiere save validation, onboarding double-submit loading, and forgot-password fake-success state.
