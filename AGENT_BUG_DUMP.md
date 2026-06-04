@@ -27,7 +27,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after `cb6edf0`: 32.
+- Current active bug count after `e3a1947`: 31.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -275,18 +275,6 @@ Current evidence: scratchpad history hydrates once from a per-user localStorage 
 Risk: a second browser tab can write stale scratchpad history over newer notes/calculations from another tab.
 
 Fix direction: listen for same-key `storage` events, handle clears, and reload or merge external history before later writes.
-
-#### BUG-P1-022 - Deep exponent chains can overflow the Zed math parser stack
-
-Status: OPEN
-
-Files: `frontend/lib/zedMath.ts`
-
-Current evidence: `power()` recursively calls itself on every `^`.
-
-Risk: valid-looking deep exponent chains can cause stack overflow or UI jank before `evaluateMathExpression` returns `Erreur`.
-
-Fix direction: parse exponent chains iteratively while preserving right associativity, or add a strict maximum expression-depth guard.
 
 #### BUG-P1-023 - Release gates do not enforce provider reachability
 

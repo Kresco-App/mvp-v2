@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `e3a1947` - Fixed BUG-P1-022 by parsing exponent chains iteratively while preserving right associativity and adding Zed math regression tests; validation: `npm test -- --run tests/zedMath.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `cb6edf0` - Fixed BUG-P1-011 by reconciling recipient unread counters when sender-owned unread chat messages are deleted, with professor and student counter regressions; validation: `python -m pytest tests_fastapi/test_professor_platform.py -q -k "deleting_unread or professor_chat_message_reads_skip_commit_when_unread_counts_are_zero or professor_chat_messages_are_cursor_paginated"` and `git diff --check`.
 - `f9536c1` - Fixed BUG-P1-014 by keeping user-initiated logout pending until `/api/auth/logout` succeeds, preserving local session state on revocation failure, adding a separate local clear path for invalid AuthGuard sessions, and delaying nav redirects until logout succeeds; validation: `npm test -- --run tests/authSession.test.ts tests/authGuardComponent.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `beaef01` - Fixed BUG-P1-005 by making `find_n1.py` fail on unapproved findings, preserving a current baseline, adding focused scanner tests, and wiring `python find_n1.py app` into backend CI; validation: `python find_n1.py app`, `python find_n1.py --no-baseline app`, `python -m pytest tests_fastapi/test_find_n1_script.py -q`, and `git diff --check`.
