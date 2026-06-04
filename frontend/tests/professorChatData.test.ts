@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import React, { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { SWRConfig } from 'swr'
@@ -154,6 +156,15 @@ describe('professor chat SWR data', () => {
       expect(container.textContent).toContain('messages: Cached professor reply')
       expect(container.textContent).toContain('messages error: yes')
     })
+  })
+
+  it('keeps student chat fallback polling bounded and thread derivation memoized', () => {
+    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+
+    expect(source).toContain('fallback: { intervalMs: 5000, poll: refreshChat }')
+    expect(source).toContain('const threadOptions = useMemo(() => status ? teacherThreads(status) : [], [status])')
+    expect(source).not.toContain('fallback: { intervalMs: 2500')
+    expect(source).not.toContain('{teacherThreads(status).map')
   })
 })
 

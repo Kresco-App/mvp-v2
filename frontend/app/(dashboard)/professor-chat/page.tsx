@@ -114,19 +114,19 @@ export default function StudentProfessorChatPage() {
     return subscribeKrescoRealtime({
       channelName: userNotificationsChannelName(user.id),
       onMessage: listener,
-      fallback: { intervalMs: 2500, poll: refreshChat },
+      fallback: { intervalMs: 5000, poll: refreshChat },
     })
   }, [refreshChat, user?.id])
 
   const active = useMemo(() => status?.conversations.find((conversation) => conversation.id === activeId) ?? null, [activeId, status])
+  const threadOptions = useMemo(() => status ? teacherThreads(status) : [], [status])
   const messageWindow = useMemo(
     () => getVisibleChatMessageWindow(messages, visibleMessageCount),
     [messages, visibleMessageCount],
   )
   const selectedThread = useMemo(() => {
-    if (!status) return null
-    return teacherThreads(status).find((thread) => thread.course_offering_id === selectedOfferingId) ?? null
-  }, [selectedOfferingId, status])
+    return threadOptions.find((thread) => thread.course_offering_id === selectedOfferingId) ?? null
+  }, [selectedOfferingId, threadOptions])
 
   useEffect(() => {
     setVisibleMessageCount(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
@@ -504,7 +504,7 @@ export default function StudentProfessorChatPage() {
                     onChange={(event) => selectThread(Number(event.target.value), null)}
                     className="mt-[38px] h-[68px] w-full rounded-[16px] border-[2px] border-[#e4e4e7] bg-white px-[34px] text-[18px] font-black tracking-[0.18px] text-[#27272a] outline-none transition focus:border-[#5b60f9]"
                   >
-                    {teacherThreads(status).map((thread) => (
+                    {threadOptions.map((thread) => (
                       <option value={thread.course_offering_id} key={thread.course_offering_id}>{thread.professor.full_name} - {displayStartSubject(thread.subject_title)}</option>
                     ))}
                   </select>
@@ -530,7 +530,7 @@ export default function StudentProfessorChatPage() {
                 <p className="m-0 mt-1 text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#71717b]">Contact a teacher</p>
               </div>
               <div className="mt-8 flex flex-col gap-4">
-                {teacherThreads(status).map((thread) => (
+                {threadOptions.map((thread) => (
                   <button
                     key={thread.course_offering_id}
                     type="button"
