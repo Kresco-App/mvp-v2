@@ -25,6 +25,21 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       NEXT_PUBLIC_API_BASE_URL: "/api/"
+      KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: kresco_frontend_e2e
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kresco_frontend_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: frontend

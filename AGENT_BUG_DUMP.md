@@ -41,24 +41,12 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 55.
+- Current active bug count after this deep audit append: 54.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
 
 ### P0 - Release Blockers
-
-#### BUG-P0-003 - Frontend integration E2E defaults to SQLite in CI
-
-Status: OPEN
-
-Files: `frontend/playwright.integration.config.ts`, `backend/scripts/prepare_e2e_db.py`, `.github/workflows/ci-frontend.yml`, `.github/workflows/deploy-frontend.yml`
-
-Current evidence: the integration Playwright config and `prepare_e2e_db.py` default to `sqlite+aiosqlite:///./e2e.sqlite3`, and frontend CI/deploy run integration E2E without overriding that database URL to Postgres.
-
-Risk: Postgres-specific SQL, JSON, constraints, and migrations can fail in production while integration tests pass.
-
-Fix direction: run integration E2E against a Postgres service in CI.
 
 #### BUG-P0-004 - Backend FastAPI pytest fixture bypasses Alembic migrations
 

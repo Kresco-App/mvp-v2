@@ -117,9 +117,17 @@ def test_ci_and_deploy_workflows_report_test_coverage():
     backend_deploy = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
     frontend_ci = (REPO_ROOT / ".github" / "workflows" / "ci-frontend.yml").read_text(encoding="utf-8")
     frontend_deploy = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
+    e2e_db_prep = (REPO_ROOT / "backend" / "scripts" / "prepare_e2e_db.py").read_text(encoding="utf-8")
 
     assert "pytest-cov" in (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
     assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_ci
     assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_deploy
     assert "npm run test:coverage" in frontend_ci
     assert "npm run test:coverage" in frontend_deploy
+    for workflow in (frontend_ci, frontend_deploy):
+        assert "image: postgres:16" in workflow
+        assert "KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e" in workflow
+        assert "npm run test:e2e:integration" in workflow
+    assert "command.upgrade(config, \"head\")" in e2e_db_prep
+    assert "DROP SCHEMA IF EXISTS public CASCADE" in e2e_db_prep
+    assert "KRESCO_E2E_DATABASE_URL is required for CI integration tests." in e2e_db_prep

@@ -13,4 +13,12 @@ describe('Playwright integration config', () => {
     expect(source).toContain('ABLY_API_KEY')
     expect(source).toContain('JWT_SECRET_KEY: jwtSecretKey')
   })
+
+  it('requires an explicit e2e database URL in CI', () => {
+    const source = readFileSync(resolve(process.cwd(), 'playwright.integration.config.ts'), 'utf8')
+
+    expect(source).toContain('process.env.CI && !process.env.KRESCO_E2E_DATABASE_URL')
+    expect(source).toContain('KRESCO_E2E_DATABASE_URL is required for CI integration tests.')
+    expect(source).toContain("const localE2eDatabaseUrl = 'sqlite+aiosqlite:///./e2e.sqlite3'")
+  })
 })

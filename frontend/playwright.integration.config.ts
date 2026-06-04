@@ -4,7 +4,11 @@ const backendPort = Number(process.env.KRESCO_E2E_BACKEND_PORT ?? 8010)
 const frontendPort = Number(process.env.KRESCO_E2E_FRONTEND_PORT ?? 3101)
 const backendOrigin = `http://127.0.0.1:${backendPort}`
 const frontendOrigin = `http://127.0.0.1:${frontendPort}`
-const e2eDatabaseUrl = process.env.KRESCO_E2E_DATABASE_URL ?? 'sqlite+aiosqlite:///./e2e.sqlite3'
+const localE2eDatabaseUrl = 'sqlite+aiosqlite:///./e2e.sqlite3'
+if (process.env.CI && !process.env.KRESCO_E2E_DATABASE_URL) {
+  throw new Error('KRESCO_E2E_DATABASE_URL is required for CI integration tests.')
+}
+const e2eDatabaseUrl = process.env.KRESCO_E2E_DATABASE_URL ?? localE2eDatabaseUrl
 const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
 
 export default defineConfig({
