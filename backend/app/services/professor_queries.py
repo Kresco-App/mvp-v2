@@ -179,13 +179,7 @@ async def professor_dashboard(db: AsyncSession, professor: User) -> ProfessorDas
         )
         change_requests = list(request_result.scalars().all())
 
-        chat_unread_count = int(await db.scalar(
-            select(func.coalesce(func.sum(ProfessorChatConversation.unread_for_professor), 0))
-            .where(
-                ProfessorChatConversation.professor_user_id == professor.id,
-                ProfessorChatConversation.unread_for_professor > 0
-            )
-        ) or 0)
+        chat_unread_count = int(professor.professor_unread_chat_count or 0)
         chat_pinned_count = int(await db.scalar(
             select(func.count())
             .select_from(ProfessorChatConversation)

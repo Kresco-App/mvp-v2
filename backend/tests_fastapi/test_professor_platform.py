@@ -246,7 +246,7 @@ def test_professor_dashboard_requires_professor_and_returns_scope(app_client, qu
     assert invalid_offerings_limit.status_code == 422
 
 
-def test_professor_dashboard_sums_unread_chat_messages(app_client, run_db, test_settings):
+def test_professor_dashboard_reads_projected_unread_chat_count(app_client, run_db, test_settings):
     seeded = run_db(_seed_professor_platform(test_settings))
 
     async def _seed_unread_conversation():
@@ -261,6 +261,8 @@ def test_professor_dashboard_sums_unread_chat_messages(app_client, run_db, test_
                 last_message_at=datetime.now(timezone.utc),
             )
             db.add(conversation)
+            professor = await db.get(User, seeded["professor_id"])
+            professor.professor_unread_chat_count = 4
             await db.commit()
 
     run_db(_seed_unread_conversation())
@@ -272,6 +274,13 @@ def test_professor_dashboard_sums_unread_chat_messages(app_client, run_db, test_
 
     assert response.status_code == 200
     assert response.json()["chat_unread_count"] == 4
+
+
+def test_professor_dashboard_uses_unread_projection_instead_of_conversation_sum():
+    source = inspect.getsource(professor_queries.professor_dashboard)
+
+    assert "professor_unread_chat_count" in source
+    assert "sum(ProfessorChatConversation.unread_for_professor)" not in source
 
 
 def test_professor_requires_active_offering_for_login_and_area(app_client, run_db, test_settings):

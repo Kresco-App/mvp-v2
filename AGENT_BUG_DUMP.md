@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 45.
+- Current active bug count after this deep audit append: 44.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-004 - Professor dashboard computes unread total with request-time SUM
-
-Status: OPEN
-
-Files: `backend/app/services/professor_queries.py`
-
-Current evidence: `professor_dashboard` still computes `SUM(ProfessorChatConversation.unread_for_professor)` on each dashboard request even though mutation paths already maintain per-conversation unread counters.
-
-Risk: per-request aggregate work grows with professor conversation count.
-
-Fix direction: add a professor-scoped unread counter/read model, update it anywhere `unread_for_professor` is incremented, decremented, or zeroed, and test that the dashboard no longer issues the unread `SUM`.
 
 #### BUG-P1-006 - Per-user watch accrual is only bounded per topic item
 

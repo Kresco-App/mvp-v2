@@ -42,6 +42,7 @@ class User(Base):
     is_staff: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     auth_token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    professor_unread_chat_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     # Django AbstractBaseUser columns — kept so SQLAlchemy doesn't error on existing RDS schema
     password: Mapped[str] = mapped_column(String(128), default="!")

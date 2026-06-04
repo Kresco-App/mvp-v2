@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, UploadFile
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -47,12 +47,34 @@ def touch_conversation(conversation: ProfessorChatConversation, body: str) -> No
     conversation.updated_at = now
 
 
+async def adjust_professor_unread_chat_count(db: AsyncSession, professor_user_id: int, delta: int) -> None:
+    if delta == 0:
+        return
+    if delta > 0:
+        values = {"professor_unread_chat_count": User.professor_unread_chat_count + delta}
+    else:
+        amount = abs(delta)
+        values = {
+            "professor_unread_chat_count": case(
+                (User.professor_unread_chat_count >= amount, User.professor_unread_chat_count - amount),
+                else_=0,
+            )
+        }
+    await db.execute(
+        update(User)
+        .where(User.id == professor_user_id)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def apply_professor_sent_message_update(
     db: AsyncSession,
     conversation: ProfessorChatConversation,
     body: str,
 ) -> None:
     touch_conversation(conversation, body)
+    cleared_professor_unread = int(conversation.unread_for_professor or 0)
     await db.execute(
         update(ProfessorChatConversation)
         .where(ProfessorChatConversation.id == conversation.id)
@@ -65,6 +87,7 @@ async def apply_professor_sent_message_update(
         )
         .execution_options(synchronize_session=False)
     )
+    await adjust_professor_unread_chat_count(db, conversation.professor_user_id, -cleared_professor_unread)
 
 
 async def apply_student_sent_message_update(
@@ -85,6 +108,7 @@ async def apply_student_sent_message_update(
         )
         .execution_options(synchronize_session=False)
     )
+    await adjust_professor_unread_chat_count(db, conversation.professor_user_id, 1)
 
 
 async def deleted_message_is_unread_tail(
@@ -131,6 +155,7 @@ async def reconcile_deleted_message_unread_counter(
             .values(unread_for_professor=ProfessorChatConversation.unread_for_professor - 1)
             .execution_options(synchronize_session=False)
         )
+        await adjust_professor_unread_chat_count(db, conversation.professor_user_id, -1)
         return
 
     if message.sender_user_id == conversation.professor_user_id:
@@ -266,6 +291,7 @@ async def list_professor_messages_for_conversation(
 ) -> list[ProfessorChatMessageOut]:
     conversation = await require_professor_conversation(db, professor, conversation_id)
     if conversation.unread_for_professor > 0:
+        unread_delta = int(conversation.unread_for_professor)
         await db.execute(
             update(ProfessorChatConversation)
             .where(
@@ -274,6 +300,7 @@ async def list_professor_messages_for_conversation(
             )
             .values(unread_for_professor=0)
         )
+        await adjust_professor_unread_chat_count(db, conversation.professor_user_id, -unread_delta)
         await db.commit()
     return await messages_for_conversation(db, conversation_id, settings, limit=limit, before_id=before_id)
 
@@ -446,7 +473,9 @@ async def patch_professor_conversation_state(
     if body.is_pinned_by_professor is not None:
         conversation.is_pinned_by_professor = body.is_pinned_by_professor
     if body.mark_read:
+        unread_delta = int(conversation.unread_for_professor or 0)
         conversation.unread_for_professor = 0
+        await adjust_professor_unread_chat_count(db, conversation.professor_user_id, -unread_delta)
     record_professor_audit(
         db,
         professor=professor,
@@ -499,6 +528,7 @@ async def start_student_conversation_state(
         last_message_at=datetime.now(timezone.utc),
     )
     db.add(conversation)
+    await adjust_professor_unread_chat_count(db, offering.professor_user_id, 1)
     try:
         await db.flush()
     except IntegrityError:
