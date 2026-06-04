@@ -27,7 +27,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after `f9536c1`: 33.
+- Current active bug count after `cb6edf0`: 32.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -180,18 +180,6 @@ Risk: high-volume live/chat events bloat storage and slow outbox scans.
 
 Fix direction: add a retention purge for old `published`/`dead` rows, plus an efficient `(status, updated_at, id)`-style index and scheduled/internal entrypoint.
 
-#### BUG-P1-011 - Deleting unread sent messages does not reconcile conversation counters
-
-Status: OPEN
-
-Files: `backend/app/services/professor_chat_mutations.py`
-
-Current evidence: `delete_chat_message_state` deletes the sender-owned message and refreshes preview, but never decrements the recipient-side conversation unread counter.
-
-Risk: unread badges remain inflated until a read path resets them.
-
-Fix direction: decrement the relevant unread counter when deleting an unread message, guarded by behavioral tests.
-
 #### BUG-P1-013 - Cached user profile data is persisted in localStorage
 
 Status: OPEN
@@ -276,19 +264,19 @@ Risk: local/offline PDF viewing and study snippets are broken or degraded.
 
 Fix direction: use pdf.js or a real selection bridge, and make snip mode emit actual PDF content, preferably an image snippet.
 
-#### BUG-P1-021 - Zed scratchpad overwrites history across tabs
+#### BUG-P1-021 - Zed scratchpad overwrites history across browser tabs
 
 Status: OPEN
 
-Files: `frontend/components/zed/Scratchpad.tsx`
+Files: `frontend/components/zed/Scratchpad.tsx`, `frontend/components/zed/ZedModeOverlay.tsx`
 
-Current evidence: state hydrates from localStorage on mount and writes on change, but does not listen for `storage` updates.
+Current evidence: scratchpad history hydrates once from a per-user localStorage key and writes the whole history on every change, but it does not listen for `storage` events or merge external updates.
 
-Risk: multiple Zed tabs can overwrite newer notes/calculations with stale state.
+Risk: a second browser tab can write stale scratchpad history over newer notes/calculations from another tab.
 
-Fix direction: merge or reload external storage changes before writing.
+Fix direction: listen for same-key `storage` events, handle clears, and reload or merge external history before later writes.
 
-#### BUG-P1-022 - Zed math parser uses unbounded recursive exponent parsing
+#### BUG-P1-022 - Deep exponent chains can overflow the Zed math parser stack
 
 Status: OPEN
 
@@ -296,57 +284,57 @@ Files: `frontend/lib/zedMath.ts`
 
 Current evidence: `power()` recursively calls itself on every `^`.
 
-Risk: deeply chained powers can exhaust the call stack and freeze the tab.
+Risk: valid-looking deep exponent chains can cause stack overflow or UI jank before `evaluateMathExpression` returns `Erreur`.
 
-Fix direction: parse exponent chains iteratively or enforce a maximum expression depth.
+Fix direction: parse exponent chains iteratively while preserving right associativity, or add a strict maximum expression-depth guard.
 
-#### BUG-P1-023 - Deployment/runtime checks do not prove provider readiness
+#### BUG-P1-023 - Release gates do not enforce provider reachability
 
 Status: OPEN
 
 Files: `backend/app/main.py`, `scripts/check_staging_runtime.py`, `.github/workflows/deploy-frontend.yml`, `.github/workflows/deploy-backend.yml`
 
-Current evidence: readiness checks mostly validate configuration presence, backend startup uses SQLite, and frontend deploy lacks post-deploy health checks.
+Current evidence: provider reachability exists as an opt-in diagnostics flag, but `check_staging_runtime.py` and backend deploy only validate config presence; frontend deploy has no post-deploy smoke/health step.
 
-Risk: invalid provider credentials or runtime env gaps pass CI and fail after deploy.
+Risk: releases can pass app startup, DB, and config checks while Stripe/provider reachability or frontend deployment health is broken.
 
-Fix direction: add provider auth probes where safe, Postgres-backed startup checks, and post-deploy smoke/health verification.
+Fix direction: make the backend deploy verifier request/enforce provider reachability where safe, and add a frontend post-deploy smoke/health check.
 
-#### BUG-P1-024 - Critical E2E flows are skipped or over-mocked in CI
+#### BUG-P1-024 - Critical E2E specs self-skip while smoke tests over-mock APIs
 
 Status: OPEN
 
 Files: `frontend/tests/e2e/*.spec.ts`, `.github/workflows/ci-frontend.yml`
 
-Current evidence: purchase and live fanout tests skip without `FAKE_STRIPE_CHECKOUT` or real `ABLY_API_KEY`; smoke tests heavily mock backend routes.
+Current evidence: purchase flow self-skips without `KRESCO_ENV=development` and `FAKE_STRIPE_CHECKOUT=true`, live fanout self-skips without `ABLY_API_KEY`, and CI does not set those env vars. The smoke suite intercepts most `/api/` traffic with canned responses.
 
 Risk: CI can report green while payment, realtime, and backend/frontend contract flows are broken.
 
-Fix direction: add a seeded integration lane with required fake Stripe and Ably/local realtime config, and reserve mocked tests for UI smoke only.
+Fix direction: split mocked smoke coverage from real-flow CI, set required test env for purchase/live specs, and fail CI if critical specs are skipped.
 
-#### BUG-P1-025 - Data integrity audit runs against an empty DB
+#### BUG-P1-025 - Data integrity audit runs against a schema-only unseeded DB
 
 Status: OPEN
 
 Files: `.github/workflows/ci-backend.yml`, `backend/scripts/audit_data_integrity.py`
 
-Current evidence: CI runs the audit after Alembic upgrade on a fresh database.
+Current evidence: CI runs `audit_data_integrity.py` immediately after Alembic upgrade, before any integrity-test seed data is loaded. The current audit checks duplicate groups rather than orphan rows.
 
-Risk: duplicate/orphan/XP-collision checks pass trivially.
+Risk: duplicate SavedItem, DailyQuest, TopicItemProgress, and XP idempotency checks pass trivially on an empty schema.
 
-Fix direction: seed representative bad/good fixtures or run the audit against a seeded integrity-test dataset.
+Fix direction: seed representative integrity fixtures or run the audit against a dedicated seeded integrity-test dataset.
 
-#### BUG-P1-027 - Live interaction fallback polling is unpaginated
+#### BUG-P1-027 - Live interaction fallback refresh replaces paginated history
 
 Status: OPEN
 
-Files: `frontend/lib/professor.ts`, `frontend/lib/liveSessionData.ts`, `frontend/app/(dashboard)/live/[sessionId]/page.tsx`
+Files: `frontend/lib/professor.ts`, `frontend/lib/liveSessionData.ts`, `frontend/app/(dashboard)/live/[sessionId]/page.tsx`, `frontend/app/professor/live/[sessionId]/page.tsx`
 
-Current evidence: `listStudentLiveInteractions(id)` calls the interactions endpoint with no cursor params, while realtime fallback polling repeatedly refreshes room data.
+Current evidence: client fallback polling refetches the default live-interactions page without cursor params and replaces the SWR envelope. Backend routes already support `limit`/`before_id`, but the client does not merge refreshed pages into existing history.
 
-Risk: fallback polling can replace the local live room history with only the backend default page.
+Risk: long sessions can lose older locally cached interactions once the list exceeds the backend default page size.
 
-Fix direction: make fallback polling cursor-aware or merge fetched pages without dropping older local interactions.
+Fix direction: make fallback refresh cursor-aware or merge fetched pages into existing interaction history instead of wholesale replacing it.
 
 ### P2 - User-Visible Flow Bugs
 
