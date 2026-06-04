@@ -486,8 +486,8 @@ async def build_admin_overview(db: AsyncSession) -> AdminOverviewOut:
             "implemented_feature_keys_by_tier": {
                 tier: sorted(keys) for tier, keys in FEATURES_BY_TIER.items()
             },
-            "subject_scope_rule": "enforced_for_users_with_entitlement_rows_or_paid_tier",
-            "fallback_without_entitlement_rows": "subject_unrestricted_for_seed_data_basic_users",
+            "subject_scope_rule": "enforced_for_users_with_entitlement_rows",
+            "fallback_without_entitlement_rows": "subject_unrestricted_for_global_tier_users",
         },
         "gated_content": gated_content,
         "gated_content_by_required_tier": gated_content_by_required_tier,

@@ -57,9 +57,18 @@ def test_free_preview_child_does_not_bypass_parent_subject_lock():
     assert child.reason == "subject_access_required"
 
 
-def test_paid_tier_without_subjects_enforces_subject_scope():
+def test_global_paid_tier_without_subject_rows_keeps_global_access():
     context = access_context(tier="pro", subjects=set())
     decision = context.decide_for(SimpleNamespace(required_tier="pro"), subject_id=10)
+
+    assert decision.can_access is True
+    assert decision.reason == "unlocked"
+    assert decision.subject_scope_enforced is False
+
+
+def test_paid_tier_with_subject_rows_enforces_subject_scope():
+    context = access_context(tier="pro", subjects={10})
+    decision = context.decide_for(SimpleNamespace(required_tier="pro"), subject_id=20)
 
     assert decision.can_access is False
     assert decision.reason == "subject_access_required"

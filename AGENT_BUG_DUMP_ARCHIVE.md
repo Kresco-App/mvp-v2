@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `6347b4e` - Fixed BUG-P0-009 by making subject scoping depend on actual subject-entitlement rows rather than global paid tier alone, so legacy/global PRO users without subject rows keep global course access while subject-scoped users remain constrained; validation: `python -m pytest tests_fastapi/test_access_service.py -q`, `python -m pytest tests_fastapi/test_course_access.py -q`, and `python -m pytest tests_fastapi/test_realtime.py -q -k "subject_scope or filters_subject_scope or omits_offering_notifications"`.
 - `5a01ffa` - Fixed BUG-P2-002 by adding a request-generation guard to the full leaderboard page so stale search/page responses cannot overwrite newer results, with a regression for slow search resolving after a newer search; validation: `npm test -- --run tests/leaderboardRender.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `c9463ca` - Fixed BUG-P2-001 by removing the leaderboard page fallback that treated the first visible row as the current user and adding a regression for non-empty results without an `is_current_user` row; validation: `npm test -- --run tests/leaderboardRender.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `e3a1947` - Fixed BUG-P1-022 by parsing exponent chains iteratively while preserving right associativity and adding Zed math regression tests; validation: `npm test -- --run tests/zedMath.test.ts`, `npm run typecheck`, and `git diff --check`.

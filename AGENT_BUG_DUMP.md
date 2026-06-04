@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 48.
+- Current active bug count after this deep audit append: 52.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -135,6 +135,20 @@ Risk: a student with access to a free/basic topic item can request stream creden
 Fix direction: add a shared helper for primary-resource stream authorization, require published video resources, evaluate the resource decision as a child of the item decision, and add regressions for locked-resource and unpublished-resource stream requests.
 
 ### P1 - Correctness, Security, and Scalability Bugs
+
+#### BUG-P1-042 - Notification pagination window function forces table scans
+Status: OPEN
+Files: `backend/app/services/notifications.py`
+Current evidence: `list_user_notifications` uses `func.sum(case(...)).over()` to calculate `unread_count_expr` without a partition, inside a paginated query with `.offset().limit()`. In SQL, a window function without a partition over the entire result set forces the database to evaluate the window over all matching rows before applying `LIMIT`.
+Risk: Fetching 20 notifications for a user with 10,000 notifications requires a full index scan and materialization of all 10,000 rows just to compute the unread sum, defeating Top-N index optimizations and causing a severe N+1-like pagination bottleneck.
+Fix direction: Remove the `.over()` window function from the paginated read query. Execute a separate targeted `COUNT` query for unread notifications (which can use partial indexes) and let the main query use the `(user_id, created_at)` index for O(1) Top-N pagination.
+
+#### BUG-P1-043 - Payment checkout API drops frontend success and cancel redirect paths
+Status: OPEN
+Files: `backend/app/routers/payments.py`, `backend/app/services/stripe_service.py`, `frontend/lib/payments.ts`
+Current evidence: The frontend `createProCheckoutSession` in `frontend/lib/payments.ts` posts to `/payments/create-checkout-session` using `apiClient.post` but passes `plan` as a query parameter (`{ params: { plan: PRO_CHECKOUT_PLAN } }`). Even if the frontend were to pass `{ success_path, cancel_path }` in the POST body to return the user to the course they were viewing, the backend `create_checkout` router does not declare a Pydantic body model to accept them. Consequently, `create_checkout_session` in `stripe_service.py` uses hardcoded URLs (`payment-success?session_id=...` and `pricing`), completely dropping the frontend's intent for where to return the user after checkout.
+Risk: Product checkout flows break UX expectations because they cannot preserve the user's intent to return to a specific locked course/topic page after successfully paying or canceling.
+Fix direction: Update the backend router to accept a Pydantic JSON body model containing `plan`, `success_path`, and `cancel_path`. Plumb these paths down to `create_checkout_session`, validate them as safe relative URLs, and build the Stripe `success_url` and `cancel_url` from them rather than hardcoding static fallback endpoints.
 
 #### BUG-P1-001 - Admin overview fans out per-metric request-time reads
 
@@ -546,6 +560,18 @@ Risk: a subject-scoped or revoked-subject VIP/Platinum student can list offering
 
 Fix direction: add a teacher-chat access requirement that evaluates both feature and `CourseOffering.subject_id`, filter student chat offerings/conversations before pagination, and enforce the same subject decision on start/send/image/delete. Add regressions for a VIP student entitled only to Mathematics attempting to list/start/chat on a same-track Physics offering.
 
+#### BUG-P1-044 - Payment verification race condition returns unpaid status for concurrent requests
+
+Status: OPEN
+
+Files: `backend/app/services/payment_lifecycle.py`
+
+Current evidence: `verify_checkout_session_state` uses `record_payment_verification_attempt_once` to deduplicate concurrent requests. It returns `first_attempt=False` for concurrent requests and immediately reads `is_pro=bool(user.is_pro)`. It does not wait for the first request to finish calling Stripe and committing `user.is_pro = True`.
+
+Risk: A concurrent verification request can return an unpaid status (`is_pro=False`) back to the frontend while the first request is still successfully validating the checkout in the background.
+
+Fix direction: Add an async lock/wait for the in-progress verification to finish, return an HTTP 202/409 for concurrent requests, or rely entirely on the Stripe webhook for fulfillment.
+
 ### P2 - User-Visible Flow Bugs
 
 #### BUG-P2-003 - Exam page side effect still runs inside timer state updater
@@ -661,3 +687,196 @@ These are not active correctness bugs unless a later validator proves a user-fac
 - Repository hygiene should explicitly decide how to handle generated artifacts and whether local untracked/ignored artifacts should be reported during agent audits.
 - Professor workspace switching is product/backlog unless a real role-switch session model is implemented. Current auth intentionally separates professor routes from student routes, while eligible non-professors already have a limited `Professor Chat` shortcut.
 - Performance backlog: core dashboard routes still have heavy first-load JS in `frontend/.next/diagnostics/route-bundle-stats.json` (`/topics/[topicId]` 1,332,953 bytes, `/professor-chat` 1,298,855 bytes, `/live/[sessionId]` 1,291,410 bytes). Animated renderers are already dynamically loaded, so remaining work is profiling shared chunks, lazy-loading inactive tab panels, and adding a CI bundle budget/report.
+
+## Backend Correctness Audit - 2026-06-02
+
+- [ ] **[HIGH]** `backend/app/services/professor_chat_mutations.py:331-364` - Stale/Divergent Unread Count on Chat Message Deletions
+- [ ] **[HIGH]** `backend/app/services/course_progress.py:102-169` - Concurrency TOCTOU Race Condition & HTTP 500 Crash on First-Time Quiz Submissions
+- [ ] **[HIGH]** `backend/app/models/gamification.py:150` - Missing Foreign Key Cascade on TopicItemProgress.topic_item_id
+- [ ] **[HIGH]** `backend/app/services/auth_email_dispatch.py:56-111` - Unhandled Concurrency Crash and IntegrityError in Email Dispatch Throttling
+- [ ] **[HIGH]** `frontend/vitest.config.ts` & `frontend/tests/topicWorkspaceQuizTab.test.tsx` - Vitest Coverage Deleted Instead of Migrated (Silently Ignored `.tsx` Files)
+- [ ] **[MEDIUM]** `backend/app/services/xp.py:15-26` / `backend/app/services/course_tab_quiz_submission.py:318-348` - Missing Gamification XP Rewards for Quiz Retries and Perfect Scores
+- [ ] **[MEDIUM]** `backend/app/services/quiz_grading.py:36-71` - Drag and Drop Question Type Grading Normalization Mismatch
+
+#### BUG-P2-013 - Professor live session 'notify' endpoint allows unbounded notification spam
+
+Status: OPEN
+
+Files: `backend/app/services/professor_live_sessions.py`, `backend/app/models/notifications.py`
+
+Current evidence: `notify_professor_live_session` calls `notify_students_for_live`, which issues an unguarded `INSERT ... SELECT` into the `notifications` table for every student in the track. There is no deduplication or idempotency key to prevent creating identical notifications for the same live session.
+
+Risk: A professor repeatedly clicking the "Notify" button (intentionally or by accident) will spam duplicate "Upcoming live session" notifications to every active student in the offering.
+
+Fix direction: Add an idempotency key or a unique constraint on `(user_id, source_id, type)` for notifications, or query for existing unread live session notifications before inserting new ones.
+
+### Detailed Findings
+
+#### 1. [HIGH] Stale/Divergent Unread Count on Chat Message Deletions
+* **Severity:** HIGH
+* **File/Line:** `backend/app/services/professor_chat_mutations.py` line 331 (in `delete_chat_message_state`)
+* **Summary:** When a student or professor deletes a message (permitted within the 15-minute edit/delete window), the message is deleted from the database and the conversation's `last_message_preview` is correctly refreshed. However, the conversation's unread counters (`unread_for_student` and `unread_for_professor`) are completely ignored and never adjusted. As a result, deleting an unread message leaves the recipient with a stale, out-of-sync unread badge (e.g. indicating they have unread messages when the conversation is completely empty), corrupting the messaging status metrics.
+* **Reproduction Path:**
+  1. Student sends a message to a professor. The conversation's `unread_for_professor` increments to 1.
+  2. Student immediately deletes the message (within the 15-minute edit window) via `DELETE /api/professor/chat/messages/{message_id}` (or through the student endpoint).
+  3. The `unread_for_professor` counter in the database remains at 1, even though the message has been deleted.
+  4. The professor's dashboard and sidebar will continue to show "1 unread message", but opening the conversation will show zero messages.
+* **Expected Behavior:** When a message is deleted, if the message was not yet read by the recipient (i.e. its creation was responsible for incrementing the counter), the unread counter for the recipient is decremented.
+* **Actual Behavior:** The unread counter is never adjusted, causing persistent stale unread notifications for deleted messages.
+* **Proof from Code:** Look at `delete_chat_message_state` (lines 331-364):
+  ```python
+  async def delete_chat_message_state(
+      db: AsyncSession,
+      *,
+      user: User,
+      message_id: int,
+      request: Request,
+      require_professor_active_offering_fn: RequireProfessorActiveOfferingFn,
+  ) -> dict[str, bool]:
+      message, conversation = await require_owned_chat_message(db, user, message_id)
+      # ...
+      await db.delete(message)
+      await db.flush()
+      await refresh_chat_preview(db, conversation)
+      # ...
+      await db.commit()
+      return {"ok": True}
+  ```
+  The function deletes the message and calls `refresh_chat_preview` (which only re-evaluates `last_message_preview` and `last_message_at`), but completely omits checking whether the deleted message was unread and decrementing `unread_for_professor` or `unread_for_student`.
+* **Why this is not a duplicate:** This is a newly discovered bug. Existing chat-deletion findings (e.g., in Round 2 and Round 6) only dealt with missing authorization checks and missing 15-minute edit windows in the deletion path, whereas this refers to the data-integrity desynchronization of the unread counters.
+* **Suggested fix direction:** In `delete_chat_message_state`, check if the message being deleted has `read_at` as `None` or was created since the last read time. If the message was sent by the student and is unread, decrement `conversation.unread_for_professor` (ensuring it does not go below 0). If it was sent by the professor and is unread, decrement `conversation.unread_for_student` (ensuring it does not go below 0).
+
+#### 2. [HIGH] Concurrency TOCTOU Race Condition & HTTP 500 Crash on First-Time Quiz Submissions
+* **Severity:** HIGH
+* **File/Line:** `backend/app/services/course_progress.py` lines 102-169 (`ensure_question_set_for_tab`)
+* **Summary:** First-time submissions for a quiz tab call `.scalar_one_or_none()` to check if a `QuestionSet` exists. Since there is no unique constraint on `tab_content_id` in the `question_sets` table, concurrent requests (from double-clicks or multiple concurrent student attempts) can execute this check in parallel, see `None`, and successfully commit duplicate `QuestionSet` rows. Subsequent attempts to load or submit that quiz call `scalar_one_or_none()`, which throws a `sqlalchemy.orm.exc.MultipleResultsFound` exception and crashes the app with an HTTP 500 error, permanently locking out all students.
+* **Reproduction Path:**
+  1. A student opens a quiz tab for the first time.
+  2. Double-clicking the submission button or making rapid concurrent submissions results in multiple API calls invoking `submit_tab_quiz_attempt` in parallel.
+  3. Both concurrent requests check `ensure_question_set_for_tab`, see that no `QuestionSet` exists for this tab ID, create a new one, and flush/commit.
+  4. Two `QuestionSet` records are created for the same `tab_content_id` in the database.
+  5. Any subsequent attempts to access the quiz tab or submit answers execute `ensure_question_set_for_tab`, where `.scalar_one_or_none()` raises `MultipleResultsFound`, resulting in a perpetual HTTP 500 crash for this quiz.
+* **Expected Behavior:** Concurrent requests are safely serialized or handled via database constraints so that at most one `QuestionSet` can ever be created for a given `tab_content_id`.
+* **Actual Behavior:** Multiple `QuestionSet` rows are created, causing future queries to raise `MultipleResultsFound` and permanently crashing the quiz.
+* **Proof from Code:** Look at `ensure_question_set_for_tab` (lines 109-130):
+  ```python
+  result = await db.execute(
+      select(QuestionSet)
+      .options(selectinload(QuestionSet.questions))
+      .where(QuestionSet.tab_content_id == tab.id)
+  )
+  question_set = result.scalar_one_or_none()
+  if question_set is None:
+      question_set = QuestionSet(
+          # ...
+          tab_content_id=tab.id,
+          # ...
+      )
+      db.add(question_set)
+      await db.flush()
+  ```
+  Since no unique constraint exists on `tab_content_id` in the `QuestionSet` database table or ORM model, the concurrent inserts both succeed, breaking the invariant required by `scalar_one_or_none()`.
+* **Why this is not a duplicate:** Unique and newly cataloged concurrency race condition. Previous quiz audits only highlighted course-authoring gaps but missed database race conditions on runtime creation of dynamic content blocks.
+* **Suggested fix direction:** Add a unique index/constraint on `tab_content_id` in the `question_sets` table via a new Alembic migration. Wrap the creation block in `ensure_question_set_for_tab` in a try-except catching `IntegrityError`, rolling back, and re-selecting the successfully committed row.
+
+#### 3. [HIGH] Missing Foreign Key Cascade on TopicItemProgress.topic_item_id
+* **Severity:** HIGH
+* **File/Line:** `backend/app/models/gamification.py` line 150
+* **Summary:** The `TopicItemProgress` model defines `topic_item_id` as a raw `Integer` without an explicit `ForeignKey("topic_items.id", ondelete="CASCADE")` constraint. When a `TopicItem` is deleted, its related progress rows in `TopicItemProgress` are orphaned in the database. When the dashboard or sidebar tries to aggregate lesson progress joined by active topic items, these orphaned rows can cause severe query failures, mismatches in calculated percentages, or runtime exceptions.
+* **Reproduction Path:**
+  1. A student starts working on a topic item, creating a row in `topic_item_progress` with `topic_item_id = X`.
+  2. An administrator deletes `TopicItem` with ID `X` (either via custom admin UI or directly).
+  3. The `topic_item_progress` table still contains a row with `topic_item_id = X` pointing to a non-existent item.
+  4. Queries compiling student curriculum progress or stats perform joins or count matches, resulting in incorrect completion percentages or crashes due to referential integrity violations.
+* **Expected Behavior:** When a `TopicItem` is deleted, all dependent progress records are automatically deleted from the database via a cascading constraint.
+* **Actual Behavior:** Dependent progress records remain in the database as orphaned rows with invalid `topic_item_id` values.
+* **Proof from Code:** In `backend/app/models/gamification.py` (lines 136-160):
+  ```python
+  class TopicItemProgress(Base):
+      __tablename__ = "topic_item_progress"
+      ...
+      topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"), index=True)
+      topic_item_id: Mapped[int] = mapped_column(Integer)
+  ```
+  While `topic_id` is defined with a proper cascading foreign key, `topic_item_id` is just a standard integer column.
+* **Why this is not a duplicate:** Unique and distinct from previous foreign key audits. While Round 2 and Round 6 identified foreign key cascade gaps on other models (like `professor_user_id` and polymorphic `SavedItem`), they completely missed `TopicItemProgress.topic_item_id`.
+* **Suggested fix direction:** Update `topic_item_id` to:
+  `topic_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("topic_items.id", ondelete="CASCADE"), index=True)`
+  and generate an Alembic migration to enforce the foreign key constraint.
+
+#### 4. [HIGH] Unhandled Concurrency Crash and IntegrityError in Email Dispatch Throttling
+* **Severity:** HIGH
+* **File/Line:** `backend/app/services/auth_email_dispatch.py` line 56 (in `reserve_email_dispatch`) and lines 152, 170, 190.
+* **Summary:** `reserve_email_dispatch` performs a select-then-add on `EmailDispatchThrottle` (which enforces a unique constraint on `(email, purpose)`). Because the row does not exist initially, the `.with_for_update()` lock does not lock any rows, allowing concurrent signup/reset requests for the same email to both proceed and attempt to add a new throttle record. When the calling dispatch functions (like `prepare_signup_verification_dispatch`) call `await db.commit()`, one request commits successfully, while the concurrent request raises a database-level `IntegrityError`. Lacking exception handling around these commits, the server crashes with an HTTP 500 error instead of gracefully returning a rate limit limit or rate-limiting response.
+* **Reproduction Path:**
+  1. A user rapidly double-clicks the "Send Verification Email" button on signup or forgot password.
+  2. Both concurrent requests call `reserve_email_dispatch` in parallel.
+  3. Both see `throttle = None` because no throttle entry exists yet.
+  4. Both add a new `EmailDispatchThrottle` row for the same email and purpose.
+  5. Both return reservations and call `await db.commit()`.
+  6. The second commit fails with `IntegrityError: (psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint` and crashes the request with a 500 Internal Server Error.
+* **Expected Behavior:** Concurrent request collisions are gracefully intercepted and treated as throttling limits (returning a controlled HTTP 429 or rate-limit outcome), preventing HTTP 500 crashes.
+* **Actual Behavior:** An unhandled database `IntegrityError` is raised on commit, crashing the request and returning an HTTP 500 error to the client.
+* **Proof from Code:** In `backend/app/services/auth_email_dispatch.py` (lines 56-84):
+  ```python
+  async def reserve_email_dispatch(db: AsyncSession, email: str, purpose: str) -> EmailDispatchReservation | None:
+      # ...
+      result = await db.execute(
+          select(EmailDispatchThrottle)
+          .where(EmailDispatchThrottle.email == email, EmailDispatchThrottle.purpose == purpose)
+          .with_for_update()
+      )
+      throttle = result.scalar_one_or_none()
+      if throttle is None:
+          throttle = EmailDispatchThrottle(
+              email=email,
+              purpose=purpose,
+              # ...
+          )
+          db.add(throttle)
+      # ...
+  ```
+  Since `with_for_update` only locks *existing* rows, concurrent requests find no row and both insert, leading to flush-time unique constraint violations.
+* **Why this is not a duplicate:** Unique and newly discovered concurrency rate-limiting crash. Previous rate-limiting findings in Round 6 focused on IP-spoofing and SlowAPI Limiter configurations but did not inspect the transaction commit boundaries of backend-driven email throttling.
+* **Suggested fix direction:** Wrap the add or flush operation inside `reserve_email_dispatch` with a nested transaction block (`async with db.begin_nested():`) to intercept the `IntegrityError` at reservation time, or wrap the calling `db.commit()` in a try-except block to catch `IntegrityError` and return `None` (graceful rate limit response).
+
+#### 5. [HIGH] Vitest Coverage Deleted Instead of Migrated (Silently Ignored `.tsx` Files)
+* **Severity:** HIGH
+* **File/Workflow/Test:** `frontend/vitest.config.ts` and `frontend/tests/topicWorkspaceQuizTab.test.tsx`
+* **What it claims to verify:** The frontend unit test CI step claims to run all test coverage to verify that UI components and their respective tests successfully pass.
+* **Why it does not actually verify it:** The `vitest.config.ts` explicitly scopes test execution by setting `include: ['tests/**/*.test.ts']`. This regex silently excludes `.tsx` test files (which typically contain React component tests and heavy UI coverage). As a result, critical tests like `topicWorkspaceQuizTab.test.tsx` (which asserts complex learner loop UI behaviors like retry, submit, and error handling) are completely skipped and ignored by the test runner.
+* **Failure that could escape:** An architectural or styling change breaking the core React quiz components (like the `TabPanel` or answer inputs) would deploy straight to production because its accompanying assertions in `.tsx` files are never executed.
+* **Proof from code/config:** In `frontend/vitest.config.ts`, `include` uses the glob `tests/**/*.test.ts`. But `frontend/tests/topicWorkspaceQuizTab.test.tsx` has the `.tsx` extension, meaning `npm run test:coverage` skips it entirely while still reporting 100% of discovered tests as passing.
+* **Why this is not a duplicate:** Pinpoints a classic coverage exclusion error specifically affecting the vitest test suite for UI components.
+* **Proposed concrete test or gate:** Update `include` in `vitest.config.ts` to `['tests/**/*.test.ts', 'tests/**/*.test.tsx']` or `['tests/**/*.test.{ts,tsx}']` to ensure React tests are actually run.
+
+#### 6. [MEDIUM] Missing Gamification XP Rewards for Quiz Retries and Perfect Scores
+* **Severity:** MEDIUM
+* **File/Line:** `backend/app/services/xp.py` lines 15-26 and `backend/app/services/course_tab_quiz_submission.py` lines 318-348
+* **Summary:** Although `XP_REWARDS` defines `quiz_retry_correct` (3 XP) and `quiz_perfect` (15 XP), they are completely missing from the gamification logic. When retrying a quiz, the system attempts to award the full `quiz_correct` (5 XP) for any correct answer using the idempotency key `f"quiz_correct:user:{user.id}:question:{question_id}"`. If a student already got that question correct on a previous attempt, the transaction is rejected by the database unique constraint (`ix_xp_transactions_user_idempotency`), yielding **exactly 0 XP** instead of the intended 3 XP retry reward. Additionally, perfect quiz score bonuses (`quiz_perfect` = 15 XP) are never evaluated or awarded even if a student gets 100%.
+* **Reproduction Path:**
+  1. Student takes a quiz tab and gets question A correct, earning 5 XP (idempotency key `quiz_correct:user:1:question:A` persisted).
+  2. Student retakes the quiz and gets question A correct again.
+  3. The submission handler attempts to award `quiz_correct` with the same idempotency key `quiz_correct:user:1:question:A`.
+  4. The unique constraint `ix_xp_transactions_user_idempotency` ignores the duplicate transaction, resulting in 0 XP earned for this retry instead of the expected 3 XP.
+  5. If the student answers all questions correctly (100%), they receive no `quiz_perfect` bonus (15 XP).
+* **Expected Behavior:** When answering a question correct on a retry, the system awards `quiz_retry_correct` (3 XP). When achieving a 100% score on a quiz, the system awards `quiz_perfect` (15 XP).
+* **Actual Behavior:** Neither `quiz_retry_correct` nor `quiz_perfect` is ever referenced in any XP awarding or scoring logic outside the static `XP_REWARDS` dictionary.
+* **Why this is not a duplicate:** This is a newly discovered bug in the XP/gamification service implementation. The legacy quiz attempt findings in Round 6 only highlighted structural schema design and zero XP defaults on legacy models, but did not discover that `quiz_retry_correct` is completely unused, nor that `quiz_perfect` is dead code.
+* **Suggested fix direction:** Update `submit_tab_quiz_attempt` to check if a question was already answered correctly in previous attempts (by querying `QuestionAttempt` records for the user). If so, award `quiz_retry_correct` with an idempotency key tied to the current `quiz_attempt_id` (e.g., `f"quiz_retry_correct:user:{user.id}:question:{question_id}:attempt:{attempt.id}"`). Also, check if `correct == total` (perfect score) and append a `quiz_perfect` award.
+
+#### 7. [MEDIUM] Drag and Drop Question Type Grading Normalization Mismatch
+* **Severity:** MEDIUM
+* **File/Line:** `backend/app/services/quiz_grading.py` lines 36-71
+* **Summary:** The `normalized_submission_value` function standardizes, casefolds, trims, and sorts key-value mappings for matching-type questions (which includes both `"matching"` and `"drag_and_drop"` types) to compute the submission hash correctly. However, the grading function `grade_quiz_question` omits the `"drag_and_drop"` type from the matching-style normalization block, falling through to strict un-normalized equality checks (`submitted == expected`). Any minor formatting variations in client submissions (e.g. whitespace, key order differences, or case mismatches) will cause a correct drag-and-drop response to be graded as **incorrect**, while the database records a signature corresponding to the normalized value, desynchronizing the grading state.
+* **Reproduction Path:**
+  1. A student submits a drag-and-drop question with response `{"Category A": "  Answer 1 ", "Category B": "Answer 2"}`.
+  2. The expected response is `{"Category A": "Answer 1", "Category B": "Answer 2"}`.
+  3. `normalized_submission_value` normalizes the response to `{"category a": "answer 1", "category b": "answer 2"}` and computes the submission hash.
+  4. `grade_quiz_question` falls through to strict equality `submitted == expected` because `drag_and_drop` does not match `matching`.
+  5. The comparison `{"Category A": "  Answer 1 ", "Category B": "Answer 2"} == {"Category A": "Answer 1", "Category B": "Answer 2"}` returns `False`, marking the correct response as incorrect.
+* **Expected Behavior:** Both matching and drag-and-drop questions use normalized key-value comparisons during grading, matching the normalization applied during hash generation.
+* **Actual Behavior:** `"drag_and_drop"` question types are graded with strict un-normalized equality, failing correct answers over minor formatting mismatches.
+* **Why this is not a duplicate:** This is a newly discovered bug in the quiz grading service.
+* **Suggested fix direction:** In `grade_quiz_question`, modify the `"matching"` block to also include `"drag_and_drop"`:
+  `if question_type in {"matching", "drag_and_drop"}:`

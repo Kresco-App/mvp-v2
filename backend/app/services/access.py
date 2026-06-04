@@ -99,11 +99,7 @@ class AccessContext:
 
     @property
     def subject_scope_enforced(self) -> bool:
-        return (
-            self.has_subject_entitlement_rows
-            or bool(self.active_subject_ids)
-            or TIER_RANK.get(self.effective_tier, 0) >= TIER_RANK["pro"]
-        )
+        return self.has_subject_entitlement_rows or bool(self.active_subject_ids)
 
     def decide_for(
         self,
