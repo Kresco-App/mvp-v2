@@ -216,7 +216,7 @@ export function TabPanel({
       <LockedContentPanel
         reason={item.locked_reason || tab.locked_reason}
         title={item.title}
-        summary={item.description || tab.content || tab.resource?.summary}
+        summary={item.description}
       />
     )
   }

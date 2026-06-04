@@ -119,6 +119,31 @@ afterEach(() => {
 })
 
 describe('TopicWorkspacePanels', () => {
+  it('does not expose protected tab content in locked previews', () => {
+    const lockedItem: TopicItem = {
+      ...baseItem,
+      description: '',
+      can_access: false,
+      locked_reason: 'vip_required',
+    }
+    const protectedTab: TabContent = {
+      ...resourceTab,
+      can_access: false,
+      content: 'SECRET PREMIUM LESSON BODY',
+      resource: {
+        ...resourceTab.resource!,
+        summary: 'SECRET PREMIUM RESOURCE SUMMARY',
+      },
+    }
+
+    const { container } = renderPanel(protectedTab, lockedItem)
+
+    expect(container.textContent).toContain('Locked preview')
+    expect(container.textContent).toContain('This learning item is visible in the topic path')
+    expect(container.textContent).not.toContain('SECRET PREMIUM LESSON BODY')
+    expect(container.textContent).not.toContain('SECRET PREMIUM RESOURCE SUMMARY')
+  })
+
   it('previews and opens resource tabs even when the backend open endpoint is unavailable', async () => {
     mocks.postJson.mockRejectedValue({ response: { status: 404 } })
 
