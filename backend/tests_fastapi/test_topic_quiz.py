@@ -391,6 +391,11 @@ def test_standalone_subject_quiz_enforces_subject_access(app_client, auth_token,
         headers=allowed_headers,
         json={"answers": {str(question_id): 1}},
     )
+    allowed_retry = app_client.post(
+        f"/api/quizzes/{question_set_id}/submit",
+        headers=allowed_headers,
+        json={"answers": {str(question_id): 2}},
+    )
 
     assert locked_discovery.status_code == 403
     assert locked_detail.status_code == 403
@@ -399,6 +404,38 @@ def test_standalone_subject_quiz_enforces_subject_access(app_client, auth_token,
     assert allowed_discovery.json()["quiz"]["id"] == question_set_id
     assert allowed_submit.status_code == 200
     assert allowed_submit.json()["passed"] is True
+    assert allowed_submit.json()["xp_earned"] > 0
+    assert allowed_retry.status_code == 200
+    assert allowed_retry.json()["passed"] is False
+
+    async def _assert_legacy_submit_tracking():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            attempts = (
+                await db.execute(
+                    select(QuizAttempt)
+                    .where(QuizAttempt.user_id == allowed_user_id, QuizAttempt.question_set_id == question_set_id)
+                    .order_by(QuizAttempt.attempt_number.asc())
+                )
+            ).scalars().all()
+            question_attempts = (
+                await db.execute(
+                    select(QuestionAttempt)
+                    .where(QuestionAttempt.user_id == allowed_user_id, QuestionAttempt.question_id == question_id)
+                    .order_by(QuestionAttempt.id.asc())
+                )
+            ).scalars().all()
+            xp_count = await db.scalar(
+                select(func.count())
+                .select_from(XPTransaction)
+                .where(XPTransaction.user_id == allowed_user_id, XPTransaction.question_set_id == question_set_id)
+            )
+            assert [attempt.attempt_number for attempt in attempts] == [1, 2]
+            assert len({attempt.submission_hash for attempt in attempts}) == 2
+            assert [question_attempt.is_correct for question_attempt in question_attempts] == [True, False]
+            assert xp_count >= 2
+
+    run_db(_assert_legacy_submit_tracking())
 
 
 def test_subject_quiz_discovery_skips_locked_candidates_past_initial_window(app_client, auth_token, run_db):

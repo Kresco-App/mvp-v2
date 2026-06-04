@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 46.
+- Current active bug count after this deep audit append: 45.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-003 - Legacy quiz submit corrupts attempt analytics
-
-Status: OPEN
-
-Files: `backend/app/routers/quizzes.py`
-
-Current evidence: `submit_quiz` inserts `QuizAttempt(attempt_number=1)` and returns `xp_earned=0` for every legacy quiz submission.
-
-Risk: duplicate attempt numbers, no XP parity with tab quizzes, and analytics divergence.
-
-Fix direction: route legacy submissions through the same attempt numbering, idempotency, grading, and XP service used by tab quizzes.
 
 #### BUG-P1-004 - Professor dashboard computes unread total with request-time SUM
 

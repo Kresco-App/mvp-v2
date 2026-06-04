@@ -1,18 +1,23 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import func, insert, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_current_user, get_db
 from app.models.courses import TabContent, Topic, TopicItem
-from app.models.gamification import QuizAttempt
+from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
 from app.models.quizzes import QuestionSet
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.quizzes import QuizDiscoveryOut, QuizOptionOut, QuizOut, QuizQuestionOut, QuizResultOut, QuizSubmitIn
 from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.course_access import ORPHANED_PARENT_ACCESS_DECISION, access_for_tab, access_for_topic_item
-from app.services.quiz_grading import grade_quiz_question
+from app.services.gamification_stats import apply_quiz_pass_stats_delta
+from app.services.quiz_grading import answer_payload, grade_quiz_question, tab_quiz_submission_hash
+from app.services.xp import XPAward, award_xp_bulk
 
 router = APIRouter(tags=["Quizzes"])
 
@@ -71,47 +76,15 @@ async def submit_quiz(
     user: User = Depends(get_current_user),
 ):
     del request
-    question_set = await _get_accessible_question_set(db, user, question_set_id)
-    questions = [question for question in question_set.questions if question.status == "published"]
-    correct = 0
-    grading = {"questions": []}
-    for question in questions:
-        submitted = body.answers.get(question.id)
-        is_correct, expected = grade_quiz_question(_raw_question(question), submitted)
-        if is_correct:
-            correct += 1
-        grading["questions"].append({
-            "id": question.id,
-            "correct": is_correct,
-            "expected": expected,
-        })
-    total = len(questions)
-    score = round((correct / total) * 100) if total else 0
-    passed = score >= question_set.pass_score
-    db.add(QuizAttempt(
-        user_id=user.id,
-        question_set_id=question_set.id,
-        subject_id=question_set.subject_id,
-        topic_id=question_set.topic_id,
-        topic_section_id=question_set.topic_section_id,
-        topic_item_id=question_set.topic_item_id,
-        tab_content_id=question_set.tab_content_id,
-        source_type=question_set.source_type,
-        score=score,
-        passed=passed,
-        answers=body.answers,
-        grading=grading,
-        attempt_number=1,
-    ))
-    await db.commit()
-    return QuizResultOut(
-        score=score,
-        passed=passed,
-        correct=correct,
-        total=total,
-        pass_score=question_set.pass_score,
-        xp_earned=0,
-    )
+    for attempt_retry in range(2):
+        try:
+            return await _submit_legacy_quiz_attempt(db, user=user, question_set_id=question_set_id, body=body)
+        except IntegrityError:
+            await db.rollback()
+            if attempt_retry == 1:
+                raise
+
+    raise HTTPException(status_code=409, detail="Quiz submission conflict")
 
 
 async def _get_question_set(db: AsyncSession, question_set_id: int) -> QuestionSet:
@@ -131,6 +104,195 @@ async def _get_accessible_question_set(db: AsyncSession, user: User, question_se
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
     return question_set
+
+
+async def _submit_legacy_quiz_attempt(
+    db: AsyncSession,
+    *,
+    user: User,
+    question_set_id: int,
+    body: QuizSubmitIn,
+) -> QuizResultOut:
+    question_set = await _get_accessible_question_set(db, user, question_set_id)
+    questions = [question for question in question_set.questions if question.status == "published"]
+    answers_by_id = {str(key): value for key, value in body.answers.items()}
+    raw_questions = [_raw_question(question) for question in questions]
+    submission_hash = tab_quiz_submission_hash(raw_questions, answers_by_id)
+    correct = 0
+    grading = {"questions": []}
+    pending_question_attempts: list[QuestionAttempt] = []
+
+    for question, raw_question in zip(questions, raw_questions):
+        submitted = body.answers.get(question.id)
+        is_correct, expected = grade_quiz_question(raw_question, submitted)
+        if is_correct:
+            correct += 1
+        grading["questions"].append({
+            "id": question.id,
+            "correct": is_correct,
+            "expected": expected,
+        })
+        pending_question_attempts.append(QuestionAttempt(
+            quiz_attempt_id=0,
+            question_id=question.id,
+            user_id=user.id,
+            subject_id=question_set.subject_id,
+            topic_id=question_set.topic_id,
+            topic_section_id=question_set.topic_section_id,
+            topic_item_id=question_set.topic_item_id,
+            tab_content_id=question_set.tab_content_id,
+            selected_answer_json=answer_payload(submitted),
+            correct_answer_json=answer_payload(expected),
+            is_correct=is_correct,
+            score_awarded=1 if is_correct else 0,
+            max_score=1,
+            grading_json={
+                "id": question.id,
+                "type": question.type,
+                "correct": is_correct,
+            },
+        ))
+
+    total = len(questions)
+    score = round((correct / total) * 100) if total else 0
+    passed = score >= question_set.pass_score
+    existing_attempt = await db.scalar(
+        select(QuizAttempt)
+        .where(
+            QuizAttempt.user_id == user.id,
+            QuizAttempt.question_set_id == question_set.id,
+            QuizAttempt.submission_hash == submission_hash,
+        )
+        .order_by(QuizAttempt.id.asc())
+        .limit(1)
+        .with_for_update()
+    )
+    if existing_attempt is not None:
+        await db.rollback()
+        return QuizResultOut(
+            score=score,
+            passed=passed,
+            correct=correct,
+            total=total,
+            pass_score=question_set.pass_score,
+            xp_earned=0,
+        )
+
+    attempts_count = await db.scalar(
+        select(func.max(QuizAttempt.attempt_number)).where(
+            QuizAttempt.user_id == user.id,
+            QuizAttempt.question_set_id == question_set.id,
+        )
+    )
+    now = datetime.now(timezone.utc)
+    attempt = QuizAttempt(
+        user_id=user.id,
+        question_set_id=question_set.id,
+        subject_id=question_set.subject_id,
+        topic_id=question_set.topic_id,
+        topic_section_id=question_set.topic_section_id,
+        topic_item_id=question_set.topic_item_id,
+        tab_content_id=question_set.tab_content_id,
+        source_type=question_set.source_type,
+        submission_hash=submission_hash,
+        score=score,
+        passed=passed,
+        answers=body.answers,
+        grading=grading,
+        attempt_number=(attempts_count or 0) + 1,
+        started_at=now,
+        completed_at=now,
+    )
+    db.add(attempt)
+    await db.flush()
+
+    inserted_question_attempts: list[dict] = []
+    if pending_question_attempts:
+        question_attempt_payloads = [
+            {
+                "quiz_attempt_id": attempt.id,
+                "question_id": question_attempt.question_id,
+                "user_id": question_attempt.user_id,
+                "subject_id": question_attempt.subject_id,
+                "topic_id": question_attempt.topic_id,
+                "topic_section_id": question_attempt.topic_section_id,
+                "topic_item_id": question_attempt.topic_item_id,
+                "tab_content_id": question_attempt.tab_content_id,
+                "selected_answer_json": question_attempt.selected_answer_json,
+                "correct_answer_json": question_attempt.correct_answer_json,
+                "is_correct": question_attempt.is_correct,
+                "score_awarded": question_attempt.score_awarded,
+                "max_score": question_attempt.max_score,
+                "grading_json": question_attempt.grading_json,
+            }
+            for question_attempt in pending_question_attempts
+        ]
+        inserted_result = await db.execute(
+            insert(QuestionAttempt)
+            .returning(
+                QuestionAttempt.id,
+                QuestionAttempt.question_id,
+                QuestionAttempt.subject_id,
+                QuestionAttempt.topic_id,
+                QuestionAttempt.topic_section_id,
+                QuestionAttempt.topic_item_id,
+                QuestionAttempt.is_correct,
+            ),
+            question_attempt_payloads,
+        )
+        inserted_question_attempts = [dict(row) for row in inserted_result.mappings().all()]
+
+    xp_awards: list[XPAward] = []
+    for question_attempt in inserted_question_attempts:
+        if not question_attempt["is_correct"]:
+            continue
+        xp_awards.append(XPAward(
+            reason="quiz_correct",
+            description=f"Question {question_attempt['question_id']} first correct",
+            subject_id=question_attempt["subject_id"],
+            topic_id=question_attempt["topic_id"],
+            topic_section_id=question_attempt["topic_section_id"],
+            topic_item_id=question_attempt["topic_item_id"],
+            question_set_id=question_set.id,
+            question_id=question_attempt["question_id"],
+            quiz_attempt_id=attempt.id,
+            question_attempt_id=question_attempt["id"],
+            idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt['question_id']}",
+        ))
+    quiz_pass_idempotency_key = f"quiz_pass:user:{user.id}:question_set:{question_set.id}"
+    if passed:
+        xp_awards.append(XPAward(
+            reason="quiz_pass",
+            description=f"QuestionSet {question_set.id} passed",
+            subject_id=question_set.subject_id,
+            topic_id=question_set.topic_id,
+            topic_section_id=question_set.topic_section_id,
+            topic_item_id=question_set.topic_item_id,
+            question_set_id=question_set.id,
+            quiz_attempt_id=attempt.id,
+            idempotency_key=quiz_pass_idempotency_key,
+        ))
+    xp_earned = await award_xp_bulk(user.id, xp_awards, db)
+
+    if passed:
+        quiz_pass_transaction = await db.scalar(
+            select(XPTransaction).where(
+                XPTransaction.user_id == user.id,
+                XPTransaction.idempotency_key == quiz_pass_idempotency_key,
+            )
+        )
+        if quiz_pass_transaction is not None and quiz_pass_transaction.quiz_attempt_id == attempt.id:
+            await apply_quiz_pass_stats_delta(db, user_id=user.id, quizzes_passed_delta=1)
+
+    await db.commit()
+    return QuizResultOut(
+        score=score,
+        passed=passed,
+        correct=correct,
+        total=total,
+        pass_score=question_set.pass_score,
+        xp_earned=xp_earned,
+    )
 
 
 async def _question_set_access(db: AsyncSession, user: User, question_set: QuestionSet) -> AccessDecision:
@@ -270,7 +432,7 @@ def _options_out(config: dict) -> list[QuizOptionOut]:
 
 def _raw_question(question) -> dict:
     return {
-        "id": question.external_id or str(question.id),
+        "id": str(question.id),
         "type": question.type,
         "prompt": question.prompt,
         **(question.config_json or {}),
