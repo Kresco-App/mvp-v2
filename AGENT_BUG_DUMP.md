@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 52.
+- Current active bug count after this deep audit append: 50.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-046 - Student live sessions ignore program track deactivation
-
-Status: OPEN
-
-Files: `backend/app/services/professor_queries.py`
-
-Current evidence: `require_student_live_session` and `student_live_sessions` filter sessions by `ProgramTrack.niveau == student.niveau` and `ProgramTrack.filiere == student.filiere`, but they lack the `ProgramTrack.status == "active"` check found in other course scopes (e.g., `student_offerings`).
-
-Risk: Students can access live sessions, chat, and stream credentials for program tracks that have been deactivated or deprecated.
-
-Fix direction: Add `ProgramTrack.status == "active"` to the filtering predicates for student live sessions to enforce strict track activation boundaries.
 
 #### BUG-P1-042 - Notification pagination window function forces table scans
 Status: OPEN
@@ -485,18 +473,6 @@ Current evidence: `create_professor_live_session` rolls back the current DB tran
 Risk: a transient database or constraint failure after VdoCipher creation can leave paid external live streams unmanaged by Kresco, with no local session for staff to find, delete, or audit.
 
 Fix direction: add provider cleanup/compensation for post-create local failures, or reserve a local pending session before provider creation and reconcile it transactionally. Add a regression where `create_live_stream` succeeds and a later DB failure invokes cleanup or leaves a recoverable pending record.
-
-#### BUG-P1-040 - Student live session list filters entitlement after pagination
-
-Status: OPEN
-
-Files: `backend/app/services/professor_queries.py`, `backend/app/services/realtime_access.py`, `backend/tests_fastapi/test_professor_platform.py`, `backend/tests_fastapi/test_realtime.py`
-
-Current evidence: `student_live_sessions` builds an access context but the SQL query only filters active same-track live sessions, applies `order_by`, `offset`, and `limit`, and then removes unauthorized rows in a Python list comprehension with `access_context.decide_for(LIVE_SESSION_ACCESS_REQUIREMENT, subject_id=session.course_offering.subject_id)`. The realtime access service already pushes `CourseOffering.subject_id.in_(access_context.active_subject_ids)` into SQL before its live-session limit, and `test_ably_token_filters_subject_scope_before_live_session_limit` protects that behavior. The HTTP student-live test only asserts `limit=1` returns at most one row; it does not seed an inaccessible newer same-track session ahead of an accessible one.
-
-Risk: a VIP/Platinum student with entitlement to only one subject can see `/live` return an empty or incomplete page when inaccessible same-track sessions sort ahead of accessible sessions, even though those accessible sessions exist and the realtime capability path knows how to scope before limiting.
-
-Fix direction: apply the same subject-scope and feature checks used by `realtime_access` before `offset`/`limit` in `student_live_sessions`; when subject scope is enforced, constrain by `CourseOffering.subject_id.in_(access_context.active_subject_ids)`. Add a regression with `limit=1`, one inaccessible newer live session, and one accessible older live session.
 
 #### BUG-P1-041 - Professor chat ignores teacher-chat subject scope
 

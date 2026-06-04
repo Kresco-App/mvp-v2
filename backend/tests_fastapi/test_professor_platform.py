@@ -342,6 +342,96 @@ def test_student_live_sessions_hide_inactive_course_offerings(app_client, run_db
     assert student_embed.json()["detail"] == "Live session not found"
 
 
+def test_student_live_sessions_hide_inactive_program_tracks(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    payload = {
+        "course_offering_id": seeded["offering_id"],
+        "title": "Inactive track live",
+        "description": "Should not remain student-visible",
+        "starts_at": starts_at.isoformat(),
+        "ends_at": (starts_at + timedelta(hours=1)).isoformat(),
+        "join_url": "https://live.example/inactive-track",
+        "vdocipher_live_id": "live_inactive_track",
+    }
+    created = app_client.post(
+        "/api/professor/live-sessions",
+        json=payload,
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert created.status_code == 201
+    live_id = created.json()["id"]
+
+    async def _deactivate_track():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            offering = await db.get(CourseOffering, seeded["offering_id"])
+            track = await db.get(ProgramTrack, offering.track_id)
+            track.status = "inactive"
+            await db.commit()
+
+    run_db(_deactivate_track())
+
+    student_sessions = app_client.get(
+        "/api/professor/student-live-sessions",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert student_sessions.status_code == 200
+    assert all(session["id"] != live_id for session in student_sessions.json())
+
+    student_embed = app_client.get(
+        f"/api/professor/student-live-sessions/{live_id}/embed",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert student_embed.status_code == 404
+    assert student_embed.json()["detail"] == "Live session not found"
+
+
+def test_student_live_sessions_filter_subject_scope_before_pagination(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    now = datetime.now(timezone.utc)
+    locked_payload = {
+        "course_offering_id": seeded["second_offering_id"],
+        "title": "Locked newer live",
+        "description": "Should be filtered before pagination",
+        "starts_at": (now + timedelta(hours=3)).isoformat(),
+        "ends_at": (now + timedelta(hours=4)).isoformat(),
+        "join_url": "https://live.example/locked-newer",
+        "vdocipher_live_id": "live_locked_newer",
+    }
+    allowed_payload = {
+        "course_offering_id": seeded["offering_id"],
+        "title": "Allowed older live",
+        "description": "Should survive limit one",
+        "starts_at": (now + timedelta(hours=2)).isoformat(),
+        "ends_at": (now + timedelta(hours=3)).isoformat(),
+        "join_url": "https://live.example/allowed-older",
+        "vdocipher_live_id": "live_allowed_older",
+    }
+    locked = app_client.post(
+        "/api/professor/live-sessions",
+        json=locked_payload,
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    allowed = app_client.post(
+        "/api/professor/live-sessions",
+        json=allowed_payload,
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert locked.status_code == 201
+    assert allowed.status_code == 201
+
+    response = app_client.get(
+        "/api/professor/student-live-sessions?limit=1&offset=0",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+
+    assert response.status_code == 200
+    ids = [session["id"] for session in response.json()]
+    assert ids == [allowed.json()["id"]]
+    assert locked.json()["id"] not in ids
+
+
 def test_professor_live_sessions_are_scoped_to_owned_offering(app_client, run_db, test_settings):
     seeded = run_db(_seed_professor_platform(test_settings))
     starts_at = datetime.now(timezone.utc) + timedelta(hours=2)

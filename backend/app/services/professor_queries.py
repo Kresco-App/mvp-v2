@@ -285,6 +285,18 @@ async def student_live_sessions(
     offset: int = 0,
 ) -> list[LiveSessionViewerOut]:
     access_context = await build_access_context(db, student)
+    if not access_context.decide_for(LIVE_SESSION_ACCESS_REQUIREMENT).can_access:
+        return []
+    filters = [
+        LiveSession.status != LiveSessionStatus.CANCELLED.value,
+        CourseOffering.status == "active",
+        ProgramTrack.status == "active",
+        ProgramTrack.niveau == student.niveau,
+        ProgramTrack.filiere == student.filiere,
+    ]
+    if access_context.subject_scope_enforced:
+        filters.append(CourseOffering.subject_id.in_(access_context.active_subject_ids))
+
     result = await db.execute(
         select(LiveSession)
         .join(CourseOffering, CourseOffering.id == LiveSession.course_offering_id)
@@ -294,24 +306,12 @@ async def student_live_sessions(
             selectinload(LiveSession.course_offering).selectinload(CourseOffering.track),
             selectinload(LiveSession.professor),
         )
-        .where(
-            LiveSession.status != LiveSessionStatus.CANCELLED.value,
-            CourseOffering.status == "active",
-            ProgramTrack.niveau == student.niveau,
-            ProgramTrack.filiere == student.filiere,
-        )
+        .where(*filters)
         .order_by(LiveSession.starts_at.desc())
         .offset(offset)
         .limit(limit)
     )
-    return [
-        live_viewer_out(session)
-        for session in result.scalars().all()
-        if access_context.decide_for(
-            LIVE_SESSION_ACCESS_REQUIREMENT,
-            subject_id=session.course_offering.subject_id,
-        ).can_access
-    ]
+    return [live_viewer_out(session) for session in result.scalars().all()]
 
 
 async def student_professor_chat_status(
@@ -488,6 +488,7 @@ async def require_student_live_session(db: AsyncSession, student: User, live_ses
             LiveSession.id == live_session_id,
             LiveSession.status != LiveSessionStatus.CANCELLED.value,
             CourseOffering.status == "active",
+            ProgramTrack.status == "active",
             ProgramTrack.niveau == student.niveau,
             ProgramTrack.filiere == student.filiere,
         )
