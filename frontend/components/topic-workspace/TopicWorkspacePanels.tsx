@@ -188,7 +188,7 @@ function CommentsTab({ item }: { item: TopicItem }) {
                   <span className="text-[13px] font-black text-[#3f3f46]">{comment.author.full_name}</span>
                   <span className="text-[11px] font-bold text-[#9f9fa9]">{new Date(comment.created_at).toLocaleDateString()}</span>
                 </div>
-                <p className="m-0 mt-1 whitespace-pre-line text-[13px] font-semibold leading-6 text-[#52525c]">{comment.body}</p>
+                <p className="m-0 mt-1 whitespace-pre-line break-words text-[13px] font-semibold leading-6 text-[#52525c]">{comment.body}</p>
               </div>
             </div>
           ))}

@@ -88,6 +88,17 @@ const notesTab: TabContent = {
   resource: null,
 }
 
+const commentsTab: TabContent = {
+  id: 9,
+  label: 'Comments',
+  tab_type: 'comments',
+  content: '',
+  config_json: {},
+  renderer_key: '',
+  order: 5,
+  resource: null,
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
@@ -233,6 +244,30 @@ describe('TopicWorkspacePanels', () => {
       expect(container.textContent).not.toContain('Edited note body')
     })
     expect(mocks.deleteJson).toHaveBeenCalledWith('/interactions/notes/3')
+  })
+
+  it('wraps long unbroken comment bodies inside the comments panel', async () => {
+    const longBody = 'https://example.com/' + 'a'.repeat(140)
+    mocks.getJson.mockResolvedValue([{
+      id: 7,
+      topic_item_id: 101,
+      body: longBody,
+      author: {
+        id: 3,
+        full_name: 'Sara Benali',
+        avatar_url: '',
+      },
+      created_at: '2026-06-01T09:00:00Z',
+    }])
+
+    const { container } = renderPanel(commentsTab, baseItem)
+
+    await waitFor(() => {
+      expect(container.textContent).toContain(longBody)
+    })
+
+    const commentBody = Array.from(container.querySelectorAll('p')).find((paragraph) => paragraph.textContent === longBody)
+    expect(commentBody?.className).toContain('break-words')
   })
 })
 
