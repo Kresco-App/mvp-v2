@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `beaef01` - Fixed BUG-P1-005 by making `find_n1.py` fail on unapproved findings, preserving a current baseline, adding focused scanner tests, and wiring `python find_n1.py app` into backend CI; validation: `python find_n1.py app`, `python find_n1.py --no-baseline app`, `python -m pytest tests_fastapi/test_find_n1_script.py -q`, and `git diff --check`.
 - `03bd8fa` - Fixed BUG-P0-005 by adding a protected `/onboarding` route and making `AuthGuard` redirect server-verified incomplete students there before rendering protected student routes; validation: `npm test -- --run tests/authGuardComponent.test.ts tests/authSession.test.ts tests/proxy.test.ts tests/authPageController.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `dbd011c` - Fixed BUG-P1-026 by preventing locked topic-workspace tab previews from falling back to protected `tab.content` or protected resource summaries; validation: `npm test -- --run tests/topicWorkspacePanels.test.ts` and `npm test -- --run tests/topicWorkspacePanels.test.ts tests/topicWorkspacePage.test.ts tests/topicWorkspaceViewModel.test.ts tests/topicWorkspaceResources.test.ts`.
 - `e321ee1` - Profile save double-fetch false failure, admin retry/error states, payment-success retry affordance, AuthGuard server verification hardening, auth storage cross-tab sync, Topic Workspace mutation lock, Topic Workspace locked URL sync, Topic Workspace draft persistence, and VdoCipher player destroy cleanup.
@@ -62,6 +63,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 - The old profile save double-fetch false-failure, admin retry/dead-end, admin topic-section retry cache, payment success retry, payment stale-profile, exam-bank URL sync, and leaderboard backend-search fallback findings are resolved by current focused tests.
 - The old leaderboard pagination duplication, strict client search fallback, and half-error stale UI findings are stale against the current component because `lastNonEmptyEntries` and `instantEntries` were removed. Current active leaderboard bugs are listed separately.
 - The old quiz tab question-set creation race, attempt-number race, quiz topic-item completion, and XP retry/perfect-score claim are resolved or stale against the current tab-quiz service and migration `0047`.
+- BUG-P1-012 is stale as written: tab quiz answers are bounded by `validate_quiz_answers_payload`, professor change-request JSON is bounded by `validate_bounded_json_object`, and `backend/tests_fastapi/test_schema_limits.py` covers both structural limits.
 
 ## Do Not Resurrect Without New Validation
 

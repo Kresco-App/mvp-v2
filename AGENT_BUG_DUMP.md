@@ -27,7 +27,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after `03bd8fa`: 36.
+- Current active bug count after `beaef01`: 34.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -132,18 +132,6 @@ Risk: per-request aggregate work grows with professor conversation count.
 
 Fix direction: add a professor-level unread cache/materialized counter, update it in chat mutation paths, and test that the dashboard no longer issues the unread `SUM`.
 
-#### BUG-P1-005 - Backend N+1 scanner does not fail on findings
-
-Status: OPEN
-
-Files: `backend/find_n1.py`, `.github/workflows/ci-backend.yml`
-
-Current evidence: `find_n1.py` reports N+1 candidates but exits nonzero only on parse errors. Current course read-model endpoints already have bounded bulk reads and query-budget coverage.
-
-Risk: new looped DB-access regressions can be reported by the scanner while CI still passes.
-
-Fix direction: make `find_n1.py` return failure when findings are present, add a focused scanner regression test, and wire it into backend CI.
-
 #### BUG-P1-006 - Per-user watch accrual is only bounded per topic item
 
 Status: OPEN
@@ -168,73 +156,61 @@ Risk: future or legacy award paths can bypass idempotency and duplicate XP under
 
 Fix direction: require non-null idempotency keys at the XP service boundary and add duplicate-concurrency tests for keyed awards.
 
-#### BUG-P1-009 - Polymorphic references can orphan saved/change-request targets
+#### BUG-P1-009 - Polymorphic saved/change-request targets can become dangling
 
 Status: OPEN
 
 Files: `backend/app/models/interactions.py`, `backend/app/models/professor.py`
 
-Current evidence: `SavedItem` and `ProfessorChangeRequest` use `target_type`/`target_id` without DB-level referential integrity.
+Current evidence: `SavedItem` can be created for a missing target because missing context falls back instead of rejecting; `ProfessorChangeRequest` validates targets on create, but deletes of target rows are not reconciled.
 
-Risk: deleting topics, resources, questions, or exam problems can leave records that later render broken UI or 404 metadata.
+Risk: saved items and professor change requests can point at deleted or nonexistent topics/items/tabs/resources and later render broken metadata.
 
-Fix direction: introduce typed nullable FKs where possible or add cleanup/validation jobs with enforced target resolvers.
+Fix direction: reject missing targets in `save_user_item`, and add delete-time cleanup or a reconciler for saved/change-request rows.
 
-#### BUG-P1-010 - Realtime outbox has no retention cleanup
+#### BUG-P1-010 - Realtime outbox rows are never purged after publish/dead-letter
 
 Status: OPEN
 
 Files: `backend/app/services/realtime_outbox.py`, `backend/app/models/professor.py`
 
-Current evidence: published/dead events remain in the table indefinitely.
+Current evidence: `process_realtime_outbox` publishes/retries/dead-letters rows, `requeue_failed_realtime_outbox` only resets retry/dead rows, and no scheduled/internal path deletes old published/dead rows.
 
 Risk: high-volume live/chat events bloat storage and slow outbox scans.
 
-Fix direction: add a retention worker and migration/index support for purging old published/dead rows.
+Fix direction: add a retention purge for old `published`/`dead` rows, plus an efficient `(status, updated_at, id)`-style index and scheduled/internal entrypoint.
 
-#### BUG-P1-011 - Deleted unread chat messages can leave ghost unread counts
+#### BUG-P1-011 - Deleting unread sent messages does not reconcile conversation counters
 
 Status: OPEN
 
 Files: `backend/app/services/professor_chat_mutations.py`
 
-Current evidence: delete refreshes preview but does not adjust `unread_for_professor` or `unread_for_student` when deleting an unread message.
+Current evidence: `delete_chat_message_state` deletes the sender-owned message and refreshes preview, but never decrements the recipient-side conversation unread counter.
 
 Risk: unread badges remain inflated until a read path resets them.
 
 Fix direction: decrement the relevant unread counter when deleting an unread message, guarded by behavioral tests.
 
-#### BUG-P1-012 - Arbitrary JSON request fields lack domain bounds
-
-Status: OPEN
-
-Files: `backend/app/schemas/courses.py`, `backend/app/schemas/professor.py`
-
-Current evidence: quiz answers and change-request snapshots accept broad `dict[..., Any]` shapes.
-
-Risk: deeply nested or unexpected JSON can persist into DB columns and break downstream renderers/auditors.
-
-Fix direction: add schema/depth/size constraints per domain object, not only the global request body limit.
-
-#### BUG-P1-013 - Local auth user data remains readable from localStorage
+#### BUG-P1-013 - Cached user profile data is persisted in localStorage
 
 Status: OPEN
 
 Files: `frontend/lib/authSession.ts`, `frontend/lib/store.ts`
 
-Current evidence: `kresco_user` stores user profile context in localStorage.
+Current evidence: `writeStoredAuthSession` and `updateStoredAuthUser` persist the full `AuthUser` object in `localStorage["kresco_user"]`; server verification prevents auth-token forgery but not profile-data exposure.
 
-Risk: PII/role/tier context is accessible to XSS, extensions, and physical access. The HttpOnly session model reduces auth-token exposure but not profile-data exposure.
+Risk: email/name/avatar/tier/staff/profile context is readable by any script running in the origin, extensions, and local physical access.
 
 Fix direction: minimize stored fields, move sensitive context to server verification, or use session-only memory where practical.
 
-#### BUG-P1-014 - Logout can leave a server-backed zombie session
+#### BUG-P1-014 - Failed logout clears local state before server revocation succeeds
 
 Status: OPEN
 
 Files: `frontend/lib/store.ts`
 
-Current evidence: `logout()` clears local auth state before the backend `/api/auth/logout` request succeeds.
+Current evidence: `logout()` clears local auth/session state and SWR cache before `/api/auth/logout` succeeds; on fetch failure the UI is logged out while the backend cookie/token-version session may remain valid.
 
 Risk: if backend revocation fails, the HttpOnly cookie can remain valid while the client appears logged out; refresh can recover the server-backed session.
 
@@ -481,6 +457,7 @@ These are not active correctness bugs unless a later validator proves a user-fac
 - `frontend/app/(dashboard)/exam-bank/page.tsx` / `backend/app/routers/courses.py`: Exam Bank advanced filtering remains shallow.
 - Course progress/XP coverage is partial for notes edited, exam problem opened/attempted, lab opened/completed, and similar product-model actions.
 - Daily XP/quest reset policy is UTC-only because account-local timezone is not modeled; keep this as product policy/schema work unless a concrete exploit is proven.
+- Tab quiz answers and professor change-request JSON are already structurally bounded; stronger semantic/domain typing is backlog unless a concrete runtime failure is proven.
 - Topic search lacks first-class difficulty-tag API fields.
 - Embedded source-port wave/optics course navigation is inert in product embeds.
 - Account settings and notifications inbox are shallow compared with the product docs.
