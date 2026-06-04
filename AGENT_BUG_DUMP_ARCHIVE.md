@@ -67,6 +67,10 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 - The old leaderboard pagination duplication, strict client search fallback, and half-error stale UI findings are stale against the current component because `lastNonEmptyEntries` and `instantEntries` were removed. Current active leaderboard bugs are listed separately.
 - The old quiz tab question-set creation race, attempt-number race, quiz topic-item completion, and XP retry/perfect-score claim are resolved or stale against the current tab-quiz service and migration `0047`.
 - BUG-P1-012 is stale as written: tab quiz answers are bounded by `validate_quiz_answers_payload`, professor change-request JSON is bounded by `validate_bounded_json_object`, and `backend/tests_fastapi/test_schema_limits.py` covers both structural limits.
+- The active `BUG-P0-005` logout revocation record was a duplicate of the issue fixed by `f9536c1` and archived as BUG-P1-014.
+- `BUG-P2-005` was moved out of the active queue: current auth intentionally separates professor and student workspaces, eligible non-professors already get a limited `Professor Chat` shortcut, and a true professor-to-student bridge requires product/session-model work rather than a local UI bug fix.
+- `BUG-P2-006` is stale/false as a correctness bug: the admin page uses `AuthGuard requireStaff`, the backend overview route uses `get_current_staff_user`, both expose the same "Staff access required" boundary, and backend tests already cover student 403 versus staff 200.
+- `BUG-P3-001` is stale/false as written: `AuthGuard` uses `verificationStateRef` to avoid repeat verification on the same mounted instance, and the focused auth guard tests cover one normal profile fetch plus intentional retry behavior.
 
 ## Do Not Resurrect Without New Validation
 

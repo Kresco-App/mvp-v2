@@ -22,12 +22,16 @@ Last validation snapshot:
 - Backend focused checks passed: course access, topic quiz, data integrity, migrations, grading, image uploads, professor platform, interactions, notifications.
 - Frontend focused checks passed: auth/session, payments, dashboard search, topic workspace, video player, admin, profile, typecheck, and lint.
 - Alembic head is `0047`.
+- 2026-06-04 audit append: `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build`, `npm audit --omit=dev`, `python scripts/check_secret_hygiene.py`, and `python scripts/check_repo_hygiene.py` passed.
+- 2026-06-04 audit append: `python -m pytest -q` failed with 2 failures / 478 passes; see `BUG-P0-001` and `BUG-P0-006`.
+- 2026-06-04 audit append: `python scripts/check_production_launch_gate.py --json` failed at score 5.5 / 9.0 and `python scripts/check_http_readiness.py` failed because `BACKEND_READY_URL` is unset; see `BUG-P0-007` and `BUG-P1-023`.
+- 2026-06-04 audit append: `npm run audit:csp-styles -- --json` passed but reported 54 files with inline style debt and 113 inline `style` attributes; see `BUG-P1-029`.
 
 Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after `e3a1947`: 31.
+- Current active bug count after the 2026-06-04 audit append and validator cleanup: 33.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -41,6 +45,8 @@ Status: OPEN
 Files: `backend/app/services/gamification_read_models.py`
 
 Current evidence: `list_leaderboard_entries` calls `refresh_leaderboard_projection_if_stale` on dashboard/sidebar reads. If stale, the service selects every active `UserXP`, deletes all `LeaderboardRank` rows, builds ORM objects for every user, then flushes them inside the request transaction.
+
+Current validation: `python -m pytest -q` is red on `tests_fastapi/test_gamification_routes.py::test_daily_quest_get_paths_skip_commit_when_quests_already_exist`; the test expected a read path not to commit, but observed `[True]`.
 
 Risk: dashboard/sidebar reads can trigger table-wide delete/insert work, lock contention, and memory growth at scale.
 
@@ -81,6 +87,30 @@ Current evidence: test DB setup calls `Base.metadata.create_all`.
 Risk: Alembic upgrade syntax, missing constraints, downgrade hazards, and migration ordering can be invisible to the main test suite.
 
 Fix direction: migrate test DBs with Alembic for at least the default backend suite, keeping a small fast metadata suite only if explicitly named.
+
+#### BUG-P0-006 - TopicItemProgress FK lacks a leading topic_item_id index
+
+Status: OPEN
+
+Files: `backend/app/models/gamification.py`, `backend/alembic/versions/e34496201734_add_index_to_foreign_keys.py`, `backend/tests_fastapi/test_query_plan_audit.py`
+
+Current evidence: `python -m pytest -q` is red on `tests_fastapi/test_query_plan_audit.py::test_foreign_key_columns_are_indexed_or_index_leading` because `topic_item_progress.topic_item_id` is a foreign key without a matching leading index. Existing indexes lead with `user_id`, so they do not satisfy lookups/cascades by `topic_item_id`.
+
+Risk: topic-item deletes, joins, and query plans can degrade as progress rows grow, and the full backend suite is currently red.
+
+Fix direction: add a migration and model index with `topic_item_id` as the leading column, then rerun the query-plan audit and full backend pytest.
+
+#### BUG-P0-007 - Production launch gate remains below release threshold
+
+Status: OPEN
+
+Files: `scripts/check_production_launch_gate.py`, `scripts/check_http_readiness.py`, `docs/production-remediation-traceability.md`
+
+Current evidence: `python scripts/check_production_launch_gate.py --json` fails with current score 5.5 / target 9.0. The gate reports 12 unverified traceability rows: `SEC-CSP-STYLE-001`, `SEC-SECRETS-001`, `MEDIA-S3-001`, `MEDIA-AUTH-001`, `RT-FANOUT-001`, `RT-OUTBOX-001`, `PERF-TOPIC-001`, `FE-DEMO-001`, `OPS-STAGE-001`, `OPS-RDS-001`, `OPS-LAMBDA-001`, and `OPS-RUNBOOK-001`. `python scripts/check_http_readiness.py` also fails locally because `BACKEND_READY_URL` is not configured.
+
+Risk: release readiness can be claimed while required security, media, realtime, performance, frontend demo, and ops evidence is missing or stale.
+
+Fix direction: verify or retire each traceability row with current commands/evidence, configure a real backend readiness URL for post-deploy checks, and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
 
@@ -284,6 +314,8 @@ Files: `backend/app/main.py`, `scripts/check_staging_runtime.py`, `.github/workf
 
 Current evidence: provider reachability exists as an opt-in diagnostics flag, but `check_staging_runtime.py` and backend deploy only validate config presence; frontend deploy has no post-deploy smoke/health step.
 
+Current validation: `python scripts/check_http_readiness.py` fails without `BACKEND_READY_URL`, so the readiness checker is not yet wired to an actual deployed backend target in this environment.
+
 Risk: releases can pass app startup, DB, and config checks while Stripe/provider reachability or frontend deployment health is broken.
 
 Fix direction: make the backend deploy verifier request/enforce provider reachability where safe, and add a frontend post-deploy smoke/health check.
@@ -324,17 +356,41 @@ Risk: long sessions can lose older locally cached interactions once the list exc
 
 Fix direction: make fallback refresh cursor-aware or merge fetched pages into existing interaction history instead of wholesale replacing it.
 
+#### BUG-P1-028 - Exam Bank topic filter is applied after limit and hydration
+
+Status: OPEN
+
+Files: `backend/app/routers/courses.py`, `frontend/app/(dashboard)/exam-bank/page.tsx`
+
+Current evidence: the exam-bank backend route applies subject/year/title filters in SQL, limits the result set to 50 exams, hydrates exam problems, then applies `topic_id` filtering in Python per exam.
+
+Risk: exams with matching topic problems outside the newest 50 rows are omitted, and the endpoint does unnecessary problem hydration before filtering.
+
+Fix direction: push the `topic_id` predicate into SQL before ordering/limit, and eager-load or separately fetch only published problems that match the requested filters.
+
+#### BUG-P1-029 - CSP migration still requires unsafe inline style allowances
+
+Status: OPEN
+
+Files: `frontend/proxy.ts`, `frontend/scripts/auditInlineStyles.mjs`, `frontend/components/animated/source-ports/chemistry/components/interactive/IndicatorSimulator.tsx`, `frontend/components/animated/source-ports/physics/components/interactive/DiffractionLab.tsx`
+
+Current evidence: `npm run audit:csp-styles -- --json` passes the configured audit but still reports 54 files with inline style debt and 113 inline `style` attributes. The runtime CSP still includes `style-src-elem 'unsafe-inline'` and `style-src-attr 'unsafe-inline'`.
+
+Risk: the app cannot tighten CSP style directives without breaking UI, leaving a broad inline-style execution surface during the migration.
+
+Fix direction: convert the highest-traffic inline style attributes to classes/CSS variables first, lower the audit budget over time, and remove the unsafe inline style directives only after the audit reaches zero.
+
 ### P2 - User-Visible Flow Bugs
 
-#### BUG-P2-001 - Leaderboard can spoof the current user on empty/unranked pages
+#### BUG-P2-001 - Leaderboard can spoof current user when the user is absent from results
 
 Status: OPEN
 
 Files: `frontend/components/Leaderboard.tsx`
 
-Current evidence: `currentUser` falls back to `visibleEntries[0]` when no entry is marked `is_current_user`.
+Current evidence: the backend only marks the authenticated user's row with `is_current_user`, and paginated/search results can legitimately omit that row. `currentUser` then falls back to `visibleEntries[0]` when no returned entry is marked as current.
 
-Risk: a new/unranked user can be shown as the first ranked user in the sidebar/header card.
+Risk: a student can be shown as the first returned ranked user in the progress sidebar when their own row is not present on the current page/search slice.
 
 Fix direction: require an explicit current-user entry or render an unranked empty state.
 
@@ -356,61 +412,35 @@ Status: OPEN
 
 Files: `frontend/app/(dashboard)/exam/[subjectId]/page.tsx`
 
-Current evidence: the countdown `setTimeLeft` updater calls `handleSubmit()` when time reaches zero.
+Current evidence: the countdown `setTimeLeft` updater calls `handleSubmit()` when time reaches zero. `handleSubmit` has a ref guard, so the issue is the impure replayable updater rather than a guaranteed duplicate POST.
 
-Risk: React retry/Strict Mode behavior can duplicate side effects.
+Risk: React retry/Strict Mode behavior can replay a state updater that performs submission side effects.
 
 Fix direction: move timeout submission to an effect that reacts to derived `timeLeft === 0`.
 
-#### BUG-P2-004 - Professor chat layout state is lost on reload
+#### BUG-P2-004 - Professor chat selection and filters are not URL-backed
 
 Status: OPEN
 
 Files: `frontend/app/professor/chat/page.tsx`, `frontend/app/(dashboard)/professor-chat/page.tsx`
 
-Current evidence: selected conversation, search, and unread filter are kept as component state.
+Current evidence: professor chat keeps selected conversation, search, and unread filter in component state; the student professor-chat page keeps selected conversation and offering in component state. Neither route hydrates or updates those values through query params.
 
-Risk: reload/share resets the chat workspace and drops active context.
+Risk: reload/share resets the chat workspace and drops the current conversation/thread context.
 
 Fix direction: synchronize selection and filters with URL query params.
 
-#### BUG-P2-005 - Professor/student role switching has no bridge
+#### BUG-P2-007 - Core dashboard routes ship heavy first-load JavaScript
 
 Status: OPEN
 
-Files: `frontend/components/TopNav.tsx`, `frontend/components/ProfessorTopNav.tsx`
+Files: `frontend/.next/diagnostics/route-bundle-stats.json`, `frontend/app/(dashboard)/topics/[topicId]/page.tsx`, `frontend/components/topic-workspace/TopicWorkspacePanels.tsx`, `frontend/components/animated/registry.tsx`
 
-Current evidence: professors/staff viewing the student app have no obvious return path to professor/admin workspaces, and professor nav has no student-view bridge.
+Current evidence: after `npm run build`, route diagnostics report `/topics/[topicId]` at 1,331,922 uncompressed first-load JS bytes, `/professor-chat` at 1,297,824 bytes, and `/live/[sessionId]` at 1,290,379 bytes. The topic page is a client-heavy shell and pulls cross-domain UI layers, animated content rendering, icons, motion, and tab panels into the core route.
 
-Risk: role-based QA and dual-role workflows are awkward and easy to strand.
+Risk: core learning and live-session routes can have slow first load, especially on lower-end devices or constrained mobile networks.
 
-Fix direction: add a role switcher/dropdown for users with professor/staff privileges.
-
-#### BUG-P2-006 - Admin privilege boundary can be hidden by frontend fallback copy
-
-Status: VERIFY
-
-Files: `frontend/app/admin/page.tsx`, `frontend/components/AuthGuard.tsx`, `backend/app/routers/admin.py`
-
-Current evidence: frontend staff gating and backend admin permissions should be rechecked for exact parity after recent admin retry/error fixes.
-
-Risk: users see confusing "staff required" UI when backend actually requires a stronger privilege.
-
-Fix direction: validate backend requirements and mirror them in frontend route policy.
-
-### P3 - Minor Performance and Cleanup Bugs
-
-#### BUG-P3-001 - AuthGuard can refetch profile unnecessarily on role-gated routes
-
-Status: OPEN
-
-Files: `frontend/components/AuthGuard.tsx`
-
-Current evidence: the guard always verifies through `getMyProfile` when its effect resets around token/role-gate changes.
-
-Risk: low-severity extra profile requests during login/role-gated navigation.
-
-Fix direction: keep the server verification requirement, but avoid duplicate calls when the already-verified profile and requirement have not changed.
+Fix direction: add a bundle budget/report to CI, profile the shared chunks, lazy-load inactive topic tabs and animated renderer registries, and avoid importing broad UI domains into the initial route shell.
 
 ## Architecture and Product Backlog
 
@@ -418,7 +448,6 @@ These are not active correctness bugs unless a later validator proves a user-fac
 
 - `frontend/public/sw.js` / PWA: offline mode, push opt-in, and offline fallback are not implemented.
 - `frontend/components/VideoQuizOverlay.tsx`: video checkpoints are still a `return null` feature stub.
-- `frontend/app/(dashboard)/exam-bank/page.tsx` / `backend/app/routers/courses.py`: Exam Bank advanced filtering remains shallow.
 - Course progress/XP coverage is partial for notes edited, exam problem opened/attempted, lab opened/completed, and similar product-model actions.
 - Daily XP/quest reset policy is UTC-only because account-local timezone is not modeled; keep this as product policy/schema work unless a concrete exploit is proven.
 - Tab quiz answers and professor change-request JSON are already structurally bounded; stronger semantic/domain typing is backlog unless a concrete runtime failure is proven.
@@ -437,16 +466,7 @@ These are not active correctness bugs unless a later validator proves a user-fac
 - `backend/tests_fastapi/test_professor_platform.py` still needs fixture extraction and feature-based splitting.
 - Relationship cascade/passive-delete behavior is only partially audited; keep a data-integrity backlog item for ORM relationship deletes versus DB `ON DELETE`.
 - Source-ported interactive labs still carry broad file-level lint disables.
-- CSP still allows inline style channels during migration.
 - Math sets source port still contains visible placeholder interactive content.
 - PII scrubbing/retention policy needs a broader pass for email dispatch, telemetry, and deleted users.
 - Repository hygiene should explicitly decide how to handle generated artifacts and whether local untracked/ignored artifacts should be reported during agent audits.
-
-## Archive
-
-Resolved, stale, duplicate, and corrected legacy findings were moved to
-`AGENT_BUG_DUMP_ARCHIVE.md` to keep this file agent-friendly.
-
-Do not load the archive during normal bug-fix passes. Open it only when tracing
-why an old dump finding is absent from the active queue. The exact raw pre-rewrite
-dump is preserved in git history at `cee76e2^:AGENT_BUG_DUMP.md`.
+- Professor workspace switching is product/backlog unless a real role-switch session model is implemented. Current auth intentionally separates professor routes from student routes, while eligible non-professors already have a limited `Professor Chat` shortcut.
