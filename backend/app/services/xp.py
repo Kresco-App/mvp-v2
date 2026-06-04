@@ -370,7 +370,12 @@ async def _apply_xp_totals_and_quests(
     await db.flush()
 
 
-async def generate_daily_quests(user_id: int, db: AsyncSession, *, quest_date: Optional[date] = None) -> list[DailyQuest]:
+async def generate_daily_quests_with_status(
+    user_id: int,
+    db: AsyncSession,
+    *,
+    quest_date: Optional[date] = None,
+) -> tuple[list[DailyQuest], bool]:
     today = quest_date or _current_utc_date()
     result = await db.execute(
         select(DailyQuest).where(DailyQuest.user_id == user_id, DailyQuest.date == today)
@@ -381,7 +386,7 @@ async def generate_daily_quests(user_id: int, db: AsyncSession, *, quest_date: O
         template for template in DAILY_QUEST_TEMPLATES if template["quest_type"] not in existing_types
     ]
     if not missing_templates:
-        return existing
+        return existing, False
 
     quests = [DailyQuest(user_id=user_id, date=today, **template) for template in missing_templates]
     try:
@@ -392,5 +397,10 @@ async def generate_daily_quests(user_id: int, db: AsyncSession, *, quest_date: O
         result = await db.execute(
             select(DailyQuest).where(DailyQuest.user_id == user_id, DailyQuest.date == today)
         )
-        return result.scalars().all()
-    return [*existing, *quests]
+        return result.scalars().all(), False
+    return [*existing, *quests], True
+
+
+async def generate_daily_quests(user_id: int, db: AsyncSession, *, quest_date: Optional[date] = None) -> list[DailyQuest]:
+    quests, _created = await generate_daily_quests_with_status(user_id, db, quest_date=quest_date)
+    return quests

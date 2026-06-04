@@ -29,7 +29,7 @@ from app.services.access import build_access_context
 from app.services.gamification_stats import read_user_stats
 from app.services.media_storage import media_url
 from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
-from app.services.xp import award_xp, calculate_level, generate_daily_quests
+from app.services.xp import award_xp, calculate_level, generate_daily_quests_with_status
 
 
 async def build_xp_summary(db: AsyncSession, *, user: User) -> XPOut:
@@ -66,8 +66,9 @@ async def list_xp_transactions(
 
 
 async def list_daily_quest_entries(db: AsyncSession, *, user: User) -> list[DailyQuestOut]:
-    quests = await generate_daily_quests(user.id, db)
-    await db.commit()
+    quests, created = await generate_daily_quests_with_status(user.id, db)
+    if created:
+        await db.commit()
     return [DailyQuestOut.model_validate(quest) for quest in quests]
 
 
@@ -223,8 +224,9 @@ async def build_sidebar_summary(db: AsyncSession, *, user: User, settings: Setti
     xp_record = xp_result.scalar_one_or_none()
     streak_days = xp_record.streak_days if xp_record else 0
 
-    quests = await generate_daily_quests(user.id, db)
-    await db.commit()
+    quests, created = await generate_daily_quests_with_status(user.id, db)
+    if created:
+        await db.commit()
     leaderboard = await list_leaderboard_entries(
         db,
         user=user,

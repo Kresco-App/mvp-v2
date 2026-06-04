@@ -1,6 +1,8 @@
 import inspect
+from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.gamification_read_models as gamification_read_models
 from app.database import get_session_factory
@@ -94,3 +96,72 @@ def test_daily_quest_claim_locks_quest_before_awarding_xp():
 
     assert ".with_for_update()" in source
     assert source.index(".with_for_update()") < source.index("award_xp(")
+
+
+def test_daily_quest_get_paths_skip_commit_when_quests_already_exist(
+    auth_token,
+    run_db,
+    monkeypatch,
+    test_settings,
+):
+    _token, user_id = auth_token(email="quest-read-no-write@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            now = datetime.now(timezone.utc)
+            quest_date = now.date()
+            db.add(UserXP(user_id=user_id, total_xp=0, streak_days=0, updated_at=now))
+            db.add(LeaderboardRank(user_id=user_id, total_xp=0, global_rank=1, refreshed_at=now))
+            db.add_all([
+                DailyQuest(
+                    user_id=user_id,
+                    quest_type="complete_lesson",
+                    title="Complete lesson",
+                    target=1,
+                    progress=0,
+                    xp_reward=25,
+                    date=quest_date,
+                ),
+                DailyQuest(
+                    user_id=user_id,
+                    quest_type="pass_quiz",
+                    title="Pass quiz",
+                    target=1,
+                    progress=0,
+                    xp_reward=50,
+                    date=quest_date,
+                ),
+                DailyQuest(
+                    user_id=user_id,
+                    quest_type="earn_xp",
+                    title="Earn XP",
+                    target=100,
+                    progress=0,
+                    xp_reward=25,
+                    date=quest_date,
+                ),
+            ])
+            await db.commit()
+
+    run_db(_seed())
+
+    commit_calls = []
+    original_commit = AsyncSession.commit
+
+    async def tracked_commit(self):
+        commit_calls.append(True)
+        await original_commit(self)
+
+    monkeypatch.setattr(AsyncSession, "commit", tracked_commit)
+
+    async def _read_existing_quests():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            quests = await gamification_read_models.list_daily_quest_entries(db, user=user)
+            summary = await gamification_read_models.build_sidebar_summary(db, user=user, settings=test_settings)
+            return len(quests), len(summary.quests)
+
+    assert run_db(_read_existing_quests()) == (3, 3)
+    assert commit_calls == []
