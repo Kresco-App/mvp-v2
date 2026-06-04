@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 52.
+- Current active bug count after this deep audit append: 58.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -135,6 +135,18 @@ Risk: a student with access to a free/basic topic item can request stream creden
 Fix direction: add a shared helper for primary-resource stream authorization, require published video resources, evaluate the resource decision as a child of the item decision, and add regressions for locked-resource and unpublished-resource stream requests.
 
 ### P1 - Correctness, Security, and Scalability Bugs
+
+#### BUG-P1-046 - Student live sessions ignore program track deactivation
+
+Status: OPEN
+
+Files: `backend/app/services/professor_queries.py`
+
+Current evidence: `require_student_live_session` and `student_live_sessions` filter sessions by `ProgramTrack.niveau == student.niveau` and `ProgramTrack.filiere == student.filiere`, but they lack the `ProgramTrack.status == "active"` check found in other course scopes (e.g., `student_offerings`).
+
+Risk: Students can access live sessions, chat, and stream credentials for program tracks that have been deactivated or deprecated.
+
+Fix direction: Add `ProgramTrack.status == "active"` to the filtering predicates for student live sessions to enforce strict track activation boundaries.
 
 #### BUG-P1-042 - Notification pagination window function forces table scans
 Status: OPEN
@@ -452,6 +464,18 @@ Risk: repeated avatar/banner replacements or upload-delete chat cycles can stay 
 
 Fix direction: add delete or retention semantics for replaced/deleted media, track uploaded objects in a ledger, reconcile orphaned objects, and make quota tests cover replace/delete cycles rather than only currently referenced bytes.
 
+#### BUG-P2-015: User interaction saves and comments lack DELETE endpoints
+
+Status: DISCOVERY
+
+Files: `backend/app/routers/interactions.py`, `backend/app/services/interaction_mutations.py`
+
+Current Evidence: The interactions router exposes endpoints to create comments (`POST /comments`), create saves (`POST /saves`), and update/delete notes. However, it lacks `DELETE /saves/{save_id}` and `DELETE /comments/{comment_id}` endpoints, nor does the underlying `interaction_mutations.py` implement them. Saves are uniquely constrained and use `on_conflict` fallback, but no unsave action exists.
+
+Risk: Data Integrity / Usability - Users cannot unsave items or delete their own comments, leading to an irrevocably cluttered "Saved" list over time.
+
+Fix direction: Implement and expose `delete_save` and `delete_topic_item_comment` mutations that verify ownership (e.g., `user_id == user.id`) before dropping the rows.
+
 #### BUG-P1-033 - Admin course screens use subject track fields outside the backend contract
 
 Status: OPEN
@@ -572,7 +596,31 @@ Risk: A concurrent verification request can return an unpaid status (`is_pro=Fal
 
 Fix direction: Add an async lock/wait for the in-progress verification to finish, return an HTTP 202/409 for concurrent requests, or rely entirely on the Stripe webhook for fulfillment.
 
+#### BUG-P1-045 - Daily quest progress is silently lost if quests are not generated before earning XP
+
+Status: OPEN
+
+Files: `backend/app/services/xp.py`, `backend/app/services/gamification_read_models.py`
+
+Current evidence: `award_xp` and `award_xp_bulk` update daily quest progress by executing an `UPDATE daily_quests SET progress = progress + X` query without first ensuring the user's daily quests have been generated for today. `generate_daily_quests_with_status` is only called by read routes (e.g., `sidebar-summary` or `daily-quests`).
+
+Risk: If a user completes a lesson or quiz and earns XP before visiting a page that fetches quests (e.g., via a direct deep-link or stalled sidebar), the `UPDATE` query affects zero rows. The XP is awarded but the quest progress is silently dropped. When the user later opens the sidebar, their quests are generated with 0 progress.
+
+Fix direction: Call `generate_daily_quests` inside `award_xp` before applying progress updates, or change the daily quest generator to compute progress retroactively from today's `XPTransaction` rows when creating new quests.
+
 ### P2 - User-Visible Flow Bugs
+
+#### BUG-P2-016 - VdoCipher live streams are orphaned if database transaction fails post-creation
+
+Status: OPEN
+
+Files: `backend/app/services/professor_live_sessions.py`
+
+Current evidence: `create_professor_live_session` calls the external `create_live_stream` API if `vdocipher_live_id` is empty, then proceeds to do `db.add(session)`, insert a `CalendarEvent`, flush the database, insert `Notification` rows, and enqueue realtime events before `db.commit()`. If any database constraint fails or exception occurs after the API call, the session is rolled back, leaving the external VdoCipher live stream orphaned.
+
+Risk: External resources are leaked, accruing quota and costs without a corresponding local record for the admin to track or clean up.
+
+Fix direction: Wrap the creation in a compensation block that deletes the VdoCipher stream on rollback, or create a pending local record first that is then reconciled with a background job if it fails to finalize.
 
 #### BUG-P2-003 - Exam page side effect still runs inside timer state updater
 
@@ -657,6 +705,17 @@ Current evidence: `build_topic_workspace` loads every published `TopicItem` for 
 Risk: a single topic with many authored items, long tab bodies, or rich quiz/config JSON can create large response bodies and CPU serialization work on every workspace load, refresh, search, or item switch. This is a backend performance issue even if SQL query count stays bounded, and it also drives frontend hydration/render cost for inactive item content.
 
 Fix direction: split the workspace contract into a lightweight navigation outline plus active-item detail, or return tab bodies/config only for the active item and fetch inactive item detail on demand. Add a regression that budgets serialized response size or asserts inactive tabs omit heavy `content`/`config_json` while preserving locked-content redaction tests.
+#### BUG-P2-013 - Logout invalidates pending email verification or password reset links
+
+Status: OPEN
+
+Files: `backend/app/services/auth_account.py`, `backend/app/routers/users.py`
+
+Current evidence: `revoke_user_sessions` unconditionally increments `user.auth_token_version`: `user.auth_token_version = (user.auth_token_version or 0) + 1`. Meanwhile, `verify_email_account` and `reset_password_account` enforce that the token's embedded version exactly matches `user.auth_token_version`. Consequently, if a logged-in user requests a password reset and then logs out, or if an unverified user logs out (or their session is revoked), their pending verification/reset token immediately becomes invalid.
+
+Risk: UX is degraded because normal auth actions destructively interfere with out-of-band email recovery links, leading to "invalid or expired token" errors.
+
+Fix direction: Introduce separate token versions (e.g., `session_token_version` for auth and `recovery_token_version` for email flows), or encode a standalone nonce for recovery flows.
 
 ## Architecture and Product Backlog
 
@@ -698,7 +757,7 @@ These are not active correctness bugs unless a later validator proves a user-fac
 - [ ] **[MEDIUM]** `backend/app/services/xp.py:15-26` / `backend/app/services/course_tab_quiz_submission.py:318-348` - Missing Gamification XP Rewards for Quiz Retries and Perfect Scores
 - [ ] **[MEDIUM]** `backend/app/services/quiz_grading.py:36-71` - Drag and Drop Question Type Grading Normalization Mismatch
 
-#### BUG-P2-013 - Professor live session 'notify' endpoint allows unbounded notification spam
+#### BUG-P2-017 - Professor live session 'notify' endpoint allows unbounded notification spam
 
 Status: OPEN
 
@@ -709,6 +768,18 @@ Current evidence: `notify_professor_live_session` calls `notify_students_for_liv
 Risk: A professor repeatedly clicking the "Notify" button (intentionally or by accident) will spam duplicate "Upcoming live session" notifications to every active student in the offering.
 
 Fix direction: Add an idempotency key or a unique constraint on `(user_id, source_id, type)` for notifications, or query for existing unread live session notifications before inserting new ones.
+
+#### BUG-P2-014 - User gamification streak days are never incremented
+
+Status: OPEN
+
+Files: `backend/app/services/xp.py`, `backend/app/models/gamification.py`, `backend/app/services/gamification_read_models.py`
+
+Current evidence: Gamification models include `UserXP.streak_days`, a sidebar widget renders `strike_days`, and the XP service lists `streak_bonus` in `XP_REWARDS`. However, there is no mutation path or cron job that ever increments a user's `streak_days`. New users start with `streak_days=0` and remain at 0 indefinitely. A `daily_login` reward is defined but never invoked anywhere in the codebase.
+
+Risk: The gamification streak UI will always show an empty/broken streak, and users will never receive the advertised streak bonuses, causing frustration and distrust in the progress system.
+
+Fix direction: Implement a daily streak calculation hook (e.g. on first authenticated request of a new UTC day or via an async cron), award `daily_login` XP, update `streak_days`, and handle streak breaks.
 
 ### Detailed Findings
 

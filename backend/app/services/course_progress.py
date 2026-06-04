@@ -129,6 +129,7 @@ async def ensure_question_set_for_tab(db: AsyncSession, tab: TabContent) -> tupl
                     concept_slugs=tab.concept_slugs or [],
                 )
                 db.add(question_set)
+                await db.flush()
             else:
                 question_set.subject_id = topic.subject_id if topic else question_set.subject_id
                 question_set.topic_id = topic_item.topic_id if topic_item else question_set.topic_id
