@@ -10,6 +10,7 @@ from app.services import vdocipher
 
 class FakeAsyncClient:
     response: httpx.Response
+    responses: list[httpx.Response] = []
     calls: list[dict]
 
     def __init__(self, *, timeout: int):
@@ -23,6 +24,8 @@ class FakeAsyncClient:
 
     async def post(self, url: str, *, headers: dict, json: dict):
         self.__class__.calls.append({"url": url, "headers": headers, "json": json, "timeout": self.timeout})
+        if self.__class__.responses:
+            return self.__class__.responses.pop(0)
         return self.__class__.response
 
 
@@ -55,6 +58,7 @@ def live_settings(**overrides) -> Settings:
 
 def test_get_video_otp_posts_to_configured_api_base_and_parses_response(monkeypatch):
     FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
     FakeAsyncClient.response = httpx.Response(200, json={"otp": "otp-value", "playbackInfo": "playback-value"})
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -104,6 +108,7 @@ def test_get_video_stream_data_returns_demo_stream_outside_production(monkeypatc
 
 def test_get_video_stream_data_uses_provider_for_demo_ids_in_production(monkeypatch):
     FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
     FakeAsyncClient.response = httpx.Response(200, json={"otp": "otp-value", "playbackInfo": "playback-value"})
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -115,6 +120,7 @@ def test_get_video_stream_data_uses_provider_for_demo_ids_in_production(monkeypa
 
 def test_get_video_otp_surfaces_provider_error(monkeypatch):
     FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
     FakeAsyncClient.response = httpx.Response(401, json={"message": "invalid secret"})
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -123,6 +129,26 @@ def test_get_video_otp_surfaces_provider_error(monkeypatch):
 
     assert error.value.status_code == 502
     assert error.value.detail == "Failed to get video OTP from VdoCipher"
+
+
+def test_get_video_otp_retries_retryable_provider_status(monkeypatch):
+    FakeAsyncClient.calls = []
+    FakeAsyncClient.response = httpx.Response(200, json={"otp": "unused", "playbackInfo": "unused"})
+    FakeAsyncClient.responses = [
+        httpx.Response(503, json={"message": "temporary"}),
+        httpx.Response(200, json={"otp": "otp-value", "playbackInfo": "playback-value"}),
+    ]
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(vdocipher.asyncio, "sleep", no_sleep)
+
+    result = asyncio.run(vdocipher.get_video_otp("video-123", live_settings()))
+
+    assert result == {"otp": "otp-value", "playback_info": "playback-value"}
+    assert len(FakeAsyncClient.calls) == 2
 
 
 def test_get_video_otp_maps_provider_network_failure(monkeypatch):
@@ -137,6 +163,7 @@ def test_get_video_otp_maps_provider_network_failure(monkeypatch):
 
 def test_create_live_stream_posts_expected_payload_and_parses_provider_response(monkeypatch):
     FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
     FakeAsyncClient.response = httpx.Response(
         200,
         json={
@@ -191,6 +218,7 @@ def test_create_live_stream_requires_provider_config():
 
 def test_create_live_stream_masks_provider_error(monkeypatch):
     FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
     FakeAsyncClient.response = httpx.Response(400, json={"message": "chat mode is invalid for api-secret"})
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
 
@@ -200,6 +228,31 @@ def test_create_live_stream_masks_provider_error(monkeypatch):
     assert error.value.status_code == 502
     assert error.value.detail == "Failed to create VdoCipher live stream"
     assert "api-secret" not in error.value.detail
+
+
+def test_create_live_stream_retries_provider_network_failure(monkeypatch):
+    class FlakyAsyncClient(FakeAsyncClient):
+        calls = []
+        failed = False
+
+        async def post(self, url: str, *, headers: dict, json: dict):
+            self.__class__.calls.append({"url": url, "headers": headers, "json": json, "timeout": self.timeout})
+            if not self.__class__.failed:
+                self.__class__.failed = True
+                raise httpx.ConnectTimeout("provider timed out")
+            return httpx.Response(200, json={"liveId": "live_retry"})
+
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FlakyAsyncClient)
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(vdocipher.asyncio, "sleep", no_sleep)
+
+    result = asyncio.run(vdocipher.create_live_stream("Retry live", live_settings()))
+
+    assert result["live_id"] == "live_retry"
+    assert len(FlakyAsyncClient.calls) == 2
 
 
 def test_create_live_stream_maps_provider_network_failure(monkeypatch):
@@ -214,6 +267,7 @@ def test_create_live_stream_maps_provider_network_failure(monkeypatch):
 
 def test_create_live_stream_rejects_missing_live_id(monkeypatch):
     FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
     FakeAsyncClient.response = httpx.Response(200, json={"streamUrl": "rtmp://ingest.example/live"})
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
 

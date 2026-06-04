@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from urllib.parse import quote
 
@@ -22,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 DEMO_VIDEO_ID_PREFIX = "demo-"
 DEMO_VIDEO_STREAM = {"otp": "mock-otp-token", "playback_info": ""}
+VDOCIPHER_PROVIDER_ATTEMPTS = 3
+VDOCIPHER_RETRY_BASE_SECONDS = 0.1
+RETRYABLE_VDOCIPHER_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 def _first_string(data: dict, keys: tuple[str, ...]) -> str:
@@ -56,6 +60,36 @@ def _provider_error_extra(response: httpx.Response) -> dict:
     return log_extra
 
 
+def _is_retryable_provider_error(exc: httpx.HTTPError) -> bool:
+    return isinstance(exc, httpx.TransportError)
+
+
+async def _post_vdocipher_json(
+    url: str,
+    *,
+    headers: dict,
+    json: dict,
+    timeout: int,
+) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(1, VDOCIPHER_PROVIDER_ATTEMPTS + 1):
+            try:
+                response = await client.post(url, headers=headers, json=json)
+            except httpx.HTTPError as exc:
+                if attempt >= VDOCIPHER_PROVIDER_ATTEMPTS or not _is_retryable_provider_error(exc):
+                    raise
+                await asyncio.sleep(VDOCIPHER_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+                continue
+            if (
+                response.status_code in RETRYABLE_VDOCIPHER_STATUS_CODES
+                and attempt < VDOCIPHER_PROVIDER_ATTEMPTS
+            ):
+                await asyncio.sleep(VDOCIPHER_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+                continue
+            return response
+    raise RuntimeError("unreachable")
+
+
 async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
     video_id = vdocipher_id.strip()
     if not video_id:
@@ -68,12 +102,12 @@ async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
     otp_url = f"{settings.vdocipher_api_base_url.rstrip('/')}/videos/{quote(video_id, safe='')}/otp"
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                otp_url,
-                headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
-                json={"ttl": 300},
-            )
+        response = await _post_vdocipher_json(
+            otp_url,
+            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+            json={"ttl": 300},
+            timeout=10,
+        )
     except httpx.HTTPError as exc:
         logger.warning("vdocipher_otp_request_failed", exc_info=True)
         raise HTTPException(status_code=502, detail="Failed to get video OTP from VdoCipher") from exc
@@ -117,12 +151,12 @@ async def create_live_stream(title: str, settings: Settings, *, chat_mode: str =
         "disableEmojis": True,
     }
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                settings.vdocipher_live_create_url,
-                headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
-                json=payload,
-            )
+        response = await _post_vdocipher_json(
+            settings.vdocipher_live_create_url,
+            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+            json=payload,
+            timeout=15,
+        )
     except httpx.HTTPError as exc:
         logger.warning("vdocipher_live_create_request_failed", exc_info=True)
         raise HTTPException(status_code=502, detail="Failed to create VdoCipher live stream") from exc
