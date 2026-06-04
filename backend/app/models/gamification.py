@@ -147,7 +147,7 @@ class TopicItemProgress(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="CASCADE"), index=True)
-    topic_item_id: Mapped[int] = mapped_column(Integer)
+    topic_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("topic_items.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(String(20), default="started")
     watched_seconds: Mapped[int] = mapped_column(Integer, default=0)
     best_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
