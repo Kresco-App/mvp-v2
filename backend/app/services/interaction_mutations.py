@@ -6,9 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.courses import Resource, TabContent, Topic, TopicItem
+from app.models.courses import ExamProblem, Resource, TabContent, Topic, TopicItem
 from app.config import Settings
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
+from app.models.quizzes import Question, QuestionSet
 from app.models.users import User
 from app.schemas.interactions import (
     CommentAuthorOut,
@@ -30,6 +31,15 @@ from app.services.interaction_context import activity_metadata, infer_interactio
 from app.services.media_storage import async_media_url
 
 COMMENT_TAB_TYPES = {"comments", "discussion"}
+SAVED_TARGET_MODELS = {
+    "topic": Topic,
+    "topic_item": TopicItem,
+    "resource": Resource,
+    "question_set": QuestionSet,
+    "question": Question,
+    "exam_problem": ExamProblem,
+    "tab_content": TabContent,
+}
 
 
 async def require_comments_enabled_for_topic_item(db: AsyncSession, user: User, topic_item_id: int) -> None:
@@ -108,6 +118,14 @@ async def list_topic_item_comments(
 
 def comment_parent_mismatch(parent: Comment, topic_item_id: int) -> bool:
     return parent.topic_item_id != topic_item_id
+
+
+async def require_saved_target_exists(db: AsyncSession, target_type: str, target_id: int) -> None:
+    model = SAVED_TARGET_MODELS.get(target_type)
+    if model is None:
+        raise HTTPException(status_code=400, detail=f"Invalid target_type. Use one of: {ALLOWED_TARGET_TYPES}")
+    if await db.get(model, target_id) is None:
+        raise HTTPException(status_code=404, detail="Saved item target not found")
 
 
 async def create_topic_item_comment(
@@ -265,6 +283,7 @@ async def save_user_item(
 ) -> SavedItemOut:
     if body.target_type not in ALLOWED_TARGET_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid target_type. Use one of: {ALLOWED_TARGET_TYPES}")
+    await require_saved_target_exists(db, body.target_type, body.target_id)
     if body.topic_item_id is not None:
         await require_topic_item_access(db, user, body.topic_item_id)
     context = await infer_interaction_context(

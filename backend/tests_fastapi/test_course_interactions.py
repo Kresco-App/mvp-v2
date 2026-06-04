@@ -238,6 +238,32 @@ def test_topic_and_question_set_saves_infer_course_context(app_client, auth_toke
     assert question_set_data["topic_item_id"] == seeded["topic_item_id"]
 
 
+def test_save_item_rejects_missing_polymorphic_target(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-missing-save-target@example.com", is_pro=True)
+    run_db(_seed_context(user_id, "interactions-missing-save-target"))
+
+    response = app_client.post(
+        "/api/interactions/saves",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"target_type": "topic", "target_id": 999999, "label": "Missing topic"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Saved item target not found"
+
+    async def _assert_no_dangling_save():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            count = await db.scalar(
+                select(func.count())
+                .select_from(SavedItem)
+                .where(SavedItem.user_id == user_id, SavedItem.target_type == "topic", SavedItem.target_id == 999999)
+            )
+            assert count == 0
+
+    run_db(_assert_no_dangling_save())
+
+
 def test_save_item_rejects_inferred_locked_topic_item_context(app_client, auth_token, run_db):
     token, user_id = auth_token(email="interactions-save-locked-context@example.com", is_pro=False)
     seeded = run_db(_seed_context(user_id, "interactions-save-locked-context", item_tier="pro"))

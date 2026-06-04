@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.routers.professor as professor_router
@@ -12,6 +12,7 @@ import app.routers.courses as courses_router
 import app.services.professor_audit as professor_audit
 import app.services.professor_chat_mutations as professor_chat_mutations
 import app.services.professor_change_requests as professor_change_requests
+import app.services.professor_change_request_targets as professor_change_request_targets
 import app.services.professor_live_interactions as professor_live_interactions
 import app.services.professor_live_sessions as professor_live_sessions
 import app.services.professor_queries as professor_queries
@@ -20,7 +21,7 @@ from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import Subject, Topic, TopicItem, TopicSection
-from app.models.professor import CourseOffering, LiveSession, ProfessorChatConversation, ProfessorChatMessage, ProgramTrack, RealtimeOutbox
+from app.models.professor import CourseOffering, LiveSession, ProfessorChangeRequest, ProfessorChatConversation, ProfessorChatMessage, ProgramTrack, RealtimeOutbox
 from app.models.users import User, UserSubjectEntitlement
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME, create_token
@@ -1376,6 +1377,55 @@ def test_change_request_requires_target_inside_offering(app_client, run_db, test
     assert forbidden.status_code == 403
 
 
+def test_change_request_list_closes_deleted_targets(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+
+    created = app_client.post(
+        "/api/professor/change-requests",
+        json={
+            "course_offering_id": seeded["offering_id"],
+            "target_type": "topic",
+            "target_id": seeded["topic_id"],
+            "proposed_patch_json": {"title": "Will be deleted"},
+        },
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert created.status_code == 201
+    change_request_id = created.json()["id"]
+
+    async def _delete_target():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(Topic).where(Topic.id == seeded["topic_id"]))
+            await db.commit()
+
+    run_db(_delete_target())
+
+    listed = app_client.get(
+        "/api/professor/change-requests",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    dashboard = app_client.get(
+        "/api/professor/dashboard",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+
+    assert listed.status_code == 200
+    assert all(item["id"] != change_request_id for item in listed.json())
+    assert dashboard.status_code == 200
+    assert all(item["id"] != change_request_id for item in dashboard.json()["pending_change_requests"])
+
+    async def _assert_closed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            row = await db.get(ProfessorChangeRequest, change_request_id)
+            assert row.status == "target_deleted"
+            assert row.reviewed_at is not None
+            assert row.admin_note == "Target was deleted or no longer belongs to this course offering."
+
+    run_db(_assert_closed())
+
+
 def test_professor_sensitive_mutations_are_rate_limited(app_client, run_db, test_settings):
     seeded = run_db(_seed_professor_platform(test_settings))
     payload = {
@@ -1911,6 +1961,7 @@ def test_professor_router_database_work_stays_in_services():
 def test_professor_change_request_helpers_stay_out_of_router():
     router_source = inspect.getsource(professor_router)
     change_request_source = inspect.getsource(professor_change_requests)
+    change_request_target_source = inspect.getsource(professor_change_request_targets)
 
     assert "from app.services.professor_change_requests import" in router_source
     assert "ALLOWED_CHANGE_TARGETS =" not in router_source
@@ -1920,7 +1971,7 @@ def test_professor_change_request_helpers_stay_out_of_router():
     assert "select(ProfessorChangeRequest)" not in inspect.getsource(professor_router.list_change_requests)
     assert "create_professor_change_request(" in inspect.getsource(professor_router.create_change_request)
     assert "list_professor_change_requests(" in inspect.getsource(professor_router.list_change_requests)
-    assert "async def target_belongs_to_offering" in change_request_source
+    assert "async def target_belongs_to_offering" in change_request_target_source
     assert "async def create_professor_change_request" in change_request_source
     assert "async def list_professor_change_requests" in change_request_source
 
