@@ -61,7 +61,7 @@ const sfProRounded = localFont({
 })
 
 const siteTitle = 'Kresco - Plateforme E-Learning'
-const siteDescription = 'Preparez votre Bac avec des cours video, des quiz interactifs et un suivi personnalise.'
+const siteDescription = 'Preparez vos cours avec des videos, des quiz interactifs et un suivi personnalise.'
 const siteUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://kresco.ma')
 const releaseSha = process.env.NEXT_PUBLIC_RELEASE_SHA ?? 'development'
 
@@ -75,7 +75,7 @@ export const metadata: Metadata = {
   description: siteDescription,
   keywords: [
     'Kresco',
-    'Bac Maroc',
+    'cours Maroc',
     'cours video',
     'quiz interactifs',
     'plateforme e-learning',

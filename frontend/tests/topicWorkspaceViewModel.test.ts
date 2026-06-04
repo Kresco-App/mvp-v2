@@ -162,7 +162,7 @@ describe('topic workspace view model', () => {
 
     expect(lookups.itemById.get(baseItem.id)?.title).toBe(baseItem.title)
     expect(activeSectionIdForWorkspace(workspace, lockedItem.id)).toBe(4)
-    expect(rail[0].copy).toBe('Learn the basics of the subject.')
+    expect(rail[0].copy).toBe('Notions essentielles.')
     expect(rail[0].items?.[1]).toMatchObject({ active: true, completed: true, disabled: true, meta: 'VIP required' })
     expect(lockedContentReason('feature_required:labs')).toBe('Feature locked')
   })

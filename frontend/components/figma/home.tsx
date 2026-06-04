@@ -174,7 +174,7 @@ export function FigmaHomeProgressCard({
       icon={Trophy}
       iconTone="blue"
       title="Progress"
-      subtitle="Current Bac foundation"
+      subtitle="Current foundation"
     >
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -268,7 +268,7 @@ function subjectIcon(title: string, index: number): LucideIcon {
   if (normalized.includes('philo')) return Brain
   if (normalized.includes('chem') || normalized.includes('chim')) return FlaskConical
   if (normalized.includes('bio') || normalized.includes('svt')) return Dna
-  if (normalized.includes('english')) return BookOpen
+  if (normalized.includes('english') || normalized.includes('anglais')) return BookOpen
   if (normalized.includes('geo')) return Globe2
   return [Calculator, Atom, Brain, Dna, BookOpen][index % 5]
 }

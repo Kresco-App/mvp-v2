@@ -28,10 +28,10 @@ import {
 
 describe('profile view model helpers', () => {
   it('normalizes and scores subjects for the radar view', () => {
-    expect(canonicalSubject('Physique Chimie')).toEqual({ key: 'physics', title: 'Physics' })
+    expect(canonicalSubject('Physique Chimie')).toEqual({ key: 'physics', title: 'Physique-Chimie' })
     expect(toProfileSubject('Chimie', 92.4, 0)).toMatchObject({
       key: 'chemistry',
-      title: 'Chemistry',
+      title: 'Chimie',
       score: 92,
       caption: 'Oh my god, are you Mendeleev',
       tone: '#009966',

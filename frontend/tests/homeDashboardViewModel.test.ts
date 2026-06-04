@@ -27,7 +27,7 @@ describe('home dashboard view model', () => {
   it('keeps chemistry distinct from physics', () => {
     expect(subjectKey('Chimie acide-base')).toBe('chemistry')
     expect(subjectKey('Physics')).toBe('physics')
-    expect(canonicalSubjectTitle('Chimie acide-base')).toBe('Chemistry')
+    expect(canonicalSubjectTitle('Chimie acide-base')).toBe('Chimie')
   })
 
   it('builds ordered subject shortcuts with canonical titles and no fake learner count', () => {
@@ -39,10 +39,10 @@ describe('home dashboard view model', () => {
       { id: 5, title: 'Unknown elective' },
     ])
 
-    expect(shortcuts.map((subject) => subject.title)).toEqual(['Math', 'Physics', 'Chemistry', 'English'])
+    expect(shortcuts.map((subject) => subject.title)).toEqual(['Mathematiques', 'Physique-Chimie', 'Chimie', 'Anglais'])
     expect(shortcuts[2]).toMatchObject({
       id: 3,
-      href: '/courses?subject=Chemistry',
+      href: '/courses?subject=Chimie',
     })
     expect(shortcuts.some((subject) => subject.learner_count === '25k Learner')).toBe(false)
   })
@@ -54,7 +54,7 @@ describe('home dashboard view model', () => {
     ])
 
     expect(shortcuts).toHaveLength(1)
-    expect(shortcuts[0]).toMatchObject({ id: 'canonical', title: 'Math' })
+    expect(shortcuts[0]).toMatchObject({ id: 'long', title: 'Mathematiques' })
   })
 
   it('prioritizes accessible in-progress topics before locked fallbacks', () => {

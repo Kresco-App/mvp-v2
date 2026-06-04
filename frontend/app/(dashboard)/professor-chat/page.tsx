@@ -569,9 +569,22 @@ function initials(name: string) {
 }
 
 function Avatar({ name, src }: { name: string; src?: string | null }) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  const shouldShowImage = Boolean(src) && failedSrc !== src
+
   return (
     <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[12.727px] bg-[#e4e4e7] text-[13px] font-black text-[#71717b]">
-      {src ? <Image src={src} alt="" width={40} height={40} unoptimized className="h-full w-full object-cover" /> : initials(name)}
+      {shouldShowImage ? (
+        <Image
+          src={src || ''}
+          alt=""
+          width={40}
+          height={40}
+          unoptimized
+          className="h-full w-full object-cover"
+          onError={() => setFailedSrc(src || null)}
+        />
+      ) : initials(name)}
     </span>
   )
 }

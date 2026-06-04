@@ -20,7 +20,7 @@ export type VideoLearningWorkspaceProps = {
 }
 
 export function VideoLearningWorkspace({
-  breadcrumb = '2eme Bac / Sciences Math A / Mathematics / Limits and Continuity',
+  breadcrumb = 'Sciences Math A / Mathematics / Limits and Continuity',
   title = 'Mathematics: Continuity at a single point and extension',
   srcDoc,
   videoId,

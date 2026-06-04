@@ -277,7 +277,7 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
           <BookOpen size={15} className="text-slate-700 flex-shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-semibold leading-tight truncate">Rappels de cours</p>
-            <p className="text-[11px] text-slate-500 leading-tight">{formulaCount} formules Bac</p>
+            <p className="text-[11px] text-slate-500 leading-tight">{formulaCount} formules</p>
           </div>
         </div>
         <button type="button"

@@ -616,6 +616,8 @@ Round 8 items still open after this implementation:
 - [ ] **[HIGH]** `frontend/vitest.config.ts` - Vitest Coverage Deleted Instead of Migrated (Silently Ignored `.tsx` Files): The frontend unit test CI step claims to run all test coverage for UI components. However, `vitest.config.ts` explicitly scopes test execution by setting `include: ['tests/**/*.test.ts']`. This regex silently excludes `.tsx` test files. Critical tests like `topicWorkspaceQuizTab.test.tsx` are completely skipped and ignored by the test runner.
 - [ ] **[HIGH]** `.github/workflows/ci-backend.yml` & `backend/scripts/audit_data_integrity.py` - Data Integrity Audit Runs Against an Empty Database: The workflows run `audit_data_integrity.py` to ensure no invalid data states (such as duplicated items or XP collisions) exist. However, the script is run immediately following `alembic upgrade head` on a fresh, empty Postgres container. Without any seeded data, the SQL queries trivially return zero rows, resulting in a hollow "passed" validation every time.
 - [ ] **[MEDIUM]** `backend/find_n1.py` & `backend/tests_fastapi/test_find_n1_script.py` - Phantom N+1 Query Guardrail (Stale Tooling): The repository includes `find_n1.py` to detect N+1 database queries, and the presence of `test_find_n1_script.py` implies it is an active guardrail. However, the script is orphaned—it is never invoked in any CI workflow. Furthermore, its `main()` function explicitly ignores actual findings, exiting with `0` even if N+1 queries are detected (`return 1 if errors else 0`).
+- [ ] **[HIGH]** `frontend/tests/e2e/purchase-flow.integration.spec.ts` & `live-session-fanout.integration.spec.ts` - Silent Exclusion of Critical E2E Integration Tests: The frontend E2E integration test suite claims to verify core backend-integrated user flows, including real payments and live session fanouts. However, the frontend CI workflow (`ci-frontend.yml`) does not provide `FAKE_STRIPE_CHECKOUT=true` or `ABLY_API_KEY`. Inside the tests, this triggers `test.skip(!isDev || !fakeStripe)` and `test.skip(!hasAblyKey)`. Consequently, the most critical production flows for monetization and realtime delivery are silently skipped and marked as passed by Playwright in CI, providing false confidence.
+- [ ] **[CRITICAL]** `.github/workflows/deploy-backend.yml` - Race Condition & Downtime Vulnerability in Deployment Pipeline: The deployment workflow executes `zappa deploy || zappa update` *before* invoking `app.scheduled.run_alembic_migrations_event`. This routes production traffic to the new FastAPI code before the database schema has been migrated to support it, resulting in 500 Internal Server Errors during the deployment window. Furthermore, Zappa asynchronous invocations swallow exceptions in the CI runner—if the Alembic migration crashes, the pipeline continues reporting success without rolling back the deployed code, permanently breaking the API.
 
 ## Frontend Flow Audit - 2026-06-02
 
@@ -679,3 +681,137 @@ Round 8 items still open after this implementation:
 - **[HIGH]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` / `frontend/components/topic-workspace/TopicWorkspaceQuizTab.tsx` / `TopicWorkspaceNotesTab.tsx` - Draft quiz answers and unsubmitted notes are completely lost when a student switches tabs in the workspace (e.g. going from the quiz tab to the video tab to check a hint and coming back). This happens because `<AnimatePresence>` unmounts and remounts tabs by `key={activeTabSlot}`, and the React `useState` for draft answers is localized to the unmounted component. Draft state should be hoisted to the parent page or persisted in `sessionStorage`/`localStorage` keyed by `tab.id`.
 - **[MEDIUM]** `frontend/app/(dashboard)/topics/[topicId]/page.tsx` - URL desync and missing state on reload for checkout previews. When a user clicks a locked topic item in the rail, the UI correctly displays the `LockedContentPanel`, but `router.replace` is skipped due to an early `return` when `item.can_access === false`. The URL remains out of sync; if the user reloads the page, they are taken back to the previous unlocked item. The URL should update to reflect the locked item (`?item=locked_item_id`) even if the user lacks access, since the UI explicitly supports previewing locked states.
 
+
+
+
+## 🔍 Backend Correctness Audit - Phase 2 (2026-06-02)
+
+#### 1. [HIGH] Save Item Access Control Bypass via Inferred Context
+* **Severity:** HIGH
+* **File/Line:** `backend/app/services/interaction_mutations.py` (`save_user_item` lines 265-274)
+* **Summary:** The `save_user_item` function allows users to bookmark resources, exam problems, or topics. It only verifies access (`require_topic_item_access`) if `body.topic_item_id` is explicitly provided in the request payload. If the client intentionally omits `topic_item_id`, the function falls back to `infer_interaction_context` which dynamically resolves the parent item ID based on the target. However, `save_user_item` never validates access for this inferred context. This allows a student to bookmark (and subsequently access via the `/saves` list) premium or locked course resources simply by omitting the `topic_item_id` field in the POST request.
+* **Reproduction Path:**
+  1. Identify the `target_id` of a premium or locked resource.
+  2. Send a POST request to `/saves` with `{"target_type": "resource", "target_id": 99}` (omitting `topic_item_id`).
+  3. The router passes this to `save_user_item`. The explicit check `if body.topic_item_id is not None:` is skipped.
+  4. `infer_interaction_context` resolves `context["topic_item_id"]` from the database.
+  5. The backend creates the `SavedItem` without ever evaluating `require_topic_item_access` for the inferred parent.
+* **Expected Behavior:** If the `topic_item_id` is inferred dynamically from the target, the backend MUST verify the user has access to that inferred parent item before saving it.
+* **Actual Behavior:** Access control is entirely bypassed if the explicit parent ID is omitted from the request body.
+* **Proof from Code:**
+  ```python
+  # save_user_item
+  if body.topic_item_id is not None:
+      await require_topic_item_access(db, user, body.topic_item_id)
+  context = await infer_interaction_context(
+      db,
+      subject_id=body.subject_id, # ...
+  )
+  # Missing check: if context.get("topic_item_id") is not None: await require_topic_item_access(...)
+  save = await db.scalar(...)
+  ```
+  Note that the similar `create_user_note` function *correctly* checks `context.get("topic_item_id")`.
+* **Why this is not a duplicate:** This is a newly discovered vulnerability specifically in the interaction mutation inference flow.
+* **Suggested fix direction:** Move the `require_topic_item_access` check to *after* the `infer_interaction_context` call, and validate against the fully resolved `context.get("topic_item_id")`.
+
+### Scalability & Performance Audit - Round 2
+
+- [ ] **[HIGH]** `backend/app/services/admin_overview.py` - **Database Connection Exhaustion:** The admin overview service repeatedly grabs new DB sessions inside a loop (via Depends(get_db)) for every breakdown query instead of reusing a single transaction, rapidly exhausting the connection pool under load.
+- [ ] **[HIGH]** `backend/app/routers/quizzes.py` - **N+1 Query Pattern:** In get_subject_quiz_discovery, access checks are performed iteratively within a Python loop over lesson topics, resulting in an O(N) query pattern rather than a single batched existence check.
+- [ ] **[CRITICAL]** `backend/app/services/gamification_read_models.py` - **Memory Growth & Table Locking:** `refresh_leaderboard_projection_if_stale` performs a delete(LeaderboardRank) followed by an unbounded db.add_all() of all active users. On a large userbase, this materializes tens of thousands of ORM objects into Python memory, causing severe memory growth and prolonged transaction locks.
+- [ ] **[MEDIUM]** `backend/app/services/media_storage.py` - **Synchronous CPU Blocking:** media_url generates Boto3 presigned URLs synchronously. While fast individually, generating URLs in bulk (e.g., for arrays of user avatars in chat or leaderboards) inside the async event loop can cause CPU blocking and starve other concurrent requests.
+- [ ] **[MEDIUM]** `backend/app/services/realtime_outbox.py` - **Unbounded Table Growth:** RealtimeOutbox events are marked as published or dead but are never deleted. Since the realtime layer generates a massive volume of events for every live interaction and checkpoint, this will quickly bloat the PostgreSQL database storage without a retention cleanup worker.
+- [ ] **[HIGH]** `backend/app/routers/payments.py` - **Database Connection Starvation via Stripe:** The verify_session endpoint makes a synchronous (but async IO) external HTTP request to Stripe via verify_checkout_session to retrieve the checkout state. Because this happens inside a FastAPI route that depends on get_db, the database connection is held open and idle while waiting for the Stripe API to respond. Under moderate concurrent traffic, this will easily exhaust the database connection pool.
+- [ ] **[HIGH]** `backend/app/routers/courses.py` - **Database Connection Starvation via VdoCipher:** The get_topic_item_stream endpoint makes an external HTTP request to VdoCipher (via get_video_stream_data) to generate OTPs while holding an open database transaction from Depends(get_db). This keeps PostgreSQL connections idle during network I/O, leading to severe pool starvation when many students start watching videos concurrently.
+
+
+### Final Recovered Findings (Concurrency & Gamification Edge Cases)
+
+- [ ] **[HIGH]** `backend/app/services/professor_live_sessions.py` & `backend/app/routers/courses.py` - Database Connection Starvation via VdoCipher: `create_professor_live_session` and `get_topic_item_stream` make external synchronous (but async IO) HTTP requests to VdoCipher (`httpx.AsyncClient.post/get` with 10-15s timeouts) while holding open database transactions via the `AsyncSession` yielded by `Depends(get_db)`. Under high traffic (e.g. many students opening lessons concurrently), this will quickly exhaust the database connection pool.
+- [ ] **[CRITICAL]** `backend/app/services/gamification_read_models.py` - Race Condition & Lock Contention in Leaderboard Refresh: `refresh_leaderboard_projection_if_stale` drops the entire `LeaderboardRank` table (`await db.execute(delete(LeaderboardRank))`) and repopulates it using bulk inserts whenever the active count changes. If multiple users load the sidebar (`build_sidebar_summary`) or leaderboard simultaneously when it is stale, this causes concurrent bulk delete/insert queries that will result in transaction deadlocks and table-level lock contention.
+- [ ] **[LOW]** `backend/app/services/professor_chat_mutations.py` - Inconsistent Unread Count Deletion: `delete_chat_message_state` deletes a chat message and invokes `refresh_chat_preview` to update the last message preview and timestamp. However, it does not decrement `unread_for_professor` or `unread_for_student` if the deleted message was previously unread. This leaves the conversation with "ghost" unread counts that remain inflated until the chat is explicitly opened.
+- [ ] **[HIGH]** `backend/app/services/course_progress.py` & `backend/app/services/course_tab_quiz_submission.py` - Concurrency TOCTOU Race Condition & HTTP 500 Crash on First-Time Quiz Submissions: `ensure_question_set_for_tab` checks if a `QuestionSet` exists for a tab, and if not, creates one and adds it to the session `db.add(question_set)`. However, it does not use a nested transaction (`db.begin_nested()`) or handle `IntegrityError`. If two students concurrently submit a quiz for a tab that has never been taken before, both will bypass the `is None` check and attempt to insert identical `QuestionSet` and `Question` rows, leading to a database crash for one of the users.
+- [ ] **[MEDIUM]** `backend/app/services/xp.py` & `backend/app/services/course_tab_quiz_submission.py` - Missing Gamification XP Rewards for Quiz Retries and Perfect Scores: The `award_xp_bulk` call in `submit_tab_quiz_attempt` unconditionally uses `idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt['question_id']}"`. Because this idempotency key is tied purely to the user and question, if a student retakes a quiz to improve their score (e.g. from 60% to 100%), they will never receive the XP rewards for the newly answered correct questions since the bulk inserter will conflict on the idempotency key (even though they never actually received XP for that specific question previously because they got it wrong).
+
+- [ ] **[HIGH]** `backend/app/schemas/courses.py` - **Partial Data Redaction IDOR:** The `ExamOut` schema unconditionally exposes `statement_url`. Although there is a `redact_if_locked` model validator, it does not explicitly handle cases where `can_access` is false *prior* to returning the response, leading to direct access leaks.
+- [ ] **[MEDIUM]** `backend/app/routers/courses.py` - **Incomplete Publication Filtering:** The `get_exam_bank` endpoint correctly filters for `Exam.status == 'published'` but misses checking if the parent `Subject.is_published` is True, allowing students to guess IDs and fetch exams for unreleased courses.
+
+### Offline Mode & PWA Mechanics
+- **[HIGH]** `frontend/public/sw.js` / PWA setup - Vaporware implementation. There is absolutely no PWA setup, Service Worker, manifest file, or offline capability in the codebase. The app will simply display the browser's default dinosaur offline screen. Push notification opt-in logic and offline fallback pages are entirely absent. A proper setup via `@serwist/next` (or similar) is required.
+- **[MEDIUM]** `frontend/lib/apiData.ts` - Permanent 401 SWR cache trap. `revalidateOnFocus` is set to `false` and 401s are blocked from retrying via `NON_RETRYABLE_STATUSES`. If a user gets a 401 (e.g. token expired) and logs back in on another tab, returning to the original tab will statically cache and display the 401 error response forever without ever re-checking the server. `revalidateOnFocus` should be true.
+
+### Onboarding & Auth Flow Extensions
+- **[HIGH]** `frontend/lib/authPageController.ts` - Destructive Profile Overwrite on Resume. If a user's profile has `niveau` saved but `filiere` is missing, `resolveAuthSuccess` places them directly in the `filiere` step. However, `selectedLevel` state is initialized to `''` and never hydrated from `user.niveau`. When `saveOnboarding` executes, it sends `{ niveau: '', filiere: selectedSpec }`, destructively overwriting their existing valid `niveau` with an empty string in the backend.
+- **[MEDIUM]** `frontend/components/auth/AuthPageView.tsx` - Missing UI Validation before Save. On the `filiere` step, the Save button's disabled condition is only `disabled={!selectedSpec || loading}`. It does not ensure `selectedLevel` is present, allowing submission of empty levels if hydration fails.
+- **[MEDIUM]** `frontend/lib/authPageController.ts` - Onboarding Double Submit Race Condition. When `saveOnboarding` triggers `router.push()`, the `finally` block runs immediately, setting `loading` to `false` while the client-side navigation is still pending. This re-enables the Save button, allowing the user to click it multiple times and fire redundant `PATCH` requests.
+- **[MEDIUM]** `frontend/lib/authPageController.ts` - Fake Success State on Forgot Password. If the forgot password API call fails (e.g. 500 error), the `catch` block only logs to the console without showing an error toast. The `finally` block executes and transitions the UI to the `forgot-sent` success state. The user falsely believes an email is on the way.
+
+### Quests & Gamification Streaks
+- **[HIGH]** `frontend/components/DashboardLayoutShell.tsx` - Orphaned Quest Claiming Endpoint. When a user completes a daily quest and clicks on it in the sidebar to claim their XP reward, nothing happens. The `DashboardLayoutShell` renders `<PermanentSidebar />` but does not pass an `onQuestSelect` handler. The backend endpoint `/progress/daily-quests/{quest_id}/claim` is completely orphaned and never called, resulting in a silent failure to claim rewards.
+- **[MEDIUM]** `frontend/lib/permanentSidebarViewModel.ts` - Blind Streak Alignment (Timezone Desync). `buildStrikeDays` blindly marks the first `n` days of the UI week array (e.g., Mon, Tue) as completed using `index < streakDays`, regardless of what actual local day the user logged in on. It should calculate the relative offset from the current local `new Date()` and anchor backwards to check off the correct trailing days.
+- **[LOW]** `frontend/lib/permanentSidebarViewModel.ts` - Fake Quests on Empty State. If a user has zero daily quests (completed or unassigned), instead of showing a clear empty state message, the UI falls back to rendering fake Figma placeholder quests (`permanentSidebarQuestDefaults`). The fallback must be removed for production.
+
+### Course Catalog, Search & Filtering
+- **[HIGH]** `frontend/app/(dashboard)/courses/page.tsx` - Stale Closure on Rapid Filtering. When a user types a search query and quickly selects a subject filter, the URL desyncs. `updateFilters` relies on `filters` from closure rather than a functional state update `setFilters(prev => ...)`. Consecutive rapid calls overwrite each other, causing the UI to drop the previous filter.
+- **[MEDIUM]** `frontend/app/(dashboard)/exam-bank/page.tsx` - Reload State Loss (URL Desync). If a user searches for a specific exam and reloads the page (or shares the link), the filters are completely lost. The search input is not initialized from `useSearchParams()` and never pushes updates to the URL. State must be synchronized with `router.replace`.
+- **[MEDIUM]** `frontend/components/Leaderboard.tsx` - Redundant Client-Side Filter Conflict. In the leaderboard search, `instantEntries` blindly filters the backend's paginated `displayEntries` by `full_name`. If a backend match (like a typo-tolerant result) fails this strict frontend filter, it falls back to unfiltered data, breaking the paginated search view. Trust the backend response.
+
+### Billing, Pricing & Subscriptions
+- **[HIGH]** `frontend/app/payment-success/page.tsx` - Checkout Race Condition (Stale Profile Overwrite). When a user successfully pays on Stripe and returns to `/payment-success`, the component mounts and triggers both `verifyCheckoutSession` and `AuthGuard`'s `getMyProfile` simultaneously. `verifyCheckoutSession` finishes successfully, setting `is_pro: true` in the store. However, `getMyProfile` (which fired *before* verification completed on the backend) resolves shortly after and destructively overwrites the user store with the stale `is_pro: false` data. The UI becomes desynced, showing the user as "Free" despite a successful payment. `PaymentSuccessContent` must forcefully refetch the profile after verification succeeds before updating the store.
+
+- [ ] **[CRITICAL]** `backend/app/schemas/users.py` & `backend/app/services/user_profile.py` - **Track Isolation Bypass / Privilege Escalation:** The `PATCH /api/profile/me` endpoint allows unrestricted writes to `niveau` and `filiere`. Because live sessions and professor chat authorization (e.g. `ensure_student_matches_offering`) rely strictly on these fields to isolate students to their assigned tracks, a VIP/Platinum student can systematically spoof their track and bypass isolation boundaries to access any professor or live session across the entire platform.
+
+
+#### 3. [HIGH] Inconsistent stripe_customer_id Persistence Leading to Erroneous Access Revocation
+* **Severity:** HIGH
+* **File/Line:** `backend/app/services/payment_entitlements.py` (lines 36-72) and `payment_lifecycle.py`
+* **Summary:** The synchronous `apply_paid_checkout_to_user` sets `stripe_customer_id` *only* if it is currently empty. Conversely, the asynchronous webhook `apply_paid_checkout_by_user_id` unconditionally overwrites it. If a user with a canceled subscription starts a new checkout, Stripe might create a new customer ID. The synchronous flow grants `is_pro=True` but leaves the old customer ID intact. If a delayed `customer.subscription.deleted` webhook arrives for the *old* subscription before the new checkout webhook overwrites the ID, it will match the user's DB record and erroneously revoke their newly paid access.
+* **Reproduction Path:**
+  1. User buys subscription (creates `cus_OLD`). DB has `stripe_customer_id = cus_OLD`, `is_pro=True`.
+  2. User cancels subscription. DB remains `stripe_customer_id = cus_OLD`, `is_pro=True` (until period end).
+  3. User buys a *new* subscription before the old one formally ends, creating `cus_NEW`.
+  4. Synchronous redirect calls `verify-session` -> `apply_paid_checkout_to_user`. It sets `is_pro=True` but ignores `cus_NEW` because `user.stripe_customer_id` is not empty.
+  5. The Stripe webhook for the *old* subscription `customer.subscription.deleted` arrives.
+  6. `revoke_paid_access_by_customer_id(db, customer_id="cus_OLD")` executes. It finds the user by `cus_OLD` and sets `is_pro=False`, revoking the new access.
+* **Expected Behavior:** Both synchronous and asynchronous flows should unconditionally update `stripe_customer_id` to ensure the DB reflects the most recent subscription context, preventing old webhooks from matching active subscriptions.
+* **Actual Behavior:** Synchronous flow preserves stale Stripe customer IDs.
+* **Proof from Code:** Synchronous `apply_paid_checkout_to_user` checks `if normalized_customer_id and not user.stripe_customer_id`. Webhook `apply_paid_checkout_by_user_id` does not have this check.
+* **Why this is not a duplicate:** This specific discrepancy between sync and async payment persistence causing race-condition revocation was not reported.
+* **Suggested fix direction:** Remove `and not user.stripe_customer_id` in `apply_paid_checkout_to_user` so the customer ID is always updated to the latest one generated by the checkout session.
+
+## Backend Correctness Audit - 2026-06-02
+
+### 1. Payment Webhook Stale Session State
+- **Severity:** High
+- **File:** `backend/app/services/payment_lifecycle.py` : `verify_checkout_session_state`
+- **Summary:** The `/verify-session` endpoint returns stale `is_pro` status to the frontend even after a webhook completes payment, due to SQLAlchemy identity map caching and `expire_on_commit=False`.
+- **Reproduction path:** Frontend initiates checkout and polls `/verify-session`. Background webhook receives `checkout.session.completed`, sets `is_pro=True` and commits in a separate DB session. The polling endpoint calls `db.get(User, user_id)` but since the User instance is already in the current session's identity map and `expire_on_commit` is False, it returns the stale cached instance where `is_pro` is still False. Frontend is never told they are pro until they hard refresh.
+- **Expected:** `verify_checkout_session_state` should return the most up-to-date user state from the database.
+- **Actual:** It returns the cached stale state.
+- **Proof:** `refreshed_user = await db.get(User, user_id)` is used to refetch the user without `db.refresh(user)`. In `backend/app/database.py`, `_session_factory = async_sessionmaker(..., expire_on_commit=False)`. So the session does not expire instances, and `db.get` returns the stale object.
+- **Why this is not a duplicate:** This is a specific SQLAlchemy session caching bug related to the payments webhook polling logic, not found in the existing dump.
+- **Suggested fix:** Change `refreshed_user = await db.get(User, user_id)` to `await db.refresh(user)` before returning the updated status.
+
+### 2. Leaderboard Race Condition (Full Table Wipe on GET)
+- **Severity:** High
+- **File:** `backend/app/services/gamification_read_models.py` : `refresh_leaderboard_projection_if_stale`
+- **Summary:** The `GET /leaderboard` route synchronously drops and re-inserts the entire `LeaderboardRank` table if a user's XP has changed, leading to massive contention, deadlocks, or integrity errors under concurrent reads.
+- **Reproduction path:** User A earns XP, changing `latest_xp_update`. Users B, C, and D concurrently request `GET /leaderboard`. The condition `latest_projection_refresh >= latest_xp_update` fails for all. All three requests execute `await db.execute(delete(LeaderboardRank))` and then iterate over all users to `db.add_all(projection_rows)`. The first commits, the others crash with IntegrityError (since `user_id` is PK) or deadlock trying to acquire locks.
+- **Expected:** The projection refresh should be isolated, locked to a single worker, or handled asynchronously via background task, not inside a public GET request with full table deletes.
+- **Actual:** Any read request can trigger a full table deletion and insertion concurrently.
+- **Proof:** `refresh_leaderboard_projection_if_stale` uses `await db.execute(delete(LeaderboardRank))` followed by `db.add_all()` without any distributed lock or `ON CONFLICT` handling, and it's called unconditionally on `GET /leaderboard` if `search` is empty.
+- **Why this is not a duplicate:** This targets the gamification leaderboard projection refresh mechanism, which is unique to `refresh_leaderboard_projection_if_stale`.
+- **Suggested fix:** Implement a materialized view, use a distributed lock around the projection refresh, or update the leaderboard asynchronously via an outbox/CRON worker.
+
+### 3. Quiz Topic Items Permanently Uncompletable
+- **Severity:** High
+- **File:** `backend/app/services/course_tab_quiz_submission.py` : `submit_tab_quiz_attempt`
+- **Summary:** Passing a quiz tab never marks the parent `TopicItemProgress` as `completed`, permanently trapping quiz topic items in a `started` state and preventing users from getting 100% completion.
+- **Reproduction path:** User attempts a quiz. They pass the quiz. `submit_tab_quiz_attempt` updates `progress.latest_score = score` and `best_score`, but does not set `progress.status = "completed"`. If the user tries to manually complete it via `POST /topic-items/{id}/complete`, `complete_topic_item_state` explicitly blocks it with `raise HTTPException(..., "Quiz items must be submitted through quiz endpoints")`. Thus, it can never be completed.
+- **Expected:** Passing a quiz should mark the topic item as completed.
+- **Actual:** It only updates the score, leaving `status="started"` forever.
+- **Proof:** `submit_tab_quiz_attempt` fetches progress with `get_or_create_topic_item_progress` and updates `latest_score` but omits `progress.status = "completed"` and `progress.completed_at = now`.
+- **Why this is not a duplicate:** This is a logic gap between `course_topic_mutations.py` and `course_tab_quiz_submission.py` explicitly related to topic item completion status for quizzes.
+- **Suggested fix:** Add `progress.status = "completed"` and `progress.completed_at = now` in `submit_tab_quiz_attempt` when `passed == True`.
+
+- [ ] **[MEDIUM]** `backend/app/services/auth_account.py` / `backend/app/services/auth_signup.py` / `frontend/lib/authPageController.ts` - **Inconsistent email normalization across auth flows (logins should auto-trim/normalize input).** Password login normalizes its lookup with `email.lower().strip()` (`auth_account.py:50`), but signup (`auth_signup.py:61`), password reset (`auth_account.py:82`), and Google / email-dispatch lookups query `User.email == email` WITHOUT the same `.strip().lower()`, and the frontend login/signup forms send the raw email without `.trim()`. Trailing/leading whitespace or case variants (e.g. registering as `"Student@Example.com "` then logging in as `student@example.com`) can fail to match, and stored emails may keep stray whitespace/casing. **Suggested fix:** add one shared `normalize_email()` (strip + lowercase) applied at BOTH write paths (signup + Google account creation, before insert) and ALL email lookups, plus `.trim()` the email field client-side. Do NOT strip the password (spaces can be valid password characters).

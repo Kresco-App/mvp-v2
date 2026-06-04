@@ -64,6 +64,7 @@ PRODUCTION_MEDIA_SETTINGS = {
 def test_local_settings_allow_development_defaults():
     settings = Settings()
 
+    assert settings.media_s3_presign_ttl_seconds == 3600
     assert settings.production_config_errors() == []
 
 
@@ -598,7 +599,7 @@ def test_render_zappa_settings_substitutes_placeholders_and_validates(tmp_path):
     assert rendered["FRONTEND_URL"] == "https://app.example.com"
     assert rendered["CORS_ALLOWED_ORIGINS"] == "https://app.example.com"
     assert rendered["MEDIA_STORAGE_BACKEND"] == "s3"
-    assert rendered["MEDIA_S3_PRESIGN_TTL_SECONDS"] == "300"
+    assert rendered["MEDIA_S3_PRESIGN_TTL_SECONDS"] == "3600"
     assert rendered["MEDIA_PROFILE_QUOTA_BYTES"] == "10485760"
     assert rendered["MEDIA_CHAT_CONVERSATION_QUOTA_BYTES"] == "52428800"
     assert rendered["MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS"] == "365"

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
@@ -59,6 +59,7 @@ export default function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [loading, setLoading] = useState(true)
+  const calendarScrollRef = useRef<HTMLDivElement | null>(null)
 
   const selectedWeekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index)), [selectedWeekStart])
@@ -115,6 +116,23 @@ export default function CalendarPage() {
     void loadEventsForWeek(() => alive)
     return () => { alive = false }
   }, [loadEventsForWeek])
+
+  useEffect(() => {
+    if (loading) return
+    const scrollContainer = calendarScrollRef.current
+    if (!scrollContainer) return
+    const weekEvents = eventsForWeek(events, selectedWeekStart)
+    if (weekEvents.length === 0) {
+      scrollContainer.scrollTop = 0
+      return
+    }
+    const earliest = weekEvents.reduce((current, event) => {
+      const startsAt = new Date(event.starts_at)
+      if (Number.isNaN(startsAt.getTime())) return current
+      return Math.min(current, startsAt.getHours() * 60 + startsAt.getMinutes())
+    }, 24 * 60)
+    scrollContainer.scrollTop = Math.max(0, (earliest / 60) * hourHeight - hourHeight)
+  }, [events, loading, selectedWeekStart])
 
   useEffect(() => {
     if (!user?.id) return
@@ -193,7 +211,7 @@ export default function CalendarPage() {
                   ))}
                 </div>
 
-                <div className="relative flex max-h-[calc(100vh-260px)] min-h-[420px] overflow-y-auto overflow-x-hidden max-[760px]:max-h-[560px] max-[480px]:min-h-[360px]">
+                <div ref={calendarScrollRef} className="relative flex max-h-[calc(100vh-260px)] min-h-[420px] overflow-y-auto overflow-x-hidden max-[760px]:max-h-[560px] max-[480px]:min-h-[360px]">
                   <div className="w-14 shrink-0">
                     {hours.map((hour) => (
                       <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-1.5 pb-1.5">

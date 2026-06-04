@@ -105,7 +105,7 @@ export default function ProfilePage() {
       uploadedMediaUrlsRef.current.add(mediaUrl)
       const field = kind === 'avatar' ? 'avatar_url' : 'banner_url'
       await mutateProfile((current) => (current ? { ...current, [field]: mediaUrl } : current), { revalidate: false })
-      if (user) updateUser({ ...user, [field]: mediaUrl })
+      if (user) updateUser({ [field]: mediaUrl })
       toast.success(`${kind === 'avatar' ? 'Avatar' : 'Banner'} uploaded.`)
       return mediaUrl
     } catch (error) {

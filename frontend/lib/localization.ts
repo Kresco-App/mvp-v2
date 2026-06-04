@@ -3,7 +3,7 @@ export const DEFAULT_LOCALE = 'fr-MA'
 export const localizedCopy = {
   auth: {
     welcome: 'Bienvenue sur Kresco',
-    loginToAccess: 'Connectez-vous pour accéder à vos cours du Bac.',
+    loginToAccess: 'Connectez-vous pour accéder à vos cours.',
     continueWithGoogle: 'Continuer avec Google',
     facebookComingSoon: 'Facebook (bientôt)',
     appleComingSoon: 'Apple (bientôt)',
@@ -44,7 +44,7 @@ export const localizedCopy = {
     helpsUsPersonalize: 'Cela nous aide à personnaliser votre expérience.',
     continueBtn: 'Continuer',
     whatSpecialty: 'Quelle est votre filière ?',
-    selectSpecialty: 'Sélectionnez votre spécialité du Bac.',
+    selectSpecialty: 'Sélectionnez votre spécialité.',
     start: 'Commencer',
     saving: 'Sauvegarde...',
     google: 'Google',
@@ -83,7 +83,7 @@ export const localizedCopy = {
     proPrice: '99 MAD',
     oneTime: 'une fois',
     stripeActivation: 'Acces Pro active apres confirmation Stripe.',
-    proDescription: "Tout ce qu'il faut pour reussir votre Bac.",
+    proDescription: "Tout ce qu'il faut pour progresser.",
     proActive: 'Vous etes Pro !',
     checkout: "Acheter l'acces Pro - 99 MAD",
     securePayment: 'Paiement unique securise via Stripe',

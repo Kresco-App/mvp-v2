@@ -8,7 +8,7 @@ from typing import Protocol
 from urllib.parse import quote, unquote, urlparse
 import uuid
 
-from app.config import MEDIA_STORAGE_S3, MEDIA_STORAGE_S3_MOCK, Settings
+from app.config import DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS, MEDIA_STORAGE_S3, MEDIA_STORAGE_S3_MOCK, Settings
 
 
 class MediaStorageError(RuntimeError):
@@ -138,7 +138,7 @@ def mock_presign_s3_reference(
 
     bucket = parsed.netloc
     key = unquote(parsed.path.lstrip("/"))
-    ttl = expires_in if expires_in is not None else int(settings.media_s3_presign_ttl_seconds if settings else 300)
+    ttl = expires_in if expires_in is not None else int(settings.media_s3_presign_ttl_seconds if settings else DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS)
     return f"https://mock-s3.local/{bucket}/{quote(key, safe='/')}?expires={ttl}&signature=mock"
 
 
@@ -155,7 +155,7 @@ def presign_s3_reference(
 
     bucket = parsed.netloc
     key = unquote(parsed.path.lstrip("/"))
-    ttl = expires_in if expires_in is not None else int(settings.media_s3_presign_ttl_seconds if settings else 300)
+    ttl = expires_in if expires_in is not None else int(settings.media_s3_presign_ttl_seconds if settings else DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS)
     if client is None:
         client = _s3_client(
             settings.media_s3_region if settings else "",

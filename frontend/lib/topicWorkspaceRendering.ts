@@ -125,11 +125,11 @@ export function missingVideoSrcDoc(item: TopicItem) {
 
 export function sectionCopy(section: TopicSection) {
   const key = `${section.title} ${section.section_type}`.toLowerCase()
-  if (key.includes('lesson')) return 'Learn the basics of the subject.'
-  if (key.includes('exercise')) return 'Learn by doing with interactive tasks.'
-  if (key.includes('homework')) return 'Learn by practicing with real-world problems.'
-  if (key.includes('bac') || key.includes('exam')) return 'Get yourself familiarized with the final boss'
-  return section.items?.[0]?.description || 'Keep the flow of knowledge ongoing!'
+  if (key.includes('lecon') || key.includes('lesson')) return 'Notions essentielles.'
+  if (key.includes('exercice') || key.includes('exercise')) return 'Application directe.'
+  if (key.includes('devoir') || key.includes('homework')) return 'Sujet court.'
+  if (key.includes('extrait') || key.includes('exam')) return "Question d'examen."
+  return section.items?.[0]?.description || 'A faire.'
 }
 
 export function railLabel(section: TopicSection, item: TopicItem, index: number) {

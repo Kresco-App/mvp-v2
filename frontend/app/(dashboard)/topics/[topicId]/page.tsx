@@ -341,7 +341,7 @@ export default function TopicWorkspacePage() {
 
   return (
     <VideoLearningWorkspace
-      breadcrumb={`2eme Bac / ${workspace.subject_title} / ${workspace.title}`}
+      breadcrumb={`${workspace.subject_title} / ${workspace.title}`}
       title={`${workspace.subject_title}: ${activeItem.title}`}
       primaryContent={primaryContent}
       tabs={workspaceTabs}

@@ -21,9 +21,9 @@ describe('subject identity', () => {
   })
 
   it('keeps course and profile title variants explicit', () => {
-    expect(canonicalSubjectTitle('Mathematics')).toBe('Math')
-    expect(canonicalProfileSubjectTitle('Mathematics')).toBe('Mathematics')
-    expect(canonicalSubject('Chimie')).toEqual({ key: 'chemistry', title: 'Chemistry' })
+    expect(canonicalSubjectTitle('Mathematics')).toBe('Mathematiques')
+    expect(canonicalProfileSubjectTitle('Mathematics')).toBe('Mathematiques')
+    expect(canonicalSubject('Chimie')).toEqual({ key: 'chemistry', title: 'Chimie' })
   })
 
   it('falls back to stable slug keys for unknown subjects', () => {

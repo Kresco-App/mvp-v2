@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { X } from 'lucide-react'
@@ -56,6 +56,7 @@ export default function CoursesPage() {
   const [topics, setTopics] = useState<TopicCard[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<CourseFilters>(routeFilters)
+  const filtersRef = useRef(routeFilters)
   const [previewTopic, setPreviewTopic] = useState<TopicCard | null>(null)
   const { query, subject: subjectFilter, status: statusFilter } = filters
 
@@ -69,7 +70,7 @@ export default function CoursesPage() {
       })
       .catch(() => {
         if (!alive) return
-        toast.error('Could not load Bac topics.')
+        toast.error('Could not load topics.')
       })
       .finally(() => {
         if (alive) setLoading(false)
@@ -81,19 +82,25 @@ export default function CoursesPage() {
   }, [])
 
   useEffect(() => {
+    filtersRef.current = routeFilters
     setFilters((current) => courseFiltersEqual(current, routeFilters) ? current : routeFilters)
   }, [routeFilters])
 
-  const applyFilters = useCallback((nextFilters: CourseFilters) => {
-    setFilters((current) => courseFiltersEqual(current, nextFilters) ? current : nextFilters)
+  const replaceFiltersInUrl = useCallback((nextFilters: CourseFilters) => {
     const params = courseFiltersToSearchParams(nextFilters, new URLSearchParams(searchKey))
     const queryString = params.toString()
     router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
   }, [pathname, router, searchKey])
 
+  const applyFilters = useCallback((nextFilters: CourseFilters) => {
+    filtersRef.current = nextFilters
+    setFilters((current) => courseFiltersEqual(current, nextFilters) ? current : nextFilters)
+    replaceFiltersInUrl(nextFilters)
+  }, [replaceFiltersInUrl])
+
   const updateFilters = useCallback((patch: Partial<CourseFilters>) => {
-    applyFilters({ ...filters, ...patch })
-  }, [applyFilters, filters])
+    applyFilters({ ...filtersRef.current, ...patch })
+  }, [applyFilters])
 
   const topicViews = useMemo<TopicView[]>(() => topics.map(toTopicView), [topics])
 
@@ -129,8 +136,7 @@ export default function CoursesPage() {
     <>
       <main className="pt-[44px]">
           <div className="mb-[64px] flex h-[18px] items-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">
-            <span>2éme Bac</span>
-            <span className="ml-[3.5px]">/ Sciences Math A</span>
+            <span>Sciences Math A</span>
           </div>
 
           <FigmaCourseSearchControls
@@ -411,10 +417,10 @@ function normalizedTopicKey(title: string) {
 }
 
 const courseSubjectSections = [
-  { key: 'math', title: 'Mathematics', subtitle: 'The science that loves to calculate things.' },
-  { key: 'physics', title: 'Physics', subtitle: 'The science that loves to calculate things.' },
-  { key: 'chemistry', title: 'Chemistry', subtitle: 'Explore matter, reactions, and lab reasoning.' },
-  { key: 'philosophy', title: 'Philosophy', subtitle: 'Reason through ideas, arguments, and meaning.' },
-  { key: 'biology', title: 'Biology', subtitle: 'Explore living systems and how they work.' },
-  { key: 'english', title: 'English', subtitle: 'Practice language, reading, and communication.' },
+  { key: 'math', title: 'Mathematiques', subtitle: 'Fonctions, suites, integrales.' },
+  { key: 'physics', title: 'Physique-Chimie', subtitle: 'Ondes, mesures, conversions.' },
+  { key: 'chemistry', title: 'Chimie', subtitle: 'Reactions, dosages, tableaux.' },
+  { key: 'philosophy', title: 'Philosophie', subtitle: 'Problemes, plans, arguments.' },
+  { key: 'biology', title: 'SVT', subtitle: 'Genetique, schemas, preuves.' },
+  { key: 'english', title: 'Anglais', subtitle: 'Reading, grammar, writing.' },
 ]

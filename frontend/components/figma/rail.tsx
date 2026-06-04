@@ -19,10 +19,10 @@ export type CourseContentRailProps = {
 }
 
 const defaultSections: FigmaRailSection[] = [
-  { id: 'lesson', title: 'Lesson', copy: 'Learn the basics of the subject.', items: figmaLessonItems, open: true },
-  { id: 'exercise', title: 'Exercise', copy: 'Learn by doing with interactive tasks.', open: false },
-  { id: 'homework', title: 'Homework', copy: 'Learn by practicing with real-world problems.', open: false },
-  { id: 'national-exam', title: 'National Exam Example', copy: 'Get yourself familiarized with the final boss', open: false },
+  { id: 'lesson', title: 'Lecons', copy: 'Notions essentielles.', items: figmaLessonItems, open: true },
+  { id: 'exercise', title: 'Exercices', copy: 'Application directe.', open: false },
+  { id: 'homework', title: 'Devoirs blancs', copy: 'Sujet court.', open: false },
+  { id: 'national-exam', title: "Extraits d'examen", copy: "Question d'examen.", open: false },
 ]
 
 export function CourseContentRail({

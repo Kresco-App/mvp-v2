@@ -26,6 +26,7 @@ REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
 MEDIA_STORAGE_LOCAL = "local"
 MEDIA_STORAGE_S3 = "s3"
 MEDIA_STORAGE_S3_MOCK = "s3-mock"
+DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS = 3600
 RUNTIME_SECRET_ID_ENV = "KRESCO_RUNTIME_SECRET_ID"
 RUNTIME_SECRET_REGION_ENV = "KRESCO_RUNTIME_SECRET_REGION"
 AWS_REGION_ENV_NAMES = ("AWS_REGION", "AWS_DEFAULT_REGION")
@@ -189,7 +190,7 @@ class Settings(BaseSettings):
     media_s3_endpoint_url: str = Field(default="", validation_alias=AliasChoices("media_s3_endpoint_url", "MEDIA_S3_ENDPOINT_URL"))
     media_s3_mock_root: str = Field(default=".mock-s3", validation_alias=AliasChoices("media_s3_mock_root", "MEDIA_S3_MOCK_ROOT"))
     media_s3_presign_ttl_seconds: int = Field(
-        default=300,
+        default=DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS,
         validation_alias=AliasChoices("media_s3_presign_ttl_seconds", "MEDIA_S3_PRESIGN_TTL_SECONDS"),
     )
     media_profile_quota_bytes: int = Field(

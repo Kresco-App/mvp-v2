@@ -35,7 +35,7 @@ export function FigmaSubjectCourseCard({
   const isLocked = state === 'locked'
   const isUpcoming = state === 'upcoming'
   const isUnavailable = isLocked || isUpcoming
-  const label = isCompleted ? 'Well Done' : isCurrent ? 'Continue' : isLocked ? 'Locked' : isUpcoming ? 'Coming soon' : 'Start the lesson'
+  const label = isCompleted ? 'Done' : isCurrent ? 'Continue' : isLocked ? 'Locked' : isUpcoming ? 'Soon' : 'Start'
   const progressWidthClassName = progressWidthClass(Math.max(8, safeProgress))
   const cardChromeClass = isCompleted
     ? 'bg-[#fcc94d] shadow-[0_3.75px_0_#f5900b]'

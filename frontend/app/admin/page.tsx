@@ -152,7 +152,7 @@ export default function AdminDashboard() {
               </div>
               <h1 className="mt-2 text-2xl font-bold text-white">Operations control center</h1>
               <p className="mt-1 max-w-3xl text-sm text-slate-500">
-                Analytics, content readiness, and direct CRUD coverage for the Bac-first Topic model.
+                Analytics, content readiness, and direct CRUD coverage for the Topic model.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

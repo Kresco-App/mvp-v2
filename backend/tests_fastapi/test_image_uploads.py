@@ -159,6 +159,12 @@ def test_s3_presign_reuses_cached_boto3_client(monkeypatch):
     media_storage._s3_client.cache_clear()
 
 
+def test_mock_presign_uses_runtime_default_without_settings():
+    url = media_storage.mock_presign_s3_reference("s3://kresco-media/profile/1/avatar.png")
+
+    assert url == "https://mock-s3.local/kresco-media/profile/1/avatar.png?expires=3600&signature=mock"
+
+
 def test_warm_media_storage_client_initializes_s3_client_once(monkeypatch):
     media_storage._s3_client.cache_clear()
     calls = []

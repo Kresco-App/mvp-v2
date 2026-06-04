@@ -1,18 +1,18 @@
 export const DEFAULT_SUBJECT_SHORTCUT_KEYS = ['math', 'physics', 'chemistry', 'philosophy', 'biology', 'english'] as const
 
 const COURSE_SUBJECT_TITLES: Record<string, string> = {
-  math: 'Math',
-  physics: 'Physics',
-  chemistry: 'Chemistry',
-  philosophy: 'Philosophy',
-  geography: 'Geography',
-  biology: 'Biology',
-  english: 'English',
+  math: 'Mathematiques',
+  physics: 'Physique-Chimie',
+  chemistry: 'Chimie',
+  philosophy: 'Philosophie',
+  geography: 'Geographie',
+  biology: 'SVT',
+  english: 'Anglais',
 }
 
 const PROFILE_SUBJECT_TITLES: Record<string, string> = {
   ...COURSE_SUBJECT_TITLES,
-  math: 'Mathematics',
+  math: 'Mathematiques',
 }
 
 export function normalizeSubjectTitle(title: string) {

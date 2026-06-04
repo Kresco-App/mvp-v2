@@ -6,21 +6,21 @@ import type { AuthPageController } from '@/lib/authPageController'
 import { localizedCopy } from '@/lib/localization'
 
 const NIVEAUX = [
-  { id: '1bac', label: '1ère Bac' },
-  { id: '2bac', label: '2ème Bac' },
+  { id: '1bac', label: '1ere' },
+  { id: '2bac', label: '2eme' },
 ]
 
 const SPECIALITES = [
-  'Bac Sciences Mathématiques A',
-  'Bac Sciences Mathématiques B',
-  'Bac Sciences Physiques',
-  'Bac SVT',
-  'Bac Sciences Et Technologies Electriques',
-  'Bac Sciences Et Technologies Mécaniques',
-  'Bac Sciences Économiques',
-  'Bac Techniques De Gestion Et Comptabilité',
-  'Bac Sciences Agronomiques',
-  'Bac Lettres',
+  'Sciences Mathématiques A',
+  'Sciences Mathématiques B',
+  'Sciences Physiques',
+  'SVT',
+  'Sciences Et Technologies Electriques',
+  'Sciences Et Technologies Mécaniques',
+  'Sciences Économiques',
+  'Techniques De Gestion Et Comptabilité',
+  'Sciences Agronomiques',
+  'Lettres',
   'Langue Arabe',
   'Sciences De La Chariaa',
   'Arts Appliqués',
