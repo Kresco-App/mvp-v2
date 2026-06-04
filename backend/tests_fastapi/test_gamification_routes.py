@@ -1,5 +1,8 @@
+import inspect
+
 from sqlalchemy import select
 
+import app.services.gamification_read_models as gamification_read_models
 from app.database import get_session_factory
 from app.models.gamification import DailyQuest, LeaderboardRank, UserStats, UserXP, XPTransaction
 from app.models.users import User
@@ -84,3 +87,10 @@ def test_daily_quest_claim_is_single_use(app_client, auth_token, run_db):
     assert first.status_code == 200
     assert first.json()["xp_awarded"] == 25
     assert second.status_code == 400
+
+
+def test_daily_quest_claim_locks_quest_before_awarding_xp():
+    source = inspect.getsource(gamification_read_models.claim_daily_quest_reward)
+
+    assert ".with_for_update()" in source
+    assert source.index(".with_for_update()") < source.index("award_xp(")

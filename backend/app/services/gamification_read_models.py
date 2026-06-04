@@ -77,7 +77,11 @@ async def claim_daily_quest_reward(
     user: User,
     quest_id: int,
 ) -> dict[str, int | bool]:
-    quest = await db.scalar(select(DailyQuest).where(DailyQuest.id == quest_id, DailyQuest.user_id == user.id))
+    quest = await db.scalar(
+        select(DailyQuest)
+        .where(DailyQuest.id == quest_id, DailyQuest.user_id == user.id)
+        .with_for_update()
+    )
     if quest is None:
         raise HTTPException(status_code=404, detail="Quest not found")
     if quest.completed:
