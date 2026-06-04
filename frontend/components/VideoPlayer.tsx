@@ -320,17 +320,6 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     }
   }, [clearProgressInterval, isPlaying, lessonId, saveProgress])
 
-  if (loading || !streamData) {
-    return (
-      <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          <span className="text-slate-400 text-sm">Chargement de la video...</span>
-        </div>
-      </div>
-    )
-  }
-
   if (error) {
     return (
       <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
@@ -338,6 +327,17 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
           <AlertCircle size={36} className="text-red-400" />
           <p className="text-white font-semibold">Video indisponible</p>
           <p className="text-slate-400 text-sm max-w-xs">{error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading || !streamData) {
+    return (
+      <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          <span className="text-slate-400 text-sm">Chargement de la video...</span>
         </div>
       </div>
     )

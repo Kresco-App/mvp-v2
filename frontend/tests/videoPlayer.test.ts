@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -28,5 +30,12 @@ describe('VideoPlayer VdoCipher URL construction', () => {
   it('treats progress writes as item-bound identity checks', () => {
     expect(isActiveLesson(42, 42)).toBe(true)
     expect(isActiveLesson(42, 7)).toBe(false)
+  })
+
+  it('renders stream errors before the no-stream loading fallback', () => {
+    const source = readFileSync(join(process.cwd(), 'components', 'VideoPlayer.tsx'), 'utf8')
+
+    expect(source.indexOf('if (error)')).toBeGreaterThan(-1)
+    expect(source.indexOf('if (error)')).toBeLessThan(source.indexOf('if (loading || !streamData)'))
   })
 })
