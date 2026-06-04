@@ -12,6 +12,7 @@ from app.services.course_access import access_for_topic_item
 from app.services.course_progress import (
     bounded_topic_watch_seconds,
     get_or_create_topic_item_progress,
+    latest_other_watch_progress_updated_at,
     required_topic_watch_seconds,
     requires_timed_topic_completion,
 )
@@ -68,6 +69,7 @@ async def complete_topic_item_state(
     item = await _get_accessible_topic_item(db, user, item_id)
     if _is_quiz_item_type(item.item_type):
         raise HTTPException(status_code=400, detail="Quiz items must be submitted through quiz endpoints")
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     progress = await get_or_create_topic_item_progress(
         db,
         user_id=user.id,
@@ -77,11 +79,17 @@ async def complete_topic_item_state(
     was_completed = progress.status == "completed" if progress else False
     previous_watched_seconds = progress.watched_seconds or 0
     now = datetime.now(timezone.utc)
+    latest_other_watch_updated_at = await latest_other_watch_progress_updated_at(
+        db,
+        user_id=user.id,
+        topic_item_id=item.id,
+    )
     bounded_watched_seconds = bounded_topic_watch_seconds(
         item=item,
         progress=progress,
         requested_seconds=body.watched_seconds,
         now=now,
+        latest_other_watch_updated_at=latest_other_watch_updated_at,
     )
     watched_seconds_delta = max(0, bounded_watched_seconds - previous_watched_seconds)
     if watched_seconds_delta > 0:

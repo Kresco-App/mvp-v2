@@ -384,6 +384,91 @@ def test_topic_item_completion_updates_user_stats(app_client, auth_token, run_db
     run_db(_assert_stats())
 
 
+def test_parallel_video_items_share_user_watch_accrual_budget(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-watch-budget@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Watch budget", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(
+                subject_id=subject.id,
+                slug="interactions-watch-budget",
+                title="Watch budget",
+                status="published",
+                is_free_preview=True,
+            )
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Videos", section_type="main", order=1)
+            db.add(section)
+            await db.flush()
+            first = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="First video",
+                item_type="video",
+                status="published",
+                duration_seconds=120,
+            )
+            second = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Second video",
+                item_type="video",
+                status="published",
+                duration_seconds=120,
+            )
+            db.add_all([
+                first,
+                second,
+                UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"),
+            ])
+            await db.commit()
+            return first.id, second.id
+
+    first_id, second_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = app_client.post(
+        f"/api/courses/topic-items/{first_id}/complete",
+        headers=headers,
+        json={"watched_seconds": 120},
+    )
+    second = app_client.post(
+        f"/api/courses/topic-items/{second_id}/complete",
+        headers=headers,
+        json={"watched_seconds": 120},
+    )
+
+    assert first.status_code == 409
+    assert second.status_code == 409
+
+    async def _assert_progress_budget():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            progress_rows = (
+                await db.execute(
+                    select(TopicItemProgress)
+                    .where(TopicItemProgress.user_id == user_id)
+                    .order_by(TopicItemProgress.topic_item_id.asc())
+                )
+            ).scalars().all()
+            stats = await db.get(UserStats, user_id)
+            watched_seconds = [progress.watched_seconds for progress in progress_rows]
+            assert watched_seconds[0] == 5
+            assert 0 <= watched_seconds[1] < 5
+            assert [progress.status for progress in progress_rows] == ["started", "started"]
+            assert stats is not None
+            assert stats.total_watch_seconds == sum(watched_seconds)
+            assert stats.total_watch_seconds < 10
+            assert stats.lessons_completed == 0
+
+    run_db(_assert_progress_budget())
+
+
 def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, auth_token, run_db):
     token, user_id = auth_token(email="interactions-comments@example.com", is_pro=True)
     seeded = run_db(_seed_context(user_id, "interactions-comments"))

@@ -38,6 +38,7 @@ def bounded_topic_watch_seconds(
     progress: TopicItemProgress,
     requested_seconds: int,
     now: datetime,
+    latest_other_watch_updated_at: datetime | None = None,
 ) -> int:
     current_seconds = progress.watched_seconds or 0
     if item.duration_seconds <= 0:
@@ -48,12 +49,38 @@ def bounded_topic_watch_seconds(
         return current_seconds
 
     if current_seconds <= 0:
-        return min(requested, TOPIC_ITEM_COMPLETION_GRACE_SECONDS)
+        item_bound = min(requested, TOPIC_ITEM_COMPLETION_GRACE_SECONDS)
+    else:
+        last_updated = coerce_utc(progress.updated_at)
+        elapsed = max(0, int((now - last_updated).total_seconds())) if last_updated else 0
+        max_increment = int(elapsed * TOPIC_ITEM_COMPLETION_RATE_MULTIPLIER)
+        item_bound = min(requested, current_seconds + max_increment)
 
-    last_updated = coerce_utc(progress.updated_at)
-    elapsed = max(0, int((now - last_updated).total_seconds())) if last_updated else 0
-    max_increment = int(elapsed * TOPIC_ITEM_COMPLETION_RATE_MULTIPLIER)
-    return min(requested, current_seconds + max_increment)
+    latest_other_watch_updated_at = coerce_utc(latest_other_watch_updated_at)
+    if latest_other_watch_updated_at is None:
+        return item_bound
+
+    elapsed = max(0, int((now - latest_other_watch_updated_at).total_seconds()))
+    user_max_increment = int(elapsed * TOPIC_ITEM_COMPLETION_RATE_MULTIPLIER)
+    return min(item_bound, current_seconds + user_max_increment)
+
+
+async def latest_other_watch_progress_updated_at(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    topic_item_id: int,
+) -> datetime | None:
+    return await db.scalar(
+        select(TopicItemProgress.updated_at)
+        .where(
+            TopicItemProgress.user_id == user_id,
+            TopicItemProgress.topic_item_id != topic_item_id,
+            TopicItemProgress.watched_seconds > 0,
+        )
+        .order_by(TopicItemProgress.updated_at.desc())
+        .limit(1)
+    )
 
 
 async def get_or_create_topic_item_progress(

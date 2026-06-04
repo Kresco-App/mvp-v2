@@ -60,6 +60,30 @@ def test_topic_watch_progress_grace_is_not_reusable_without_elapsed_time():
     assert later_retry == initial + 10
 
 
+def test_topic_watch_progress_grace_is_user_wide_across_items():
+    now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
+    item = SimpleNamespace(duration_seconds=120)
+    fresh_progress = SimpleNamespace(watched_seconds=0, updated_at=None)
+
+    immediate_other_item = bounded_topic_watch_seconds(
+        item=item,
+        progress=fresh_progress,
+        requested_seconds=120,
+        now=now,
+        latest_other_watch_updated_at=now,
+    )
+    later_other_item = bounded_topic_watch_seconds(
+        item=item,
+        progress=fresh_progress,
+        requested_seconds=120,
+        now=now,
+        latest_other_watch_updated_at=now - timedelta(seconds=8),
+    )
+
+    assert immediate_other_item == 0
+    assert later_other_item == TOPIC_ITEM_COMPLETION_GRACE_SECONDS
+
+
 def test_legacy_watch_progress_grace_is_not_reusable_without_elapsed_time():
     now = datetime(2026, 5, 31, 12, 0, tzinfo=timezone.utc)
 
