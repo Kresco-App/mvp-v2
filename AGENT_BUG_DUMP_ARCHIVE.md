@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `c9463ca` - Fixed BUG-P2-001 by removing the leaderboard page fallback that treated the first visible row as the current user and adding a regression for non-empty results without an `is_current_user` row; validation: `npm test -- --run tests/leaderboardRender.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `e3a1947` - Fixed BUG-P1-022 by parsing exponent chains iteratively while preserving right associativity and adding Zed math regression tests; validation: `npm test -- --run tests/zedMath.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `cb6edf0` - Fixed BUG-P1-011 by reconciling recipient unread counters when sender-owned unread chat messages are deleted, with professor and student counter regressions; validation: `python -m pytest tests_fastapi/test_professor_platform.py -q -k "deleting_unread or professor_chat_message_reads_skip_commit_when_unread_counts_are_zero or professor_chat_messages_are_cursor_paginated"` and `git diff --check`.
 - `f9536c1` - Fixed BUG-P1-014 by keeping user-initiated logout pending until `/api/auth/logout` succeeds, preserving local session state on revocation failure, adding a separate local clear path for invalid AuthGuard sessions, and delaying nav redirects until logout succeeds; validation: `npm test -- --run tests/authSession.test.ts tests/authGuardComponent.test.ts`, `npm run typecheck`, and `git diff --check`.
@@ -71,6 +72,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 - `BUG-P2-005` was moved out of the active queue: current auth intentionally separates professor and student workspaces, eligible non-professors already get a limited `Professor Chat` shortcut, and a true professor-to-student bridge requires product/session-model work rather than a local UI bug fix.
 - `BUG-P2-006` is stale/false as a correctness bug: the admin page uses `AuthGuard requireStaff`, the backend overview route uses `get_current_staff_user`, both expose the same "Staff access required" boundary, and backend tests already cover student 403 versus staff 200.
 - `BUG-P3-001` is stale/false as written: `AuthGuard` uses `verificationStateRef` to avoid repeat verification on the same mounted instance, and the focused auth guard tests cover one normal profile fetch plus intentional retry behavior.
+- `BUG-P2-007` is confirmed performance debt rather than an active correctness bug: route diagnostics still show heavy first-load JS for core dashboard routes, but animated renderers are already dynamically loaded and no CI bundle budget currently fails. The item now lives in the active dump backlog section.
 
 ## Do Not Resurrect Without New Validation
 

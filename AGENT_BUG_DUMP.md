@@ -24,14 +24,14 @@ Last validation snapshot:
 - Alembic head is `0047`.
 - 2026-06-04 audit append: `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build`, `npm audit --omit=dev`, `python scripts/check_secret_hygiene.py`, and `python scripts/check_repo_hygiene.py` passed.
 - 2026-06-04 audit append: `python -m pytest -q` failed with 2 failures / 478 passes; see `BUG-P0-001` and `BUG-P0-006`.
-- 2026-06-04 audit append: `python scripts/check_production_launch_gate.py --json` failed at score 5.5 / 9.0 and `python scripts/check_http_readiness.py` failed because `BACKEND_READY_URL` is unset; see `BUG-P0-007` and `BUG-P1-023`.
+- 2026-06-04 audit append: `python scripts/check_production_launch_gate.py --json` failed at score 5.5 / 9.0; see `BUG-P0-007`. `python scripts/check_http_readiness.py` failed because `BACKEND_READY_URL` is unset; see `BUG-P1-023`.
 - 2026-06-04 audit append: `npm run audit:csp-styles -- --json` passed but reported 54 files with inline style debt and 113 inline `style` attributes; see `BUG-P1-029`.
 
 Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after the 2026-06-04 audit append and validator cleanup: 33.
+- Current active bug count after `c9463ca` and validator cleanup: 31.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -64,37 +64,37 @@ Risk: production traffic can hit new code against old schema; async Zappa invoca
 
 Fix direction: run and verify migrations before traffic reaches the new code, or deploy with a maintenance/compatibility gate and fail CI on migration failure.
 
-#### BUG-P0-003 - Frontend integration E2E uses SQLite instead of Postgres
+#### BUG-P0-003 - Frontend integration E2E defaults to SQLite in CI
 
 Status: OPEN
 
-Files: `frontend/playwright.integration.config.ts`, `backend/scripts/prepare_e2e_db.py`
+Files: `frontend/playwright.integration.config.ts`, `backend/scripts/prepare_e2e_db.py`, `.github/workflows/ci-frontend.yml`, `.github/workflows/deploy-frontend.yml`
 
-Current evidence: default integration database URL is `sqlite+aiosqlite:///./e2e.sqlite3`.
+Current evidence: the integration Playwright config and `prepare_e2e_db.py` default to `sqlite+aiosqlite:///./e2e.sqlite3`, and frontend CI/deploy run integration E2E without overriding that database URL to Postgres.
 
 Risk: Postgres-specific SQL, JSON, constraints, and migrations can fail in production while integration tests pass.
 
 Fix direction: run integration E2E against a Postgres service in CI.
 
-#### BUG-P0-004 - Backend pytest bypasses Alembic migrations
+#### BUG-P0-004 - Backend FastAPI pytest fixture bypasses Alembic migrations
 
 Status: OPEN
 
-Files: `backend/tests_fastapi/conftest.py`
+Files: `backend/tests_fastapi/conftest.py`, `.github/workflows/ci-backend.yml`
 
-Current evidence: test DB setup calls `Base.metadata.create_all`.
+Current evidence: backend CI runs a separate Alembic upgrade check, but the FastAPI pytest fixture rebuilds the test schema with `Base.metadata.drop_all` / `Base.metadata.create_all` instead of migrating the pytest database through Alembic.
 
 Risk: Alembic upgrade syntax, missing constraints, downgrade hazards, and migration ordering can be invisible to the main test suite.
 
 Fix direction: migrate test DBs with Alembic for at least the default backend suite, keeping a small fast metadata suite only if explicitly named.
 
-#### BUG-P0-006 - TopicItemProgress FK lacks a leading topic_item_id index
+#### BUG-P0-006 - TopicItemProgress topic_item_id FK lacks a leading index
 
 Status: OPEN
 
-Files: `backend/app/models/gamification.py`, `backend/alembic/versions/e34496201734_add_index_to_foreign_keys.py`, `backend/tests_fastapi/test_query_plan_audit.py`
+Files: `backend/app/models/gamification.py`, `backend/alembic/versions/0044_topic_item_progress_user_item_status_index.py`, `backend/alembic/versions/0046_topic_item_progress_topic_item_fk.py`, `backend/alembic/versions/e34496201734_add_index_to_foreign_keys.py`, `backend/tests_fastapi/test_query_plan_audit.py`
 
-Current evidence: `python -m pytest -q` is red on `tests_fastapi/test_query_plan_audit.py::test_foreign_key_columns_are_indexed_or_index_leading` because `topic_item_progress.topic_item_id` is a foreign key without a matching leading index. Existing indexes lead with `user_id`, so they do not satisfy lookups/cascades by `topic_item_id`.
+Current evidence: `python -m pytest tests_fastapi/test_query_plan_audit.py -q` is red on `test_foreign_key_columns_are_indexed_or_index_leading` because `topic_item_progress.topic_item_id` is a cascading foreign key without a matching leading index. Existing indexes lead with `user_id`, so they do not satisfy lookups/cascades by `topic_item_id`.
 
 Risk: topic-item deletes, joins, and query plans can degrade as progress rows grow, and the full backend suite is currently red.
 
@@ -104,27 +104,27 @@ Fix direction: add a migration and model index with `topic_item_id` as the leadi
 
 Status: OPEN
 
-Files: `scripts/check_production_launch_gate.py`, `scripts/check_http_readiness.py`, `docs/production-remediation-traceability.md`
+Files: `scripts/check_production_launch_gate.py`, `PRODUCTION-SWITCH.md`, `docs/production-remediation-traceability.md`, `.github/workflows/deploy-backend.yml`, `.github/workflows/deploy-frontend.yml`
 
-Current evidence: `python scripts/check_production_launch_gate.py --json` fails with current score 5.5 / target 9.0. The gate reports 12 unverified traceability rows: `SEC-CSP-STYLE-001`, `SEC-SECRETS-001`, `MEDIA-S3-001`, `MEDIA-AUTH-001`, `RT-FANOUT-001`, `RT-OUTBOX-001`, `PERF-TOPIC-001`, `FE-DEMO-001`, `OPS-STAGE-001`, `OPS-RDS-001`, `OPS-LAMBDA-001`, and `OPS-RUNBOOK-001`. `python scripts/check_http_readiness.py` also fails locally because `BACKEND_READY_URL` is not configured.
+Current evidence: `python scripts/check_production_launch_gate.py --json` fails with current score 5.5 / target 9.0. The gate reports 12 unverified traceability rows: `SEC-CSP-STYLE-001`, `SEC-SECRETS-001`, `MEDIA-S3-001`, `MEDIA-AUTH-001`, `RT-FANOUT-001`, `RT-OUTBOX-001`, `PERF-TOPIC-001`, `FE-DEMO-001`, `OPS-STAGE-001`, `OPS-RDS-001`, `OPS-LAMBDA-001`, and `OPS-RUNBOOK-001`. Production deploy workflows enforce the gate.
 
 Risk: release readiness can be claimed while required security, media, realtime, performance, frontend demo, and ops evidence is missing or stale.
 
-Fix direction: verify or retire each traceability row with current commands/evidence, configure a real backend readiness URL for post-deploy checks, and keep the launch gate failing until the score reaches the target.
+Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
 
-#### BUG-P1-001 - Admin overview still does request-time query/session churn
+#### BUG-P1-001 - Admin overview fans out per-metric request-time reads
 
 Status: OPEN
 
 Files: `backend/app/services/admin_overview.py`
 
-Current evidence: `_gather_reads` is capped at two concurrent reads, but `build_admin_overview` still issues many separate session-backed reads across counts, rollups, readiness, progress, live events, interactions, and notifications.
+Current evidence: `_gather_reads` is capped at two concurrent reads, but `build_admin_overview` still fans out per-metric session-backed reads across counts, rollups, readiness, progress, live events, interactions, and notifications.
 
 Risk: admin dashboard refreshes still amplify per-request session/query overhead and table-scan pressure as the dataset grows.
 
-Fix direction: keep the concurrency cap, then batch related aggregates or reuse one read session per overview phase with tests that prove query/session churn drops.
+Fix direction: keep the concurrency cap, then batch related aggregates or reuse one read session per overview phase with tests that bound `_run_read` calls or request query count.
 
 #### BUG-P1-002 - Quiz discovery still performs per-candidate DB access checks
 
@@ -150,17 +150,17 @@ Risk: duplicate attempt numbers, no XP parity with tab quizzes, and analytics di
 
 Fix direction: route legacy submissions through the same attempt numbering, idempotency, grading, and XP service used by tab quizzes.
 
-#### BUG-P1-004 - Professor dashboard unread aggregate remains request-time work
+#### BUG-P1-004 - Professor dashboard computes unread total with request-time SUM
 
 Status: OPEN
 
 Files: `backend/app/services/professor_queries.py`
 
-Current evidence: `professor_dashboard` still computes `SUM(ProfessorChatConversation.unread_for_professor)` on each dashboard request even though unread counts are already maintained per conversation.
+Current evidence: `professor_dashboard` still computes `SUM(ProfessorChatConversation.unread_for_professor)` on each dashboard request even though mutation paths already maintain per-conversation unread counters.
 
 Risk: per-request aggregate work grows with professor conversation count.
 
-Fix direction: add a professor-level unread cache/materialized counter, update it in chat mutation paths, and test that the dashboard no longer issues the unread `SUM`.
+Fix direction: add a professor-scoped unread counter/read model, update it anywhere `unread_for_professor` is incremented, decremented, or zeroed, and test that the dashboard no longer issues the unread `SUM`.
 
 #### BUG-P1-006 - Per-user watch accrual is only bounded per topic item
 
@@ -362,37 +362,25 @@ Status: OPEN
 
 Files: `backend/app/routers/courses.py`, `frontend/app/(dashboard)/exam-bank/page.tsx`
 
-Current evidence: the exam-bank backend route applies subject/year/title filters in SQL, limits the result set to 50 exams, hydrates exam problems, then applies `topic_id` filtering in Python per exam.
+Current evidence: `/api/courses/exam-bank?topic_id=...` applies subject/year/title filters in SQL, orders and limits to 50 exams, hydrates exam problems, then applies `topic_id` filtering in Python per exam.
 
 Risk: exams with matching topic problems outside the newest 50 rows are omitted, and the endpoint does unnecessary problem hydration before filtering.
 
-Fix direction: push the `topic_id` predicate into SQL before ordering/limit, and eager-load or separately fetch only published problems that match the requested filters.
+Fix direction: push the `topic_id` predicate into SQL before ordering/limit and add a regression with more than 50 newer nonmatching exams plus an older matching exam.
 
-#### BUG-P1-029 - CSP migration still requires unsafe inline style allowances
+#### BUG-P1-029 - CSP style migration remains incomplete under temporary budget
 
 Status: OPEN
 
-Files: `frontend/proxy.ts`, `frontend/scripts/auditInlineStyles.mjs`, `frontend/components/animated/source-ports/chemistry/components/interactive/IndicatorSimulator.tsx`, `frontend/components/animated/source-ports/physics/components/interactive/DiffractionLab.tsx`
+Files: `frontend/proxy.ts`, `frontend/scripts/audit-csp-styles.mjs`, `frontend/tests/proxy.test.ts`, `frontend/components/animated/source-ports/chemistry/components/interactive/IndicatorSimulator.tsx`, `frontend/components/animated/source-ports/physics/components/interactive/DiffractionLab.tsx`
 
-Current evidence: `npm run audit:csp-styles -- --json` passes the configured audit but still reports 54 files with inline style debt and 113 inline `style` attributes. The runtime CSP still includes `style-src-elem 'unsafe-inline'` and `style-src-attr 'unsafe-inline'`.
+Current evidence: runtime CSP still permits `style-src-elem 'unsafe-inline'` and `style-src-attr 'unsafe-inline'`. `npm run audit:csp-styles -- --json` passes only because the temporary budget allows up to 56 files and 114 attributes; the current report still has 54 files with inline style debt and 113 JSX `style` attributes.
 
 Risk: the app cannot tighten CSP style directives without breaking UI, leaving a broad inline-style execution surface during the migration.
 
-Fix direction: convert the highest-traffic inline style attributes to classes/CSS variables first, lower the audit budget over time, and remove the unsafe inline style directives only after the audit reaches zero.
+Fix direction: convert inline style attributes to classes/CSS variables, lower the audit budget to zero, and remove the unsafe inline style directives only after the audit reaches zero.
 
 ### P2 - User-Visible Flow Bugs
-
-#### BUG-P2-001 - Leaderboard can spoof current user when the user is absent from results
-
-Status: OPEN
-
-Files: `frontend/components/Leaderboard.tsx`
-
-Current evidence: the backend only marks the authenticated user's row with `is_current_user`, and paginated/search results can legitimately omit that row. `currentUser` then falls back to `visibleEntries[0]` when no returned entry is marked as current.
-
-Risk: a student can be shown as the first returned ranked user in the progress sidebar when their own row is not present on the current page/search slice.
-
-Fix direction: require an explicit current-user entry or render an unranked empty state.
 
 #### BUG-P2-002 - Leaderboard pagination/search requests can race
 
@@ -430,18 +418,6 @@ Risk: reload/share resets the chat workspace and drops the current conversation/
 
 Fix direction: synchronize selection and filters with URL query params.
 
-#### BUG-P2-007 - Core dashboard routes ship heavy first-load JavaScript
-
-Status: OPEN
-
-Files: `frontend/.next/diagnostics/route-bundle-stats.json`, `frontend/app/(dashboard)/topics/[topicId]/page.tsx`, `frontend/components/topic-workspace/TopicWorkspacePanels.tsx`, `frontend/components/animated/registry.tsx`
-
-Current evidence: after `npm run build`, route diagnostics report `/topics/[topicId]` at 1,331,922 uncompressed first-load JS bytes, `/professor-chat` at 1,297,824 bytes, and `/live/[sessionId]` at 1,290,379 bytes. The topic page is a client-heavy shell and pulls cross-domain UI layers, animated content rendering, icons, motion, and tab panels into the core route.
-
-Risk: core learning and live-session routes can have slow first load, especially on lower-end devices or constrained mobile networks.
-
-Fix direction: add a bundle budget/report to CI, profile the shared chunks, lazy-load inactive topic tabs and animated renderer registries, and avoid importing broad UI domains into the initial route shell.
-
 ## Architecture and Product Backlog
 
 These are not active correctness bugs unless a later validator proves a user-facing failure. Keep them separate from the bug queue.
@@ -470,3 +446,4 @@ These are not active correctness bugs unless a later validator proves a user-fac
 - PII scrubbing/retention policy needs a broader pass for email dispatch, telemetry, and deleted users.
 - Repository hygiene should explicitly decide how to handle generated artifacts and whether local untracked/ignored artifacts should be reported during agent audits.
 - Professor workspace switching is product/backlog unless a real role-switch session model is implemented. Current auth intentionally separates professor routes from student routes, while eligible non-professors already have a limited `Professor Chat` shortcut.
+- Performance backlog: core dashboard routes still have heavy first-load JS in `frontend/.next/diagnostics/route-bundle-stats.json` (`/topics/[topicId]` 1,331,922 bytes, `/professor-chat` 1,297,824 bytes, `/live/[sessionId]` 1,290,379 bytes). Animated renderers are already dynamically loaded, so remaining work is profiling shared chunks, lazy-loading inactive tab panels, and adding a CI bundle budget/report.
