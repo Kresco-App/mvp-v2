@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 43.
+- Current active bug count after this deep audit append: 42.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-007 - XP service boundary still permits unkeyed award inserts
-
-Status: OPEN
-
-Files: `backend/app/services/xp.py`, `backend/app/models/gamification.py`
-
-Current evidence: `award_xp` accepts `idempotency_key=None`, `award_xp_bulk` only dedupes keys that are present, and the uniqueness constraint applies only to non-null keyed awards.
-
-Risk: future or legacy award paths can bypass idempotency and duplicate XP under retries or concurrency.
-
-Fix direction: require non-null idempotency keys at the XP service boundary and add duplicate-concurrency tests for keyed awards.
 
 #### BUG-P1-009 - Polymorphic saved/change-request targets can become dangling
 

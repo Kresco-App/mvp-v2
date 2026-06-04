@@ -54,6 +54,13 @@ class XPAward:
     amount_override: Optional[int] = None
 
 
+def _normalize_idempotency_key(idempotency_key: Optional[str]) -> str:
+    normalized = str(idempotency_key or "").strip()
+    if not normalized:
+        raise ValueError("XP awards require a non-empty idempotency key")
+    return normalized
+
+
 def _current_utc_date() -> date:
     return datetime.now(timezone.utc).date()
 
@@ -121,9 +128,10 @@ async def award_xp(
     amount = amount_override if amount_override is not None else XP_REWARDS.get(reason, 0)
     if amount == 0:
         return 0
+    idempotency_key = _normalize_idempotency_key(idempotency_key)
     if dedupe and await has_xp_award(user_id, reason, description, db):
         return 0
-    if idempotency_key and await has_xp_idempotency_key(user_id, idempotency_key, db):
+    if await has_xp_idempotency_key(user_id, idempotency_key, db):
         return 0
 
     transaction = XPTransaction(
@@ -142,16 +150,12 @@ async def award_xp(
         idempotency_key=idempotency_key,
     )
 
-    if idempotency_key:
-        try:
-            async with db.begin_nested():
-                db.add(transaction)
-                await db.flush()
-        except IntegrityError:
-            return 0
-    else:
-        db.add(transaction)
-        await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(transaction)
+            await db.flush()
+    except IntegrityError:
+        return 0
 
     await _increment_user_xp_total(db, user_id, amount)
 
@@ -201,6 +205,7 @@ async def award_xp_bulk(
         amount = award.amount_override if award.amount_override is not None else XP_REWARDS.get(award.reason, 0)
         if amount == 0:
             continue
+        idempotency_key = _normalize_idempotency_key(award.idempotency_key)
         rows.append({
             "user_id": user_id,
             "amount": amount,
@@ -214,7 +219,7 @@ async def award_xp_bulk(
             "question_id": award.question_id,
             "quiz_attempt_id": award.quiz_attempt_id,
             "question_attempt_id": award.question_attempt_id,
-            "idempotency_key": award.idempotency_key,
+            "idempotency_key": idempotency_key,
         })
     if not rows:
         return 0
@@ -274,12 +279,10 @@ def _dedupe_xp_transaction_rows(rows: list[dict]) -> list[dict]:
     seen_keys: set[tuple[int, str]] = set()
     deduped: list[dict] = []
     for row in rows:
-        idempotency_key = row.get("idempotency_key")
-        if idempotency_key:
-            key = (int(row["user_id"]), str(idempotency_key))
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
+        key = (int(row["user_id"]), str(row["idempotency_key"]))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
         deduped.append(row)
     return deduped
 

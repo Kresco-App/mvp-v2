@@ -94,6 +94,7 @@ def test_award_xp_updates_quests_for_explicit_active_date(app_client, run_db):
                 "Explicit active date quiz",
                 db,
                 active_date=active_date,
+                idempotency_key=f"xp-active-date:user:{user_id}:quiz",
             )
             await db.commit()
             return amount
@@ -153,6 +154,56 @@ def test_bulk_award_xp_batches_transactions_and_quest_updates(app_client, query_
     }
     assert run_db(_exercise()) == 0
     assert run_db(_assert_state()) == (30, 3)
+
+
+def test_award_xp_rejects_missing_idempotency_key(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-missing-key@example.com"))
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await award_xp(user_id, "quiz_pass", "Missing key", db)
+
+    with pytest.raises(ValueError, match="idempotency key"):
+        run_db(_exercise())
+
+
+def test_award_xp_dedupes_repeated_idempotency_key(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-repeated-key@example.com"))
+    key = f"xp-repeat:user:{user_id}:quiz"
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            first = await award_xp(user_id, "quiz_pass", "Repeat key", db, idempotency_key=key)
+            second = await award_xp(user_id, "quiz_pass", "Repeat key", db, idempotency_key=key)
+            await db.commit()
+            rows = (
+                await db.execute(select(XPTransaction).where(XPTransaction.user_id == user_id))
+            ).scalars().all()
+            total_xp = await db.scalar(select(UserXP.total_xp).where(UserXP.user_id == user_id))
+            return first, second, len(rows), total_xp
+
+    assert run_db(_exercise()) == (20, 0, 1, 20)
+
+
+def test_bulk_award_xp_rejects_missing_idempotency_key(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-bulk-missing-key@example.com"))
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await award_xp_bulk(
+                user_id,
+                [XPAward("quiz_correct", "Missing key")],
+                db,
+            )
+
+    with pytest.raises(ValueError, match="idempotency key"):
+        run_db(_exercise())
 
 
 def test_bulk_award_xp_dedupes_duplicate_idempotency_keys_in_one_batch(app_client, run_db):
