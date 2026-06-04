@@ -232,6 +232,7 @@ def topic_item_out(
     resource_access: dict[int, AccessDecision] | None = None,
 ) -> TopicItemOut:
     progress = progress_by_item.get(item.id)
+    watched_seconds = max(0, int(progress.watched_seconds or 0)) if progress else 0
     access = item_access.get(item.id) if item_access else None
     primary_tab = _primary_tab_for_item(item)
     out = TopicItemOut(
@@ -252,6 +253,8 @@ def topic_item_out(
         primary_tab=tab_content_out(primary_tab, tab_access, resource_access) if primary_tab else None,
         tabs=[tab_content_out(t, tab_access, resource_access) for t in item.tabs if t.status == "published"],
         progress_status=progress.status if progress else "not_started",
+        watched_seconds=watched_seconds,
+        resume_seconds=0 if progress and progress.status == "completed" else watched_seconds,
         best_score=progress.best_score if progress else None,
     )
     if access:

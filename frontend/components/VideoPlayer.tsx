@@ -13,6 +13,8 @@ const VDO_API_SRC = 'https://player.vdocipher.com/v2/api.js'
 type StreamData = {
   otp?: string | null
   playback_info?: string | null
+  watched_seconds?: number | null
+  resume_seconds?: number | null
 } | null
 
 type LessonStreamState = {
@@ -115,11 +117,12 @@ type VideoPlayerProps = {
   /** Deprecated prop name; the value now represents a topic item id. */
   lessonId: string | number
   durationSeconds: number
+  resumeSeconds?: number
   onProgress?: ProgressCallback
   onComplete?: CompleteCallback
 }
 
-export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onComplete }: VideoPlayerProps) {
+export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds = 0, onProgress, onComplete }: VideoPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const playerRef = useRef<VdoCipherPlayer | null>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -134,6 +137,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const lastSavedRef = useRef(0)
+  const initialSeekDoneRef = useRef(false)
 
   const clearProgressInterval = useCallback(() => {
     if (progressIntervalRef.current) {
@@ -161,6 +165,19 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     const nativeDuration = playerRef.current?.video?.duration ?? 0
     return Number.isFinite(nativeDuration) && nativeDuration > 0 ? nativeDuration : durationSeconds
   }, [durationSeconds])
+
+  const currentResumeSeconds = useCallback(() => {
+    const streamResume = Number(streamData?.resume_seconds ?? 0)
+    const propResume = Number(resumeSeconds || 0)
+    return Math.max(0, Math.round(streamResume || propResume))
+  }, [resumeSeconds, streamData?.resume_seconds])
+
+  const currentWatchedSeconds = useCallback(() => {
+    const current = Math.round(playerRef.current?.video?.currentTime ?? 0)
+    const streamWatched = Number(streamData?.watched_seconds ?? 0)
+    const propResume = Number(resumeSeconds || 0)
+    return Math.max(0, current, Math.round(streamWatched || propResume))
+  }, [resumeSeconds, streamData?.watched_seconds])
 
   const reportCompletion = useCallback(async () => {
     if (completionReportedRef.current || completionSaveInFlightRef.current) return
@@ -194,6 +211,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
     completionReportedRef.current = false
     completionSaveInFlightRef.current = false
     lastSavedRef.current = 0
+    initialSeekDoneRef.current = false
     clearProgressInterval()
 
     let cancelled = false
@@ -267,6 +285,11 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
 
         playerRef.current = player
         activePlayer = player
+        const resumeAt = currentResumeSeconds()
+        if (!initialSeekDoneRef.current && resumeAt > 0) {
+          video.currentTime = resumeAt
+          initialSeekDoneRef.current = true
+        }
 
         const handlePlay = () => {
           setIsPlaying(true)
@@ -302,6 +325,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
 
     return () => {
       cancelled = true
+      void saveProgress(currentWatchedSeconds())
       cleanupVideoEvents?.()
       clearProgressInterval()
       playerRef.current?.destroy?.()
@@ -310,6 +334,8 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
   }, [
     clearProgressInterval,
     currentDuration,
+    currentResumeSeconds,
+    currentWatchedSeconds,
     durationSeconds,
     lessonId,
     reportCompletion,
@@ -344,6 +370,16 @@ export default function VideoPlayer({ lessonId, durationSeconds, onProgress, onC
       }
     }
   }, [clearProgressInterval, isPlaying, lessonId, saveProgress])
+
+  useEffect(() => {
+    const flushProgress = () => {
+      void saveProgress(currentWatchedSeconds())
+    }
+    window.addEventListener('pagehide', flushProgress)
+    return () => {
+      window.removeEventListener('pagehide', flushProgress)
+    }
+  }, [currentWatchedSeconds, saveProgress])
 
   if (error) {
     return (

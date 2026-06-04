@@ -38,6 +38,8 @@ export interface TopicItem {
   renderer_key: string
   duration_seconds: number
   progress_status: string
+  watched_seconds?: number
+  resume_seconds?: number
   can_access?: boolean
   locked_reason?: string
   primary_resource?: Resource | null

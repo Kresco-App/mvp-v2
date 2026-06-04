@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 37.
+- Current active bug count after this deep audit append: 36.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-017 - Video read contract lacks a resume checkpoint
-
-Status: OPEN
-
-Files: `frontend/components/VideoPlayer.tsx`, `backend/app/routers/courses.py`
-
-Current evidence: `/topic-items/{item_id}/stream` returns only stream credentials, workspace `TopicItemOut` exposes progress status/best score but not watched/resume seconds, and `VideoPlayer` has no prop or seek path for saved position.
-
-Risk: students lose their place and progress state is inconsistent.
-
-Fix direction: expose `watched_seconds`/`resume_seconds` in the read contract, thread it into `VideoPlayer`, seek after player load, and flush progress on pagehide/unmount if needed.
 
 #### BUG-P1-018 - Exam attempt state is not persisted across reloads
 

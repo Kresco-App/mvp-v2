@@ -37,15 +37,15 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/components/VideoPlayer', () => ({
-  default: ({ lessonId, onComplete }: { lessonId: number; onComplete?: () => void | Promise<void> }) => {
+  default: ({ lessonId, resumeSeconds, onComplete }: { lessonId: number; resumeSeconds?: number; onComplete?: () => void | Promise<void> }) => {
     mocks.videoComplete = onComplete ?? null
-    return React.createElement('div', { 'data-testid': 'video-player' }, `Video player ${lessonId}`)
+    return React.createElement('div', { 'data-testid': 'video-player' }, `Video player ${lessonId}:${resumeSeconds ?? 0}`)
   },
 }))
 
 vi.mock('@/components/YouTubeVideoPlayer', () => ({
-  default: ({ lessonId, videoId }: { lessonId: number; videoId: string }) => (
-    React.createElement('div', { 'data-testid': 'youtube-tracked-player' }, `YouTube player ${lessonId}:${videoId}`)
+  default: ({ lessonId, videoId, resumeSeconds }: { lessonId: number; videoId: string; resumeSeconds?: number }) => (
+    React.createElement('div', { 'data-testid': 'youtube-tracked-player' }, `YouTube player ${lessonId}:${videoId}:${resumeSeconds ?? 0}`)
   ),
 }))
 
@@ -123,6 +123,8 @@ const providerVideoWorkspace: TopicWorkspace = {
     item_type: 'video',
     renderer_key: '',
     duration_seconds: 600,
+    watched_seconds: 75,
+    resume_seconds: 75,
     progress_status: 'in_progress',
     primary_resource: {
       id: 601,
@@ -199,6 +201,8 @@ const providerVideoWorkspace: TopicWorkspace = {
           item_type: 'video',
           renderer_key: '',
           duration_seconds: 600,
+          watched_seconds: 75,
+          resume_seconds: 75,
           progress_status: 'in_progress',
           primary_resource: {
             id: 601,
@@ -369,7 +373,7 @@ describe('TopicWorkspacePage primary playback', () => {
     const { container } = renderPage()
 
     expect(container.textContent).toContain('Mathematics: Continuity introduction')
-    expect(container.querySelector('[data-testid="video-player"]')?.textContent).toContain('Video player 101')
+    expect(container.querySelector('[data-testid="video-player"]')?.textContent).toContain('Video player 101:75')
     expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
   })
 
@@ -390,7 +394,7 @@ describe('TopicWorkspacePage primary playback', () => {
     const { container } = renderPage()
 
     expect(container.textContent).toContain('Mathematics: YouTube continuity introduction')
-    expect(container.querySelector('[data-testid="youtube-tracked-player"]')?.textContent).toContain('YouTube player 101:dQw4w9WgXcQ')
+    expect(container.querySelector('[data-testid="youtube-tracked-player"]')?.textContent).toContain('YouTube player 101:dQw4w9WgXcQ:75')
     expect(container.querySelector('[data-testid="video-player"]')).toBeNull()
     expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
   })

@@ -32,6 +32,8 @@ class SubjectDetailOut(BaseModel):
 class StreamOut(BaseModel):
     otp: str
     playback_info: str
+    watched_seconds: int = 0
+    resume_seconds: int = 0
 
 
 class ResourceOut(BaseModel):
@@ -92,6 +94,8 @@ class TopicItemOut(BaseModel):
     primary_tab: Optional[TabContentOut] = None
     tabs: list[TabContentOut] = []
     progress_status: str = "not_started"
+    watched_seconds: int = 0
+    resume_seconds: int = 0
     best_score: Optional[int] = None
     required_tier: str = ""
     required_feature_key: str = ""

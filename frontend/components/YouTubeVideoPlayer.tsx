@@ -18,6 +18,7 @@ type YouTubePlayer = {
   destroy?: () => void
   getCurrentTime?: () => number
   getDuration?: () => number
+  seekTo?: (seconds: number, allowSeekAhead: boolean) => void
 }
 
 type YouTubePlayerConstructor = new (
@@ -113,6 +114,7 @@ type YouTubeVideoPlayerProps = {
   lessonId: string | number
   videoId: string
   durationSeconds: number
+  resumeSeconds?: number
   onProgress?: ProgressCallback
   onComplete?: CompleteCallback
 }
@@ -121,6 +123,7 @@ export default function YouTubeVideoPlayer({
   lessonId,
   videoId,
   durationSeconds,
+  resumeSeconds = 0,
   onProgress,
   onComplete,
 }: YouTubeVideoPlayerProps) {
@@ -132,6 +135,7 @@ export default function YouTubeVideoPlayer({
   const onProgressRef = useRef<ProgressCallback>(onProgress)
   const onCompleteRef = useRef<CompleteCallback>(onComplete)
   const lastSavedRef = useRef(0)
+  const initialSeekDoneRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -158,6 +162,14 @@ export default function YouTubeVideoPlayer({
     const playerDuration = playerRef.current?.getDuration?.() ?? 0
     return playerDuration > 0 ? playerDuration : durationSeconds
   }, [durationSeconds])
+
+  const currentResumeSeconds = useCallback(() => (
+    Math.max(0, Math.round(Number(resumeSeconds || 0)))
+  ), [resumeSeconds])
+
+  const currentWatchedSeconds = useCallback(() => (
+    Math.max(0, Math.round(playerRef.current?.getCurrentTime?.() ?? currentResumeSeconds()))
+  ), [currentResumeSeconds])
 
   const reportCompletion = useCallback(() => {
     if (completionReportedRef.current) return
@@ -188,6 +200,7 @@ export default function YouTubeVideoPlayer({
     lessonIdentityRef.current = lessonId
     completionReportedRef.current = false
     lastSavedRef.current = 0
+    initialSeekDoneRef.current = false
     clearProgressInterval()
     setLoading(true)
     setError(null)
@@ -203,6 +216,11 @@ export default function YouTubeVideoPlayer({
           playerVars: buildYouTubePlayerVars(),
           events: {
             onReady: () => {
+              const resumeAt = currentResumeSeconds()
+              if (!initialSeekDoneRef.current && resumeAt > 0) {
+                player.seekTo?.(resumeAt, true)
+                initialSeekDoneRef.current = true
+              }
               if (!cancelled) setLoading(false)
             },
             onStateChange: (event) => {
@@ -241,11 +259,12 @@ export default function YouTubeVideoPlayer({
 
     return () => {
       cancelled = true
+      void saveProgress(currentWatchedSeconds())
       clearProgressInterval()
       playerRef.current?.destroy?.()
       playerRef.current = null
     }
-  }, [clearProgressInterval, lessonId, reportCompletion, syncProgress, videoId])
+  }, [clearProgressInterval, currentResumeSeconds, currentWatchedSeconds, lessonId, reportCompletion, saveProgress, syncProgress, videoId])
 
   useEffect(() => {
     if (!isPlaying) {
@@ -272,6 +291,16 @@ export default function YouTubeVideoPlayer({
       }
     }
   }, [clearProgressInterval, isPlaying, lessonId, saveProgress, syncProgress])
+
+  useEffect(() => {
+    const flushProgress = () => {
+      void saveProgress(currentWatchedSeconds())
+    }
+    window.addEventListener('pagehide', flushProgress)
+    return () => {
+      window.removeEventListener('pagehide', flushProgress)
+    }
+  }, [currentWatchedSeconds, saveProgress])
 
   if (error) {
     return (

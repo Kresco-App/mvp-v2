@@ -39,6 +39,7 @@ let capturedOptions: PlayerOptions | null = null
 let currentTime = 0
 let duration = 100
 let destroyMock = vi.fn()
+let seekToMock = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -48,12 +49,16 @@ beforeEach(() => {
   currentTime = 0
   duration = 100
   destroyMock = vi.fn()
+  seekToMock = vi.fn((seconds: number) => {
+    currentTime = seconds
+  })
   window.YT = {
     Player: vi.fn(function (_element: HTMLElement, options: PlayerOptions) {
       capturedOptions = options
       return {
         getCurrentTime: () => currentTime,
         getDuration: () => duration,
+        seekTo: seekToMock,
         destroy: destroyMock,
       }
     }),
@@ -137,6 +142,19 @@ describe('YouTubeVideoPlayer', () => {
     })
   })
 
+  it('seeks to the resume checkpoint when the player is ready', async () => {
+    renderPlayer({ resumeSeconds: 37 })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      capturedOptions?.events.onReady()
+    })
+
+    expect(seekToMock).toHaveBeenCalledWith(37, true)
+  })
+
   it('destroys the YouTube player on unmount', async () => {
     renderPlayer({})
     await act(async () => {
@@ -154,6 +172,7 @@ describe('YouTubeVideoPlayer', () => {
 function renderPlayer(props: {
   onProgress?: (currentSeconds: number, progress: number) => void
   onComplete?: () => void
+  resumeSeconds?: number
 }) {
   const container = document.createElement('div')
   document.body.appendChild(container)

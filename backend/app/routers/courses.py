@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
 from app.models.courses import Exam, ExamProblem, Subject, Topic, TopicItem
+from app.models.gamification import TopicItemProgress
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.courses import (
@@ -261,10 +262,24 @@ async def get_topic_item_stream(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    _item, resource = await require_topic_item_primary_video_resource_access(db, user, item_id)
+    item, resource = await require_topic_item_primary_video_resource_access(db, user, item_id)
+    progress = await db.scalar(
+        select(TopicItemProgress).where(
+            TopicItemProgress.user_id == user.id,
+            TopicItemProgress.topic_id == item.topic_id,
+            TopicItemProgress.topic_item_id == item.id,
+        )
+    )
+    watched_seconds = max(0, int(progress.watched_seconds or 0)) if progress else 0
+    resume_seconds = 0 if progress and progress.status == "completed" else watched_seconds
     video_id = resource.provider_resource_id or resource.url
     await db.rollback()
-    return await get_video_stream_data(video_id, settings)
+    stream_data = await get_video_stream_data(video_id, settings)
+    return {
+        **stream_data,
+        "watched_seconds": watched_seconds,
+        "resume_seconds": resume_seconds,
+    }
 
 
 @router.post("/resources/{resource_id}/open", response_model=ResourceOpenOut)

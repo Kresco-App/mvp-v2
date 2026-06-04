@@ -52,6 +52,7 @@ afterEach(() => {
     container.remove()
   }
   mountedRoots = []
+  delete window.VdoPlayer
 })
 
 describe('core learning component rendering', () => {
@@ -168,6 +169,41 @@ describe('core learning component rendering', () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Lecon marquee comme terminee !')
   })
 
+  it('seeks VdoCipher playback to the resume checkpoint and flushes latest progress on pagehide', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'mock-otp-token', playback_info: 'mock-playback' } })
+    mocks.apiPost.mockResolvedValue({ data: {} })
+    const fakeVideo = document.createElement('video')
+    Object.defineProperty(fakeVideo, 'duration', { value: 120, configurable: true })
+    const getInstance = vi.fn(() => ({
+      video: fakeVideo,
+      destroy: vi.fn(),
+    }))
+    window.VdoPlayer = { getInstance }
+
+    renderComponent(React.createElement(VideoPlayer, {
+      lessonId: 42,
+      durationSeconds: 120,
+      resumeSeconds: 47,
+      onProgress: vi.fn(),
+      onComplete: vi.fn(),
+    }))
+
+    await waitFor(() => {
+      expect(getInstance).toHaveBeenCalledTimes(1)
+      expect(fakeVideo.currentTime).toBe(47)
+    })
+
+    fakeVideo.currentTime = 63
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+      await flushPromises()
+    })
+
+    expect(mocks.apiPost).toHaveBeenCalledWith('/courses/topic-items/42/complete', {
+      watched_seconds: 63,
+    })
+  })
+
 })
 
 function renderComponent(element: React.ReactElement) {
@@ -192,4 +228,20 @@ function buttonByText(container: HTMLElement, text: string) {
 async function flushPromises() {
   await Promise.resolve()
   await Promise.resolve()
+}
+
+async function waitFor(assertion: () => void) {
+  let lastError: unknown
+  for (let index = 0; index < 30; index += 1) {
+    try {
+      assertion()
+      return
+    } catch (error) {
+      lastError = error
+      await act(async () => {
+        await flushPromises()
+      })
+    }
+  }
+  throw lastError
 }

@@ -14,6 +14,7 @@ async def _seed_topic(
     item_tier: str = "",
     tab_tier: str = "",
     resource_status: str = "published",
+    provider_resource_id: str = "secret-video",
 ):
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -31,7 +32,7 @@ async def _seed_topic(
             title="Locked video",
             resource_type="video",
             provider="vdocipher",
-            provider_resource_id="secret-video",
+            provider_resource_id=provider_resource_id,
             url="https://secret.example/video",
             status=resource_status,
             required_tier=tab_tier,
@@ -129,6 +130,39 @@ def test_topic_item_stream_rejects_unpublished_primary_resource(app_client, auth
 
     assert stream.status_code == 404
     assert stream.json()["detail"] == "No video resource configured for this topic item"
+
+
+def test_topic_workspace_and_stream_include_resume_checkpoint(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="access-video-resume@example.com", is_pro=True)
+    _subject_id, topic_id, item_id, _tab_id = run_db(
+        _seed_topic(user_id, "access-video-resume", provider_resource_id="demo-resume-video")
+    )
+
+    async def _add_progress():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(TopicItemProgress(
+                user_id=user_id,
+                topic_id=topic_id,
+                topic_item_id=item_id,
+                status="in_progress",
+                watched_seconds=83,
+            ))
+            await db.commit()
+
+    run_db(_add_progress())
+
+    headers = {"Authorization": f"Bearer {token}"}
+    workspace = app_client.get(f"/api/courses/topics/{topic_id}/workspace", headers=headers)
+    stream = app_client.get(f"/api/courses/topic-items/{item_id}/stream", headers=headers)
+
+    assert workspace.status_code == 200
+    workspace_item = workspace.json()["active_item"]
+    assert workspace_item["watched_seconds"] == 83
+    assert workspace_item["resume_seconds"] == 83
+    assert stream.status_code == 200
+    assert stream.json()["watched_seconds"] == 83
+    assert stream.json()["resume_seconds"] == 83
 
 
 def test_create_topic_returns_created_card_for_unpublished_subject(app_client, run_db, test_settings):

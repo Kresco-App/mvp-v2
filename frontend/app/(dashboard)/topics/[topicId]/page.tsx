@@ -305,6 +305,7 @@ export default function TopicWorkspacePage() {
           <VideoPlayer
             lessonId={activeItem.id}
             durationSeconds={activeItem.duration_seconds || 0}
+            resumeSeconds={activeItem.resume_seconds || 0}
             onComplete={refreshActiveProgress}
           />
         </PrimaryContentFrame>
@@ -317,6 +318,7 @@ export default function TopicWorkspacePage() {
             lessonId={activeItem.id}
             videoId={activePrimaryVideoId}
             durationSeconds={activeItem.duration_seconds || 0}
+            resumeSeconds={activeItem.resume_seconds || 0}
             onComplete={refreshActiveProgress}
           />
         </PrimaryContentFrame>
