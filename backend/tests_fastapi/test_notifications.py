@@ -169,6 +169,7 @@ def test_notification_db_mutations_stay_out_of_router():
     assert "Notification.user_id == user.id" in service_source
     assert "Notification.created_at.desc()" in service_source
     assert "select(func.count())" in service_source
+    assert ".over(" not in service_source
     assert 'detail="Notification not found"' in service_source
     assert "await db.refresh(notification)" in service_source
 

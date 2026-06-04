@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 50.
+- Current active bug count after this deep audit append: 49.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,13 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-042 - Notification pagination window function forces table scans
-Status: OPEN
-Files: `backend/app/services/notifications.py`
-Current evidence: `list_user_notifications` uses `func.sum(case(...)).over()` to calculate `unread_count_expr` without a partition, inside a paginated query with `.offset().limit()`. In SQL, a window function without a partition over the entire result set forces the database to evaluate the window over all matching rows before applying `LIMIT`.
-Risk: Fetching 20 notifications for a user with 10,000 notifications requires a full index scan and materialization of all 10,000 rows just to compute the unread sum, defeating Top-N index optimizations and causing a severe N+1-like pagination bottleneck.
-Fix direction: Remove the `.over()` window function from the paginated read query. Execute a separate targeted `COUNT` query for unread notifications (which can use partial indexes) and let the main query use the `(user_id, created_at)` index for O(1) Top-N pagination.
 
 #### BUG-P1-043 - Payment checkout API drops frontend success and cancel redirect paths
 Status: OPEN
