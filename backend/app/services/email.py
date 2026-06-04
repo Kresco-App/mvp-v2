@@ -62,7 +62,7 @@ def verify_verification_token(token: str, settings: Settings, max_age: int = 864
 
 def generate_reset_token(email: str, settings: Settings, *, token_version: int = 0) -> str:
     return _serializer(settings).dumps(
-        {"email": email, "token_version": token_version},
+        {"email": email.lower().strip(), "token_version": token_version},
         salt="password-reset",
     )
 

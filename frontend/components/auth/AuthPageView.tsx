@@ -2,7 +2,7 @@
 
 import { ArrowLeft, Check, Eye, EyeOff, Mail } from 'lucide-react'
 import KrescoLogo from '@/components/KrescoLogo'
-import type { AuthPageController } from '@/lib/authPageController'
+import { canSubmitOnboarding, type AuthPageController } from '@/lib/authPageController'
 import { localizedCopy } from '@/lib/localization'
 
 const NIVEAUX = [
@@ -404,7 +404,7 @@ export function AuthPageView(controller: AuthPageController) {
                 )
               })}
             </div>
-            <button type="button" onClick={saveOnboarding} disabled={!selectedSpec || loading} className={primaryButtonClass}>
+            <button type="button" onClick={saveOnboarding} disabled={!canSubmitOnboarding(selectedLevel, selectedSpec, loading)} className={primaryButtonClass}>
               {loading ? localizedCopy.auth.saving : localizedCopy.auth.start}
             </button>
           </>

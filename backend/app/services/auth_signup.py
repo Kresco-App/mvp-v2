@@ -10,6 +10,10 @@ from app.models.users import User
 from app.security.passwords import hash_password_async
 
 
+def _normalize_email(email: str) -> str:
+    return email.lower().strip()
+
+
 async def _apply_unverified_signup_reclaim(
     user: User,
     *,
@@ -44,7 +48,7 @@ async def _reclaim_unverified_user(
 
 
 async def _reselect_signup_user(db: AsyncSession, email: str) -> User:
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(User.email == _normalize_email(email)))
     existing = result.scalar_one_or_none()
     if existing is None:
         raise HTTPException(status_code=503, detail="Could not complete signup.")
@@ -58,7 +62,8 @@ async def create_or_reclaim_signup_user(
     full_name: str,
     plain_password: str,
 ) -> User:
-    result = await db.execute(select(User).where(User.email == email))
+    normalized_email = _normalize_email(email)
+    result = await db.execute(select(User).where(User.email == normalized_email))
     existing = result.scalar_one_or_none()
 
     if existing is not None:
@@ -79,7 +84,7 @@ async def create_or_reclaim_signup_user(
             )
 
     user = User(
-        email=email,
+        email=normalized_email,
         full_name=full_name,
         password=await hash_password_async(plain_password),
         is_email_verified=False,

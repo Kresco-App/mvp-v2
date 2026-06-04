@@ -65,6 +65,10 @@ describe('API SWR data policy', () => {
     vi.useRealTimers()
   })
 
+  it('revalidates SWR data on focus so 401s can recover after auth refresh', () => {
+    expect(apiSWRConfig.revalidateOnFocus).toBe(true)
+  })
+
   it('formats API data errors without leaking implementation details', () => {
     expect(apiErrorStatus({ response: { status: 503 } })).toBe(503)
     expect(apiDataErrorMessage({ response: { data: { detail: 'Controlled failure' }, status: 500 } }, 'Fallback')).toBe('Controlled failure')

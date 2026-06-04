@@ -42,6 +42,10 @@ class PreparedEmailDispatch:
     full_name: str = ""
 
 
+def _normalize_email(email: str) -> str:
+    return email.lower().strip()
+
+
 def as_aware_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
@@ -54,6 +58,7 @@ def log_email_dispatch_failure(flow: str, exc: Exception) -> None:
 
 
 async def reserve_email_dispatch(db: AsyncSession, email: str, purpose: str) -> EmailDispatchReservation | None:
+    email = _normalize_email(email)
     now = datetime.now(timezone.utc)
     result = await db.execute(
         select(EmailDispatchThrottle)
@@ -146,6 +151,7 @@ async def prepare_signup_verification_dispatch(
     token_version: int,
     settings: Settings,
 ) -> PreparedEmailDispatch | None:
+    email = _normalize_email(email)
     reservation = await reserve_email_dispatch(db, email, EMAIL_PURPOSE_VERIFICATION)
     if reservation is None:
         return None
@@ -160,6 +166,7 @@ async def prepare_resend_verification_dispatch(
     email: str,
     settings: Settings,
 ) -> PreparedEmailDispatch | None:
+    email = _normalize_email(email)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
     if not user or user.is_email_verified:
@@ -178,6 +185,7 @@ async def prepare_password_reset_dispatch(
     email: str,
     settings: Settings,
 ) -> PreparedEmailDispatch | None:
+    email = _normalize_email(email)
     result = await db.execute(
         select(User).where(User.email == email, User.is_active == True)  # noqa: E712
     )

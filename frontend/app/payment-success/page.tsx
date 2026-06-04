@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { apiJsonClient } from '@/lib/apiClient'
+import { getMyProfile } from '@/lib/profile'
 import { useAuthStore } from '@/lib/store'
 import { verifyCheckoutSession } from '@/lib/payments'
 import KrescoLogo from '@/components/KrescoLogo'
@@ -21,12 +22,23 @@ function PaymentSuccessContent() {
     setStatus('loading')
 
     verifyCheckoutSession(apiJsonClient, sessionId)
-      .then((result) => {
+      .then(async (result) => {
         if (cancelled) return
-        if (result.status === 'success') {
+        if (result.status !== 'success') {
+          setStatus('error')
+          return
+        }
+
+        try {
+          const profile = await getMyProfile()
+          if (cancelled) return
+          updateUser({ ...profile, ...result.userPatch })
+        } catch {
+          if (cancelled) return
           updateUser(result.userPatch)
         }
-        setStatus(result.status)
+
+        setStatus('success')
       })
       .catch(() => {
         if (!cancelled) setStatus('error')

@@ -35,7 +35,7 @@ export function apiDataErrorMessage(error: unknown, fallback: string) {
 
 export const apiSWRConfig: SWRConfiguration = {
   fetcher: apiSWRFetcher,
-  revalidateOnFocus: false,
+  revalidateOnFocus: true,
   revalidateOnReconnect: true,
   dedupingInterval: 5000,
   errorRetryCount: API_DATA_ERROR_RETRY_COUNT,

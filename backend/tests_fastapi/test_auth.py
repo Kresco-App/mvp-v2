@@ -1,6 +1,7 @@
 import inspect
 from types import SimpleNamespace
 
+from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,7 @@ from app.services import auth_account
 from app.services import auth_email_dispatch
 from app.services import auth_google
 from app.services import auth_signup
-from app.services.email import generate_reset_token, generate_verification_token
+from app.services.email import generate_reset_token, generate_verification_token, verify_reset_token
 
 
 async def _failing_send_email(*args, **kwargs):
@@ -135,6 +136,27 @@ def test_signup_account_lifecycle_stays_out_of_router():
     assert "Un compte existe deja avec cet email" in service_source
 
 
+def test_signup_service_normalizes_email_before_lookup_and_persistence(run_db):
+    email = "  Mixed.Case+Signup@Example.Com  "
+
+    async def _create_user():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            return await auth_signup.create_or_reclaim_signup_user(
+                db,
+                email=email,
+                full_name="Normalized Signup",
+                plain_password="signup-pass-123",
+            )
+
+    user = run_db(_create_user())
+
+    assert user.email == "mixed.case+signup@example.com"
+    stored = run_db(_get_user("mixed.case+signup@example.com"))
+    assert stored is not None
+    assert stored.email == "mixed.case+signup@example.com"
+
+
 def test_google_login_persistence_stays_out_of_router():
     import app.routers.users as users_router
 
@@ -191,6 +213,54 @@ def test_token_guarded_auth_mutations_stay_out_of_router():
     assert "Lien de reinitialisation invalide ou expire" in service_source
     assert "verify_password_async(" in service_source
     assert "hash_password_async(" in service_source
+
+
+def test_password_reset_dispatch_and_account_flow_normalize_email(run_db, test_settings):
+    email = "  Reset.Lookup+Case@Example.Com  "
+    normalized_email = "reset.lookup+case@example.com"
+
+    run_db(_seed_user(normalized_email, is_email_verified=True))
+
+    async def _prepare_dispatch():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            return await auth_email_dispatch.prepare_password_reset_dispatch(
+                db,
+                email=email,
+                settings=test_settings,
+            )
+
+    dispatch = run_db(_prepare_dispatch())
+    assert dispatch is not None
+    assert dispatch.email == normalized_email
+
+    serializer = URLSafeTimedSerializer(test_settings.jwt_secret_key)
+    raw_token = serializer.dumps(
+        {"email": email, "token_version": 0},
+        salt="password-reset",
+    )
+    normalized_generated = verify_reset_token(
+        generate_reset_token(email, test_settings, token_version=0),
+        test_settings,
+    )
+    assert normalized_generated is not None
+    assert normalized_generated.email == normalized_email
+
+    async def _reset_password():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await auth_account.reset_password_account(
+                db,
+                token=raw_token,
+                password="new-reset-pass-123",
+                settings=test_settings,
+            )
+
+    run_db(_reset_password())
+
+    user = run_db(_get_user(normalized_email))
+    assert user is not None
+    assert user.email == normalized_email
 
 
 def test_signup_verify_and_login_flow(app_client, test_settings):

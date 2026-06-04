@@ -17,12 +17,32 @@ declare global {
 export type AuthStep = 'auth' | 'niveau' | 'filiere'
 export type AuthMode = 'options' | 'login' | 'signup' | 'verify-pending' | 'forgot' | 'forgot-sent'
 
+type OnboardingUserLike = {
+  niveau?: string | null
+  filiere?: string | null
+}
+
 const UNVERIFIED_EMAIL_LOGIN_DETAIL = 'Veuillez verifier votre email avant de vous connecter'
+
+export function normalizeEmailInput(value: string) {
+  return value.trim().toLowerCase()
+}
 
 export function isUnverifiedEmailLoginError(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const response = (error as { response?: { status?: number; data?: { detail?: unknown } } }).response
   return response?.status === 403 && response.data?.detail === UNVERIFIED_EMAIL_LOGIN_DETAIL
+}
+
+export function getOnboardingSelections(user: OnboardingUserLike | null | undefined) {
+  return {
+    selectedLevel: typeof user?.niveau === 'string' ? user.niveau.trim() : '',
+    selectedSpec: typeof user?.filiere === 'string' ? user.filiere.trim() : '',
+  }
+}
+
+export function canSubmitOnboarding(selectedLevel: string, selectedSpec: string, loading = false) {
+  return !loading && Boolean(selectedLevel.trim()) && Boolean(selectedSpec.trim())
 }
 
 export function useAuthPageController() {
@@ -54,6 +74,9 @@ export function useAuthPageController() {
       nextDestination,
     )
     if (resolution.action === 'onboarding') {
+      const onboardingSelections = getOnboardingSelections(nextUser as OnboardingUserLike)
+      setSelectedLevel(onboardingSelections.selectedLevel)
+      setSelectedSpec(onboardingSelections.selectedSpec)
       setStep(resolution.step)
       return
     }
@@ -160,8 +183,9 @@ export function useAuthPageController() {
     if (password.length < 6) return toast.error('Mot de passe trop court (min. 6 caractères)')
     setLoading(true)
     try {
-      const data = await postJson<any>('/auth/signup', { email, password, full_name: fullName })
-      setPendingEmail(data.email)
+      const normalizedEmail = normalizeEmailInput(email)
+      const data = await postJson<any>('/auth/signup', { email: normalizedEmail, password, full_name: fullName })
+      setPendingEmail(normalizeEmailInput(data.email))
       setAuthMode('verify-pending')
       toast.success('Email de vérification envoyé !')
     } catch (err: any) {
@@ -175,13 +199,14 @@ export function useAuthPageController() {
     e.preventDefault()
     setLoading(true)
     try {
-      const data = await postJson<any>('/auth/login', { email, password })
+      const normalizedEmail = normalizeEmailInput(email)
+      const data = await postJson<any>('/auth/login', { email: normalizedEmail, password })
       login(data.user, data.csrf_token)
       toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
       handleAuthResolution(data.user)
     } catch (err: any) {
       if (isUnverifiedEmailLoginError(err)) {
-        setPendingEmail(email)
+        setPendingEmail(normalizeEmailInput(email))
         setAuthMode('verify-pending')
         toast.error('Vérifiez votre email avant de vous connecter.')
       } else {
@@ -196,12 +221,12 @@ export function useAuthPageController() {
     e.preventDefault()
     setLoading(true)
     try {
-      await postJson('/auth/forgot-password', { email })
+      await postJson('/auth/forgot-password', { email: normalizeEmailInput(email) })
+      setAuthMode('forgot-sent')
     } catch (err) {
-      console.error('forgot password request failed', err)
+      toast.error(apiDataErrorMessage(err, 'Impossible d\'envoyer le lien de reinitialisation.'))
     } finally {
       setLoading(false)
-      setAuthMode('forgot-sent')
     }
   }
 
@@ -209,7 +234,7 @@ export function useAuthPageController() {
     if (!pendingEmail) return
     setLoading(true)
     try {
-      await postJson('/auth/resend-verification', { email: pendingEmail })
+      await postJson('/auth/resend-verification', { email: normalizeEmailInput(pendingEmail) })
       toast.success('Email renvoyé !')
     } catch {
       toast.error('Impossible d\'envoyer l\'email.')
@@ -219,6 +244,11 @@ export function useAuthPageController() {
   }
 
   async function saveOnboarding() {
+    if (!canSubmitOnboarding(selectedLevel, selectedSpec, loading)) {
+      toast.error('Selectionnez votre niveau et votre filiere.')
+      return
+    }
+
     setLoading(true)
     try {
       const data = await patchJson<any>('/profile/me', { niveau: selectedLevel, filiere: selectedSpec })
@@ -227,7 +257,6 @@ export function useAuthPageController() {
       router.push(resolution.action === 'redirect' ? resolution.destination : '/home')
     } catch {
       toast.error('Erreur lors de la sauvegarde.')
-    } finally {
       setLoading(false)
     }
   }
