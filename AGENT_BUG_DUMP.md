@@ -41,7 +41,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after this deep audit append: 47.
+- Current active bug count after this deep audit append: 46.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -61,18 +61,6 @@ Risk: release readiness can be claimed while required security, media, realtime,
 Fix direction: verify or retire each traceability row with current commands/evidence and keep the launch gate failing until the score reaches the target.
 
 ### P1 - Correctness, Security, and Scalability Bugs
-
-#### BUG-P1-002 - Quiz discovery checks access after a fixed candidate limit
-
-Status: OPEN
-
-Files: `backend/app/routers/quizzes.py`, `backend/app/services/course_access.py`, `backend/app/models/quizzes.py`, `backend/tests_fastapi/test_topic_quiz.py`
-
-Current evidence: `get_subject_quiz_discovery` loads the first 25 published `QuestionSet` rows for a subject, then calls `_question_set_access` inside a Python loop and returns the first accessible candidate. `QuestionSet` rows can be standalone subject quizzes or inherit access through `topic_id`, `topic_item_id`, or `tab_content_id`, so access can vary inside one subject. The current topic-quiz regression seeds one question set and proves locked versus allowed subject scope, but it does not seed more than 25 inaccessible/locked candidates ahead of an accessible free-preview or entitled candidate.
-
-Risk: quiz discovery can return `403` or `quiz: null` while an accessible quiz exists beyond the first 25 ordered rows, and the route still does O(N) parent/access database work for the capped candidate set.
-
-Fix direction: build one access context, batch-load parent rows, and push enough subject/parent access filtering before candidate selection that accessible quizzes cannot be hidden behind locked rows. Add a regression with 25 locked candidates followed by one accessible candidate.
 
 #### BUG-P1-003 - Legacy quiz submit corrupts attempt analytics
 

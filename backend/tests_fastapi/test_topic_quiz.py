@@ -401,6 +401,72 @@ def test_standalone_subject_quiz_enforces_subject_access(app_client, auth_token,
     assert allowed_submit.json()["passed"] is True
 
 
+def test_subject_quiz_discovery_skips_locked_candidates_past_initial_window(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="quiz-discovery-window@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Discovery window", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            for index in range(25):
+                topic = Topic(
+                    subject_id=subject.id,
+                    slug=f"discovery-window-locked-{index}",
+                    title=f"Locked {index}",
+                    status="published",
+                    required_tier="vip",
+                )
+                db.add(topic)
+                await db.flush()
+                db.add(
+                    QuestionSet(
+                        subject_id=subject.id,
+                        topic_id=topic.id,
+                        title=f"Locked quiz {index}",
+                        source_type="topic",
+                        pass_score=70,
+                        status="published",
+                        order=index,
+                    )
+                )
+            accessible = QuestionSet(
+                subject_id=subject.id,
+                title="Accessible quiz",
+                source_type="subject_exam",
+                pass_score=70,
+                status="published",
+                order=25,
+            )
+            db.add(accessible)
+            await db.flush()
+            db.add(
+                Question(
+                    question_set_id=accessible.id,
+                    external_id="accessible-q1",
+                    type="multiple_choice",
+                    prompt="Choose one",
+                    config_json={"options": [{"id": 1, "text": "Correct"}, {"id": 2, "text": "Wrong"}]},
+                    answer_json={"answer": 1},
+                    status="published",
+                )
+            )
+            await db.commit()
+            return subject.id, accessible.id
+
+    subject_id, accessible_id = run_db(_seed())
+
+    response = app_client.get(
+        f"/api/quizzes/subjects/{subject_id}/discovery",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["quiz"]["id"] == accessible_id
+
+
 def test_topic_item_completion_rejects_spoofed_video_and_quiz_completion(app_client, auth_token, run_db):
     token, user_id = auth_token(email="topic-completion-spoof@example.com", is_pro=True)
 

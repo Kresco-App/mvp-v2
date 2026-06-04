@@ -10,7 +10,7 @@ from app.models.quizzes import QuestionSet
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.quizzes import QuizDiscoveryOut, QuizOptionOut, QuizOut, QuizQuestionOut, QuizResultOut, QuizSubmitIn
-from app.services.access import AccessDecision, build_access_context
+from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.course_access import ORPHANED_PARENT_ACCESS_DECISION, access_for_tab, access_for_topic_item
 from app.services.quiz_grading import grade_quiz_question
 
@@ -23,16 +23,18 @@ async def get_subject_quiz_discovery(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    access_context = await build_access_context(db, user)
     result = await db.execute(
         select(QuestionSet)
         .options(selectinload(QuestionSet.questions))
         .where(QuestionSet.subject_id == subject_id, QuestionSet.status == "published")
         .order_by(QuestionSet.order, QuestionSet.id)
-        .limit(25)
     )
+    question_sets = result.scalars().all()
+    parents = await _question_set_parent_maps(db, question_sets)
     locked_reason = ""
-    for question_set in result.scalars().all():
-        access = await _question_set_access(db, user, question_set)
+    for question_set in question_sets:
+        access = _question_set_access_from_maps(access_context, question_set, parents)
         if access.can_access:
             return QuizDiscoveryOut(
                 subject_id=subject_id,
@@ -132,6 +134,7 @@ async def _get_accessible_question_set(db: AsyncSession, user: User, question_se
 
 
 async def _question_set_access(db: AsyncSession, user: User, question_set: QuestionSet) -> AccessDecision:
+    access_context = await build_access_context(db, user)
     if question_set.tab_content_id is not None:
         tab = await db.scalar(
             select(TabContent)
@@ -140,7 +143,7 @@ async def _question_set_access(db: AsyncSession, user: User, question_set: Quest
         )
         if tab is None:
             return ORPHANED_PARENT_ACCESS_DECISION
-        return await access_for_tab(db, user, tab)
+        return await access_for_tab(db, user, tab, access_context=access_context)
 
     if question_set.topic_item_id is not None:
         item = await db.scalar(
@@ -150,12 +153,79 @@ async def _question_set_access(db: AsyncSession, user: User, question_set: Quest
         )
         if item is None:
             return ORPHANED_PARENT_ACCESS_DECISION
-        return await access_for_topic_item(db, user, item)
+        return await access_for_topic_item(db, user, item, access_context=access_context)
 
-    access_context = await build_access_context(db, user)
     if question_set.topic_id is not None:
         topic = await db.scalar(select(Topic).where(Topic.id == question_set.topic_id))
         if topic is None:
+            return ORPHANED_PARENT_ACCESS_DECISION
+        return access_context.decide_for(topic, subject_id=topic.subject_id)
+
+    return access_context.decide_for(question_set, subject_id=question_set.subject_id)
+
+
+async def _question_set_parent_maps(
+    db: AsyncSession,
+    question_sets: list[QuestionSet],
+) -> dict[str, dict[int, TabContent | TopicItem | Topic]]:
+    tab_ids = {question_set.tab_content_id for question_set in question_sets if question_set.tab_content_id is not None}
+    item_ids = {question_set.topic_item_id for question_set in question_sets if question_set.topic_item_id is not None}
+    topic_ids = {question_set.topic_id for question_set in question_sets if question_set.topic_id is not None}
+    tabs: dict[int, TabContent] = {}
+    items: dict[int, TopicItem] = {}
+    topics: dict[int, Topic] = {}
+
+    if tab_ids:
+        tab_result = await db.execute(
+            select(TabContent)
+            .options(selectinload(TabContent.topic_item).selectinload(TopicItem.topic))
+            .where(TabContent.id.in_(tab_ids))
+        )
+        tabs = {tab.id: tab for tab in tab_result.scalars().all()}
+
+    if item_ids:
+        item_result = await db.execute(
+            select(TopicItem)
+            .options(selectinload(TopicItem.topic))
+            .where(TopicItem.id.in_(item_ids))
+        )
+        items = {item.id: item for item in item_result.scalars().all()}
+
+    if topic_ids:
+        topic_result = await db.execute(select(Topic).where(Topic.id.in_(topic_ids)))
+        topics = {topic.id: topic for topic in topic_result.scalars().all()}
+
+    return {
+        "tabs": tabs,
+        "items": items,
+        "topics": topics,
+    }
+
+
+def _question_set_access_from_maps(
+    access_context: AccessContext,
+    question_set: QuestionSet,
+    parents: dict[str, dict[int, TabContent | TopicItem | Topic]],
+) -> AccessDecision:
+    if question_set.tab_content_id is not None:
+        tab = parents["tabs"].get(question_set.tab_content_id)
+        if not isinstance(tab, TabContent) or tab.topic_item is None or tab.topic_item.topic is None:
+            return ORPHANED_PARENT_ACCESS_DECISION
+        topic = tab.topic_item.topic
+        topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
+        item_access = access_context.decide_child(topic_access, tab.topic_item, subject_id=topic.subject_id)
+        return access_context.decide_child(item_access, tab, subject_id=topic.subject_id)
+
+    if question_set.topic_item_id is not None:
+        item = parents["items"].get(question_set.topic_item_id)
+        if not isinstance(item, TopicItem) or item.topic is None:
+            return ORPHANED_PARENT_ACCESS_DECISION
+        topic_access = access_context.decide_for(item.topic, subject_id=item.topic.subject_id)
+        return access_context.decide_child(topic_access, item, subject_id=item.topic.subject_id)
+
+    if question_set.topic_id is not None:
+        topic = parents["topics"].get(question_set.topic_id)
+        if not isinstance(topic, Topic):
             return ORPHANED_PARENT_ACCESS_DECISION
         return access_context.decide_for(topic, subject_id=topic.subject_id)
 
