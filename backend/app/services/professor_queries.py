@@ -96,7 +96,7 @@ async def student_teacher_threads(
     for offering in offerings:
         conversation = conversations_by_offering.get(offering.id)
         track = offering.track
-        conversation_model = conversation_out(conversation, settings) if conversation else None
+        conversation_model = await conversation_out(conversation, settings) if conversation else None
         threads.append(
             StudentProfessorThreadOut(
                 course_offering_id=offering.id,
@@ -104,7 +104,7 @@ async def student_teacher_threads(
                 subject_title=offering.subject.title if offering.subject else "",
                 niveau=track.niveau if track else "",
                 filiere=track.filiere if track else "",
-                professor=participant_out(offering.professor, settings),
+                professor=await participant_out(offering.professor, settings),
                 conversation=conversation_model,
                 last_message_preview=conversation.last_message_preview if conversation else "",
                 last_message_sender_role=last_sender_roles.get(conversation.id, "") if conversation else "",
@@ -345,7 +345,7 @@ async def student_professor_chat_status(
         eligible=eligibility.eligible,
         reason=eligibility.reason,
         offerings=[offering_out(offering) for offering in offerings],
-        conversations=[conversation_out(conversation, settings) for conversation in conversations],
+        conversations=[await conversation_out(conversation, settings) for conversation in conversations],
         teacher_threads=teacher_threads,
     )
 
@@ -437,7 +437,7 @@ async def professor_conversations(
         ProfessorChatConversation.last_message_at.desc(),
     ).offset(offset).limit(limit)
     result = await db.execute(stmt)
-    return [conversation_out(conversation, settings) for conversation in result.scalars().all()]
+    return [await conversation_out(conversation, settings) for conversation in result.scalars().all()]
 
 
 async def require_student_conversation(
@@ -553,6 +553,6 @@ async def messages_for_conversation(
     rows = list(result.all())
     rows.reverse()
     return [
-        message_out(message, role, settings)
+        await message_out(message, role, settings)
         for message, role in rows
     ]

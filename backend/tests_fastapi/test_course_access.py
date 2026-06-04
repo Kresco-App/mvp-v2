@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.database import get_session_factory
-from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
+from app.models.courses import Exam, Resource, Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.gamification import TopicItemProgress
 from app.models.users import User, UserSubjectEntitlement
 from app.services.auth import create_token
@@ -165,6 +165,48 @@ def test_subject_and_topic_lists_are_paginated_and_query_bounded(app_client, aut
     assert len(topics_response.json()) == 1
     assert subjects_queries.count <= 6
     assert topics_queries.count <= 8
+
+
+def test_exam_bank_excludes_exams_under_unpublished_subjects(app_client, auth_token, run_db):
+    token, _user_id = auth_token(email="exam-bank-filter@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            published_subject = Subject(title="Published subject", description="", is_published=True, order=1)
+            draft_subject = Subject(title="Draft subject", description="", is_published=False, order=2)
+            db.add_all([published_subject, draft_subject])
+            await db.flush()
+            published_exam = Exam(
+                subject_id=published_subject.id,
+                title="Published exam",
+                year=2025,
+                session="June",
+                statement_url="/published.pdf",
+                status="published",
+            )
+            draft_exam = Exam(
+                subject_id=draft_subject.id,
+                title="Draft exam",
+                year=2024,
+                session="June",
+                statement_url="/draft.pdf",
+                status="published",
+            )
+            db.add_all([published_exam, draft_exam])
+            await db.commit()
+            return published_exam.id, draft_exam.id
+
+    published_exam_id, draft_exam_id = run_db(_seed())
+    response = app_client.get(
+        "/api/courses/exam-bank",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    exams = response.json()
+    assert [exam["id"] for exam in exams] == [published_exam_id]
+    assert draft_exam_id not in {exam["id"] for exam in exams}
 
 
 def test_topic_workspace_query_count_is_stable_with_many_items(app_client, auth_token, query_counter, run_db):

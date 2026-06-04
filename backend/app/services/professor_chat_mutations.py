@@ -246,7 +246,7 @@ async def send_professor_message_state(
     await publish_chat_message_change(db, conversation, professor, "professor.chat.message", message.id)
     await db.commit()
     await db.refresh(message)
-    return message_out(message, professor.role, settings)
+    return await message_out(message, professor.role, settings)
 
 
 async def send_professor_image_message_state(
@@ -293,7 +293,7 @@ async def send_professor_image_message_state(
     await publish_chat_message_change(db, conversation, professor, "professor.chat.message", message.id)
     await db.commit()
     await db.refresh(message)
-    return message_out(message, professor.role, settings)
+    return await message_out(message, professor.role, settings)
 
 
 async def update_chat_message_state(
@@ -333,7 +333,7 @@ async def update_chat_message_state(
     await publish_chat_message_change(db, conversation, user, "professor.chat.message.updated", message.id)
     await db.commit()
     await db.refresh(message)
-    return message_out(message, user.role, settings)
+    return await message_out(message, user.role, settings)
 
 
 async def delete_chat_message_state(
@@ -398,7 +398,7 @@ async def patch_professor_conversation_state(
     )
     await db.commit()
     await db.refresh(conversation)
-    return conversation_out(conversation, settings)
+    return await conversation_out(conversation, settings)
 
 
 async def start_student_conversation_state(
@@ -461,7 +461,7 @@ async def start_student_conversation_state(
         )
         .where(ProfessorChatConversation.id == conversation.id)
     )
-    return conversation_out(result.scalar_one(), settings)
+    return await conversation_out(result.scalar_one(), settings)
 
 
 async def list_student_messages_for_conversation(
@@ -505,7 +505,7 @@ async def send_student_message_state(
     await publish_chat_message_change(db, conversation, user, "professor.chat.message", message.id)
     await db.commit()
     await db.refresh(message)
-    return message_out(message, user.role, settings)
+    return await message_out(message, user.role, settings)
 
 
 async def send_student_image_message_state(
@@ -541,4 +541,4 @@ async def send_student_image_message_state(
     await publish_chat_message_change(db, conversation, user, "professor.chat.message", message.id)
     await db.commit()
     await db.refresh(message)
-    return message_out(message, user.role, settings)
+    return await message_out(message, user.role, settings)

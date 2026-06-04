@@ -27,7 +27,7 @@ from app.schemas.gamification import (
 
 from app.services.access import build_access_context
 from app.services.gamification_stats import read_user_stats
-from app.services.media_storage import media_url
+from app.services.media_storage import async_media_url
 from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
 from app.services.xp import award_xp, calculate_level, generate_daily_quests_with_status
 
@@ -154,7 +154,7 @@ async def list_leaderboard_entries(
             rank=global_rank,
             user_id=user_id,
             full_name=row_user.full_name,
-            avatar_url=media_url(row_user.avatar_url, settings),
+            avatar_url=await async_media_url(row_user.avatar_url, settings),
             total_xp=total_xp,
             level=level_data["level"],
             is_current_user=row_user.id == user.id,

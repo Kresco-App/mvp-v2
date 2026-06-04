@@ -13,7 +13,7 @@ from app.schemas.professor import (
     ProfessorLiveSessionOut,
     ProgramTrackOut,
 )
-from app.services.media_storage import media_url
+from app.services.media_storage import async_media_url
 
 
 def live_session_is_joinable(session: LiveSession, now: datetime | None = None) -> bool:
@@ -26,11 +26,11 @@ def live_session_is_joinable(session: LiveSession, now: datetime | None = None) 
     return ends_at >= current_time
 
 
-def participant_out(user: User, settings: Settings) -> ChatParticipantOut:
+async def participant_out(user: User, settings: Settings) -> ChatParticipantOut:
     return ChatParticipantOut(
         id=user.id,
         full_name=user.full_name,
-        avatar_url=media_url(user.avatar_url, settings),
+        avatar_url=await async_media_url(user.avatar_url, settings),
         tier=getattr(user, "tier", "basic") or "basic",
     )
 
@@ -122,7 +122,7 @@ def live_session_realtime_payload(session: LiveSession) -> dict:
     }
 
 
-def conversation_out(conversation: ProfessorChatConversation, settings: Settings) -> ProfessorChatConversationOut:
+async def conversation_out(conversation: ProfessorChatConversation, settings: Settings) -> ProfessorChatConversationOut:
     offering = conversation.course_offering
     subject_title = offering.subject.title if offering and offering.subject else ""
     track = offering.track if offering else None
@@ -133,8 +133,8 @@ def conversation_out(conversation: ProfessorChatConversation, settings: Settings
         subject_title=subject_title,
         niveau=track.niveau if track else "",
         filiere=track.filiere if track else "",
-        professor=participant_out(conversation.professor, settings),
-        student=participant_out(conversation.student, settings),
+        professor=await participant_out(conversation.professor, settings),
+        student=await participant_out(conversation.student, settings),
         status=conversation.status,
         last_message_preview=conversation.last_message_preview,
         unread_for_professor=conversation.unread_for_professor,
@@ -150,14 +150,14 @@ def chat_datetime(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def message_out(message: ProfessorChatMessage, sender_role: str, settings: Settings) -> ProfessorChatMessageOut:
+async def message_out(message: ProfessorChatMessage, sender_role: str, settings: Settings) -> ProfessorChatMessageOut:
     return ProfessorChatMessageOut(
         id=message.id,
         conversation_id=message.conversation_id,
         sender_user_id=message.sender_user_id,
         sender_role=sender_role,
         body=message.body,
-        attachment_url=media_url(message.attachment_url, settings),
+        attachment_url=await async_media_url(message.attachment_url, settings),
         attachment_mime_type=message.attachment_mime_type or "",
         attachment_name=message.attachment_name or "",
         attachment_size=message.attachment_size or 0,

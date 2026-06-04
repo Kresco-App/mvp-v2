@@ -10,7 +10,7 @@ from app.services.image_uploads import (
     normalize_image_mime_type,
 )
 from app.services import media_storage
-from app.services.media_storage import LocalMediaStorage, S3MediaStorage, S3MockMediaStorage, media_url, presign_s3_reference
+from app.services.media_storage import LocalMediaStorage, S3MediaStorage, S3MockMediaStorage, async_media_url, media_url, presign_s3_reference
 
 
 def test_image_mime_helpers_normalize_content_type_values():
@@ -196,6 +196,26 @@ def test_s3_presign_reuses_cached_boto3_client(monkeypatch):
     assert second == "https://signed.example.com/kresco-media/profile/1/banner.png?ttl=300"
     assert calls == [("s3", "eu-north-1", None)]
     media_storage._s3_client.cache_clear()
+
+
+def test_async_media_url_offloads_s3_presign_to_thread(monkeypatch):
+    calls = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls.append((func.__name__, args, kwargs))
+        return func(*args, **kwargs)
+
+    def fake_presign(reference, *, settings, client=None, expires_in=None):
+        return f"signed:{reference}:{settings.media_s3_presign_ttl_seconds}"
+
+    monkeypatch.setattr(media_storage.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(media_storage, "presign_s3_reference", fake_presign)
+    settings = SimpleNamespace(media_storage_backend="s3", media_s3_presign_ttl_seconds=123)
+
+    result = asyncio.run(async_media_url("s3://kresco-media/profile/1/avatar.png", settings))
+
+    assert result == "signed:s3://kresco-media/profile/1/avatar.png:123"
+    assert calls == [("fake_presign", ("s3://kresco-media/profile/1/avatar.png",), {"settings": settings})]
 
 
 def test_mock_presign_uses_runtime_default_without_settings():

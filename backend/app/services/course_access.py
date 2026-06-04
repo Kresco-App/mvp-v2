@@ -130,18 +130,30 @@ def store_access_decision(target: dict[int, AccessDecision], key: int, decision:
         target[key] = decision
 
 
-async def access_for_topic_item(db: AsyncSession, user: User, item: TopicItem) -> AccessDecision:
+async def access_for_topic_item(
+    db: AsyncSession,
+    user: User,
+    item: TopicItem,
+    *,
+    access_context: AccessContext | None = None,
+) -> AccessDecision:
     topic = _loaded_relationship(item, "topic")
     if topic is None:
         topic = await db.scalar(select(Topic).where(Topic.id == item.topic_id))
-    access_context = await build_access_context(db, user)
+    access_context = access_context or await build_access_context(db, user)
     if topic is None:
         return ORPHANED_PARENT_ACCESS_DECISION
     topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
     return access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
 
 
-async def access_for_tab(db: AsyncSession, user: User, tab: TabContent) -> AccessDecision:
+async def access_for_tab(
+    db: AsyncSession,
+    user: User,
+    tab: TabContent,
+    *,
+    access_context: AccessContext | None = None,
+) -> AccessDecision:
     item = _loaded_relationship(tab, "topic_item")
     if item is None:
         item = await db.scalar(
@@ -149,7 +161,7 @@ async def access_for_tab(db: AsyncSession, user: User, tab: TabContent) -> Acces
             .options(selectinload(TopicItem.topic))
             .where(TopicItem.id == tab.topic_item_id)
         )
-    access_context = await build_access_context(db, user)
+    access_context = access_context or await build_access_context(db, user)
     if item is None:
         return ORPHANED_PARENT_ACCESS_DECISION
     topic = _loaded_relationship(item, "topic")

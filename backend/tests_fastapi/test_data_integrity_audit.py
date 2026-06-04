@@ -3,8 +3,9 @@ from pathlib import Path
 from sqlalchemy import UniqueConstraint
 
 from app.database import get_session_factory
-from app.models.gamification import DailyQuest, TopicItemProgress, XPTransaction
+from app.models.gamification import DailyQuest, QuizAttempt, TopicItemProgress, XPTransaction
 from app.models.interactions import SavedItem
+from app.models.quizzes import QuestionSet
 from app.models.users import User
 from app.services.data_integrity import audit_data_integrity
 
@@ -14,10 +15,14 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 def test_current_integrity_models_have_database_uniqueness_guards():
     saved_constraints = {c.name for c in SavedItem.__table__.constraints if isinstance(c, UniqueConstraint)}
     daily_constraints = {c.name for c in DailyQuest.__table__.constraints if isinstance(c, UniqueConstraint)}
+    question_set_constraints = {c.name for c in QuestionSet.__table__.constraints if isinstance(c, UniqueConstraint)}
+    quiz_attempt_constraints = {c.name for c in QuizAttempt.__table__.constraints if isinstance(c, UniqueConstraint)}
     progress_constraints = {c.name for c in TopicItemProgress.__table__.constraints if isinstance(c, UniqueConstraint)}
 
     assert "uq_saved_items_user_target" in saved_constraints
     assert "uq_daily_quests_user_type_date" in daily_constraints
+    assert "uq_question_sets_tab_content" in question_set_constraints
+    assert "uq_quiz_attempts_user_set_attempt_number" in quiz_attempt_constraints
     assert "uq_topic_item_progress_user_item" in progress_constraints
 
 

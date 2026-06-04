@@ -7,10 +7,11 @@ from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, 
 from app.models.gamification import TopicItemProgress, UserStats
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.quizzes import QuestionSet
-from app.models.users import UserSubjectEntitlement
+import app.services.interaction_mutations as interaction_mutations
+from app.models.users import User, UserSubjectEntitlement
 
 
-async def _seed_context(user_id: int, slug: str):
+async def _seed_context(user_id: int, slug: str, *, item_tier: str = "", tab_tier: str = ""):
     session_factory = get_session_factory()
     async with session_factory() as db:
         subject = Subject(title=f"Interaction {slug}", description="", is_published=True, order=1)
@@ -28,10 +29,27 @@ async def _seed_context(user_id: int, slug: str):
         secondary_resource = Resource(topic_id=topic.id, title="Worksheet", resource_type="pdf", url="/worksheet.pdf", status="published")
         db.add(secondary_resource)
         await db.flush()
-        item = TopicItem(topic_id=topic.id, section_id=section.id, primary_resource_id=resource.id, title="Item", item_type="reading", status="published")
+        item = TopicItem(
+            topic_id=topic.id,
+            section_id=section.id,
+            primary_resource_id=resource.id,
+            title="Item",
+            item_type="reading",
+            status="published",
+            required_tier=item_tier,
+        )
         db.add(item)
         await db.flush()
-        tab = TabContent(topic_item_id=item.id, resource_id=resource.id, label="Course", tab_type="course", content="Body", status="published", order=1)
+        tab = TabContent(
+            topic_item_id=item.id,
+            resource_id=resource.id,
+            label="Course",
+            tab_type="course",
+            content="Body",
+            status="published",
+            order=1,
+            required_tier=tab_tier,
+        )
         comments_tab = TabContent(topic_item_id=item.id, label="Discussion", tab_type="comments", status="published", order=2)
         resource_tab = TabContent(topic_item_id=item.id, resource_id=secondary_resource.id, label="Worksheet", tab_type="resource", content="Worksheet body", status="published", order=3)
         db.add_all([tab, comments_tab, resource_tab])
@@ -57,6 +75,30 @@ async def _seed_context(user_id: int, slug: str):
             "secondary_resource_id": secondary_resource.id,
             "question_set_id": question_set.id,
         }
+
+
+def test_comment_access_reuses_single_access_context_build(app_client, auth_token, run_db, monkeypatch):
+    token, user_id = auth_token(email="interactions-comment-access@example.com", is_pro=False)
+    seeded = run_db(_seed_context(user_id, "interactions-comment-access"))
+    del token
+
+    calls = []
+    from app.services.access import build_access_context as real_build_access_context
+
+    async def tracked_build_access_context(db, user):
+        calls.append(True)
+        return await real_build_access_context(db, user)
+
+    monkeypatch.setattr(interaction_mutations, "build_access_context", tracked_build_access_context)
+
+    async def _check():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            await interaction_mutations.require_comments_enabled_for_topic_item(db, user, seeded["topic_item_id"])
+
+    run_db(_check())
+    assert len(calls) == 1
 
 
 def test_legacy_interaction_targets_are_rejected():
@@ -194,6 +236,20 @@ def test_topic_and_question_set_saves_infer_course_context(app_client, auth_toke
     assert question_set_data["subject_id"] == seeded["subject_id"]
     assert question_set_data["topic_id"] == seeded["topic_id"]
     assert question_set_data["topic_item_id"] == seeded["topic_item_id"]
+
+
+def test_save_item_rejects_inferred_locked_topic_item_context(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-save-locked-context@example.com", is_pro=False)
+    seeded = run_db(_seed_context(user_id, "interactions-save-locked-context", item_tier="pro"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = app_client.post(
+        "/api/interactions/saves",
+        headers=headers,
+        json={"target_type": "tab_content", "target_id": seeded["tab_content_id"], "label": "Locked tab"},
+    )
+
+    assert response.status_code == 403
 
 
 def test_resource_open_requires_access_infers_workspace_context_and_marks_progress(app_client, auth_token, run_db):

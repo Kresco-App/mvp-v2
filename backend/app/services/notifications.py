@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -72,19 +72,23 @@ async def list_user_notifications(
     limit: int = 20,
     offset: int = 0,
 ) -> NotificationListOut:
+    unread_count_expr = func.sum(case((Notification.is_read == False, 1), else_=0)).over()  # noqa: E712
     result = await db.execute(
-        select(Notification)
+        select(Notification, unread_count_expr.label("unread_count"))
         .where(Notification.user_id == user.id)
-        .order_by(Notification.created_at.desc())
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
         .offset(offset)
         .limit(limit)
     )
-    notifications = result.scalars().all()
-
-    unread_count = await db.scalar(
-        select(func.count())
-        .select_from(Notification)
-        .where(Notification.user_id == user.id, Notification.is_read == False)  # noqa: E712
+    rows = result.all()
+    notifications = [row[0] for row in rows]
+    unread_count = int(rows[0][1] or 0) if rows else int(
+        await db.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.user_id == user.id, Notification.is_read == False)  # noqa: E712
+        )
+        or 0
     )
 
     return NotificationListOut(

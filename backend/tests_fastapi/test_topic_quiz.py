@@ -1,10 +1,16 @@
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_session_factory
 from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.gamification import QuestionAttempt, QuizAttempt, TopicItemProgress, UserStats, XPTransaction
 from app.models.quizzes import Question, QuestionSet
+from app.models.users import User
 from app.models.users import UserSubjectEntitlement
+from app.schemas.courses import TabQuizSubmitIn
+from app.services.course_tab_quiz_submission import submit_tab_quiz_attempt
 
 
 async def _seed_quiz_tab(user_id: int, slug: str, questions: list[dict], *, pass_score: int = 70):
@@ -86,9 +92,138 @@ def test_tab_quiz_grades_tracks_xp_and_question_attempts(app_client, auth_token,
             assert attempt_count == 5
             assert xp_count == 6
             assert progress is not None
+            assert progress.status == "completed"
+            assert progress.completed_at is not None
             assert progress.best_score == 100
             assert stats is not None
             assert stats.quizzes_passed == 1
+
+    run_db(_assert_tracking())
+
+
+def test_tab_quiz_submission_recovers_from_question_set_and_attempt_number_race(auth_token, run_db, monkeypatch):
+    token, user_id = auth_token(email="topic-quiz-race@example.com", is_pro=True)
+    del token
+    questions = [
+        {"id": "mc", "type": "multiple_choice", "prompt": "Pick A", "options": ["A", "B"], "answer": "A"},
+    ]
+    _subject_id, _topic_id, section_id, item_id, tab_id = run_db(_seed_quiz_tab(user_id, "topic-quiz-race", questions))
+
+    original_flush = AsyncSession.flush
+    original_rollback = AsyncSession.rollback
+    original_commit = AsyncSession.commit
+    calls = {"race_triggered": False, "seeded": False}
+
+    async def racing_flush(self, *args, **kwargs):
+        pending_types = {type(obj).__name__ for obj in getattr(self, "new", ())}
+        if not calls["race_triggered"] and "QuizAttempt" in pending_types:
+            calls["race_triggered"] = True
+            raise IntegrityError("insert", {}, Exception("duplicate key"))
+        return await original_flush(self, *args, **kwargs)
+
+    async def rollback_and_seed(self):
+        await original_rollback(self)
+        if calls["seeded"]:
+            return
+        calls["seeded"] = True
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = await db.get(Subject, _subject_id)
+            topic = await db.get(Topic, _topic_id)
+            section = await db.get(TopicSection, section_id)
+            item = await db.get(TopicItem, item_id)
+            question_set = QuestionSet(
+                subject_id=subject.id if subject else None,
+                topic_id=topic.id if topic else None,
+                topic_section_id=section.id if section else None,
+                topic_item_id=item.id if item else None,
+                tab_content_id=tab_id,
+                title="Quiz",
+                source_type="tab",
+                pass_score=70,
+                status="published",
+                order=1,
+                concept_slugs=[],
+            )
+            db.add(question_set)
+            await db.flush()
+            db.add(Question(
+                question_set_id=question_set.id,
+                external_id="mc",
+                type="multiple_choice",
+                prompt="Pick A",
+                config_json={"options": ["A", "B"]},
+                answer_json={"answer": "A"},
+                status="published",
+            ))
+            db.add(QuizAttempt(
+                user_id=user_id,
+                question_set_id=question_set.id,
+                subject_id=subject.id if subject else None,
+                topic_id=topic.id if topic else None,
+                topic_section_id=section.id if section else None,
+                topic_item_id=item.id if item else None,
+                tab_content_id=tab_id,
+                source_type="tab",
+                submission_hash="seeded-submission-hash",
+                score=0,
+                passed=False,
+                answers={},
+                grading={},
+                attempt_number=1,
+                duration_seconds=0,
+            ))
+            await original_commit(db)
+
+    monkeypatch.setattr(AsyncSession, "flush", racing_flush)
+    monkeypatch.setattr(AsyncSession, "rollback", rollback_and_seed)
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            tab = (
+                await db.execute(
+                    select(TabContent)
+                    .options(selectinload(TabContent.topic_item).selectinload(TopicItem.topic))
+                    .where(TabContent.id == tab_id)
+                )
+            ).scalar_one()
+            result = await submit_tab_quiz_attempt(
+                db,
+                user=user,
+                tab_id=tab.id,
+                body=TabQuizSubmitIn(answers={"mc": "A"}),
+            )
+            await db.commit()
+            return result
+
+    result = run_db(_exercise())
+
+    assert result.attempt.attempt_number == 2
+    assert result.passed is True
+
+    async def _assert_tracking():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            question_set = (await db.execute(select(QuestionSet).where(QuestionSet.tab_content_id == tab_id))).scalar_one()
+            attempts = (
+                await db.execute(
+                    select(QuizAttempt)
+                    .where(QuizAttempt.question_set_id == question_set.id)
+                    .order_by(QuizAttempt.attempt_number.asc(), QuizAttempt.id.asc())
+                )
+            ).scalars().all()
+            progress = await db.scalar(
+                select(TopicItemProgress).where(
+                    TopicItemProgress.user_id == user_id,
+                    TopicItemProgress.topic_item_id == item_id,
+                )
+            )
+            assert [attempt.attempt_number for attempt in attempts] == [1, 2]
+            assert progress is not None
+            assert progress.status == "completed"
+            assert progress.completed_at is not None
 
     run_db(_assert_tracking())
 

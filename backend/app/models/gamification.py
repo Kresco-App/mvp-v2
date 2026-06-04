@@ -163,6 +163,7 @@ class TopicItemProgress(Base):
 class QuizAttempt(Base):
     __tablename__ = "quiz_attempts"
     __table_args__ = (
+        UniqueConstraint("user_id", "question_set_id", "attempt_number", name="uq_quiz_attempts_user_set_attempt_number"),
         Index("ix_quiz_attempts_user_tab_created", "user_id", "tab_content_id", "created_at"),
         Index("ix_quiz_attempts_user_set_created", "user_id", "question_set_id", "created_at"),
         Index("ix_quiz_attempts_user_set_submission", "user_id", "question_set_id", "submission_hash", unique=True),

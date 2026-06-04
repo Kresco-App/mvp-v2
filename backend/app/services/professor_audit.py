@@ -55,7 +55,8 @@ async def enforce_professor_mutation_rate_limit(db: AsyncSession, professor: Use
 def record_professor_audit(
     db: AsyncSession,
     *,
-    professor: User,
+    professor: User | None = None,
+    professor_id: int | None = None,
     request: Request,
     action: str,
     model_name: str,
@@ -63,6 +64,10 @@ def record_professor_audit(
     object_repr: str,
     changed_data: dict | None = None,
 ) -> None:
+    if professor_id is None:
+        if professor is None:
+            raise ValueError("professor or professor_id is required")
+        professor_id = professor.id
     db.add(
         AdminAuditLog(
             action=action,
@@ -72,6 +77,6 @@ def record_professor_audit(
             changed_data=changed_data or {},
             request_path=str(request.url.path),
             client_host=request.client.host if request.client else "",
-            note=f"professor_user_id={professor.id}",
+            note=f"professor_user_id={professor_id}",
         )
     )

@@ -266,6 +266,7 @@ async def get_topic_item_stream(
     if resource is None or resource.resource_type != "video":
         raise HTTPException(status_code=404, detail="No video resource configured for this topic item")
     video_id = resource.provider_resource_id or resource.url
+    await db.rollback()
     return await get_video_stream_data(video_id, settings)
 
 
@@ -315,11 +316,12 @@ async def get_exam_bank(
 ):
     stmt = (
         select(Exam)
+        .join(Subject, Subject.id == Exam.subject_id)
         .options(
             selectinload(Exam.subject),
             selectinload(Exam.problems).selectinload(ExamProblem.video_resource),
         )
-        .where(Exam.status == "published")
+        .where(Exam.status == "published", Subject.is_published == True)  # noqa: E712
         .order_by(Exam.year.desc(), Exam.id.desc())
     )
     if subject_id is not None:

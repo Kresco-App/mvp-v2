@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.routers.professor as professor_router
+import app.routers.courses as courses_router
 import app.services.professor_audit as professor_audit
 import app.services.professor_chat_mutations as professor_chat_mutations
 import app.services.professor_change_requests as professor_change_requests
@@ -1634,7 +1635,9 @@ def test_professor_chat_lock_error_detection_handles_postgres_nowait():
 def test_professor_live_session_lifecycle_stays_out_of_router():
     router_source = inspect.getsource(professor_router)
     live_service_source = inspect.getsource(professor_live_sessions)
+    create_source = inspect.getsource(professor_live_sessions.create_professor_live_session)
     notification_source = inspect.getsource(professor_live_sessions.notify_students_for_live)
+    course_stream_source = inspect.getsource(courses_router.get_topic_item_stream)
 
     assert "from app.services.professor_live_sessions import" in router_source
     assert "def _live_calendar_subtitle" not in router_source
@@ -1643,10 +1646,14 @@ def test_professor_live_session_lifecycle_stays_out_of_router():
     assert "async def _notify_students_for_live" not in router_source
     assert "async def _enqueue_live_session_event_and_track" not in router_source
     assert "async def create_professor_live_session" in live_service_source
+    assert "await db.rollback()" in create_source
+    assert create_source.index("await db.rollback()") < create_source.index("await create_live_stream")
     assert "async def update_professor_live_session" in live_service_source
     assert "async def notify_students_for_live" in live_service_source
     assert ".from_select(" in notification_source
     assert ".scalars().all()" not in notification_source
+    assert "await db.rollback()" in course_stream_source
+    assert course_stream_source.index("await db.rollback()") < course_stream_source.index("await get_video_stream_data")
     assert "async def list_professor_live_sessions" in live_service_source
     assert "async def reveal_professor_live_stream_credentials_state" in live_service_source
     assert "offering_notifications_channel_name" in live_service_source
@@ -2060,11 +2067,12 @@ def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db,
             )
 
     monkeypatch.setattr("app.services.professor_chat_mutations.get_media_storage", lambda settings: _Storage())
+    async def _async_media_url(reference, settings):
+        return f"https://signed.example.com/{reference.removeprefix('s3://kresco-media/')}?signature=read" if str(reference).startswith("s3://") else reference
+
     monkeypatch.setattr(
-        "app.services.professor_serializers.media_url",
-        lambda reference, settings: f"https://signed.example.com/{reference.removeprefix('s3://kresco-media/')}?signature=read"
-        if str(reference).startswith("s3://")
-        else reference,
+        "app.services.professor_serializers.async_media_url",
+        _async_media_url,
     )
 
     image = app_client.post(

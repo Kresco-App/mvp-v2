@@ -106,67 +106,72 @@ async def ensure_question_set_for_tab(db: AsyncSession, tab: TabContent) -> tupl
     pass_score = int(tab.config_json.get("pass_score", 70)) if isinstance(tab.config_json, dict) else 70
     title = tab.label or f"Quiz tab {tab.id}"
 
-    result = await db.execute(
-        select(QuestionSet)
-        .options(selectinload(QuestionSet.questions))
-        .where(QuestionSet.tab_content_id == tab.id)
-    )
-    question_set = result.scalar_one_or_none()
-    if question_set is None:
-        question_set = QuestionSet(
-            subject_id=topic.subject_id if topic else None,
-            topic_id=topic_item.topic_id if topic_item else None,
-            topic_section_id=topic_item.section_id if topic_item else None,
-            topic_item_id=tab.topic_item_id,
-            tab_content_id=tab.id,
-            title=title,
-            source_type="tab",
-            pass_score=pass_score,
-            status=tab.status,
-            order=tab.order,
-            concept_slugs=tab.concept_slugs or [],
-        )
-        db.add(question_set)
-        await db.flush()
-    else:
-        question_set.subject_id = topic.subject_id if topic else question_set.subject_id
-        question_set.topic_id = topic_item.topic_id if topic_item else question_set.topic_id
-        question_set.topic_section_id = topic_item.section_id if topic_item else question_set.topic_section_id
-        question_set.topic_item_id = tab.topic_item_id
-        question_set.title = title
-        question_set.pass_score = pass_score
-        question_set.status = tab.status
-        question_set.order = tab.order
-        question_set.concept_slugs = tab.concept_slugs or []
+    for attempt in range(2):
+        try:
+            result = await db.execute(
+                select(QuestionSet)
+                .options(selectinload(QuestionSet.questions))
+                .where(QuestionSet.tab_content_id == tab.id)
+            )
+            question_set = result.scalar_one_or_none()
+            if question_set is None:
+                question_set = QuestionSet(
+                    subject_id=topic.subject_id if topic else None,
+                    topic_id=topic_item.topic_id if topic_item else None,
+                    topic_section_id=topic_item.section_id if topic_item else None,
+                    topic_item_id=tab.topic_item_id,
+                    tab_content_id=tab.id,
+                    title=title,
+                    source_type="tab",
+                    pass_score=pass_score,
+                    status=tab.status,
+                    order=tab.order,
+                    concept_slugs=tab.concept_slugs or [],
+                )
+                db.add(question_set)
+            else:
+                question_set.subject_id = topic.subject_id if topic else question_set.subject_id
+                question_set.topic_id = topic_item.topic_id if topic_item else question_set.topic_id
+                question_set.topic_section_id = topic_item.section_id if topic_item else question_set.topic_section_id
+                question_set.topic_item_id = tab.topic_item_id
+                question_set.title = title
+                question_set.pass_score = pass_score
+                question_set.status = tab.status
+                question_set.order = tab.order
+                question_set.concept_slugs = tab.concept_slugs or []
 
-    existing_questions = (
-        await db.execute(select(Question).where(Question.question_set_id == question_set.id))
-    ).scalars().all()
-    by_external_id = {question.external_id: question for question in existing_questions}
-    active_external_ids: set[str] = set()
-    for index, raw_question in enumerate(questions):
-        external_id = question_external_id(raw_question, index)
-        active_external_ids.add(external_id)
-        row = by_external_id.get(external_id)
-        if row is None:
-            row = Question(question_set_id=question_set.id, external_id=external_id, type=str(raw_question.get("type") or "multiple_choice"), prompt=str(raw_question.get("prompt") or ""))
-            by_external_id[external_id] = row
-            db.add(row)
-        row.type = str(raw_question.get("type") or row.type or "multiple_choice")
-        row.prompt = str(raw_question.get("prompt") or raw_question.get("title") or row.prompt or "")
-        row.config_json = question_config(raw_question)
-        row.answer_json = question_answer(raw_question)
-        row.explanation = str(raw_question.get("explanation") or "")
-        row.concept_slugs = question_concept_slugs(raw_question, tab.concept_slugs or [])
-        row.difficulty = str(raw_question.get("difficulty") or "")
-        row.order = index
+            existing_questions = (
+                await db.execute(select(Question).where(Question.question_set_id == question_set.id))
+            ).scalars().all()
+            by_external_id = {question.external_id: question for question in existing_questions}
+            active_external_ids: set[str] = set()
+            for index, raw_question in enumerate(questions):
+                external_id = question_external_id(raw_question, index)
+                active_external_ids.add(external_id)
+                row = by_external_id.get(external_id)
+                if row is None:
+                    row = Question(question_set_id=question_set.id, external_id=external_id, type=str(raw_question.get("type") or "multiple_choice"), prompt=str(raw_question.get("prompt") or ""))
+                    by_external_id[external_id] = row
+                    db.add(row)
+                row.type = str(raw_question.get("type") or row.type or "multiple_choice")
+                row.prompt = str(raw_question.get("prompt") or raw_question.get("title") or row.prompt or "")
+                row.config_json = question_config(raw_question)
+                row.answer_json = question_answer(raw_question)
+                row.explanation = str(raw_question.get("explanation") or "")
+                row.concept_slugs = question_concept_slugs(raw_question, tab.concept_slugs or [])
+                row.difficulty = str(raw_question.get("difficulty") or "")
+                row.order = index
 
-    for external_id, row in by_external_id.items():
-        if external_id not in active_external_ids:
-            row.status = "archived"
+            for external_id, row in by_external_id.items():
+                if external_id not in active_external_ids:
+                    row.status = "archived"
 
-    await db.flush()
-    return question_set, by_external_id
+            await db.flush()
+            return question_set, by_external_id
+        except IntegrityError:
+            await db.rollback()
+            if attempt == 1:
+                raise
 
 
 def question_concept_slugs(question: dict, fallback: list[str] | None = None) -> list[str]:

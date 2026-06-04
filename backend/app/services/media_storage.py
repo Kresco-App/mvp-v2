@@ -140,6 +140,16 @@ def media_url(reference: str | None, settings: Settings) -> str:
     return presign_s3_reference(reference, settings=settings)
 
 
+async def async_media_url(reference: str | None, settings: Settings) -> str:
+    if not reference:
+        return ""
+    if not reference.startswith("s3://"):
+        return reference
+    if getattr(settings, "media_storage_backend", "").strip().lower() == MEDIA_STORAGE_S3_MOCK:
+        return await asyncio.to_thread(mock_presign_s3_reference, reference, settings=settings)
+    return await asyncio.to_thread(presign_s3_reference, reference, settings=settings)
+
+
 def s3_reference(bucket: str, key: str) -> str:
     return f"s3://{bucket}/{quote(key, safe='/')}"
 

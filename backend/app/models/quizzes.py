@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class QuestionSet(Base):
     __tablename__ = "question_sets"
     __table_args__ = (
+        UniqueConstraint("tab_content_id", name="uq_question_sets_tab_content"),
         Index("ix_question_sets_subject_topic", "subject_id", "topic_id"),
         Index("ix_question_sets_tab_content", "tab_content_id"),
         Index("ix_question_sets_status", "status"),

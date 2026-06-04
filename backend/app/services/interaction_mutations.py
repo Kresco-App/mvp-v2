@@ -27,7 +27,7 @@ from app.services.access import build_access_context
 from app.services.course_access import access_for_tab, access_for_topic_item, require_topic_item_access
 from app.services.course_progress import get_or_create_topic_item_progress
 from app.services.interaction_context import activity_metadata, infer_interaction_context
-from app.services.media_storage import media_url
+from app.services.media_storage import async_media_url
 
 COMMENT_TAB_TYPES = {"comments", "discussion"}
 
@@ -48,13 +48,14 @@ async def require_comments_enabled_for_topic_item(db: AsyncSession, user: User, 
     )
     if comments_tab is None:
         raise HTTPException(status_code=404, detail="Comments are not enabled for this item")
-    item_access = await access_for_topic_item(db, user, item)
-    tab_access = await access_for_tab(db, user, comments_tab)
+    access_context = await build_access_context(db, user)
+    item_access = await access_for_topic_item(db, user, item, access_context=access_context)
+    tab_access = await access_for_tab(db, user, comments_tab, access_context=access_context)
     if not item_access.can_access or not tab_access.can_access:
         raise HTTPException(status_code=403, detail="Comments are locked for this item")
 
 
-def comment_out(comment: Comment, settings: Settings, *, reply_count: int = 0) -> CommentOut:
+async def comment_out(comment: Comment, settings: Settings, *, reply_count: int = 0) -> CommentOut:
     return CommentOut(
         id=comment.id,
         topic_item_id=comment.topic_item_id,
@@ -62,7 +63,7 @@ def comment_out(comment: Comment, settings: Settings, *, reply_count: int = 0) -
         author=CommentAuthorOut(
             id=comment.user.id,
             full_name=comment.user.full_name,
-            avatar_url=media_url(comment.user.avatar_url, settings),
+            avatar_url=await async_media_url(comment.user.avatar_url, settings),
         ),
         parent_id=comment.parent_id,
         reply_count=reply_count,
@@ -100,7 +101,7 @@ async def list_topic_item_comments(
         .limit(limit)
     )
     return [
-        comment_out(comment, settings, reply_count=int(reply_count))
+        await comment_out(comment, settings, reply_count=int(reply_count))
         for comment, reply_count in result.all()
     ]
 
@@ -135,7 +136,7 @@ async def create_topic_item_comment(
     await db.commit()
     await db.refresh(comment)
     comment.user = user
-    return comment_out(comment, settings)
+    return await comment_out(comment, settings)
 
 
 async def list_user_notes(
@@ -274,6 +275,8 @@ async def save_user_item(
         target_type=body.target_type,
         target_id=body.target_id,
     )
+    if context.get("topic_item_id") is not None:
+        await require_topic_item_access(db, user, int(context["topic_item_id"]))
     save = await db.scalar(
         select(SavedItem)
         .where(
