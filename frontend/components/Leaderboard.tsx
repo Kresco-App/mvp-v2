@@ -147,7 +147,7 @@ export function LeaderboardPage() {
   const normalizedSearch = useMemo(() => searchInput.trim().toLowerCase(), [searchInput])
   const hasMore = entries.length === PAGE_SIZE
   const currentUser = useMemo(
-    () => visibleEntries.find((e) => e.is_current_user) ?? visibleEntries[0],
+    () => visibleEntries.find((e) => e.is_current_user),
     [visibleEntries],
   )
   const currentLeague = useMemo(
@@ -282,6 +282,12 @@ export function LeaderboardPage() {
                   <p className="m-0 text-xs text-[color:var(--text-tertiary)]">{currentUser.total_xp.toLocaleString()} points</p>
                 </div>
               </div>
+            </div>
+          )}
+          {!currentUser && visibleEntries.length > 0 && (
+            <div className="card p-5">
+              <p className="mb-1 text-[15px] font-bold text-[color:var(--text-primary)]">Your progress</p>
+              <p className="m-0 text-[13px] text-[color:var(--text-secondary)]">Your rank is not shown in these results.</p>
             </div>
           )}
         </div>

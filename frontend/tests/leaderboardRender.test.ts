@@ -107,6 +107,20 @@ describe('leaderboard rendering', () => {
     }
   })
 
+  it('does not treat the first visible row as the current user when the user is absent', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: leaderboardEntriesWithoutCurrentUser(3) })
+
+    const { container } = renderComponent(React.createElement(LeaderboardPage))
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect(container.textContent).toContain('Player 1')
+    expect(container.textContent).toContain('Your progress')
+    expect(container.textContent).toContain('Your rank is not shown in these results.')
+    expect(container.textContent).not.toContain('Keep track of your progress')
+  })
+
   it('keeps extracted row and marker helpers out of the page component file', () => {
     const source = readFileSync(resolve(process.cwd(), 'components/Leaderboard.tsx'), 'utf8')
     const partsSource = readFileSync(resolve(process.cwd(), 'components/leaderboard/LeaderboardParts.tsx'), 'utf8')
@@ -162,6 +176,14 @@ function leaderboardEntries(count: number) {
       is_current_user: isCurrentUser,
     }
   })
+}
+
+function leaderboardEntriesWithoutCurrentUser(count: number) {
+  return leaderboardEntries(count).map((entry) => ({
+    ...entry,
+    full_name: `Player ${entry.rank}`,
+    is_current_user: false,
+  }))
 }
 
 function renderComponent(element: React.ReactElement) {
