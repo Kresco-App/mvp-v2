@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from html import escape
+import time
 
 from itsdangerous import URLSafeTimedSerializer
 
@@ -10,6 +11,9 @@ import requests
 from app.config import Settings
 
 RESEND_EMAIL_TIMEOUT_SECONDS = 10
+RESEND_EMAIL_ATTEMPTS = 3
+RESEND_EMAIL_RETRY_BASE_SECONDS = 0.1
+RETRYABLE_RESEND_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 @dataclass(frozen=True)
@@ -87,8 +91,7 @@ def verify_reset_token(token: str, settings: Settings, max_age: int = 3600) -> R
     return ResetTokenPayload(email=email, token_version=token_version)
 
 
-def _send_email_sync(api_key: str, params: dict) -> None:
-    resend_sdk.api_key = api_key
+def _send_email_once(api_key: str, params: dict) -> None:
     response = requests.request(
         "post",
         f"{resend_sdk.api_url}/emails",
@@ -101,6 +104,25 @@ def _send_email_sync(api_key: str, params: dict) -> None:
         timeout=RESEND_EMAIL_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
+
+
+def _is_retryable_resend_error(exc: requests.RequestException) -> bool:
+    if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        return True
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    return status_code in RETRYABLE_RESEND_STATUS_CODES
+
+
+def _send_email_sync(api_key: str, params: dict) -> None:
+    resend_sdk.api_key = api_key
+    for attempt in range(1, RESEND_EMAIL_ATTEMPTS + 1):
+        try:
+            _send_email_once(api_key, params)
+            return
+        except requests.RequestException as exc:
+            if attempt >= RESEND_EMAIL_ATTEMPTS or not _is_retryable_resend_error(exc):
+                raise
+            time.sleep(RESEND_EMAIL_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
 
 
 async def send_verification_email(email: str, full_name: str, token: str, settings: Settings) -> None:

@@ -1,4 +1,7 @@
 import asyncio
+from types import SimpleNamespace
+
+import pytest
 
 from app.services import email as email_service
 from app.services.email import send_reset_email, send_verification_email
@@ -76,3 +79,45 @@ def test_resend_sync_send_uses_bounded_http_timeout(monkeypatch):
     assert url.endswith("/emails")
     assert kwargs["headers"]["Authorization"] == "Bearer re_test"
     assert kwargs["timeout"] == email_service.RESEND_EMAIL_TIMEOUT_SECONDS
+
+
+def _response(status_code: int):
+    class FakeResponse:
+        def raise_for_status(self):
+            if status_code >= 400:
+                error = email_service.requests.HTTPError(f"status {status_code}")
+                error.response = SimpleNamespace(status_code=status_code)
+                raise error
+
+    return FakeResponse()
+
+
+def test_send_email_sync_retries_resend_5xx(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _response(503 if len(calls) == 1 else 200)
+
+    monkeypatch.setattr(email_service.requests, "request", fake_request)
+    monkeypatch.setattr(email_service.time, "sleep", lambda _seconds: None)
+
+    email_service._send_email_sync("resend-key", {"to": ["student@example.com"]})
+
+    assert len(calls) == 2
+    assert calls[0][2]["timeout"] == email_service.RESEND_EMAIL_TIMEOUT_SECONDS
+
+
+def test_send_email_sync_does_not_retry_resend_400(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return _response(400)
+
+    monkeypatch.setattr(email_service.requests, "request", fake_request)
+
+    with pytest.raises(email_service.requests.HTTPError):
+        email_service._send_email_sync("resend-key", {"to": ["student@example.com"]})
+
+    assert len(calls) == 1
