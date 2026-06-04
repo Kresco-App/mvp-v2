@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `03bd8fa` - Fixed BUG-P0-005 by adding a protected `/onboarding` route and making `AuthGuard` redirect server-verified incomplete students there before rendering protected student routes; validation: `npm test -- --run tests/authGuardComponent.test.ts tests/authSession.test.ts tests/proxy.test.ts tests/authPageController.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `dbd011c` - Fixed BUG-P1-026 by preventing locked topic-workspace tab previews from falling back to protected `tab.content` or protected resource summaries; validation: `npm test -- --run tests/topicWorkspacePanels.test.ts` and `npm test -- --run tests/topicWorkspacePanels.test.ts tests/topicWorkspacePage.test.ts tests/topicWorkspaceViewModel.test.ts tests/topicWorkspaceResources.test.ts`.
 - `e321ee1` - Profile save double-fetch false failure, admin retry/error states, payment-success retry affordance, AuthGuard server verification hardening, auth storage cross-tab sync, Topic Workspace mutation lock, Topic Workspace locked URL sync, Topic Workspace draft persistence, and VdoCipher player destroy cleanup.
 - `1e6135d` - Save-item access bypass through inferred context, exam-bank parent subject publication filtering, quiz attempt-number/question-set creation races in tab quiz flow, quiz topic item completion, redundant course access context rebuilds, notification list/unread query path, async media URL offloading in async serializers, and VdoCipher DB-session release before provider calls.

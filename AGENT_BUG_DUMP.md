@@ -27,7 +27,7 @@ Coverage audit for this rewrite:
 
 - The old dump had 183 raw unresolved lines after extracting unchecked and unboxed audit findings from `HEAD:AGENT_BUG_DUMP.md`.
 - Those lines were deduped into 38 active bug records, 23 architecture/product backlog bullets, and explicit fixed/stale archive notes.
-- Current active bug count after `dbd011c`: 37.
+- Current active bug count after `03bd8fa`: 36.
 - A keyword coverage pass checked the old unresolved topic families against this file before staging.
 
 ## Active Queue
@@ -82,43 +82,31 @@ Risk: Alembic upgrade syntax, missing constraints, downgrade hazards, and migrat
 
 Fix direction: migrate test DBs with Alembic for at least the default backend suite, keeping a small fast metadata suite only if explicitly named.
 
-#### BUG-P0-005 - AuthGuard does not enforce student onboarding completion
-
-Status: OPEN
-
-Files: `frontend/components/AuthGuard.tsx`, `frontend/lib/authPolicy.ts`
-
-Current evidence: `getStudentOnboardingStep` exists, but `AuthGuard` only checks role/staff through `hasRequiredAuthAccess` before rendering protected student routes.
-
-Risk: a student with missing `niveau` or `filiere` can navigate directly to dashboard routes after server profile verification.
-
-Fix direction: make `AuthGuard` redirect incomplete non-professor students to the onboarding flow unless the current route is the onboarding route itself.
-
 ### P1 - Correctness, Security, and Scalability Bugs
 
-#### BUG-P1-001 - Admin overview opens too many concurrent DB reads
+#### BUG-P1-001 - Admin overview still does request-time query/session churn
 
 Status: OPEN
 
 Files: `backend/app/services/admin_overview.py`
 
-Current evidence: `_gather_reads` fans out many read operations with separate sessions, and the overview calls it repeatedly for counts, breakdowns, progress, live events, interactions, and notifications.
+Current evidence: `_gather_reads` is capped at two concurrent reads, but `build_admin_overview` still issues many separate session-backed reads across counts, rollups, readiness, progress, live events, interactions, and notifications.
 
-Risk: admin dashboard refreshes can exhaust the DB pool and amplify table-scan pressure.
+Risk: admin dashboard refreshes still amplify per-request session/query overhead and table-scan pressure as the dataset grows.
 
-Fix direction: reuse a bounded session/read transaction strategy and serialize heavy aggregates.
+Fix direction: keep the concurrency cap, then batch related aggregates or reuse one read session per overview phase with tests that prove query/session churn drops.
 
-#### BUG-P1-002 - Quiz discovery still performs per-question-set access checks
+#### BUG-P1-002 - Quiz discovery still performs per-candidate DB access checks
 
 Status: OPEN
 
-Files: `backend/app/routers/quizzes.py`
+Files: `backend/app/routers/quizzes.py`, `backend/app/services/course_access.py`
 
-Current evidence: `get_subject_quiz_discovery` loads up to 25 question sets, then calls `_question_set_access` inside a Python loop.
+Current evidence: `get_subject_quiz_discovery` loads up to 25 question sets, then calls `_question_set_access` inside a Python loop; each candidate can trigger parent lookups and repeated access-context work.
 
 Risk: subject discovery remains O(N) in DB access checks.
 
-Fix direction: batch the access predicates or prejoin the needed parent context.
+Fix direction: build one access context, batch-load parent rows, and evaluate candidate access without one DB round trip per question set.
 
 #### BUG-P1-003 - Legacy quiz submit corrupts attempt analytics
 
@@ -138,47 +126,47 @@ Status: OPEN
 
 Files: `backend/app/services/professor_queries.py`
 
-Current evidence: the dashboard still computes unread chat totals from conversation rows on demand.
+Current evidence: `professor_dashboard` still computes `SUM(ProfessorChatConversation.unread_for_professor)` on each dashboard request even though unread counts are already maintained per conversation.
 
 Risk: per-request aggregate work grows with professor conversation count.
 
-Fix direction: add an indexed/cached counter or a partial aggregate path with tests for unread correctness.
+Fix direction: add a professor-level unread cache/materialized counter, update it in chat mutation paths, and test that the dashboard no longer issues the unread `SUM`.
 
-#### BUG-P1-005 - Course read-model N+1 guardrail remains incomplete
-
-Status: OPEN
-
-Files: `backend/app/services/course_topic_read_models.py`, `backend/find_n1.py`
-
-Current evidence: the current N+1 scanner still reports candidates and is not a CI-enforced guardrail.
-
-Risk: topic workspace and course-read endpoints can regress into looped DB access without failing CI.
-
-Fix direction: fix real candidates, make `find_n1.py` fail on findings, and add it to backend CI.
-
-#### BUG-P1-006 - Concurrent multi-tab watch XP can be farmed
+#### BUG-P1-005 - Backend N+1 scanner does not fail on findings
 
 Status: OPEN
 
-Files: `backend/app/services/course_progress.py`, `backend/app/services/xp.py`
+Files: `backend/find_n1.py`, `.github/workflows/ci-backend.yml`
 
-Current evidence: watch-second bounding is per topic item through item progress timing, not a global per-user watch-rate budget.
+Current evidence: `find_n1.py` reports N+1 candidates but exits nonzero only on parse errors. Current course read-model endpoints already have bounded bulk reads and query-budget coverage.
 
-Risk: a student can earn parallel video/progress XP by watching multiple items in separate tabs.
+Risk: new looped DB-access regressions can be reported by the scanner while CI still passes.
 
-Fix direction: add per-user wall-clock accrual limits or a watch-session ledger.
+Fix direction: make `find_n1.py` return failure when findings are present, add a focused scanner regression test, and wire it into backend CI.
 
-#### BUG-P1-007 - XP idempotency and timezone state still have exploit edges
+#### BUG-P1-006 - Per-user watch accrual is only bounded per topic item
 
 Status: OPEN
 
-Files: `backend/app/services/xp.py`
+Files: `backend/app/services/course_progress.py`, `backend/app/services/course_topic_mutations.py`, `backend/app/services/xp.py`
 
-Current evidence: XP day boundaries use UTC-only daily logic, and actions without explicit idempotency keys can still rely on weak duplicate protection.
+Current evidence: watch-second bounding clamps only a single `(user_id, topic_item_id)` progress row, and completion XP uses item-scoped idempotency keys. Parallel tabs on different items can accrue independently.
 
-Risk: timezone edge gaming and duplicate XP insertion under concurrent actions.
+Risk: a student can multiply progress and completion XP by running multiple timed items in parallel.
 
-Fix direction: make daily reward policy explicit per user locale/account timezone and require non-null idempotency keys for awardable actions.
+Fix direction: add a per-user watch-accrual ledger or wall-clock budget before item progress updates and XP awards.
+
+#### BUG-P1-007 - XP service boundary still permits unkeyed award inserts
+
+Status: OPEN
+
+Files: `backend/app/services/xp.py`, `backend/app/models/gamification.py`
+
+Current evidence: `award_xp` accepts `idempotency_key=None`, `award_xp_bulk` only dedupes keys that are present, and the uniqueness constraint applies only to non-null keyed awards.
+
+Risk: future or legacy award paths can bypass idempotency and duplicate XP under retries or concurrency.
+
+Fix direction: require non-null idempotency keys at the XP service boundary and add duplicate-concurrency tests for keyed awards.
 
 #### BUG-P1-009 - Polymorphic references can orphan saved/change-request targets
 
@@ -492,6 +480,7 @@ These are not active correctness bugs unless a later validator proves a user-fac
 - `frontend/components/VideoQuizOverlay.tsx`: video checkpoints are still a `return null` feature stub.
 - `frontend/app/(dashboard)/exam-bank/page.tsx` / `backend/app/routers/courses.py`: Exam Bank advanced filtering remains shallow.
 - Course progress/XP coverage is partial for notes edited, exam problem opened/attempted, lab opened/completed, and similar product-model actions.
+- Daily XP/quest reset policy is UTC-only because account-local timezone is not modeled; keep this as product policy/schema work unless a concrete exploit is proven.
 - Topic search lacks first-class difficulty-tag API fields.
 - Embedded source-port wave/optics course navigation is inert in product embeds.
 - Account settings and notifications inbox are shallow compared with the product docs.
