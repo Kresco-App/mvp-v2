@@ -99,7 +99,6 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 
 export function LeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([])
-  const [lastNonEmptyEntries, setLastNonEmptyEntries] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
@@ -117,9 +116,6 @@ export function LeaderboardPage() {
       })
       const mapped = (data ?? []).map((entry: LeaderboardEntry) => enrichEntry(entry))
       setEntries(mapped)
-      if (mapped.length > 0) {
-        setLastNonEmptyEntries(mapped)
-      }
     } catch {
       const message = 'Could not load leaderboard.'
       setEntries([])
@@ -147,31 +143,12 @@ export function LeaderboardPage() {
     setPage(1)
   }
 
-  const displayEntries = useMemo(
-    () => (entries.length > 0 ? entries : lastNonEmptyEntries),
-    [entries, lastNonEmptyEntries],
-  )
+  const visibleEntries = useMemo(() => entries, [entries])
   const normalizedSearch = useMemo(() => searchInput.trim().toLowerCase(), [searchInput])
-  const instantEntries = useMemo(
-    () => (
-      normalizedSearch
-        ? displayEntries.filter((entry) => entry.full_name.toLowerCase().includes(normalizedSearch))
-        : displayEntries
-    ),
-    [displayEntries, normalizedSearch],
-  )
-  const visibleEntries = useMemo(
-    () => (normalizedSearch && instantEntries.length === 0 ? displayEntries : instantEntries),
-    [displayEntries, instantEntries, normalizedSearch],
-  )
   const hasMore = entries.length === PAGE_SIZE
-  const headerSourceEntries = useMemo(
-    () => (entries.length > 0 ? entries : lastNonEmptyEntries),
-    [entries, lastNonEmptyEntries],
-  )
   const currentUser = useMemo(
-    () => headerSourceEntries.find((e) => e.is_current_user) ?? headerSourceEntries[0],
-    [headerSourceEntries],
+    () => visibleEntries.find((e) => e.is_current_user) ?? visibleEntries[0],
+    [visibleEntries],
   )
   const currentLeague = useMemo(
     () => (currentUser?.leagueKey ? getLeagueInfoByKey(currentUser.leagueKey) : null),
@@ -192,7 +169,7 @@ export function LeaderboardPage() {
     [visibleEntries],
   )
 
-  if (loading && lastNonEmptyEntries.length === 0) {
+  if (loading && entries.length === 0) {
     return <LeaderboardPageSkeleton />
   }
 
@@ -253,16 +230,6 @@ export function LeaderboardPage() {
               </div>
             ) : (
               <div>
-                {normalizedSearch && instantEntries.length === 0 && (
-                  <div className="px-5 py-2.5 text-xs text-[color:var(--text-secondary)]">
-                    Aucun r&eacute;sultat pour &quot;{searchInput}&quot;. Classement complet affich&eacute;.
-                  </div>
-                )}
-                {normalizedSearch && instantEntries.length > 0 && instantEntries.length !== displayEntries.length && (
-                  <div className="px-5 py-2.5 text-xs text-[color:var(--text-secondary)]">
-                    Filtre instantan&eacute; actif pour &quot;{searchInput}&quot;.
-                  </div>
-                )}
                 {visibleRows.map(({ entry, key, showPromotionDivider, showDemotionDivider, isLast }) => (
                   <div key={key}>
                     {showPromotionDivider && (

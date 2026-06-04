@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { BookOpen, CalendarDays, CheckCircle2, FileText, Lock, Play, Search, Trophy } from 'lucide-react'
 import { getJson } from '@/lib/apiClient'
@@ -51,9 +52,19 @@ const MAX_EXAMS_RENDERED = 30
 const MAX_PROBLEMS_PER_EXAM = 12
 
 export default function ExamBankPage() {
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const searchKey = searchParams.toString()
+  const routeQuery = useMemo(() => searchParams.get('q')?.trim() || '', [searchKey])
   const [exams, setExams] = useState<Exam[]>([])
-  const [queryInput, setQueryInput] = useState('')
+  const [queryInput, setQueryInput] = useState(routeQuery)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setQueryInput((current) => (current === routeQuery ? current : routeQuery))
+  }, [routeQuery])
+
   const query = useDebouncedValue(queryInput, EXAM_SEARCH_DEBOUNCE_MS)
 
   useEffect(() => {
@@ -81,6 +92,25 @@ export default function ExamBankPage() {
       alive = false
     }
   }, [query])
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchKey)
+    const trimmedQuery = query.trim()
+
+    if (trimmedQuery) {
+      params.set('q', trimmedQuery)
+    } else {
+      params.delete('q')
+    }
+
+    const nextSearchKey = params.toString()
+    const nextUrl = nextSearchKey ? `${pathname}?${nextSearchKey}` : pathname
+    const currentUrl = searchKey ? `${pathname}?${searchKey}` : pathname
+
+    if (nextUrl !== currentUrl) {
+      router.replace(nextUrl, { scroll: false })
+    }
+  }, [pathname, query, router, searchKey])
 
   const visibleExams = useMemo<VisibleExam[]>(() => {
     return exams.slice(0, MAX_EXAMS_RENDERED).map((exam) => ({

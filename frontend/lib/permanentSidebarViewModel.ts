@@ -116,9 +116,7 @@ export const permanentSidebarLeaderboardDefaults: PermanentSidebarLeaderboardEnt
 export const permanentSidebarDefaultSections: PermanentSidebarSection[] = ['chrono', 'calendar', 'strike', 'quests', 'leaderboard']
 
 export function normalizeQuests(quests: FigmaDailyQuest[]) {
-  const source = quests.length > 0 ? quests : permanentSidebarQuestDefaults
-
-  return source.slice(0, 3).map((quest, index) => ({
+  return quests.slice(0, 3).map((quest, index) => ({
     ...quest,
     title: quest.title?.trim() || defaultQuestLabels[index] || 'Daily quest',
   }))
@@ -153,10 +151,17 @@ export function toClientSidebarData(raw: PermanentSidebarData): PermanentSidebar
   }
 }
 
-export function buildStrikeDays(streakDays: number): PermanentSidebarStrikeDay[] {
+export function buildStrikeDays(streakDays: number, referenceDate = new Date()): PermanentSidebarStrikeDay[] {
+  const totalDays = permanentSidebarStrikeDefaults.length
+  const safeStreakDays = Math.max(0, Math.min(streakDays, totalDays))
+  const todayIndex = (referenceDate.getDay() + 6) % totalDays
+  const completedDays = new Set(
+    Array.from({ length: safeStreakDays }, (_, offset) => wrapIndex(todayIndex - offset, totalDays)),
+  )
+
   return permanentSidebarStrikeDefaults.map((day, index) => ({
     ...day,
-    done: index < Math.max(0, Math.min(streakDays, permanentSidebarStrikeDefaults.length)),
+    done: completedDays.has(index),
   }))
 }
 

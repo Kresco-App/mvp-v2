@@ -70,19 +70,19 @@ describe('permanent sidebar view model', () => {
 
     expect(quests[0].title).toBe('Original')
     expect(quests[1].title).toBe('Score 14/20 or higher in 2 exercises')
-    expect(normalizeQuests([])[0].title).toBe('Complete 1 Mathematics Lesson')
+    expect(normalizeQuests([])).toEqual([])
   })
 
   it('normalizes quest progress, tones, and strike streaks defensively', () => {
     const quests = normalizeQuests([{ id: 'custom', title: 'Original', progress: 12, target: 10 }])
-    const strikeDays = buildStrikeDays(99)
+    const strikeDays = buildStrikeDays(3, new Date(2026, 4, 28))
 
     expect(quests[0].title).toBe('Original')
     expect(getQuestProgressPercent(quests[0])).toBe(100)
     expect(getQuestProgressPercent({ progress: -10, target: 0 })).toBe(0)
     expect(getQuestTone('quiz', 1, 'home')).toBe('#5c5bff')
     expect(getQuestTone('quiz', 1, 'sidebar')).toBe('#5b60f9')
-    expect(strikeDays.every((day) => day.done)).toBe(true)
+    expect(strikeDays.map((day) => day.done)).toEqual([false, true, true, true, false, false, false])
   })
 
   it('centralizes leaderboard avatar fallbacks', () => {

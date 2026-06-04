@@ -72,30 +72,39 @@ describe('leaderboard rendering', () => {
     expect(onExpand).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the full page list visible when instant search has no local match', async () => {
+  it('shows the backend search result instead of falling back to the previous page', async () => {
     mocks.apiGet.mockResolvedValueOnce({ data: leaderboardEntries(3) })
+    mocks.apiGet.mockResolvedValueOnce({ data: [] })
 
-    const { container } = renderComponent(React.createElement(LeaderboardPage))
-    await act(async () => {
-      await flushPromises()
-    })
+    vi.useFakeTimers()
+    try {
+      const { container } = renderComponent(React.createElement(LeaderboardPage))
+      await act(async () => {
+        await flushPromises()
+      })
 
-    expect(container.textContent).toContain('Player 1')
-    expect(container.textContent).toContain('Current Student')
+      expect(container.textContent).toContain('Player 1')
+      expect(container.textContent).toContain('Current Student')
 
-    const input = container.querySelector('input[aria-label="Rechercher un joueur"]') as HTMLInputElement | null
-    expect(input).not.toBeNull()
+      const input = container.querySelector('input[aria-label="Rechercher un joueur"]') as HTMLInputElement | null
+      expect(input).not.toBeNull()
 
-    await act(async () => {
-      setInputValue(input!, 'not-on-this-page')
-      input!.dispatchEvent(new Event('input', { bubbles: true }))
-      await flushPromises()
-    })
+      await act(async () => {
+        setInputValue(input!, 'not-on-this-page')
+        input!.dispatchEvent(new Event('input', { bubbles: true }))
+        vi.advanceTimersByTime(250)
+        await flushPromises()
+      })
 
-    expect(container.textContent).toContain('Aucun')
-    expect(container.textContent).toContain('Classement complet')
-    expect(container.textContent).toContain('Player 1')
-    expect(container.textContent).toContain('Current Student')
+      expect(mocks.apiGet).toHaveBeenLastCalledWith('/progress/leaderboard', {
+        params: { limit: 20, offset: 0, search: 'not-on-this-page' },
+      })
+      expect(container.textContent).toContain('Aucun joueur trouve pour "not-on-this-page"')
+      expect(container.textContent).not.toContain('Player 1')
+      expect(container.textContent).not.toContain('Current Student')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps extracted row and marker helpers out of the page component file', () => {
