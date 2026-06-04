@@ -14,6 +14,7 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 
 ## Resolved in Recent Commits
 
+- `5a01ffa` - Fixed BUG-P2-002 by adding a request-generation guard to the full leaderboard page so stale search/page responses cannot overwrite newer results, with a regression for slow search resolving after a newer search; validation: `npm test -- --run tests/leaderboardRender.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `c9463ca` - Fixed BUG-P2-001 by removing the leaderboard page fallback that treated the first visible row as the current user and adding a regression for non-empty results without an `is_current_user` row; validation: `npm test -- --run tests/leaderboardRender.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `e3a1947` - Fixed BUG-P1-022 by parsing exponent chains iteratively while preserving right associativity and adding Zed math regression tests; validation: `npm test -- --run tests/zedMath.test.ts`, `npm run typecheck`, and `git diff --check`.
 - `cb6edf0` - Fixed BUG-P1-011 by reconciling recipient unread counters when sender-owned unread chat messages are deleted, with professor and student counter regressions; validation: `python -m pytest tests_fastapi/test_professor_platform.py -q -k "deleting_unread or professor_chat_message_reads_skip_commit_when_unread_counts_are_zero or professor_chat_messages_are_cursor_paginated"` and `git diff --check`.
