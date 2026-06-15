@@ -27,6 +27,7 @@ from app.models.payments import (
     PAYMENT_STATUS_PENDING_PROVIDER,
     FinanceExport,
     FinanceLedgerEntry,
+    ManualAccessGrant,
     PaymentProviderEvent,
     PaymentReconciliationImport,
     PaymentReconciliationRow,
@@ -39,6 +40,7 @@ from app.models.users import User, UserSubjectEntitlement
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME, create_token
 from app.services import finance_exports, payment_gateway, payment_lifecycle
+from app.services.access import build_access_context
 from app.services.stripe_service import CheckoutSessionCreation
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -191,6 +193,24 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert export_indexes["ix_finance_exports_actor_created"] == ("created_by_user_id", "created_at")
     assert export_indexes["ix_finance_exports_kind_created"] == ("export_kind", "created_at")
 
+    manual_access_columns = ManualAccessGrant.__table__.columns
+    manual_access_indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in ManualAccessGrant.__table__.indexes
+    }
+    manual_access_constraints = {constraint.name for constraint in ManualAccessGrant.__table__.constraints}
+    assert manual_access_columns["user_id"].nullable is False
+    assert manual_access_columns["subject_id"].nullable is False
+    assert manual_access_columns["action"].nullable is False
+    assert manual_access_columns["status"].server_default.arg == "completed"
+    assert manual_access_columns["entitlement_id"].nullable is True
+    assert manual_access_columns["created_by_user_id"].nullable is False
+    assert "ck_manual_access_grants_action" in manual_access_constraints
+    assert "ck_manual_access_grants_status" in manual_access_constraints
+    assert manual_access_indexes["ix_manual_access_grants_user_created"] == ("user_id", "created_at")
+    assert manual_access_indexes["ix_manual_access_grants_subject_created"] == ("subject_id", "created_at")
+    assert manual_access_indexes["ix_manual_access_grants_actor_created"] == ("created_by_user_id", "created_at")
+
     proof_columns = PaymentTransactionProof.__table__.columns
     proof_indexes = {
         index.name: tuple(column.name for column in index.columns)
@@ -288,6 +308,14 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert "finance_exports" in finance_exports_migration_text
     assert "ck_finance_exports_kind" in finance_exports_migration_text
     assert "ix_finance_exports_actor_created" in finance_exports_migration_text
+
+    manual_access_migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0067_manual_access_grants.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0066"' in manual_access_migration_text
+    assert "manual_access_grants" in manual_access_migration_text
+    assert "ck_manual_access_grants_action" in manual_access_migration_text
+    assert "ix_manual_access_grants_actor_created" in manual_access_migration_text
 
 
 def test_webhook_requires_secret(app_client):
@@ -496,6 +524,21 @@ async def _finance_exports() -> list[FinanceExport]:
     async with session_factory() as db:
         result = await db.execute(select(FinanceExport).order_by(FinanceExport.id))
         return list(result.scalars().all())
+
+
+async def _manual_access_grants() -> list[ManualAccessGrant]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(select(ManualAccessGrant).order_by(ManualAccessGrant.id))
+        return list(result.scalars().all())
+
+
+async def _access_context_subject_ids(user_id: int) -> set[int]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        user = await db.get(User, user_id)
+        context = await build_access_context(db, user)
+        return set(context.active_subject_ids)
 
 
 async def _payment_proofs_for_transaction(transaction_id: int) -> list[PaymentTransactionProof]:
@@ -1601,6 +1644,7 @@ def test_finance_audit_endpoints_require_verified_staff(app_client, auth_token, 
         "/api/payments/finance/provider-events",
         "/api/payments/manual-payment-reconciliation-imports",
         "/api/payments/finance/exports",
+        "/api/payments/finance/manual-access-grants",
     ):
         student_response = app_client.get(path, headers={"Authorization": f"Bearer {student_token}"})
         staff_response = app_client.get(path, headers={"Authorization": f"Bearer {staff_token}"})
@@ -1678,6 +1722,232 @@ def test_finance_write_endpoints_require_superuser(app_client, auth_token, run_d
     assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 0
     assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
     assert len(run_db(_finance_exports())) == 0
+
+
+def test_manual_access_write_requires_superuser(app_client, run_db, test_settings):
+    user_id = run_db(_seed_user("manual-access-denied-student@example.com"))
+    subject_id = run_db(_seed_subjects("Manual Access Denied"))[0]
+    staff_id = run_db(_seed_staff_user("manual-access-denied-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "grant",
+            "reason": "Support exception",
+            "ends_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Superuser access required"
+    assert run_db(_subject_entitlements_for_user(user_id)) == []
+    assert run_db(_manual_access_grants()) == []
+
+
+def test_superuser_grants_and_revokes_manual_subject_access(app_client, run_db, test_settings):
+    user_id = run_db(_seed_user("manual-access-student@example.com"))
+    subject_id = run_db(_seed_subjects("Manual Access Maths"))[0]
+    staff_id = run_db(_seed_staff_user("manual-access-superuser@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+    ends_at = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    grant_payload = {
+        "user_id": user_id,
+        "subject_id": subject_id,
+        "action": "grant",
+        "reason": "Payment support exception",
+        "ends_at": ends_at,
+    }
+
+    grant_response = app_client.post("/api/payments/finance/manual-access-grants", json=grant_payload, headers=headers)
+    duplicate_response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={**grant_payload, "reason": "Duplicate support exception"},
+        headers=headers,
+    )
+    history_response = app_client.get(f"/api/payments/finance/manual-access-grants?user_id={user_id}", headers=headers)
+
+    assert grant_response.status_code == 200
+    grant = grant_response.json()
+    assert grant["action"] == "grant"
+    assert grant["status"] == "completed"
+    assert grant["created_by_user_id"] == staff_id
+    assert grant["entitlement_id"] is not None
+    assert grant["metadata"] == {"already_active": False, "entitlement_created": True}
+    assert run_db(_get_user(user_id)).is_pro is False
+    entitlements = run_db(_subject_entitlements_for_user(user_id))
+    assert len(entitlements) == 1
+    assert entitlements[0].subject_id == subject_id
+    assert entitlements[0].source == "manual_access"
+    assert entitlements[0].status == "active"
+    assert subject_id in run_db(_access_context_subject_ids(user_id))
+
+    assert duplicate_response.status_code == 200
+    duplicate = duplicate_response.json()
+    assert duplicate["status"] == "no_op"
+    assert duplicate["entitlement_id"] == grant["entitlement_id"]
+
+    assert history_response.status_code == 200
+    assert [item["action"] for item in history_response.json()] == ["grant", "grant"]
+
+    revoke_response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "revoke",
+            "reason": "Support exception ended",
+        },
+        headers=headers,
+    )
+
+    assert revoke_response.status_code == 200
+    revoke = revoke_response.json()
+    assert revoke["action"] == "revoke"
+    assert revoke["status"] == "completed"
+    assert revoke["entitlement_id"] == grant["entitlement_id"]
+    assert revoke["metadata"] == {
+        "manual_entitlement_found": True,
+        "revoked_entitlement_ids": [grant["entitlement_id"]],
+    }
+    revoked_entitlement = run_db(_subject_entitlements_for_user(user_id))[0]
+    assert revoked_entitlement.status == "revoked"
+    assert revoked_entitlement.ends_at is not None
+    assert subject_id not in run_db(_access_context_subject_ids(user_id))
+
+
+def test_manual_access_grant_requires_expiry(app_client, run_db, test_settings):
+    user_id = run_db(_seed_user("manual-access-expiry-student@example.com"))
+    subject_id = run_db(_seed_subjects("Manual Access Expiry"))[0]
+    staff_id = run_db(_seed_staff_user("manual-access-expiry-superuser@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "grant",
+            "reason": "Support exception",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "ends_at is required for manual access grants"
+    assert run_db(_subject_entitlements_for_user(user_id)) == []
+
+    expired_response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "grant",
+            "reason": "Support exception",
+            "ends_at": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert expired_response.status_code == 400
+    assert expired_response.json()["detail"] == "ends_at must be after starts_at"
+    assert run_db(_subject_entitlements_for_user(user_id)) == []
+
+
+def test_manual_access_revoke_does_not_revoke_paid_entitlement(app_client, run_db, test_settings):
+    user_id = run_db(_seed_user("manual-access-paid-student@example.com", is_pro=True))
+    subject_id = run_db(_seed_subjects("Manual Access Paid"))[0]
+
+    async def seed_paid_entitlement():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(
+                UserSubjectEntitlement(
+                    user_id=user_id,
+                    subject_id=subject_id,
+                    source="payment:cmi:test",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+    run_db(seed_paid_entitlement())
+    staff_id = run_db(_seed_staff_user("manual-access-paid-superuser@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "revoke",
+            "reason": "Manual access cleanup",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "no_op"
+    assert payload["entitlement_id"] is None
+    entitlements = run_db(_subject_entitlements_for_user(user_id))
+    assert len(entitlements) == 1
+    assert entitlements[0].source == "payment:cmi:test"
+    assert entitlements[0].status == "active"
+    assert run_db(_get_user(user_id)).is_pro is True
+
+
+def test_manual_access_revoke_cancels_future_manual_entitlement(app_client, run_db, test_settings):
+    user_id = run_db(_seed_user("manual-access-future-student@example.com"))
+    subject_id = run_db(_seed_subjects("Manual Access Future"))[0]
+    future_start = datetime.now(timezone.utc) + timedelta(days=7)
+    future_end = future_start + timedelta(days=30)
+
+    async def seed_future_manual_entitlement():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(
+                UserSubjectEntitlement(
+                    user_id=user_id,
+                    subject_id=subject_id,
+                    starts_at=future_start,
+                    ends_at=future_end,
+                    source="manual_access",
+                    status="active",
+                )
+            )
+            await db.commit()
+
+    run_db(seed_future_manual_entitlement())
+    staff_id = run_db(_seed_staff_user("manual-access-future-superuser@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "revoke",
+            "reason": "Cancel scheduled support exception",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["metadata"]["manual_entitlement_found"] is True
+    entitlement = run_db(_subject_entitlements_for_user(user_id))[0]
+    assert entitlement.status == "revoked"
+    assert entitlement.ends_at is not None
+    entitlement_end = entitlement.ends_at
+    if entitlement_end.tzinfo is not None:
+        entitlement_end = entitlement_end.replace(tzinfo=None)
+    assert entitlement_end < future_end.replace(tzinfo=None)
 
 
 def test_superuser_exports_finance_ledger_with_audit_record_and_csv_safety(

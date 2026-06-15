@@ -14,6 +14,8 @@ from app.schemas.payments import (
     FinanceExportOut,
     FinanceExportSummaryOut,
     FinanceLedgerEntryOut,
+    ManualAccessGrantCreateIn,
+    ManualAccessGrantOut,
     ManualPaymentProofIn,
     ManualPaymentReconciliationIn,
     ManualPaymentReviewIn,
@@ -42,6 +44,7 @@ from app.services.payment_gateway import (
     submit_manual_payment_proof,
 )
 from app.services.finance_exports import create_finance_export, list_finance_exports
+from app.services.manual_access_grants import create_manual_access_grant, list_manual_access_grants
 from app.services.payment_lifecycle import (
     create_checkout_state,
     process_stripe_webhook_event,
@@ -163,6 +166,28 @@ async def create_finance_export_record(
 ):
     del request
     return await create_finance_export(db, actor=staff, request=export_request)
+
+
+@router.get("/finance/manual-access-grants", response_model=list[ManualAccessGrantOut])
+async def list_manual_access_grant_records(
+    user_id: int | None = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await list_manual_access_grants(db, user_id=user_id, limit=limit)
+
+
+@router.post("/finance/manual-access-grants", response_model=ManualAccessGrantOut)
+@limiter.limit("10/minute")
+async def create_manual_access_grant_record(
+    request: Request,
+    grant_request: ManualAccessGrantCreateIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(get_current_superuser),
+):
+    del request
+    return await create_manual_access_grant(db, actor=staff, request=grant_request)
 
 
 @router.post("/manual-payment-requests/reconcile", response_model=ManualPaymentTransactionOut)

@@ -2309,7 +2309,7 @@ Verification completed:
 
 ### Slice 42: Finance Export Audit Records
 
-Status: implemented.
+Status: committed in `f827f02e`.
 
 Reason for this slice:
 
@@ -2354,7 +2354,7 @@ Verification plan:
   implemented.
 - Run focused payment route tests and backend compile check. Status:
   implemented.
-- Run a strong diff review before committing. Status: pending.
+- Run a strong diff review before committing. Status: implemented.
 
 Verification completed:
 
@@ -2368,10 +2368,77 @@ Verification completed:
   characters when checking for spreadsheet formula prefixes.
 - Final focused review found no remaining blocking export issues.
 
+### Slice 43: Manual Subject Access Grants
+
+Status: implemented.
+
+Reason for this slice:
+
+- The payment/access roadmap calls for support-side manual access corrections,
+  but directly editing payment rows or `users.is_pro` would blur product access,
+  finance state, and support exceptions.
+- Subject-level entitlements are now the access source for paid subjects, so
+  manual support grants should use the same entitlement reader without pretending
+  a payment happened.
+- Manual grants are money-adjacent support actions and need a durable audit
+  trail before the testing window.
+
+Implemented scope:
+
+- Added append-only `manual_access_grants` audit records with actor, user,
+  subject, action, status, reason, linked entitlement, grant window, metadata,
+  and timestamp. Status: implemented.
+- Added a staff-readable `GET /api/payments/finance/manual-access-grants`
+  endpoint for bounded audit history. Status: implemented.
+- Added a superuser-only `POST /api/payments/finance/manual-access-grants`
+  endpoint for grant/revoke actions. Status: implemented.
+- Added manual subject entitlements with `source="manual_access"` and required
+  expiry for grant actions. Status: implemented.
+- Added revoke behavior that only touches manual-access entitlements, including
+  future scheduled manual grants, and leaves payment-sourced entitlements and
+  `users.is_pro` unchanged. Status: implemented.
+
+Decisions:
+
+- Decision: manual access uses a dedicated audit table instead of provider
+  events or finance ledger rows because no payment provider event or money
+  movement occurred.
+- Decision: grant/revoke writes require `is_superuser` for v1, matching the
+  temporary finance-write boundary already used for payment mutations.
+- Decision: staff can read manual grant history because support and finance need
+  the audit trail, but plain staff cannot mutate access.
+- Decision: duplicate grants against an already-active manual entitlement create
+  a `no_op` audit row instead of extending access silently. Extension policy can
+  be added later as an explicit action.
+- Decision: every grant must expire. Open-ended support access is too risky for
+  launch testing.
+
+Verification plan:
+
+- Add model/migration declaration tests for `manual_access_grants`. Status:
+  implemented.
+- Add route tests for staff denial, superuser grant, duplicate no-op, required
+  expiry, revoke, paid-entitlement isolation, future scheduled revoke, and
+  access-context visibility. Status: implemented.
+- Run focused payment tests and backend compile check. Status: implemented.
+- Run a strong diff review before committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 98 tests.
+- `python -m compileall app` passed.
+- Pre-test review found redundant model indexes that were not present in the
+  migration. Addressed by relying on the composite audit indexes only.
+- Pre-test review found expired grants could be created when `starts_at` was
+  omitted. Addressed by normalizing timestamps to UTC and comparing `ends_at`
+  against the default immediate start time.
+- Strong review found no blocking manual access issues and verified Alembic
+  reports `0067` as the current head.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
   must avoid a half-migration where both old and new flows grant access
   inconsistently.
-- Refunds, manual grants, and full finance RBAC remain intentionally deferred
+- Refunds and full finance RBAC remain intentionally deferred
   money-mutation work.

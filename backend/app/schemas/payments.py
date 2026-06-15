@@ -270,6 +270,46 @@ class FinanceExportOut(FinanceExportSummaryOut):
     csv_text: str
 
 
+class ManualAccessGrantCreateIn(BaseModel):
+    user_id: int = Field(gt=0)
+    subject_id: int = Field(gt=0)
+    action: str = Field(min_length=1, max_length=20)
+    reason: str = Field(min_length=3, max_length=255)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+    @field_validator("action")
+    @classmethod
+    def normalize_action(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"grant", "revoke"}:
+            raise ValueError("action must be one of: grant, revoke")
+        return normalized
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 3:
+            raise ValueError("reason is required")
+        return normalized
+
+
+class ManualAccessGrantOut(BaseModel):
+    id: int
+    user_id: int
+    subject_id: int
+    action: str
+    status: str
+    entitlement_id: int | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    reason: str
+    created_by_user_id: int
+    metadata: dict[str, Any]
+    created_at: datetime
+
+
 class FinanceLedgerEntryOut(BaseModel):
     id: int
     transaction_id: int | None = None

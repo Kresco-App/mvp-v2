@@ -307,3 +307,27 @@ class FinanceExport(Base):
     created_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ManualAccessGrant(Base):
+    __tablename__ = "manual_access_grants"
+    __table_args__ = (
+        CheckConstraint("action IN ('grant', 'revoke')", name="ck_manual_access_grants_action"),
+        CheckConstraint("status IN ('completed', 'no_op')", name="ck_manual_access_grants_status"),
+        Index("ix_manual_access_grants_user_created", "user_id", "created_at"),
+        Index("ix_manual_access_grants_subject_created", "subject_id", "created_at"),
+        Index("ix_manual_access_grants_actor_created", "created_by_user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="completed", server_default="completed")
+    entitlement_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("user_subject_entitlements.id", ondelete="SET NULL"), nullable=True)
+    starts_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+    created_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
