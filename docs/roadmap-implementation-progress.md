@@ -3327,6 +3327,69 @@ Verification completed:
   adding schedule assertions for the mastered-threshold conflict path.
 - Re-review found no blocking issues.
 
+### Slice 58: Content Report Queue Foundation
+
+Status: implemented.
+
+Reason for this slice:
+
+- The roadmap calls for report queues and moderation workflows for bad
+  comments, live chat, AI answers, wrong corrections, abuse, takedowns, and
+  support escalation.
+- The first useful backend step is durable report intake plus a staff queue.
+  Target-specific hide/delete/restore actions can layer on top without
+  changing the student submission contract.
+
+Implemented scope:
+
+- Added `content_reports`, keyed by `(reporter_user_id, idempotency_key)`.
+  Status: implemented.
+- Added authenticated `POST /api/reports` for student/user report creation.
+  Status: implemented.
+- Added `GET /api/admin/reports` with status, target type, reason, assignee,
+  limit, and offset filters. Status: implemented.
+- Added `PATCH /api/admin/reports/{report_id}` for status, priority,
+  assignment, and resolution-note updates. Status: implemented.
+- Added `support:reports` as the staff permission guarding report queue reads
+  and updates. Status: implemented.
+- Added admin audit logs for staff report updates. Status: implemented.
+
+Decisions:
+
+- Decision: v1 report targets are generic strings (`exercise`, `comment`,
+  `exam_problem_part`, `question`, `question_set`, `live_session`,
+  `live_message`, `ai_answer`, `payment`, `access`, and related content
+  types). The model intentionally avoids polymorphic foreign keys.
+- Decision: public v1 report intake is narrower than the table. Students can
+  create reports only for validated `exercise` and `comment` targets for now;
+  future target types must add resolvers before public intake accepts them.
+- Decision: server-side target resolvers populate subject/topic context for
+  public reports, ignoring client-provided context IDs.
+- Decision: idempotency is per reporter. Client keys are allowed, but stored as
+  normalized hashes; when no client key is provided, the default key is derived
+  from target type, target id, and reason.
+- Decision: report records do not mutate target content yet. Comment
+  hide/delete/restore and live-message moderation states should be a separate
+  behavior slice on top of this queue.
+- Decision: student submissions are not exposed back as a report detail API in
+  v1. Staff queue details are restricted to `support:reports`.
+
+Verification plan:
+
+- Add route coverage for authenticated report creation, retry idempotency, and
+  invalid target validation. Status: implemented.
+- Add admin coverage for missing permission, filters, status transition,
+  assignee validation, and audit logging. Status: implemented.
+- Add migration linearity coverage through the existing migration tests.
+  Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_content_reports.py tests_fastapi/test_admin_overview.py tests_fastapi/test_migrations.py -q`
+  passed with 20 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0075 (head)`.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
@@ -3337,3 +3400,5 @@ Verification completed:
   bundles, role-management UI, SQLAdmin daily-use replacement with dedicated
   backoffice screens, and richer permission audit dashboards remain
   intentionally deferred.
+- Report queue target types are polymorphic and must get service-level target
+  validation before staff actions mutate content.

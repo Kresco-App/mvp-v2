@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_staff_user, get_db, require_staff_permission
@@ -7,8 +7,10 @@ from app.rate_limit import limiter
 from app.schemas.admin import AdminOverviewOut
 from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionOut, UserPermissionRevokeIn
 from app.schemas.gamification import XPAdjustmentCreateIn, XPAdjustmentOut, XPAdminAuditOut
+from app.schemas.reports import ReportListOut, ReportOut, ReportUpdateIn
 from app.services.admin_permissions import grant_user_permission, list_user_permissions, revoke_user_permission
 from app.services.admin_overview import build_admin_overview
+from app.services.reports import list_admin_content_reports, update_admin_content_report
 from app.services.xp_adjustments import create_xp_adjustment
 from app.services.xp_audit import build_admin_xp_audit
 
@@ -16,6 +18,7 @@ router = APIRouter(tags=["Admin"])
 require_roles_manage = require_staff_permission("roles:manage")
 require_xp_adjust = require_staff_permission("xp:adjust")
 require_audit_read = require_staff_permission("audit:read")
+require_reports_manage = require_staff_permission("support:reports")
 
 
 @router.get("/overview", response_model=AdminOverviewOut)
@@ -109,3 +112,44 @@ async def get_admin_xp_audit(
     _staff: User = Depends(require_audit_read),
 ):
     return await build_admin_xp_audit(db, user_id=user_id, limit=limit)
+
+
+@router.get("/reports", response_model=ReportListOut)
+async def list_reports(
+    status: str | None = None,
+    target_type: str | None = None,
+    reason: str | None = None,
+    assigned_to_user_id: int | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_reports_manage),
+):
+    return await list_admin_content_reports(
+        db,
+        status=status,
+        target_type=target_type,
+        reason=reason,
+        assigned_to_user_id=assigned_to_user_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.patch("/reports/{report_id}", response_model=ReportOut)
+@limiter.limit("20/minute")
+async def update_report(
+    request: Request,
+    report_id: int,
+    body: ReportUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_reports_manage),
+):
+    return await update_admin_content_report(
+        db,
+        actor=staff,
+        report_id=report_id,
+        body=body,
+        request_path=str(request.url.path),
+        client_host=request.client.host if request.client else "",
+    )

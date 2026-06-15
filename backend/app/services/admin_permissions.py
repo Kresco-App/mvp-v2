@@ -20,6 +20,7 @@ ALLOWED_USER_PERMISSIONS = {
     "live:moderate",
     "roles:manage",
     "sqladmin:access",
+    "support:reports",
     "users:read",
     "users:update",
     "xp:adjust",

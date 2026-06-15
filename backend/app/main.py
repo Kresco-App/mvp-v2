@@ -23,7 +23,7 @@ from app.config import Settings, get_settings, validate_production_settings
 from app.database import init_engine, reset_engine
 from app.rate_limit import configure_rate_limit_storage, limiter
 from app.routers import admin as admin_api
-from app.routers import calendar, courses, exam_bank, exercises, gamification, interactions, internal, notifications, payments, professor, quizzes, realtime, telemetry, users
+from app.routers import calendar, courses, exam_bank, exercises, gamification, interactions, internal, notifications, payments, professor, quizzes, realtime, reports, telemetry, users
 from app.security.csrf import csrf_failure_reason
 from app.services.media_storage import warm_media_storage_client
 from app.services.telemetry import emit_readiness_error_metric, emit_request_metric, emit_unhandled_exception_metric
@@ -241,6 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(quizzes.router, prefix="/api/quizzes")
     app.include_router(gamification.router, prefix="/api/progress")
     app.include_router(interactions.router, prefix="/api/interactions")
+    app.include_router(reports.router, prefix="/api")
     app.include_router(payments.router, prefix="/api/payments")
     app.include_router(notifications.router, prefix="/api/notifications")
     app.include_router(realtime.router, prefix="/api/realtime")

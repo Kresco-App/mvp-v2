@@ -1,1 +1,1 @@
-from app.models import admin_audit, calendar, users, courses, exam_bank, exam_progress, exercises, quizzes, gamification, mistake_notebook, interactions, notifications, payments, professor  # noqa: F401
+from app.models import admin_audit, calendar, users, courses, exam_bank, exam_progress, exercises, quizzes, gamification, mistake_notebook, interactions, notifications, payments, professor, reports  # noqa: F401
