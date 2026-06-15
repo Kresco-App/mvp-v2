@@ -230,11 +230,69 @@ def test_exercise_mutations_require_subject_access(app_client, auth_token, run_d
         json={"self_grade": "mastered"},
         headers=headers,
     )
+    save = app_client.post(
+        f"/api/exercises/{seeded['exercise_id']}/saved",
+        json={"saved": True},
+        headers=headers,
+    )
 
     assert reveal.status_code == 403
     assert reveal.json()["detail"] == "subject_access_required"
     assert grade.status_code == 403
     assert grade.json()["detail"] == "subject_access_required"
+    assert save.status_code == 403
+    assert save.json()["detail"] == "subject_access_required"
+    assert run_db(_user_xp_total(user_id)) == 0
+
+
+def test_exercise_saved_mutation_updates_filters_without_xp(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-save@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    save = app_client.post(
+        f"/api/exercises/{seeded['second_exercise_id']}/saved",
+        json={"saved": True},
+        headers=headers,
+    )
+    saved_filter = app_client.get(
+        f"/api/exercises/subjects/{seeded['subject_id']}?saved=true",
+        headers=headers,
+    )
+    unsave = app_client.post(
+        f"/api/exercises/{seeded['second_exercise_id']}/saved",
+        json={"saved": False},
+        headers=headers,
+    )
+    saved_filter_after_unsave = app_client.get(
+        f"/api/exercises/subjects/{seeded['subject_id']}?saved=true",
+        headers=headers,
+    )
+    unsaved_filter = app_client.get(
+        f"/api/exercises/subjects/{seeded['subject_id']}?saved=false",
+        headers=headers,
+    )
+
+    assert save.status_code == 200
+    assert save.json()["xp_awarded"] == 0
+    assert save.json()["exercise"]["id"] == seeded["second_exercise_id"]
+    assert save.json()["exercise"]["saved"] is True
+
+    assert saved_filter.status_code == 200
+    assert {item["id"] for item in saved_filter.json()["items"]} == {
+        seeded["exercise_id"],
+        seeded["second_exercise_id"],
+    }
+
+    assert unsave.status_code == 200
+    assert unsave.json()["xp_awarded"] == 0
+    assert unsave.json()["exercise"]["saved"] is False
+
+    assert saved_filter_after_unsave.status_code == 200
+    assert {item["id"] for item in saved_filter_after_unsave.json()["items"]} == {seeded["exercise_id"]}
+
+    assert unsaved_filter.status_code == 200
+    assert {item["id"] for item in unsaved_filter.json()["items"]} == {seeded["second_exercise_id"]}
     assert run_db(_user_xp_total(user_id)) == 0
 
 

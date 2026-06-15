@@ -4,11 +4,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
 from app.rate_limit import limiter
-from app.schemas.exercises import ExerciseBankListOut, ExerciseDetailOut, ExerciseProgressMutationOut, ExerciseSelfGradeIn
+from app.schemas.exercises import (
+    ExerciseBankListOut,
+    ExerciseDetailOut,
+    ExerciseProgressMutationOut,
+    ExerciseSavedIn,
+    ExerciseSelfGradeIn,
+)
 from app.services.exercise_bank import (
     get_exercise_detail,
     list_exercise_bank_items,
     reveal_exercise_solution,
+    update_exercise_saved,
     update_exercise_self_grade,
 )
 
@@ -84,3 +91,17 @@ async def self_grade_exercise(
         self_grade=body.self_grade,
     )
     return ExerciseProgressMutationOut(exercise=exercise, xp_awarded=xp_awarded)
+
+
+@router.post("/{exercise_id}/saved", response_model=ExerciseProgressMutationOut)
+@limiter.limit("60/minute")
+async def save_exercise(
+    request: Request,
+    exercise_id: int,
+    body: ExerciseSavedIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    exercise = await update_exercise_saved(db, user, exercise_id=exercise_id, saved=body.saved)
+    return ExerciseProgressMutationOut(exercise=exercise, xp_awarded=0)

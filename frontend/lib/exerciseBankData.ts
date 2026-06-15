@@ -122,6 +122,15 @@ export async function selfGradeExercise(exerciseId: number, selfGrade: Exclude<E
   return result
 }
 
+export async function saveExercise(exerciseId: number, saved: boolean) {
+  const result = await postJson<ExerciseProgressMutation, { saved: boolean }>(
+    `/exercises/${exerciseId}/saved`,
+    { saved },
+  )
+  await mutate(`/exercises/${result.exercise.id}`, result.exercise, false)
+  return result
+}
+
 async function refreshExerciseCaches(exercise: ExerciseDetail) {
   await Promise.all([
     mutate(`/exercises/${exercise.id}`, exercise, false),

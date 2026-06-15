@@ -9,6 +9,7 @@ import { apiDataErrorMessage } from '@/lib/apiData'
 import { useCourseTopicsData } from '@/lib/courseDiscoveryData'
 import {
   revealExercise,
+  saveExercise,
   selfGradeExercise,
   useExerciseBankData,
   useExerciseDetail,
@@ -124,6 +125,13 @@ export default function ExerciseBankPage() {
       await detail.retry(result.exercise, { revalidate: false })
       await list.retry((current) => {
         if (!current) return current
+        if (list.key?.includes('saved=true') && !result.exercise.saved) {
+          return {
+            ...current,
+            total: Math.max(0, current.total - 1),
+            items: current.items.filter((item) => item.id !== result.exercise.id),
+          }
+        }
         return {
           ...current,
           items: current.items.map((item) => item.id === result.exercise.id ? { ...item, ...result.exercise } : item),
@@ -132,6 +140,29 @@ export default function ExerciseBankPage() {
       toast.success(result.xp_awarded > 0 ? `+${result.xp_awarded} XP` : 'Self-grade saved')
     } catch (error) {
       toast.error(apiDataErrorMessage(error, 'Could not save self-grade.'))
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  async function toggleSelectedExerciseSaved() {
+    if (!selectedExerciseId || !detail.exercise) return
+    setMutating(true)
+    try {
+      const result = await saveExercise(selectedExerciseId, !detail.exercise.saved)
+      await detail.retry(result.exercise, { revalidate: false })
+      const removeFromSavedOnlyList = list.key?.includes('saved=true') && !result.exercise.saved
+      await list.retry({
+        subject_id: selectedSubjectId ?? result.exercise.subject_id,
+        topic_id: null,
+        total: removeFromSavedOnlyList ? Math.max(0, list.total - 1) : list.total,
+        items: removeFromSavedOnlyList
+          ? list.items.filter((item) => item.id !== result.exercise.id)
+          : list.items.map((item) => item.id === result.exercise.id ? { ...item, ...result.exercise } : item),
+      }, { revalidate: false })
+      toast.success(result.exercise.saved ? 'Exercise saved' : 'Exercise unsaved')
+    } catch (error) {
+      toast.error(apiDataErrorMessage(error, 'Could not update saved state.'))
     } finally {
       setMutating(false)
     }
@@ -230,6 +261,7 @@ export default function ExerciseBankPage() {
           loading={detail.loading && !selectedExercise}
           mutating={mutating}
           onReveal={revealSelectedExercise}
+          onToggleSaved={toggleSelectedExerciseSaved}
           onGrade={gradeSelectedExercise}
         />
       )}
@@ -250,6 +282,7 @@ function ExerciseCard({ exercise, index, onOpen }: { exercise: ExerciseListItem;
         <DifficultyBars difficulty={exercise.difficulty} />
         <p className="m-0 mt-1 text-xs font-bold capitalize text-[#52525c]">{difficultyLabel(exercise.difficulty)}</p>
         <p className="m-0 mt-2 text-xs font-black text-[#5b60f9]">{gradeLabel(exercise.self_grade)}</p>
+        {exercise.saved && <p className="m-0 mt-1 inline-flex items-center gap-1 text-xs font-black text-[#b76b00]"><Star size={12} fill="currentColor" /> Saved</p>}
       </div>
       <button type="button" onClick={onOpen} className="mt-3 h-10 w-full rounded-full border-2 border-[#f97316] bg-white text-sm font-black text-[#f97316] transition hover:bg-[#fff7ed]">
         {cta}
@@ -263,12 +296,14 @@ function ExerciseDetailView({
   loading,
   mutating,
   onReveal,
+  onToggleSaved,
   onGrade,
 }: {
   exercise: ExerciseDetail | null
   loading: boolean
   mutating: boolean
   onReveal: () => void
+  onToggleSaved: () => void
   onGrade: (grade: Exclude<ExerciseSelfGrade, 'not_started'>) => void
 }) {
   if (loading) return <ExerciseDetailSkeleton />
@@ -288,7 +323,13 @@ function ExerciseDetailView({
             <h2 className="m-0 mt-2 text-[28px] font-black leading-tight text-[#27272a]">{exercise.title}</h2>
             <p className="m-0 mt-2 text-sm font-bold text-[#71717b]">{exercise.summary}</p>
           </div>
-          <span className="inline-flex h-9 items-center rounded-full bg-[#f4f4f5] px-3 text-xs font-black text-[#52525c]">{gradeLabel(exercise.self_grade)}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex h-9 items-center rounded-full bg-[#f4f4f5] px-3 text-xs font-black text-[#52525c]">{gradeLabel(exercise.self_grade)}</span>
+            <button type="button" disabled={mutating} onClick={onToggleSaved} className="inline-flex h-9 items-center gap-2 rounded-full border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#52525c] transition hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:opacity-60">
+              <Star size={14} fill={exercise.saved ? 'currentColor' : 'none'} />
+              {exercise.saved ? 'Saved' : 'Save'}
+            </button>
+          </div>
         </div>
         <RichBody body={exercise.statement_body} empty="No statement body is available yet." />
         {exercise.assets.length > 0 && (

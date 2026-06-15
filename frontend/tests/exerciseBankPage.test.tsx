@@ -65,11 +65,15 @@ beforeEach(() => {
   })
   mocks.apiPost.mockImplementation(async (url: string, body?: unknown) => {
     if (url === '/exercises/10/reveal') {
-      return { exercise: exerciseDetail({ reveal_count: 1, solution_body: '$x=1$.' }), xp_awarded: 0 }
+      return { exercise: exerciseDetail({ saved: true, reveal_count: 1, solution_body: '$x=1$.' }), xp_awarded: 0 }
+    }
+    if (url === '/exercises/10/saved') {
+      expect(body).toEqual({ saved: true })
+      return { exercise: exerciseDetail({ saved: true }), xp_awarded: 0 }
     }
     if (url === '/exercises/10/self-grade') {
       expect(body).toEqual({ self_grade: 'partial' })
-      return { exercise: exerciseDetail({ reveal_count: 1, self_grade: 'partial', solution_body: '$x=1$.' }), xp_awarded: 0 }
+      return { exercise: exerciseDetail({ saved: true, reveal_count: 1, self_grade: 'partial', solution_body: '$x=1$.' }), xp_awarded: 0 }
     }
     throw new Error(`unexpected POST ${url}`)
   })
@@ -109,6 +113,13 @@ describe('ExerciseBankPage', () => {
       expect(container.textContent).toContain('Solve $x+1=2$.')
     })
 
+    await clickButton(container, 'Save')
+    await waitFor(() => {
+      expect(container.textContent).toContain('Saved')
+      expect(mocks.toastSuccess).toHaveBeenCalledWith('Exercise saved')
+    })
+    expect(mocks.apiPost).toHaveBeenCalledWith('/exercises/10/saved', { saved: true })
+
     await clickButton(container, 'Reveal correction')
     await waitFor(() => {
       expect(container.textContent).toContain('$x=1$.')
@@ -122,6 +133,7 @@ describe('ExerciseBankPage', () => {
     await clickButton(container, 'Back to list')
     await waitFor(() => {
       expect(container.textContent).toContain('Partiel')
+      expect(container.textContent).toContain('Saved')
     })
   })
 
@@ -214,6 +226,53 @@ describe('ExerciseBankPage', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Hard exercise')
     })
+  })
+
+  it('removes an unsaved exercise from the active saved-only list', async () => {
+    searchParams.set('subject', '2')
+    searchParams.set('saved', 'true')
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/topics') return [{ id: 1, subject_id: 2, subject_title: 'Physique', title: 'Ondes' }]
+      if (url === '/exercises/subjects/2?limit=50&saved=true') {
+        return {
+          subject_id: 2,
+          topic_id: null,
+          total: 1,
+          items: [exerciseListItem({ saved: true })],
+        }
+      }
+      if (url === '/exercises/10') return exerciseDetail({ saved: true })
+      throw new Error(`unexpected GET ${url}`)
+    })
+    mocks.apiPost.mockImplementation(async (url: string, body?: unknown) => {
+      if (url === '/exercises/10/saved') {
+        expect(body).toEqual({ saved: false })
+        return { exercise: exerciseDetail({ saved: false }), xp_awarded: 0 }
+      }
+      throw new Error(`unexpected POST ${url}`)
+    })
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Linear equation')
+    })
+    await clickButton(container, "s'exercer")
+    await waitFor(() => {
+      expect(container.textContent).toContain('Solve $x+1=2$.')
+      expect(container.textContent).toContain('Saved')
+    })
+
+    await clickButton(container, 'Saved')
+    await waitFor(() => {
+      expect(mocks.toastSuccess).toHaveBeenCalledWith('Exercise unsaved')
+    })
+
+    await clickButton(container, 'Back to list')
+    await waitFor(() => {
+      expect(container.textContent).toContain('0 exercise(s) in the current filtered list.')
+      expect(container.textContent).toContain('No exercises match these filters.')
+    })
+    expect(container.textContent).not.toContain('Linear equation')
   })
 })
 

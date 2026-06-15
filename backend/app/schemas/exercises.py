@@ -73,6 +73,10 @@ class ExerciseSelfGradeIn(BaseModel):
         return normalized
 
 
+class ExerciseSavedIn(BaseModel):
+    saved: bool = False
+
+
 class ExerciseProgressMutationOut(BaseModel):
     exercise: ExerciseDetailOut
     xp_awarded: int = 0

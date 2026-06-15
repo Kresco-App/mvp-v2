@@ -156,6 +156,21 @@ async def reveal_exercise_solution(
     return exercise_detail_out(exercise, access=access, progress=progress)
 
 
+async def update_exercise_saved(
+    db: AsyncSession,
+    user: User,
+    *,
+    exercise_id: int,
+    saved: bool,
+) -> ExerciseDetailOut:
+    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
+    progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
+    progress.saved = bool(saved)
+    await db.commit()
+    await db.refresh(progress)
+    return exercise_detail_out(exercise, access=access, progress=progress)
+
+
 async def update_exercise_self_grade(
     db: AsyncSession,
     user: User,

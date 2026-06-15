@@ -1219,6 +1219,57 @@ Verification plan:
   tri-state saved filter, `saved=false` SWR keys, and list revalidation after
   opened progress writes. Status: implemented.
 
+### Slice 23: Exercise Bank Save Toggle
+
+Status: implemented.
+
+Reason for this slice:
+
+- Exercise Bank already stored `saved` state and exposed saved filters, but
+  students could not toggle saved state from the bank UI.
+- Saved exercises are part of the bank-local revision workflow and should not
+  require the future unified revision queue.
+
+Planned backend scope:
+
+- Add a subject-access-checked save/unsave mutation for Exercise Bank
+  exercises. Status: implemented.
+- Persist saved state on the existing `user_exercise_progress` row. Status:
+  implemented.
+- Keep save/unsave free of XP side effects. Status: implemented.
+- Keep locked subject exercises blocked from save mutations. Status:
+  implemented.
+
+Planned frontend scope:
+
+- Add a compact Save/Saved control in Exercise Detail. Status: implemented.
+- Update detail and current list caches after save/unsave. Status:
+  implemented.
+- Show saved state on exercise cards so returning to the list reflects the
+  current revision marker. Status: implemented.
+
+Decisions:
+
+- Decision: saved state stays on `UserExerciseProgress` for Exercise Bank v1,
+  matching the existing saved filters and avoiding a second generic saved-item
+  write path for this bank.
+- Decision: saving an exercise requires subject access, consistent with reveal
+  and self-grade mutations.
+- Decision: save/unsave does not award XP.
+
+Verification plan:
+
+- Add backend tests for save, unsave, saved filters, no XP, and locked mutation
+  rejection. Status: implemented.
+- Add frontend tests for the detail save button, API payload, toast, and list
+  card update after returning. Status: implemented.
+- Run focused backend Exercise Bank tests, frontend Exercise Bank page tests,
+  TypeScript checks, lint, and strong review before committing. Status:
+  implemented.
+- Strong review found a saved-only cache issue when unsaving an exercise from
+  an active saved filter. The current list now removes that exercise and
+  decrements the count, with regression coverage. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
