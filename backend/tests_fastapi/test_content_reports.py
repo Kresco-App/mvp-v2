@@ -1,15 +1,16 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.models.courses import Subject
 from app.models.exercises import Exercise
+from app.models.professor import CourseOffering, LiveSession, LiveSessionInteraction, ProgramTrack, RealtimeOutbox
 from app.models.reports import ContentReport
-from app.models.users import User, UserPermission
+from app.models.users import User, UserPermission, UserSubjectEntitlement
 from app.services.auth import create_token
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +53,42 @@ async def _latest_comment_moderation_audit(comment_id: int) -> AdminAuditLog | N
         )
 
 
+async def _latest_live_message_moderation_audit(interaction_id: int) -> AdminAuditLog | None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        return await db.scalar(
+            select(AdminAuditLog)
+            .where(
+                AdminAuditLog.action == "live_message_moderation",
+                AdminAuditLog.model_name == "LiveSessionInteraction",
+                AdminAuditLog.object_pk == str(interaction_id),
+            )
+            .order_by(AdminAuditLog.id.desc())
+            .limit(1)
+        )
+
+
+async def _latest_live_interaction_outbox(
+    live_session_id: int,
+    interaction_id: int,
+    event_name: str,
+) -> RealtimeOutbox | None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(RealtimeOutbox)
+            .where(
+                RealtimeOutbox.channel == f"kresco:live:{live_session_id}",
+                RealtimeOutbox.event_name == event_name,
+            )
+            .order_by(RealtimeOutbox.id.desc())
+        )
+        for event in result.scalars().all():
+            if event.payload_json.get("id") == interaction_id:
+                return event
+        return None
+
+
 async def _seed_reportable_exercises() -> dict[str, int]:
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -81,6 +118,213 @@ async def _seed_reportable_exercises() -> dict[str, int]:
             "second_exercise_id": exercise_ids[1],
             "third_exercise_id": exercise_ids[2],
         }
+
+
+async def _seed_reportable_live_interactions(test_settings) -> dict[str, int | str]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        suffix = uuid4().hex[:8]
+        filiere = f"Sciences Math A {suffix}"
+        now = datetime.now(timezone.utc)
+        professor = User(
+            email=f"live-report-professor-{suffix}@example.com",
+            full_name="Pr Live Report",
+            role="professor",
+            tier="basic",
+            is_active=True,
+            is_email_verified=True,
+            password="!",
+        )
+        reporter = User(
+            email=f"live-report-student-{suffix}@example.com",
+            full_name="Live Reporter",
+            role="student",
+            tier="vip",
+            niveau="2BAC",
+            filiere=filiere,
+            is_active=True,
+            is_email_verified=True,
+            password="!",
+        )
+        other_student = User(
+            email=f"live-report-other-{suffix}@example.com",
+            full_name="Other Student",
+            role="student",
+            tier="vip",
+            niveau="2BAC",
+            filiere=filiere,
+            is_active=True,
+            is_email_verified=True,
+            password="!",
+        )
+        wrong_track_student = User(
+            email=f"live-report-wrong-track-{suffix}@example.com",
+            full_name="Wrong Track",
+            role="student",
+            tier="vip",
+            niveau="2BAC",
+            filiere="Sciences Physiques",
+            is_active=True,
+            is_email_verified=True,
+            password="!",
+        )
+        subject = Subject(title=f"Live Report Physics {suffix}", is_published=True, order=88)
+        track = ProgramTrack(niveau="2BAC", filiere=filiere, title=f"2BAC {filiere}")
+        db.add_all([professor, reporter, other_student, wrong_track_student, subject, track])
+        await db.flush()
+        offering = CourseOffering(
+            subject_id=subject.id,
+            track_id=track.id,
+            professor_user_id=professor.id,
+            title=f"Live Report Offering {suffix}",
+        )
+        db.add(offering)
+        await db.flush()
+        db.add_all(
+            [
+                UserSubjectEntitlement(
+                    user_id=reporter.id,
+                    subject_id=subject.id,
+                    starts_at=now - timedelta(days=1),
+                    source="test",
+                    status="active",
+                ),
+                UserSubjectEntitlement(
+                    user_id=other_student.id,
+                    subject_id=subject.id,
+                    starts_at=now - timedelta(days=1),
+                    source="test",
+                    status="active",
+                ),
+            ]
+        )
+        live_session = LiveSession(
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            title=f"Live Report Session {suffix}",
+            starts_at=now - timedelta(minutes=5),
+            ends_at=now + timedelta(minutes=55),
+            status="live",
+            join_url="https://live.example/report",
+            vdocipher_live_id=f"live_report_{suffix}",
+        )
+        db.add(live_session)
+        await db.flush()
+        visible_message = LiveSessionInteraction(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=other_student.id,
+            kind="message",
+            body="This public live message is reportable.",
+        )
+        own_question = LiveSessionInteraction(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=reporter.id,
+            kind="question",
+            body="My private pending question is reportable by me.",
+        )
+        answered_question = LiveSessionInteraction(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=other_student.id,
+            kind="question",
+            body="A public answered question.",
+            status="answered",
+            answer="Answered during the live session.",
+            answered_by_user_id=professor.id,
+            answered_at=now,
+        )
+        hidden_message = LiveSessionInteraction(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=other_student.id,
+            kind="message",
+            body="Already hidden.",
+            status="hidden",
+        )
+        deleted_message = LiveSessionInteraction(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=other_student.id,
+            kind="message",
+            body="Already deleted.",
+            status="deleted",
+            deleted_at=now,
+        )
+        other_pending_question = LiveSessionInteraction(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=other_student.id,
+            kind="question",
+            body="Other student's pending question.",
+        )
+        db.add_all(
+            [
+                visible_message,
+                own_question,
+                answered_question,
+                hidden_message,
+                deleted_message,
+                other_pending_question,
+            ]
+        )
+        await db.flush()
+        await db.commit()
+        return {
+            "reporter_token": create_token(reporter.id, test_settings),
+            "reporter_id": int(reporter.id),
+            "wrong_track_token": create_token(wrong_track_student.id, test_settings),
+            "subject_id": int(subject.id),
+            "live_session_id": int(live_session.id),
+            "visible_message_id": int(visible_message.id),
+            "own_question_id": int(own_question.id),
+            "answered_question_id": int(answered_question.id),
+            "hidden_message_id": int(hidden_message.id),
+            "deleted_message_id": int(deleted_message.id),
+            "other_pending_question_id": int(other_pending_question.id),
+        }
+
+
+async def _seed_report_support_staff(test_settings, *, email_prefix: str) -> tuple[str, str]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        suffix = uuid4().hex[:8]
+        plain_staff = User(
+            email=f"{email_prefix}-plain-{suffix}@example.com",
+            full_name="Plain Staff",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=True,
+            password="!",
+        )
+        support_staff = User(
+            email=f"{email_prefix}-support-{suffix}@example.com",
+            full_name="Support Staff",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=True,
+            password="!",
+        )
+        db.add_all([plain_staff, support_staff])
+        await db.flush()
+        db.add(
+            UserPermission(
+                user_id=support_staff.id,
+                permission="support:reports",
+                status="active",
+                reason="moderation access",
+                granted_by_user_id=support_staff.id,
+            )
+        )
+        await db.commit()
+        return create_token(plain_staff.id, test_settings), create_token(support_staff.id, test_settings)
 
 
 def test_content_report_model_and_migrations_declare_resolution_action():
@@ -172,10 +416,98 @@ def test_student_report_creation_is_authenticated_idempotent_and_validated(app_c
     assert run_db(_count_reports_for_user(user_id)) == 3
 
 
+def test_student_live_message_report_creation_validates_access_and_visibility(app_client, run_db, test_settings):
+    seeded = run_db(_seed_reportable_live_interactions(test_settings))
+    plain_staff_token, support_staff_token = run_db(
+        _seed_report_support_staff(test_settings, email_prefix="live-report-list")
+    )
+    del plain_staff_token
+    headers = {"Authorization": f"Bearer {seeded['reporter_token']}"}
+    wrong_track_headers = {"Authorization": f"Bearer {seeded['wrong_track_token']}"}
+    support_headers = {"Authorization": f"Bearer {support_staff_token}"}
+    payload = {
+        "target_type": "live_message",
+        "target_id": str(seeded["visible_message_id"]),
+        "reason": "spam",
+        "title": "Live chat spam",
+        "description": "This message interrupted the lesson.",
+        "subject_id": 9999,
+        "topic_id": 9999,
+        "topic_item_id": 9999,
+        "metadata_json": {"surface": "student_live_room", "kind": "message"},
+        "idempotency_key": "live-message-spam",
+    }
+
+    created = app_client.post("/api/reports", json=payload, headers=headers)
+    repeated = app_client.post("/api/reports", json=payload, headers=headers)
+    own_question = app_client.post(
+        "/api/reports",
+        json={
+            "target_type": "live_message",
+            "target_id": str(seeded["own_question_id"]),
+            "reason": "other",
+        },
+        headers=headers,
+    )
+    answered_question = app_client.post(
+        "/api/reports",
+        json={
+            "target_type": "live_message",
+            "target_id": str(seeded["answered_question_id"]),
+            "reason": "broken_content",
+        },
+        headers=headers,
+    )
+    hidden = app_client.post(
+        "/api/reports",
+        json={"target_type": "live_message", "target_id": str(seeded["hidden_message_id"]), "reason": "spam"},
+        headers=headers,
+    )
+    deleted = app_client.post(
+        "/api/reports",
+        json={"target_type": "live_message", "target_id": str(seeded["deleted_message_id"]), "reason": "spam"},
+        headers=headers,
+    )
+    other_pending = app_client.post(
+        "/api/reports",
+        json={
+            "target_type": "live_message",
+            "target_id": str(seeded["other_pending_question_id"]),
+            "reason": "other",
+        },
+        headers=headers,
+    )
+    wrong_track = app_client.post("/api/reports", json=payload, headers=wrong_track_headers)
+    listing = app_client.get("/api/admin/reports?target_type=live_message", headers=support_headers)
+
+    assert created.status_code == 200
+    created_body = created.json()
+    assert created_body["target_type"] == "live_message"
+    assert created_body["target_id"] == str(seeded["visible_message_id"])
+    assert created_body["subject_id"] == seeded["subject_id"]
+    assert created_body["topic_id"] is None
+    assert created_body["topic_item_id"] is None
+    assert created_body["metadata_json"] == {"surface": "student_live_room", "kind": "message"}
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == created_body["id"]
+    assert own_question.status_code == 200
+    assert answered_question.status_code == 200
+    assert hidden.status_code == 404
+    assert hidden.json()["detail"] == "Live message not found"
+    assert deleted.status_code == 404
+    assert deleted.json()["detail"] == "Live message not found"
+    assert other_pending.status_code == 404
+    assert other_pending.json()["detail"] == "Live message not found"
+    assert wrong_track.status_code == 404
+    assert wrong_track.json()["detail"] == "Live session not found"
+    assert listing.status_code == 200
+    assert created_body["id"] in [item["id"] for item in listing.json()["items"]]
+
+
 def test_admin_report_queue_requires_permission_filters_and_audits_updates(app_client, run_db, test_settings):
     async def _seed():
         session_factory = get_session_factory()
-        async with session_factory() as db:  # type: AsyncSession
+        async with session_factory() as db:
             reporter = User(
                 email="content-report-reporter@example.com",
                 full_name="Reporter",
@@ -660,3 +992,188 @@ def test_admin_comment_moderation_rejects_invalid_or_closed_reports_and_no_actio
     assert repeated.json()["detail"] == "Report is already closed"
     assert missing_target.status_code == 404
     assert missing_target.json()["detail"] == "Comment not found"
+
+
+def test_admin_live_message_moderation_actions_hide_restore_delete_and_no_action(
+    app_client,
+    run_db,
+    test_settings,
+):
+    seeded = run_db(_seed_reportable_live_interactions(test_settings))
+    exercise_seeded = run_db(_seed_reportable_exercises())
+    plain_staff_token, support_staff_token = run_db(
+        _seed_report_support_staff(test_settings, email_prefix="live-message-moderation")
+    )
+    reporter_headers = {"Authorization": f"Bearer {seeded['reporter_token']}"}
+    plain_headers = {"Authorization": f"Bearer {plain_staff_token}"}
+    support_headers = {"Authorization": f"Bearer {support_staff_token}"}
+
+    hide_report = app_client.post(
+        "/api/reports",
+        json={"target_type": "live_message", "target_id": str(seeded["visible_message_id"]), "reason": "spam"},
+        headers=reporter_headers,
+    )
+    restore_report = app_client.post(
+        "/api/reports",
+        json={
+            "target_type": "live_message",
+            "target_id": str(seeded["visible_message_id"]),
+            "reason": "other",
+            "idempotency_key": "restore-live-message",
+        },
+        headers=reporter_headers,
+    )
+    delete_report = app_client.post(
+        "/api/reports",
+        json={
+            "target_type": "live_message",
+            "target_id": str(seeded["visible_message_id"]),
+            "reason": "inappropriate",
+            "idempotency_key": "delete-live-message",
+        },
+        headers=reporter_headers,
+    )
+    no_action_report = app_client.post(
+        "/api/reports",
+        json={
+            "target_type": "live_message",
+            "target_id": str(seeded["answered_question_id"]),
+            "reason": "broken_content",
+            "idempotency_key": "no-action-live-message",
+        },
+        headers=reporter_headers,
+    )
+    exercise_report = app_client.post(
+        "/api/reports",
+        json={"target_type": "exercise", "target_id": str(exercise_seeded["first_exercise_id"]), "reason": "wrong_answer"},
+        headers=reporter_headers,
+    )
+    assert hide_report.status_code == 200
+    assert restore_report.status_code == 200
+    assert delete_report.status_code == 200
+    assert no_action_report.status_code == 200
+    assert exercise_report.status_code == 200
+
+    hide_report_id = hide_report.json()["id"]
+    restore_report_id = restore_report.json()["id"]
+    delete_report_id = delete_report.json()["id"]
+    no_action_report_id = no_action_report.json()["id"]
+    exercise_report_id = exercise_report.json()["id"]
+
+    blocked = app_client.post(
+        f"/api/admin/reports/{hide_report_id}/live-message-moderation",
+        json={"action": "hide", "note": "Plain staff cannot moderate."},
+        headers=plain_headers,
+    )
+    hidden = app_client.post(
+        f"/api/admin/reports/{hide_report_id}/live-message-moderation",
+        json={"action": "hide", "note": "Hide live spam."},
+        headers=support_headers,
+    )
+    hidden_student_list = app_client.get(
+        f"/api/professor/student-live-sessions/{seeded['live_session_id']}/interactions?kind=message",
+        headers=reporter_headers,
+    )
+    restored = app_client.post(
+        f"/api/admin/reports/{restore_report_id}/live-message-moderation",
+        json={"action": "restore", "note": "Restored after review."},
+        headers=support_headers,
+    )
+    restored_student_list = app_client.get(
+        f"/api/professor/student-live-sessions/{seeded['live_session_id']}/interactions?kind=message",
+        headers=reporter_headers,
+    )
+    deleted = app_client.post(
+        f"/api/admin/reports/{delete_report_id}/live-message-moderation",
+        json={"action": "delete", "note": "Delete after escalation."},
+        headers=support_headers,
+    )
+    deleted_student_list = app_client.get(
+        f"/api/professor/student-live-sessions/{seeded['live_session_id']}/interactions?kind=message",
+        headers=reporter_headers,
+    )
+    no_action = app_client.post(
+        f"/api/admin/reports/{no_action_report_id}/live-message-moderation",
+        json={"action": "no_action", "note": "No moderation needed."},
+        headers=support_headers,
+    )
+    repeated = app_client.post(
+        f"/api/admin/reports/{no_action_report_id}/live-message-moderation",
+        json={"action": "hide", "note": "Closed report."},
+        headers=support_headers,
+    )
+    non_live_message = app_client.post(
+        f"/api/admin/reports/{exercise_report_id}/live-message-moderation",
+        json={"action": "hide", "note": "Wrong endpoint."},
+        headers=support_headers,
+    )
+
+    async def _seed_missing_live_message_report() -> int:
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            report = ContentReport(
+                reporter_user_id=int(seeded["reporter_id"]),
+                target_type="live_message",
+                target_id="999999999",
+                reason="spam",
+                idempotency_key="missing-live-message-report",
+            )
+            db.add(report)
+            await db.commit()
+            return int(report.id)
+
+    missing_report_id = run_db(_seed_missing_live_message_report())
+    missing_target = app_client.post(
+        f"/api/admin/reports/{missing_report_id}/live-message-moderation",
+        json={"action": "hide", "note": "Missing target."},
+        headers=support_headers,
+    )
+
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "Permission required: support:reports"
+    assert hidden.status_code == 200
+    assert hidden.json()["live_message_status"] == "hidden"
+    assert hidden.json()["report"]["status"] == "resolved"
+    assert hidden.json()["report"]["resolution_action"] == "hide"
+    assert hidden_student_list.status_code == 200
+    assert seeded["visible_message_id"] not in [item["id"] for item in hidden_student_list.json()]
+    assert restored.status_code == 200
+    assert restored.json()["live_message_status"] == "pending"
+    assert restored.json()["report"]["resolution_action"] == "restore"
+    assert restored_student_list.status_code == 200
+    assert seeded["visible_message_id"] in [item["id"] for item in restored_student_list.json()]
+    assert deleted.status_code == 200
+    assert deleted.json()["live_message_status"] == "deleted"
+    assert deleted.json()["report"]["resolution_action"] == "delete"
+    assert deleted_student_list.status_code == 200
+    assert seeded["visible_message_id"] not in [item["id"] for item in deleted_student_list.json()]
+    assert no_action.status_code == 200
+    assert no_action.json()["action"] == "no_action"
+    assert no_action.json()["live_message_status"] == "answered"
+    assert no_action.json()["report"]["status"] == "dismissed"
+    assert no_action.json()["report"]["resolution_action"] == "no_action"
+    assert repeated.status_code == 409
+    assert repeated.json()["detail"] == "Report is already closed"
+    assert non_live_message.status_code == 400
+    assert non_live_message.json()["detail"] == "Report target is not a live message"
+    assert missing_target.status_code == 404
+    assert missing_target.json()["detail"] == "Live message not found"
+
+    audit = run_db(_latest_live_message_moderation_audit(int(seeded["visible_message_id"])))
+    outbox = run_db(
+        _latest_live_interaction_outbox(
+            int(seeded["live_session_id"]),
+            int(seeded["visible_message_id"]),
+            "live.interaction.deleted",
+        )
+    )
+    assert audit is not None
+    assert audit.request_path == f"/api/admin/reports/{delete_report_id}/live-message-moderation"
+    assert audit.changed_data["report_id"] == delete_report_id
+    assert audit.changed_data["live_message_id"] == seeded["visible_message_id"]
+    assert audit.changed_data["moderation_action"] == "delete"
+    assert audit.changed_data["previous_live_message_status"] == "pending"
+    assert audit.changed_data["live_message_status"] == "deleted"
+    assert outbox is not None
+    assert outbox.payload_json["id"] == seeded["visible_message_id"]
+    assert outbox.payload_json["status"] == "deleted"

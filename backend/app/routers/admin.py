@@ -7,10 +7,23 @@ from app.rate_limit import limiter
 from app.schemas.admin import AdminOverviewOut
 from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionOut, UserPermissionRevokeIn
 from app.schemas.gamification import XPAdjustmentCreateIn, XPAdjustmentOut, XPAdminAuditOut
-from app.schemas.reports import CommentModerationActionIn, CommentModerationActionOut, ReportListOut, ReportOut, ReportUpdateIn
+from app.schemas.reports import (
+    CommentModerationActionIn,
+    CommentModerationActionOut,
+    LiveMessageModerationActionIn,
+    LiveMessageModerationActionOut,
+    ReportListOut,
+    ReportOut,
+    ReportUpdateIn,
+)
 from app.services.admin_permissions import grant_user_permission, list_user_permissions, revoke_user_permission
 from app.services.admin_overview import build_admin_overview
-from app.services.reports import apply_reported_comment_moderation_action, list_admin_content_reports, update_admin_content_report
+from app.services.reports import (
+    apply_reported_comment_moderation_action,
+    apply_reported_live_message_moderation_action,
+    list_admin_content_reports,
+    update_admin_content_report,
+)
 from app.services.xp_adjustments import create_xp_adjustment
 from app.services.xp_audit import build_admin_xp_audit
 
@@ -165,6 +178,25 @@ async def moderate_reported_comment(
     staff: User = Depends(require_reports_manage),
 ):
     return await apply_reported_comment_moderation_action(
+        db,
+        actor=staff,
+        report_id=report_id,
+        body=body,
+        request_path=str(request.url.path),
+        client_host=request.client.host if request.client else "",
+    )
+
+
+@router.post("/reports/{report_id}/live-message-moderation", response_model=LiveMessageModerationActionOut)
+@limiter.limit("20/minute")
+async def moderate_reported_live_message(
+    request: Request,
+    report_id: int,
+    body: LiveMessageModerationActionIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_reports_manage),
+):
+    return await apply_reported_live_message_moderation_action(
         db,
         actor=staff,
         report_id=report_id,

@@ -10,12 +10,25 @@ from sqlalchemy.orm import selectinload
 from app.models.admin_audit import AdminAuditLog
 from app.models.courses import TopicItem
 from app.models.interactions import Comment
+from app.models.professor import LiveSessionInteraction
 from app.models.reports import ContentReport, REPORT_PRIORITIES, REPORT_REASONS, REPORT_STATUSES, REPORT_TARGET_TYPES
 from app.models.users import User
-from app.schemas.reports import CommentModerationActionIn, CommentModerationActionOut, ReportCreateIn, ReportListOut, ReportOut, ReportUpdateIn
+from app.schemas.reports import (
+    CommentModerationActionIn,
+    CommentModerationActionOut,
+    LiveMessageModerationActionIn,
+    LiveMessageModerationActionOut,
+    ReportCreateIn,
+    ReportListOut,
+    ReportOut,
+    ReportUpdateIn,
+)
 from app.services.interaction_mutations import require_comments_enabled_for_topic_item, require_exercise_comments_access
+from app.services.professor_live_sessions import enqueue_live_session_event
+from app.services.professor_queries import require_student_live_session
+from app.services.professor_serializers import live_interaction_out
 
-REPORT_CREATE_TARGET_TYPES = {"comment", "exercise"}
+REPORT_CREATE_TARGET_TYPES = {"comment", "exercise", "live_message"}
 
 
 async def create_content_report(
@@ -259,6 +272,101 @@ async def apply_reported_comment_moderation_action(
     )
 
 
+async def apply_reported_live_message_moderation_action(
+    db: AsyncSession,
+    *,
+    actor: User,
+    report_id: int,
+    body: LiveMessageModerationActionIn,
+    request_path: str = "",
+    client_host: str = "",
+) -> LiveMessageModerationActionOut:
+    actor_id = int(actor.id)
+    report = await db.get(ContentReport, int(report_id))
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.target_type != "live_message":
+        raise HTTPException(status_code=400, detail="Report target is not a live message")
+    if report.status not in {"open", "in_review"}:
+        raise HTTPException(status_code=409, detail="Report is already closed")
+
+    interaction_id = _parse_numeric_target_id(report.target_id)
+    interaction = await db.scalar(
+        select(LiveSessionInteraction)
+        .options(selectinload(LiveSessionInteraction.student))
+        .where(LiveSessionInteraction.id == interaction_id)
+        .limit(1)
+    )
+    if interaction is None:
+        raise HTTPException(status_code=404, detail="Live message not found")
+
+    action = body.action.strip().lower()
+    note = body.note.strip()
+    previous_interaction_status = interaction.status
+    next_status = {
+        "hide": "hidden",
+        "delete": "deleted",
+        "restore": "answered" if interaction.answer.strip() else "pending",
+        "no_action": interaction.status,
+    }[action]
+    if action != "no_action":
+        interaction.status = next_status
+        interaction.deleted_at = datetime.now(timezone.utc) if action == "delete" else None
+
+    now = datetime.now(timezone.utc)
+    previous_report_status = report.status
+    report.status = "dismissed" if action == "no_action" else "resolved"
+    report.reviewed_by_user_id = actor_id
+    report.resolved_at = now
+    report.resolution_action = action
+    report.resolution_note = note
+    await db.flush()
+    db.add(
+        AdminAuditLog(
+            action="live_message_moderation",
+            model_name="LiveSessionInteraction",
+            object_pk=str(interaction.id),
+            object_repr=f"report:{report.id}:{action}"[:500],
+            changed_data={
+                "actor_user_id": actor_id,
+                "report_id": int(report.id),
+                "live_message_id": int(interaction.id),
+                "moderation_action": action,
+                "previous_live_message_status": previous_interaction_status,
+                "live_message_status": interaction.status,
+                "previous_report_status": previous_report_status,
+                "report_status": report.status,
+                "resolution_note": note,
+            },
+            request_path=request_path,
+            client_host=client_host,
+            note=f"admin_user_id={actor_id}",
+        )
+    )
+    await db.flush()
+    interaction = await db.scalar(
+        select(LiveSessionInteraction)
+        .options(selectinload(LiveSessionInteraction.student))
+        .where(LiveSessionInteraction.id == interaction_id)
+        .limit(1)
+    )
+    if interaction is None:
+        raise HTTPException(status_code=404, detail="Live message not found")
+    if action != "no_action":
+        payload = live_interaction_out(interaction).model_dump(mode="json")
+        event_name = "live.interaction.deleted" if action == "delete" else "live.interaction.updated"
+        await enqueue_live_session_event(db, interaction.live_session_id, event_name, payload)
+    await db.commit()
+    await db.refresh(report)
+    await db.refresh(interaction)
+    return LiveMessageModerationActionOut(
+        report=report_out(report),
+        live_message_id=int(interaction.id),
+        live_message_status=interaction.status,
+        action=action,
+    )
+
+
 async def _load_report_by_idempotency_key(
     db: AsyncSession,
     *,
@@ -331,6 +439,28 @@ async def _validated_report_target_context(
                 "topic_id": int(item.topic_id),
                 "topic_item_id": int(item.id),
             }
+    if target_type == "live_message":
+        interaction = await db.get(LiveSessionInteraction, numeric_target_id)
+        if interaction is None:
+            raise HTTPException(status_code=404, detail="Live message not found")
+        if interaction.status in {"deleted", "hidden"}:
+            raise HTTPException(status_code=404, detail="Live message not found")
+        session = await require_student_live_session(db, user, int(interaction.live_session_id))
+        visible_to_student = (
+            interaction.kind == "message"
+            or int(interaction.student_user_id) == int(user.id)
+            or interaction.status == "answered"
+        )
+        if not visible_to_student:
+            raise HTTPException(status_code=404, detail="Live message not found")
+        subject_id = None
+        if session.course_offering is not None:
+            subject_id = int(session.course_offering.subject_id)
+        return {
+            "subject_id": subject_id,
+            "topic_id": None,
+            "topic_item_id": None,
+        }
     raise HTTPException(status_code=400, detail="Report target type is not enabled for public intake yet")
 
 

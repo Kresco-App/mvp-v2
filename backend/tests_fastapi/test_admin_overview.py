@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session_factory
 from app.admin.views import (
@@ -710,6 +709,7 @@ def test_admin_overview_router_stays_thin():
         "list_reports",
         "update_report",
         "moderate_reported_comment",
+        "moderate_reported_live_message",
     ]
     assert "build_admin_overview" in router_source
     assert "list_user_permissions" in router_source
@@ -720,6 +720,7 @@ def test_admin_overview_router_stays_thin():
     assert "list_admin_content_reports" in router_source
     assert "update_admin_content_report" in router_source
     assert "apply_reported_comment_moderation_action" in router_source
+    assert "apply_reported_live_message_moderation_action" in router_source
     assert "_ops_readiness" not in router_source
     assert "_gather_reads" not in router_source
     assert "select(" not in router_source

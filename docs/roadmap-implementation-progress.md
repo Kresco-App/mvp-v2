@@ -3446,6 +3446,70 @@ Verification completed:
 - `python -m compileall app` passed.
 - `python -m alembic heads` reported `0076 (head)`.
 
+### Slice 60: Reported Live Message Moderation Actions
+
+Status: implemented.
+
+Reason for this slice:
+
+- The live classroom already had interaction statuses for `hidden` and
+  `deleted`, but student reports could not target live messages or questions.
+- The report queue already reserved the `live_message` target type, so this
+  slice connects live-session interactions to the existing support workflow
+  without a schema migration.
+
+Implemented scope:
+
+- Enabled public `POST /api/reports` intake for `target_type=live_message`.
+  Status: implemented.
+- A `live_message` report maps to an existing `LiveSessionInteraction`, covering
+  both live chat messages and live questions. Status: implemented.
+- Added `POST /api/admin/reports/{report_id}/live-message-moderation` for
+  `hide`, `delete`, `restore`, and `no_action` staff actions. Status:
+  implemented.
+- Staff actions update the live interaction status, resolve or dismiss the
+  report, write an admin audit log, and enqueue realtime events for actual live
+  interaction mutations. Status: implemented.
+
+Decisions:
+
+- Decision: use the existing `live_message` report target type rather than
+  adding `live_interaction`, because the database constraint and report model
+  already reserve `live_message`.
+- Decision: public report creation mirrors the student live-room visibility
+  rule. A student can report public live messages, their own pending questions,
+  or answered questions, but not another student's private pending question.
+- Decision: hidden and deleted live interactions return `404` during public
+  report intake, matching the student-visible surface.
+- Decision: `restore` returns a live interaction to `answered` when it has an
+  answer and to `pending` otherwise.
+- Decision: `no_action` dismisses the report without mutating the interaction
+  and does not enqueue a realtime event.
+- Decision: no live-interaction moderation attribution columns are added in this
+  slice. Attribution is captured through report resolution fields and the admin
+  audit log.
+
+Verification plan:
+
+- Add public report intake coverage for visible live messages, own questions,
+  answered questions, hidden/deleted interactions, private pending questions,
+  wrong-track access, idempotency, and admin queue filtering. Status:
+  implemented.
+- Add admin moderation route coverage for permission denial, hide, restore,
+  delete, no_action, wrong target type, closed report, missing target, audit
+  logging, and realtime outbox events. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_content_reports.py -q` passed with 8
+  tests.
+- `python -m pytest tests_fastapi/test_content_reports.py tests_fastapi/test_professor_platform.py tests_fastapi/test_admin_overview.py tests_fastapi/test_migrations.py -q`
+  passed with 65 tests.
+- `python -m ruff check app/routers/admin.py app/schemas/reports.py app/services/reports.py tests_fastapi/test_content_reports.py tests_fastapi/test_admin_overview.py`
+  passed.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0076 (head)`.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

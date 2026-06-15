@@ -7,6 +7,7 @@ from app.models.reports import REPORT_PRIORITIES, REPORT_REASONS, REPORT_STATUSE
 from app.schemas.limits import JsonBounds, LongText, MediumText, ShortText, StrictInputModel, validate_bounded_json_object
 
 COMMENT_MODERATION_ACTIONS = {"delete", "hide", "no_action", "restore"}
+LIVE_MESSAGE_MODERATION_ACTIONS = {"delete", "hide", "no_action", "restore"}
 
 REPORT_METADATA_BOUNDS = JsonBounds(
     max_container_depth=2,
@@ -86,6 +87,19 @@ class CommentModerationActionIn(StrictInputModel):
         return normalized
 
 
+class LiveMessageModerationActionIn(StrictInputModel):
+    action: ShortText
+    note: MediumText = ""
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in LIVE_MESSAGE_MODERATION_ACTIONS:
+            raise ValueError("Unsupported live message moderation action")
+        return normalized
+
+
 class ReportOut(BaseModel):
     id: int
     reporter_user_id: int
@@ -122,4 +136,11 @@ class CommentModerationActionOut(BaseModel):
     report: ReportOut
     comment_id: int
     comment_status: str
+    action: str
+
+
+class LiveMessageModerationActionOut(BaseModel):
+    report: ReportOut
+    live_message_id: int
+    live_message_status: str
     action: str
