@@ -14,6 +14,7 @@ from app.schemas.payments import (
     FinanceExportOut,
     FinanceExportSummaryOut,
     FinanceLedgerEntryOut,
+    FinancePaymentMonitoringOut,
     ManualAccessGrantCreateIn,
     ManualAccessGrantOut,
     ManualPaymentProofIn,
@@ -32,6 +33,7 @@ from app.schemas.payments import (
     VerifyIn,
     VerifyOut,
 )
+from app.services.payment_monitoring import build_finance_payment_monitoring_summary
 from app.services.payment_gateway import (
     approve_manual_payment_transaction,
     create_payment_request as create_provider_payment_request,
@@ -150,6 +152,14 @@ async def list_finance_provider_events(
     _staff: User = Depends(require_finance_read),
 ):
     return await list_payment_provider_events(db, transaction_id=transaction_id, limit=limit)
+
+
+@router.get("/finance/payment-monitoring-summary", response_model=FinancePaymentMonitoringOut)
+async def get_finance_payment_monitoring_summary(
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_finance_read),
+):
+    return await build_finance_payment_monitoring_summary(db)
 
 
 @router.get("/manual-payment-reconciliation-imports", response_model=list[PaymentReconciliationImportSummaryOut])

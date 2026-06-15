@@ -238,6 +238,38 @@ class PaymentProviderEventOut(BaseModel):
     processed_at: datetime | None = None
 
 
+class FinanceMonitoringBucketOut(BaseModel):
+    key: str
+    count: int
+
+
+class FinanceMonitoringProblemIndicatorOut(BaseModel):
+    kind: str
+    id: int
+    transaction_id: int | None = None
+    status: str
+    label: str
+    created_at: datetime | None = None
+
+
+class FinancePaymentMonitoringOut(BaseModel):
+    generated_at: datetime
+    total_transactions: int
+    total_provider_events: int
+    transaction_statuses: list[FinanceMonitoringBucketOut]
+    transaction_providers: list[FinanceMonitoringBucketOut]
+    transaction_rails: list[FinanceMonitoringBucketOut]
+    provider_event_statuses: list[FinanceMonitoringBucketOut]
+    provider_event_types: list[FinanceMonitoringBucketOut]
+    reconciliation_import_statuses: list[FinanceMonitoringBucketOut]
+    refund_request_statuses: list[FinanceMonitoringBucketOut]
+    open_manual_review_count: int
+    open_provider_count: int
+    failed_or_mismatch_count: int
+    open_refund_request_count: int
+    latest_problem_indicators: list[FinanceMonitoringProblemIndicatorOut]
+
+
 class FinanceExportCreateIn(BaseModel):
     export_kind: str = Field(min_length=1, max_length=60)
     transaction_id: int | None = None

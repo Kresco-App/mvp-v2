@@ -688,6 +688,148 @@ async def _reconciliation_rows(import_id: int) -> list[PaymentReconciliationRow]
         return list(result.scalars().all())
 
 
+async def _seed_payment_monitoring_records(user_id: int, staff_id: int) -> dict[str, object]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        transactions = [
+            PaymentTransaction(
+                user_id=user_id,
+                provider="bank_transfer",
+                rail=PAYMENT_RAIL_BANK_TRANSFER,
+                status=PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
+                plan="pro",
+                amount_centimes=9900,
+                reference_code=f"MON-SUM-PENDING-MANUAL-{user_id}",
+            ),
+            PaymentTransaction(
+                user_id=user_id,
+                provider=PAYMENT_PROVIDER_CMI,
+                rail=PAYMENT_RAIL_CMI,
+                status=PAYMENT_STATUS_PENDING_PROVIDER,
+                plan="pro",
+                amount_centimes=9900,
+                reference_code=f"MON-SUM-PENDING-CMI-{user_id}",
+            ),
+            PaymentTransaction(
+                user_id=user_id,
+                provider=PAYMENT_PROVIDER_CASHPLUS,
+                rail=PAYMENT_RAIL_CASHPLUS,
+                status=PAYMENT_STATUS_FAILED,
+                plan="pro",
+                amount_centimes=9900,
+                reference_code=f"MON-SUM-FAILED-CASHPLUS-{user_id}",
+            ),
+            PaymentTransaction(
+                user_id=user_id,
+                provider=PAYMENT_PROVIDER_ASHPLUS,
+                rail=PAYMENT_RAIL_ASHPLUS,
+                status=PAYMENT_STATUS_MISMATCH,
+                plan="pro",
+                amount_centimes=9900,
+                reference_code=f"MON-SUM-MISMATCH-ASHPLUS-{user_id}",
+            ),
+        ]
+        db.add_all(transactions)
+        await db.flush()
+
+        db.add_all(
+            [
+                PaymentProviderEvent(
+                    transaction_id=transactions[2].id,
+                    provider=PAYMENT_PROVIDER_CASHPLUS,
+                    event_id=f"monitoring-summary-cashplus-failed-{user_id}",
+                    event_type="monitoring.failed.callback",
+                    status="failed",
+                    payload_json={"raw": "must not be exposed"},
+                ),
+                PaymentProviderEvent(
+                    transaction_id=transactions[3].id,
+                    provider=PAYMENT_PROVIDER_ASHPLUS,
+                    event_id=f"monitoring-summary-ashplus-ignored-{user_id}",
+                    event_type="monitoring.ignored.callback",
+                    status="ignored",
+                    payload_json={"proof_url": "https://private.example/proof"},
+                ),
+                PaymentProviderEvent(
+                    transaction_id=transactions[0].id,
+                    provider="bank_transfer",
+                    event_id=f"monitoring-summary-bank-processed-{user_id}",
+                    event_type="monitoring.processed.manual",
+                    status="processed",
+                    payload_json={"actor_user_id": staff_id},
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                PaymentReconciliationImport(
+                    provider=PAYMENT_PROVIDER_CASHPLUS,
+                    rail=PAYMENT_RAIL_CASHPLUS,
+                    source_name="monitoring-problem.csv",
+                    status="processed",
+                    row_count=3,
+                    matched_count=1,
+                    mismatch_count=1,
+                    unmatched_count=1,
+                    created_by_user_id=staff_id,
+                    metadata_json={"raw_filename": "hidden"},
+                ),
+                PaymentReconciliationImport(
+                    provider=PAYMENT_PROVIDER_ASHPLUS,
+                    rail=PAYMENT_RAIL_ASHPLUS,
+                    source_name="monitoring-failed.csv",
+                    status="failed",
+                    row_count=1,
+                    error_count=1,
+                    created_by_user_id=staff_id,
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                RefundRequest(
+                    transaction_id=transactions[0].id,
+                    user_id=user_id,
+                    provider="bank_transfer",
+                    rail=PAYMENT_RAIL_BANK_TRANSFER,
+                    amount_centimes=1000,
+                    status=REFUND_REQUEST_STATUS_REQUESTED,
+                    reason="Monitoring open refund",
+                    requested_by_user_id=staff_id,
+                ),
+                RefundRequest(
+                    transaction_id=None,
+                    user_id=user_id,
+                    provider=PAYMENT_PROVIDER_CASHPLUS,
+                    rail=PAYMENT_RAIL_CASHPLUS,
+                    amount_centimes=2000,
+                    status=REFUND_REQUEST_STATUS_APPROVED_PENDING_EXECUTION,
+                    reason="Monitoring approved refund",
+                    requested_by_user_id=staff_id,
+                    reviewed_by_user_id=staff_id,
+                    reviewed_at=datetime.now(timezone.utc),
+                ),
+                RefundRequest(
+                    transaction_id=transactions[1].id,
+                    user_id=user_id,
+                    provider=PAYMENT_PROVIDER_CMI,
+                    rail=PAYMENT_RAIL_CMI,
+                    amount_centimes=3000,
+                    status=REFUND_REQUEST_STATUS_REJECTED,
+                    reason="Monitoring rejected refund",
+                    requested_by_user_id=staff_id,
+                    reviewed_by_user_id=staff_id,
+                    reviewed_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        await db.commit()
+        return {
+            "transaction_ids": [int(transaction.id) for transaction in transactions],
+            "reference_codes": [transaction.reference_code for transaction in transactions],
+        }
+
+
 def _install_cookie_session(app_client, test_settings, token: str, user_id: int, *, with_csrf: bool) -> str:
     app_client.cookies.set(AUTH_COOKIE_NAME, token)
     if not with_csrf:
@@ -1956,6 +2098,10 @@ def test_staff_can_list_pending_manual_payment_requests(app_client, auth_token, 
     assert transaction["payment_method"] == PAYMENT_RAIL_BANK_TRANSFER
 
 
+def _bucket_counts(items: list[dict[str, object]]) -> dict[str, int]:
+    return {str(item["key"]): int(item["count"]) for item in items}
+
+
 def test_finance_audit_endpoints_require_finance_read_permission(app_client, auth_token, run_db, test_settings):
     student_token, _user_id = auth_token(email="finance-audit-student@example.com")
     staff_id = run_db(_seed_staff_user("finance-audit-staff@example.com"))
@@ -1964,13 +2110,14 @@ def test_finance_audit_endpoints_require_finance_read_permission(app_client, aut
     unpermitted_staff_id = run_db(_seed_staff_user("finance-audit-unpermitted-staff@example.com"))
     unpermitted_staff_token = create_token(unpermitted_staff_id, test_settings)
 
-    for path in (
-        "/api/payments/finance/ledger",
-        "/api/payments/finance/provider-events",
-        "/api/payments/manual-payment-reconciliation-imports",
-        "/api/payments/finance/exports",
-        "/api/payments/finance/manual-access-grants",
-        "/api/payments/finance/refund-requests",
+    for path, expected_shape in (
+        ("/api/payments/finance/ledger", list),
+        ("/api/payments/finance/provider-events", list),
+        ("/api/payments/finance/payment-monitoring-summary", dict),
+        ("/api/payments/manual-payment-reconciliation-imports", list),
+        ("/api/payments/finance/exports", list),
+        ("/api/payments/finance/manual-access-grants", list),
+        ("/api/payments/finance/refund-requests", list),
     ):
         student_response = app_client.get(path, headers={"Authorization": f"Bearer {student_token}"})
         unpermitted_staff_response = app_client.get(
@@ -1984,7 +2131,68 @@ def test_finance_audit_endpoints_require_finance_read_permission(app_client, aut
         assert unpermitted_staff_response.status_code == 403
         assert unpermitted_staff_response.json()["detail"] == "Permission required: finance:read"
         assert staff_response.status_code == 200
-        assert isinstance(staff_response.json(), list)
+        assert isinstance(staff_response.json(), expected_shape)
+
+
+def test_staff_can_read_finance_payment_monitoring_summary(app_client, run_db, test_settings):
+    user_id = run_db(_seed_user("finance-monitoring-student@example.com"))
+    staff_id = run_db(_seed_staff_user("finance-monitoring-staff@example.com"))
+    run_db(_grant_user_permission(staff_id, "finance:read"))
+    seed_result = run_db(_seed_payment_monitoring_records(user_id, staff_id))
+    response = app_client.get(
+        "/api/payments/finance/payment-monitoring-summary",
+        headers={"Authorization": f"Bearer {create_token(staff_id, test_settings)}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    transaction_statuses = _bucket_counts(payload["transaction_statuses"])
+    transaction_providers = _bucket_counts(payload["transaction_providers"])
+    transaction_rails = _bucket_counts(payload["transaction_rails"])
+    provider_event_statuses = _bucket_counts(payload["provider_event_statuses"])
+    provider_event_types = _bucket_counts(payload["provider_event_types"])
+    reconciliation_import_statuses = _bucket_counts(payload["reconciliation_import_statuses"])
+    refund_request_statuses = _bucket_counts(payload["refund_request_statuses"])
+
+    assert payload["total_transactions"] >= 4
+    assert payload["total_provider_events"] >= 3
+    assert transaction_statuses[PAYMENT_STATUS_PENDING_MANUAL_REVIEW] >= 1
+    assert transaction_statuses[PAYMENT_STATUS_PENDING_PROVIDER] >= 1
+    assert transaction_statuses[PAYMENT_STATUS_FAILED] >= 1
+    assert transaction_statuses[PAYMENT_STATUS_MISMATCH] >= 1
+    assert transaction_providers["bank_transfer"] >= 1
+    assert transaction_providers[PAYMENT_PROVIDER_CMI] >= 1
+    assert transaction_providers[PAYMENT_PROVIDER_CASHPLUS] >= 1
+    assert transaction_providers[PAYMENT_PROVIDER_ASHPLUS] >= 1
+    assert transaction_rails[PAYMENT_RAIL_BANK_TRANSFER] >= 1
+    assert transaction_rails[PAYMENT_RAIL_CMI] >= 1
+    assert transaction_rails[PAYMENT_RAIL_CASHPLUS] >= 1
+    assert transaction_rails[PAYMENT_RAIL_ASHPLUS] >= 1
+    assert provider_event_statuses["failed"] >= 1
+    assert provider_event_statuses["ignored"] >= 1
+    assert provider_event_statuses["processed"] >= 1
+    assert provider_event_types["monitoring.failed.callback"] >= 1
+    assert provider_event_types["monitoring.ignored.callback"] >= 1
+    assert reconciliation_import_statuses["processed"] >= 1
+    assert reconciliation_import_statuses["failed"] >= 1
+    assert refund_request_statuses[REFUND_REQUEST_STATUS_REQUESTED] >= 1
+    assert refund_request_statuses[REFUND_REQUEST_STATUS_APPROVED_PENDING_EXECUTION] >= 1
+    assert refund_request_statuses[REFUND_REQUEST_STATUS_REJECTED] >= 1
+    assert payload["open_manual_review_count"] >= 1
+    assert payload["open_provider_count"] >= 1
+    assert payload["failed_or_mismatch_count"] >= 2
+    assert payload["open_refund_request_count"] >= 2
+
+    indicators = payload["latest_problem_indicators"]
+    assert 1 <= len(indicators) <= 20
+    labels = {indicator["label"] for indicator in indicators}
+    reference_codes = set(seed_result["reference_codes"])
+    assert any(reference_code in label for reference_code in reference_codes for label in labels)
+    assert {"kind", "id", "transaction_id", "status", "label", "created_at"} == set(indicators[0])
+    assert all("payload" not in indicator for indicator in indicators)
+    assert all("metadata" not in indicator for indicator in indicators)
+    assert "must not be exposed" not in str(indicators)
+    assert "private.example" not in str(indicators)
 
 
 def test_finance_write_endpoints_require_scoped_permissions(app_client, auth_token, run_db, test_settings):

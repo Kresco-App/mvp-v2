@@ -374,7 +374,7 @@ Review notes addressed:
 
 ### Slice 7: XP Economy Caps and Auditability
 
-Status: implemented.
+Status: committed.
 
 Reason for this slice:
 
@@ -2761,6 +2761,67 @@ Verification completed:
   callback events could race. Follow-up review found signed callbacks without a
   matching transaction needed the same duplicate recovery. All were fixed
   before commit.
+
+### Slice 49: Finance Payment Monitoring Summary
+
+Status: implemented.
+
+Reason for this slice:
+
+- The payment roadmap calls for finance backoffice visibility over
+  transactions, provider events, manual proofs, reconciliation imports,
+  mismatches, refunds, payment status monitoring, and audit history.
+- Existing finance endpoints expose raw lists, but the admin UI still needs a
+  compact operational summary before finance staff open the detailed ledgers.
+- This continues the CMI, virement, CashPlus, and AshPlus launch path without
+  reintroducing Stripe checkout work.
+
+Implemented scope:
+
+- Added a read-only `GET /api/payments/finance/payment-monitoring-summary`
+  endpoint gated by `finance:read`. Status: implemented.
+- Added grouped counts for transaction status, provider, rail, provider event
+  status/type, reconciliation import status, and refund request status. Status:
+  implemented.
+- Added headline counters for open manual review, open provider requests,
+  failed/mismatched transactions, and open refund requests. Status:
+  implemented.
+- Added typed latest problem indicators across failed/expired/mismatched
+  transactions, failed/ignored provider events, problematic reconciliation
+  imports, and open refund requests. Status: implemented.
+- Kept provider payloads, proof URLs, raw reconciliation rows, user names, and
+  metadata out of the summary response. Status: implemented.
+
+Decisions:
+
+- Decision: the monitoring endpoint is a summary surface, not an export or raw
+  ledger. Finance staff can drill into existing finance endpoints for details.
+- Decision: problem indicators are typed fields rather than mixed arbitrary
+  JSON, so frontend/admin consumers do not depend on unstable payload shapes.
+- Decision: Stripe legacy webhook rows are not counted in this provider-neutral
+  summary. Stripe checkout remains disabled and the launch rails are CMI,
+  virement, CashPlus, and AshPlus.
+
+Verification plan:
+
+- Extend finance read-permission tests to cover the monitoring summary.
+  Status: implemented.
+- Add a focused summary test proving the grouped counts, headline counters, and
+  sanitized problem indicators include seeded payment operations data. Status:
+  implemented.
+- Run focused payment tests, compile check, broader payment/migration tests,
+  and strong review before committing. Status: completed.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 110 tests.
+- `python -m pytest tests_fastapi/test_payments.py tests_fastapi/test_migrations.py -q`
+  passed: 112 tests.
+- `python -m compileall app` passed.
+- Strong local and independent subagent review found no blocking security or
+  correctness issues. The problem indicator sorter was hardened against mixed
+  timezone-aware and naive datetimes before commit, and reconciliation problem
+  labels were changed to import IDs rather than uploaded filenames.
 
 ## Open Risks
 
