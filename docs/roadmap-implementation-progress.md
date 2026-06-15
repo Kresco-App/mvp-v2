@@ -978,6 +978,72 @@ Verification plan:
   after adding the helper contract and service test, the follow-up review found
   no blocking issues. Status: implemented.
 
+### Slice 19: Exercise Bank Student Workspace
+
+Status: implemented.
+
+Reason for this slice:
+
+- The Exercise Bank backend already had subject-scoped browsing, detail,
+  reveal, self-grade, grade history, locked redaction, and XP guardrails.
+- The product decision was that exercises are their own workspace, not a Topic
+  Workspace tab and not the same model as curated topic-flow exercises.
+- The immediate UI goal is coherence and usability, not final visual polish.
+
+Planned frontend scope:
+
+- Add a dedicated authenticated `/exercise-bank` student page. Status:
+  implemented.
+- Derive subject selector cards from the existing course-topic discovery data
+  so the page stays subject-first without adding a new subject API. Status:
+  implemented.
+- Add bank-local filters for difficulty, current self-grade, and saved-only.
+  Status: implemented.
+- Use current self-grade as the primary card status and keep difficulty as
+  separate bar metadata. Status: implemented.
+- Add full-page exercise detail with statement first, hidden correction, reveal
+  mutation, and self-grade buttons only after reveal. Status: implemented.
+- Add the Exercise Bank entry to the existing student navigation. Status:
+  implemented.
+
+Decisions:
+
+- Decision: keep this as a standalone Exercise Bank workspace under
+  `/exercise-bank`, not a Topic Workspace tab.
+- Decision: derive subjects from `/courses/topics` for v1 rather than adding a
+  new discovery endpoint, because the existing shared cache already powers
+  student course/exam discovery.
+- Decision: keep correction below the statement and avoid split-view layout for
+  v1 so long LaTeX/diagram bodies work on mobile.
+- Decision: use the mutation response to update the local SWR detail cache,
+  because page-level SWR providers do not reliably receive global cache
+  mutations in tests.
+- Decision: update the local subject-list cache after self-grade so card status
+  reflects the student's latest grade immediately when returning from detail.
+- Decision: comments/notes stay out of this slice because the backend does not
+  yet expose an exercise comment/note mutation contract.
+
+Verification plan:
+
+- Add a frontend test covering subject-scoped list loading, filter URL sync,
+  detail opening, correction reveal, self-grade submission, and card-status
+  refresh after returning to the list. Status: implemented.
+- Add regression coverage for stale detail/list data when switching exercises
+  or filters while the new request is still loading. Status: implemented.
+- Run the focused Exercise Bank page test. Status: implemented.
+- Run the TopNav accessibility test after adding the Exercise Bank nav item.
+  Status: implemented.
+- Run TypeScript checks. Status: implemented.
+- Run lint before committing. Status: implemented.
+- Browser smoke decision: skip anonymous dev-server screenshot for this slice
+  because `/exercise-bank` is inside the dashboard `AuthGuard`; the jsdom page
+  test mocks authenticated API state and covers the core UI flow. Status:
+  implemented.
+- Strong review found stale SWR detail/list issues before commit; both were
+  fixed by removing cross-key previous data and adding regression coverage.
+  Follow-up review found no findings and confirmed the staged scope. Status:
+  implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
