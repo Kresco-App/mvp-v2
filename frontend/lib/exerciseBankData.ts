@@ -1,6 +1,6 @@
 import useSWR, { mutate } from 'swr'
 import { apiSWRFetcher } from '@/lib/apiData'
-import { postJson } from '@/lib/apiClient'
+import { patchJson, postJson } from '@/lib/apiClient'
 import type { AccessGuarded } from '@/lib/topicWorkspaceTypes'
 
 export type ExerciseSelfGrade = 'not_started' | 'again' | 'partial' | 'mastered'
@@ -126,6 +126,15 @@ export async function saveExercise(exerciseId: number, saved: boolean) {
   const result = await postJson<ExerciseProgressMutation, { saved: boolean }>(
     `/exercises/${exerciseId}/saved`,
     { saved },
+  )
+  await mutate(`/exercises/${result.exercise.id}`, result.exercise, false)
+  return result
+}
+
+export async function updateExerciseNotes(exerciseId: number, notes: string) {
+  const result = await patchJson<ExerciseProgressMutation, { notes: string }>(
+    `/exercises/${exerciseId}/notes`,
+    { notes },
   )
   await mutate(`/exercises/${result.exercise.id}`, result.exercise, false)
   return result

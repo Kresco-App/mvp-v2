@@ -7,6 +7,7 @@ from app.rate_limit import limiter
 from app.schemas.exercises import (
     ExerciseBankListOut,
     ExerciseDetailOut,
+    ExerciseNotesIn,
     ExerciseProgressMutationOut,
     ExerciseSavedIn,
     ExerciseSelfGradeIn,
@@ -15,6 +16,7 @@ from app.services.exercise_bank import (
     get_exercise_detail,
     list_exercise_bank_items,
     reveal_exercise_solution,
+    update_exercise_notes,
     update_exercise_saved,
     update_exercise_self_grade,
 )
@@ -104,4 +106,18 @@ async def save_exercise(
 ):
     del request
     exercise = await update_exercise_saved(db, user, exercise_id=exercise_id, saved=body.saved)
+    return ExerciseProgressMutationOut(exercise=exercise, xp_awarded=0)
+
+
+@router.patch("/{exercise_id}/notes", response_model=ExerciseProgressMutationOut)
+@limiter.limit("30/minute")
+async def update_exercise_notes_route(
+    request: Request,
+    exercise_id: int,
+    body: ExerciseNotesIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    exercise = await update_exercise_notes(db, user, exercise_id=exercise_id, notes=body.notes)
     return ExerciseProgressMutationOut(exercise=exercise, xp_awarded=0)

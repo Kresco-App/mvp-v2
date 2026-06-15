@@ -235,6 +235,11 @@ def test_exercise_mutations_require_subject_access(app_client, auth_token, run_d
         json={"saved": True},
         headers=headers,
     )
+    notes = app_client.patch(
+        f"/api/exercises/{seeded['exercise_id']}/notes",
+        json={"notes": "Try this again"},
+        headers=headers,
+    )
 
     assert reveal.status_code == 403
     assert reveal.json()["detail"] == "subject_access_required"
@@ -242,6 +247,56 @@ def test_exercise_mutations_require_subject_access(app_client, auth_token, run_d
     assert grade.json()["detail"] == "subject_access_required"
     assert save.status_code == 403
     assert save.json()["detail"] == "subject_access_required"
+    assert notes.status_code == 403
+    assert notes.json()["detail"] == "subject_access_required"
+    assert run_db(_user_xp_total(user_id)) == 0
+
+
+def test_exercise_notes_mutation_updates_detail_without_xp(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-notes@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = app_client.patch(
+        f"/api/exercises/{seeded['second_exercise_id']}/notes",
+        json={"notes": "  Recheck factorization next month.  "},
+        headers=headers,
+    )
+    detail = app_client.get(f"/api/exercises/{seeded['second_exercise_id']}", headers=headers)
+    cleared = app_client.patch(
+        f"/api/exercises/{seeded['second_exercise_id']}/notes",
+        json={"notes": ""},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["xp_awarded"] == 0
+    assert response.json()["exercise"]["notes"] == "Recheck factorization next month."
+    assert detail.status_code == 200
+    assert detail.json()["notes"] == "Recheck factorization next month."
+
+    assert cleared.status_code == 200
+    assert cleared.json()["xp_awarded"] == 0
+    assert cleared.json()["exercise"]["notes"] == ""
+    assert run_db(_user_xp_total(user_id)) == 0
+
+
+def test_exercise_notes_require_subject_access_even_for_free_preview(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-notes-free-preview@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, free_preview=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    detail = app_client.get(f"/api/exercises/{seeded['second_exercise_id']}", headers=headers)
+    response = app_client.patch(
+        f"/api/exercises/{seeded['second_exercise_id']}/notes",
+        json={"notes": "Free preview note"},
+        headers=headers,
+    )
+
+    assert detail.status_code == 200
+    assert detail.json()["can_access"] is True
+    assert response.status_code == 403
+    assert response.json()["detail"] == "subject_access_required"
     assert run_db(_user_xp_total(user_id)) == 0
 
 
@@ -416,6 +471,7 @@ async def _seed_exercise_bank_fixture(
     subject_published: bool = True,
     topic_status: str = "published",
     slug_suffix: str = "",
+    free_preview: bool = False,
 ) -> dict[str, int]:
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -445,6 +501,7 @@ async def _seed_exercise_bank_fixture(
             difficulty="medium",
             concept_slugs=["linear-equations"],
             metadata_json={"origin": "test"},
+            is_free_preview=free_preview,
             order=1,
         )
         second_exercise = Exercise(
@@ -457,6 +514,7 @@ async def _seed_exercise_bank_fixture(
             solution_body="$x=-1$ or $x=1$.",
             difficulty="hard",
             concept_slugs=["quadratics"],
+            is_free_preview=free_preview,
             order=2,
         )
         draft_exercise = Exercise(

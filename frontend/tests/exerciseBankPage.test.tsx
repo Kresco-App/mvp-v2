@@ -10,6 +10,7 @@ const searchParams = new URLSearchParams()
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiPatch: vi.fn(),
   apiPost: vi.fn(),
   routerReplace: vi.fn(),
   toastError: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('sonner', () => ({
 
 vi.mock('@/lib/apiClient', () => ({
   getJson: mocks.apiGet,
+  patchJson: mocks.apiPatch,
   postJson: mocks.apiPost,
 }))
 
@@ -69,13 +71,20 @@ beforeEach(() => {
     }
     if (url === '/exercises/10/saved') {
       expect(body).toEqual({ saved: true })
-      return { exercise: exerciseDetail({ saved: true }), xp_awarded: 0 }
+      return { exercise: exerciseDetail({ saved: true, notes: 'Server note after refresh.' }), xp_awarded: 0 }
     }
     if (url === '/exercises/10/self-grade') {
       expect(body).toEqual({ self_grade: 'partial' })
       return { exercise: exerciseDetail({ saved: true, reveal_count: 1, self_grade: 'partial', solution_body: '$x=1$.' }), xp_awarded: 0 }
     }
     throw new Error(`unexpected POST ${url}`)
+  })
+  mocks.apiPatch.mockImplementation(async (url: string, body?: unknown) => {
+    if (url === '/exercises/10/notes') {
+      expect(body).toEqual({ notes: 'Review this before bac week.' })
+      return { exercise: exerciseDetail({ notes: 'Review this before bac week.' }), xp_awarded: 0 }
+    }
+    throw new Error(`unexpected PATCH ${url}`)
   })
 })
 
@@ -113,12 +122,26 @@ describe('ExerciseBankPage', () => {
       expect(container.textContent).toContain('Solve $x+1=2$.')
     })
 
+    const notesInput = container.querySelector('textarea[aria-label="Exercise private notes"]') as HTMLTextAreaElement | null
+    await act(async () => {
+      setTextareaValue(notesInput!, 'Review this before bac week.')
+      notesInput!.dispatchEvent(new Event('input', { bubbles: true }))
+      await Promise.resolve()
+    })
+
     await clickButton(container, 'Save')
     await waitFor(() => {
       expect(container.textContent).toContain('Saved')
       expect(mocks.toastSuccess).toHaveBeenCalledWith('Exercise saved')
     })
     expect(mocks.apiPost).toHaveBeenCalledWith('/exercises/10/saved', { saved: true })
+    expect(notesInput?.value).toBe('Review this before bac week.')
+
+    await clickButton(container, 'Save notes')
+    await waitFor(() => {
+      expect(mocks.toastSuccess).toHaveBeenCalledWith('Notes saved')
+    })
+    expect(mocks.apiPatch).toHaveBeenCalledWith('/exercises/10/notes', { notes: 'Review this before bac week.' })
 
     await clickButton(container, 'Reveal correction')
     await waitFor(() => {
@@ -134,6 +157,24 @@ describe('ExerciseBankPage', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Partiel')
       expect(container.textContent).toContain('Saved')
+    })
+  })
+
+  it('syncs clean note drafts when the same exercise detail refreshes', async () => {
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Linear equation')
+    })
+    await clickButton(container, "s'exercer")
+    await waitFor(() => {
+      expect(container.textContent).toContain('Solve $x+1=2$.')
+    })
+
+    await clickButton(container, 'Save')
+    await waitFor(() => {
+      const notesInput = container.querySelector('textarea[aria-label="Exercise private notes"]') as HTMLTextAreaElement | null
+      expect(notesInput?.value).toBe('Server note after refresh.')
     })
   })
 
@@ -308,6 +349,11 @@ async function clickButton(container: HTMLElement, name: string, index = 0) {
 function setSelectValue(select: HTMLSelectElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
   setter?.call(select, value)
+}
+
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+  setter?.call(textarea, value)
 }
 
 async function waitFor(assertion: () => void) {

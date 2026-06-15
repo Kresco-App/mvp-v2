@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.courses import AccessGuardedMixin
+from app.schemas.limits import LongText, StrictInputModel
 
 
 class ExerciseAssetOut(BaseModel):
@@ -75,6 +76,10 @@ class ExerciseSelfGradeIn(BaseModel):
 
 class ExerciseSavedIn(BaseModel):
     saved: bool = False
+
+
+class ExerciseNotesIn(StrictInputModel):
+    notes: LongText = ""
 
 
 class ExerciseProgressMutationOut(BaseModel):

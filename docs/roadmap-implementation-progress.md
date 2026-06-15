@@ -1270,6 +1270,59 @@ Verification plan:
   an active saved filter. The current list now removes that exercise and
   decrements the count, with regression coverage. Status: implemented.
 
+### Slice 24: Exercise Bank Private Notes
+
+Status: implemented.
+
+Reason for this slice:
+
+- Exercise Detail payloads already exposed `notes`, but there was no mutation
+  contract or student UI to save revision notes.
+- The product discussion wanted comments/notes separated from the main exercise
+  flow. Private notes are the simplest v1 implementation and avoid public
+  moderation/threading scope.
+
+Planned backend scope:
+
+- Add a subject-access-checked notes mutation for Exercise Bank exercises.
+  Status: implemented.
+- Store notes on the existing `user_exercise_progress.notes` field. Status:
+  implemented.
+- Bound the input with the existing `LongText` schema limit and forbid
+  unexpected request fields. Status: implemented.
+- Keep notes free of XP side effects. Status: implemented.
+
+Planned frontend scope:
+
+- Add a compact private-notes section in Exercise Detail. Status: implemented.
+- Save notes through the new Exercise Bank notes mutation. Status:
+  implemented.
+- Update the local detail cache after save. Status: implemented.
+
+Decisions:
+
+- Decision: implement private per-student notes for v1, not public comments.
+  Public Exercise Bank comments need moderation, threading, and visibility
+  rules and should be a separate slice.
+- Decision: saving notes requires subject access, consistent with reveal,
+  self-grade, and saved-state mutations.
+- Decision: notes do not award XP.
+
+Verification plan:
+
+- Add backend tests for notes save, trimming, detail projection, clear, no XP,
+  locked mutation rejection, and free-preview rejection. Status: implemented.
+- Add frontend tests for editing notes, API payload, and success feedback.
+  Status: implemented.
+- Run focused backend Exercise Bank tests, frontend Exercise Bank page tests,
+  TypeScript checks, lint, py_compile, and strong review before committing.
+  Status: implemented.
+- Strong review found that free-preview access still allowed notes despite the
+  subject-access decision, and that note drafts could be overwritten by detail
+  revalidation. Notes now require active subject access; dirty note drafts are
+  preserved across same-exercise refreshes, while clean drafts still sync from
+  refreshed server notes. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

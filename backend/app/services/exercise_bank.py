@@ -171,6 +171,24 @@ async def update_exercise_saved(
     return exercise_detail_out(exercise, access=access, progress=progress)
 
 
+async def update_exercise_notes(
+    db: AsyncSession,
+    user: User,
+    *,
+    exercise_id: int,
+    notes: str,
+) -> ExerciseDetailOut:
+    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
+    access_context = await build_access_context(db, user)
+    if int(exercise.subject_id) not in access_context.active_subject_ids:
+        raise HTTPException(status_code=403, detail="subject_access_required")
+    progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
+    progress.notes = notes.strip()
+    await db.commit()
+    await db.refresh(progress)
+    return exercise_detail_out(exercise, access=access, progress=progress)
+
+
 async def update_exercise_self_grade(
     db: AsyncSession,
     user: User,

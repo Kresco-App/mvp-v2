@@ -11,6 +11,7 @@ import {
   revealExercise,
   saveExercise,
   selfGradeExercise,
+  updateExerciseNotes,
   useExerciseBankData,
   useExerciseDetail,
   type ExerciseDetail,
@@ -33,6 +34,9 @@ export default function ExerciseBankPage() {
   const [difficulty, setDifficulty] = useState(searchParams.get('difficulty') || '')
   const [selfGrade, setSelfGrade] = useState(searchParams.get('self_grade') || '')
   const [savedOnly, setSavedOnly] = useState(searchParams.get('saved') === 'true')
+  const [notesDraft, setNotesDraft] = useState('')
+  const [notesDirty, setNotesDirty] = useState(false)
+  const [notesExerciseId, setNotesExerciseId] = useState<number | null>(null)
   const [mutating, setMutating] = useState(false)
   const lastErrorRef = useRef('')
   const { topics, loading: loadingTopics, error: topicsError } = useCourseTopicsData()
@@ -59,6 +63,20 @@ export default function ExerciseBankPage() {
   const list = useExerciseBankData(selectedSubjectId, filters)
   const detail = useExerciseDetail(selectedExerciseId)
   const selectedSubject = subjectOptions.find((subject) => subject.id === selectedSubjectId) ?? subjectOptions[0] ?? null
+
+  useEffect(() => {
+    if (!detail.exercise) return
+    const serverNotes = detail.exercise.notes || ''
+    if (detail.exercise.id !== notesExerciseId) {
+      setNotesExerciseId(detail.exercise.id)
+      setNotesDraft(serverNotes)
+      setNotesDirty(false)
+      return
+    }
+    if (!notesDirty && notesDraft !== serverNotes) {
+      setNotesDraft(serverNotes)
+    }
+  }, [detail.exercise, notesDirty, notesDraft, notesExerciseId])
 
   useEffect(() => {
     const error = topicsError || list.error || detail.error
@@ -168,6 +186,23 @@ export default function ExerciseBankPage() {
     }
   }
 
+  async function saveSelectedExerciseNotes() {
+    if (!selectedExerciseId) return
+    setMutating(true)
+    try {
+      const result = await updateExerciseNotes(selectedExerciseId, notesDraft)
+      await detail.retry(result.exercise, { revalidate: false })
+      setNotesExerciseId(result.exercise.id)
+      setNotesDraft(result.exercise.notes || '')
+      setNotesDirty(false)
+      toast.success('Notes saved')
+    } catch (error) {
+      toast.error(apiDataErrorMessage(error, 'Could not save notes.'))
+    } finally {
+      setMutating(false)
+    }
+  }
+
   const showListSkeleton = (loadingTopics || list.loading) && list.items.length === 0
   const selectedExercise = detail.exercise
 
@@ -260,8 +295,12 @@ export default function ExerciseBankPage() {
           exercise={selectedExercise}
           loading={detail.loading && !selectedExercise}
           mutating={mutating}
+          notesDraft={notesDraft}
+          notesDirty={notesDirty}
           onReveal={revealSelectedExercise}
           onToggleSaved={toggleSelectedExerciseSaved}
+          onNotesChange={(value) => { setNotesDraft(value); setNotesDirty(true) }}
+          onSaveNotes={saveSelectedExerciseNotes}
           onGrade={gradeSelectedExercise}
         />
       )}
@@ -295,15 +334,23 @@ function ExerciseDetailView({
   exercise,
   loading,
   mutating,
+  notesDraft,
+  notesDirty,
   onReveal,
   onToggleSaved,
+  onNotesChange,
+  onSaveNotes,
   onGrade,
 }: {
   exercise: ExerciseDetail | null
   loading: boolean
   mutating: boolean
+  notesDraft: string
+  notesDirty: boolean
   onReveal: () => void
   onToggleSaved: () => void
+  onNotesChange: (value: string) => void
+  onSaveNotes: () => void
   onGrade: (grade: Exclude<ExerciseSelfGrade, 'not_started'>) => void
 }) {
   if (loading) return <ExerciseDetailSkeleton />
@@ -343,6 +390,25 @@ function ExerciseDetailView({
             ))}
           </div>
         )}
+      </section>
+
+      <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="m-0 text-[22px] font-black text-[#27272a]">Private notes</h3>
+            <p className="m-0 mt-1 text-sm font-bold text-[#71717b]">Keep revision reminders for this exercise.</p>
+          </div>
+          <button type="button" disabled={mutating || !notesDirty || notesDraft.trim() === (exercise.notes || '').trim()} onClick={onSaveNotes} className="h-10 rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60">
+            Save notes
+          </button>
+        </div>
+        <textarea
+          aria-label="Exercise private notes"
+          value={notesDraft}
+          onChange={(event) => onNotesChange(event.target.value)}
+          className="mt-4 min-h-[120px] w-full resize-y rounded-[14px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4 text-sm font-semibold leading-6 text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
+          placeholder="Add reminders, traps, or formulas to revisit..."
+        />
       </section>
 
       <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
