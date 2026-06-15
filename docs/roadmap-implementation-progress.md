@@ -1765,6 +1765,51 @@ Review notes addressed:
   increment or one history entry. They are v1 revision signals, not money, XP,
   or authoritative correctness, so this remains acceptable for this slice.
 
+### Slice 33: Exam Part Revision Filters
+
+Status: in progress.
+
+Reason for this slice:
+
+- Slice 32 stores part-level self-grade, correction reveal, and retry-later
+  state, but the Exam Bank list still needs bank-local revision filters.
+- Product direction keeps revision behavior inside each bank for v1 instead of
+  building a unified revision queue.
+
+Planned backend scope:
+
+- Add Exam Bank list filters for `part_self_grade`, `part_retry_later`, and
+  `part_correction_revealed`. Status: implemented.
+- Match exam problem capsules when at least one published part satisfies the
+  requested part revision filter. Status: implemented.
+- Keep response shape stable by returning the matching problem capsule with its
+  published parts, rather than introducing a new part-only list contract.
+  Status: implemented.
+
+Decisions:
+
+- Decision: filters operate at the problem-capsule level because the current
+  Exam Bank API is exam -> problem -> parts. A dedicated part-only revision
+  queue remains out of v1 scope.
+- Decision: `not_started`, `retry_later=false`, and
+  `part_correction_revealed=false` include parts with no progress row.
+- Decision: these filters do not alter XP, saved state, or whole-problem
+  progress semantics.
+
+Verification plan:
+
+- Add route tests for current self-grade, retry-later, correction-unrevealed,
+  no-progress matching, and invalid filter validation. Status: implemented.
+- Run focused exam bank tests, migration tests, compile checks, and strong
+  review before committing. Status: implemented.
+
+Review notes addressed:
+
+- Strong review found no blocking correctness or security issues.
+- Added cross-user isolation coverage and `part_retry_later=false` coverage
+  after review, so another student's part progress cannot affect the current
+  student's revision filters.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

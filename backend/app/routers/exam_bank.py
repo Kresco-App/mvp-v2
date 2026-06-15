@@ -31,6 +31,9 @@ async def list_exam_bank_items(
     q: str = "",
     progress_status: Literal["not_started", "opened", "completed"] | None = None,
     saved: bool | None = None,
+    part_self_grade: Literal["not_started", "again", "partial", "mastered"] | None = None,
+    part_retry_later: bool | None = None,
+    part_correction_revealed: bool | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -43,6 +46,9 @@ async def list_exam_bank_items(
         q=q,
         progress_status=progress_status,
         saved=saved,
+        part_self_grade=part_self_grade,
+        part_retry_later=part_retry_later,
+        part_correction_revealed=part_correction_revealed,
     )
 
 

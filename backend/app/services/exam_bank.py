@@ -48,6 +48,9 @@ async def list_exam_bank(
     q: str = "",
     progress_status: str | None = None,
     saved: bool | None = None,
+    part_self_grade: str | None = None,
+    part_retry_later: bool | None = None,
+    part_correction_revealed: bool | None = None,
 ) -> ExamBankListOut:
     access_context = await build_access_context(db, user)
     user_id = int(user.id)
@@ -60,6 +63,9 @@ async def list_exam_bank(
         q=q,
         progress_status=progress_status,
         saved=saved,
+        part_self_grade=part_self_grade,
+        part_retry_later=part_retry_later,
+        part_correction_revealed=part_correction_revealed,
     )
     problem_map = await _load_problems_by_exam(
         db,
@@ -68,6 +74,9 @@ async def list_exam_bank(
         topic_id=topic_id,
         progress_status=progress_status,
         saved=saved,
+        part_self_grade=part_self_grade,
+        part_retry_later=part_retry_later,
+        part_correction_revealed=part_correction_revealed,
     )
     problem_ids = [int(problem.id) for problems in problem_map.values() for problem in problems]
     progress_map = await _load_problem_progress(db, user_id=user_id, problem_ids=problem_ids)
@@ -535,6 +544,9 @@ async def _load_exams(
     q: str,
     progress_status: str | None,
     saved: bool | None,
+    part_self_grade: str | None,
+    part_retry_later: bool | None,
+    part_correction_revealed: bool | None,
 ) -> list[Exam]:
     stmt = (
         select(Exam)
@@ -550,13 +562,25 @@ async def _load_exams(
         stmt = stmt.where(Exam.year == year)
     if q:
         stmt = stmt.where(Exam.title.ilike(substring_search_pattern(q), escape=LIKE_ESCAPE))
-    if topic_id is not None or progress_status is not None or saved is not None:
+    if (
+        topic_id is not None
+        or progress_status is not None
+        or saved is not None
+        or _has_part_progress_filters(
+            part_self_grade=part_self_grade,
+            part_retry_later=part_retry_later,
+            part_correction_revealed=part_correction_revealed,
+        )
+    ):
         stmt = stmt.where(
             _published_problem_match_exists(
                 user_id=user_id,
                 topic_id=topic_id,
                 progress_status=progress_status,
                 saved=saved,
+                part_self_grade=part_self_grade,
+                part_retry_later=part_retry_later,
+                part_correction_revealed=part_correction_revealed,
             )
         )
     return list((await db.execute(stmt)).scalars().unique().all())
@@ -570,6 +594,9 @@ async def _load_problems_by_exam(
     topic_id: int | None = None,
     progress_status: str | None = None,
     saved: bool | None = None,
+    part_self_grade: str | None = None,
+    part_retry_later: bool | None = None,
+    part_correction_revealed: bool | None = None,
 ) -> dict[int, list[ExamProblem]]:
     if not exam_ids:
         return {}
@@ -597,6 +624,19 @@ async def _load_problems_by_exam(
             or_(
                 and_(ExamProblem.topic_id == topic_id, Topic.status == "published"),
                 _published_part_topic_exists(topic_id),
+            )
+        )
+    if _has_part_progress_filters(
+        part_self_grade=part_self_grade,
+        part_retry_later=part_retry_later,
+        part_correction_revealed=part_correction_revealed,
+    ):
+        stmt = stmt.where(
+            _part_progress_match_exists(
+                user_id=user_id,
+                part_self_grade=part_self_grade,
+                part_retry_later=part_retry_later,
+                part_correction_revealed=part_correction_revealed,
             )
         )
     problems: dict[int, list[ExamProblem]] = {}
@@ -646,6 +686,9 @@ def _published_problem_match_exists(
     topic_id: int | None,
     progress_status: str | None,
     saved: bool | None,
+    part_self_grade: str | None,
+    part_retry_later: bool | None,
+    part_correction_revealed: bool | None,
 ):
     problem_topic = aliased(Topic)
     stmt = (
@@ -674,6 +717,82 @@ def _published_problem_match_exists(
     conditions = _problem_progress_filter_conditions(progress_status=progress_status, saved=saved)
     if conditions:
         stmt = stmt.where(*conditions)
+    if _has_part_progress_filters(
+        part_self_grade=part_self_grade,
+        part_retry_later=part_retry_later,
+        part_correction_revealed=part_correction_revealed,
+    ):
+        stmt = stmt.where(
+            _part_progress_match_exists(
+                user_id=user_id,
+                part_self_grade=part_self_grade,
+                part_retry_later=part_retry_later,
+                part_correction_revealed=part_correction_revealed,
+            )
+        )
+    return stmt.exists()
+
+
+def _has_part_progress_filters(
+    *,
+    part_self_grade: str | None,
+    part_retry_later: bool | None,
+    part_correction_revealed: bool | None,
+) -> bool:
+    return part_self_grade is not None or part_retry_later is not None or part_correction_revealed is not None
+
+
+def _part_progress_match_exists(
+    *,
+    user_id: int,
+    part_self_grade: str | None,
+    part_retry_later: bool | None,
+    part_correction_revealed: bool | None,
+):
+    part_topic = aliased(Topic)
+    stmt = (
+        select(ExamProblemPart.id)
+        .outerjoin(part_topic, part_topic.id == ExamProblemPart.topic_id)
+        .outerjoin(
+            UserExamProblemPartProgress,
+            and_(
+                UserExamProblemPartProgress.exam_problem_part_id == ExamProblemPart.id,
+                UserExamProblemPartProgress.user_id == user_id,
+            ),
+        )
+        .where(
+            ExamProblemPart.exam_problem_id == ExamProblem.id,
+            ExamProblemPart.status == EXAM_PROBLEM_PART_STATUS_PUBLISHED,
+            or_(ExamProblemPart.topic_id.is_(None), part_topic.status == "published"),
+        )
+    )
+    if part_self_grade == EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED:
+        stmt = stmt.where(
+            or_(
+                UserExamProblemPartProgress.id.is_(None),
+                UserExamProblemPartProgress.current_self_grade == EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED,
+            )
+        )
+    elif part_self_grade is not None:
+        stmt = stmt.where(UserExamProblemPartProgress.current_self_grade == part_self_grade)
+    if part_retry_later is True:
+        stmt = stmt.where(UserExamProblemPartProgress.retry_later == True)  # noqa: E712
+    elif part_retry_later is False:
+        stmt = stmt.where(
+            or_(
+                UserExamProblemPartProgress.id.is_(None),
+                UserExamProblemPartProgress.retry_later == False,  # noqa: E712
+            )
+        )
+    if part_correction_revealed is True:
+        stmt = stmt.where(UserExamProblemPartProgress.correction_reveal_count > 0)
+    elif part_correction_revealed is False:
+        stmt = stmt.where(
+            or_(
+                UserExamProblemPartProgress.id.is_(None),
+                UserExamProblemPartProgress.correction_reveal_count == 0,
+            )
+        )
     return stmt.exists()
 
 

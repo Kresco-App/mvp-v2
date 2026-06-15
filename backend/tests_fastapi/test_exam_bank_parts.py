@@ -530,6 +530,103 @@ def test_exam_problem_part_progress_rejects_invalid_self_grade(app_client, auth_
     assert response.status_code == 422
 
 
+def test_exam_bank_filters_by_part_revision_state(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-part-progress-filters@example.com")
+    untouched = run_db(
+        _seed_exam_parts_fixture(
+            user_id=user_id,
+            include_subject_entitlement=True,
+            slug_suffix="part-filter-untouched",
+        )
+    )
+    retry = run_db(
+        _seed_exam_parts_fixture(
+            user_id=user_id,
+            include_subject_entitlement=True,
+            slug_suffix="part-filter-retry",
+        )
+    )
+    mastered = run_db(
+        _seed_exam_parts_fixture(
+            user_id=user_id,
+            include_subject_entitlement=True,
+            slug_suffix="part-filter-mastered",
+        )
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    retry_response = app_client.post(
+        f"/api/exam-bank/parts/{retry['part_1_id']}/progress",
+        json={"correction_revealed": True, "self_grade": "again", "retry_later": True},
+        headers=headers,
+    )
+    mastered_response = app_client.post(
+        f"/api/exam-bank/parts/{mastered['part_1_id']}/progress",
+        json={"correction_revealed": True, "self_grade": "mastered"},
+        headers=headers,
+    )
+    assert retry_response.status_code == 200
+    assert mastered_response.status_code == 200
+
+    mastered_filter = app_client.get("/api/exam-bank?part_self_grade=mastered", headers=headers)
+    retry_filter = app_client.get("/api/exam-bank?part_retry_later=true", headers=headers)
+    not_started_filter = app_client.get(
+        f"/api/exam-bank?subject_id={untouched['subject_id']}&part_self_grade=not_started",
+        headers=headers,
+    )
+    unrevealed_filter = app_client.get(
+        f"/api/exam-bank?subject_id={untouched['subject_id']}&part_correction_revealed=false",
+        headers=headers,
+    )
+    invalid_filter = app_client.get("/api/exam-bank?part_self_grade=perfect", headers=headers)
+
+    assert mastered_filter.status_code == 200
+    mastered_ids = _listed_problem_ids(mastered_filter.json())
+    assert mastered["problem_id"] in mastered_ids
+    assert retry["problem_id"] not in mastered_ids
+    assert untouched["problem_id"] not in mastered_ids
+
+    assert retry_filter.status_code == 200
+    retry_ids = _listed_problem_ids(retry_filter.json())
+    assert retry["problem_id"] in retry_ids
+    assert mastered["problem_id"] not in retry_ids
+
+    assert not_started_filter.status_code == 200
+    assert _listed_problem_ids(not_started_filter.json()) == [untouched["problem_id"]]
+
+    assert unrevealed_filter.status_code == 200
+    assert _listed_problem_ids(unrevealed_filter.json()) == [untouched["problem_id"]]
+
+    assert invalid_filter.status_code == 422
+
+
+def test_exam_bank_part_revision_filters_are_user_scoped(app_client, auth_token, run_db):
+    owner_token, owner_id = auth_token(email="exam-part-filter-owner@example.com")
+    other_token, other_id = auth_token(email="exam-part-filter-other@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=owner_id, include_subject_entitlement=True))
+    run_db(_grant_subject_entitlement(user_id=other_id, subject_id=seeded["subject_id"]))
+
+    other_progress = app_client.post(
+        f"/api/exam-bank/parts/{seeded['part_1_id']}/progress",
+        json={"correction_revealed": True, "self_grade": "again", "retry_later": True},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    owner_retry_true = app_client.get(
+        f"/api/exam-bank?subject_id={seeded['subject_id']}&part_retry_later=true",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    owner_retry_false = app_client.get(
+        f"/api/exam-bank?subject_id={seeded['subject_id']}&part_retry_later=false",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+
+    assert other_progress.status_code == 200
+    assert owner_retry_true.status_code == 200
+    assert _listed_problem_ids(owner_retry_true.json()) == []
+    assert owner_retry_false.status_code == 200
+    assert _listed_problem_ids(owner_retry_false.json()) == [seeded["problem_id"]]
+
+
 async def _seed_exam_parts_fixture(
     *,
     user_id: int,
@@ -638,6 +735,13 @@ async def _seed_exam_parts_fixture(
             "part_1_id": int(part_1.id),
             "part_2_id": int(part_2.id),
         }
+
+
+async def _grant_subject_entitlement(*, user_id: int, subject_id: int) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject_id, status="active", source="test"))
+        await db.commit()
 
 
 def _listed_problem_ids(payload: dict) -> list[int]:
