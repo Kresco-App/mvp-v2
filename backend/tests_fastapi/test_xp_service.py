@@ -5,9 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session_factory
-from app.models.gamification import DailyQuest, UserXP, XPTransaction
+from app.models.gamification import DailyQuest, UserXP, XPDailyCapUsage, XPTransaction
 from app.models.users import User
-from app.services.xp import XPAward, award_xp, award_xp_bulk, generate_daily_quests
+from app.services.xp import XPAward, XP_DAILY_CAPS, award_xp, award_xp_bulk, generate_daily_quests
 
 
 async def _seed_xp_user(email: str) -> int:
@@ -33,6 +33,15 @@ async def _daily_quest_count(user_id: int) -> int:
     session_factory = get_session_factory()
     async with session_factory() as db:
         return await db.scalar(select(func.count()).where(DailyQuest.user_id == user_id))
+
+
+async def _user_xp_state(user_id: int) -> tuple[int, int, date | None]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        xp = await db.scalar(select(UserXP).where(UserXP.user_id == user_id))
+        if xp is None:
+            return 0, 0, None
+        return int(xp.total_xp or 0), int(xp.streak_days or 0), xp.last_active_date
 
 
 def test_generate_daily_quests_uses_explicit_quest_date(app_client, run_db):
@@ -107,6 +116,33 @@ def test_award_xp_updates_quests_for_explicit_active_date(app_client, run_db):
     }
 
 
+def test_award_xp_generates_missing_daily_quests_before_progress_update(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-missing-quests-before-award@example.com"))
+    active_date = date(2031, 2, 22)
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            amount = await award_xp(
+                user_id,
+                "quiz_pass",
+                "Direct deep-link quiz",
+                db,
+                active_date=active_date,
+                idempotency_key=f"xp-missing-quests:user:{user_id}:quiz",
+            )
+            await db.commit()
+            return amount
+
+    assert run_db(_exercise()) == 20
+    assert run_db(_daily_quest_progress(user_id, active_date)) == {
+        "complete_lesson": 0,
+        "pass_quiz": 1,
+        "earn_xp": 20,
+    }
+
+
 def test_bulk_award_xp_batches_transactions_and_quest_updates(app_client, query_counter, run_db):
     del app_client
     user_id = run_db(_seed_xp_user("xp-bulk-awards@example.com"))
@@ -146,7 +182,7 @@ def test_bulk_award_xp_batches_transactions_and_quest_updates(app_client, query_
         amount = run_db(_exercise())
 
     assert amount == 30
-    assert queries.count <= 5, queries.statements
+    assert queries.count <= 10, queries.statements
     assert run_db(_daily_quest_progress(user_id, active_date)) == {
         "complete_lesson": 0,
         "pass_quiz": 1,
@@ -154,6 +190,40 @@ def test_bulk_award_xp_batches_transactions_and_quest_updates(app_client, query_
     }
     assert run_db(_exercise()) == 0
     assert run_db(_assert_state()) == (30, 3)
+
+
+def test_award_xp_updates_daily_streak_once_per_active_day(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-daily-streak@example.com"))
+    first_day = date(2031, 4, 10)
+    second_day = date(2031, 4, 11)
+    missed_day = date(2031, 4, 13)
+
+    async def _award(reason: str, key_suffix: str, active_date: date):
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            amount = await award_xp(
+                user_id,
+                reason,
+                f"Streak {key_suffix}",
+                db,
+                active_date=active_date,
+                idempotency_key=f"xp-streak:user:{user_id}:{key_suffix}",
+            )
+            await db.commit()
+            return amount
+
+    assert run_db(_award("video_complete", "first-day-first", first_day)) == 10
+    assert run_db(_user_xp_state(user_id)) == (10, 1, first_day)
+
+    assert run_db(_award("quiz_pass", "first-day-second", first_day)) == 20
+    assert run_db(_user_xp_state(user_id)) == (30, 1, first_day)
+
+    assert run_db(_award("quiz_pass", "second-day", second_day)) == 20
+    assert run_db(_user_xp_state(user_id)) == (50, 2, second_day)
+
+    assert run_db(_award("quiz_pass", "missed-day", missed_day)) == 20
+    assert run_db(_user_xp_state(user_id)) == (70, 1, missed_day)
 
 
 def test_award_xp_rejects_missing_idempotency_key(app_client, run_db):
@@ -278,6 +348,138 @@ def test_award_xp_idempotency_key_is_scoped_per_user(app_client, run_db):
     assert amount_b == 20
     assert row_count == 2
     assert totals == (20, 20)
+
+
+def test_award_xp_enforces_daily_category_cap_and_audits_capped_rows(app_client, monkeypatch, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-daily-cap@example.com"))
+    active_date = date(2031, 5, 1)
+    monkeypatch.setitem(XP_DAILY_CAPS, "quiz_correct", 12)
+
+    async def _award(key: str):
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            awarded = await award_xp(
+                user_id,
+                "quiz_correct",
+                f"Cap award {key}",
+                db,
+                active_date=active_date,
+                idempotency_key=f"xp-cap:user:{user_id}:{key}",
+            )
+            await db.commit()
+            return awarded
+
+    assert run_db(_award("first")) == 5
+    assert run_db(_award("second")) == 5
+    assert run_db(_award("third")) == 2
+    assert run_db(_award("fourth")) == 0
+
+    async def _assert_state():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            transactions = (
+                await db.execute(
+                    select(XPTransaction)
+                    .where(XPTransaction.user_id == user_id, XPTransaction.daily_cap_category == "quiz_correct")
+                    .order_by(XPTransaction.id.asc())
+                )
+            ).scalars().all()
+            usage = await db.scalar(
+                select(XPDailyCapUsage).where(
+                    XPDailyCapUsage.user_id == user_id,
+                    XPDailyCapUsage.award_date == active_date,
+                    XPDailyCapUsage.category == "quiz_correct",
+                )
+            )
+            total_xp = await db.scalar(select(UserXP.total_xp).where(UserXP.user_id == user_id))
+            return [
+                (row.amount, row.requested_amount, row.cap_applied, row.daily_cap_date)
+                for row in transactions
+            ], usage.amount_awarded, total_xp
+
+    rows, usage_amount, total_xp = run_db(_assert_state())
+
+    assert rows == [
+        (5, 5, False, active_date),
+        (5, 5, False, active_date),
+        (2, 5, True, active_date),
+        (0, 5, True, active_date),
+    ]
+    assert usage_amount == 12
+    assert total_xp == 12
+
+
+def test_daily_caps_are_per_user_and_active_date(app_client, monkeypatch, run_db):
+    del app_client
+    user_a = run_db(_seed_xp_user("xp-cap-user-a@example.com"))
+    user_b = run_db(_seed_xp_user("xp-cap-user-b@example.com"))
+    first_day = date(2031, 5, 2)
+    second_day = date(2031, 5, 3)
+    monkeypatch.setitem(XP_DAILY_CAPS, "quiz_correct", 5)
+
+    async def _award(user_id: int, active_date: date, key: str):
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            awarded = await award_xp(
+                user_id,
+                "quiz_correct",
+                f"Per user cap {key}",
+                db,
+                active_date=active_date,
+                idempotency_key=f"xp-cap:user:{user_id}:{active_date}:{key}",
+            )
+            await db.commit()
+            return awarded
+
+    assert run_db(_award(user_a, first_day, "a1")) == 5
+    assert run_db(_award(user_a, first_day, "a2")) == 0
+    assert run_db(_award(user_a, second_day, "a3")) == 5
+    assert run_db(_award(user_b, first_day, "b1")) == 5
+
+    assert run_db(_user_xp_state(user_a))[0] == 10
+    assert run_db(_user_xp_state(user_b))[0] == 5
+
+
+def test_amount_overrides_are_policy_bounded(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-override-policy@example.com"))
+    active_date = date(2031, 5, 4)
+
+    async def _oversized_daily_quest():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            awarded = await award_xp(
+                user_id,
+                "daily_quest",
+                "Oversized daily quest",
+                db,
+                active_date=active_date,
+                amount_override=500,
+                idempotency_key=f"xp-override:user:{user_id}:daily",
+                update_daily_quests=False,
+            )
+            await db.commit()
+            row = await db.scalar(select(XPTransaction).where(XPTransaction.user_id == user_id))
+            return awarded, row.amount, row.requested_amount, row.cap_applied
+
+    assert run_db(_oversized_daily_quest()) == (75, 75, 75, False)
+
+    async def _unknown_override():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await award_xp(
+                user_id,
+                "custom_bonus",
+                "Unknown override",
+                db,
+                active_date=active_date,
+                amount_override=10,
+                idempotency_key=f"xp-override:user:{user_id}:unknown",
+            )
+
+    with pytest.raises(ValueError, match="override"):
+        run_db(_unknown_override())
 
 
 def test_generate_daily_quests_does_not_rollback_caller_transaction_on_flush_error(app_client, monkeypatch, run_db):

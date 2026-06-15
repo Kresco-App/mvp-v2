@@ -94,6 +94,7 @@ class XPTransaction(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     amount: Mapped[int] = mapped_column(Integer)
+    requested_amount: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     reason: Mapped[str] = mapped_column(String(50))
     description: Mapped[str] = mapped_column(String(200), default="")
     subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -105,9 +106,30 @@ class XPTransaction(Base):
     quiz_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("quiz_attempts.id", ondelete="SET NULL"), nullable=True, index=True)
     question_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("question_attempts.id", ondelete="SET NULL"), nullable=True, index=True)
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    daily_cap_category: Mapped[Optional[str]] = mapped_column(String(60), nullable=True, index=True)
+    daily_cap_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
+    cap_applied: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship("User", back_populates="xp_transactions")
+
+
+class XPDailyCapUsage(Base):
+    __tablename__ = "xp_daily_cap_usage"
+    __table_args__ = (
+        UniqueConstraint("user_id", "award_date", "category", name="uq_xp_daily_cap_usage_user_date_category"),
+        CheckConstraint("amount_awarded >= 0", name="ck_xp_daily_cap_usage_amount_nonnegative"),
+        Index("ix_xp_daily_cap_usage_user_date", "user_id", "award_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    award_date: Mapped[date] = mapped_column(Date, index=True)
+    category: Mapped[str] = mapped_column(String(60), index=True)
+    amount_awarded: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
 
 

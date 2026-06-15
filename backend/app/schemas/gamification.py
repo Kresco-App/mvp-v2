@@ -1,4 +1,5 @@
 from datetime import datetime
+from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -17,6 +18,7 @@ class XPOut(BaseModel):
 
 class XPTransactionOut(BaseModel):
     amount: int
+    requested_amount: int = 0
     reason: str
     description: str
     subject_id: Optional[int] = None
@@ -27,6 +29,9 @@ class XPTransactionOut(BaseModel):
     question_id: Optional[int] = None
     quiz_attempt_id: Optional[int] = None
     question_attempt_id: Optional[int] = None
+    daily_cap_category: Optional[str] = None
+    daily_cap_date: Optional[date] = None
+    cap_applied: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -354,12 +354,63 @@ Review notes addressed:
 - Expanded tests to cover exact duplicate retry, changed-version resubmit, and
   recursive absence of answer/snapshot keys in student attempt-history payloads.
 
+### Slice 7: XP Economy Caps and Auditability
+
+Status: in progress.
+
+Reason for this slice:
+
+- XP awards were idempotent, but not capped by daily economy category.
+- Self-reported exercises, quiz question awards, lesson completion, and mutable
+  quest rewards need central policy enforcement so XP cannot be farmed through
+  many distinct valid events.
+- XP history needs to explain when an award was clipped by policy.
+
+Planned backend scope:
+
+- Add an XP economy decision document. Status: implemented in
+  `docs/xp-economy.md`.
+- Add per-user, per-day, per-category cap usage storage. Status: implemented.
+- Add requested amount, cap category/date, and cap-applied metadata to
+  `XPTransaction`. Status: implemented.
+- Enforce caps in the central XP service before totals, quests, or leaderboards
+  can move. Status: implemented.
+- Bound `amount_override` to explicit reasons and maximums. Status:
+  implemented.
+
+Decisions:
+
+- Decision: cap by `active_date`, not raw transaction `created_at`.
+- Decision: store capped-to-zero transactions for auditability; they do not
+  update `UserXP`, quest progress, or leaderboard totals.
+- Decision: keep negative XP/reversals out of this slice. They need a separate
+  staff permission and adjustment workflow.
+- Decision: keep reward values unchanged and only add caps around the current
+  economy.
+
+Verification plan:
+
+- Add service tests for category caps, capped audit rows, per-user/per-day cap
+  separation, and override bounds.
+- Run XP, quiz, exercise, migration, and startup/security tests touched by XP
+  models and migrations.
+
+Review notes addressed:
+
+- Insert XP transaction winners before daily-cap allocation so concurrent
+  idempotency conflicts cannot consume cap capacity for rows that lose the
+  insert race.
+- Backfill `requested_amount` from existing `amount` values in the cap
+  migration so historical XP history is not misleading.
+- Align the data-integrity audit with the user-scoped XP idempotency model.
+- Add cap-usage ledger drift checks comparing `xp_daily_cap_usage` against
+  transaction sums and policy limits.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. XP economy caps and auditability.
-2. Payment gateway completion: CMI signed callback flow, virement proof and
+1. Payment gateway completion: CMI signed callback flow, virement proof and
    reconciliation workflow, CashPlus/AshPlus cash-agency handling, and removal
    of Stripe from the launch checkout path.
 

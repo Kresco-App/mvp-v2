@@ -1,7 +1,7 @@
 import math
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import case, func, select, update
@@ -10,7 +10,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.gamification import DailyQuest, UserXP, XPTransaction
+from app.models.gamification import DailyQuest, UserXP, XPDailyCapUsage, XPTransaction
 
 XP_REWARDS: dict[str, int] = {
     "video_complete": 10,
@@ -23,6 +23,36 @@ XP_REWARDS: dict[str, int] = {
     "daily_login": 10,
     "streak_bonus": 25,
     "lesson_complete": 10,
+}
+
+XP_DAILY_CAPS: dict[str, int] = {
+    "quiz_correct": 100,
+    "quiz_pass": 80,
+    "exercise": 25,
+    "lesson_video": 80,
+    "lab_exam": 150,
+    "daily_quest": 75,
+    "other": 100,
+}
+
+XP_DAILY_CAP_CATEGORY_BY_REASON: dict[str, str] = {
+    "quiz_correct": "quiz_correct",
+    "quiz_retry_correct": "quiz_correct",
+    "quiz_pass": "quiz_pass",
+    "quiz_perfect": "quiz_pass",
+    "exercise_mastered": "exercise",
+    "lesson_complete": "lesson_video",
+    "video_complete": "lesson_video",
+    "lab_complete": "lab_exam",
+    "exam_complete": "lab_exam",
+    "daily_login": "daily_quest",
+    "daily_quest": "daily_quest",
+    "streak_bonus": "daily_quest",
+}
+
+XP_AMOUNT_OVERRIDE_MAX_BY_REASON: dict[str, int] = {
+    "daily_quest": 75,
+    "exercise_mastered": 5,
 }
 
 QUEST_PROGRESS_BY_REASON: dict[str, str] = {
@@ -63,6 +93,26 @@ def _normalize_idempotency_key(idempotency_key: Optional[str]) -> str:
 
 def _current_utc_date() -> date:
     return datetime.now(timezone.utc).date()
+
+
+def xp_daily_cap_category(reason: str) -> str:
+    return XP_DAILY_CAP_CATEGORY_BY_REASON.get(reason, "other")
+
+
+def xp_daily_cap_limit(category: str) -> int:
+    return XP_DAILY_CAPS.get(category, XP_DAILY_CAPS["other"])
+
+
+def _resolve_award_amount(reason: str, amount_override: Optional[int]) -> int:
+    amount = amount_override if amount_override is not None else XP_REWARDS.get(reason, 0)
+    if amount < 0:
+        raise ValueError("XP awards cannot be negative")
+    if amount_override is not None:
+        max_override = XP_AMOUNT_OVERRIDE_MAX_BY_REASON.get(reason)
+        if max_override is None:
+            raise ValueError(f"XP amount override is not allowed for reason {reason}")
+        amount = min(amount, max_override)
+    return amount
 
 
 def calculate_level(total_xp: int) -> dict:
@@ -125,71 +175,34 @@ async def award_xp(
     amount_override: Optional[int] = None,
     update_daily_quests: bool = True,
 ) -> int:
-    amount = amount_override if amount_override is not None else XP_REWARDS.get(reason, 0)
+    amount = _resolve_award_amount(reason, amount_override)
     if amount == 0:
         return 0
     idempotency_key = _normalize_idempotency_key(idempotency_key)
     if dedupe and await has_xp_award(user_id, reason, description, db):
         return 0
-    if await has_xp_idempotency_key(user_id, idempotency_key, db):
-        return 0
-
-    transaction = XPTransaction(
-        user_id=user_id,
-        amount=amount,
-        reason=reason,
-        description=description,
-        subject_id=subject_id,
-        topic_id=topic_id,
-        topic_section_id=topic_section_id,
-        topic_item_id=topic_item_id,
-        question_set_id=question_set_id,
-        question_id=question_id,
-        quiz_attempt_id=quiz_attempt_id,
-        question_attempt_id=question_attempt_id,
-        idempotency_key=idempotency_key,
-    )
-
-    try:
-        async with db.begin_nested():
-            db.add(transaction)
-            await db.flush()
-    except IntegrityError:
-        return 0
-
-    await _increment_user_xp_total(db, user_id, amount)
-
-    if not update_daily_quests:
-        await db.flush()
-        return amount
-
-    quest_date = active_date or _current_utc_date()
-
-    # Update earn_xp daily quest progress
-    await db.execute(
-        update(DailyQuest)
-        .where(
-            DailyQuest.user_id == user_id,
-            DailyQuest.quest_type == "earn_xp",
-            DailyQuest.date == quest_date,
-            DailyQuest.completed == False,  # noqa: E712
-        )
-        .values(progress=DailyQuest.progress + amount)
-    )
-    quest_type = QUEST_PROGRESS_BY_REASON.get(reason)
-    if quest_type:
-        await db.execute(
-            update(DailyQuest)
-            .where(
-                DailyQuest.user_id == user_id,
-                DailyQuest.quest_type == quest_type,
-                DailyQuest.date == quest_date,
-                DailyQuest.completed == False,  # noqa: E712
+    return await award_xp_bulk(
+        user_id,
+        [
+            XPAward(
+                reason=reason,
+                description=description,
+                subject_id=subject_id,
+                topic_id=topic_id,
+                topic_section_id=topic_section_id,
+                topic_item_id=topic_item_id,
+                question_set_id=question_set_id,
+                question_id=question_id,
+                quiz_attempt_id=quiz_attempt_id,
+                question_attempt_id=question_attempt_id,
+                idempotency_key=idempotency_key,
+                amount_override=amount_override,
             )
-            .values(progress=DailyQuest.progress + 1)
-        )
-    await db.flush()
-    return amount
+        ],
+        db,
+        active_date=active_date,
+        update_daily_quests=update_daily_quests,
+    )
 
 
 async def award_xp_bulk(
@@ -201,14 +214,17 @@ async def award_xp_bulk(
     update_daily_quests: bool = True,
 ) -> int:
     rows: list[dict] = []
+    cap_date = active_date or _current_utc_date()
     for award in awards:
-        amount = award.amount_override if award.amount_override is not None else XP_REWARDS.get(award.reason, 0)
+        amount = _resolve_award_amount(award.reason, award.amount_override)
         if amount == 0:
             continue
         idempotency_key = _normalize_idempotency_key(award.idempotency_key)
+        category = xp_daily_cap_category(award.reason)
         rows.append({
             "user_id": user_id,
-            "amount": amount,
+            "amount": 0,
+            "requested_amount": amount,
             "reason": award.reason,
             "description": award.description,
             "subject_id": award.subject_id,
@@ -220,14 +236,24 @@ async def award_xp_bulk(
             "quiz_attempt_id": award.quiz_attempt_id,
             "question_attempt_id": award.question_attempt_id,
             "idempotency_key": idempotency_key,
+            "daily_cap_category": category,
+            "daily_cap_date": cap_date,
+            "cap_applied": False,
         })
     if not rows:
         return 0
     rows = _dedupe_xp_transaction_rows(rows)
     if not rows:
         return 0
-
+    rows = await _remove_existing_xp_transaction_rows(db, user_id=user_id, rows=rows)
+    if not rows:
+        return 0
     inserted = await _insert_xp_transaction_rows(db, rows)
+    if not inserted:
+        return 0
+    inserted = await _apply_daily_caps(db, user_id=user_id, rows=inserted, cap_date=cap_date)
+    await _update_inserted_xp_transaction_amounts(db, inserted)
+    await _record_daily_cap_usage(db, inserted)
     total_amount = sum(row["amount"] for row in inserted)
     if total_amount == 0:
         return 0
@@ -237,10 +263,149 @@ async def award_xp_bulk(
         inserted,
         db,
         total_amount=total_amount,
-        active_date=active_date,
+        active_date=cap_date,
         update_daily_quests=update_daily_quests,
     )
     return total_amount
+
+
+async def _remove_existing_xp_transaction_rows(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    rows: list[dict],
+) -> list[dict]:
+    keys = [str(row["idempotency_key"]) for row in rows]
+    existing = set(
+        (
+            await db.execute(
+                select(XPTransaction.idempotency_key).where(
+                    XPTransaction.user_id == user_id,
+                    XPTransaction.idempotency_key.in_(keys),
+                )
+            )
+        ).scalars().all()
+    )
+    if not existing:
+        return rows
+    return [row for row in rows if row["idempotency_key"] not in existing]
+
+
+async def _get_or_create_daily_cap_usage_rows(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    cap_date: date,
+    categories: set[str],
+) -> dict[str, XPDailyCapUsage]:
+    if not categories:
+        return {}
+    dialect_name = db.get_bind().dialect.name
+    insert_factory = sqlite_insert if dialect_name == "sqlite" else postgresql_insert if dialect_name == "postgresql" else None
+    rows = [
+        {"user_id": user_id, "award_date": cap_date, "category": category, "amount_awarded": 0}
+        for category in sorted(categories)
+    ]
+    if insert_factory is not None:
+        await db.execute(
+            insert_factory(XPDailyCapUsage)
+            .values(rows)
+            .on_conflict_do_nothing(index_elements=["user_id", "award_date", "category"])
+        )
+    else:
+        for row in rows:
+            try:
+                async with db.begin_nested():
+                    db.add(XPDailyCapUsage(**row))
+                    await db.flush()
+            except IntegrityError:
+                pass
+
+    result = await db.execute(
+        select(XPDailyCapUsage)
+        .where(
+            XPDailyCapUsage.user_id == user_id,
+            XPDailyCapUsage.award_date == cap_date,
+            XPDailyCapUsage.category.in_(categories),
+        )
+        .with_for_update()
+    )
+    usage_by_category = {row.category: row for row in result.scalars().all()}
+    if set(usage_by_category) != categories:
+        raise RuntimeError("XP daily cap usage row was not created")
+    return usage_by_category
+
+
+async def _apply_daily_caps(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    rows: list[dict],
+    cap_date: date,
+) -> list[dict]:
+    categories = {str(row["daily_cap_category"]) for row in rows}
+    usage_by_category = await _get_or_create_daily_cap_usage_rows(
+        db,
+        user_id=user_id,
+        cap_date=cap_date,
+        categories=categories,
+    )
+    remaining_by_category = {
+        category: max(0, xp_daily_cap_limit(category) - int(usage.amount_awarded or 0))
+        for category, usage in usage_by_category.items()
+    }
+
+    capped_rows: list[dict] = []
+    for row in rows:
+        category = str(row["daily_cap_category"])
+        requested = int(row["requested_amount"])
+        remaining = remaining_by_category[category]
+        awarded = max(0, min(requested, remaining))
+        remaining_by_category[category] = max(0, remaining - awarded)
+        capped_rows.append({
+            **row,
+            "amount": awarded,
+            "requested_amount": requested,
+            "daily_cap_date": cap_date,
+            "cap_applied": awarded < requested,
+        })
+    return capped_rows
+
+
+async def _record_daily_cap_usage(db: AsyncSession, inserted: list[dict]) -> None:
+    totals: Counter[tuple[int, date, str]] = Counter()
+    for row in inserted:
+        category = row.get("daily_cap_category")
+        cap_date = row.get("daily_cap_date")
+        if not category or cap_date is None:
+            continue
+        totals[(int(row["user_id"]), cap_date, str(category))] += int(row["amount"])
+    grouped: dict[tuple[int, date], dict[str, int]] = {}
+    for (user_id, cap_date, category), amount in totals.items():
+        if amount <= 0:
+            continue
+        grouped.setdefault((user_id, cap_date), {})[category] = amount
+
+    for (user_id, cap_date), amounts_by_category in grouped.items():
+        await db.execute(
+            update(XPDailyCapUsage)
+            .where(
+                XPDailyCapUsage.user_id == user_id,
+                XPDailyCapUsage.award_date == cap_date,
+                XPDailyCapUsage.category.in_(list(amounts_by_category)),
+            )
+            .values(
+                amount_awarded=XPDailyCapUsage.amount_awarded
+                + case(
+                    *[
+                        (XPDailyCapUsage.category == category, amount)
+                        for category, amount in amounts_by_category.items()
+                    ],
+                    else_=0,
+                ),
+                updated_at=func.now(),
+            )
+        )
 
 
 async def _insert_xp_transaction_rows(db: AsyncSession, rows: list[dict]) -> list[dict]:
@@ -253,12 +418,30 @@ async def _insert_xp_transaction_rows(db: AsyncSession, rows: list[dict]) -> lis
         insert_factory(XPTransaction)
         .values(rows)
         .on_conflict_do_nothing(index_elements=["user_id", "idempotency_key"])
-        .returning(XPTransaction.amount, XPTransaction.reason)
+        .returning(
+            XPTransaction.id,
+            XPTransaction.amount,
+            XPTransaction.requested_amount,
+            XPTransaction.user_id,
+            XPTransaction.reason,
+            XPTransaction.cap_applied,
+            XPTransaction.daily_cap_category,
+            XPTransaction.daily_cap_date,
+        )
     )
     result = await db.execute(stmt)
     return [
-        {"amount": int(amount), "reason": str(reason)}
-        for amount, reason in result.all()
+        {
+            "id": int(row_id),
+            "amount": int(amount),
+            "requested_amount": int(requested_amount),
+            "user_id": int(user_id),
+            "reason": str(reason),
+            "cap_applied": bool(cap_applied),
+            "daily_cap_category": daily_cap_category,
+            "daily_cap_date": daily_cap_date,
+        }
+        for row_id, amount, requested_amount, user_id, reason, cap_applied, daily_cap_category, daily_cap_date in result.all()
     ]
 
 
@@ -267,12 +450,46 @@ async def _insert_xp_transaction_rows_fallback(db: AsyncSession, rows: list[dict
     for row in rows:
         try:
             async with db.begin_nested():
-                db.add(XPTransaction(**row))
+                transaction = XPTransaction(**row)
+                db.add(transaction)
                 await db.flush()
         except IntegrityError:
             continue
-        inserted.append({"amount": int(row["amount"]), "reason": str(row["reason"])})
+        inserted.append({
+            "id": int(transaction.id),
+            "amount": int(row["amount"]),
+            "requested_amount": int(row["requested_amount"]),
+            "user_id": int(row["user_id"]),
+            "reason": str(row["reason"]),
+            "cap_applied": bool(row.get("cap_applied")),
+            "daily_cap_category": row.get("daily_cap_category"),
+            "daily_cap_date": row.get("daily_cap_date"),
+        })
     return inserted
+
+
+async def _update_inserted_xp_transaction_amounts(db: AsyncSession, rows: list[dict]) -> None:
+    if not rows:
+        return
+    ids = [row["id"] for row in rows]
+    await db.execute(
+        update(XPTransaction)
+        .where(XPTransaction.id.in_(ids))
+        .values(
+            amount=case(
+                *[(XPTransaction.id == row["id"], row["amount"]) for row in rows],
+                else_=XPTransaction.amount,
+            ),
+            requested_amount=case(
+                *[(XPTransaction.id == row["id"], row["requested_amount"]) for row in rows],
+                else_=XPTransaction.requested_amount,
+            ),
+            cap_applied=case(
+                *[(XPTransaction.id == row["id"], row["cap_applied"]) for row in rows],
+                else_=XPTransaction.cap_applied,
+            ),
+        )
+    )
 
 
 def _dedupe_xp_transaction_rows(rows: list[dict]) -> list[dict]:
@@ -287,17 +504,24 @@ def _dedupe_xp_transaction_rows(rows: list[dict]) -> list[dict]:
     return deduped
 
 
-async def _increment_user_xp_total(db: AsyncSession, user_id: int, amount: int) -> None:
+async def _increment_user_xp_total(db: AsyncSession, user_id: int, amount: int, *, active_date: date) -> None:
     dialect_name = db.get_bind().dialect.name
     insert_factory = sqlite_insert if dialect_name == "sqlite" else postgresql_insert if dialect_name == "postgresql" else None
     if insert_factory is not None:
+        previous_date = active_date - timedelta(days=1)
         stmt = (
             insert_factory(UserXP)
-            .values(user_id=user_id, total_xp=amount, streak_days=0)
+            .values(user_id=user_id, total_xp=amount, streak_days=1, last_active_date=active_date)
             .on_conflict_do_update(
                 index_elements=["user_id"],
                 set_={
                     "total_xp": UserXP.total_xp + amount,
+                    "streak_days": case(
+                        (UserXP.last_active_date == active_date, UserXP.streak_days),
+                        (UserXP.last_active_date == previous_date, UserXP.streak_days + 1),
+                        else_=1,
+                    ),
+                    "last_active_date": active_date,
                     "updated_at": func.now(),
                 },
             )
@@ -307,14 +531,48 @@ async def _increment_user_xp_total(db: AsyncSession, user_id: int, amount: int) 
 
     try:
         async with db.begin_nested():
-            db.add(UserXP(user_id=user_id, total_xp=amount, streak_days=0))
+            db.add(UserXP(user_id=user_id, total_xp=amount, streak_days=1, last_active_date=active_date))
             await db.flush()
     except IntegrityError:
+        xp_record = await db.scalar(select(UserXP).where(UserXP.user_id == user_id).with_for_update())
+        if xp_record is None:
+            raise
+        if xp_record.last_active_date == active_date:
+            streak_days = xp_record.streak_days
+        elif xp_record.last_active_date == active_date - timedelta(days=1):
+            streak_days = (xp_record.streak_days or 0) + 1
+        else:
+            streak_days = 1
         await db.execute(
             update(UserXP)
             .where(UserXP.user_id == user_id)
-            .values(total_xp=UserXP.total_xp + amount, updated_at=func.now())
+            .values(
+                total_xp=UserXP.total_xp + amount,
+                streak_days=streak_days,
+                last_active_date=active_date,
+                updated_at=func.now(),
+            )
         )
+
+
+async def _ensure_daily_quests_for_award(db: AsyncSession, user_id: int, quest_date: date) -> None:
+    rows = [
+        {"user_id": user_id, "date": quest_date, **template}
+        for template in DAILY_QUEST_TEMPLATES
+    ]
+    dialect_name = db.get_bind().dialect.name
+    insert_factory = sqlite_insert if dialect_name == "sqlite" else postgresql_insert if dialect_name == "postgresql" else None
+    if insert_factory is None:
+        await generate_daily_quests(user_id, db, quest_date=quest_date)
+        return
+
+    await db.execute(
+        insert_factory(DailyQuest)
+        .values(rows)
+        .on_conflict_do_nothing(
+            index_elements=["user_id", "quest_type", "date"],
+        )
+    )
 
 
 async def _apply_xp_totals_and_quests(
@@ -326,13 +584,14 @@ async def _apply_xp_totals_and_quests(
     active_date: Optional[date],
     update_daily_quests: bool,
 ) -> None:
-    await _increment_user_xp_total(db, user_id, total_amount)
+    quest_date = active_date or _current_utc_date()
+    await _increment_user_xp_total(db, user_id, total_amount, active_date=quest_date)
 
     if not update_daily_quests:
         await db.flush()
         return
 
-    quest_date = active_date or _current_utc_date()
+    await _ensure_daily_quests_for_award(db, user_id, quest_date)
     await db.execute(
         update(DailyQuest)
         .where(
