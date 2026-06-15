@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,9 +10,18 @@ from app.models.gamification import QuestionAttempt
 from app.models.quizzes import QuestionSet
 from app.models.users import User
 from app.rate_limit import limiter
-from app.schemas.quizzes import QuizDiscoveryOut, QuizOptionOut, QuizOut, QuizQuestionOut, QuizResultOut, QuizSubmitIn
+from app.schemas.quizzes import (
+    QuizAttemptHistoryOut,
+    QuizDiscoveryOut,
+    QuizOptionOut,
+    QuizOut,
+    QuizQuestionOut,
+    QuizResultOut,
+    QuizSubmitIn,
+)
 from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.course_access import ORPHANED_PARENT_ACCESS_DECISION, access_for_tab, access_for_topic_item
+from app.services.quiz_attempt_read_models import list_quiz_attempt_history
 from app.services.quiz_attempt_submission import persist_quiz_submission
 from app.services.quiz_grading import answer_payload, grade_quiz_question
 
@@ -80,6 +89,24 @@ async def get_quiz(
     return _quiz_out(question_set)
 
 
+@router.get("/{question_set_id}/attempts", response_model=QuizAttemptHistoryOut)
+async def get_quiz_attempt_history(
+    question_set_id: int,
+    limit: int = Query(default=20, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    question_set = await _get_accessible_question_set(db, user, question_set_id)
+    return await list_quiz_attempt_history(
+        db,
+        user=user,
+        question_set=question_set,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.post("/{question_set_id}/submit", response_model=QuizResultOut)
 @limiter.limit("20/minute")
 async def submit_quiz(
@@ -136,13 +163,15 @@ async def _submit_legacy_quiz_attempt(
     pending_question_attempts: list[QuestionAttempt] = []
 
     for question, raw_question in zip(questions, raw_questions):
-        submitted = body.answers.get(question.id)
+        submitted = _submitted_answer(body.answers, question.id)
         is_correct, expected = grade_quiz_question(raw_question, submitted)
         if is_correct:
             correct += 1
         grading["questions"].append({
             "id": question.id,
+            "type": question.type,
             "correct": is_correct,
+            "answered": submitted is not None,
             "expected": expected,
         })
         pending_question_attempts.append(QuestionAttempt(
@@ -335,6 +364,12 @@ def _options_out(config: dict) -> list[QuizOptionOut]:
             option_id = index
         output.append(QuizOptionOut(id=option_id, text=text))
     return output
+
+
+def _submitted_answer(answers: dict, question_id: int):
+    if question_id in answers:
+        return answers[question_id]
+    return answers.get(str(question_id))
 
 
 def _raw_question(question) -> dict:

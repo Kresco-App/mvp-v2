@@ -1383,6 +1383,54 @@ Verification plan:
   counts only transition from open to corrected; correction refreshes context;
   staging will be scoped hunks only. Status: implemented.
 
+### Slice 26: Quiz Attempt History API
+
+Status: implemented.
+
+Reason for this slice:
+
+- Students need quiz attempt history before a useful quiz/revision workspace
+  can exist.
+- The platform already persists `QuizAttempt` and `QuestionAttempt`, but the
+  standalone quiz API did not expose a safe attempt-history contract.
+
+Planned backend scope:
+
+- Add a student-scoped `GET /api/quizzes/{question_set_id}/attempts` endpoint.
+  Status: implemented.
+- Reuse existing question-set access checks before exposing attempts. Status:
+  implemented.
+- Return score, pass state, attempt number, duration, submission time, and
+  per-question correct/answered flags. Status: implemented.
+- Exclude raw answers, expected answers, raw grading payloads, and quiz
+  snapshots from the response. Status: implemented.
+
+Decisions:
+
+- Decision: attempt history requires current access to the question set. Past
+  attempts are not exposed after the student loses access in this slice.
+- Decision: the response is a safe read model, not a replay/debug payload. It
+  intentionally omits `answers`, `correct_answer_json`, `expected`, and
+  `question_snapshot_json`.
+- Decision: pagination is bounded by FastAPI validation (`limit` 1-50,
+  nonnegative `offset`) instead of silent clamping.
+- Decision: no frontend screen is added in this slice; UI can consume the
+  endpoint after the design pass.
+
+Verification plan:
+
+- Add backend tests for student scoping, newest-first ordering, safe
+  per-question result shape, answer-key non-leakage, access blocking, and query
+  bounds. Status: implemented.
+- Run focused quiz attempt history tests, mistake notebook tests, quiz grading
+  tests, Topic Workspace quiz tests, and compile checks. Status: implemented.
+- Run strong review before committing. Status: implemented.
+- Strong review found real standalone submissions could report missing question
+  types as `multiple_choice` because the legacy submit grading omitted safe
+  `type` and `answered` fields. The submit path now stores those safe fields,
+  and route-level regression coverage verifies history after an actual
+  submission. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
