@@ -81,6 +81,60 @@ class UserStats(Base):
     user: Mapped["User"] = relationship("User", back_populates="stats")
 
 
+class UserConceptMastery(Base):
+    __tablename__ = "user_concept_mastery"
+    __table_args__ = (
+        UniqueConstraint("user_id", "context_key", "concept_slug", name="uq_user_concept_mastery_user_context_concept"),
+        CheckConstraint("attempts_count >= 0", name="ck_user_concept_mastery_attempts_nonnegative"),
+        CheckConstraint("correct_count >= 0", name="ck_user_concept_mastery_correct_nonnegative"),
+        CheckConstraint("incorrect_count >= 0", name="ck_user_concept_mastery_incorrect_nonnegative"),
+        CheckConstraint("mastery_score >= 0 AND mastery_score <= 100", name="ck_user_concept_mastery_score_range"),
+        CheckConstraint("confidence >= 0 AND confidence <= 100", name="ck_user_concept_mastery_confidence_range"),
+        CheckConstraint(
+            "last_result IN ('unknown', 'correct', 'incorrect', 'mixed')",
+            name="ck_user_concept_mastery_last_result",
+        ),
+        CheckConstraint(
+            "status IN ('weak', 'developing', 'mastered')",
+            name="ck_user_concept_mastery_status",
+        ),
+        Index("ix_user_concept_mastery_user_status_score", "user_id", "status", "mastery_score"),
+        Index("ix_user_concept_mastery_user_subject_status", "user_id", "subject_id", "status"),
+        Index("ix_user_concept_mastery_user_topic_status", "user_id", "topic_id", "status"),
+        Index("ix_user_concept_mastery_user_updated", "user_id", "updated_at"),
+        Index("ix_user_concept_mastery_concept", "concept_slug"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subject_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True, index=True)
+    topic_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topics.id", ondelete="SET NULL"), nullable=True, index=True)
+    context_key: Mapped[str] = mapped_column(String(100), default="global", server_default="global", nullable=False)
+    concept_slug: Mapped[str] = mapped_column(String(120))
+    attempts_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    correct_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    incorrect_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    mastery_score: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    confidence: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="weak", server_default="weak", nullable=False)
+    last_result: Mapped[str] = mapped_column(String(20), default="unknown", server_default="unknown", nullable=False)
+    last_source: Mapped[str] = mapped_column(String(40), default="quiz", server_default="quiz", nullable=False)
+    last_question_attempt_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("question_attempts.id", ondelete="SET NULL"), nullable=True
+    )
+    last_quiz_attempt_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("quiz_attempts.id", ondelete="SET NULL"), nullable=True
+    )
+    last_practiced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_correct_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_incorrect_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User")
+
+
 class XPTransaction(Base):
     __tablename__ = "xp_transactions"
     __table_args__ = (

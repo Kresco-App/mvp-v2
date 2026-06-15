@@ -8,9 +8,10 @@ from app.rate_limit import limiter
 from app.schemas.gamification import (
     DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
     LeaderboardEntryOut, MistakeNotebookListOut, SidebarSummaryOut,
-    UserBadgeInventoryOut, XPSeasonLeaderboardOut,
+    ConceptMasteryListOut, UserBadgeInventoryOut, XPSeasonLeaderboardOut,
 )
 from app.services.badges import build_user_badge_inventory
+from app.services.concept_mastery import list_concept_mastery_entries
 from app.services.daily_quests import ensure_daily_quests_for_user, claim_daily_quest_reward
 from app.services.gamification_read_models import (
     build_sidebar_summary,
@@ -103,6 +104,27 @@ async def get_badges(
     if changed:
         await db.commit()
     return inventory
+
+
+@router.get("/concept-mastery", response_model=ConceptMasteryListOut)
+async def get_concept_mastery(
+    subject_id: int | None = Query(default=None, ge=1),
+    topic_id: int | None = Query(default=None, ge=1),
+    weak_only: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await list_concept_mastery_entries(
+        db,
+        user=user,
+        subject_id=subject_id,
+        topic_id=topic_id,
+        weak_only=weak_only,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/sidebar-summary", response_model=SidebarSummaryOut)

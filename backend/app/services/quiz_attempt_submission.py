@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
 from app.models.quizzes import QuestionSet
+from app.services.concept_mastery import update_concept_mastery_from_question_attempts
 from app.services.gamification_stats import apply_quiz_pass_stats_delta
 from app.services.mistake_notebook import update_mistake_notebook_from_question_attempts
 from app.services.quiz_grading import tab_quiz_submission_hash
@@ -116,6 +117,14 @@ async def persist_quiz_submission(
     await db.flush()
 
     inserted_question_attempts = await _insert_question_attempts(db, attempt.id, question_attempt_rows)
+    await update_concept_mastery_from_question_attempts(
+        db,
+        user_id=user_id,
+        quiz_attempt_id=attempt.id,
+        question_attempts=inserted_question_attempts,
+        fallback_concept_slugs=question_set.concept_slugs or [],
+        practiced_at=attempt.completed_at,
+    )
     corrected_mistake_question_ids = await update_mistake_notebook_from_question_attempts(
         db,
         user_id=user_id,

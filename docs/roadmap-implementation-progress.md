@@ -3208,6 +3208,68 @@ Verification completed:
   cap-capacity preflight plus `RETURNING`-based inserted-row counting.
 - Re-review found no blocking issues.
 
+### Slice 56: Quiz-Backed Concept Mastery Projection
+
+Status: implemented.
+
+Reason for this slice:
+
+- The gamification roadmap calls for per-concept mastery, confidence, weak-topic
+  detection, decay, and spaced repetition.
+- Quizzes already create trusted backend-graded `QuestionAttempt` rows, while
+  exercise and exam self-grades are softer self-reported signals.
+- This slice creates the durable mastery projection and weak-topic read model
+  first, without choosing the final UI or full spaced-repetition algorithm.
+
+Implemented scope:
+
+- Added `user_concept_mastery`, keyed by `(user_id, context_key, concept_slug)`.
+  Status: implemented.
+- Added aggregate counts, mastery score, confidence, status
+  (`weak`, `developing`, `mastered`), last result/source, last quiz/question
+  attempt pointers, and last activity timestamps. Status: implemented.
+- Updated quiz submission persistence to project mastery from inserted
+  `QuestionAttempt` rows. Status: implemented.
+- Added fallback from `Question.concept_slugs` to `QuestionSet.concept_slugs`
+  when individual questions are not tagged. Status: implemented.
+- Added `GET /api/progress/concept-mastery` with `subject_id`, `topic_id`,
+  `weak_only`, `limit`, and `offset` filters. Status: implemented.
+
+Decisions:
+
+- Decision: v1 mastery is quiz-backed only. Exercise and exam self-grades will
+  feed mastery later with separate weighting because they are self-reported.
+- Decision: `context_key` is a stable string (`subject:{id}:topic:{id}`,
+  `subject:{id}`, `topic:{id}`, or `global`) so nullable `subject_id/topic_id`
+  do not weaken uniqueness.
+- Decision: score is current aggregate accuracy (`correct / attempts * 100`),
+  confidence grows by 20 per attempt up to 100, `weak` is below 70, and
+  `mastered` requires score >= 85 with confidence >= 60.
+- Decision: this is forward-only for v1. Historical quiz attempts can be
+  backfilled in a separate batch job if needed.
+- Decision: no raw answers or grading payloads are stored in mastery rows.
+
+Verification plan:
+
+- Add model/migration declaration tests. Status: implemented.
+- Add integration coverage proving quiz attempts update concept mastery, use
+  question-set concept fallback, and duplicate submissions do not double-count.
+  Status: implemented.
+- Add route coverage proving authentication, student scoping, weak-only
+  filtering, and topic filtering. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_concept_mastery.py tests_fastapi/test_migrations.py -q`
+  passed with 6 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0073 (head)`.
+- Independent review found the SQL conflict-upsert path truncated fractional
+  mastery scores while Python used rounded scores. Fixed by using explicit
+  rounded SQL scoring and added a threshold regression proving 11/13 rounds to
+  `85` and `mastered`.
+- Re-review found no blocking issues.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

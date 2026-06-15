@@ -160,6 +160,37 @@ class UserBadgeInventoryOut(BaseModel):
     total_count: int
 
 
+class ConceptMasteryEntryOut(BaseModel):
+    id: int
+    concept_slug: str
+    context_key: str
+    subject_id: Optional[int] = None
+    topic_id: Optional[int] = None
+    attempts_count: int
+    correct_count: int
+    incorrect_count: int
+    mastery_score: int
+    confidence: int
+    status: str
+    is_weak: bool
+    last_result: str
+    last_source: str
+    last_question_attempt_id: Optional[int] = None
+    last_quiz_attempt_id: Optional[int] = None
+    last_practiced_at: Optional[datetime] = None
+    last_correct_at: Optional[datetime] = None
+    last_incorrect_at: Optional[datetime] = None
+    updated_at: datetime
+
+
+class ConceptMasteryListOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    weak_threshold: int
+    items: list[ConceptMasteryEntryOut]
+
+
 class DailyQuestOut(BaseModel):
     id: int
     quest_type: str
