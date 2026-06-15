@@ -54,6 +54,7 @@ from app.schemas.payments import (
     PaymentReconciliationImportSummaryOut,
     PaymentRequestOut,
 )
+from app.services.payment_entitlements import grant_paid_subject_entitlements
 
 PAYMENT_PLAN_PRICES_CENTIMES = {
     "pro": 9900,
@@ -762,6 +763,12 @@ async def approve_manual_payment_transaction(
     if user is None:
         raise HTTPException(status_code=404, detail="Payment user not found")
     user.is_pro = True
+    entitlement_count = await grant_paid_subject_entitlements(
+        db,
+        user=user,
+        source=f"{transaction.rail}:{transaction.reference_code}",
+        starts_at=now,
+    )
     db.add(
         PaymentProviderEvent(
             transaction_id=int(transaction.id),
@@ -781,7 +788,11 @@ async def approve_manual_payment_transaction(
             amount_centimes=int(transaction.amount_centimes),
             currency=transaction.currency,
             reason=reason,
-            metadata_json={"actor_user_id": int(actor.id), "rail": transaction.rail},
+            metadata_json={
+                "actor_user_id": int(actor.id),
+                "rail": transaction.rail,
+                "entitlements_granted": entitlement_count,
+            },
         )
     )
     await db.commit()
@@ -1395,6 +1406,12 @@ async def _mark_manual_transaction_reconciled(
     if user is None:
         raise HTTPException(status_code=404, detail="Payment user not found")
     user.is_pro = True
+    entitlement_count = await grant_paid_subject_entitlements(
+        db,
+        user=user,
+        source=f"{transaction.rail}:{transaction.reference_code}",
+        starts_at=now,
+    )
     payload = _manual_reconciliation_payload(reconciliation, actor=actor)
     db.add(
         PaymentProviderEvent(
@@ -1419,6 +1436,7 @@ async def _mark_manual_transaction_reconciled(
                 "actor_user_id": int(actor.id),
                 "rail": transaction.rail,
                 "provider_reference": reconciliation.provider_reference,
+                "entitlements_granted": entitlement_count,
             },
         )
     )
@@ -1667,6 +1685,12 @@ async def _mark_cmi_transaction_paid(
     if user is None:
         raise HTTPException(status_code=404, detail="Payment user not found")
     user.is_pro = True
+    entitlement_count = await grant_paid_subject_entitlements(
+        db,
+        user=user,
+        source=f"{PAYMENT_RAIL_CMI}:{transaction.reference_code}",
+        starts_at=now,
+    )
     db.add(
         PaymentProviderEvent(
             transaction_id=int(transaction.id),
@@ -1686,7 +1710,11 @@ async def _mark_cmi_transaction_paid(
             amount_centimes=int(transaction.amount_centimes),
             currency=transaction.currency,
             reason="CMI callback verified",
-            metadata_json={"rail": PAYMENT_RAIL_CMI, "provider_reference": transaction.provider_reference},
+            metadata_json={
+                "rail": PAYMENT_RAIL_CMI,
+                "provider_reference": transaction.provider_reference,
+                "entitlements_granted": entitlement_count,
+            },
         )
     )
     await db.commit()

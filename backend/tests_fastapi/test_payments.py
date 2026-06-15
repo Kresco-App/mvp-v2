@@ -9,6 +9,7 @@ from sqlalchemy import func, inspect as inspect_sa, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session_factory
+from app.models.courses import Subject
 from app.models.payments import (
     PAYMENT_PROVIDER_ASHPLUS,
     PAYMENT_PROVIDER_CMI,
@@ -31,7 +32,7 @@ from app.models.payments import (
     PaymentVerificationAttempt,
     StripeWebhookEvent,
 )
-from app.models.users import User
+from app.models.users import User, UserSubjectEntitlement
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME, create_token
 from app.services import payment_gateway, payment_lifecycle
@@ -329,6 +330,31 @@ async def _get_user(user_id: int) -> User:
     async with session_factory() as db:
         result = await db.execute(select(User).where(User.id == user_id))
         return result.scalar_one()
+
+
+async def _seed_subjects(*titles: str) -> list[int]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        subjects = [
+            Subject(title=title, description="", is_published=True, order=index)
+            for index, title in enumerate(titles, start=1)
+        ]
+        db.add_all(subjects)
+        await db.commit()
+        for subject in subjects:
+            await db.refresh(subject)
+        return [int(subject.id) for subject in subjects]
+
+
+async def _subject_entitlements_for_user(user_id: int) -> list[UserSubjectEntitlement]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(UserSubjectEntitlement)
+            .where(UserSubjectEntitlement.user_id == user_id)
+            .order_by(UserSubjectEntitlement.subject_id.asc())
+        )
+        return list(result.scalars().all())
 
 
 async def _set_user_pro(user_id: int, is_pro: bool) -> None:
@@ -1066,6 +1092,7 @@ def test_cmi_callback_approved_marks_paid_and_grants_access(
     test_settings,
 ):
     token, user_id = auth_token(email="cmi-callback-approved@example.com")
+    subject_ids = run_db(_seed_subjects("CMI Maths", "CMI Physique"))
     original = _set_cmi_settings(test_settings)
 
     try:
@@ -1097,6 +1124,12 @@ def test_cmi_callback_approved_marks_paid_and_grants_access(
     assert len(ledger_entries) == 1
     assert ledger_entries[0].entry_type == "payment_confirmed"
     assert ledger_entries[0].amount_centimes == 9900
+    entitlements = run_db(_subject_entitlements_for_user(user_id))
+    assert ledger_entries[0].metadata_json["entitlements_granted"] == len(entitlements)
+    assert set(subject_ids).issubset({entitlement.subject_id for entitlement in entitlements})
+    assert {entitlement.source for entitlement in entitlements} == {
+        f"payment:cmi:{transaction.reference_code.lower()}"
+    }
 
 
 def test_cmi_callback_duplicate_is_idempotent(
@@ -1542,7 +1575,9 @@ def test_staff_can_read_finance_ledger_and_provider_events_for_transaction(
     assert ledger[0]["entry_type"] == "payment_confirmed"
     assert ledger[0]["amount_centimes"] == 9900
     assert ledger[0]["reason"] == "CashPlus finance audit check"
-    assert ledger[0]["metadata"] == {"actor_user_id": staff_id, "rail": PAYMENT_RAIL_CASHPLUS}
+    assert ledger[0]["metadata"]["actor_user_id"] == staff_id
+    assert ledger[0]["metadata"]["rail"] == PAYMENT_RAIL_CASHPLUS
+    assert ledger[0]["metadata"]["entitlements_granted"] >= 0
 
     assert events_response.status_code == 200
     events = events_response.json()
@@ -1605,6 +1640,7 @@ def test_staff_approve_manual_payment_grants_access_and_records_audit(
     test_settings,
 ):
     student_token, user_id = auth_token(email="manual-approve-student@example.com")
+    subject_ids = run_db(_seed_subjects("Manual Maths", "Manual SVT"))
     create_response = app_client.post(
         "/api/payments/payment-requests",
         json={"payment_method": "cashplus", "plan": "pro"},
@@ -1649,7 +1685,16 @@ def test_staff_approve_manual_payment_grants_access_and_records_audit(
     assert len(ledger_entries) == 1
     assert ledger_entries[0].entry_type == "payment_confirmed"
     assert ledger_entries[0].amount_centimes == 9900
-    assert ledger_entries[0].metadata_json == {"actor_user_id": staff_id, "rail": PAYMENT_RAIL_CASHPLUS}
+    entitlements = run_db(_subject_entitlements_for_user(user_id))
+    assert ledger_entries[0].metadata_json == {
+        "actor_user_id": staff_id,
+        "rail": PAYMENT_RAIL_CASHPLUS,
+        "entitlements_granted": len(entitlements),
+    }
+    assert set(subject_ids).issubset({entitlement.subject_id for entitlement in entitlements})
+    assert {entitlement.source for entitlement in entitlements} == {
+        f"payment:cashplus:{transaction.reference_code.lower()}"
+    }
     current_response = app_client.get(
         "/api/payments/payment-requests/current",
         headers={"Authorization": f"Bearer {student_token}"},
@@ -1934,6 +1979,7 @@ def test_staff_reconciles_manual_payment_by_reference_once(
     test_settings,
 ):
     student_token, user_id = auth_token(email="manual-reconcile-student@example.com")
+    subject_ids = run_db(_seed_subjects("Reconcile Maths", "Reconcile Chimie"))
     create_response = app_client.post(
         "/api/payments/payment-requests",
         json={"payment_method": "cashplus", "plan": "pro"},
@@ -1981,6 +2027,12 @@ def test_staff_reconciles_manual_payment_by_reference_once(
     assert len(ledger_entries) == 1
     assert ledger_entries[0].entry_type == "payment_confirmed"
     assert ledger_entries[0].amount_centimes == 9900
+    entitlements = run_db(_subject_entitlements_for_user(user_id))
+    assert ledger_entries[0].metadata_json["entitlements_granted"] == len(entitlements)
+    assert set(subject_ids).issubset({entitlement.subject_id for entitlement in entitlements})
+    assert {entitlement.source for entitlement in entitlements} == {
+        f"payment:cashplus:{reference_code.lower()}"
+    }
 
 
 def test_ashplus_proof_and_reconciliation_use_manual_cash_agency_workflow(

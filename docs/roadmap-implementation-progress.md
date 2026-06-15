@@ -2121,6 +2121,73 @@ Review notes addressed:
 - Recovery state is keyed by user identity and cleared on empty recovery
   responses so payment references cannot leak across non-Pro account switches.
 
+### Slice 39: Paid Payment Subject Entitlement Projection
+
+Status: implemented.
+
+Reason for this slice:
+
+- The finance/access roadmap says entitlements should become the access source
+  of truth, with `users.is_pro` kept only as a cache/projection.
+- Confirmed CMI/manual payments still only flipped `users.is_pro`, leaving the
+  existing subject entitlement table unused by payment confirmation.
+
+Implemented scope:
+
+- Added a backend entitlement helper that creates active
+  `user_subject_entitlements` rows for the paid user across all existing
+  subjects. Status: implemented.
+- Wired the helper into CMI callback approval, manual finance approval, and
+  manual reconciliation confirmation. Status: implemented.
+- Kept confirmation changes in the same transaction commit as provider event
+  and finance ledger writes. Status: implemented.
+- Added `entitlements_granted` to payment-confirmed ledger metadata for finance
+  audit visibility. Status: implemented.
+
+Decisions:
+
+- Decision: for v1, a paid Pro transaction grants all subjects currently in the
+  catalog, including unpublished subjects. Unpublished content remains hidden by
+  content publication rules, but the entitlement exists if that subject is later
+  published.
+- Decision: keep `users.is_pro = True` as the compatibility cache because many
+  existing gates and profile payloads still depend on it.
+- Decision: leave future-subject backfill as a later access-maintenance slice.
+  New subjects created after a payment will need a backfill/sync job or a global
+  entitlement model before subject scope can fully replace `is_pro`.
+- Decision: no frontend UI change in this slice. Existing pricing/payment UI
+  remains valid while backend access records become more explicit.
+
+Verification plan:
+
+- Add entitlement service tests for granting all current subjects and idempotent
+  repeat grants. Status: implemented.
+- Add/extend payment lifecycle tests proving CMI approval, manual approval, and
+  manual reconciliation create entitlement rows and audit the count. Status:
+  implemented.
+- Run focused payment entitlement and payment route tests plus strong review
+  before committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payment_entitlements.py -q` passed:
+  13 tests.
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 88 tests.
+- `python -m pytest tests_fastapi/test_access_service.py tests_fastapi/test_course_access.py -q`
+  passed: 25 tests.
+- `python -m compileall app` passed.
+
+Review notes addressed:
+
+- Stripe compatibility confirmations now also backfill paid subject entitlement
+  rows, so old checkout/session paths do not diverge from CMI/manual payment
+  confirmation.
+- Stripe compatibility revocation now revokes active `payment:stripe*` subject
+  entitlement rows as well as clearing the `users.is_pro` projection, without
+  revoking later CMI/manual entitlement rows.
+- Paid entitlement grants no longer treat a future-start active row as current
+  access; they create an immediate paid row when needed.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
