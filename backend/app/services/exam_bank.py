@@ -1,15 +1,27 @@
-from sqlalchemy import and_, or_, select
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
+from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from app.models.courses import Exam, ExamProblem, Resource, Subject, Topic
 from app.models.exam_bank import EXAM_PROBLEM_PART_STATUS_PUBLISHED, ExamProblemPart
+from app.models.exam_progress import (
+    EXAM_PROBLEM_PROGRESS_COMPLETED,
+    EXAM_PROBLEM_PROGRESS_NOT_STARTED,
+    EXAM_PROBLEM_PROGRESS_OPENED,
+    UserExamProblemProgress,
+)
 from app.models.users import User
 from app.schemas.exam_bank import (
     ExamBankExamOut,
     ExamBankListOut,
     ExamBankProblemDetailOut,
     ExamBankProblemOut,
+    ExamProblemProgressIn,
+    ExamProblemProgressOut,
     ExamProblemPartOut,
 )
 from app.services.access import AccessContext, AccessDecision, build_access_context
@@ -31,6 +43,8 @@ async def list_exam_bank(
     access_context = await build_access_context(db, user)
     exams = await _load_exams(db, subject_id=subject_id, topic_id=topic_id, year=year, q=q)
     problem_map = await _load_problems_by_exam(db, [int(exam.id) for exam in exams], topic_id=topic_id)
+    problem_ids = [int(problem.id) for problems in problem_map.values() for problem in problems]
+    progress_map = await _load_problem_progress(db, user_id=int(user.id), problem_ids=problem_ids)
     problem_topic_matched_ids = {
         int(problem.id)
         for problems in problem_map.values()
@@ -48,6 +62,7 @@ async def list_exam_bank(
             exam,
             problems=problem_map.get(int(exam.id), []),
             part_map=part_map,
+            progress_map=progress_map,
             access_context=access_context,
         )
         for exam in exams
@@ -82,6 +97,7 @@ async def get_exam_problem_detail(
     if problem is None or problem.exam is None:
         return None
     parts = await _load_parts_by_problem(db, [int(problem.id)])
+    progress_map = await _load_problem_progress(db, user_id=int(user.id), problem_ids=[int(problem.id)])
     access_context = await build_access_context(db, user)
     exam_access = _exam_access(access_context, problem.exam)
     problem_out = exam_bank_problem_out(
@@ -90,6 +106,7 @@ async def get_exam_problem_detail(
         access_context=access_context,
         exam_access=exam_access,
         subject_id=int(problem.exam.subject_id),
+        progress=progress_map.get(int(problem.id)),
     )
     return ExamBankProblemDetailOut(
         **problem_out.model_dump(),
@@ -107,6 +124,7 @@ def exam_bank_exam_out(
     *,
     problems: list[ExamProblem],
     part_map: dict[int, list[ExamProblemPart]],
+    progress_map: dict[int, UserExamProblemProgress],
     access_context: AccessContext,
 ) -> ExamBankExamOut:
     exam_access = _exam_access(access_context, exam)
@@ -125,6 +143,7 @@ def exam_bank_exam_out(
                 access_context=access_context,
                 exam_access=exam_access,
                 subject_id=int(exam.subject_id),
+                progress=progress_map.get(int(problem.id)),
             )
             for problem in problems
         ],
@@ -139,6 +158,7 @@ def exam_bank_problem_out(
     access_context: AccessContext,
     exam_access: AccessDecision,
     subject_id: int,
+    progress: UserExamProblemProgress | None = None,
 ) -> ExamBankProblemOut:
     problem_access = access_context.decide_child(exam_access, problem, subject_id=subject_id)
     out = ExamBankProblemOut(
@@ -161,8 +181,55 @@ def exam_bank_problem_out(
             )
             for part in parts
         ],
+        progress_status=_problem_progress_status(progress),
+        saved=bool(progress.saved) if progress is not None else False,
     )
     return apply_access_decision(out, problem_access)
+
+
+async def record_exam_problem_progress(
+    db: AsyncSession,
+    user: User,
+    *,
+    problem_id: int,
+    body: ExamProblemProgressIn,
+) -> ExamProblemProgressOut:
+    problem = await get_exam_problem_detail(db, user, problem_id=problem_id)
+    if problem is None:
+        raise HTTPException(status_code=404, detail="Exam problem not found")
+    if not problem.can_access:
+        raise HTTPException(status_code=403, detail=problem.locked_reason or "subject_access_required")
+    progress = await _get_or_create_problem_progress(db, user_id=int(user.id), problem_id=problem_id)
+    now = datetime.now(timezone.utc)
+    values = {UserExamProblemProgress.last_activity_at: now}
+    if body.status is not None:
+        if body.status == EXAM_PROBLEM_PROGRESS_COMPLETED:
+            values.update({
+                UserExamProblemProgress.status: EXAM_PROBLEM_PROGRESS_COMPLETED,
+                UserExamProblemProgress.opened_at: func.coalesce(UserExamProblemProgress.opened_at, now),
+                UserExamProblemProgress.completed_at: func.coalesce(UserExamProblemProgress.completed_at, now),
+            })
+        elif progress.status != EXAM_PROBLEM_PROGRESS_COMPLETED:
+            values.update({
+                UserExamProblemProgress.status: case(
+                    (
+                        UserExamProblemProgress.status != EXAM_PROBLEM_PROGRESS_COMPLETED,
+                        EXAM_PROBLEM_PROGRESS_OPENED,
+                    ),
+                    else_=UserExamProblemProgress.status,
+                ),
+                UserExamProblemProgress.opened_at: func.coalesce(UserExamProblemProgress.opened_at, now),
+            })
+    if body.saved is not None:
+        values[UserExamProblemProgress.saved] = bool(body.saved)
+    await db.execute(
+        update(UserExamProblemProgress)
+        .where(UserExamProblemProgress.id == progress.id)
+        .values(values)
+    )
+    await db.commit()
+    await db.refresh(progress)
+    return _problem_progress_out(progress)
 
 
 def exam_problem_part_out(
@@ -191,6 +258,73 @@ def exam_problem_part_out(
         video_resource=_resource_out(part.video_resource, access_context, part_access, subject_id),
     )
     return apply_access_decision(out, part_access)
+
+
+async def _load_problem_progress(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    problem_ids: list[int],
+) -> dict[int, UserExamProblemProgress]:
+    if not problem_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(UserExamProblemProgress).where(
+                UserExamProblemProgress.user_id == user_id,
+                UserExamProblemProgress.exam_problem_id.in_(problem_ids),
+            )
+        )
+    ).scalars().all()
+    return {int(row.exam_problem_id): row for row in rows}
+
+
+async def _get_or_create_problem_progress(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    problem_id: int,
+) -> UserExamProblemProgress:
+    progress = await db.scalar(
+        select(UserExamProblemProgress).where(
+            UserExamProblemProgress.user_id == user_id,
+            UserExamProblemProgress.exam_problem_id == problem_id,
+        )
+    )
+    if progress is not None:
+        return progress
+    progress = UserExamProblemProgress(user_id=user_id, exam_problem_id=problem_id)
+    db.add(progress)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        progress = await db.scalar(
+            select(UserExamProblemProgress).where(
+                UserExamProblemProgress.user_id == user_id,
+                UserExamProblemProgress.exam_problem_id == problem_id,
+            )
+        )
+        if progress is None:
+            raise
+    return progress
+
+
+def _problem_progress_status(progress: UserExamProblemProgress | None) -> str:
+    if progress is None:
+        return EXAM_PROBLEM_PROGRESS_NOT_STARTED
+    return progress.status or EXAM_PROBLEM_PROGRESS_NOT_STARTED
+
+
+def _problem_progress_out(progress: UserExamProblemProgress) -> ExamProblemProgressOut:
+    return ExamProblemProgressOut(
+        exam_problem_id=int(progress.exam_problem_id),
+        status=_problem_progress_status(progress),
+        saved=bool(progress.saved),
+        opened_at=progress.opened_at,
+        completed_at=progress.completed_at,
+        last_activity_at=progress.last_activity_at,
+    )
 
 
 async def _load_exams(

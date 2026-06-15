@@ -1,11 +1,15 @@
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.database import get_session_factory
 from app.models.courses import Exam, ExamProblem, Resource, Subject, Topic
+from app.models.users import User
 from app.models.exam_bank import ExamProblemPart
+from app.models.exam_progress import EXAM_PROBLEM_PROGRESS_COMPLETED, EXAM_PROBLEM_PROGRESS_OPENED, UserExamProblemProgress
 from app.models.users import UserSubjectEntitlement
+from app.schemas.exam_bank import ExamProblemProgressIn
+from app.services.exam_bank import record_exam_problem_progress
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,6 +40,30 @@ def test_exam_problem_part_model_and_migration_are_declared():
     assert 'down_revision: Union[str, None] = "0055"' in migration_text
     assert "exam_problem_parts" in migration_text
     assert "correction_video_url" in migration_text
+
+
+def test_exam_problem_progress_model_and_migration_are_declared():
+    columns = UserExamProblemProgress.__table__.columns
+    indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in UserExamProblemProgress.__table__.indexes
+    }
+    constraints = {constraint.name for constraint in UserExamProblemProgress.__table__.constraints}
+
+    assert columns["user_id"].nullable is False
+    assert columns["exam_problem_id"].nullable is False
+    assert columns["status"].nullable is False
+    assert columns["saved"].nullable is False
+    assert "uq_user_exam_problem_progress_user_problem" in constraints
+    assert "ck_user_exam_problem_progress_status" in constraints
+    assert indexes["ix_user_exam_problem_progress_user_status"] == ("user_id", "status")
+    assert indexes["ix_user_exam_problem_progress_problem"] == ("exam_problem_id",)
+
+    migration_text = (BACKEND_ROOT / "alembic" / "versions" / "0062_exam_problem_progress.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'down_revision: Union[str, None] = "0061"' in migration_text
+    assert "user_exam_problem_progress" in migration_text
 
 
 def test_exam_bank_returns_part_capsules_for_entitled_subject(app_client, auth_token, run_db):
@@ -183,6 +211,73 @@ def test_exam_bank_topic_filter_ignores_parts_under_draft_topic(app_client, auth
     assert response.json()["items"] == []
 
 
+def test_exam_problem_progress_records_opened_completed_and_saved(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-progress@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    opened = app_client.post(
+        f"/api/exam-bank/problems/{seeded['problem_id']}/progress",
+        json={"status": "opened", "saved": True},
+        headers=headers,
+    )
+    detail = app_client.get(f"/api/exam-bank/problems/{seeded['problem_id']}", headers=headers)
+    listed = app_client.get(f"/api/exam-bank?subject_id={seeded['subject_id']}", headers=headers)
+    completed = app_client.post(
+        f"/api/exam-bank/problems/{seeded['problem_id']}/progress",
+        json={"status": "completed"},
+        headers=headers,
+    )
+    reopened = app_client.post(
+        f"/api/exam-bank/problems/{seeded['problem_id']}/progress",
+        json={"status": "opened"},
+        headers=headers,
+    )
+
+    assert opened.status_code == 200
+    opened_payload = opened.json()
+    assert opened_payload["exam_problem_id"] == seeded["problem_id"]
+    assert opened_payload["status"] == "opened"
+    assert opened_payload["saved"] is True
+    assert opened_payload["opened_at"] is not None
+    assert opened_payload["last_activity_at"] is not None
+
+    assert detail.status_code == 200
+    assert detail.json()["progress_status"] == "opened"
+    assert detail.json()["saved"] is True
+    assert listed.status_code == 200
+    listed_problem = listed.json()["items"][0]["problems"][0]
+    assert listed_problem["progress_status"] == "opened"
+    assert listed_problem["saved"] is True
+
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["completed_at"] is not None
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "completed"
+
+
+def test_exam_problem_progress_requires_subject_access(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-progress-locked@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id))
+
+    response = app_client.post(
+        f"/api/exam-bank/problems/{seeded['problem_id']}/progress",
+        json={"status": "opened", "saved": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "subject_access_required"
+
+
+def test_exam_problem_progress_completion_is_monotonic_with_stale_session(auth_token, run_db):
+    _token, user_id = auth_token(email="exam-progress-race@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id, include_subject_entitlement=True))
+
+    assert run_db(_stale_opened_request_after_completed(user_id=user_id, problem_id=seeded["problem_id"])) == "completed"
+
+
 async def _seed_exam_parts_fixture(
     *,
     user_id: int,
@@ -291,3 +386,43 @@ async def _seed_exam_parts_fixture(
             "part_1_id": int(part_1.id),
             "part_2_id": int(part_2.id),
         }
+
+
+async def _stale_opened_request_after_completed(*, user_id: int, problem_id: int) -> str:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        progress = UserExamProblemProgress(
+            user_id=user_id,
+            exam_problem_id=problem_id,
+            status=EXAM_PROBLEM_PROGRESS_OPENED,
+        )
+        db.add(progress)
+        await db.commit()
+
+    async with session_factory() as stale_db:
+        stale_progress = await stale_db.scalar(
+            select(UserExamProblemProgress).where(
+                UserExamProblemProgress.user_id == user_id,
+                UserExamProblemProgress.exam_problem_id == problem_id,
+            )
+        )
+        assert stale_progress is not None
+        assert stale_progress.status == EXAM_PROBLEM_PROGRESS_OPENED
+
+        async with session_factory() as completed_db:
+            await completed_db.execute(
+                update(UserExamProblemProgress)
+                .where(UserExamProblemProgress.id == stale_progress.id)
+                .values(status=EXAM_PROBLEM_PROGRESS_COMPLETED)
+            )
+            await completed_db.commit()
+
+        user = await stale_db.get(User, user_id)
+        assert user is not None
+        result = await record_exam_problem_progress(
+            stale_db,
+            user,
+            problem_id=problem_id,
+            body=ExamProblemProgressIn(status=EXAM_PROBLEM_PROGRESS_OPENED),
+        )
+        return result.status

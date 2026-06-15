@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { BookOpen, CalendarDays, CheckCircle2, ChevronLeft, FileText, Lock, Play, Search, Trophy, Video } from 'lucide-react'
+import { BookOpen, CalendarDays, CheckCircle2, ChevronLeft, FileText, Lock, Play, Search, Star, Trophy, Video } from 'lucide-react'
 import { apiDataErrorMessage } from '@/lib/apiData'
-import { useExamBankData, useExamProblemDetail, type Exam, type ExamProblem, type ExamProblemDetail, type ExamProblemPart } from '@/lib/courseDiscoveryData'
+import { recordExamProblemProgress, useExamBankData, useExamProblemDetail, type Exam, type ExamProblem, type ExamProblemDetail, type ExamProblemPart } from '@/lib/courseDiscoveryData'
 import { SkeletonBlock } from '@/components/figma'
 
 const skeletonAnimationDelayClasses = ['[animation-delay:0ms]', '[animation-delay:60ms]', '[animation-delay:120ms]'] as const
@@ -30,6 +30,8 @@ export default function ExamBankPage() {
   const [selectedProblemId, setSelectedProblemId] = useState<number | null>(routeProblemId)
   const routeProblemVersionRef = useRef<number | null>(routeProblemId)
   const [detailRequestVersion, setDetailRequestVersion] = useState(routeProblemId ? 1 : 0)
+  const openedProgressRef = useRef<Set<number>>(new Set())
+  const [progressMutating, setProgressMutating] = useState(false)
   const lastErrorToastRef = useRef('')
 
   useEffect(() => {
@@ -88,6 +90,34 @@ export default function ExamBankPage() {
   const isCapped = exams.length > MAX_EXAMS_RENDERED || exams.some((exam) => exam.problems.length > MAX_PROBLEMS_PER_EXAM)
   const showInitialLoading = loading && exams.length === 0
 
+  const updateProblemProgress = useCallback(async (
+    problem: ExamProblemDetail,
+    body: { status?: 'opened' | 'completed'; saved?: boolean },
+    options: { silent?: boolean } = {},
+  ) => {
+    setProgressMutating(true)
+    try {
+      const progress = await recordExamProblemProgress(problem.id, body)
+      await detail.retry({
+        ...problem,
+        progress_status: progress.status,
+        saved: progress.saved,
+      }, { revalidate: false })
+      if (!options.silent) toast.success('Progress saved')
+    } catch (progressError) {
+      if (!options.silent) toast.error(apiDataErrorMessage(progressError, 'Could not save exam progress.'))
+    } finally {
+      setProgressMutating(false)
+    }
+  }, [detail])
+
+  useEffect(() => {
+    const problem = detail.problem
+    if (!problem || problem.can_access === false || openedProgressRef.current.has(problem.id)) return
+    openedProgressRef.current.add(problem.id)
+    void updateProblemProgress(problem, { status: 'opened' }, { silent: true })
+  }, [detail.problem, updateProblemProgress])
+
   function openProblem(problemId: number) {
     setSelectedProblemId(problemId)
     routeProblemVersionRef.current = problemId
@@ -131,7 +161,13 @@ export default function ExamBankPage() {
       </header>
 
       {selectedProblemId ? (
-        <ExamProblemDetailView problem={detail.problem} loading={detail.loading && !detail.problem} />
+        <ExamProblemDetailView
+          problem={detail.problem}
+          loading={detail.loading && !detail.problem}
+          mutating={progressMutating}
+          onToggleSaved={(problem) => updateProblemProgress(problem, { saved: !problem.saved })}
+          onComplete={(problem) => updateProblemProgress(problem, { status: 'completed' })}
+        />
       ) : showInitialLoading ? (
         <div className="grid gap-5">
           {Array.from({ length: 3 }).map((_, index) => (
@@ -276,7 +312,19 @@ function LockedExamPreview({ exam }: { exam: VisibleExam }) {
   )
 }
 
-function ExamProblemDetailView({ problem, loading }: { problem: ExamProblemDetail | null; loading: boolean }) {
+function ExamProblemDetailView({
+  problem,
+  loading,
+  mutating,
+  onToggleSaved,
+  onComplete,
+}: {
+  problem: ExamProblemDetail | null
+  loading: boolean
+  mutating: boolean
+  onToggleSaved: (problem: ExamProblemDetail) => void
+  onComplete: (problem: ExamProblemDetail) => void
+}) {
   if (loading) {
     return (
       <div className="grid gap-5">
@@ -313,6 +361,19 @@ function ExamProblemDetailView({ problem, loading }: { problem: ExamProblemDetai
       <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
         <p className="m-0 text-sm font-black text-[#71717b]">{problem.subject_title} · {problem.year} · {problem.session}</p>
         <h2 className="m-0 mt-2 text-[30px] font-black leading-tight text-[#27272a]">{problem.title}</h2>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="inline-flex h-10 items-center rounded-[12px] bg-[#f4f4f5] px-4 text-xs font-black text-[#52525c]">
+            {problem.progress_status === 'completed' ? 'Completed' : problem.progress_status === 'opened' ? 'Opened' : 'Not started'}
+          </span>
+          <button type="button" disabled={mutating} onClick={() => onToggleSaved(problem)} className="inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-4 text-xs font-black text-[#52525c] transition hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:opacity-60">
+            <Star size={14} fill={problem.saved ? 'currentColor' : 'none'} />
+            {problem.saved ? 'Saved' : 'Save'}
+          </button>
+          <button type="button" disabled={mutating || problem.progress_status === 'completed'} onClick={() => onComplete(problem)} className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-xs font-black text-white transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60">
+            <CheckCircle2 size={14} />
+            Mark completed
+          </button>
+        </div>
         <RichTextBlock body={problem.statement} empty="No main problem enonce is available yet." />
         {problem.written_solution && (
           <div className="mt-5">

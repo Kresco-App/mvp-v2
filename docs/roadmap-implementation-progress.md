@@ -1099,6 +1099,65 @@ Verification plan:
   found one duplicate-fetch issue, which was fixed with route-version tracking.
   Status: implemented.
 
+### Slice 21: Exam Bank Problem Progress Tracking
+
+Status: implemented.
+
+Reason for this slice:
+
+- The 10-day test plan calls out Exam Bank attempt/completion state.
+- Exam problem detail now exists, but students still needed a persistent opened,
+  completed, and saved state for later filters and revision workflows.
+
+Planned backend scope:
+
+- Add `user_exam_problem_progress` storage keyed by user and exam problem.
+  Status: implemented.
+- Add progress fields to Exam Bank problem list/detail payloads. Status:
+  implemented.
+- Add an explicit `POST /exam-bank/problems/{problem_id}/progress` mutation.
+  Status: implemented.
+- Enforce subject access before progress mutations. Status: implemented.
+
+Planned frontend scope:
+
+- Record `opened` when an accessible problem detail is loaded. Status:
+  implemented.
+- Add minimal Save and Mark completed controls to the Exam Bank problem detail
+  page. Status: implemented.
+- Update the local detail cache from the mutation result. Status: implemented.
+
+Decisions:
+
+- Decision: use an explicit POST mutation instead of recording progress inside
+  the GET detail endpoint so read requests stay side-effect-free.
+- Decision: do not award XP in this slice; exam progress is storage for filters,
+  revision, and later XP rules.
+- Decision: `completed` is sticky. A later `opened` event does not downgrade a
+  completed problem.
+- Decision: enforce sticky completion with an atomic conditional SQL update so
+  stale concurrent `opened` requests cannot overwrite a committed `completed`
+  state.
+- Decision: keep `saved` on the exam-progress row for v1 rather than wiring the
+  generic saved-items table into this flow.
+
+Verification plan:
+
+- Add backend tests for model/migration declaration, opened/saved/completed
+  transitions, list/detail projection, sticky completion, and locked mutation
+  rejection. Status: implemented.
+- Add a stale-session regression test for opened-vs-completed races. Status:
+  implemented.
+- Add frontend tests proving detail open records progress and Save/Mark
+  completed call the progress endpoint and update UI state. Status:
+  implemented.
+- Run focused backend Exam Bank tests. Status: implemented.
+- Run focused frontend Exam Bank tests, TypeScript checks, and lint. Status:
+  implemented.
+- Strong review found a concurrent opened-vs-completed downgrade risk; the
+  mutation now uses an atomic conditional update and has stale-session coverage.
+  Follow-up review found no findings. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

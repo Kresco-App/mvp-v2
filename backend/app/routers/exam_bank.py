@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
-from app.schemas.exam_bank import ExamBankListOut, ExamBankProblemDetailOut
-from app.services.exam_bank import get_exam_problem_detail, list_exam_bank
+from app.schemas.exam_bank import ExamBankListOut, ExamBankProblemDetailOut, ExamProblemProgressIn, ExamProblemProgressOut
+from app.services.exam_bank import get_exam_problem_detail, list_exam_bank, record_exam_problem_progress
 
 router = APIRouter(tags=["Exam Bank"])
 
@@ -38,3 +38,13 @@ async def get_exam_bank_problem(
     if problem is None:
         raise HTTPException(status_code=404, detail="Exam problem not found")
     return problem
+
+
+@router.post("/problems/{problem_id}/progress", response_model=ExamProblemProgressOut)
+async def update_exam_bank_problem_progress(
+    problem_id: int,
+    body: ExamProblemProgressIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await record_exam_problem_progress(db, user, problem_id=problem_id, body=body)

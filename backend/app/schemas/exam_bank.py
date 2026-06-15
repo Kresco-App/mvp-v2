@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.schemas.courses import AccessGuardedMixin, ResourceOut
 
@@ -35,6 +35,8 @@ class ExamBankProblemOut(AccessGuardedMixin):
     concept_slugs: list[str] = []
     video_resource: ResourceOut | None = None
     parts: list[ExamProblemPartOut] = []
+    progress_status: str = "not_started"
+    saved: bool = False
 
 
 class ExamBankExamOut(AccessGuardedMixin):
@@ -62,3 +64,27 @@ class ExamBankProblemDetailOut(ExamBankProblemOut):
     year: int
     session: str
     created_at: datetime | None = None
+
+
+class ExamProblemProgressIn(BaseModel):
+    status: str | None = None
+    saved: bool | None = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in {"opened", "completed"}:
+            raise ValueError("status must be one of: opened, completed")
+        return normalized
+
+
+class ExamProblemProgressOut(BaseModel):
+    exam_problem_id: int
+    status: str = "not_started"
+    saved: bool = False
+    opened_at: datetime | None = None
+    completed_at: datetime | None = None
+    last_activity_at: datetime | None = None

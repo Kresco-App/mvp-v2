@@ -10,8 +10,10 @@ const searchParams = new URLSearchParams('q=waves')
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
+  apiPost: vi.fn(),
   routerReplace: vi.fn(),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({
@@ -23,11 +25,13 @@ vi.mock('next/navigation', () => ({
 vi.mock('sonner', () => ({
   toast: {
     error: mocks.toastError,
+    success: mocks.toastSuccess,
   },
 }))
 
 vi.mock('@/lib/apiClient', () => ({
   getJson: mocks.apiGet,
+  postJson: mocks.apiPost,
 }))
 
 vi.mock('@/components/figma', () => ({
@@ -47,6 +51,14 @@ beforeEach(() => {
   searchParams.delete('q')
   searchParams.set('q', 'waves')
   mocks.apiGet.mockResolvedValue([examResult()])
+  mocks.apiPost.mockImplementation(async (_url: string, body?: { status?: string; saved?: boolean }) => ({
+    exam_problem_id: 11,
+    status: body?.status ?? 'opened',
+    saved: body?.saved ?? false,
+    opened_at: '2026-01-01T00:00:00Z',
+    completed_at: body?.status === 'completed' ? '2026-01-01T00:01:00Z' : null,
+    last_activity_at: '2026-01-01T00:01:00Z',
+  }))
 })
 
 afterEach(() => {
@@ -111,6 +123,19 @@ describe('exam bank page', () => {
     expect(container.querySelector('a[href="https://video.example/resource-correction"]')).not.toBeNull()
     expect(mocks.routerReplace).toHaveBeenCalledWith('/exam-bank?q=waves&problem=11', { scroll: false })
     expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank/problems/11')
+    expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { status: 'opened' })
+
+    await clickButton(container, 'Save')
+    await waitFor(() => {
+      expect(container.textContent).toContain('Saved')
+    })
+    expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { saved: true })
+
+    await clickButton(container, 'Mark completed')
+    await waitFor(() => {
+      expect(container.textContent).toContain('Completed')
+    })
+    expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { status: 'completed' })
   })
 
   it('hides cached unlocked detail while the same problem detail revalidates', async () => {
@@ -213,6 +238,8 @@ function examResult() {
         written_solution_url: '',
         difficulty: 'Medium',
         concept_slugs: ['algebra'],
+        progress_status: 'not_started',
+        saved: false,
       },
     ],
   }
@@ -234,6 +261,8 @@ function examProblemDetail(overrides: Record<string, unknown> = {}) {
     year: 2024,
     session: 'Main',
     can_access: true,
+    progress_status: 'not_started',
+    saved: false,
     parts: [
       {
         id: 101,

@@ -1,5 +1,6 @@
 import useSWR from 'swr'
 import { apiSWRFetcher } from '@/lib/apiData'
+import { postJson } from '@/lib/apiClient'
 import type { AccessGuarded } from '@/lib/topicWorkspaceTypes'
 
 export type CourseTopicCard = AccessGuarded & {
@@ -26,6 +27,8 @@ export type ExamProblem = AccessGuarded & {
   difficulty: string
   concept_slugs: string[]
   video_resource?: { id: number; title: string; provider: string; provider_resource_id: string } | null
+  progress_status?: string
+  saved?: boolean
 }
 
 export type ExamProblemPart = AccessGuarded & {
@@ -124,6 +127,22 @@ export function useExamProblemDetail(problemId: number | null, requestVersion = 
     error: query.error ?? null,
     retry: query.mutate,
   }
+}
+
+export type ExamProblemProgress = {
+  exam_problem_id: number
+  status: string
+  saved: boolean
+  opened_at: string | null
+  completed_at: string | null
+  last_activity_at: string | null
+}
+
+export async function recordExamProblemProgress(
+  problemId: number,
+  body: { status?: 'opened' | 'completed'; saved?: boolean },
+) {
+  return postJson<ExamProblemProgress, typeof body>(`/exam-bank/problems/${problemId}/progress`, body)
 }
 
 export function useAdminSubjectsData() {
