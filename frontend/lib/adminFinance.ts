@@ -75,11 +75,55 @@ export type ManualPaymentImportResult = {
   created_at: string
 }
 
+export type FinanceLedgerEntry = {
+  id: number
+  transaction_id?: number | null
+  user_id?: number | null
+  entry_type: string
+  amount_centimes: number
+  currency: string
+  reason: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export type PaymentProviderEvent = {
+  id: number
+  transaction_id?: number | null
+  provider: string
+  event_id: string
+  event_type: string
+  status: string
+  payload: Record<string, unknown>
+  received_at: string
+  processed_at?: string | null
+}
+
+export type ManualPaymentImportSummary = Omit<ManualPaymentImportResult, 'rows'> & {
+  created_by_user_id: number
+}
+
 type AdminFinanceApiClient = typeof apiJsonClient
 
 export function manualPaymentsPath(status: ManualPaymentStatus, limit = 100) {
   const params = new URLSearchParams({ status, limit: String(limit) })
   return `/payments/manual-payment-requests?${params.toString()}`
+}
+
+export function financeLedgerPath(limit = 25, transactionId?: number | null) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (transactionId) params.set('transaction_id', String(transactionId))
+  return `/payments/finance/ledger?${params.toString()}`
+}
+
+export function paymentProviderEventsPath(limit = 25, transactionId?: number | null) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (transactionId) params.set('transaction_id', String(transactionId))
+  return `/payments/finance/provider-events?${params.toString()}`
+}
+
+export function manualPaymentReconciliationImportsPath(limit = 10) {
+  return `/payments/manual-payment-reconciliation-imports?limit=${limit}`
 }
 
 export async function listManualPaymentTransactions(
@@ -137,6 +181,87 @@ export async function importManualPaymentReconciliation(
   return data
 }
 
+export async function listFinanceLedgerEntries(
+  apiClient: Pick<AdminFinanceApiClient, 'get'> = apiJsonClient,
+  limit = 25,
+  transactionId?: number | null,
+) {
+  const { data } = await apiClient.get<FinanceLedgerEntry[]>(financeLedgerPath(limit, transactionId))
+  return data
+}
+
+export async function listPaymentProviderEvents(
+  apiClient: Pick<AdminFinanceApiClient, 'get'> = apiJsonClient,
+  limit = 25,
+  transactionId?: number | null,
+) {
+  const { data } = await apiClient.get<PaymentProviderEvent[]>(paymentProviderEventsPath(limit, transactionId))
+  return data
+}
+
+export async function listManualPaymentReconciliationImports(
+  apiClient: Pick<AdminFinanceApiClient, 'get'> = apiJsonClient,
+  limit = 10,
+) {
+  const { data } = await apiClient.get<ManualPaymentImportSummary[]>(manualPaymentReconciliationImportsPath(limit))
+  return data
+}
+
+export function financeLedgerEntriesCsv(entries: FinanceLedgerEntry[]) {
+  return toCsv(
+    ['id', 'transaction_id', 'user_id', 'entry_type', 'amount_centimes', 'currency', 'reason', 'metadata', 'created_at'],
+    entries.map((entry) => [
+      entry.id,
+      entry.transaction_id,
+      entry.user_id,
+      entry.entry_type,
+      entry.amount_centimes,
+      entry.currency,
+      entry.reason,
+      entry.metadata,
+      entry.created_at,
+    ]),
+  )
+}
+
+export function paymentProviderEventsCsv(events: PaymentProviderEvent[]) {
+  return toCsv(
+    ['id', 'transaction_id', 'provider', 'event_id', 'event_type', 'status', 'payload', 'received_at', 'processed_at'],
+    events.map((event) => [
+      event.id,
+      event.transaction_id,
+      event.provider,
+      event.event_id,
+      event.event_type,
+      event.status,
+      event.payload,
+      event.received_at,
+      event.processed_at,
+    ]),
+  )
+}
+
+export function manualPaymentImportSummariesCsv(imports: ManualPaymentImportSummary[]) {
+  return toCsv(
+    ['id', 'provider', 'payment_method', 'source_name', 'status', 'row_count', 'matched_count', 'mismatch_count', 'unmatched_count', 'duplicate_count', 'error_count', 'created_by_user_id', 'created_at'],
+    imports.map((item) => [
+      item.id,
+      item.provider,
+      item.payment_method,
+      item.source_name,
+      item.status,
+      item.row_count,
+      item.matched_count,
+      item.mismatch_count,
+      item.unmatched_count,
+      item.duplicate_count,
+      item.error_count,
+      item.created_by_user_id,
+      item.created_at,
+    ]),
+  )
+}
+
 export function parseManualPaymentImportRows(value: string): ManualPaymentImportRowInput[] {
   const parsed = JSON.parse(value)
   const rows = Array.isArray(parsed) ? parsed : parsed?.rows
@@ -187,4 +312,21 @@ function normalizeImportRow(row: unknown, index: number): ManualPaymentImportRow
 function optionalText(value: unknown) {
   const normalized = typeof value === 'string' ? value.trim() : ''
   return normalized || undefined
+}
+
+function toCsv(headers: string[], rows: unknown[][]) {
+  return [
+    headers.map(csvCell).join(','),
+    ...rows.map((row) => row.map(csvCell).join(',')),
+  ].join('\n')
+}
+
+function csvCell(value: unknown) {
+  if (value === null || value === undefined) return ''
+  const normalizedValue = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  const normalized = typeof value === 'string' && /^[=+\-@\t\r]/.test(normalizedValue)
+    ? `'${normalizedValue}`
+    : normalizedValue
+  if (/[",\n\r]/.test(normalized)) return `"${normalized.replaceAll('"', '""')}"`
+  return normalized
 }

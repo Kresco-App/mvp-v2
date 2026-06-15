@@ -208,3 +208,43 @@ class PaymentReconciliationImportOut(BaseModel):
     error_count: int
     rows: list[PaymentReconciliationImportRowOut]
     created_at: datetime
+
+
+class PaymentReconciliationImportSummaryOut(BaseModel):
+    id: int
+    provider: str
+    payment_method: str
+    source_name: str | None = None
+    status: str
+    row_count: int
+    matched_count: int
+    mismatch_count: int
+    unmatched_count: int
+    duplicate_count: int
+    error_count: int
+    created_by_user_id: int
+    created_at: datetime
+
+
+class PaymentProviderEventOut(BaseModel):
+    id: int
+    transaction_id: int | None = None
+    provider: str
+    event_id: str
+    event_type: str
+    status: str
+    payload: dict[str, Any]
+    received_at: datetime
+    processed_at: datetime | None = None
+
+
+class FinanceLedgerEntryOut(BaseModel):
+    id: int
+    transaction_id: int | None = None
+    user_id: int | None = None
+    entry_type: str
+    amount_centimes: int
+    currency: str
+    reason: str
+    metadata: dict[str, Any]
+    created_at: datetime

@@ -1915,11 +1915,88 @@ Review notes addressed:
 - Fixed finance review reasons to be stored per transaction id instead of one
   shared input value across all pending payment cards.
 
+### Slice 36: Finance Audit Visibility
+
+Status: implemented.
+
+Reason for this slice:
+
+- Slice 35 gave finance staff mutation controls for approve, reject, reconcile,
+  and import, but the source-of-truth records were still hidden behind database
+  access.
+- The launch finance checklist requires ledger reconciliation, provider-event
+  inspection, reconciliation import history, and accountant export evidence.
+
+Planned backend scope:
+
+- Add staff-only read endpoints for recent finance ledger entries. Status:
+  implemented.
+- Add staff-only read endpoints for recent payment provider events. Status:
+  implemented.
+- Add staff-only read endpoints for reconciliation import summaries. Status:
+  implemented.
+- Support transaction-scoped ledger/provider-event filters for finance drill-in.
+  Status: implemented.
+
+Planned frontend scope:
+
+- Add typed finance audit clients for ledger, provider events, and import
+  summaries. Status: implemented.
+- Add compact audit panels to `/admin/finance`. Status: implemented.
+- Add transaction-scoped audit loading from a payment card. Status:
+  implemented.
+- Add client-side CSV export for the loaded ledger, provider event, and import
+  summary rows. Status: implemented.
+
+Decisions:
+
+- Decision: keep Slice 36 read-only. Refunds, manual grants, and ledger
+  reversals remain later money-mutation slices that need more RBAC and approval
+  modeling.
+- Decision: CSV export is client-side for the currently loaded bounded rows.
+  Server-side accountant exports and export audit records remain a later
+  backoffice/accounting slice.
+- Decision: keep the endpoints under `/api/payments` for now because the
+  existing finance mutations already live there. A future `/backoffice/finance`
+  route split can re-export the same service layer.
+
+Verification plan:
+
+- Add backend route tests for staff-only access, transaction-scoped ledger/event
+  reads, and reconciliation import history. Status: implemented.
+- Add frontend client tests for audit paths, endpoint calls, and CSV escaping.
+  Status: implemented.
+- Add finance page tests for audit rendering, transaction-scoped audit loading,
+  and CSV export controls. Status: implemented.
+- Run focused payment tests, finance frontend tests, typecheck/lint, CSP audit,
+  browser smoke, and strong review before committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 84 tests.
+- `npm test -- tests/adminFinance.test.ts tests/adminFinancePage.test.tsx`
+  passed: 12 tests.
+- `npm run typecheck` passed.
+- `npm run lint` passed.
+- `npm run audit:csp-styles` passed with zero inline style debt.
+- Playwright smoke opened `/admin/finance` behind the staff guard with mocked
+  profile, payment queue, ledger, provider-event, and import-history APIs,
+  verified transaction-scoped audit drill-in, confirmed global imports are not
+  shown in a scoped view, and refreshed
+  `frontend/artifacts/admin-finance-audit-smoke.png`.
+
+Review notes addressed:
+
+- Added an audit request sequence guard so slower all-audit responses cannot
+  overwrite a newer transaction-scoped audit view.
+- Hid global reconciliation import history while viewing a transaction-scoped
+  audit trail because imports do not yet have a transaction filter.
+- Hardened client-side CSV export against spreadsheet formula injection.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
   must avoid a half-migration where both old and new flows grant access
   inconsistently.
-- Manual payment rails require finance backoffice workflows; creating request
-  rows without the review path is useful only if the state machine makes that
-  limitation explicit.
+- Refunds, manual grants, and full finance RBAC remain intentionally deferred
+  money-mutation work.

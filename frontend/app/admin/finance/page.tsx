@@ -1,21 +1,30 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, FileUp, RefreshCw, ShieldCheck, XCircle } from 'lucide-react'
+import { Activity, ArrowLeft, CheckCircle2, FileUp, RefreshCw, ShieldCheck, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { apiDataErrorMessage } from '@/lib/apiData'
 import {
   approveManualPaymentTransaction,
+  financeLedgerEntriesCsv,
   importManualPaymentReconciliation,
+  listFinanceLedgerEntries,
   listManualPaymentTransactions,
+  listManualPaymentReconciliationImports,
+  listPaymentProviderEvents,
+  manualPaymentImportSummariesCsv,
+  paymentProviderEventsCsv,
   parseManualPaymentImportRows,
   reconcileManualPaymentTransaction,
   rejectManualPaymentTransaction,
+  type FinanceLedgerEntry,
+  type ManualPaymentImportSummary,
   type ManualPaymentRail,
   type ManualPaymentStatus,
   type ManualPaymentTransaction,
+  type PaymentProviderEvent,
 } from '@/lib/adminFinance'
 
 const statusOptions: { value: ManualPaymentStatus; label: string }[] = [
@@ -38,6 +47,12 @@ export default function AdminFinancePage() {
   const [transactions, setTransactions] = useState<ManualPaymentTransaction[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [auditLoading, setAuditLoading] = useState(true)
+  const [auditError, setAuditError] = useState('')
+  const [ledgerEntries, setLedgerEntries] = useState<FinanceLedgerEntry[]>([])
+  const [providerEvents, setProviderEvents] = useState<PaymentProviderEvent[]>([])
+  const [reconciliationImports, setReconciliationImports] = useState<ManualPaymentImportSummary[]>([])
+  const [auditTransactionId, setAuditTransactionId] = useState<number | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [reviewReasons, setReviewReasons] = useState<Record<number, string>>({})
   const [reconcileRail, setReconcileRail] = useState<ManualPaymentRail>('bank_transfer')
@@ -49,6 +64,7 @@ export default function AdminFinancePage() {
   const [importSource, setImportSource] = useState('')
   const [importRows, setImportRows] = useState('')
   const [importSummary, setImportSummary] = useState('')
+  const auditRequestSeq = useRef(0)
 
   const loadTransactions = useCallback(async () => {
     setLoading(true)
@@ -66,6 +82,36 @@ export default function AdminFinancePage() {
   useEffect(() => {
     void loadTransactions()
   }, [loadTransactions])
+
+  const loadAuditTrail = useCallback(async (transactionId?: number | null) => {
+    const requestId = auditRequestSeq.current + 1
+    auditRequestSeq.current = requestId
+    setAuditLoading(true)
+    setAuditError('')
+    try {
+      const [ledger, events, imports] = await Promise.all([
+        listFinanceLedgerEntries(undefined, 25, transactionId),
+        listPaymentProviderEvents(undefined, 25, transactionId),
+        transactionId ? Promise.resolve([]) : listManualPaymentReconciliationImports(undefined, 10),
+      ])
+      if (requestId !== auditRequestSeq.current) return
+      setLedgerEntries(ledger)
+      setProviderEvents(events)
+      setReconciliationImports(imports)
+    } catch (loadError) {
+      if (requestId !== auditRequestSeq.current) return
+      setLedgerEntries([])
+      setProviderEvents([])
+      setReconciliationImports([])
+      setAuditError(apiDataErrorMessage(loadError, 'Could not load finance audit trail.'))
+    } finally {
+      if (requestId === auditRequestSeq.current) setAuditLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadAuditTrail(auditTransactionId)
+  }, [auditTransactionId, loadAuditTrail])
 
   const pendingCount = useMemo(
     () => transactions.filter((transaction) => transaction.status === 'pending_manual_review').length,
@@ -89,6 +135,7 @@ export default function AdminFinancePage() {
         delete remaining[transaction.id]
         return remaining
       })
+      void loadAuditTrail(auditTransactionId)
       toast.success(action === 'approve' ? 'Payment approved.' : 'Payment rejected.')
     } catch (reviewError) {
       toast.error(apiDataErrorMessage(reviewError, 'Could not update payment.'))
@@ -110,6 +157,7 @@ export default function AdminFinancePage() {
       setTransactions((items) => applyTransactionToActiveFilter(items, next, status))
       setReferenceCode('')
       setProviderReference('')
+      void loadAuditTrail(auditTransactionId)
       toast.success(next.status === 'paid' ? 'Payment reconciled.' : `Payment marked ${next.status}.`)
     } catch (reconcileError) {
       toast.error(apiDataErrorMessage(reconcileError, 'Could not reconcile payment.'))
@@ -128,6 +176,7 @@ export default function AdminFinancePage() {
       setImportSummary(`${result.matched_count} matched, ${result.mismatch_count} mismatched, ${result.unmatched_count} unmatched, ${result.duplicate_count} duplicate.`)
       toast.success('Import processed.')
       void loadTransactions()
+      void loadAuditTrail(auditTransactionId)
     } catch (importError) {
       toast.error(apiDataErrorMessage(importError, 'Could not import reconciliation rows.'))
     }
@@ -146,7 +195,10 @@ export default function AdminFinancePage() {
           </div>
           <button
             type="button"
-            onClick={() => void loadTransactions()}
+            onClick={() => {
+              void loadTransactions()
+              void loadAuditTrail(auditTransactionId)
+            }}
             className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 px-3 text-xs font-semibold text-slate-300 transition hover:bg-slate-800"
           >
             <RefreshCw size={14} /> Refresh
@@ -203,12 +255,23 @@ export default function AdminFinancePage() {
                   busy={busyId === transaction.id}
                   reviewReason={reviewReasons[transaction.id] ?? defaultReviewReason}
                   onReviewReasonChange={(value) => setReviewReasons((items) => ({ ...items, [transaction.id]: value }))}
+                  onAudit={() => setAuditTransactionId(transaction.id)}
                   onApprove={() => void reviewTransaction(transaction, 'approve')}
                   onReject={() => void reviewTransaction(transaction, 'reject')}
                 />
               ))}
             </div>
           )}
+
+          <AuditTrail
+            loading={auditLoading}
+            error={auditError}
+            transactionId={auditTransactionId}
+            onClearTransaction={() => setAuditTransactionId(null)}
+            ledgerEntries={ledgerEntries}
+            providerEvents={providerEvents}
+            reconciliationImports={reconciliationImports}
+          />
         </section>
 
         <aside className="space-y-4">
@@ -292,6 +355,7 @@ function PaymentCard({
   busy,
   reviewReason,
   onReviewReasonChange,
+  onAudit,
   onApprove,
   onReject,
 }: {
@@ -299,6 +363,7 @@ function PaymentCard({
   busy: boolean
   reviewReason: string
   onReviewReasonChange: (value: string) => void
+  onAudit: () => void
   onApprove: () => void
   onReject: () => void
 }) {
@@ -315,6 +380,9 @@ function PaymentCard({
           <h3 className="mt-3 truncate text-base font-bold text-white">{transaction.reference_code}</h3>
           <p className="mt-1 text-sm text-slate-500">User #{transaction.user_id} / {formatMoney(transaction.amount_centimes, transaction.currency)}</p>
           <p className="mt-1 text-xs text-slate-500">Provider ref: {transaction.provider_reference || 'none'} / proofs: {proofs}</p>
+          <button type="button" onClick={onAudit} className="mt-3 rounded-lg border border-slate-700 px-3 py-1 text-xs font-bold text-slate-300 transition hover:bg-slate-800">
+            Audit trail
+          </button>
         </div>
         {canReview && (
           <div className="w-full max-w-sm space-y-2">
@@ -340,6 +408,147 @@ function PaymentCard({
   )
 }
 
+function AuditTrail({
+  loading,
+  error,
+  transactionId,
+  onClearTransaction,
+  ledgerEntries,
+  providerEvents,
+  reconciliationImports,
+}: {
+  loading: boolean
+  error: string
+  transactionId: number | null
+  onClearTransaction: () => void
+  ledgerEntries: FinanceLedgerEntry[]
+  providerEvents: PaymentProviderEvent[]
+  reconciliationImports: ManualPaymentImportSummary[]
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-bold text-white">
+            <Activity size={16} className="text-indigo-400" /> Finance audit trail
+          </div>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {transactionId ? `Scoped to transaction #${transactionId}` : 'Showing the latest finance records'}
+          </p>
+        </div>
+        {transactionId && (
+          <button type="button" onClick={onClearTransaction} className="h-9 rounded-lg border border-slate-700 px-3 text-xs font-bold text-slate-300 transition hover:bg-slate-800">
+            Show all audit
+          </button>
+        )}
+      </div>
+
+      {error ? (
+        <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{error}</div>
+      ) : loading ? (
+        <div className={`mt-4 grid gap-3 ${transactionId ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
+          {[1, 2, 3].map((item) => <div key={item} className="h-36 animate-pulse rounded-xl bg-slate-950" />)}
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          <AuditColumn
+            title="Ledger"
+            count={ledgerEntries.length}
+            onExport={() => downloadCsv('finance-ledger.csv', financeLedgerEntriesCsv(ledgerEntries))}
+            exportDisabled={!ledgerEntries.length}
+          >
+            {ledgerEntries.length ? ledgerEntries.slice(0, 5).map((entry) => (
+              <AuditRow
+                key={entry.id}
+                title={entry.entry_type}
+                detail={`${formatMoney(entry.amount_centimes, entry.currency)} / tx ${entry.transaction_id ?? 'none'}`}
+                meta={entry.reason || formatDate(entry.created_at)}
+              />
+            )) : <EmptyAuditRows />}
+          </AuditColumn>
+
+          <AuditColumn
+            title="Provider events"
+            count={providerEvents.length}
+            onExport={() => downloadCsv('finance-provider-events.csv', paymentProviderEventsCsv(providerEvents))}
+            exportDisabled={!providerEvents.length}
+          >
+            {providerEvents.length ? providerEvents.slice(0, 5).map((event) => (
+              <AuditRow
+                key={event.id}
+                title={event.event_type}
+                detail={`${event.provider} / ${event.status}`}
+                meta={`tx ${event.transaction_id ?? 'none'} / ${formatDate(event.received_at)}`}
+              />
+            )) : <EmptyAuditRows />}
+          </AuditColumn>
+
+          {!transactionId && (
+            <AuditColumn
+              title="Imports"
+              count={reconciliationImports.length}
+              onExport={() => downloadCsv('finance-reconciliation-imports.csv', manualPaymentImportSummariesCsv(reconciliationImports))}
+              exportDisabled={!reconciliationImports.length}
+            >
+              {reconciliationImports.length ? reconciliationImports.slice(0, 5).map((item) => (
+                <AuditRow
+                  key={item.id}
+                  title={item.source_name || `Import #${item.id}`}
+                  detail={`${item.matched_count}/${item.row_count} matched / ${item.mismatch_count} mismatch`}
+                  meta={`${item.payment_method} / ${statusLabel(item.status)}`}
+                />
+              )) : <EmptyAuditRows />}
+            </AuditColumn>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AuditColumn({
+  title,
+  count,
+  onExport,
+  exportDisabled,
+  children,
+}: {
+  title: string
+  count: number
+  onExport: () => void
+  exportDisabled: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950 p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <h3 className="m-0 text-sm font-bold text-white">{title}</h3>
+          <p className="m-0 mt-1 text-xs text-slate-500">{count} loaded</p>
+        </div>
+        <button type="button" disabled={exportDisabled} onClick={onExport} className="h-8 rounded-lg border border-slate-700 px-2 text-xs font-bold text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">
+          CSV
+        </button>
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  )
+}
+
+function AuditRow({ title, detail, meta }: { title: string; detail: string; meta: string }) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+      <p className="m-0 truncate text-xs font-bold text-white">{title}</p>
+      <p className="m-0 mt-1 truncate text-xs text-slate-400">{detail}</p>
+      <p className="m-0 mt-1 truncate text-xs text-slate-600">{meta}</p>
+    </div>
+  )
+}
+
+function EmptyAuditRows() {
+  return <p className="m-0 rounded-lg border border-dashed border-slate-800 px-3 py-6 text-center text-xs text-slate-500">No records loaded.</p>
+}
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="mb-3 block text-xs font-bold text-slate-400">
@@ -360,6 +569,21 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function formatMoney(amountCentimes: number, currency: string) {
   return `${(amountCentimes / 100).toFixed(2)} ${currency}`
+}
+
+function formatDate(value: string) {
+  return value ? new Date(value).toLocaleDateString() : ''
+}
+
+function downloadCsv(filename: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 function statusLabel(status: string) {

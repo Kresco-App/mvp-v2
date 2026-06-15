@@ -1443,6 +1443,122 @@ def test_staff_can_list_pending_manual_payment_requests(app_client, auth_token, 
     assert transaction["payment_method"] == PAYMENT_RAIL_BANK_TRANSFER
 
 
+def test_finance_audit_endpoints_require_verified_staff(app_client, auth_token, run_db, test_settings):
+    student_token, _user_id = auth_token(email="finance-audit-student@example.com")
+    staff_id = run_db(_seed_staff_user("finance-audit-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    for path in (
+        "/api/payments/finance/ledger",
+        "/api/payments/finance/provider-events",
+        "/api/payments/manual-payment-reconciliation-imports",
+    ):
+        student_response = app_client.get(path, headers={"Authorization": f"Bearer {student_token}"})
+        staff_response = app_client.get(path, headers={"Authorization": f"Bearer {staff_token}"})
+
+        assert student_response.status_code == 403
+        assert student_response.json()["detail"] == "Staff access required"
+        assert staff_response.status_code == 200
+        assert isinstance(staff_response.json(), list)
+
+
+def test_staff_can_read_finance_ledger_and_provider_events_for_transaction(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="finance-audit-records-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("finance-audit-records-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "CashPlus finance audit check"},
+        headers=headers,
+    )
+    ledger_response = app_client.get(
+        f"/api/payments/finance/ledger?transaction_id={transaction_id}",
+        headers=headers,
+    )
+    events_response = app_client.get(
+        f"/api/payments/finance/provider-events?transaction_id={transaction_id}",
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert approve_response.status_code == 200
+    assert ledger_response.status_code == 200
+    ledger = ledger_response.json()
+    assert len(ledger) == 1
+    assert ledger[0]["transaction_id"] == transaction_id
+    assert ledger[0]["user_id"] == user_id
+    assert ledger[0]["entry_type"] == "payment_confirmed"
+    assert ledger[0]["amount_centimes"] == 9900
+    assert ledger[0]["reason"] == "CashPlus finance audit check"
+    assert ledger[0]["metadata"] == {"actor_user_id": staff_id, "rail": PAYMENT_RAIL_CASHPLUS}
+
+    assert events_response.status_code == 200
+    events = events_response.json()
+    assert len(events) == 1
+    assert events[0]["transaction_id"] == transaction_id
+    assert events[0]["event_type"] == "manual.approved"
+    assert events[0]["status"] == "processed"
+    assert events[0]["payload"] == {"actor_user_id": staff_id, "reason": "CashPlus finance audit check"}
+
+
+def test_staff_can_read_reconciliation_import_history(app_client, auth_token, run_db, test_settings):
+    student_token, _user_id = auth_token(email="finance-import-history-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    staff_id = run_db(_seed_staff_user("finance-import-history-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+    import_response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "bank_transfer",
+            "source_name": "audit-bank-import",
+            "rows": [
+                {
+                    "reference_code": create_response.json()["reference_code"],
+                    "amount_centimes": 9900,
+                    "provider_reference": "BANK-AUDIT-001",
+                    "reason": "Bank statement row",
+                }
+            ],
+        },
+        headers=headers,
+    )
+
+    history_response = app_client.get(
+        "/api/payments/manual-payment-reconciliation-imports?limit=10",
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert import_response.status_code == 200
+    assert history_response.status_code == 200
+    history = history_response.json()
+    item = next(row for row in history if row["id"] == import_response.json()["id"])
+    assert item["payment_method"] == PAYMENT_RAIL_BANK_TRANSFER
+    assert item["source_name"] == "audit-bank-import"
+    assert item["row_count"] == 1
+    assert item["matched_count"] == 1
+    assert item["mismatch_count"] == 0
+    assert item["created_by_user_id"] == staff_id
+
+
 def test_staff_approve_manual_payment_grants_access_and_records_audit(
     app_client,
     auth_token,

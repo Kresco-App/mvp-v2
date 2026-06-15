@@ -8,6 +8,9 @@ import AdminFinancePage from '@/app/admin/finance/page'
 
 const mocks = vi.hoisted(() => ({
   listManualPaymentTransactions: vi.fn(),
+  listFinanceLedgerEntries: vi.fn(),
+  listPaymentProviderEvents: vi.fn(),
+  listManualPaymentReconciliationImports: vi.fn(),
   approveManualPaymentTransaction: vi.fn(),
   rejectManualPaymentTransaction: vi.fn(),
   reconcileManualPaymentTransaction: vi.fn(),
@@ -22,6 +25,9 @@ vi.mock('@/lib/adminFinance', async (importOriginal) => {
   return {
     ...actual,
     listManualPaymentTransactions: mocks.listManualPaymentTransactions,
+    listFinanceLedgerEntries: mocks.listFinanceLedgerEntries,
+    listPaymentProviderEvents: mocks.listPaymentProviderEvents,
+    listManualPaymentReconciliationImports: mocks.listManualPaymentReconciliationImports,
     approveManualPaymentTransaction: mocks.approveManualPaymentTransaction,
     rejectManualPaymentTransaction: mocks.rejectManualPaymentTransaction,
     reconcileManualPaymentTransaction: mocks.reconcileManualPaymentTransaction,
@@ -65,6 +71,53 @@ beforeEach(() => {
       metadata: { proofs: [{ provider_reference: 'CASH-REF-42' }] },
     },
   ])
+  mocks.listFinanceLedgerEntries.mockResolvedValue([
+    {
+      id: 101,
+      transaction_id: 42,
+      user_id: 9,
+      entry_type: 'payment_confirmed',
+      amount_centimes: 9900,
+      currency: 'MAD',
+      reason: 'Finance confirmation',
+      metadata: { actor_user_id: 1 },
+      created_at: '2026-06-15T00:01:00Z',
+    },
+  ])
+  mocks.listPaymentProviderEvents.mockResolvedValue([
+    {
+      id: 201,
+      transaction_id: 42,
+      provider: 'cashplus',
+      event_id: 'manual-approval-42',
+      event_type: 'manual.approved',
+      status: 'processed',
+      payload: { reason: 'Finance confirmation' },
+      received_at: '2026-06-15T00:01:00Z',
+      processed_at: '2026-06-15T00:01:00Z',
+    },
+  ])
+  mocks.listManualPaymentReconciliationImports.mockResolvedValue([
+    {
+      id: 301,
+      provider: 'bank_transfer',
+      payment_method: 'bank_transfer',
+      source_name: 'bank-report-2026-06',
+      status: 'processed',
+      row_count: 2,
+      matched_count: 1,
+      mismatch_count: 1,
+      unmatched_count: 0,
+      duplicate_count: 0,
+      error_count: 0,
+      created_by_user_id: 1,
+      created_at: '2026-06-15T00:01:00Z',
+    },
+  ])
+  vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => 'blob:finance-audit'),
+    revokeObjectURL: vi.fn(),
+  })
 })
 
 afterEach(() => {
@@ -75,6 +128,7 @@ afterEach(() => {
     mountedRoot.container.remove()
   }
   mountedRoot = null
+  vi.unstubAllGlobals()
 })
 
 describe('AdminFinancePage', () => {
@@ -103,6 +157,10 @@ describe('AdminFinancePage', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('KRESCO-CASH-42')
       expect(container.textContent).toContain('proofs: 1')
+      expect(container.textContent).toContain('Finance audit trail')
+      expect(container.textContent).toContain('payment_confirmed')
+      expect(container.textContent).toContain('manual.approved')
+      expect(container.textContent).toContain('bank-report-2026-06')
     })
 
     await clickButton(container, 'Approve')
@@ -117,6 +175,111 @@ describe('AdminFinancePage', () => {
       expect(container.textContent).toContain('No manual payments in this filter.')
     })
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Payment approved.')
+  })
+
+  it('loads transaction-scoped audit rows and exports loaded CSV', async () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-42')
+    })
+
+    await clickButton(container, 'Audit trail')
+    await waitFor(() => {
+      expect(mocks.listFinanceLedgerEntries).toHaveBeenLastCalledWith(undefined, 25, 42)
+      expect(mocks.listPaymentProviderEvents).toHaveBeenLastCalledWith(undefined, 25, 42)
+      expect(container.textContent).toContain('Scoped to transaction #42')
+      expect(mocks.listManualPaymentReconciliationImports).toHaveBeenCalledTimes(1)
+      expect(container.textContent).not.toContain('bank-report-2026-06')
+    })
+
+    await clickButton(container, 'CSV')
+
+    expect(URL.createObjectURL).toHaveBeenCalled()
+    expect(clickSpy).toHaveBeenCalled()
+    clickSpy.mockRestore()
+  })
+
+  it('ignores stale all-audit responses after selecting a transaction scope', async () => {
+    const globalLedger = deferred<unknown[]>()
+    const globalEvents = deferred<unknown[]>()
+    mocks.listFinanceLedgerEntries
+      .mockReturnValueOnce(globalLedger.promise)
+      .mockResolvedValueOnce([
+        {
+          id: 102,
+          transaction_id: 42,
+          user_id: 9,
+          entry_type: 'scoped_payment_confirmed',
+          amount_centimes: 9900,
+          currency: 'MAD',
+          reason: 'Scoped row',
+          metadata: {},
+          created_at: '2026-06-15T00:01:00Z',
+        },
+      ])
+    mocks.listPaymentProviderEvents
+      .mockReturnValueOnce(globalEvents.promise)
+      .mockResolvedValueOnce([
+        {
+          id: 202,
+          transaction_id: 42,
+          provider: 'cashplus',
+          event_id: 'scoped-event',
+          event_type: 'scoped.manual.approved',
+          status: 'processed',
+          payload: {},
+          received_at: '2026-06-15T00:01:00Z',
+          processed_at: '2026-06-15T00:01:00Z',
+        },
+      ])
+
+    const { container } = renderPage()
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-42')
+    })
+
+    await clickButton(container, 'Audit trail')
+    await waitFor(() => {
+      expect(container.textContent).toContain('scoped_payment_confirmed')
+      expect(container.textContent).toContain('scoped.manual.approved')
+      expect(container.textContent).toContain('Scoped to transaction #42')
+    })
+
+    await act(async () => {
+      globalLedger.resolve([
+        {
+          id: 103,
+          transaction_id: null,
+          user_id: null,
+          entry_type: 'global_stale_entry',
+          amount_centimes: 0,
+          currency: 'MAD',
+          reason: 'Stale row',
+          metadata: {},
+          created_at: '2026-06-15T00:00:00Z',
+        },
+      ])
+      globalEvents.resolve([
+        {
+          id: 203,
+          transaction_id: null,
+          provider: 'bank_transfer',
+          event_id: 'global-stale-event',
+          event_type: 'global.stale.event',
+          status: 'processed',
+          payload: {},
+          received_at: '2026-06-15T00:00:00Z',
+          processed_at: '2026-06-15T00:00:00Z',
+        },
+      ])
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(container.textContent).toContain('scoped_payment_confirmed')
+    expect(container.textContent).not.toContain('global_stale_entry')
+    expect(container.textContent).not.toContain('global.stale.event')
   })
 
   it('keeps review reasons scoped to the selected payment card', async () => {
@@ -321,4 +484,14 @@ async function waitFor(assertion: () => void) {
     }
   }
   throw lastError
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
 }

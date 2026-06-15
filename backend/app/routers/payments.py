@@ -10,14 +10,17 @@ from app.rate_limit import limiter
 from app.schemas.payments import (
     CheckoutCreateIn,
     CheckoutOut,
+    FinanceLedgerEntryOut,
     ManualPaymentProofIn,
     ManualPaymentReconciliationIn,
     ManualPaymentReviewIn,
     ManualPaymentTransactionOut,
+    PaymentProviderEventOut,
     PaymentRequestCreateIn,
     PaymentRequestOut,
     PaymentReconciliationImportIn,
     PaymentReconciliationImportOut,
+    PaymentReconciliationImportSummaryOut,
     VerifyIn,
     VerifyOut,
 )
@@ -25,7 +28,10 @@ from app.services.payment_gateway import (
     approve_manual_payment_transaction,
     create_payment_request as create_provider_payment_request,
     import_manual_payment_reconciliation,
+    list_finance_ledger_entries,
     list_manual_payment_transactions,
+    list_payment_provider_events,
+    list_payment_reconciliation_imports,
     process_cmi_callback,
     reconcile_manual_payment_transaction,
     reject_manual_payment_transaction,
@@ -91,6 +97,35 @@ async def list_manual_payment_requests(
     _staff: User = Depends(get_current_staff_user),
 ):
     return await list_manual_payment_transactions(db, status=status, limit=limit)
+
+
+@router.get("/finance/ledger", response_model=list[FinanceLedgerEntryOut])
+async def list_finance_ledger(
+    transaction_id: int | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await list_finance_ledger_entries(db, transaction_id=transaction_id, limit=limit)
+
+
+@router.get("/finance/provider-events", response_model=list[PaymentProviderEventOut])
+async def list_finance_provider_events(
+    transaction_id: int | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await list_payment_provider_events(db, transaction_id=transaction_id, limit=limit)
+
+
+@router.get("/manual-payment-reconciliation-imports", response_model=list[PaymentReconciliationImportSummaryOut])
+async def list_manual_payment_reconciliation_imports(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await list_payment_reconciliation_imports(db, limit=limit)
 
 
 @router.post("/manual-payment-requests/reconcile", response_model=ManualPaymentTransactionOut)

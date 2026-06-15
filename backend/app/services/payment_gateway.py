@@ -42,13 +42,16 @@ from app.models.payments import (
 )
 from app.models.users import User
 from app.schemas.payments import (
+    FinanceLedgerEntryOut,
     ManualPaymentProofIn,
     ManualPaymentReconciliationIn,
     ManualPaymentTransactionOut,
+    PaymentProviderEventOut,
     PaymentReconciliationImportIn,
     PaymentReconciliationImportOut,
     PaymentReconciliationImportRowIn,
     PaymentReconciliationImportRowOut,
+    PaymentReconciliationImportSummaryOut,
     PaymentRequestOut,
 )
 
@@ -392,6 +395,45 @@ async def list_manual_payment_transactions(
         .limit(max(1, min(int(limit), 200)))
     )
     return [manual_payment_transaction_out(transaction) for transaction in result.scalars().all()]
+
+
+async def list_finance_ledger_entries(
+    db: AsyncSession,
+    *,
+    transaction_id: int | None = None,
+    limit: int = 100,
+) -> list[FinanceLedgerEntryOut]:
+    statement = select(FinanceLedgerEntry).order_by(FinanceLedgerEntry.created_at.desc(), FinanceLedgerEntry.id.desc())
+    if transaction_id is not None:
+        statement = statement.where(FinanceLedgerEntry.transaction_id == transaction_id)
+    result = await db.execute(statement.limit(_bounded_finance_limit(limit)))
+    return [finance_ledger_entry_out(entry) for entry in result.scalars().all()]
+
+
+async def list_payment_provider_events(
+    db: AsyncSession,
+    *,
+    transaction_id: int | None = None,
+    limit: int = 100,
+) -> list[PaymentProviderEventOut]:
+    statement = select(PaymentProviderEvent).order_by(PaymentProviderEvent.received_at.desc(), PaymentProviderEvent.id.desc())
+    if transaction_id is not None:
+        statement = statement.where(PaymentProviderEvent.transaction_id == transaction_id)
+    result = await db.execute(statement.limit(_bounded_finance_limit(limit)))
+    return [payment_provider_event_out(event) for event in result.scalars().all()]
+
+
+async def list_payment_reconciliation_imports(
+    db: AsyncSession,
+    *,
+    limit: int = 50,
+) -> list[PaymentReconciliationImportSummaryOut]:
+    result = await db.execute(
+        select(PaymentReconciliationImport)
+        .order_by(PaymentReconciliationImport.created_at.desc(), PaymentReconciliationImport.id.desc())
+        .limit(_bounded_finance_limit(limit, maximum=100))
+    )
+    return [payment_reconciliation_import_summary_out(item) for item in result.scalars().all()]
 
 
 async def submit_manual_payment_proof(
@@ -756,6 +798,56 @@ def manual_payment_transaction_out(transaction: PaymentTransaction) -> ManualPay
         confirmed_at=transaction.confirmed_at,
         metadata=transaction.metadata_json or {},
     )
+
+
+def finance_ledger_entry_out(entry: FinanceLedgerEntry) -> FinanceLedgerEntryOut:
+    return FinanceLedgerEntryOut(
+        id=int(entry.id),
+        transaction_id=int(entry.transaction_id) if entry.transaction_id is not None else None,
+        user_id=int(entry.user_id) if entry.user_id is not None else None,
+        entry_type=entry.entry_type,
+        amount_centimes=int(entry.amount_centimes),
+        currency=entry.currency,
+        reason=entry.reason,
+        metadata=entry.metadata_json or {},
+        created_at=entry.created_at,
+    )
+
+
+def payment_provider_event_out(event: PaymentProviderEvent) -> PaymentProviderEventOut:
+    return PaymentProviderEventOut(
+        id=int(event.id),
+        transaction_id=int(event.transaction_id) if event.transaction_id is not None else None,
+        provider=event.provider,
+        event_id=event.event_id,
+        event_type=event.event_type,
+        status=event.status,
+        payload=event.payload_json or {},
+        received_at=event.received_at,
+        processed_at=event.processed_at,
+    )
+
+
+def payment_reconciliation_import_summary_out(item: PaymentReconciliationImport) -> PaymentReconciliationImportSummaryOut:
+    return PaymentReconciliationImportSummaryOut(
+        id=int(item.id),
+        provider=item.provider,
+        payment_method=item.rail,
+        source_name=item.source_name,
+        status=item.status,
+        row_count=int(item.row_count),
+        matched_count=int(item.matched_count),
+        mismatch_count=int(item.mismatch_count),
+        unmatched_count=int(item.unmatched_count),
+        duplicate_count=int(item.duplicate_count),
+        error_count=int(item.error_count),
+        created_by_user_id=int(item.created_by_user_id),
+        created_at=item.created_at,
+    )
+
+
+def _bounded_finance_limit(limit: int, *, maximum: int = 200) -> int:
+    return max(1, min(int(limit), maximum))
 
 
 def _reference_code(payment_method: str, user_id: int) -> str:
