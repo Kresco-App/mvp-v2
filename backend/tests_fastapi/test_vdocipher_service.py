@@ -56,6 +56,13 @@ def live_settings(**overrides) -> Settings:
     return Settings(**values)
 
 
+@pytest.fixture(autouse=True)
+def clear_video_otp_cache():
+    vdocipher.clear_video_otp_cache()
+    yield
+    vdocipher.clear_video_otp_cache()
+
+
 def test_get_video_otp_posts_to_configured_api_base_and_parses_response(monkeypatch):
     FakeAsyncClient.calls = []
     FakeAsyncClient.responses = []
@@ -117,6 +124,27 @@ def test_get_video_stream_data_uses_provider_for_demo_ids_in_production(monkeypa
     assert result == {"otp": "otp-value", "playback_info": "playback-value"}
     assert FakeAsyncClient.calls[0]["url"] == "https://video-api.example/api/videos/demo-preview/otp"
 
+
+def test_get_video_stream_data_caches_otp_per_user_and_binds_payload(monkeypatch):
+    FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
+    FakeAsyncClient.response = httpx.Response(200, json={"otp": "otp-value", "playbackInfo": "playback-value"})
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def _fetch():
+        first = await vdocipher.get_video_stream_data("video-123", live_settings(), user_id=7)
+        second = await vdocipher.get_video_stream_data("video-123", live_settings(), user_id=7)
+        other_user = await vdocipher.get_video_stream_data("video-123", live_settings(), user_id=8)
+        return first, second, other_user
+
+    first, second, other_user = asyncio.run(_fetch())
+
+    assert first == {"otp": "otp-value", "playback_info": "playback-value"}
+    assert second == first
+    assert other_user == first
+    assert len(FakeAsyncClient.calls) == 2
+    assert FakeAsyncClient.calls[0]["json"] == {"ttl": 300, "userId": "7"}
+    assert FakeAsyncClient.calls[1]["json"] == {"ttl": 300, "userId": "8"}
 
 def test_get_video_otp_surfaces_provider_error(monkeypatch):
     FakeAsyncClient.calls = []

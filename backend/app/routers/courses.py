@@ -272,9 +272,10 @@ async def get_topic_item_stream(
     )
     watched_seconds = max(0, int(progress.watched_seconds or 0)) if progress else 0
     resume_seconds = 0 if progress and progress.status == "completed" else watched_seconds
+    user_id = user.id
     video_id = resource.provider_resource_id or resource.url
     await db.rollback()
-    stream_data = await get_video_stream_data(video_id, settings)
+    stream_data = await get_video_stream_data(video_id, settings, user_id=user_id)
     return {
         **stream_data,
         "watched_seconds": watched_seconds,

@@ -935,6 +935,49 @@ Verification plan:
 - Strong review found no blocking issues and confirmed the staged file set is
   limited to this admin contract cleanup. Status: implemented.
 
+### Slice 18: User-Bound Topic Item Stream Tokens
+
+Status: implemented.
+
+Reason for this slice:
+
+- VdoCipher stream OTPs already support per-user cache keys and provider
+  payload binding, but the topic-item stream route did not pass the current
+  user id into the stream helper.
+- Video access is entitlement-protected, so generated stream tokens should stay
+  scoped to the authenticated viewer where the provider supports that metadata.
+
+Planned backend scope:
+
+- Pass the authenticated `user.id` from
+  `GET /courses/topic-items/{item_id}/stream` into `get_video_stream_data`.
+  Status: implemented.
+- Update the VdoCipher video stream helper to accept a keyword-only `user_id`,
+  include it in the OTP provider payload, and cache OTPs per provider base URL,
+  video id, and user id. Status: implemented.
+- Add route-level regression coverage proving the stream helper receives the
+  authenticated user id. Status: implemented.
+- Add service-level regression coverage proving the helper accepts `user_id`,
+  binds the provider payload, and does not reuse the same OTP cache entry
+  across different users. Status: implemented.
+
+Decisions:
+
+- Decision: this slice does not change entitlement checks or stream response
+  shape. It only binds the provider request/caching context to the existing
+  authenticated user.
+- Decision: keep the route-level test separate from the large dirty course
+  access test file so this commit stays narrow.
+
+Verification plan:
+
+- Run the new course stream user-binding route test. Status: implemented.
+- Run the existing VdoCipher per-user stream-cache service test. Status:
+  implemented.
+- Strong review initially found the missing helper signature in the staged set;
+  after adding the helper contract and service test, the follow-up review found
+  no blocking issues. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

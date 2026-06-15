@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from time import monotonic
 from urllib.parse import quote
 
 import httpx
@@ -26,6 +27,11 @@ DEMO_VIDEO_STREAM = {"otp": "mock-otp-token", "playback_info": ""}
 VDOCIPHER_PROVIDER_ATTEMPTS = 3
 VDOCIPHER_RETRY_BASE_SECONDS = 0.1
 RETRYABLE_VDOCIPHER_STATUS_CODES = {429, 500, 502, 503, 504}
+VDOCIPHER_OTP_TTL_SECONDS = 300
+VDOCIPHER_OTP_CACHE_SECONDS = 240
+
+_video_otp_cache: dict[tuple[str, str, str], tuple[float, dict]] = {}
+_video_otp_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
 
 def _first_string(data: dict, keys: tuple[str, ...]) -> str:
@@ -64,6 +70,30 @@ def _is_retryable_provider_error(exc: httpx.HTTPError) -> bool:
     return isinstance(exc, httpx.TransportError)
 
 
+def clear_video_otp_cache() -> None:
+    _video_otp_cache.clear()
+    _video_otp_locks.clear()
+
+
+def _video_otp_cache_key(video_id: str, settings: Settings, user_id: int | str | None) -> tuple[str, str, str]:
+    return (
+        settings.vdocipher_api_base_url.rstrip("/"),
+        video_id,
+        str(user_id) if user_id is not None else "",
+    )
+
+
+def _cached_video_otp(key: tuple[str, str, str]) -> dict | None:
+    cached = _video_otp_cache.get(key)
+    if cached is None:
+        return None
+    expires_at, value = cached
+    if expires_at <= monotonic():
+        _video_otp_cache.pop(key, None)
+        return None
+    return dict(value)
+
+
 async def _post_vdocipher_json(
     url: str,
     *,
@@ -90,7 +120,7 @@ async def _post_vdocipher_json(
     raise RuntimeError("unreachable")
 
 
-async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
+async def get_video_otp(vdocipher_id: str, settings: Settings, *, user_id: int | str | None = None) -> dict:
     video_id = vdocipher_id.strip()
     if not video_id:
         raise HTTPException(status_code=404, detail="No video ID configured for this lesson")
@@ -99,13 +129,36 @@ async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
     if not settings.vdocipher_api_base_url:
         raise HTTPException(status_code=501, detail="VdoCipher API base URL is not configured. Set VDOCIPHER_API_BASE_URL.")
 
+    cache_key = _video_otp_cache_key(video_id, settings, user_id)
+    cached = _cached_video_otp(cache_key)
+    if cached is not None:
+        return cached
+
+    lock = _video_otp_locks.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        cached = _cached_video_otp(cache_key)
+        if cached is not None:
+            return cached
+        return await _fetch_video_otp(video_id, settings, user_id=user_id, cache_key=cache_key)
+
+
+async def _fetch_video_otp(
+    video_id: str,
+    settings: Settings,
+    *,
+    user_id: int | str | None,
+    cache_key: tuple[str, str, str],
+) -> dict:
     otp_url = f"{settings.vdocipher_api_base_url.rstrip('/')}/videos/{quote(video_id, safe='')}/otp"
+    payload: dict[str, int | str] = {"ttl": VDOCIPHER_OTP_TTL_SECONDS}
+    if user_id is not None:
+        payload["userId"] = str(user_id)
 
     try:
         response = await _post_vdocipher_json(
             otp_url,
             headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
-            json={"ttl": 300},
+            json=payload,
             timeout=10,
         )
     except httpx.HTTPError as exc:
@@ -118,17 +171,18 @@ async def get_video_otp(vdocipher_id: str, settings: Settings) -> dict:
 
     try:
         data = response.json()
-        return {"otp": data["otp"], "playback_info": data["playbackInfo"]}
+        result = {"otp": data["otp"], "playback_info": data["playbackInfo"]}
+        _video_otp_cache[cache_key] = (monotonic() + VDOCIPHER_OTP_CACHE_SECONDS, result)
+        return dict(result)
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("vdocipher_otp_malformed_response")
         raise HTTPException(status_code=502, detail="Invalid VdoCipher OTP response") from exc
 
-
-async def get_video_stream_data(vdocipher_id: str, settings: Settings) -> dict:
+async def get_video_stream_data(vdocipher_id: str, settings: Settings, *, user_id: int | str | None = None) -> dict:
     video_id = vdocipher_id.strip()
     if video_id.startswith(DEMO_VIDEO_ID_PREFIX) and not settings.is_production_like:
         return dict(DEMO_VIDEO_STREAM)
-    return await get_video_otp(video_id, settings)
+    return await get_video_otp(video_id, settings, user_id=user_id)
 
 
 async def create_live_stream(title: str, settings: Settings, *, chat_mode: str = "off") -> dict:
