@@ -79,12 +79,20 @@ def test_tab_quiz_grades_tracks_xp_and_question_attempts(app_client, auth_token,
             attempt = (await db.execute(select(QuizAttempt).where(QuizAttempt.question_set_id == question_set.id))).scalar_one()
             attempt_count = await db.scalar(select(func.count()).select_from(QuestionAttempt).where(QuestionAttempt.quiz_attempt_id == attempt.id))
             xp_count = await db.scalar(select(func.count()).select_from(XPTransaction).where(XPTransaction.quiz_attempt_id == attempt.id))
+            xp_reasons = (
+                await db.execute(
+                    select(XPTransaction.reason)
+                    .where(XPTransaction.quiz_attempt_id == attempt.id)
+                    .order_by(XPTransaction.reason)
+                )
+            ).scalars().all()
             progress = await db.scalar(select(TopicItemProgress).where(TopicItemProgress.user_id == user_id, TopicItemProgress.topic_item_id == item_id))
             stats = await db.get(UserStats, user_id)
             assert question_set.topic_section_id == section_id
             assert questions_count == 5
             assert attempt_count == 5
-            assert xp_count == 6
+            assert xp_count == 7
+            assert xp_reasons == ["quiz_correct"] * 5 + ["quiz_pass", "quiz_perfect"]
             assert progress is not None
             assert progress.status == "completed"
             assert progress.completed_at is not None

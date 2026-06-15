@@ -129,6 +129,8 @@ async def persist_quiz_submission(
         question_set=question_set,
         attempt=attempt,
         inserted_question_attempts=inserted_question_attempts,
+        expected_question_count=len(raw_questions),
+        score=score,
         passed=passed,
     )
     quiz_pass_awarded = await _apply_pass_stats_if_first_pass(
@@ -202,6 +204,8 @@ async def _award_quiz_xp(
     question_set: QuestionSet,
     attempt: QuizAttempt,
     inserted_question_attempts: list[dict],
+    expected_question_count: int,
+    score: int,
     passed: bool,
 ) -> int:
     xp_awards: list[XPAward] = []
@@ -234,6 +238,22 @@ async def _award_quiz_xp(
             quiz_attempt_id=attempt.id,
             idempotency_key=quiz_pass_idempotency_key(user_id, question_set.id),
         ))
+    if passed and _is_perfect_quiz_submission(
+        inserted_question_attempts,
+        score,
+        expected_question_count=expected_question_count,
+    ):
+        xp_awards.append(XPAward(
+            reason="quiz_perfect",
+            description=f"QuestionSet {question_set.id} first perfect",
+            subject_id=question_set.subject_id,
+            topic_id=question_set.topic_id,
+            topic_section_id=question_set.topic_section_id,
+            topic_item_id=question_set.topic_item_id,
+            question_set_id=question_set.id,
+            quiz_attempt_id=attempt.id,
+            idempotency_key=quiz_perfect_idempotency_key(user_id, question_set.id),
+        ))
     return await award_xp_bulk(user_id, xp_awards, db)
 
 
@@ -263,3 +283,21 @@ async def _apply_pass_stats_if_first_pass(
 
 def quiz_pass_idempotency_key(user_id: int, question_set_id: int) -> str:
     return f"quiz_pass:user:{user_id}:question_set:{question_set_id}"
+
+
+def quiz_perfect_idempotency_key(user_id: int, question_set_id: int) -> str:
+    return f"quiz_perfect:user:{user_id}:question_set:{question_set_id}"
+
+
+def _is_perfect_quiz_submission(
+    inserted_question_attempts: list[dict],
+    score: int,
+    *,
+    expected_question_count: int,
+) -> bool:
+    return (
+        expected_question_count > 0
+        and len(inserted_question_attempts) == expected_question_count
+        and score == 100
+        and all(bool(question_attempt["is_correct"]) for question_attempt in inserted_question_attempts)
+    )

@@ -1431,6 +1431,56 @@ Verification plan:
   and route-level regression coverage verifies history after an actual
   submission. Status: implemented.
 
+### Slice 27: First Perfect Quiz XP
+
+Status: implemented.
+
+Reason for this slice:
+
+- `quiz_perfect` existed in the XP reward table and daily cap mapping, but no
+  official quiz submission path awarded it.
+- The product TODO explicitly calls out unused rewards that should be wired or
+  removed. Perfect quiz is low-risk to wire because the shared quiz submission
+  service already owns backend-graded correctness and idempotency.
+
+Planned backend scope:
+
+- Award `quiz_perfect` from the shared quiz submission service when an official
+  submission is passed, has exactly one inserted question attempt per snapshot
+  question, score equals `100`, and every inserted question attempt is correct.
+  Status: implemented.
+- Deduplicate the reward per `(user, question_set)`. Status: implemented.
+- Keep the reward in the existing `quiz_pass` daily cap category. Status:
+  implemented.
+- Avoid UI changes in this slice. Status: implemented.
+
+Decisions:
+
+- Decision: `quiz_perfect` means the first perfect submission a student
+  achieves for a question set, not only a perfect first attempt and not every
+  later perfect retry.
+- Decision: an empty quiz, partial inserted-attempt set, over-100 score, or
+  synthetic perfect score with no inserted question attempts cannot receive
+  `quiz_perfect`.
+- Decision: perfect XP is awarded only through the shared official quiz
+  persistence path, so frontend-submitted score values cannot grant it.
+
+Verification plan:
+
+- Add backend tests proving non-perfect attempts do not award perfect XP, first
+  perfect attempts award `quiz_correct` + `quiz_pass` + `quiz_perfect`, later
+  perfect attempts do not duplicate any of those idempotent rewards, and the
+  perfect predicate rejects empty/partial submissions. Status: implemented.
+- Update Topic Workspace quiz tracking coverage for the additional
+  `quiz_perfect` transaction. Status: implemented.
+- Run focused quiz perfect, quiz history, mistake notebook, Topic Workspace
+  quiz, XP service tests, and compile checks. Status: implemented.
+- Run strong review before committing. Status: implemented.
+- Strong review found the perfect predicate accepted over-100 scores and that
+  the docs/test claim about partial submissions needed a real expected-count
+  guard. The predicate now requires exact score `100` and inserted attempts to
+  match the question snapshot count. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
