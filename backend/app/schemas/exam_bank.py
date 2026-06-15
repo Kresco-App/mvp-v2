@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.courses import AccessGuardedMixin, ResourceOut
 
@@ -21,6 +21,16 @@ class ExamProblemPartOut(AccessGuardedMixin):
     concept_slugs: list[str] = []
     metadata_json: dict = {}
     video_resource: ResourceOut | None = None
+    progress_status: str = "not_started"
+    current_self_grade: str = "not_started"
+    correction_reveal_count: int = 0
+    video_watch_count: int = 0
+    retry_later: bool = False
+    self_grade_history: list[dict] = []
+    opened_at: datetime | None = None
+    first_correction_revealed_at: datetime | None = None
+    last_correction_revealed_at: datetime | None = None
+    last_video_watched_at: datetime | None = None
 
 
 class ExamBankProblemOut(AccessGuardedMixin):
@@ -88,4 +98,47 @@ class ExamProblemProgressOut(BaseModel):
     xp_awarded: int = 0
     opened_at: datetime | None = None
     completed_at: datetime | None = None
+    last_activity_at: datetime | None = None
+
+
+class ExamProblemPartProgressIn(BaseModel):
+    status: str | None = None
+    correction_revealed: bool | None = None
+    video_watched: bool | None = None
+    self_grade: str | None = Field(default=None, min_length=3, max_length=30)
+    retry_later: bool | None = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized != "opened":
+            raise ValueError("status must be: opened")
+        return normalized
+
+    @field_validator("self_grade")
+    @classmethod
+    def validate_self_grade(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if normalized not in {"again", "partial", "mastered"}:
+            raise ValueError("self_grade must be one of: again, partial, mastered")
+        return normalized
+
+
+class ExamProblemPartProgressOut(BaseModel):
+    exam_problem_part_id: int
+    status: str = "not_started"
+    current_self_grade: str = "not_started"
+    correction_reveal_count: int = 0
+    video_watch_count: int = 0
+    retry_later: bool = False
+    self_grade_history: list[dict] = []
+    opened_at: datetime | None = None
+    first_correction_revealed_at: datetime | None = None
+    last_correction_revealed_at: datetime | None = None
+    last_video_watched_at: datetime | None = None
     last_activity_at: datetime | None = None

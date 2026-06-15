@@ -9,9 +9,13 @@ from sqlalchemy.orm import aliased, selectinload
 from app.models.courses import Exam, ExamProblem, Resource, Subject, Topic
 from app.models.exam_bank import EXAM_PROBLEM_PART_STATUS_PUBLISHED, ExamProblemPart
 from app.models.exam_progress import (
+    EXAM_PROBLEM_PART_PROGRESS_NOT_STARTED,
+    EXAM_PROBLEM_PART_PROGRESS_OPENED,
+    EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED,
     EXAM_PROBLEM_PROGRESS_COMPLETED,
     EXAM_PROBLEM_PROGRESS_NOT_STARTED,
     EXAM_PROBLEM_PROGRESS_OPENED,
+    UserExamProblemPartProgress,
     UserExamProblemProgress,
 )
 from app.models.users import User
@@ -20,6 +24,8 @@ from app.schemas.exam_bank import (
     ExamBankListOut,
     ExamBankProblemDetailOut,
     ExamBankProblemOut,
+    ExamProblemPartProgressIn,
+    ExamProblemPartProgressOut,
     ExamProblemProgressIn,
     ExamProblemProgressOut,
     ExamProblemPartOut,
@@ -77,12 +83,15 @@ async def list_exam_bank(
         topic_id=topic_id,
         full_problem_ids=problem_topic_matched_ids,
     )
+    part_ids = [int(part.id) for parts in part_map.values() for part in parts]
+    part_progress_map = await _load_part_progress(db, user_id=user_id, part_ids=part_ids)
     items = [
         exam_bank_exam_out(
             exam,
             problems=problem_map.get(int(exam.id), []),
             part_map=part_map,
             progress_map=progress_map,
+            part_progress_map=part_progress_map,
             access_context=access_context,
         )
         for exam in exams
@@ -118,6 +127,8 @@ async def get_exam_problem_detail(
         return None
     parts = await _load_parts_by_problem(db, [int(problem.id)])
     progress_map = await _load_problem_progress(db, user_id=int(user.id), problem_ids=[int(problem.id)])
+    part_ids = [int(part.id) for part in parts.get(int(problem.id), [])]
+    part_progress_map = await _load_part_progress(db, user_id=int(user.id), part_ids=part_ids)
     access_context = await build_access_context(db, user)
     exam_access = _exam_access(access_context, problem.exam)
     problem_out = exam_bank_problem_out(
@@ -127,6 +138,7 @@ async def get_exam_problem_detail(
         exam_access=exam_access,
         subject_id=int(problem.exam.subject_id),
         progress=progress_map.get(int(problem.id)),
+        part_progress_map=part_progress_map,
     )
     return ExamBankProblemDetailOut(
         **problem_out.model_dump(),
@@ -145,6 +157,7 @@ def exam_bank_exam_out(
     problems: list[ExamProblem],
     part_map: dict[int, list[ExamProblemPart]],
     progress_map: dict[int, UserExamProblemProgress],
+    part_progress_map: dict[int, UserExamProblemPartProgress],
     access_context: AccessContext,
 ) -> ExamBankExamOut:
     exam_access = _exam_access(access_context, exam)
@@ -164,6 +177,7 @@ def exam_bank_exam_out(
                 exam_access=exam_access,
                 subject_id=int(exam.subject_id),
                 progress=progress_map.get(int(problem.id)),
+                part_progress_map=part_progress_map,
             )
             for problem in problems
         ],
@@ -179,6 +193,7 @@ def exam_bank_problem_out(
     exam_access: AccessDecision,
     subject_id: int,
     progress: UserExamProblemProgress | None = None,
+    part_progress_map: dict[int, UserExamProblemPartProgress] | None = None,
 ) -> ExamBankProblemOut:
     problem_access = access_context.decide_child(exam_access, problem, subject_id=subject_id)
     out = ExamBankProblemOut(
@@ -198,6 +213,7 @@ def exam_bank_problem_out(
                 access_context=access_context,
                 problem_access=problem_access,
                 subject_id=subject_id,
+                progress=(part_progress_map or {}).get(int(part.id)),
             )
             for part in parts
         ],
@@ -264,12 +280,72 @@ async def record_exam_problem_progress(
     return _problem_progress_out(progress, xp_awarded=xp_awarded)
 
 
+async def record_exam_problem_part_progress(
+    db: AsyncSession,
+    user: User,
+    *,
+    part_id: int,
+    body: ExamProblemPartProgressIn,
+) -> ExamProblemPartProgressOut:
+    part = await db.scalar(
+        select(ExamProblemPart)
+        .where(
+            ExamProblemPart.id == part_id,
+            ExamProblemPart.status == EXAM_PROBLEM_PART_STATUS_PUBLISHED,
+        )
+    )
+    if part is None:
+        raise HTTPException(status_code=404, detail="Exam problem part not found")
+    problem = await get_exam_problem_detail(db, user, problem_id=int(part.exam_problem_id))
+    if problem is None:
+        raise HTTPException(status_code=404, detail="Exam problem part not found")
+    matching_part = next((problem_part for problem_part in problem.parts if int(problem_part.id) == part_id), None)
+    if matching_part is None:
+        raise HTTPException(status_code=404, detail="Exam problem part not found")
+    if not matching_part.can_access:
+        raise HTTPException(status_code=403, detail=matching_part.locked_reason or "subject_access_required")
+
+    progress = await _get_or_create_part_progress(db, user_id=int(user.id), part_id=part_id)
+    if body.self_grade is not None and int(progress.correction_reveal_count or 0) <= 0 and body.correction_revealed is not True:
+        raise HTTPException(status_code=409, detail="Exam problem part correction must be revealed before self-grading")
+
+    now = datetime.now(timezone.utc)
+    progress.status = EXAM_PROBLEM_PART_PROGRESS_OPENED
+    progress.last_activity_at = now
+    if progress.opened_at is None:
+        progress.opened_at = now
+    if body.correction_revealed is True:
+        progress.correction_reveal_count = int(progress.correction_reveal_count or 0) + 1
+        progress.last_correction_revealed_at = now
+        if progress.first_correction_revealed_at is None:
+            progress.first_correction_revealed_at = now
+    if body.video_watched is True:
+        progress.video_watch_count = int(progress.video_watch_count or 0) + 1
+        progress.last_video_watched_at = now
+    if body.retry_later is not None:
+        progress.retry_later = bool(body.retry_later)
+    if body.self_grade is not None:
+        history = list(progress.self_grade_history_json or [])
+        previous_grade = progress.current_self_grade or EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED
+        history.append({
+            "self_grade": body.self_grade,
+            "previous_self_grade": previous_grade,
+            "graded_at": now.isoformat(),
+        })
+        progress.current_self_grade = body.self_grade
+        progress.self_grade_history_json = history
+    await db.commit()
+    await db.refresh(progress)
+    return _part_progress_out(progress)
+
+
 def exam_problem_part_out(
     part: ExamProblemPart,
     *,
     access_context: AccessContext,
     problem_access: AccessDecision,
     subject_id: int,
+    progress: UserExamProblemPartProgress | None = None,
 ) -> ExamProblemPartOut:
     part_access = access_context.decide_child(problem_access, part, subject_id=subject_id)
     out = ExamProblemPartOut(
@@ -288,6 +364,16 @@ def exam_problem_part_out(
         concept_slugs=list(part.concept_slugs or []),
         metadata_json=part.metadata_json or {} if part_access.can_access else {},
         video_resource=_resource_out(part.video_resource, access_context, part_access, subject_id),
+        progress_status=_part_progress_status(progress),
+        current_self_grade=_part_self_grade(progress),
+        correction_reveal_count=int(progress.correction_reveal_count or 0) if progress is not None else 0,
+        video_watch_count=int(progress.video_watch_count or 0) if progress is not None else 0,
+        retry_later=bool(progress.retry_later) if progress is not None else False,
+        self_grade_history=list(progress.self_grade_history_json or []) if progress is not None else [],
+        opened_at=progress.opened_at if progress is not None else None,
+        first_correction_revealed_at=progress.first_correction_revealed_at if progress is not None else None,
+        last_correction_revealed_at=progress.last_correction_revealed_at if progress is not None else None,
+        last_video_watched_at=progress.last_video_watched_at if progress is not None else None,
     )
     return apply_access_decision(out, part_access)
 
@@ -309,6 +395,25 @@ async def _load_problem_progress(
         )
     ).scalars().all()
     return {int(row.exam_problem_id): row for row in rows}
+
+
+async def _load_part_progress(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    part_ids: list[int],
+) -> dict[int, UserExamProblemPartProgress]:
+    if not part_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(UserExamProblemPartProgress).where(
+                UserExamProblemPartProgress.user_id == user_id,
+                UserExamProblemPartProgress.exam_problem_part_id.in_(part_ids),
+            )
+        )
+    ).scalars().all()
+    return {int(row.exam_problem_part_id): row for row in rows}
 
 
 async def _get_or_create_problem_progress(
@@ -342,10 +447,53 @@ async def _get_or_create_problem_progress(
     return progress
 
 
+async def _get_or_create_part_progress(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    part_id: int,
+) -> UserExamProblemPartProgress:
+    progress = await db.scalar(
+        select(UserExamProblemPartProgress).where(
+            UserExamProblemPartProgress.user_id == user_id,
+            UserExamProblemPartProgress.exam_problem_part_id == part_id,
+        )
+    )
+    if progress is not None:
+        return progress
+    progress = UserExamProblemPartProgress(user_id=user_id, exam_problem_part_id=part_id)
+    db.add(progress)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        progress = await db.scalar(
+            select(UserExamProblemPartProgress).where(
+                UserExamProblemPartProgress.user_id == user_id,
+                UserExamProblemPartProgress.exam_problem_part_id == part_id,
+            )
+        )
+        if progress is None:
+            raise
+    return progress
+
+
 def _problem_progress_status(progress: UserExamProblemProgress | None) -> str:
     if progress is None:
         return EXAM_PROBLEM_PROGRESS_NOT_STARTED
     return progress.status or EXAM_PROBLEM_PROGRESS_NOT_STARTED
+
+
+def _part_progress_status(progress: UserExamProblemPartProgress | None) -> str:
+    if progress is None:
+        return EXAM_PROBLEM_PART_PROGRESS_NOT_STARTED
+    return progress.status or EXAM_PROBLEM_PART_PROGRESS_NOT_STARTED
+
+
+def _part_self_grade(progress: UserExamProblemPartProgress | None) -> str:
+    if progress is None:
+        return EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED
+    return progress.current_self_grade or EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED
 
 
 def _problem_progress_out(progress: UserExamProblemProgress, *, xp_awarded: int = 0) -> ExamProblemProgressOut:
@@ -356,6 +504,23 @@ def _problem_progress_out(progress: UserExamProblemProgress, *, xp_awarded: int 
         xp_awarded=xp_awarded,
         opened_at=progress.opened_at,
         completed_at=progress.completed_at,
+        last_activity_at=progress.last_activity_at,
+    )
+
+
+def _part_progress_out(progress: UserExamProblemPartProgress) -> ExamProblemPartProgressOut:
+    return ExamProblemPartProgressOut(
+        exam_problem_part_id=int(progress.exam_problem_part_id),
+        status=_part_progress_status(progress),
+        current_self_grade=_part_self_grade(progress),
+        correction_reveal_count=int(progress.correction_reveal_count or 0),
+        video_watch_count=int(progress.video_watch_count or 0),
+        retry_later=bool(progress.retry_later),
+        self_grade_history=list(progress.self_grade_history_json or []),
+        opened_at=progress.opened_at,
+        first_correction_revealed_at=progress.first_correction_revealed_at,
+        last_correction_revealed_at=progress.last_correction_revealed_at,
+        last_video_watched_at=progress.last_video_watched_at,
         last_activity_at=progress.last_activity_at,
     )
 

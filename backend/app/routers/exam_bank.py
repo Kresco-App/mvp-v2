@@ -5,8 +5,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
-from app.schemas.exam_bank import ExamBankListOut, ExamBankProblemDetailOut, ExamProblemProgressIn, ExamProblemProgressOut
-from app.services.exam_bank import get_exam_problem_detail, list_exam_bank, record_exam_problem_progress
+from app.schemas.exam_bank import (
+    ExamBankListOut,
+    ExamBankProblemDetailOut,
+    ExamProblemPartProgressIn,
+    ExamProblemPartProgressOut,
+    ExamProblemProgressIn,
+    ExamProblemProgressOut,
+)
+from app.services.exam_bank import (
+    get_exam_problem_detail,
+    list_exam_bank,
+    record_exam_problem_part_progress,
+    record_exam_problem_progress,
+)
 
 router = APIRouter(tags=["Exam Bank"])
 
@@ -54,3 +66,13 @@ async def update_exam_bank_problem_progress(
     user: User = Depends(get_current_user),
 ):
     return await record_exam_problem_progress(db, user, problem_id=problem_id, body=body)
+
+
+@router.post("/parts/{part_id}/progress", response_model=ExamProblemPartProgressOut)
+async def update_exam_bank_part_progress(
+    part_id: int,
+    body: ExamProblemPartProgressIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await record_exam_problem_part_progress(db, user, part_id=part_id, body=body)

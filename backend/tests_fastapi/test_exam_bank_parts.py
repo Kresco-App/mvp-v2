@@ -8,9 +8,13 @@ from app.models.gamification import UserXP, XPTransaction
 from app.models.users import User
 from app.models.exam_bank import ExamProblemPart
 from app.models.exam_progress import (
+    EXAM_PROBLEM_PART_PROGRESS_OPENED,
+    EXAM_PROBLEM_PART_SELF_GRADE_MASTERED,
+    EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED,
     EXAM_PROBLEM_PROGRESS_COMPLETED,
     EXAM_PROBLEM_PROGRESS_NOT_STARTED,
     EXAM_PROBLEM_PROGRESS_OPENED,
+    UserExamProblemPartProgress,
     UserExamProblemProgress,
 )
 from app.models.users import UserSubjectEntitlement
@@ -70,6 +74,36 @@ def test_exam_problem_progress_model_and_migration_are_declared():
     )
     assert 'down_revision: Union[str, None] = "0061"' in migration_text
     assert "user_exam_problem_progress" in migration_text
+
+
+def test_exam_problem_part_progress_model_and_migration_are_declared():
+    columns = UserExamProblemPartProgress.__table__.columns
+    indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in UserExamProblemPartProgress.__table__.indexes
+    }
+    constraints = {constraint.name for constraint in UserExamProblemPartProgress.__table__.constraints}
+
+    assert columns["user_id"].nullable is False
+    assert columns["exam_problem_part_id"].nullable is False
+    assert columns["status"].nullable is False
+    assert columns["current_self_grade"].nullable is False
+    assert columns["correction_reveal_count"].nullable is False
+    assert columns["video_watch_count"].nullable is False
+    assert columns["retry_later"].nullable is False
+    assert columns["self_grade_history_json"].nullable is False
+    assert "uq_user_exam_problem_part_progress_user_part" in constraints
+    assert "ck_user_exam_problem_part_progress_status" in constraints
+    assert "ck_user_exam_problem_part_progress_self_grade" in constraints
+    assert indexes["ix_user_exam_problem_part_progress_user_status"] == ("user_id", "status")
+    assert indexes["ix_user_exam_problem_part_progress_user_grade"] == ("user_id", "current_self_grade")
+    assert indexes["ix_user_exam_problem_part_progress_part"] == ("exam_problem_part_id",)
+
+    migration_text = (BACKEND_ROOT / "alembic" / "versions" / "0064_exam_problem_part_progress.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'down_revision: Union[str, None] = "0063"' in migration_text
+    assert "user_exam_problem_part_progress" in migration_text
 
 
 def test_exam_bank_returns_part_capsules_for_entitled_subject(app_client, auth_token, run_db):
@@ -388,6 +422,7 @@ def test_exam_problem_progress_requires_subject_access(app_client, auth_token, r
 
     assert response.status_code == 403
     assert response.json()["detail"] == "subject_access_required"
+    assert run_db(_part_progress_count(user_id=user_id, part_id=seeded["part_1_id"])) == 0
 
 
 def test_exam_problem_progress_completion_is_monotonic_with_stale_session(auth_token, run_db):
@@ -395,6 +430,104 @@ def test_exam_problem_progress_completion_is_monotonic_with_stale_session(auth_t
     seeded = run_db(_seed_exam_parts_fixture(user_id=user_id, include_subject_entitlement=True))
 
     assert run_db(_stale_opened_request_after_completed(user_id=user_id, problem_id=seeded["problem_id"])) == "completed"
+
+
+def test_exam_problem_part_progress_records_reveal_video_self_grade_and_retry(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-part-progress@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    opened = app_client.post(
+        f"/api/exam-bank/parts/{seeded['part_1_id']}/progress",
+        json={"status": "opened"},
+        headers=headers,
+    )
+    graded = app_client.post(
+        f"/api/exam-bank/parts/{seeded['part_1_id']}/progress",
+        json={
+            "correction_revealed": True,
+            "video_watched": True,
+            "self_grade": EXAM_PROBLEM_PART_SELF_GRADE_MASTERED,
+            "retry_later": True,
+        },
+        headers=headers,
+    )
+    detail = app_client.get(f"/api/exam-bank/problems/{seeded['problem_id']}", headers=headers)
+    listed = app_client.get(f"/api/exam-bank?subject_id={seeded['subject_id']}", headers=headers)
+
+    assert opened.status_code == 200
+    opened_payload = opened.json()
+    assert opened_payload["exam_problem_part_id"] == seeded["part_1_id"]
+    assert opened_payload["status"] == EXAM_PROBLEM_PART_PROGRESS_OPENED
+    assert opened_payload["current_self_grade"] == EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED
+    assert opened_payload["opened_at"] is not None
+
+    assert graded.status_code == 200
+    graded_payload = graded.json()
+    assert graded_payload["status"] == EXAM_PROBLEM_PART_PROGRESS_OPENED
+    assert graded_payload["current_self_grade"] == EXAM_PROBLEM_PART_SELF_GRADE_MASTERED
+    assert graded_payload["correction_reveal_count"] == 1
+    assert graded_payload["video_watch_count"] == 1
+    assert graded_payload["retry_later"] is True
+    assert graded_payload["first_correction_revealed_at"] is not None
+    assert graded_payload["last_correction_revealed_at"] is not None
+    assert graded_payload["last_video_watched_at"] is not None
+    assert graded_payload["self_grade_history"][0]["self_grade"] == EXAM_PROBLEM_PART_SELF_GRADE_MASTERED
+    assert graded_payload["self_grade_history"][0]["previous_self_grade"] == EXAM_PROBLEM_PART_SELF_GRADE_NOT_STARTED
+    assert run_db(_user_xp_total(user_id)) == 0
+
+    assert detail.status_code == 200
+    detail_part = detail.json()["parts"][0]
+    assert detail_part["progress_status"] == EXAM_PROBLEM_PART_PROGRESS_OPENED
+    assert detail_part["current_self_grade"] == EXAM_PROBLEM_PART_SELF_GRADE_MASTERED
+    assert detail_part["correction_reveal_count"] == 1
+    assert detail_part["video_watch_count"] == 1
+    assert detail_part["retry_later"] is True
+
+    assert listed.status_code == 200
+    listed_part = listed.json()["items"][0]["problems"][0]["parts"][0]
+    assert listed_part["current_self_grade"] == EXAM_PROBLEM_PART_SELF_GRADE_MASTERED
+
+
+def test_exam_problem_part_self_grade_requires_correction_reveal(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-part-grade-before-reveal@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id, include_subject_entitlement=True))
+
+    response = app_client.post(
+        f"/api/exam-bank/parts/{seeded['part_1_id']}/progress",
+        json={"self_grade": "partial"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Exam problem part correction must be revealed before self-grading"
+
+
+def test_exam_problem_part_progress_requires_subject_access(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-part-progress-locked@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id))
+
+    response = app_client.post(
+        f"/api/exam-bank/parts/{seeded['part_1_id']}/progress",
+        json={"status": "opened", "correction_revealed": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "subject_access_required"
+
+
+def test_exam_problem_part_progress_rejects_invalid_self_grade(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-part-progress-invalid-grade@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id, include_subject_entitlement=True))
+
+    response = app_client.post(
+        f"/api/exam-bank/parts/{seeded['part_1_id']}/progress",
+        json={"correction_revealed": True, "self_grade": "perfect"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
 
 
 async def _seed_exam_parts_fixture(
@@ -573,6 +706,22 @@ async def _exam_complete_xp_count(user_id: int, problem_id: int) -> int:
                     XPTransaction.user_id == user_id,
                     XPTransaction.reason == "exam_complete",
                     XPTransaction.idempotency_key == f"exam_complete:user:{user_id}:problem:{problem_id}",
+                )
+            )
+            or 0
+        )
+
+
+async def _part_progress_count(*, user_id: int, part_id: int) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        return int(
+            await db.scalar(
+                select(func.count())
+                .select_from(UserExamProblemPartProgress)
+                .where(
+                    UserExamProblemPartProgress.user_id == user_id,
+                    UserExamProblemPartProgress.exam_problem_part_id == part_id,
                 )
             )
             or 0

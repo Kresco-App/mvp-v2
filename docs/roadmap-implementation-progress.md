@@ -1704,6 +1704,67 @@ Review notes addressed:
   correction bonus, and regression coverage includes correct -> wrong ->
   correct.
 
+### Slice 32: Exam Problem Part Progress
+
+Status: in progress.
+
+Reason for this slice:
+
+- Exam Bank already supports part capsules with part-level enonce, written
+  correction, and optional video correction.
+- Product decisions say exam problem opened/correction viewed/video watched
+  and self-grade state belong at the part level, because Bac corrections are
+  often taught per part.
+- Whole-problem completion XP is already implemented and should stay stable
+  while part-level revision signals are added.
+
+Planned backend scope:
+
+- Add `user_exam_problem_part_progress` keyed by user and exam problem part.
+  Status: implemented.
+- Track opened state, correction reveal count, video watch count, current
+  self-grade, self-grade history, retry-later, and timestamps. Status:
+  implemented.
+- Add part progress fields to Exam Bank list/detail part payloads. Status:
+  implemented.
+- Add `POST /api/exam-bank/parts/{part_id}/progress`. Status: implemented.
+- Enforce subject access before part progress mutations. Status: implemented.
+- Keep part progress free of XP side effects. Status: implemented.
+
+Decisions:
+
+- Decision: part-level self-grade is student-reported revision metadata, not
+  official correctness and not a completion event.
+- Decision: self-grade requires correction reveal, but no backend timer is
+  enforced; the reading delay remains a frontend concern.
+- Decision: video watch state is a simple count/timestamp in v1, not a
+  provider-level watch-percent integration.
+- Decision: retry-later is local to part progress for now. It can later feed
+  bank filters without creating a unified revision queue.
+- Decision: whole-problem completion remains the only Exam Bank XP event in
+  this area for now.
+
+Verification plan:
+
+- Add model/migration declaration tests. Status: implemented.
+- Add route tests for opened, correction reveal, video watched, self-grade,
+  retry-later, detail/list projection, and zero XP. Status: implemented.
+- Add locked mutation, pre-reveal self-grade, and invalid self-grade tests.
+  Status: implemented.
+- Run focused exam bank tests, migration-chain check if the accepted baseline
+  allows it, compile checks, and strong review before committing. Status:
+  implemented.
+
+Review notes addressed:
+
+- Strong review found no blocking correctness or access-control issues.
+- Added a locked-mutation regression assertion that no part-progress row is
+  created when the subject access gate rejects the write.
+- Residual risk: correction/video counters and self-grade history are
+  read-modify-write fields, so concurrent duplicate requests can lose a counter
+  increment or one history entry. They are v1 revision signals, not money, XP,
+  or authoritative correctness, so this remains acceptable for this slice.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
