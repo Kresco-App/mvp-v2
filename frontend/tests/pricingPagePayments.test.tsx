@@ -280,6 +280,136 @@ describe('pricing payment request flow', () => {
     })
     expect(useAuthStore.getState().user?.is_pro).toBe(false)
   })
+
+  it('shows a persistent support state when payment creation fails', async () => {
+    mocks.createProPaymentRequest.mockResolvedValue({
+      status: 'error',
+      message: 'CMI payment is temporarily unavailable.',
+    })
+
+    const { container } = renderPricingPage()
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Paiement non lance')
+      expect(container.textContent).toContain('CMI payment is temporarily unavailable.')
+      expect(container.textContent).toContain('Methode: CMI')
+      expect(container.textContent).toContain('Contacter le support')
+    })
+    expect(container.querySelector('a[href^="mailto:support@kresco.ma"]')).toBeTruthy()
+    expect(mocks.toastError).toHaveBeenCalledWith('CMI payment is temporarily unavailable.')
+  })
+
+  it('shows the fallback support state when payment creation throws unexpectedly', async () => {
+    mocks.createProPaymentRequest.mockRejectedValue(new Error('network down'))
+
+    const { container } = renderPricingPage()
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Paiement non lance')
+      expect(container.textContent).toContain('Methode: CMI')
+    })
+    expect(mocks.toastError).toHaveBeenCalledWith('Paiement non lance')
+  })
+
+  it('retries payment from the support state and clears it on pending success', async () => {
+    mocks.createProPaymentRequest
+      .mockResolvedValueOnce({
+        status: 'error',
+        message: 'CashPlus report service unavailable.',
+      })
+      .mockResolvedValueOnce({
+        status: 'pending_manual_review',
+        request: {
+          id: 3,
+          payment_method: 'cashplus',
+          status: 'pending_manual_review',
+          plan: 'pro',
+          amount_centimes: 9900,
+          currency: 'MAD',
+          reference_code: 'KRESCO-CASH-3',
+          instructions: {
+            title: 'CashPlus',
+            steps: ['Use the reference code when paying through CashPlus.'],
+          },
+          created_at: '2026-06-15T00:00:00Z',
+          expires_at: null,
+        },
+      })
+
+    const { container } = renderPricingPage()
+    await clickButton(container, 'CashPlus')
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+    await waitFor(() => {
+      expect(container.textContent).toContain('CashPlus report service unavailable.')
+    })
+
+    await clickButton(container, 'Reessayer')
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-3')
+      expect(container.textContent).not.toContain('CashPlus report service unavailable.')
+    })
+    expect(mocks.createProPaymentRequest).toHaveBeenNthCalledWith(1, expect.any(Object), 'cashplus')
+    expect(mocks.createProPaymentRequest).toHaveBeenNthCalledWith(2, expect.any(Object), 'cashplus')
+  })
+
+  it('clears payment support state when switching payment method', async () => {
+    mocks.createProPaymentRequest.mockResolvedValue({
+      status: 'error',
+      message: 'CMI unavailable.',
+    })
+
+    const { container } = renderPricingPage()
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+    await waitFor(() => {
+      expect(container.textContent).toContain('CMI unavailable.')
+    })
+
+    await clickButton(container, 'Virement')
+
+    expect(container.textContent).not.toContain('CMI unavailable.')
+    expect(container.textContent).not.toContain('Paiement non lance')
+  })
+
+  it('ignores stale payment request results after switching method while a request is in flight', async () => {
+    const cmiRequest = deferred<Awaited<ReturnType<typeof mocks.createProPaymentRequest>>>()
+    mocks.createProPaymentRequest.mockReturnValueOnce(cmiRequest.promise)
+
+    const { container } = renderPricingPage()
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+    await clickButton(container, 'CashPlus')
+
+    await act(async () => {
+      cmiRequest.resolve({
+        status: 'provider_redirect',
+        actionUrl: 'https://testpayment.cmi.co.ma/fim/est3Dgate',
+        formFields: { clientid: 'cmi-client', oid: 'KRESCO-CMI-stale' },
+        request: {
+          id: 9,
+          payment_method: 'cmi',
+          status: 'pending_provider',
+          plan: 'pro',
+          amount_centimes: 9900,
+          currency: 'MAD',
+          reference_code: 'KRESCO-CMI-stale',
+          instructions: {},
+          created_at: '2026-06-15T00:00:00Z',
+          expires_at: null,
+        },
+      })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(mocks.submitProviderPaymentForm).not.toHaveBeenCalled()
+    expect(container.textContent).not.toContain('KRESCO-CMI-stale')
+    expect(container.textContent).not.toContain('Paiement non lance')
+    const cashPlusButton = Array.from(container.querySelectorAll('button')).find((candidate) =>
+      candidate.textContent?.includes('CashPlus'),
+    )
+    expect(cashPlusButton?.getAttribute('aria-pressed')).toBe('true')
+  })
 })
 
 function renderPricingPage() {
@@ -334,4 +464,14 @@ async function waitFor(assertion: () => void) {
     }
   }
   throw lastError
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
 }

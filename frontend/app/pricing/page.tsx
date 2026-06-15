@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { CheckCircle2, Crown, Zap, BookOpen, Award, ArrowLeft, CreditCard, Landmark, Store, Receipt } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
@@ -14,6 +14,7 @@ import {
   submitProviderPaymentForm,
   type PaymentMethod,
   type PaymentRequest,
+  type PaymentRequestResult,
 } from '@/lib/payments'
 import AuthGuard from '@/components/AuthGuard'
 
@@ -25,10 +26,16 @@ const paymentMethodIcons: Record<PaymentMethod, typeof CreditCard> = {
   ashplus: Receipt,
 }
 
+type PaymentSupportState = {
+  method: PaymentMethod
+  message: string
+}
+
 export default function PricingPage() {
   const user = useAuthStore((state) => state.user)
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(DEFAULT_PAYMENT_METHOD)
   const [pendingRequest, setPendingRequest] = useState<PaymentRequest | null>(null)
+  const [paymentSupport, setPaymentSupport] = useState<PaymentSupportState | null>(null)
   const [isCreatingPayment, setIsCreatingPayment] = useState(false)
   const [proofReference, setProofReference] = useState('')
   const [proofPayerName, setProofPayerName] = useState('')
@@ -36,6 +43,7 @@ export default function PricingPage() {
   const [proofNotes, setProofNotes] = useState('')
   const [isSubmittingProof, setIsSubmittingProof] = useState(false)
   const [proofSubmitted, setProofSubmitted] = useState(false)
+  const paymentRequestSeq = useRef(0)
 
   function clearProofForm() {
     setProofReference('')
@@ -46,10 +54,22 @@ export default function PricingPage() {
   }
 
   async function handlePaymentRequest() {
+    if (isCreatingPayment) return
+    const requestId = paymentRequestSeq.current + 1
+    paymentRequestSeq.current = requestId
     setIsCreatingPayment(true)
+    setPaymentSupport(null)
+    setPendingRequest(null)
     clearProofForm()
-    const result = await createProPaymentRequest(apiJsonClient, selectedPaymentMethod)
-    setIsCreatingPayment(false)
+    let result: PaymentRequestResult
+    try {
+      result = await createProPaymentRequest(apiJsonClient, selectedPaymentMethod)
+    } catch {
+      result = { status: 'error' as const, message: pricingCopy.supportTitle }
+    } finally {
+      if (requestId === paymentRequestSeq.current) setIsCreatingPayment(false)
+    }
+    if (requestId !== paymentRequestSeq.current) return
 
     if (result.status === 'provider_redirect') {
       submitProviderPaymentForm(result.actionUrl, result.formFields)
@@ -58,10 +78,12 @@ export default function PricingPage() {
 
     if (result.status === 'pending_manual_review') {
       setPendingRequest(result.request)
+      setPaymentSupport(null)
       toast.success(pricingCopy.pendingToast)
       return
     }
 
+    setPaymentSupport({ method: selectedPaymentMethod, message: result.message })
     toast.error(result.message)
   }
 
@@ -198,8 +220,11 @@ export default function PricingPage() {
                             key={method.value}
                             type="button"
                             onClick={() => {
+                              paymentRequestSeq.current += 1
+                              setIsCreatingPayment(false)
                               setSelectedPaymentMethod(method.value)
                               setPendingRequest(null)
+                              setPaymentSupport(null)
                               clearProofForm()
                             }}
                             className={`rounded-xl border px-3 py-3 text-left transition-colors ${
@@ -228,6 +253,33 @@ export default function PricingPage() {
                     </button>
                   </div>
                 )}
+
+                {paymentSupport ? (
+                  <div className="mt-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-950">
+                    <p className="font-semibold">{pricingCopy.supportTitle}</p>
+                    <p className="mt-1 text-red-800">{paymentSupport.message}</p>
+                    <p className="mt-2 text-xs text-red-700">
+                      {pricingCopy.supportMethod}: {paymentMethodLabel(paymentSupport.method)}
+                    </p>
+                    <p className="mt-2 text-xs text-red-700">{pricingCopy.supportBody}</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => handlePaymentRequest()}
+                        disabled={isCreatingPayment}
+                        className="rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:bg-slate-700 disabled:text-slate-400"
+                      >
+                        {isCreatingPayment ? pricingCopy.creatingPayment : pricingCopy.supportRetry}
+                      </button>
+                      <a
+                        href={`mailto:support@kresco.ma?subject=${encodeURIComponent(`Paiement ${paymentSupport.method}`)}`}
+                        className="rounded-xl border border-red-300 px-4 py-2 text-center text-sm font-bold text-red-700 transition hover:bg-red-100"
+                      >
+                        {pricingCopy.supportContact}
+                      </a>
+                    </div>
+                  </div>
+                ) : null}
 
                 {pendingRequest ? (
                   <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-50">
@@ -328,4 +380,8 @@ export default function PricingPage() {
       </main>
     </AuthGuard>
   )
+}
+
+function paymentMethodLabel(method: PaymentMethod) {
+  return pricingCopy.paymentMethods.find((item) => item.value === method)?.label ?? method
 }

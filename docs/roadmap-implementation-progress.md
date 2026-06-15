@@ -1993,6 +1993,68 @@ Review notes addressed:
   audit trail because imports do not yet have a transaction filter.
 - Hardened client-side CSV export against spreadsheet formula injection.
 
+### Slice 37: Visible Payment Support State
+
+Status: implemented.
+
+Reason for this slice:
+
+- The payment gateway plan requires failed/provider-outage payment states to be
+  visible to students, not only logged or shown as a transient toast.
+- The launch pricing UI already uses provider-neutral payment requests, so the
+  smallest next step is to make payment creation failures persistent and
+  actionable without introducing a full support center.
+
+Planned frontend scope:
+
+- Add a persistent support/escalation panel on `/pricing` when payment request
+  creation fails. Status: implemented.
+- Include the selected payment method and provider/backend error detail in the
+  panel. Status: implemented.
+- Add retry and support contact actions. Status: implemented.
+- Clear stale pending-payment/support panels when starting a new payment attempt
+  or switching payment method. Status: implemented.
+
+Decisions:
+
+- Decision: keep this slice frontend-only. A real support ticket model remains
+  a later support-center/backoffice slice.
+- Decision: keep Stripe compatibility helpers untouched, but do not route the
+  visible pricing failure state through Stripe checkout.
+- Decision: use a `mailto:support@kresco.ma` CTA for v1 because it gives
+  students an immediate escalation path without adding an unmodeled backend
+  support workflow.
+
+Verification plan:
+
+- Add pricing-page tests for persistent payment support state, retry clearing
+  the failure after a pending success, and method-switch clearing stale support.
+  Status: implemented.
+- Run focused payment/pricing tests, TypeScript, lint, browser smoke, and strong
+  review before committing. Status: implemented.
+
+Verification completed:
+
+- `npm test -- tests/pricingPagePayments.test.tsx tests/payments.test.ts tests/manualPayments.test.ts tests/cmiReturnPages.test.tsx`
+  passed: 28 tests.
+- `npm run typecheck` passed.
+- `npm run lint` passed.
+- `npm run audit:csp-styles` passed with zero inline style debt.
+- Playwright smoke opened `/pricing` behind the auth guard with mocked profile
+  and payment APIs, verified the visible support panel for invalid CMI provider
+  metadata, and refreshed
+  `frontend/artifacts/pricing-payment-support-smoke.png`.
+
+Review notes addressed:
+
+- Added a payment request sequence guard so a stale in-flight result cannot
+  redirect, show pending state, or restore a support panel after the student
+  switches payment method.
+- Added a deferred-promise regression test for switching methods while the
+  previous payment request is still in flight.
+- Fixed support-panel contrast after browser smoke showed pale text on the
+  actual pricing surface.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
