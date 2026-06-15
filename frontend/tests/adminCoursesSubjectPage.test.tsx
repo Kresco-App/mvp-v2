@@ -35,8 +35,7 @@ let topicWorkspaceShouldFail = true
 const subjectFixture = {
   id: 42,
   title: 'Mathematics',
-  niveau: '2bac',
-  filiere: 'Sciences',
+  description: 'Core math course',
 }
 
 const topicsFixture = [
@@ -101,6 +100,7 @@ describe('AdminSubjectPage topic loading', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Mathematics')
       expect(container.textContent).toContain('Continuity')
+      expect(container.textContent).toContain('Core math course')
     })
 
     clickButton(container, 'Continuity')
@@ -112,11 +112,11 @@ describe('AdminSubjectPage topic loading', () => {
     expect(container.textContent).not.toContain('Aucun item dans ce topic')
 
     topicWorkspaceShouldFail = false
-    clickButton(container, 'Réessayer')
+    clickButton(container, 'Reessayer')
 
     await waitFor(() => {
       expect(container.textContent).toContain('Slope overview')
-      expect(container.textContent).toContain('Aperçu')
+      expect(container.textContent).toContain('Apercu')
     })
   })
 })

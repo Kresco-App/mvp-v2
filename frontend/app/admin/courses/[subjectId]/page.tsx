@@ -6,14 +6,14 @@ import Link from 'next/link'
 import {
   ArrowLeft, ChevronDown, ChevronRight,
   Video, HelpCircle, Puzzle, FileText,
-  GripVertical, Eye
+  GripVertical, Eye,
 } from 'lucide-react'
-import { getJson } from '@/lib/apiClient'
-
 import { toast } from 'sonner'
+
+import { getJson } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
 
-const ITEM_TYPE_ICON: Record<string, any> = {
+const ITEM_TYPE_ICON: Record<string, typeof Video> = {
   video: Video,
   quiz: HelpCircle,
   activity: Puzzle,
@@ -53,10 +53,16 @@ interface TopicWorkspace {
   sections: TopicSection[]
 }
 
+interface SubjectDetail {
+  id: number
+  title: string
+  description?: string
+}
+
 export default function AdminSubjectPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
   const router = useRouter()
-  const [subject, setSubject] = useState<any>(null)
+  const [subject, setSubject] = useState<SubjectDetail | null>(null)
   const [topics, setTopics] = useState<Topic[]>([])
   const [expandedTopics, setExpandedTopics] = useState<Set<number>>(new Set())
   const [topicSections, setTopicSections] = useState<Record<number, TopicSection[]>>({})
@@ -68,13 +74,13 @@ export default function AdminSubjectPage() {
     async function load() {
       try {
         const [subjectData, topicsData] = await Promise.all([
-          getJson<any>(`/courses/subjects/${subjectId}`),
+          getJson<SubjectDetail>(`/courses/subjects/${subjectId}`),
           getJson<Topic[]>(`/courses/subjects/${subjectId}/topics`),
         ])
         setSubject(subjectData)
         setTopics(Array.isArray(topicsData) ? topicsData : [])
       } catch {
-        toast.error('Matière introuvable')
+        toast.error('Matiere introuvable')
         router.push('/admin/courses')
       } finally {
         setLoading(false)
@@ -85,22 +91,22 @@ export default function AdminSubjectPage() {
 
   const loadTopicSections = useCallback(async (topicId: number) => {
     if (topicSections[topicId] || loadingTopicIds.has(topicId)) return
-    setLoadingTopicIds(prev => new Set(prev).add(topicId))
-    setTopicSectionErrors(prev => {
-      if (!prev[topicId]) return prev
-      const next = { ...prev }
+    setLoadingTopicIds((previous) => new Set(previous).add(topicId))
+    setTopicSectionErrors((previous) => {
+      if (!previous[topicId]) return previous
+      const next = { ...previous }
       delete next[topicId]
       return next
     })
     try {
       const workspace = await getJson<TopicWorkspace>(`/courses/topics/${topicId}/workspace`)
-      setTopicSections(prev => ({ ...prev, [topicId]: workspace.sections ?? [] }))
+      setTopicSections((previous) => ({ ...previous, [topicId]: workspace.sections ?? [] }))
     } catch {
       toast.error('Impossible de charger les items du topic')
-      setTopicSectionErrors(prev => ({ ...prev, [topicId]: true }))
+      setTopicSectionErrors((previous) => ({ ...previous, [topicId]: true }))
     } finally {
-      setLoadingTopicIds(prev => {
-        const next = new Set(prev)
+      setLoadingTopicIds((previous) => {
+        const next = new Set(previous)
         next.delete(topicId)
         return next
       })
@@ -108,8 +114,8 @@ export default function AdminSubjectPage() {
   }, [loadingTopicIds, topicSections])
 
   function toggleTopic(topicId: number) {
-    setExpandedTopics(prev => {
-      const next = new Set(prev)
+    setExpandedTopics((previous) => {
+      const next = new Set(previous)
       if (next.has(topicId)) {
         next.delete(topicId)
       } else {
@@ -122,78 +128,71 @@ export default function AdminSubjectPage() {
 
   if (loading) {
     return (
-      <>
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-          <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      </>
+      <div className="flex min-h-screen items-center justify-center bg-slate-950">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      </div>
     )
   }
 
   return (
-    <>
-      <div className="min-h-screen bg-slate-950">
-        {/* Header */}
-        <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
-          <button type="button" onClick={() => router.push('/admin/courses')} className="text-slate-400 hover:text-white transition">
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <h1 className="text-white font-semibold">{subject?.title}</h1>
-            <p className="text-slate-500 text-xs mt-0.5">{subject?.niveau} · {subject?.filiere}</p>
-          </div>
+    <div className="min-h-screen bg-slate-950">
+      <div className="flex items-center gap-4 border-b border-slate-800 bg-slate-900 px-6 py-4">
+        <button type="button" onClick={() => router.push('/admin/courses')} className="text-slate-400 transition hover:text-white" aria-label="Retour aux cours">
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <h1 className="font-semibold text-white">{subject?.title}</h1>
+          {subject?.description && <p className="mt-0.5 text-xs text-slate-500">{subject.description}</p>}
         </div>
+      </div>
 
-        <div className="max-w-3xl mx-auto px-6 py-8 space-y-4">
-          {/* Topics */}
-          {topics.map(topic => {
-            const isExpanded = expandedTopics.has(topic.id)
-            const isLoadingTopic = loadingTopicIds.has(topic.id)
-            const sections = topicSections[topic.id]
-            const hasTopicSectionError = topicSectionErrors[topic.id] === true && !sections
-            const items = sections?.flatMap(sec => sec.items ?? []) ?? []
+      <div className="mx-auto max-w-3xl space-y-4 px-6 py-8">
+        {topics.map((topic) => {
+          const isExpanded = expandedTopics.has(topic.id)
+          const isLoadingTopic = loadingTopicIds.has(topic.id)
+          const sections = topicSections[topic.id]
+          const hasTopicSectionError = topicSectionErrors[topic.id] === true && !sections
+          const items = sections?.flatMap((section) => section.items ?? []) ?? []
 
-            return (
-              <div key={topic.id} className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-                {/* Topic header */}
-                <button type="button"
-                  onClick={() => toggleTopic(topic.id)}
-                  className="w-full flex items-center gap-3 px-5 py-4 hover:bg-slate-800/40 transition text-left"
-                >
-                  <GripVertical size={14} className="text-slate-300 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-semibold text-sm">{topic.title}</p>
-                    <p className="text-slate-500 text-xs mt-0.5">Ordre {topic.order}</p>
-                  </div>
-                  {isExpanded
-                    ? <ChevronDown size={16} className="text-slate-500 flex-shrink-0" />
-                    : <ChevronRight size={16} className="text-slate-500 flex-shrink-0" />}
-                </button>
+          return (
+            <div key={topic.id} className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+              <button
+                type="button"
+                onClick={() => toggleTopic(topic.id)}
+                aria-expanded={isExpanded}
+                className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-slate-800/40"
+              >
+                <GripVertical size={14} className="flex-shrink-0 text-slate-300" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-white">{topic.title}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">Ordre {topic.order}</p>
+                </div>
+                {isExpanded
+                  ? <ChevronDown size={16} className="flex-shrink-0 text-slate-500" />
+                  : <ChevronRight size={16} className="flex-shrink-0 text-slate-500" />}
+              </button>
 
-                {/* Sections & Items */}
-                {isExpanded && (
-                  <div className="border-t border-slate-800">
-                    {isLoadingTopic ? (
-                      <div className="flex justify-center py-6">
-                        <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                      </div>
-                    ) : hasTopicSectionError ? (
-                      <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-slate-400">
-                        <p>Impossible de charger les sections de ce topic.</p>
-                        <button
-                          type="button"
-                          onClick={() => { void loadTopicSections(topic.id) }}
-                          className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:border-slate-500 hover:bg-slate-800 transition"
-                        >
-                          Réessayer
-                        </button>
-                      </div>
-                    ) : items.length === 0 ? (
-                      <div className="py-6 text-center text-slate-400 text-sm">
-                        Aucun item dans ce topic
-                      </div>
-                    ) : (
-                      items.map((item, i, arr) => {
+              {isExpanded && (
+                <div className="border-t border-slate-800">
+                  {isLoadingTopic ? (
+                    <div className="flex justify-center py-6">
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+                    </div>
+                  ) : hasTopicSectionError ? (
+                    <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-slate-400">
+                      <p>Impossible de charger les sections de ce topic.</p>
+                      <button
+                        type="button"
+                        onClick={() => { void loadTopicSections(topic.id) }}
+                        className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:border-slate-500 hover:bg-slate-800"
+                      >
+                        Reessayer
+                      </button>
+                    </div>
+                  ) : items.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-slate-400">Aucun item dans ce topic</div>
+                  ) : (
+                    items.map((item, index, list) => {
                       const Icon = ITEM_TYPE_ICON[item.item_type] ?? FileText
                       const color = ITEM_TYPE_COLOR[item.item_type] ?? 'text-slate-400'
                       return (
@@ -201,60 +200,49 @@ export default function AdminSubjectPage() {
                           key={item.id}
                           className={cn(
                             'flex items-center gap-3 px-5 py-3',
-                            i < arr.length - 1 && 'border-b border-slate-800/60'
+                            index < list.length - 1 && 'border-b border-slate-800/60',
                           )}
                         >
                           <Icon size={14} className={cn(color, 'flex-shrink-0')} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-slate-200 text-sm truncate">{item.title}</p>
-                            <p className="text-slate-400 text-xs mt-0.5 capitalize">
-                              {item.item_type}
-                            </p>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm text-slate-200">{item.title}</p>
+                            <p className="mt-0.5 text-xs capitalize text-slate-400">{item.item_type}</p>
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex flex-shrink-0 items-center gap-2">
                             {item.is_free_preview && (
-                              <span className="text-[10px] bg-green-600/20 text-green-400 px-2 py-0.5 rounded-full">Aperçu</span>
+                              <span className="rounded-full bg-green-600/20 px-2 py-0.5 text-[10px] text-green-400">Apercu</span>
                             )}
-                            <Link
-                              href={`/topics/${topic.id}`}
-                              className="text-slate-400 hover:text-slate-200 transition"
-                              title="Prévisualiser"
-                            >
+                            <Link href={`/topics/${topic.id}`} className="text-slate-400 transition hover:text-slate-200" title="Previsualiser" aria-label={`Previsualiser ${item.title}`}>
                               <Eye size={13} />
                             </Link>
                           </div>
                         </div>
                       )
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          {topics.length === 0 && (
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-12 text-center">
-              <p className="text-slate-500 text-sm">Aucun topic dans cette matière.</p>
+                    })
+                  )}
+                </div>
+              )}
             </div>
-          )}
+          )
+        })}
 
-          {/* Activity builder shortcut */}
-          <div className="bg-slate-900 rounded-2xl border border-indigo-500/20 p-5 flex items-center gap-4">
-            <Puzzle size={20} className="text-indigo-400 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-white font-semibold text-sm">Créer une activité interactive</p>
-              <p className="text-slate-500 text-xs mt-0.5">Générez le JSON pour QCM, V/F, Associations…</p>
-            </div>
-            <Link
-              href="/admin/courses/activities"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
-            >
-              Ouvrir le builder
-            </Link>
+        {topics.length === 0 && (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-12 text-center">
+            <p className="text-sm text-slate-500">Aucun topic dans cette matiere.</p>
           </div>
+        )}
+
+        <div className="flex items-center gap-4 rounded-2xl border border-indigo-500/20 bg-slate-900 p-5">
+          <Puzzle size={20} className="flex-shrink-0 text-indigo-400" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-white">Creer une activite interactive</p>
+            <p className="mt-0.5 text-xs text-slate-500">Generez le JSON pour QCM, V/F, Associations...</p>
+          </div>
+          <Link href="/admin/courses/activities" className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700">
+            Ouvrir le builder
+          </Link>
         </div>
       </div>
-    </>
+    </div>
   )
 }

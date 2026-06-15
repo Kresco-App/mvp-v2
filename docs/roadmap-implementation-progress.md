@@ -893,6 +893,48 @@ Verification plan:
   list now remains visible when a background SWR refresh fails, with direct
   regression coverage. Status: implemented.
 
+### Slice 17: Admin Course Creation Contract Cleanup
+
+Status: implemented.
+
+Reason for this slice:
+
+- The backend `SubjectCreateIn` strict input accepts `title` and `description`.
+  The admin new-course page still submitted unsupported `niveau` and `filiere`
+  fields, which can make subject creation fail under strict payload validation.
+- The admin subject detail page also displayed removed track fields instead of
+  the actual subject detail contract.
+
+Planned frontend scope:
+
+- Remove unsupported `niveau` and `filiere` fields from the admin new-course
+  subject creation payload. Status: implemented.
+- Keep the new-course flow to subject plus ordered topic creation only. Status:
+  implemented.
+- Update the admin subject detail page to render subject description and typed
+  topic/workspace data instead of track fields. Status: implemented.
+- Keep the UI minimal and compatible with the current dark admin surface.
+  Status: implemented.
+
+Decisions:
+
+- Decision: program track assignment remains outside subject creation for now.
+  The subject model and create endpoint are not the same thing as a
+  `ProgramTrack`.
+- Decision: keep ASCII-only French copy in touched admin files to match the
+  current repository editing constraint.
+- Decision: do not include broader backend course router changes in this slice;
+  only validate against the existing strict contract.
+
+Verification plan:
+
+- Run frontend admin new-course and admin subject-page tests. Status:
+  implemented.
+- Run backend staff-only course catalog mutation test. Status: implemented.
+- Run TypeScript checks and lint. Status: implemented.
+- Strong review found no blocking issues and confirmed the staged file set is
+  limited to this admin contract cleanup. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
