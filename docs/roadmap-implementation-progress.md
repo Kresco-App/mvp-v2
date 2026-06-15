@@ -2497,7 +2497,7 @@ Verification completed:
 
 ### Slice 45: Refund Request Foundation
 
-Status: implemented.
+Status: committed in `b4d621d1`.
 
 Reason for this slice:
 
@@ -2561,12 +2561,76 @@ Verification completed:
 - `python -m pytest tests_fastapi/test_payments.py tests_fastapi/test_migrations.py -q`
   passed: 106 tests.
 
+### Slice 46: Permission Management Foundation
+
+Status: committed.
+
+Reason for this slice:
+
+- Slice 44 introduced explicit permission rows, but staff permissions still had
+  to be edited directly in the database.
+- The backoffice TODO calls out `roles:manage` and auditability before broader
+  staff role work.
+- The smallest operational step is a backend-only permission grant/revoke API
+  without adding role bundles or UI.
+
+Implemented scope:
+
+- Added admin permission schemas and service functions for listing, granting,
+  reactivating, and revoking user permission grants. Status: implemented.
+- Added `GET /api/admin/permissions`, `POST /api/admin/permissions`, and
+  `POST /api/admin/permissions/{permission_id}/revoke` behind `roles:manage`.
+  Status: implemented.
+- Added an allowlist for the initial roadmap permission names, including
+  finance permissions, `roles:manage`, `audit:read`, `users:*`,
+  `content:write`, `live:moderate`, and `sqladmin:access`. Status:
+  implemented.
+- Added self-protection so a manager cannot grant permissions to themselves or
+  revoke their own active `roles:manage` grant. Status: implemented.
+- Added append-only `AdminAuditLog` rows for grant, revoke, repeated revoke,
+  and revoked-grant reactivation events. Status: implemented.
+- Restricted grants to active, email-verified staff users so permissions cannot
+  be staged on student, inactive, or unverified accounts. Status: implemented.
+
+Decisions:
+
+- Decision: keep this as per-user permission management only. Role bundles
+  such as `finance_admin` and `security_auditor` wait until the permission
+  model has more usage.
+- Decision: re-granting a revoked permission reactivates the existing row
+  instead of creating duplicate grant history. This matches the current unique
+  `(user_id, permission)` table design.
+- Decision: use `AdminAuditLog` for append-only permission-change history while
+  keeping `UserPermission` as the current-state row. Richer audit dashboards
+  and role-bundle history remain later security slices.
+- Decision: no UI in this slice; tomorrow's UI pass can use these endpoints.
+
+Verification plan:
+
+- Add admin route tests for student denial, unpermitted staff denial,
+  `roles:manage` list/grant/revoke/reactivate, unsupported permission rejection,
+  and self-revoke protection. Status: implemented.
+- Keep the admin router structural test enforcing thin route handlers. Status:
+  implemented.
+- Run focused admin tests, backend compile check, broader impacted tests, and
+  strong review before committing. Status: implemented.
+
+Verification completed:
+
+- Strong review findings fixed before commit: append-only audit entries,
+  active verified staff target restriction, self-grant prevention,
+  duplicate-grant race recovery, and async-session-safe rollback handling.
+- `python -m pytest tests_fastapi/test_admin_overview.py -q` passed: 15 tests.
+- `python -m pytest tests_fastapi/test_admin_overview.py tests_fastapi/test_payments.py tests_fastapi/test_migrations.py -q`
+  passed: 121 tests.
+- `python -m compileall app` passed.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
   must avoid a half-migration where both old and new flows grant access
   inconsistently.
 - Refund provider execution remains intentionally deferred money-mutation work.
-- RBAC is finance-only for now. Role bundles, role-management UI, SQLAdmin
-  permission replacement, and full audit logs for permission changes remain
-  intentionally deferred.
+- Permission checks are still per-user grants rather than role bundles. Role
+  bundles, role-management UI, SQLAdmin permission replacement, and richer
+  permission audit dashboards remain intentionally deferred.
