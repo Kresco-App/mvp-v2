@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test'
 
 const ablyApiKey = process.env.ABLY_API_KEY ?? ''
 const hasAblyKey = ablyApiKey.length > 0 && !ablyApiKey.startsWith('e2e-')
+if (process.env.CI && !hasAblyKey) {
+  throw new Error('ABLY_API_KEY must be configured in CI for live-session fanout integration coverage.')
+}
 
 test.describe('Live session fanout (real Ably)', () => {
   test.skip(!hasAblyKey, 'Skipped – ABLY_API_KEY is not set or is a placeholder')

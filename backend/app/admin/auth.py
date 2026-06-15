@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from sqlalchemy import select
 from sqladmin.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
@@ -13,7 +13,8 @@ from app.models.admin_audit import AdminAuditLog
 from app.config import Settings
 from app.security.csrf import AdminCSRFMiddleware
 from app.models.users import User
-from app.security.passwords import is_unusable_password, verify_password
+from app.services.auth_account import authenticate_password_login
+from app.services.auth_users import get_user_by_email
 
 ADMIN_SESSION_AUTHENTICATED = "admin_authenticated"
 ADMIN_SESSION_USER_ID = "admin_user_id"
@@ -64,6 +65,10 @@ async def _write_admin_auth_audit(
         await db.commit()
 
 
+async def _skip_professor_offering_check(_db, _user) -> None:
+    return None
+
+
 class StaffAdminAuth(AuthenticationBackend):
     def __init__(self, settings: Settings) -> None:
         self.middlewares = [
@@ -104,16 +109,25 @@ class StaffAdminAuth(AuthenticationBackend):
             return False
 
         async with session_factory() as db:
-            result = await db.execute(select(User).where(User.email == email))
-            user = result.scalar_one_or_none()
-            if (
-                user is None
-                or not user.is_active
-                or not user.is_email_verified
-                or not user.is_staff
-                or is_unusable_password(user.password)
-                or not verify_password(password, user.password)
-            ):
+            user_for_audit = await get_user_by_email(db, email)
+            try:
+                user = await authenticate_password_login(
+                    db,
+                    email=email,
+                    password=password,
+                    require_professor_active_offering_fn=_skip_professor_offering_check,
+                )
+            except HTTPException:
+                await _write_admin_auth_audit(
+                    request,
+                    action="admin_login",
+                    user=user_for_audit,
+                    email=email,
+                    success=False,
+                    reason="invalid_credentials_or_staff_boundary",
+                )
+                return False
+            if not user.is_staff:
                 await _write_admin_auth_audit(
                     request,
                     action="admin_login",

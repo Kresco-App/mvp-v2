@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.courses import TopicItem
+    from app.models.exercises import Exercise
     from app.models.users import User
 
 ALLOWED_TARGET_TYPES = {"topic", "topic_item", "resource", "question_set", "question", "exam_problem", "tab_content"}
@@ -16,12 +17,19 @@ ALLOWED_TARGET_TYPES = {"topic", "topic_item", "resource", "question_set", "ques
 class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (
+        CheckConstraint(
+            "(topic_item_id IS NOT NULL AND exercise_id IS NULL) OR "
+            "(topic_item_id IS NULL AND exercise_id IS NOT NULL)",
+            name="ck_comments_exactly_one_target",
+        ),
         Index("ix_comments_topic_item_created", "topic_item_id", "created_at"),
+        Index("ix_comments_exercise_created", "exercise_id", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    topic_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"), index=True)
+    topic_item_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"), nullable=True, index=True)
+    exercise_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True)
     body: Mapped[str] = mapped_column(Text)
     parent_id: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True, index=True
@@ -33,6 +41,7 @@ class Comment(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="comments")
     topic_item: Mapped["TopicItem"] = relationship("TopicItem")
+    exercise: Mapped[Optional["Exercise"]] = relationship("Exercise")
     replies: Mapped[list["Comment"]] = relationship(
         "Comment", back_populates="parent", foreign_keys=[parent_id]
     )

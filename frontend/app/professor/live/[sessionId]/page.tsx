@@ -1,17 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { BellRing, Check, Eye, HelpCircle, MessageCircle, MessageSquare, Play, RotateCcw, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
-import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime } from '@/lib/ably'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import {
+  refreshProfessorLiveInteractionsEnvelope,
   updateLiveInteractionsEnvelope,
+  useLiveSessionRealtimeSubscription,
   useProfessorLiveControlData,
 } from '@/lib/liveSessionData'
-import { liveInteractionInitials, liveMessages, liveQuestions, mergeLiveInteraction } from '@/lib/liveInteractions'
+import {
+  formatLiveDateTime as formatDateTime,
+  formatLiveShortTime as formatShortTime,
+  liveInteractionInitials,
+  liveMessages,
+  liveQuestions,
+  mergeLiveInteraction,
+} from '@/lib/liveInteractions'
 import {
   endProfessorLiveSession,
   notifyProfessorLiveSession,
@@ -38,6 +46,7 @@ export default function ProfessorLiveControlRoomPage() {
     error,
     mutateAll,
     mutateSessions,
+    mutateEmbed,
     mutateInteractions,
   } = useProfessorLiveControlData(sessionId)
 
@@ -56,34 +65,25 @@ export default function ProfessorLiveControlRoomPage() {
     if (error) toast.error(apiDataErrorMessage(error, 'Could not load the live control room.'))
   }, [error])
 
-  useEffect(() => {
+  const realtimeFallbackPoll = useCallback(async () => {
     if (!numericSessionId) return
+    await Promise.allSettled([
+      mutateSessions(),
+      mutateEmbed(),
+      mutateInteractions(
+        (current) => refreshProfessorLiveInteractionsEnvelope(current, numericSessionId),
+        { revalidate: false },
+      ),
+    ])
+  }, [mutateEmbed, mutateInteractions, mutateSessions, numericSessionId])
 
-    const handleEvent = (message: { name?: string; data?: unknown }) => {
-      if (message.name?.startsWith('live.session.')) {
-        void mutateAll()
-        return
-      }
-      if (message.name?.startsWith('live.interaction.') && isLiveInteraction(message.data)) {
-        const interaction = message.data
-        void mutateInteractions(
-          (current) => updateLiveInteractionsEnvelope(current, numericSessionId, (items) => mergeLiveInteraction(items, interaction)),
-          { revalidate: false },
-        )
-      }
-    }
-    return subscribeKrescoRealtime({
-      channelName: liveSessionChannelName(numericSessionId),
-      onMessage: handleEvent,
-      beforeSubscribe: refreshKrescoRealtimeAuthorization,
-      fallback: {
-        intervalMs: 5000,
-        poll: async () => {
-          await mutateAll()
-        },
-      },
-    })
-  }, [mutateAll, mutateInteractions, numericSessionId])
+  useLiveSessionRealtimeSubscription({
+    sessionId: numericSessionId,
+    mutateAll,
+    mutateInteractions,
+    refreshInteractions: refreshProfessorLiveInteractionsEnvelope,
+    fallbackPoll: realtimeFallbackPoll,
+  })
 
   const chatMessages = useMemo(() => liveMessages(interactions), [interactions])
   const questions = useMemo(() => liveQuestions(interactions), [interactions])
@@ -318,16 +318,4 @@ export default function ProfessorLiveControlRoomPage() {
 
     </ProfessorShell>
   )
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
-
-function formatShortTime(value: string) {
-  return new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(value))
-}
-
-function isLiveInteraction(value: unknown): value is LiveSessionInteraction {
-  return Boolean(value && typeof value === 'object' && 'id' in value && 'kind' in value && 'body' in value)
 }

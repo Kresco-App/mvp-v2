@@ -36,18 +36,20 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
   const [answers, setAnswers] = useState<Record<string, number>>({})
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<SectionQuizResult | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const totalQuestions = data.questions.length
-  const currentQuestion = data.questions[currentIndex]
-  const progressPercent = (currentIndex / totalQuestions) * 100
+  const progressPercent = totalQuestions > 0 ? (currentIndex / totalQuestions) * 100 : 0
 
   function handleSelect(optIndex: number) {
     if (submitting || result) return
+    setSubmitError(null)
     setSelectedOption(optIndex)
   }
 
   function handleNext() {
     if (selectedOption === null) return
+    setSubmitError(null)
     const newAnswers = { ...answers, [currentIndex.toString()]: selectedOption }
     setAnswers(newAnswers)
 
@@ -61,9 +63,12 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
 
   async function submitQuiz(finalAnswers: Record<string, number>) {
     setSubmitting(true)
+    setSubmitError(null)
     try {
       const res = await onComplete(finalAnswers)
       setResult(res)
+    } catch {
+      setSubmitError('Impossible de valider le quiz. Verifiez votre connexion puis reessayez.')
     } finally {
       setSubmitting(false)
     }
@@ -74,7 +79,23 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
     setSelectedOption(null)
     setAnswers({})
     setResult(null)
+    setSubmitError(null)
   }
+
+  if (totalQuestions === 0) {
+    return (
+      <div className="max-w-xl mx-auto py-4">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 px-8 py-10 text-center">
+          <h3 className="text-lg font-bold text-white">Aucun quiz disponible</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-400">
+            Ce quiz ne contient aucune question pour le moment.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  const currentQuestion = data.questions[currentIndex] ?? data.questions[0]
 
   if (result) {
     const { passed: finalPassed, score: finalScore, correctCount, totalCount } = result
@@ -106,7 +127,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           </p>
           <p className="text-slate-500 text-sm mb-8">
             {correctCount} correct{correctCount > 1 ? 's' : ''} sur {totalCount} questions
-            {!finalPassed && ` — Il faut ${passScore}% pour reussir.`}
+            {!finalPassed && ` - Il faut ${passScore}% pour reussir.`}
           </p>
           {!finalPassed && (
             <button type="button"
@@ -133,10 +154,18 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           <span className="text-slate-500 text-sm">{Math.round(progressPercent)}%</span>
         </div>
         <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-            style={{ width: `${progressPercent}%` }}
-          />
+          <svg
+            role="progressbar"
+            aria-label="Progression du quiz"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progressPercent)}
+            className="block h-full w-full"
+            viewBox="0 0 100 1"
+            preserveAspectRatio="none"
+          >
+            <rect width={progressPercent} height="1" fill="#6366f1" rx="0.5" />
+          </svg>
         </div>
       </div>
 
@@ -161,6 +190,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
                 key={`${currentQuestion.text}-${option.text}-${optIdx}`}
                 onClick={() => handleSelect(optIdx)}
                 disabled={submitting}
+                aria-pressed={isSelected}
                 className={cn(
                   'w-full text-left px-5 py-4 rounded-xl border text-sm font-medium transition-all flex items-center gap-3',
                   optionClasses,
@@ -173,6 +203,16 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           })}
         </div>
 
+        {submitError && (
+          <div
+            role="alert"
+            className="mt-5 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+          >
+            <XCircle size={16} className="mt-0.5 shrink-0 text-red-300" />
+            <p>{submitError}</p>
+          </div>
+        )}
+
         {/* Action button */}
         <div className="mt-8 flex justify-end">
           <button type="button"
@@ -180,7 +220,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
             disabled={selectedOption === null || submitting}
             className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
           >
-            {submitting ? 'Validation...' : (currentIndex < totalQuestions - 1 ? 'Continuer' : 'Voir le resultat')}
+            {submitting ? 'Validation...' : (submitError ? "Reessayer l'envoi" : (currentIndex < totalQuestions - 1 ? 'Continuer' : 'Voir le resultat'))}
             {!submitting && <ArrowRight size={14} />}
           </button>
         </div>

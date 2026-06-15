@@ -16,6 +16,8 @@ FORBIDDEN_EXACT_PATHS = {
     "ARCHITECTURAL_SUGGESTIONS.md": "generated audit scratch file; fold durable findings into AGENT_BUG_DUMP.md or docs/",
     "backend/AGENT_BUG_DUMP.md": "duplicate agent dump; keep the root AGENT_BUG_DUMP.md canonical/",
     "diff_review.txt": "generated review artifact; do not keep large local diffs in the repo/",
+    "frontend/build_stats.txt": "captured build output; keep reproducible build evidence in docs if it is durable/",
+    "frontend/build_stats_utf8.txt": "captured build output; keep reproducible build evidence in docs if it is durable/",
 }
 FORBIDDEN_ROOT_SCRIPT_PREFIXES = (
     "append_bugs",
@@ -26,6 +28,7 @@ FORBIDDEN_ROOT_SCRIPT_PREFIXES = (
 FORBIDDEN_SUFFIXES = {
     ".db",
     ".db-journal",
+    ".log",
     ".pyc",
     ".pyo",
     ".sqlite",

@@ -137,7 +137,7 @@ describe('YouTubeVideoPlayer', () => {
     })
 
     expect(onProgress).toHaveBeenLastCalledWith(42, 0.42)
-    expect(mocks.postJson).toHaveBeenCalledWith('/courses/topic-items/101/complete', {
+    expect(mocks.postJson).toHaveBeenCalledWith('/courses/topic-items/101/progress', {
       watched_seconds: 42,
     })
   })

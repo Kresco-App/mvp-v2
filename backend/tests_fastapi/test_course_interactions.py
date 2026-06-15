@@ -3,78 +3,60 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 
 from app.database import get_session_factory
-from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
-from app.models.gamification import TopicItemProgress, UserStats
+from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
+from app.models.gamification import TopicItemProgress, UserStats, UserXP, XPTransaction
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.quizzes import QuestionSet
 import app.services.interaction_mutations as interaction_mutations
 from app.models.users import User, UserSubjectEntitlement
+from tests_fastapi.course_factories import seed_course_hierarchy, seed_subject_entitlement
 
 
 async def _seed_context(user_id: int, slug: str, *, item_tier: str = "", tab_tier: str = ""):
-    session_factory = get_session_factory()
-    async with session_factory() as db:
-        subject = Subject(title=f"Interaction {slug}", description="", is_published=True, order=1)
-        db.add(subject)
-        await db.flush()
-        topic = Topic(subject_id=subject.id, slug=slug, title=f"Topic {slug}", status="published", is_free_preview=True)
-        db.add(topic)
-        await db.flush()
-        section = TopicSection(topic_id=topic.id, title="Main", section_type="main", order=1)
-        db.add(section)
-        await db.flush()
-        resource = Resource(topic_id=topic.id, title="Resource", resource_type="pdf", url="/mock.pdf", status="published")
-        db.add(resource)
-        await db.flush()
-        secondary_resource = Resource(topic_id=topic.id, title="Worksheet", resource_type="pdf", url="/worksheet.pdf", status="published")
-        db.add(secondary_resource)
-        await db.flush()
-        item = TopicItem(
-            topic_id=topic.id,
-            section_id=section.id,
-            primary_resource_id=resource.id,
-            title="Item",
-            item_type="reading",
-            status="published",
-            required_tier=item_tier,
-        )
-        db.add(item)
-        await db.flush()
-        tab = TabContent(
-            topic_item_id=item.id,
-            resource_id=resource.id,
-            label="Course",
-            tab_type="course",
-            content="Body",
-            status="published",
-            order=1,
-            required_tier=tab_tier,
-        )
-        comments_tab = TabContent(topic_item_id=item.id, label="Discussion", tab_type="comments", status="published", order=2)
-        resource_tab = TabContent(topic_item_id=item.id, resource_id=secondary_resource.id, label="Worksheet", tab_type="resource", content="Worksheet body", status="published", order=3)
-        db.add_all([tab, comments_tab, resource_tab])
-        await db.flush()
-        question_set = QuestionSet(
-            title="Interaction quiz",
-            subject_id=subject.id,
-            topic_id=topic.id,
-            topic_item_id=item.id,
-            tab_content_id=tab.id,
-            source_type="tab",
-        )
-        db.add(question_set)
-        db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, status="active", source="test"))
-        await db.commit()
-        return {
-            "subject_id": subject.id,
-            "topic_id": topic.id,
-            "topic_item_id": item.id,
-            "tab_content_id": tab.id,
-            "resource_id": resource.id,
-            "secondary_tab_content_id": resource_tab.id,
-            "secondary_resource_id": secondary_resource.id,
-            "question_set_id": question_set.id,
-        }
+    seeded = await seed_course_hierarchy(
+        user_id,
+        slug,
+        subject_kwargs={"title": f"Interaction {slug}"},
+        item_kwargs={
+            "title": "Item",
+            "item_type": "reading",
+            "status": "published",
+            "required_tier": item_tier,
+        },
+        tab_kwargs={
+            "label": "Course",
+            "tab_type": "course",
+            "content": "Body",
+            "status": "published",
+            "order": 1,
+            "required_tier": tab_tier,
+        },
+        secondary_resource_kwargs={
+            "title": "Worksheet",
+            "resource_type": "pdf",
+            "url": "/worksheet.pdf",
+            "status": "published",
+        },
+        comments_tab_kwargs={
+            "label": "Discussion",
+            "tab_type": "comments",
+            "status": "published",
+            "order": 2,
+        },
+        secondary_tab_kwargs={
+            "label": "Worksheet",
+            "tab_type": "resource",
+            "content": "Worksheet body",
+            "status": "published",
+            "order": 3,
+        },
+        question_set_kwargs={"title": "Interaction quiz", "source_type": "tab"},
+    )
+    return seeded.as_dict()
+
+
+async def _scope_user_to_other_subject(user_id: int, slug: str):
+    return await seed_subject_entitlement(user_id, f"Other {slug}")
 
 
 def test_comment_access_reuses_single_access_context_build(app_client, auth_token, run_db, monkeypatch):
@@ -207,6 +189,54 @@ def test_notes_support_tab_filters_and_owner_mutations(app_client, auth_token, r
     assert filtered_after_delete.json() == []
 
 
+def test_saves_and_comments_support_owner_deletes(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-save-comment-deletes@example.com", is_pro=True)
+    other_token, _other_user_id = auth_token(email="interactions-save-comment-delete-other@example.com", is_pro=True)
+    seeded = run_db(_seed_context(user_id, "interactions-save-comment-deletes"))
+    headers = {"Authorization": f"Bearer {token}"}
+    other_headers = {"Authorization": f"Bearer {other_token}"}
+
+    saved = app_client.post(
+        "/api/interactions/saves",
+        headers=headers,
+        json={"target_type": "topic_item", "target_id": seeded["topic_item_id"], "label": "Item"},
+    )
+    comment = app_client.post(
+        "/api/interactions/comments",
+        headers=headers,
+        json={"topic_item_id": seeded["topic_item_id"], "body": "delete me"},
+    )
+
+    assert saved.status_code == 200
+    assert comment.status_code == 200
+    save_id = saved.json()["id"]
+    comment_id = comment.json()["id"]
+
+    forbidden_save_delete = app_client.delete(f"/api/interactions/saves/{save_id}", headers=other_headers)
+    forbidden_comment_delete = app_client.delete(f"/api/interactions/comments/{comment_id}", headers=other_headers)
+    deleted_save = app_client.delete(f"/api/interactions/saves/{save_id}", headers=headers)
+    deleted_comment = app_client.delete(f"/api/interactions/comments/{comment_id}", headers=headers)
+    saves_after_delete = app_client.get(
+        f"/api/interactions/saves?topic_item_id={seeded['topic_item_id']}",
+        headers=headers,
+    )
+    comments_after_delete = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}",
+        headers=headers,
+    )
+
+    assert forbidden_save_delete.status_code == 404
+    assert forbidden_comment_delete.status_code == 404
+    assert deleted_save.status_code == 200
+    assert deleted_save.json() == {"ok": True, "id": save_id}
+    assert deleted_comment.status_code == 200
+    assert deleted_comment.json() == {"ok": True, "id": comment_id}
+    assert saves_after_delete.status_code == 200
+    assert saves_after_delete.json() == []
+    assert comments_after_delete.status_code == 200
+    assert comments_after_delete.json() == []
+
+
 def test_topic_and_question_set_saves_infer_course_context(app_client, auth_token, run_db):
     token, user_id = auth_token(email="interactions-topic-context@example.com", is_pro=True)
     seeded = run_db(_seed_context(user_id, "interactions-topic-question-set-context"))
@@ -236,6 +266,66 @@ def test_topic_and_question_set_saves_infer_course_context(app_client, auth_toke
     assert question_set_data["subject_id"] == seeded["subject_id"]
     assert question_set_data["topic_id"] == seeded["topic_id"]
     assert question_set_data["topic_item_id"] == seeded["topic_item_id"]
+
+
+def test_top_level_notes_and_saves_require_course_access(app_client, auth_token, run_db):
+    _owner_token, owner_user_id = auth_token(email="interactions-top-level-owner@example.com", is_pro=True)
+    locked_token, locked_user_id = auth_token(email="interactions-top-level-locked@example.com", is_pro=True)
+    seeded = run_db(_seed_context(owner_user_id, "interactions-top-level-access"))
+    run_db(_scope_user_to_other_subject(locked_user_id, "interactions-top-level-access"))
+    locked_headers = {"Authorization": f"Bearer {locked_token}"}
+
+    subject_note = app_client.post(
+        "/api/interactions/notes",
+        headers=locked_headers,
+        json={"subject_id": seeded["subject_id"], "body": "locked subject note"},
+    )
+    topic_note = app_client.post(
+        "/api/interactions/notes",
+        headers=locked_headers,
+        json={"topic_id": seeded["topic_id"], "body": "locked topic note"},
+    )
+    topic_save = app_client.post(
+        "/api/interactions/saves",
+        headers=locked_headers,
+        json={"target_type": "topic", "target_id": seeded["topic_id"], "label": "Locked topic"},
+    )
+
+    assert subject_note.status_code == 403
+    assert topic_note.status_code == 403
+    assert topic_save.status_code == 403
+
+
+def test_interaction_context_rejects_conflicting_parent_ids(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-conflicting-context@example.com", is_pro=True)
+    first = run_db(_seed_context(user_id, "interactions-conflicting-context-a"))
+    second = run_db(_seed_context(user_id, "interactions-conflicting-context-b"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    note_response = app_client.post(
+        "/api/interactions/notes",
+        headers=headers,
+        json={
+            "topic_id": first["topic_id"],
+            "tab_content_id": second["tab_content_id"],
+            "body": "conflicting note",
+        },
+    )
+    save_response = app_client.post(
+        "/api/interactions/saves",
+        headers=headers,
+        json={
+            "target_type": "tab_content",
+            "target_id": second["tab_content_id"],
+            "topic_item_id": first["topic_item_id"],
+            "label": "Conflicting save",
+        },
+    )
+
+    assert note_response.status_code == 400
+    assert note_response.json()["detail"] == "Interaction context parent IDs conflict"
+    assert save_response.status_code == 400
+    assert save_response.json()["detail"] == "Interaction context parent IDs conflict"
 
 
 def test_save_item_rejects_missing_polymorphic_target(app_client, auth_token, run_db):
@@ -408,6 +498,198 @@ def test_topic_item_completion_updates_user_stats(app_client, auth_token, run_db
             assert stats.lessons_completed == 1
 
     run_db(_assert_stats())
+
+
+def test_topic_item_progress_endpoint_does_not_complete_or_award_xp(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-progress-only@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Progress only", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(
+                subject_id=subject.id,
+                slug="interactions-progress-only",
+                title="Progress only",
+                status="published",
+                is_free_preview=True,
+            )
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Main", section_type="main", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Video progress only",
+                item_type="video",
+                status="published",
+                duration_seconds=120,
+            )
+            db.add(item)
+            await db.flush()
+            db.add_all([
+                UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"),
+                TopicItemProgress(
+                    user_id=user_id,
+                    topic_id=topic.id,
+                    topic_item_id=item.id,
+                    status="started",
+                    watched_seconds=100,
+                    updated_at=datetime.now(timezone.utc) - timedelta(seconds=60),
+                ),
+            ])
+            await db.commit()
+            return item.id
+
+    item_id = run_db(_seed())
+    progress = app_client.post(
+        f"/api/courses/topic-items/{item_id}/progress",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"watched_seconds": 120},
+    )
+
+    assert progress.status_code == 200
+    assert progress.json() == {"ok": True, "watched_seconds": 120, "completed": False}
+
+    async def _assert_progress_only():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            stored = await db.scalar(
+                select(TopicItemProgress).where(
+                    TopicItemProgress.user_id == user_id,
+                    TopicItemProgress.topic_item_id == item_id,
+                )
+            )
+            stats = await db.get(UserStats, user_id)
+            xp = await db.scalar(select(UserXP).where(UserXP.user_id == user_id))
+            xp_count = await db.scalar(
+                select(func.count())
+                .select_from(XPTransaction)
+                .where(
+                    XPTransaction.user_id == user_id,
+                    XPTransaction.topic_item_id == item_id,
+                )
+            )
+            assert stored is not None
+            assert stored.status == "started"
+            assert stored.completed_at is None
+            assert stats is not None
+            assert stats.total_watch_seconds == 20
+            assert stats.lessons_completed == 0
+            assert xp is None or xp.total_xp == 0
+            assert xp_count == 0
+
+    run_db(_assert_progress_only())
+
+
+def test_topic_item_completion_after_progress_awards_xp_once(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-progress-then-complete@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Progress then complete", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            topic = Topic(
+                subject_id=subject.id,
+                slug="interactions-progress-then-complete",
+                title="Progress then complete",
+                status="published",
+                is_free_preview=True,
+            )
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Main", section_type="main", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Video progress then complete",
+                item_type="video",
+                status="published",
+                duration_seconds=120,
+            )
+            db.add(item)
+            await db.flush()
+            db.add_all([
+                UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"),
+                TopicItemProgress(
+                    user_id=user_id,
+                    topic_id=topic.id,
+                    topic_item_id=item.id,
+                    status="started",
+                    watched_seconds=100,
+                    updated_at=datetime.now(timezone.utc) - timedelta(seconds=60),
+                ),
+            ])
+            await db.commit()
+            return item.id
+
+    item_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    progress = app_client.post(
+        f"/api/courses/topic-items/{item_id}/progress",
+        headers=headers,
+        json={"watched_seconds": 108},
+    )
+    completed = app_client.post(
+        f"/api/courses/topic-items/{item_id}/complete",
+        headers=headers,
+        json={"watched_seconds": 108},
+    )
+    repeated = app_client.post(
+        f"/api/courses/topic-items/{item_id}/complete",
+        headers=headers,
+        json={"watched_seconds": 108},
+    )
+
+    assert progress.status_code == 200
+    assert progress.json() == {"ok": True, "watched_seconds": 108, "completed": False}
+    assert completed.status_code == 200
+    assert completed.json()["xp_earned"] == 10
+    assert repeated.status_code == 200
+    assert repeated.json()["xp_earned"] == 0
+
+    async def _assert_completed_once():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            stored = await db.scalar(
+                select(TopicItemProgress).where(
+                    TopicItemProgress.user_id == user_id,
+                    TopicItemProgress.topic_item_id == item_id,
+                )
+            )
+            stats = await db.get(UserStats, user_id)
+            xp = await db.scalar(select(UserXP).where(UserXP.user_id == user_id))
+            xp_rows = (
+                await db.execute(
+                    select(XPTransaction).where(
+                        XPTransaction.user_id == user_id,
+                        XPTransaction.topic_item_id == item_id,
+                        XPTransaction.reason == "video_complete",
+                    )
+                )
+            ).scalars().all()
+            assert stored is not None
+            assert stored.status == "completed"
+            assert stored.completed_at is not None
+            assert stored.watched_seconds == 108
+            assert stats is not None
+            assert stats.total_watch_seconds == 8
+            assert stats.lessons_completed == 1
+            assert xp is not None
+            assert xp.total_xp >= 10
+            assert len(xp_rows) == 1
+            assert xp_rows[0].amount == 10
+
+    run_db(_assert_completed_once())
 
 
 def test_parallel_video_items_share_user_watch_accrual_budget(app_client, auth_token, run_db):

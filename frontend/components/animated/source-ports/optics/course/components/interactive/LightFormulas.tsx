@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { FormulaCard } from '../FormulaCard';
+import { FormulaCard } from '@/components/animated/shared/FormulaCard';
 import { Ruler, Triangle, Maximize, Spline, Sun, Blend } from 'lucide-react';
 
 export const LightFormulas: React.FC = () => {

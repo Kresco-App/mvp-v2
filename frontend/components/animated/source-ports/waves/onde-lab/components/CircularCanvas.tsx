@@ -288,7 +288,7 @@ const CircularCanvas = forwardRef<CircularCanvasRef, CircularCanvasProps>((props
                 onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
-                style={{ touchAction: 'none' }}
+                className="touch-none"
             />
         </div>
     );

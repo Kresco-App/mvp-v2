@@ -89,7 +89,7 @@ export const StabilityGraph: React.FC = () => {
                 stroke="#64748b"
                 tick={{fontSize: 10}}
             >
-               <Label value="Nombre de Protons (Z)" offset={0} position="insideBottom" fill="#475569" style={{fontSize: '12px', fontWeight: 600}} />
+               <Label value="Nombre de Protons (Z)" offset={0} position="insideBottom" fill="#475569" fontSize={12} fontWeight={600} />
             </XAxis>
             <YAxis 
                 type="number" 
@@ -101,7 +101,7 @@ export const StabilityGraph: React.FC = () => {
                 tick={{fontSize: 10}}
                 width={40}
             >
-               <Label value="Nombre de Neutrons (N)" angle={-90} position="insideLeft" fill="#475569" style={{textAnchor: 'middle', fontSize: '12px', fontWeight: 600}} />
+               <Label value="Nombre de Neutrons (N)" angle={-90} position="insideLeft" fill="#475569" textAnchor="middle" fontSize={12} fontWeight={600} />
             </YAxis>
             <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} isAnimationActive={false} />
             
@@ -128,9 +128,7 @@ export const StabilityGraph: React.FC = () => {
                     stroke="none"
                     // Stable points larger
                     r={entry.type === 'stable' ? 4 : 3}
-                    className="transition-opacity hover:opacity-100"
-                    // Unstable points semi-transparent to reduce visual noise
-                    style={{ opacity: entry.type === 'stable' ? 1 : 0.6 }}
+                    className={entry.type === 'stable' ? 'transition-opacity opacity-100' : 'transition-opacity opacity-60 hover:opacity-100'}
                 />
               ))}
             </Scatter>

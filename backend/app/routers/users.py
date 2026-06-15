@@ -2,7 +2,6 @@ import inspect
 import os
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, Response, UploadFile
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -15,13 +14,6 @@ from app.schemas.users import (
     VerifyEmailIn,
 )
 from app.security.csrf import clear_csrf_cookie, set_csrf_cookie
-from app.security.passwords import (
-    hash_password,
-    hash_password_async,
-    is_unusable_password,
-    verify_password,
-    verify_password_async,
-)
 from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_google_token
 from app.services.auth_account import (
     authenticate_password_login,
@@ -57,22 +49,6 @@ AUTH_SESSION_RATE_LIMIT = os.environ.get("KRESCO_AUTH_SESSION_RATE_LIMIT", "20/m
 PROFILE_MUTATION_RATE_LIMIT = os.environ.get("KRESCO_PROFILE_MUTATION_RATE_LIMIT", "20/minute")
 PROFILE_MEDIA_RATE_LIMIT = os.environ.get("KRESCO_PROFILE_MEDIA_RATE_LIMIT", "10/minute")
 MIN_PASSWORD_LENGTH = 8
-
-
-def _hash_password(plain: str) -> str:
-    return hash_password(plain)
-
-
-def _verify_password(plain: str, stored: str) -> bool:
-    return verify_password(plain, stored)
-
-
-async def _hash_password_async(plain: str) -> str:
-    return await hash_password_async(plain)
-
-
-async def _verify_password_async(plain: str, stored: str) -> bool:
-    return await verify_password_async(plain, stored)
 
 
 def _auth_cookie_secure(settings: Settings) -> bool:
@@ -195,7 +171,7 @@ async def signup(
         db,
         email=email,
         full_name=body.full_name,
-        token_version=user.auth_token_version or 0,
+        token_version=user.email_token_version or 0,
         settings=settings,
     ):
         background_tasks.add_task(

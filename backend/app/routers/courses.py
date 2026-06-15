@@ -2,7 +2,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -23,6 +23,8 @@ from app.schemas.courses import (
     TabQuizSubmitIn,
     TopicCardOut,
     TopicItemCompleteIn,
+    TopicItemProgressIn,
+    TopicItemProgressOut,
     TopicWorkspaceOut,
 )
 from app.schemas.interactions import ResourceOpenIn, ResourceOpenOut
@@ -31,7 +33,7 @@ from app.services.access import build_access_context
 from app.services.course_access import exam_out, require_topic_item_primary_video_resource_access
 from app.services.course_tab_quiz_submission import get_recent_tab_quiz_attempts
 from app.services.course_tab_quiz_submission import submit_tab_quiz_attempt
-from app.services.course_topic_mutations import complete_topic_item_state
+from app.services.course_topic_mutations import complete_topic_item_state, record_topic_item_progress_state
 from app.services.course_topic_read_models import build_topic_workspace, list_topic_cards
 from app.services.interaction_mutations import open_topic_workspace_resource
 from app.services.search import LIKE_ESCAPE, substring_search_pattern
@@ -58,7 +60,7 @@ class TopicCreateIn(StrictInputModel):
 
 
 def _require_course_admin(user: User) -> None:
-    if not (user.is_staff or user.role == "professor"):
+    if not user.is_staff or not user.is_email_verified:
         raise HTTPException(status_code=403, detail="Course admin access required")
 
 
@@ -69,14 +71,22 @@ def _slug(value: str) -> str:
 
 async def _unique_topic_slug(db: AsyncSession, title: str, subject_id: int) -> str:
     base = f"{_slug(title)}-{subject_id}"
-    slug = base
+    existing_slugs = set(
+        (
+            await db.execute(
+                select(Topic.slug).where(
+                    (Topic.slug == base) | Topic.slug.like(f"{base}-%")
+                )
+            )
+        ).scalars()
+    )
+    if base not in existing_slugs:
+        return base
+
     suffix = 2
-    existing_id = await db.scalar(select(Topic.id).where(Topic.slug == slug))
-    while existing_id is not None:
-        slug = f"{base}-{suffix}"
+    while f"{base}-{suffix}" in existing_slugs:
         suffix += 1
-        existing_id = await db.scalar(select(Topic.id).where(Topic.slug == slug))
-    return slug
+    return f"{base}-{suffix}"
 
 
 @router.get("/subjects", response_model=list[SubjectListOut])
@@ -255,6 +265,19 @@ async def complete_topic_item(
     return await complete_topic_item_state(db, user=user, item_id=item_id, body=body)
 
 
+@router.post("/topic-items/{item_id}/progress", response_model=TopicItemProgressOut)
+@limiter.limit(COURSE_PROGRESS_MUTATION_RATE_LIMIT)
+async def record_topic_item_progress(
+    request: Request,
+    item_id: int,
+    body: TopicItemProgressIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await record_topic_item_progress_state(db, user=user, item_id=item_id, body=body)
+
+
 @router.get("/topic-items/{item_id}/stream", response_model=StreamOut)
 async def get_topic_item_stream(
     item_id: int,
@@ -327,23 +350,32 @@ async def get_exam_bank(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    problem_filters = [ExamProblem.status == "published"]
+    if topic_id is not None:
+        problem_filters.append(ExamProblem.topic_id == topic_id)
+
     stmt = (
         select(Exam)
         .join(Subject, Subject.id == Exam.subject_id)
         .options(
             selectinload(Exam.subject),
-            selectinload(Exam.problems).selectinload(ExamProblem.video_resource),
+            selectinload(Exam.problems.and_(and_(*problem_filters))).selectinload(
+                ExamProblem.video_resource
+            ),
         )
         .where(Exam.status == "published", Subject.is_published == True)  # noqa: E712
-        .order_by(Exam.year.desc(), Exam.id.desc())
     )
     if subject_id is not None:
         stmt = stmt.where(Exam.subject_id == subject_id)
+    if topic_id is not None:
+        stmt = stmt.where(
+            Exam.problems.any(and_(ExamProblem.status == "published", ExamProblem.topic_id == topic_id))
+        )
     if year is not None:
         stmt = stmt.where(Exam.year == year)
     if q:
         stmt = stmt.where(Exam.title.ilike(substring_search_pattern(q), escape=LIKE_ESCAPE))
-    exams = (await db.execute(stmt.limit(50))).scalars().unique().all()
+    exams = (await db.execute(stmt.order_by(Exam.year.desc(), Exam.id.desc()).limit(50))).scalars().unique().all()
     access_context = await build_access_context(db, user)
     output: list[ExamOut] = []
     for exam in exams:

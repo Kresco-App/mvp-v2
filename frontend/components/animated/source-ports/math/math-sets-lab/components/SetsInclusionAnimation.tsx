@@ -12,6 +12,23 @@ interface SetsInclusionProps {
     speed?: number;
 }
 
+function setToneClasses(setId: string | undefined) {
+    switch (setId) {
+        case 'R':
+            return { border: 'border-red-500', text: 'text-red-500' };
+        case 'Q':
+            return { border: 'border-purple-500', text: 'text-purple-500' };
+        case 'D':
+            return { border: 'border-amber-500', text: 'text-amber-500' };
+        case 'Z':
+            return { border: 'border-emerald-500', text: 'text-emerald-500' };
+        case 'N':
+            return { border: 'border-blue-500', text: 'text-blue-500' };
+        default:
+            return { border: 'border-transparent', text: 'text-slate-500' };
+    }
+}
+
 export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const { theme } = useTheme();
@@ -201,7 +218,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                 .attr('alignment-baseline', 'middle')
                 .attr('fill', isDark ? '#F1F5F9' : '#1E293B')
                 .attr('opacity', 0)
-                .style('animation', 'float 3s ease-in-out infinite alternate')
+                .style('animation', 'math-set-float 3s ease-in-out infinite alternate')
                 .style('animation-delay', (_d, i) => `${i * 0.2}s`)
                 .on('mouseover', function (event, d) {
                     select(this)
@@ -240,18 +257,6 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                 })
                 .attr('opacity', 1);
 
-            if (!document.getElementById('float-keyframe')) {
-                const style = document.createElement('style');
-                style.id = 'float-keyframe';
-                style.innerHTML = `
-                        @keyframes float {
-                            0% { transform: translateY(0px) scale(1); }
-                            100% { transform: translateY(-3px) scale(1.03); }
-                        }
-                    `;
-                document.head.appendChild(style);
-            }
-
             isRendered = true;
         };
 
@@ -278,27 +283,28 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
         };
     }, [isDark, speed, selectedSet]);
 
+    const selectedTone = setToneClasses(selectedSet?.id);
+
     return (
         <div className="w-full h-full flex flex-col items-center">
             {/* SVG Container */}
             <div ref={containerRef} className="w-full flex-1 relative min-h-[400px]" />
 
             {/* Info Panel for Selected Set */}
-            <div className={`w-full max-w-2xl mt-4 p-4 rounded-xl border transition-all duration-300 ${selectedSet ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none absolute bottom-0'}`}
-                style={{ backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : 'rgba(255, 255, 255, 0.5)', borderColor: selectedSet ? selectedSet.color : 'transparent' }}>
+            <div className={`w-full max-w-2xl mt-4 p-4 rounded-xl border transition-all duration-300 ${isDark ? 'bg-slate-800/50' : 'bg-white/50'} ${selectedSet ? selectedTone.border : 'border-transparent'} ${selectedSet ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none absolute bottom-0'}`}>
                 {selectedSet && (
                     <div className="flex items-start gap-4">
-                        <div className="text-4xl font-bold flex-shrink-0" style={{ color: selectedSet.color }}>
+                        <div className={`text-4xl font-bold flex-shrink-0 ${selectedTone.text}`}>
                             {selectedSet.label}
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold" style={{ color: isDark ? '#F1F5F9' : '#1E293B' }}>{selectedSet.name}</h3>
+                            <h3 className={`text-lg font-bold ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>{selectedSet.name}</h3>
                             <p className={`text-sm mt-1 leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                                 {selectedSet.desc}
                             </p>
                             <p className="text-xs mt-2 font-mono">
                                 <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Exemples: </span>
-                                <span style={{ color: selectedSet.color }}>{selectedSet.examples}</span>
+                                <span className={selectedTone.text}>{selectedSet.examples}</span>
                             </p>
                         </div>
                     </div>

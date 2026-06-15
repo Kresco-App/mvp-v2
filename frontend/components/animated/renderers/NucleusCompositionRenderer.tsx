@@ -71,6 +71,12 @@ type Particle = {
   delay: number
 }
 
+const PARTICLE_SIZE_CLASSES: Record<number, string> = {
+  26: 'h-[26px] w-[26px] -ml-[13px] -mt-[13px]',
+  28: 'h-[28px] w-[28px] -ml-[14px] -mt-[14px]',
+  30: 'h-[30px] w-[30px] -ml-[15px] -mt-[15px]',
+}
+
 const ELEMENTS: Record<number, ElementInfo> = {
   1: { symbol: 'H', name: 'Hydrogen', typicalNeutrons: 0 },
   2: { symbol: 'He', name: 'Helium', typicalNeutrons: 2 },
@@ -333,16 +339,11 @@ export default function NucleusCompositionRenderer(props: NucleusCompositionRend
                   key={particle.id}
                   className={cn(
                     'absolute left-1/2 top-1/2 grid place-items-center rounded-full border text-[10px] font-black shadow-sm',
+                    PARTICLE_SIZE_CLASSES[particle.size],
                     particle.type === 'proton'
                       ? 'border-rose-200 bg-rose-500 text-white'
                       : 'border-sky-200 bg-sky-500 text-white'
                   )}
-                  style={{
-                    width: particle.size,
-                    height: particle.size,
-                    marginLeft: -particle.size / 2,
-                    marginTop: -particle.size / 2,
-                  }}
                   initial={{ opacity: 0, scale: 0.6, x: particle.x, y: particle.y }}
                   animate={{ opacity: 1, scale: 1, x: particle.x, y: particle.y }}
                   transition={{ delay: particle.delay, type: 'spring', stiffness: 220, damping: 18 }}

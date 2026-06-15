@@ -744,7 +744,15 @@ TRACKING_COLUMN_NAMES = {
 }
 
 SENSITIVE_COLUMN_NAMES = {
+    "auth_token_version",
+    "email_token_version",
+    "google_id",
     "password",
+    "password_changed_at",
+    "provider_payload_json",
+    "stripe_customer_id",
+    "stream_ingest_url",
+    "stream_key",
 }
 
 IMMUTABLE_ADMIN_MODELS = {

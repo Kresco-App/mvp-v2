@@ -669,6 +669,29 @@ def test_scheduled_alembic_migration_event_runs_head(monkeypatch, test_settings)
     assert scheduled.os.environ["PGSSLROOTCERT"] == test_settings.pgsslrootcert
 
 
+def test_scheduled_database_initialization_uses_pool_settings(monkeypatch, test_settings):
+    calls = []
+    test_settings.database_pool_size = 3
+    test_settings.database_max_overflow = 4
+    test_settings.database_pool_timeout = 5
+
+    def fake_init_engine(database_url, is_lambda=False, pgsslrootcert=None, **engine_kwargs):
+        calls.append((database_url, is_lambda, pgsslrootcert, engine_kwargs))
+
+    monkeypatch.setattr(scheduled, "init_engine", fake_init_engine)
+
+    scheduled._init_scheduled_database(test_settings)
+
+    assert calls == [
+        (
+            test_settings.database_url,
+            test_settings.is_lambda,
+            test_settings.pgsslrootcert,
+            {"pool_size": 3, "max_overflow": 4, "pool_timeout": 5},
+        )
+    ]
+
+
 def test_scheduled_realtime_outbox_limit_parsing():
     assert scheduled._outbox_limit_from_event({}) == scheduled.DEFAULT_OUTBOX_LIMIT
     assert scheduled._outbox_limit_from_event({"limit": "7"}) == 7
@@ -711,6 +734,21 @@ def test_internal_process_outbox_requires_worker_secret(app_client, monkeypatch,
     assert forbidden.status_code == 403
     assert ok.status_code == 200
     assert ok.json() == {"ok": True, "claimed": 7, "published": 0, "retry": 0, "dead": 0}
+
+
+def test_internal_process_outbox_fails_closed_when_worker_secret_is_unconfigured(app_client, test_settings):
+    old_secret = test_settings.realtime_outbox_secret
+    test_settings.realtime_outbox_secret = "short"
+    try:
+        response = app_client.post(
+            "/api/internal/realtime/process-outbox",
+            headers={"x-kresco-internal-secret": "short"},
+        )
+    finally:
+        test_settings.realtime_outbox_secret = old_secret
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Internal worker secret is not configured"
 
 
 def test_internal_requeue_failed_outbox_requires_worker_secret(app_client, monkeypatch, test_settings):

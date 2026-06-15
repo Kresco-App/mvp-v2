@@ -120,6 +120,38 @@ async def _post_vdocipher_json(
     raise RuntimeError("unreachable")
 
 
+async def _delete_vdocipher_resource(
+    url: str,
+    *,
+    headers: dict,
+    timeout: int,
+) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(1, VDOCIPHER_PROVIDER_ATTEMPTS + 1):
+            try:
+                response = await client.delete(url, headers=headers)
+            except httpx.HTTPError as exc:
+                if attempt >= VDOCIPHER_PROVIDER_ATTEMPTS or not _is_retryable_provider_error(exc):
+                    raise
+                await asyncio.sleep(VDOCIPHER_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+                continue
+            if (
+                response.status_code in RETRYABLE_VDOCIPHER_STATUS_CODES
+                and attempt < VDOCIPHER_PROVIDER_ATTEMPTS
+            ):
+                await asyncio.sleep(VDOCIPHER_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+                continue
+            return response
+    raise RuntimeError("unreachable")
+
+
+def _live_delete_url(template: str, live_id: str) -> str:
+    encoded_live_id = quote(live_id.strip(), safe="")
+    if "{live_id}" in template or "{liveId}" in template:
+        return template.replace("{live_id}", encoded_live_id).replace("{liveId}", encoded_live_id)
+    return f"{template.rstrip('/')}/{encoded_live_id}"
+
+
 async def get_video_otp(vdocipher_id: str, settings: Settings, *, user_id: int | str | None = None) -> dict:
     video_id = vdocipher_id.strip()
     if not video_id:
@@ -178,6 +210,7 @@ async def _fetch_video_otp(
         logger.warning("vdocipher_otp_malformed_response")
         raise HTTPException(status_code=502, detail="Invalid VdoCipher OTP response") from exc
 
+
 async def get_video_stream_data(vdocipher_id: str, settings: Settings, *, user_id: int | str | None = None) -> dict:
     video_id = vdocipher_id.strip()
     if video_id.startswith(DEMO_VIDEO_ID_PREFIX) and not settings.is_production_like:
@@ -233,6 +266,59 @@ async def create_live_stream(title: str, settings: Settings, *, chat_mode: str =
         "stream_key": _first_string(data, ("streamKey", "stream_key", "key")),
         "raw": sanitize_provider_payload(data),
     }
+
+
+async def delete_live_stream(live_id: str, settings: Settings) -> dict:
+    clean_live_id = live_id.strip()
+    if not clean_live_id:
+        return {"cleanup_state": "skipped", "cleanup_reason": "missing_live_id"}
+
+    if not settings.vdocipher_api_secret:
+        logger.critical(
+            "vdocipher_live_cleanup_required",
+            extra={"vdocipher_live_id": clean_live_id, "cleanup_reason": "missing_api_secret"},
+        )
+        return {"cleanup_state": "cleanup_required", "cleanup_reason": "missing_api_secret"}
+
+    delete_url_template = getattr(settings, "vdocipher_live_delete_url", "").strip()
+    if not delete_url_template:
+        logger.critical(
+            "vdocipher_live_cleanup_required",
+            extra={"vdocipher_live_id": clean_live_id, "cleanup_reason": "delete_endpoint_unconfigured"},
+        )
+        return {"cleanup_state": "cleanup_required", "cleanup_reason": "delete_endpoint_unconfigured"}
+
+    delete_url = _live_delete_url(delete_url_template, clean_live_id)
+    try:
+        response = await _delete_vdocipher_resource(
+            delete_url,
+            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        logger.exception(
+            "vdocipher_live_cleanup_delete_request_failed",
+            extra={"vdocipher_live_id": clean_live_id},
+        )
+        return {
+            "cleanup_state": "cleanup_required",
+            "cleanup_reason": "delete_request_failed",
+            "cleanup_error": f"{type(exc).__name__}: {str(exc)[:500]}",
+        }
+
+    if response.status_code >= 400:
+        logger.critical(
+            "vdocipher_live_cleanup_delete_failed",
+            extra={"vdocipher_live_id": clean_live_id, **_provider_error_extra(response)},
+        )
+        return {
+            "cleanup_state": "cleanup_required",
+            "cleanup_reason": "delete_provider_failed",
+            "provider_status_code": response.status_code,
+        }
+
+    logger.info("vdocipher_live_cleanup_deleted", extra={"vdocipher_live_id": clean_live_id})
+    return {"cleanup_state": "deleted"}
 
 
 def get_live_embed_url(vdocipher_live_id: str, chat_token: str = "") -> str:

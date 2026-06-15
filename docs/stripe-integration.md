@@ -20,7 +20,8 @@ Stripe is implemented in the FastAPI backend:
 Current endpoints:
 
 - `POST /api/payments/create-checkout-session`
-- `GET /api/payments/verify-session?session_id=...`
+- `POST /api/payments/verify-session`
+- `GET /api/payments/verify-session?session_id=...` returns current Pro status only for compatibility
 - `POST /api/payments/webhook`
 
 Current checkout mode is one-time payment, not subscription mode. A successful payment unlocks the user's Pro access flag.
@@ -50,8 +51,10 @@ Accepted aliases are defined in `backend/app/config.py`. `STRIPE_PK` / `STRIPE_P
 - Existing Stripe customer ids are reused; newly created customer ids are persisted back to the user.
 - Successful checkout redirects to `${FRONTEND_URL}/payment-success?session_id=...`.
 - Checkout creation returns `503` when required Stripe checkout configuration is missing.
-- `verify-session` marks the current user as `is_pro=true` through the shared payment entitlement service when Stripe reports a paid session.
-- `verify-session` rejects paid sessions that belong to another user.
+- `POST verify-session` requires `Idempotency-Key` and CSRF protection for cookie-authenticated writes.
+- `POST verify-session` marks the current user as `is_pro=true` through the shared payment entitlement service when Stripe reports a paid session.
+- `POST verify-session` rejects paid sessions that belong to another user.
+- Provider verification failures return `503` without consuming the idempotency key.
 - Webhook `checkout.session.completed` marks the target user as pro through the same entitlement service.
 - Webhook `customer.subscription.deleted` and `invoice.payment_failed` still mark users non-pro by Stripe customer id through the same entitlement service as a legacy/defensive branch, but current checkout does not create subscriptions.
 

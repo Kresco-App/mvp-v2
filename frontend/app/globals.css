@@ -118,6 +118,7 @@
 @keyframes krescoScaleX { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes krescoSoftPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.035); opacity: .88; } }
 @keyframes krescoShimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+@keyframes math-set-float { from { transform: translateY(0) scale(1); } to { transform: translateY(-3px) scale(1.03); } }
 
 * { box-sizing: border-box; }
 

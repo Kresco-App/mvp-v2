@@ -1,0 +1,196 @@
+name: Staging Launch Evidence
+
+on:
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      EVIDENCE_DIR: artifacts/staging-launch-evidence
+      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      BACKEND_READY_URL: ${{ vars.BACKEND_READY_URL }}
+      STAGING_BACKEND_URL: ${{ vars.STAGING_BACKEND_URL }}
+      MEDIA_S3_BUCKET: ${{ vars.MEDIA_S3_BUCKET }}
+      MEDIA_S3_REGION: ${{ vars.MEDIA_S3_REGION }}
+      MEDIA_S3_PREFIX: ${{ vars.MEDIA_S3_PREFIX }}
+      MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS: ${{ vars.MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS }}
+      MEDIA_S3_ANONYMOUS_READ_KEY: ${{ vars.MEDIA_S3_ANONYMOUS_READ_KEY }}
+      STAGING_RDS_PROXY_NAME: ${{ vars.STAGING_RDS_PROXY_NAME }}
+      STAGING_LAMBDA_FUNCTION_NAME: ${{ vars.STAGING_LAMBDA_FUNCTION_NAME }}
+      STAGING_KEEP_WARM_RULE_NAME: ${{ vars.STAGING_KEEP_WARM_RULE_NAME }}
+      STAGING_WORKER_SCHEDULE_RULE_NAME: ${{ vars.STAGING_WORKER_SCHEDULE_RULE_NAME }}
+      STAGING_LIVE_SESSION_ID: ${{ vars.STAGING_LIVE_SESSION_ID }}
+      STAGING_EXPECTED_STUDENTS: ${{ vars.STAGING_EXPECTED_STUDENTS }}
+      STAGING_TOPIC_ID: ${{ vars.STAGING_TOPIC_ID }}
+      STAGING_TOPIC_SEARCH_QUERY: ${{ vars.STAGING_TOPIC_SEARCH_QUERY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare evidence directory
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR"
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      - name: Install backend dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Check tracked secret hygiene and rotation checklist
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python scripts/run_evidence_command.py \
+            --name secret-rotation-checklist \
+            --output "$EVIDENCE_DIR/secret-rotation-checklist.json" \
+            -- \
+            python scripts/check_secret_hygiene.py --require-rotation-checklist
+
+      - name: Collect staging runtime diagnostics
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python scripts/run_evidence_command.py \
+            --name staging-runtime \
+            --output "$EVIDENCE_DIR/staging-runtime.json" \
+            --require-json \
+            -- \
+            python scripts/check_staging_runtime.py "${BACKEND_READY_URL:-}" --include-provider-reachability --json
+        env:
+          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+
+      - name: Collect S3 media posture evidence
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python scripts/run_evidence_command.py \
+            --name s3-media-posture \
+            --output "$EVIDENCE_DIR/s3-media-posture.json" \
+            --require-json \
+            -- \
+            python scripts/check_s3_media_posture.py "${MEDIA_S3_BUCKET:-}" \
+            --prefix "${MEDIA_S3_PREFIX:-}" \
+            --anonymous-read-key "${MEDIA_S3_ANONYMOUS_READ_KEY:-}" \
+            --json
+
+      - name: Collect staging ops posture evidence
+        if: ${{ always() }}
+        env:
+          STAGING_OPS_DRILL_EVIDENCE_JSON: ${{ secrets.STAGING_OPS_DRILL_EVIDENCE_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -n "${STAGING_OPS_DRILL_EVIDENCE_JSON:-}" ]; then
+            drill_file="$RUNNER_TEMP/staging-ops-drill-evidence.json"
+            printf '%s' "$STAGING_OPS_DRILL_EVIDENCE_JSON" > "$drill_file"
+            export STAGING_OPS_DRILL_EVIDENCE_FILE="$drill_file"
+          fi
+          python scripts/run_evidence_command.py \
+            --name staging-ops-posture \
+            --output "$EVIDENCE_DIR/staging-ops-posture.json" \
+            --require-json \
+            -- \
+            python scripts/check_staging_ops_posture.py --json
+
+      - name: Collect realtime outbox evidence
+        if: ${{ always() }}
+        env:
+          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+        run: |
+          set -euo pipefail
+          backend_url="${STAGING_BACKEND_URL:-${BACKEND_READY_URL:-}}"
+          python scripts/run_evidence_command.py \
+            --name realtime-outbox \
+            --output "$EVIDENCE_DIR/realtime-outbox.json" \
+            --require-json \
+            -- \
+            python scripts/check_staging_realtime_fanout.py "$backend_url" \
+            --mode outbox \
+            --json
+
+      - name: Collect realtime fanout provider evidence
+        if: ${{ always() }}
+        env:
+          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+          STAGING_PROFESSOR_TOKEN: ${{ secrets.STAGING_PROFESSOR_TOKEN }}
+          STAGING_STUDENT_TOKENS: ${{ secrets.STAGING_STUDENT_TOKENS }}
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
+        run: |
+          set -euo pipefail
+          backend_url="${STAGING_BACKEND_URL:-${BACKEND_READY_URL:-}}"
+          expected_students="${STAGING_EXPECTED_STUDENTS:-50}"
+          python scripts/run_evidence_command.py \
+            --name realtime-fanout-50 \
+            --output "$EVIDENCE_DIR/realtime-fanout-50.json" \
+            --require-json \
+            -- \
+            python scripts/check_staging_realtime_fanout.py "$backend_url" \
+            --mode fanout-50 \
+            --expected-students "$expected_students" \
+            --require-provider-delivery \
+            --json
+
+      - name: Collect topic latency evidence
+        if: ${{ always() }}
+        env:
+          STAGING_AUTH_TOKEN: ${{ secrets.STAGING_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          backend_url="${STAGING_BACKEND_URL:-${BACKEND_READY_URL:-}}"
+          python scripts/run_evidence_command.py \
+            --name topic-latency \
+            --output "$EVIDENCE_DIR/topic-latency.json" \
+            --require-json \
+            -- \
+            python scripts/check_staging_topic_latency.py \
+            --backend-url "$backend_url" \
+            --json
+
+      - name: Validate staging launch evidence bundle
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for artifact in \
+            secret-rotation-checklist.json \
+            staging-runtime.json \
+            s3-media-posture.json \
+            staging-ops-posture.json \
+            realtime-outbox.json \
+            realtime-fanout-50.json \
+            topic-latency.json
+          do
+            path="$EVIDENCE_DIR/$artifact"
+            if [ ! -s "$path" ]; then
+              echo "::error file=$path::Missing or empty staging launch evidence artifact"
+              missing=1
+              continue
+            fi
+            python -m json.tool "$path" > /dev/null
+          done
+          exit "$missing"
+
+      - name: Upload staging launch evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-launch-evidence
+          path: artifacts/staging-launch-evidence
+          if-no-files-found: error

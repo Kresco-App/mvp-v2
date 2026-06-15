@@ -55,16 +55,45 @@ async def close_dangling_change_requests(
         )
         .with_for_update()
     )
+    change_requests = result.scalars().all()
+    target_ids_by_type = {
+        target_type: [
+            change_request.target_id
+            for change_request in change_requests
+            if change_request.target_type == target_type
+        ]
+        for target_type in ALLOWED_CHANGE_TARGETS
+    }
+    valid_targets: set[tuple[str, int, int]] = set()
+    if target_ids_by_type["topic"]:
+        topic_rows = await db.execute(
+            select(Topic.id, Topic.course_offering_id).where(Topic.id.in_(target_ids_by_type["topic"]))
+        )
+        valid_targets.update(("topic", target_id, offering_id) for target_id, offering_id in topic_rows.all())
+    if target_ids_by_type["topic_item"]:
+        item_rows = await db.execute(
+            select(TopicItem.id, Topic.course_offering_id)
+            .join(Topic, Topic.id == TopicItem.topic_id)
+            .where(TopicItem.id.in_(target_ids_by_type["topic_item"]))
+        )
+        valid_targets.update(("topic_item", target_id, offering_id) for target_id, offering_id in item_rows.all())
+    if target_ids_by_type["tab_content"]:
+        tab_rows = await db.execute(
+            select(TabContent.id, Topic.course_offering_id)
+            .join(TopicItem, TopicItem.id == TabContent.topic_item_id)
+            .join(Topic, Topic.id == TopicItem.topic_id)
+            .where(TabContent.id.in_(target_ids_by_type["tab_content"]))
+        )
+        valid_targets.update(("tab_content", target_id, offering_id) for target_id, offering_id in tab_rows.all())
+
     now = datetime.now(timezone.utc)
     closed = 0
-    for change_request in result.scalars().all():
-        target_exists = await target_belongs_to_offering(
-            db,
-            change_request.course_offering_id,
+    for change_request in change_requests:
+        if (
             change_request.target_type,
             change_request.target_id,
-        )
-        if target_exists:
+            change_request.course_offering_id,
+        ) in valid_targets:
             continue
         change_request.status = "target_deleted"
         change_request.reviewed_at = now

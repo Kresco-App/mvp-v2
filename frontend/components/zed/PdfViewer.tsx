@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { FileText, Pin, Scissors, Trash2, Upload, X } from 'lucide-react'
 
 interface PinnedSnippet {
@@ -22,10 +23,60 @@ interface LocalDocument {
   blob: Blob
 }
 
+interface PdfPageText {
+  pageNumber: number
+  text: string
+}
+
+interface SnipRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+interface SnipPreview {
+  url: string
+  width: number
+  height: number
+  pageNumber: number
+}
+
+interface ContainedBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type PdfJsModule = typeof import('pdfjs-dist')
+
 const DB_NAME = 'kresco_zed_workspace'
 const DB_VERSION = 1
 const DOC_STORE = 'documents'
 const ACTIVE_DOC_KEY = 'kresco_zed_active_document'
+const PDF_WORKER_SRC = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString()
+const MAX_TEXT_EXTRACTION_PAGES = 8
+const MAX_PAGE_TEXT_CHARS = 5000
+const MAX_PIN_TEXT_CHARS = 1400
+const MAX_PDF_IMAGE_PIXELS = 4_000_000
+const MAX_SNIP_PREVIEW_PIXELS = 1_200_000
+const MAX_SNIP_OUTPUT_PIXELS = 320_000
+let pdfJsModulePromise: Promise<PdfJsModule> | null = null
+
+function loadPdfJs(): Promise<PdfJsModule> {
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = import('pdfjs-dist').then((pdfjs) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC
+      return pdfjs
+    })
+  }
+  return pdfJsModulePromise
+}
+
+function destroyPdfDocument(pdf: PDFDocumentProxy) {
+  return pdf.loadingTask.destroy()
+}
 
 function openDocumentDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -102,6 +153,182 @@ async function hasPdfMagicBytes(blob: Blob): Promise<boolean> {
   return expected.every((byte, index) => header[index] === byte)
 }
 
+async function loadPdfDocument(blob: Blob): Promise<PDFDocumentProxy> {
+  const pdfjs = await loadPdfJs()
+  const data = new Uint8Array(await blob.arrayBuffer())
+  return pdfjs.getDocument({
+    data,
+    enableXfa: false,
+    maxImageSize: MAX_PDF_IMAGE_PIXELS,
+    stopAtErrors: false,
+    useWorkerFetch: false,
+  }).promise
+}
+
+function isTextContentItem(item: unknown): item is { str: string; hasEOL?: boolean } {
+  if (!item || typeof item !== 'object') return false
+  return typeof (item as { str?: unknown }).str === 'string'
+}
+
+function normalizePdfText(text: string) {
+  return text
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function clampPdfText(text: string, maxChars: number) {
+  if (text.length <= maxChars) return text
+  const trimmed = text.slice(0, maxChars).trimEnd()
+  return `${trimmed}...`
+}
+
+async function extractPdfPageText(pdf: PDFDocumentProxy, pageNumber: number): Promise<PdfPageText | null> {
+  const page = await pdf.getPage(pageNumber)
+  try {
+    const textContent = await page.getTextContent()
+    let text = ''
+    for (const item of textContent.items) {
+      if (!isTextContentItem(item)) continue
+      text += item.str
+      text += item.hasEOL ? '\n' : ' '
+      if (text.length > MAX_PAGE_TEXT_CHARS * 1.25) break
+    }
+
+    const normalized = normalizePdfText(text)
+    if (!normalized) return null
+    return {
+      pageNumber,
+      text: clampPdfText(normalized, MAX_PAGE_TEXT_CHARS),
+    }
+  } finally {
+    page.cleanup()
+  }
+}
+
+async function extractPdfTextPages(pdf: PDFDocumentProxy): Promise<PdfPageText[]> {
+  const pages: PdfPageText[] = []
+  const pageLimit = Math.min(pdf.numPages, MAX_TEXT_EXTRACTION_PAGES)
+  for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+    try {
+      const pageText = await extractPdfPageText(pdf, pageNumber)
+      if (pageText) pages.push(pageText)
+    } catch {
+      // Keep extraction best-effort so one malformed page does not block snippets.
+    }
+  }
+  return pages
+}
+
+function pinnedTextContent(pageText: PdfPageText) {
+  return `Page ${pageText.pageNumber}\n\n${clampPdfText(pageText.text, MAX_PIN_TEXT_CHARS)}`
+}
+
+function clampPageNumber(pageNumber: number, pageCount: number) {
+  if (pageCount < 1) return 1
+  if (!Number.isFinite(pageNumber)) return 1
+  return Math.max(1, Math.min(pageCount, Math.floor(pageNumber)))
+}
+
+function renderScaleForPixelLimit(width: number, height: number, maxPixels: number) {
+  const basePixels = width * height
+  if (basePixels <= 0) return 1
+  return Math.min(2, Math.sqrt(maxPixels / basePixels))
+}
+
+async function renderPdfPagePreview(pdf: PDFDocumentProxy, pageNumber: number): Promise<SnipPreview> {
+  const page = await pdf.getPage(pageNumber)
+  try {
+    const baseViewport = page.getViewport({ scale: 1 })
+    const scale = renderScaleForPixelLimit(baseViewport.width, baseViewport.height, MAX_SNIP_PREVIEW_PIXELS)
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.floor(viewport.width))
+    canvas.height = Math.max(1, Math.floor(viewport.height))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Canvas context unavailable')
+    await page.render({ canvas, canvasContext: context, viewport }).promise
+    const url = canvas.toDataURL('image/png')
+    return {
+      url,
+      width: canvas.width,
+      height: canvas.height,
+      pageNumber,
+    }
+  } finally {
+    page.cleanup()
+  }
+}
+
+function containedImageBox(containerWidth: number, containerHeight: number, imageWidth: number, imageHeight: number): ContainedBox {
+  if (containerWidth <= 0 || containerHeight <= 0 || imageWidth <= 0 || imageHeight <= 0) {
+    return { x: 0, y: 0, width: 0, height: 0 }
+  }
+
+  const scale = Math.min(containerWidth / imageWidth, containerHeight / imageHeight)
+  const width = imageWidth * scale
+  const height = imageHeight * scale
+  return {
+    x: (containerWidth - width) / 2,
+    y: (containerHeight - height) / 2,
+    width,
+    height,
+  }
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Image load failed'))
+    image.src = url
+  })
+}
+
+async function cropPreviewToPng(preview: SnipPreview, rect: SnipRect, overlayBounds: DOMRect): Promise<string | null> {
+  const imageBox = containedImageBox(overlayBounds.width, overlayBounds.height, preview.width, preview.height)
+  if (imageBox.width <= 0 || imageBox.height <= 0) return null
+
+  const left = Math.max(rect.x, imageBox.x)
+  const top = Math.max(rect.y, imageBox.y)
+  const right = Math.min(rect.x + rect.w, imageBox.x + imageBox.width)
+  const bottom = Math.min(rect.y + rect.h, imageBox.y + imageBox.height)
+  const cropWidth = right - left
+  const cropHeight = bottom - top
+  if (cropWidth < 10 || cropHeight < 10) return null
+
+  const sourceScaleX = preview.width / imageBox.width
+  const sourceScaleY = preview.height / imageBox.height
+  const sourceX = (left - imageBox.x) * sourceScaleX
+  const sourceY = (top - imageBox.y) * sourceScaleY
+  const sourceWidth = cropWidth * sourceScaleX
+  const sourceHeight = cropHeight * sourceScaleY
+  const outputScale = renderScaleForPixelLimit(sourceWidth, sourceHeight, MAX_SNIP_OUTPUT_PIXELS)
+  const outputWidth = Math.max(1, Math.floor(sourceWidth * outputScale))
+  const outputHeight = Math.max(1, Math.floor(sourceHeight * outputScale))
+  const canvas = document.createElement('canvas')
+  canvas.width = outputWidth
+  canvas.height = outputHeight
+  const context = canvas.getContext('2d')
+  if (!context) return null
+
+  const image = await loadImage(preview.url)
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    outputWidth,
+    outputHeight,
+  )
+  return canvas.toDataURL('image/png')
+}
+
 export default function PdfViewer({ onPinSnippet }: Props) {
   const [documents, setDocuments] = useState<LocalDocument[]>([])
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null)
@@ -109,10 +336,15 @@ export default function PdfViewer({ onPinSnippet }: Props) {
   const [status, setStatus] = useState('Importez un enonce ou un cours PDF')
   const [isSnipping, setIsSnipping] = useState(false)
   const [snipStart, setSnipStart] = useState<{ x: number; y: number } | null>(null)
-  const [snipRect, setSnipRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [snipRect, setSnipRect] = useState<SnipRect | null>(null)
+  const [pdfPageCount, setPdfPageCount] = useState(0)
+  const [snippetPageNumber, setSnippetPageNumber] = useState(1)
+  const [extractedPages, setExtractedPages] = useState<PdfPageText[]>([])
+  const [snipPreview, setSnipPreview] = useState<SnipPreview | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const objectUrlRef = useRef<string | null>(null)
+  const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null)
   const activeDocument = documents.find((item) => item.id === activeDocumentId) ?? null
 
   useEffect(() => {
@@ -158,6 +390,86 @@ export default function PdfViewer({ onPinSnippet }: Props) {
       }
     }
   }, [activeDocumentId, documents])
+
+  useEffect(() => {
+    let cancelled = false
+    const previousPdf = pdfDocumentRef.current
+    pdfDocumentRef.current = null
+    if (previousPdf) void destroyPdfDocument(previousPdf).catch(() => {})
+
+    setExtractedPages([])
+    setPdfPageCount(0)
+    setSnippetPageNumber(1)
+    setSnipPreview(null)
+
+    if (!activeDocument) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setStatus('Document sauvegarde hors ligne - analyse PDF')
+    loadPdfDocument(activeDocument.blob)
+      .then(async (pdf) => {
+        if (cancelled) {
+          await destroyPdfDocument(pdf)
+          return
+        }
+
+        pdfDocumentRef.current = pdf
+        setPdfPageCount(pdf.numPages)
+        setSnippetPageNumber((current) => clampPageNumber(current, pdf.numPages))
+
+        const pages = await extractPdfTextPages(pdf)
+        if (cancelled || pdfDocumentRef.current !== pdf) return
+
+        setExtractedPages(pages)
+        setStatus(pages.length > 0
+          ? 'Document sauvegarde hors ligne - texte pret'
+          : 'Document sauvegarde hors ligne - capture image prete')
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('Document sauvegarde hors ligne - extraction indisponible')
+      })
+
+    return () => {
+      cancelled = true
+      const loadedPdf = pdfDocumentRef.current
+      pdfDocumentRef.current = null
+      if (loadedPdf) void destroyPdfDocument(loadedPdf).catch(() => {})
+    }
+  }, [activeDocument])
+
+  useEffect(() => {
+    if (!isSnipping) {
+      setSnipPreview(null)
+      return
+    }
+
+    const pdf = pdfDocumentRef.current
+    if (!pdf || pdfPageCount < 1) {
+      setSnipPreview(null)
+      setStatus('Capture PDF en preparation')
+      return
+    }
+
+    let cancelled = false
+    setSnipPreview(null)
+    setStatus('Preparation de la capture PDF')
+    renderPdfPagePreview(pdf, clampPageNumber(snippetPageNumber, pdf.numPages))
+      .then((preview) => {
+        if (cancelled) return
+        setSnipPreview(preview)
+        setStatus('Glissez pour capturer une zone PDF')
+      })
+      .catch(() => {
+        if (!cancelled) setStatus('Impossible de preparer la capture PDF')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isSnipping, pdfPageCount, snippetPageNumber])
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -215,7 +527,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
     }
   }
 
-  function handlePinText() {
+  async function handlePinText() {
     const text = window.getSelection()?.toString().trim()
     if (text) {
       onPinSnippet({ id: `pin_${Date.now()}`, content: text, type: 'text' })
@@ -223,10 +535,38 @@ export default function PdfViewer({ onPinSnippet }: Props) {
       return
     }
 
-    const value = prompt('Texte a epingler :')
-    if (value?.trim()) {
-      onPinSnippet({ id: `pin_${Date.now()}`, content: value.trim(), type: 'text' })
+    const pdf = pdfDocumentRef.current
+    if (!pdf) {
+      setStatus('Texte PDF en preparation')
+      return
     }
+
+    const pageNumber = clampPageNumber(snippetPageNumber, pdf.numPages)
+    let pageText = extractedPages.find((page) => page.pageNumber === pageNumber) ?? null
+    if (!pageText) {
+      try {
+        setStatus('Extraction du texte de la page')
+        pageText = await extractPdfPageText(pdf, pageNumber)
+        if (pageText) {
+          const extractedPage = pageText
+          setExtractedPages(prev => (
+            prev.some((page) => page.pageNumber === extractedPage.pageNumber)
+              ? prev
+              : [...prev, extractedPage].sort((a, b) => a.pageNumber - b.pageNumber)
+          ))
+        }
+      } catch {
+        pageText = null
+      }
+    }
+
+    if (pageText) {
+      onPinSnippet({ id: `pin_${Date.now()}`, content: pinnedTextContent(pageText), type: 'text' })
+      setStatus('Texte PDF epingle')
+      return
+    }
+
+    setStatus('Aucun texte extractible sur cette page')
   }
 
   function handleMouseDown(e: React.MouseEvent) {
@@ -249,19 +589,52 @@ export default function PdfViewer({ onPinSnippet }: Props) {
     })
   }
 
-  function handleMouseUp() {
-    if (!isSnipping || !snipRect || snipRect.w < 10 || snipRect.h < 10) {
+  async function handleMouseUp(e: React.MouseEvent) {
+    let finalRect = snipRect
+    if (snipStart && overlayRef.current) {
+      const bounds = overlayRef.current.getBoundingClientRect()
+      const cx = e.clientX - bounds.left
+      const cy = e.clientY - bounds.top
+      finalRect = {
+        x: Math.min(snipStart.x, cx),
+        y: Math.min(snipStart.y, cy),
+        w: Math.abs(cx - snipStart.x),
+        h: Math.abs(cy - snipStart.y),
+      }
+    }
+
+    if (!isSnipping || !finalRect || finalRect.w < 10 || finalRect.h < 10) {
       setSnipStart(null)
       setSnipRect(null)
       return
     }
 
-    const active = documents.find((item) => item.id === activeDocumentId)
-    onPinSnippet({
-      id: `snip_${Date.now()}`,
-      content: `${active?.name ?? 'PDF'} - zone (${Math.round(snipRect.x)},${Math.round(snipRect.y)}) ${Math.round(snipRect.w)}x${Math.round(snipRect.h)}px`,
-      type: 'text',
-    })
+    if (!snipPreview || !overlayRef.current) {
+      setStatus('Capture PDF en preparation')
+      setSnipStart(null)
+      setSnipRect(null)
+      return
+    }
+
+    const bounds = overlayRef.current.getBoundingClientRect()
+    try {
+      const snippet = await cropPreviewToPng(snipPreview, finalRect, bounds)
+      if (!snippet) {
+        setStatus('Selection hors page PDF')
+        setSnipStart(null)
+        setSnipRect(null)
+        return
+      }
+
+      onPinSnippet({
+        id: `snip_${Date.now()}`,
+        content: snippet,
+        type: 'image',
+      })
+      setStatus('Extrait PDF epingle')
+    } catch {
+      setStatus('Impossible de capturer cette zone')
+    }
 
     setSnipStart(null)
     setSnipRect(null)
@@ -347,8 +720,27 @@ export default function PdfViewer({ onPinSnippet }: Props) {
             <Pin size={14} />
           </button>
 
+          {pdfPageCount > 0 && (
+            <label className="inline-flex h-9 items-center rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-600" title="Page a epingler">
+              <input
+                type="number"
+                min={1}
+                max={pdfPageCount}
+                value={snippetPageNumber}
+                onChange={(event) => setSnippetPageNumber(clampPageNumber(Number(event.target.value), pdfPageCount))}
+                className="h-7 w-10 border-0 bg-transparent p-0 text-center text-xs font-semibold text-slate-700 outline-none"
+                aria-label="Page a epingler"
+              />
+              <span className="text-[10px] font-medium text-slate-400">/{pdfPageCount}</span>
+            </label>
+          )}
+
           <button type="button"
-            onClick={() => setIsSnipping(!isSnipping)}
+            onClick={() => {
+              setIsSnipping(!isSnipping)
+              setSnipStart(null)
+              setSnipRect(null)
+            }}
             className={`inline-flex h-9 w-9 items-center justify-center rounded-md border transition ${
               isSnipping
                 ? 'border-amber-300 bg-amber-50 text-amber-700'
@@ -362,7 +754,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
           {isSnipping && (
             <button type="button"
-              onClick={() => { setIsSnipping(false); setSnipRect(null) }}
+              onClick={() => { setIsSnipping(false); setSnipStart(null); setSnipRect(null) }}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-900"
               title="Annuler la capture"
             >
@@ -399,16 +791,36 @@ export default function PdfViewer({ onPinSnippet }: Props) {
         {isSnipping && (
           <div
             ref={overlayRef}
-            className="absolute inset-0 cursor-crosshair bg-indigo-950/5"
+            className="absolute inset-0 cursor-crosshair overflow-hidden bg-slate-950/10"
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
           >
-            {snipRect && (
-              <div
-                className="pointer-events-none absolute border-2 border-amber-400 bg-amber-300/20 shadow-[0_0_0_9999px_rgba(15,23,42,0.08)]"
-                style={{ left: snipRect.x, top: snipRect.y, width: snipRect.w, height: snipRect.h }}
+            {snipPreview ? (
+              <img
+                src={snipPreview.url}
+                alt=""
+                className="pointer-events-none absolute inset-0 h-full w-full bg-white object-contain"
+                draggable={false}
               />
+            ) : (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/85 text-xs font-semibold text-slate-500">
+                Preparation de la page...
+              </div>
+            )}
+            {snipRect && (
+              <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+                <rect width="100%" height="100%" fill="rgba(15,23,42,0.08)" />
+                <rect
+                  x={snipRect.x}
+                  y={snipRect.y}
+                  width={snipRect.w}
+                  height={snipRect.h}
+                  fill="rgba(252,211,77,0.2)"
+                  stroke="#fbbf24"
+                  strokeWidth="2"
+                />
+              </svg>
             )}
           </div>
         )}

@@ -492,10 +492,16 @@ function DifficultyBars({ difficulty }: { difficulty: string }) {
   return (
     <div aria-label={`Difficulty ${difficultyLabel(difficulty)}`} className="mt-4 flex h-7 items-end gap-1">
       {[1, 2, 3].map((bar) => (
-        <span key={bar} className={`w-2 rounded-full ${bar <= level ? 'bg-[#facc15]' : 'bg-[#e4e4e7]'}`} style={{ height: `${8 + bar * 5}px` }} />
+        <span key={bar} className={`w-2 rounded-full ${difficultyBarHeight(bar)} ${bar <= level ? 'bg-[#facc15]' : 'bg-[#e4e4e7]'}`} />
       ))}
     </div>
   )
+}
+
+function difficultyBarHeight(bar: number) {
+  if (bar === 1) return 'h-[13px]'
+  if (bar === 2) return 'h-[18px]'
+  return 'h-[23px]'
 }
 
 function StatusDot({ grade, locked }: { grade: ExerciseSelfGrade; locked: boolean }) {

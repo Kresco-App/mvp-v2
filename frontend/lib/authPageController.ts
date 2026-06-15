@@ -4,7 +4,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { patchJson, postJson } from '@/lib/apiClient'
-import { getAuthenticatedDestination, resolveAuthSuccess } from '@/lib/authPolicy'
+import { resolveAuthSuccess } from '@/lib/authPolicy'
 import { isStoredAuthSnapshot } from '@/lib/authSession'
 import { useAuthStore } from '@/lib/store'
 import { apiDataErrorMessage } from '@/lib/apiData'
@@ -22,6 +22,8 @@ type OnboardingUserLike = {
   niveau?: string | null
   filiere?: string | null
 }
+
+type AuthResolutionHandler = (nextUser: unknown, mode?: 'push' | 'replace') => void
 
 const UNVERIFIED_EMAIL_LOGIN_DETAIL = 'Veuillez verifier votre email avant de vous connecter'
 
@@ -46,58 +48,98 @@ export function canSubmitOnboarding(selectedLevel: string, selectedSpec: string,
   return !loading && Boolean(selectedLevel.trim()) && Boolean(selectedSpec.trim())
 }
 
-export function useAuthPageController() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const nextDestination = searchParams.get('next')
-  const login = useAuthStore((state) => state.login)
-  const token = useAuthStore((state) => state.token)
-  const hydrate = useAuthStore((state) => state.hydrate)
-  const isHydrated = useAuthStore((state) => state.isHydrated)
-  const user = useAuthStore((state) => state.user)
-  const updateUser = useAuthStore((state) => state.updateUser)
-  const hiddenGoogleRef = useRef<HTMLDivElement>(null)
-  const [loading, setLoading] = useState(false)
+function useAuthFlowRouter() {
   const [step, setStep] = useState<AuthStep>('auth')
   const [authMode, setAuthMode] = useState<AuthMode>('options')
+
+  const canGoBack = step !== 'auth' || !['options', 'verify-pending', 'forgot-sent'].includes(authMode)
+  const stepNum = step === 'auth' ? 1 : step === 'niveau' ? 2 : 3
+  const progressWidthClass = stepNum === 1 ? 'w-1/3' : stepNum === 2 ? 'w-2/3' : 'w-full'
+
+  return {
+    authMode,
+    canGoBack,
+    progressWidthClass,
+    setAuthMode,
+    setStep,
+    step,
+  }
+}
+
+function useOnboardingForm({
+  nextDestination,
+  setStep,
+}: {
+  nextDestination: string | null
+  setStep: (step: AuthStep) => void
+}) {
+  const router = useRouter()
+  const user = useAuthStore((state) => state.user)
+  const updateUser = useAuthStore((state) => state.updateUser)
+  const [loading, setLoading] = useState(false)
   const [selectedLevel, setSelectedLevel] = useState('')
   const [selectedSpec, setSelectedSpec] = useState('')
+
+  const hydrateOnboardingUser = useCallback((nextUser: OnboardingUserLike, nextStep: AuthStep) => {
+    const onboardingSelections = getOnboardingSelections(nextUser)
+    setSelectedLevel(onboardingSelections.selectedLevel)
+    setSelectedSpec(onboardingSelections.selectedSpec)
+    setStep(nextStep)
+  }, [setStep])
+
+  useEffect(() => {
+    if (!user || isStoredAuthSnapshot(user)) return
+    const resolution = resolveAuthSuccess(user, nextDestination)
+    if (resolution.action !== 'onboarding') return
+
+    hydrateOnboardingUser(user, resolution.step)
+  }, [hydrateOnboardingUser, nextDestination, user])
+
+  async function saveOnboarding() {
+    if (!canSubmitOnboarding(selectedLevel, selectedSpec, loading)) {
+      toast.error('Selectionnez votre niveau et votre filiere.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const data = await patchJson<any>('/profile/me', { niveau: selectedLevel, filiere: selectedSpec })
+      updateUser({ niveau: data.niveau, filiere: data.filiere })
+      const resolution = resolveAuthSuccess(data, nextDestination)
+      router.push(resolution.action === 'redirect' ? resolution.destination : '/home')
+    } catch {
+      toast.error('Erreur lors de la sauvegarde.')
+      setLoading(false)
+    }
+  }
+
+  return {
+    hydrateOnboardingUser,
+    loading,
+    saveOnboarding,
+    selectedLevel,
+    selectedSpec,
+    setSelectedLevel,
+    setSelectedSpec,
+  }
+}
+
+function useAuthForm({
+  onAuthResolution,
+  setAuthMode,
+}: {
+  onAuthResolution: AuthResolutionHandler
+  setAuthMode: (mode: AuthMode) => void
+}) {
+  const login = useAuthStore((state) => state.login)
+  const hiddenGoogleRef = useRef<HTMLDivElement>(null)
+  const [loading, setLoading] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [pendingEmail, setPendingEmail] = useState('')
   const [googleReady, setGoogleReady] = useState(false)
-
-  const handleAuthResolution = useCallback((nextUser: unknown, mode: 'push' | 'replace' = 'push') => {
-    const resolution = resolveAuthSuccess(
-      nextUser as { role?: string; niveau?: string; filiere?: string },
-      nextDestination,
-    )
-    if (resolution.action === 'onboarding') {
-      const onboardingSelections = getOnboardingSelections(nextUser as OnboardingUserLike)
-      setSelectedLevel(onboardingSelections.selectedLevel)
-      setSelectedSpec(onboardingSelections.selectedSpec)
-      setStep(resolution.step)
-      return
-    }
-
-    if (mode === 'replace') router.replace(resolution.destination)
-    else router.push(resolution.destination)
-  }, [nextDestination, router])
-
-  useEffect(() => { hydrate() }, [hydrate])
-
-  useEffect(() => {
-    if (!isHydrated) return
-    if (token && user) {
-      if (isStoredAuthSnapshot(user)) {
-        router.replace(getAuthenticatedDestination(user))
-        return
-      }
-      handleAuthResolution(user, 'replace')
-    }
-  }, [handleAuthResolution, isHydrated, router, token, user])
 
   useEffect(() => {
     const handleGoogleCredential = async (response: any) => {
@@ -106,7 +148,7 @@ export function useAuthPageController() {
         const data = await postJson<any>('/google-login', { credential: response.credential })
         login(data.user, data.csrf_token)
         toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
-        handleAuthResolution(data.user)
+        onAuthResolution(data.user)
       } catch (err: any) {
         toast.error(apiDataErrorMessage(err, 'Connexion échouée.'))
       } finally {
@@ -135,7 +177,7 @@ export function useAuthPageController() {
         script.parentNode.removeChild(script)
       }
     }
-  }, [handleAuthResolution, login])
+  }, [login, onAuthResolution])
 
   function triggerGoogle() {
     if (!googleReady) return
@@ -149,37 +191,6 @@ export function useAuthPageController() {
     setPassword('')
     setFullName('')
     setShowPassword(false)
-  }
-
-  function showSignup() {
-    setAuthMode('signup')
-    resetForm()
-  }
-
-  function showLogin() {
-    setAuthMode('login')
-    resetForm()
-  }
-
-  function showForgot() {
-    setAuthMode('forgot')
-    resetForm()
-  }
-
-  function showOptions() {
-    setAuthMode('options')
-    resetForm()
-  }
-
-  function goBack() {
-    if (step === 'filiere') setStep('niveau')
-    else if (authMode === 'login' || authMode === 'signup') showOptions()
-    else if (authMode === 'forgot') showLogin()
-    else setStep('auth')
-  }
-
-  function goToFiliere() {
-    if (selectedLevel) setStep('filiere')
   }
 
   async function handleSignup(e: FormEvent) {
@@ -208,7 +219,7 @@ export function useAuthPageController() {
       const data = await postJson<any>('/auth/login', { email: normalizedEmail, password })
       login(data.user, data.csrf_token)
       toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
-      handleAuthResolution(data.user)
+      onAuthResolution(data.user)
     } catch (err: any) {
       if (isUnverifiedEmailLoginError(err)) {
         setPendingEmail(normalizeEmailInput(email))
@@ -248,35 +259,9 @@ export function useAuthPageController() {
     }
   }
 
-  async function saveOnboarding() {
-    if (!canSubmitOnboarding(selectedLevel, selectedSpec, loading)) {
-      toast.error('Selectionnez votre niveau et votre filiere.')
-      return
-    }
-
-    setLoading(true)
-    try {
-      const data = await patchJson<any>('/profile/me', { niveau: selectedLevel, filiere: selectedSpec })
-      updateUser({ niveau: data.niveau, filiere: data.filiere })
-      const resolution = resolveAuthSuccess(data, nextDestination)
-      router.push(resolution.action === 'redirect' ? resolution.destination : '/home')
-    } catch {
-      toast.error('Erreur lors de la sauvegarde.')
-      setLoading(false)
-    }
-  }
-
-  const canGoBack = step !== 'auth' || !['options', 'verify-pending', 'forgot-sent'].includes(authMode)
-  const stepNum = step === 'auth' ? 1 : step === 'niveau' ? 2 : 3
-  const progressWidthClass = stepNum === 1 ? 'w-1/3' : stepNum === 2 ? 'w-2/3' : 'w-full'
-
   return {
-    authMode,
-    canGoBack,
     email,
     fullName,
-    goBack,
-    goToFiliere,
     googleReady,
     handleForgot,
     handleLogin,
@@ -286,23 +271,111 @@ export function useAuthPageController() {
     loading,
     password,
     pendingEmail,
-    progressWidthClass,
-    saveOnboarding,
-    selectedLevel,
-    selectedSpec,
+    resetForm,
     setEmail,
     setFullName,
     setPassword,
-    setSelectedLevel,
-    setSelectedSpec,
     setShowPassword,
+    showPassword,
+    triggerGoogle,
+  }
+}
+
+export function useAuthPageController() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const nextDestination = searchParams.get('next')
+  const flow = useAuthFlowRouter()
+  const onboarding = useOnboardingForm({
+    nextDestination,
+    setStep: flow.setStep,
+  })
+  const { hydrateOnboardingUser } = onboarding
+
+  const handleAuthResolution = useCallback<AuthResolutionHandler>((nextUser, mode = 'push') => {
+    const resolution = resolveAuthSuccess(
+      nextUser as { role?: string; niveau?: string; filiere?: string },
+      nextDestination,
+    )
+    if (resolution.action === 'onboarding') {
+      hydrateOnboardingUser(nextUser as OnboardingUserLike, resolution.step)
+      return
+    }
+
+    if (mode === 'replace') router.replace(resolution.destination)
+    else router.push(resolution.destination)
+  }, [hydrateOnboardingUser, nextDestination, router])
+
+  const authForm = useAuthForm({
+    onAuthResolution: handleAuthResolution,
+    setAuthMode: flow.setAuthMode,
+  })
+  const loading = authForm.loading || onboarding.loading
+
+  function showSignup() {
+    flow.setAuthMode('signup')
+    authForm.resetForm()
+  }
+
+  function showLogin() {
+    flow.setAuthMode('login')
+    authForm.resetForm()
+  }
+
+  function showForgot() {
+    flow.setAuthMode('forgot')
+    authForm.resetForm()
+  }
+
+  function showOptions() {
+    flow.setAuthMode('options')
+    authForm.resetForm()
+  }
+
+  function goBack() {
+    if (flow.step === 'filiere') flow.setStep('niveau')
+    else if (flow.authMode === 'login' || flow.authMode === 'signup') showOptions()
+    else if (flow.authMode === 'forgot') showLogin()
+    else flow.setStep('auth')
+  }
+
+  function goToFiliere() {
+    if (onboarding.selectedLevel) flow.setStep('filiere')
+  }
+
+  return {
+    authMode: flow.authMode,
+    canGoBack: flow.canGoBack,
+    email: authForm.email,
+    fullName: authForm.fullName,
+    goBack,
+    goToFiliere,
+    googleReady: authForm.googleReady,
+    handleForgot: authForm.handleForgot,
+    handleLogin: authForm.handleLogin,
+    handleResend: authForm.handleResend,
+    handleSignup: authForm.handleSignup,
+    hiddenGoogleRef: authForm.hiddenGoogleRef,
+    loading,
+    password: authForm.password,
+    pendingEmail: authForm.pendingEmail,
+    progressWidthClass: flow.progressWidthClass,
+    saveOnboarding: onboarding.saveOnboarding,
+    selectedLevel: onboarding.selectedLevel,
+    selectedSpec: onboarding.selectedSpec,
+    setEmail: authForm.setEmail,
+    setFullName: authForm.setFullName,
+    setPassword: authForm.setPassword,
+    setSelectedLevel: onboarding.setSelectedLevel,
+    setSelectedSpec: onboarding.setSelectedSpec,
+    setShowPassword: authForm.setShowPassword,
     showForgot,
     showLogin,
     showOptions,
-    showPassword,
+    showPassword: authForm.showPassword,
     showSignup,
-    step,
-    triggerGoogle,
+    step: flow.step,
+    triggerGoogle: authForm.triggerGoogle,
   }
 }
 

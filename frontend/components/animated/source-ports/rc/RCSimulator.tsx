@@ -160,10 +160,7 @@ export const RCSimulator: React.FC = () => {
                 {/* Circuit Diagram */}
                 <div className="relative w-full aspect-[16/9] bg-slate-900 rounded-2xl overflow-hidden shadow-inner border border-slate-800 group">
                     {/* Grid Background */}
-                    <div className="absolute inset-0 opacity-20" style={{ 
-                        backgroundImage: 'linear-gradient(#334155 1px, transparent 1px), linear-gradient(90deg, #334155 1px, transparent 1px)', 
-                        backgroundSize: '20px 20px' 
-                    }}></div>
+                    <div className="absolute inset-0 opacity-20 bg-[linear-gradient(#334155_1px,transparent_1px),linear-gradient(90deg,#334155_1px,transparent_1px)] [background-size:20px_20px]"></div>
 
                     <svg viewBox="0 0 500 300" className="w-full h-full relative z-10">
                         <defs>
@@ -200,7 +197,7 @@ export const RCSimulator: React.FC = () => {
 
                         {/* --- ACTIVE GLOWING PATHS --- */}
                         {/* Charging Loop Glow */}
-                        <g opacity={isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} style={{ transition: 'opacity 0.2s' }}>
+                        <g opacity={isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} className="transition-opacity duration-200">
                             <path 
                                 d="M 60 240 L 60 160 M 60 120 L 60 60 L 140 60 M 168 78 L 190 100 L 240 100 M 320 100 L 400 100 L 400 120 M 400 180 L 400 240 L 60 240"
                                 stroke="#3b82f6" 
@@ -209,12 +206,15 @@ export const RCSimulator: React.FC = () => {
                                 strokeLinecap="round"
                                 filter={isCharging && isPlaying ? "url(#neon-glow)" : ""}
                                 strokeDasharray={isCharging && isPlaying ? "12 6" : "0"}
-                                className={isCharging && isPlaying ? "animate-flow" : ""}
-                            />
+                            >
+                                {isCharging && isPlaying && (
+                                    <animate attributeName="stroke-dashoffset" from="0" to="-18" dur="0.6s" repeatCount="indefinite" />
+                                )}
+                            </path>
                         </g>
 
                         {/* Discharging Loop Glow */}
-                        <g opacity={!isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} style={{ transition: 'opacity 0.2s' }}>
+                        <g opacity={!isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} className="transition-opacity duration-200">
                             <path 
                                 d="M 400 120 L 400 100 L 320 100 M 240 100 L 190 100 L 168 122 M 140 140 L 140 240 L 400 240 L 400 180"
                                 stroke="#f97316" 
@@ -223,8 +223,11 @@ export const RCSimulator: React.FC = () => {
                                 strokeLinecap="round"
                                 filter={!isCharging && isPlaying ? "url(#neon-glow)" : ""}
                                 strokeDasharray={!isCharging && isPlaying ? "12 6" : "0"}
-                                className={!isCharging && isPlaying ? "animate-flow-reverse" : ""}
-                            />
+                            >
+                                {!isCharging && isPlaying && (
+                                    <animate attributeName="stroke-dashoffset" from="0" to="18" dur="0.6s" repeatCount="indefinite" />
+                                )}
+                            </path>
                         </g>
 
                         {/* --- COMPONENTS --- */}
@@ -515,20 +518,6 @@ export const RCSimulator: React.FC = () => {
          </div>
       </div>
 
-      <style>{`
-        @keyframes flow {
-            to { stroke-dashoffset: -18; }
-        }
-        @keyframes flow-reverse {
-            to { stroke-dashoffset: 18; }
-        }
-        .animate-flow {
-            animation: flow 0.6s linear infinite;
-        }
-        .animate-flow-reverse {
-            animation: flow-reverse 0.6s linear infinite;
-        }
-      `}</style>
     </div>
   );
 };

@@ -145,7 +145,7 @@ export default function WaveSimulator() {
       </div>
 
       <div className="bg-slate-900 rounded-xl overflow-hidden shadow-inner border border-slate-700 mb-6">
-        <canvas ref={canvasRef} width={700} height={300} className="w-full" style={{ height: 260 }} />
+        <canvas ref={canvasRef} width={700} height={300} className="h-[260px] w-full" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

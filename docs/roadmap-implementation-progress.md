@@ -374,7 +374,7 @@ Review notes addressed:
 
 ### Slice 7: XP Economy Caps and Auditability
 
-Status: in progress.
+Status: implemented.
 
 Reason for this slice:
 
@@ -1706,7 +1706,7 @@ Review notes addressed:
 
 ### Slice 32: Exam Problem Part Progress
 
-Status: in progress.
+Status: implemented.
 
 Reason for this slice:
 
@@ -1809,6 +1809,45 @@ Review notes addressed:
 - Added cross-user isolation coverage and `part_retry_later=false` coverage
   after review, so another student's part progress cannot affect the current
   student's revision filters.
+
+### Slice 34: Exercise Bank Comments
+
+Status: in progress.
+
+Reason for this slice:
+
+- The Exercise Workspace plan requires comments behind a dedicated
+  Comments section/tab.
+- Existing comments were TopicItem-only, which would incorrectly bind Exercise
+  Bank discussion to the lesson workspace model.
+
+Planned backend scope:
+
+- Allow comments to target an Exercise Bank exercise as well as a TopicItem.
+  Status: implemented.
+- Add `GET /api/interactions/exercise-comments` and
+  `POST /api/interactions/exercise-comments`. Status: implemented.
+- Reuse the existing comment author/reply response shape. Status: implemented.
+- Enforce Exercise Bank subject access before listing or creating exercise
+  comments. Status: implemented.
+
+Decisions:
+
+- Decision: keep dedicated exercise-comment routes instead of overloading
+  `/api/interactions/comments`, so existing TopicItem comment behavior remains
+  stable.
+- Decision: reuse the `comments` table with a nullable `exercise_id` rather
+  than introducing a second comment table. Add a database invariant so each
+  comment targets exactly one surface.
+- Decision: comments are product discussion state and do not award XP.
+
+Verification plan:
+
+- Add model/migration declaration tests. Status: implemented.
+- Add route tests for parent/reply counts, parent mismatch, free-preview access,
+  and locked exercise list/create rejection. Status: implemented.
+- Run focused Exercise Bank/comment tests, migration tests, compile checks, and
+  strong review before committing. Status: implemented.
 
 ## Open Risks
 

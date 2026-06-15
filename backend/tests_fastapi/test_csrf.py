@@ -2,19 +2,18 @@ from sqlalchemy import select
 
 from app.database import get_session_factory
 from app.models.users import User
+from app.security.passwords import hash_password
 from app.services.auth import AUTH_COOKIE_NAME
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 
 
 async def _seed_password_user(email: str):
-    import app.routers.users as users_router
-
     session_factory = get_session_factory()
     async with session_factory() as db:
         user = User(
             email=email,
             full_name="CSRF User",
-            password=users_router._hash_password("strong-pass-123"),
+            password=hash_password("strong-pass-123"),
             is_active=True,
             is_email_verified=True,
         )

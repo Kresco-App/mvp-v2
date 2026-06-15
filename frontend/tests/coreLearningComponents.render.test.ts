@@ -100,6 +100,63 @@ describe('core learning component rendering', () => {
     expect(container.textContent).toContain('100%')
   })
 
+  it('renders SectionQuiz empty state without submitting when no questions are available', () => {
+    const onComplete = vi.fn()
+    const { container } = renderComponent(React.createElement(SectionQuiz, {
+      data: { questions: [] },
+      passScore: 70,
+      onComplete,
+    }))
+
+    expect(container.textContent).toContain('Aucun quiz disponible')
+    expect(container.textContent).toContain('Ce quiz ne contient aucune question')
+    expect(buttonByText(container, 'Voir le resultat')).toBeNull()
+    expect(onComplete).not.toHaveBeenCalled()
+  })
+
+  it('shows SectionQuiz submit failure and retries with the saved answer draft', async () => {
+    const onComplete = vi.fn()
+      .mockRejectedValueOnce(new Error('network failed'))
+      .mockResolvedValueOnce({
+        score: 100,
+        passed: true,
+        correctCount: 1,
+        totalCount: 1,
+      })
+    const { container } = renderComponent(React.createElement(SectionQuiz, {
+      data: {
+        questions: [
+          { text: 'Only question?', options: [{ text: 'A' }, { text: 'B' }] },
+        ],
+      },
+      passScore: 70,
+      onComplete,
+    }))
+
+    act(() => {
+      buttonByText(container, 'A')?.click()
+    })
+    await act(async () => {
+      buttonByText(container, 'Voir le resultat')?.click()
+      await flushPromises()
+    })
+
+    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(onComplete).toHaveBeenLastCalledWith({ 0: 0 })
+    expect(container.textContent).toContain('Impossible de valider le quiz')
+    expect(container.textContent).toContain('Only question?')
+    expect(buttonByText(container, "Reessayer l'envoi")?.hasAttribute('disabled')).toBe(false)
+
+    await act(async () => {
+      buttonByText(container, "Reessayer l'envoi")?.click()
+      await flushPromises()
+    })
+
+    expect(onComplete).toHaveBeenCalledTimes(2)
+    expect(onComplete).toHaveBeenLastCalledWith({ 0: 0 })
+    expect(container.textContent).toContain('Quiz reussi')
+  })
+
   it('renders VideoPlayer demo stream and reports completion from the UI', async () => {
     mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'mock-otp-token' } })
     mocks.apiPost.mockResolvedValue({ data: {} })
@@ -199,7 +256,7 @@ describe('core learning component rendering', () => {
       await flushPromises()
     })
 
-    expect(mocks.apiPost).toHaveBeenCalledWith('/courses/topic-items/42/complete', {
+    expect(mocks.apiPost).toHaveBeenCalledWith('/courses/topic-items/42/progress', {
       watched_seconds: 63,
     })
   })

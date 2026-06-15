@@ -1,19 +1,22 @@
 import inspect
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 from itsdangerous import URLSafeTimedSerializer
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
 from app.database import get_session_factory
 from app.models.users import EmailDispatchThrottle, User
-from app.security.passwords import is_unusable_password
+from app.security.passwords import hash_password, is_unusable_password
 from app.services import auth_account
 from app.services import auth_email_dispatch
 from app.services import auth_google
 from app.services import auth_signup
+from app.services import auth_users
 from app.services.email import generate_reset_token, generate_verification_token, verify_reset_token
 
 
@@ -22,14 +25,12 @@ async def _failing_send_email(*args, **kwargs):
 
 
 async def _seed_user(email: str, *, is_email_verified: bool = False):
-    import app.routers.users as users_router
-
     session_factory = get_session_factory()
     async with session_factory() as db:
         user = User(
             email=email,
             full_name="Seed User",
-            password=users_router._hash_password("strong-pass-123"),
+            password=hash_password("strong-pass-123"),
             is_active=True,
             is_email_verified=is_email_verified,
         )
@@ -129,7 +130,8 @@ def test_signup_account_lifecycle_stays_out_of_router():
     assert "db.flush(" not in signup_source
     assert "auth_token_version = (existing.auth_token_version or 0) + 1" not in signup_source
     assert "async def create_or_reclaim_signup_user" in service_source
-    assert "select(User)" in service_source
+    assert "get_user_by_email(" in service_source
+    assert "select(User)" in inspect.getsource(auth_users)
     assert "UserXP(" in service_source
     assert "except IntegrityError" in service_source
     assert "Could not complete signup." in service_source
@@ -173,7 +175,8 @@ def test_google_login_persistence_stays_out_of_router():
     assert "make_unusable_password(" not in route_source
     assert "google_login_persistence_failed" not in route_source
     assert "async def complete_google_login" in service_source
-    assert "select(User)" in service_source
+    assert "get_user_by_email(" in service_source
+    assert "select(User)" in inspect.getsource(auth_users)
     assert "UserXP(" in service_source
     assert "except IntegrityError" in service_source
     assert "make_unusable_password(" in service_source
@@ -353,7 +356,7 @@ def test_signup_recovers_from_insert_race_and_reuses_existing_unverified_user(ap
                     User(
                         email=email,
                         full_name="Concurrent User",
-                        password=users_router._hash_password("other-pass-123"),
+                        password=hash_password("other-pass-123"),
                         is_active=True,
                         is_email_verified=False,
                     )
@@ -397,6 +400,7 @@ def test_google_login_happy_path(app_client, monkeypatch):
         "verify_google_token",
         lambda *_: {
             "email": "googleuser@example.com",
+            "email_verified": True,
             "name": "Google User",
             "picture": "https://example.com/avatar.png",
             "sub": "google-sub-1",
@@ -451,6 +455,7 @@ def test_google_login_recovers_from_insert_race_and_uses_existing_user(app_clien
         "verify_google_token",
         lambda *_: {
             "email": email,
+            "email_verified": True,
             "name": "Google Race Winner",
             "picture": "https://example.com/avatar.png",
             "sub": "google-race-sub",
@@ -479,6 +484,7 @@ def test_google_login_normalizes_email_and_neutralizes_unverified_password(app_c
         "verify_google_token",
         lambda *_: {
             "email": "  GOOGLE-PRE-ATO@EXAMPLE.COM  ",
+            "email_verified": True,
             "name": "Google Owner",
             "picture": "https://example.com/avatar.png",
             "sub": "google-pre-ato-sub",
@@ -497,6 +503,60 @@ def test_google_login_normalizes_email_and_neutralizes_unverified_password(app_c
 
     password_login = app_client.post("/api/auth/login", json={"email": email, "password": "strong-pass-123"})
     assert password_login.status_code == 401
+
+
+def test_google_login_activation_invalidates_pending_verification_token(app_client, monkeypatch, test_settings, run_db):
+    import app.routers.users as users_router
+
+    email = "google-activation-stale-verify@example.com"
+    run_db(_seed_user(email, is_email_verified=False))
+    stale_token = generate_verification_token(email, test_settings, token_version=0)
+
+    monkeypatch.setattr(
+        users_router,
+        "verify_google_token",
+        lambda *_: {
+            "email": email,
+            "email_verified": True,
+            "name": "Google Owner",
+            "picture": "https://example.com/avatar.png",
+            "sub": "google-activation-sub",
+        },
+    )
+
+    login = app_client.post("/api/google-login", json={"credential": "fake-credential"})
+    assert login.status_code == 200
+
+    user = run_db(_get_user(email))
+    assert user is not None
+    assert user.is_email_verified is True
+    assert user.email_token_version == 1
+    assert user.auth_token_version == 1
+
+    stale_verify = app_client.post("/api/auth/verify-email", json={"token": stale_token})
+    assert stale_verify.status_code == 400
+    assert stale_verify.json()["detail"] == "Lien de verification invalide ou expire"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"email": "google-unverified@example.com", "email_verified": False, "sub": "google-unverified-sub"},
+        {"email": "google-missing-verification@example.com", "sub": "google-missing-verification-sub"},
+        {"email": "google-missing-sub@example.com", "email_verified": True},
+        {"email": None, "email_verified": True, "sub": "google-null-email-sub"},
+    ],
+)
+def test_google_login_rejects_unverified_or_malformed_identity_payload(app_client, monkeypatch, payload):
+    import app.routers.users as users_router
+
+    monkeypatch.setattr(users_router, "verify_google_token", lambda *_: payload)
+
+    response = app_client.post("/api/google-login", json={"credential": "fake-credential"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid Google credential"
+    assert "access_token" not in response.text
 
 
 def test_legacy_unusable_password_sentinel_still_cannot_login(app_client, run_db):
@@ -532,6 +592,7 @@ def test_google_login_does_not_mint_token_after_persistence_failure(app_client, 
         "verify_google_token",
         lambda *_: {
             "email": email,
+            "email_verified": True,
             "name": "Google Commit Failure",
             "picture": "https://example.com/avatar.png",
             "sub": "google-sub-failure",
@@ -565,6 +626,7 @@ def test_google_login_rejected_professor_does_not_persist_profile_mutations(app_
         "verify_google_token",
         lambda *_: {
             "email": email,
+            "email_verified": True,
             "name": "Google Professor",
             "picture": "https://example.com/professor.png",
             "sub": "google-professor-sub",
@@ -685,6 +747,56 @@ def test_resend_verification_retry_is_not_blackholed_by_failed_send(app_client, 
     assert calls["count"] == 2
 
 
+def test_email_dispatch_release_does_not_rewind_newer_reservation(run_db):
+    email = "resend-release-race@example.com"
+    purpose = auth_email_dispatch.EMAIL_PURPOSE_VERIFICATION
+    original_sent_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+    async def _reserve_mutate_and_release():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(
+                EmailDispatchThrottle(
+                    email=email,
+                    purpose=purpose,
+                    window_started_at=original_sent_at,
+                    sent_count=1,
+                    last_sent_at=original_sent_at,
+                )
+            )
+            await db.commit()
+
+        async with session_factory() as db:
+            reservation = await auth_email_dispatch.reserve_email_dispatch(db, email, purpose)
+            assert reservation is not None
+            assert reservation.created is False
+            await db.commit()
+
+        newer_sent_at = datetime.now(timezone.utc)
+        async with session_factory() as db:
+            throttle = (
+                await db.execute(
+                    select(EmailDispatchThrottle).where(
+                        EmailDispatchThrottle.email == email,
+                        EmailDispatchThrottle.purpose == purpose,
+                    )
+                )
+            ).scalar_one()
+            throttle.sent_count = 3
+            throttle.last_sent_at = newer_sent_at
+            await db.commit()
+
+        await auth_email_dispatch.release_email_dispatch_reservation(reservation)
+        return await _get_email_throttle(email, purpose)
+
+    throttle = run_db(_reserve_mutate_and_release())
+
+    assert throttle is not None
+    assert throttle.sent_count == 3
+    assert throttle.last_sent_at is not None
+    assert auth_email_dispatch.as_aware_utc(throttle.last_sent_at) > original_sent_at
+
+
 def test_resend_verification_commits_throttle_before_email_io(app_client, monkeypatch, run_db):
     import app.routers.users as users_router
 
@@ -701,6 +813,56 @@ def test_resend_verification_commits_throttle_before_email_io(app_client, monkey
     response = app_client.post("/api/auth/resend-verification", json={"email": email})
 
     assert response.status_code == 200
+
+
+def test_resend_verification_throttle_insert_race_is_neutral_no_send(app_client, monkeypatch, run_db):
+    import app.routers.users as users_router
+
+    email = "resend-throttle-insert-race@example.com"
+    run_db(_seed_user(email, is_email_verified=False))
+    sent_emails = []
+    calls = {"flush": 0, "commit": 0}
+    original_flush = AsyncSession.flush
+    original_commit = AsyncSession.commit
+
+    async def fake_send_verification_email(target_email, *_args, **_kwargs):
+        sent_emails.append(target_email)
+
+    async def racing_flush(self, *args, **kwargs):
+        calls["flush"] += 1
+        if calls["flush"] == 1:
+            now = datetime.now(timezone.utc)
+            session_factory = get_session_factory()
+            async with session_factory() as race_db:
+                await race_db.execute(
+                    insert(EmailDispatchThrottle).values(
+                        email=email,
+                        purpose=users_router.EMAIL_PURPOSE_VERIFICATION,
+                        window_started_at=now,
+                        sent_count=1,
+                        last_sent_at=now,
+                    )
+                )
+                await original_commit(race_db)
+            raise IntegrityError("insert", {}, Exception("duplicate key"))
+        return await original_flush(self, *args, **kwargs)
+
+    async def commit_would_have_surfaced_old_race(self):
+        calls["commit"] += 1
+        raise IntegrityError("insert", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(users_router, "send_verification_email", fake_send_verification_email)
+    monkeypatch.setattr(AsyncSession, "flush", racing_flush)
+    monkeypatch.setattr(AsyncSession, "commit", commit_would_have_surfaced_old_race)
+
+    response = app_client.post("/api/auth/resend-verification", json={"email": email})
+
+    assert response.status_code == 200
+    assert sent_emails == []
+    assert calls == {"flush": 1, "commit": 0}
+    throttle = run_db(_get_email_throttle(email, users_router.EMAIL_PURPOSE_VERIFICATION))
+    assert throttle is not None
+    assert throttle.sent_count == 1
 
 
 def test_forgot_password_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
@@ -850,6 +1012,51 @@ def test_logout_revokes_existing_cookie_token(app_client, run_db):
     revoked = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {old_token}"})
     assert revoked.status_code == 401
     assert revoked.json()["detail"] == "Token revoked"
+
+
+def test_logout_does_not_invalidate_pending_password_reset_link(app_client, test_settings, run_db):
+    email = "logout-keeps-reset-link@example.com"
+    run_db(_seed_user(email, is_email_verified=True))
+    reset_token = generate_reset_token(email, test_settings, token_version=0)
+
+    login = app_client.post("/api/auth/login", json={"email": email, "password": "strong-pass-123"})
+    assert login.status_code == 200
+    csrf_token = login.cookies.get("kresco_csrf")
+    assert csrf_token
+
+    logout = app_client.post(
+        "/api/auth/logout",
+        headers={"Origin": "http://localhost:3000", "x-csrf-token": csrf_token},
+    )
+    assert logout.status_code == 200
+
+    reset = app_client.post(
+        "/api/auth/reset-password",
+        json={"token": reset_token, "password": "new-logout-reset-pass"},
+    )
+    assert reset.status_code == 200
+
+    old_password = app_client.post("/api/auth/login", json={"email": email, "password": "strong-pass-123"})
+    new_password = app_client.post("/api/auth/login", json={"email": email, "password": "new-logout-reset-pass"})
+    assert old_password.status_code == 401
+    assert new_password.status_code == 200
+
+
+def test_session_revocation_does_not_invalidate_pending_verification_link(app_client, test_settings, run_db):
+    email = "session-revoke-keeps-verify@example.com"
+    run_db(_seed_user(email, is_email_verified=False))
+    verify_token = generate_verification_token(email, test_settings, token_version=0)
+
+    async def _revoke_sessions_without_rotating_email_token():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = (await db.execute(select(User).where(User.email == email))).scalar_one()
+            await auth_account.revoke_user_sessions(db, user)
+
+    run_db(_revoke_sessions_without_rotating_email_token())
+
+    verify = app_client.post("/api/auth/verify-email", json={"token": verify_token})
+    assert verify.status_code == 200
 
 
 def test_production_auth_cookie_defaults_to_secure_lax_samesite(test_settings):

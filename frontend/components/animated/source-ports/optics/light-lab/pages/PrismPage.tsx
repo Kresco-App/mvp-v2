@@ -15,6 +15,25 @@ interface PageProps {
 }
 
 type SourceMode = 'white' | 'single' | 'double';
+type LaserTone = 'violet' | 'blue' | 'green' | 'yellow' | 'orange' | 'red';
+
+const laserToneClasses: Record<LaserTone, { text: string; accent: string }> = {
+    violet: { text: 'text-violet-500', accent: 'accent-violet-500' },
+    blue: { text: 'text-blue-500', accent: 'accent-blue-500' },
+    green: { text: 'text-green-500', accent: 'accent-green-500' },
+    yellow: { text: 'text-yellow-500', accent: 'accent-yellow-500' },
+    orange: { text: 'text-orange-500', accent: 'accent-orange-500' },
+    red: { text: 'text-red-500', accent: 'accent-red-500' },
+};
+
+const getLaserTone = (nm: number): LaserTone => {
+    if (nm < 450) return 'violet';
+    if (nm < 495) return 'blue';
+    if (nm < 570) return 'green';
+    if (nm < 590) return 'yellow';
+    if (nm < 620) return 'orange';
+    return 'red';
+};
 
 export default function PrismPage({
     onNavigate: onNavigateInternal,
@@ -302,6 +321,8 @@ export default function PrismPage({
     const textSecondary = isDark ? 'text-[#94A3B8]' : 'text-[#64748B]';
     const cardBg = isDark ? 'bg-[#334155]/50' : 'bg-[#F5F3FF]';
     const borderColor = isDark ? 'border-[#475569]' : 'border-[#8B5CF6]/20';
+    const laser1Classes = laserToneClasses[getLaserTone(laser1Wavelength)];
+    const laser2Classes = laserToneClasses[getLaserTone(laser2Wavelength)];
 
     const canvasContent = (
         <canvas 
@@ -346,14 +367,13 @@ export default function PrismPage({
                         <div className="space-y-1">
                             <div className="flex justify-between text-xs">
                                 <span className={textSecondary}>{sourceMode === 'double' ? 'Laser 1' : 'Couleur'}</span>
-                                <span className="font-mono font-medium" style={{ color: getWavelengthColor(laser1Wavelength) }}>{laser1Wavelength} nm</span>
+                                <span className={`font-mono font-medium ${laser1Classes.text}`}>{laser1Wavelength} nm</span>
                             </div>
                             <input 
                                 type="range" min="380" max="750" step="1" 
                                 value={laser1Wavelength} 
                                 onChange={(e) => setLaser1Wavelength(Number(e.target.value))}
-                                className="w-full h-1.5"
-                                style={{ accentColor: getWavelengthColor(laser1Wavelength) }}
+                                className={`w-full h-1.5 ${laser1Classes.accent}`}
                             />
                         </div>
 
@@ -361,14 +381,13 @@ export default function PrismPage({
                             <div className="space-y-1 border-t border-purple-500/10 pt-2">
                                 <div className="flex justify-between text-xs">
                                     <span className={textSecondary}>Laser 2</span>
-                                    <span className="font-mono font-medium" style={{ color: getWavelengthColor(laser2Wavelength) }}>{laser2Wavelength} nm</span>
+                                    <span className={`font-mono font-medium ${laser2Classes.text}`}>{laser2Wavelength} nm</span>
                                 </div>
                                 <input 
                                     type="range" min="380" max="750" step="1" 
                                     value={laser2Wavelength} 
                                     onChange={(e) => setLaser2Wavelength(Number(e.target.value))}
-                                    className="w-full h-1.5"
-                                    style={{ accentColor: getWavelengthColor(laser2Wavelength) }}
+                                    className={`w-full h-1.5 ${laser2Classes.accent}`}
                                 />
                             </div>
                         )}

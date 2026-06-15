@@ -21,7 +21,7 @@ export function FigmaNavbar({ active = 'home' }: { active?: FigmaNavKey }) {
               </span>
             )
           })}
-          <span className="absolute bottom-0 h-0.5 bg-[#3a2fd3]" style={navDividerStyle(active)} />
+          <span className={`absolute bottom-0 h-0.5 bg-[#3a2fd3] ${navDividerClass(active)}`} />
         </div>
 
         <div className="flex h-full min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden">
@@ -40,13 +40,13 @@ export function FigmaNavbar({ active = 'home' }: { active?: FigmaNavKey }) {
   )
 }
 
-function navDividerStyle(active: FigmaNavKey) {
-  const map: Record<FigmaNavKey, { left: number; width: number }> = {
-    home: { left: 0, width: 104 },
-    courses: { left: 104, width: 121 },
-    calendar: { left: 225, width: 127 },
-    leaderboard: { left: 352, width: 154 },
-    live: { left: 506, width: 90 },
+function navDividerClass(active: FigmaNavKey) {
+  const map: Record<FigmaNavKey, string> = {
+    home: 'left-0 w-[104px]',
+    courses: 'left-[104px] w-[121px]',
+    calendar: 'left-[225px] w-[127px]',
+    leaderboard: 'left-[352px] w-[154px]',
+    live: 'left-[506px] w-[90px]',
   }
 
   return map[active]

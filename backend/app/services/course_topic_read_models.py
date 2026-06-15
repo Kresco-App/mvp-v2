@@ -10,10 +10,12 @@ from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, 
 from app.models.gamification import TopicItemProgress
 from app.models.interactions import UserNote
 from app.models.users import User
-from app.schemas.courses import TopicCardOut, TopicSectionOut, TopicWorkspaceOut
+from app.schemas.courses import TabContentOut, TopicCardOut, TopicItemOut, TopicSectionOut, TopicWorkspaceOut
 from app.services.access import AccessDecision, build_access_context
 from app.services.course_access import store_access_decision, topic_item_out
 from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
+
+WORKSPACE_SEARCH_RESULT_LIMIT = 25
 
 
 async def _matching_topic_item_ids(
@@ -22,6 +24,7 @@ async def _matching_topic_item_ids(
     user: User,
     topic_id: int,
     query: str,
+    limit: int = WORKSPACE_SEARCH_RESULT_LIMIT,
 ) -> set[int]:
     normalized_query = normalize_substring_search(query)
     if not normalized_query:
@@ -80,6 +83,8 @@ async def _matching_topic_item_ids(
                 note_match,
             ),
         )
+        .order_by(TopicItem.order, TopicItem.id)
+        .limit(max(1, limit))
     )
     return set(result.scalars().all())
 
@@ -173,6 +178,58 @@ async def list_topic_cards(
             required_feature_key=access.required_feature_key,
         ))
     return cards
+
+
+_COMPACT_TAB_CONFIG_KEYS = {
+    "quiz_id",
+    "quizId",
+    "question_set_id",
+    "questionSetId",
+}
+_COMPACT_QUESTION_CONFIG_KEYS = {
+    "id",
+    "external_id",
+    "question_id",
+    "questionId",
+}
+
+
+def _compact_tab_config(config: dict) -> dict:
+    if not isinstance(config, dict):
+        return {}
+
+    compact = {
+        key: config[key]
+        for key in _COMPACT_TAB_CONFIG_KEYS
+        if key in config
+    }
+    questions = config.get("questions")
+    if isinstance(questions, list):
+        compact["questions"] = [
+            {
+                key: question[key]
+                for key in _COMPACT_QUESTION_CONFIG_KEYS
+                if isinstance(question, dict) and key in question
+            }
+            for question in questions
+            if isinstance(question, dict)
+        ]
+    return compact
+
+
+def _compact_tab_body(tab: TabContentOut) -> None:
+    tab.content = ""
+    tab.config_json = _compact_tab_config(tab.config_json)
+    tab.body_omitted = True
+
+
+def _compact_workspace_item(item: TopicItemOut) -> TopicItemOut:
+    compact = item.model_copy(deep=True)
+    if compact.primary_tab:
+        _compact_tab_body(compact.primary_tab)
+    for tab in compact.tabs:
+        _compact_tab_body(tab)
+    return compact
 
 
 async def build_topic_workspace(
@@ -287,7 +344,13 @@ async def build_topic_workspace(
                 )
 
     accessible_items = [item for item in items if item_access.get(item.id, topic_access).can_access]
-    active_item = next((item for item in accessible_items if item.id == item_id), None) if item_id else None
+    if item_id is not None:
+        active_item = next((item for item in items if item.id == item_id), None)
+        if active_item is None:
+            raise HTTPException(status_code=404, detail="Topic item not found")
+    else:
+        active_item = None
+
     if active_item is None:
         started = [progress_by_item.get(item.id) for item in accessible_items if progress_by_item.get(item.id)]
         started = sorted(started, key=lambda p: p.updated_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
@@ -298,6 +361,10 @@ async def build_topic_workspace(
             accessible_items[0] if accessible_items else (items[0] if items else None)
         )
 
+    def workspace_item_out(item: TopicItem, *, include_body: bool) -> TopicItemOut:
+        out = topic_item_out(item, progress_by_item, item_access, tab_access, resource_access)
+        return out if include_body else _compact_workspace_item(out)
+
     section_outputs = [
         TopicSectionOut(
             id=section.id,
@@ -305,7 +372,10 @@ async def build_topic_workspace(
             section_type=section.section_type,
             order=section.order,
             items=[
-                topic_item_out(item, progress_by_item, item_access, tab_access, resource_access)
+                workspace_item_out(
+                    item,
+                    include_body=active_item is not None and item.id == active_item.id,
+                )
                 for item in items
                 if item.section_id == section.id
             ],
@@ -328,7 +398,7 @@ async def build_topic_workspace(
     ) if normalized_query else set()
 
     search_results = [
-        topic_item_out(item, progress_by_item, item_access, tab_access, resource_access)
+        workspace_item_out(item, include_body=False)
         for item in items
         if item.id in matching_item_ids
     ]
@@ -351,6 +421,6 @@ async def build_topic_workspace(
         required_feature_key=topic_access.required_feature_key,
         active_item_id=active_item.id if active_item else None,
         sections=section_outputs,
-        active_item=topic_item_out(active_item, progress_by_item, item_access, tab_access, resource_access) if active_item else None,
+        active_item=workspace_item_out(active_item, include_body=True) if active_item else None,
         search_results=search_results,
     )

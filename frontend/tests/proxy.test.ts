@@ -155,6 +155,7 @@ describe('Next proxy auth boundary', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('x-middleware-next')).toBe('1')
   })
+
   it('protects CMI return routes at the proxy boundary', () => {
     const unauthenticated = proxy(makeRequest('/payment/cmi/ok'))
     const authenticated = proxy(makeRequest('/payment/cmi/fail', {
@@ -184,13 +185,16 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'script-src')).not.toContain("'unsafe-inline'")
     expect(cspDirective(csp, 'style-src')).toContain('https://accounts.google.com')
     expect(cspDirective(csp, 'style-src')).not.toContain("'unsafe-inline'")
-    expect(cspDirective(csp, 'style-src-elem')).toContain("'unsafe-inline'")
     expect(cspDirective(csp, 'style-src-elem')).toContain('https://accounts.google.com')
-    expect(cspDirective(csp, 'style-src-attr')).toBe("style-src-attr 'unsafe-inline'")
+    expect(cspDirective(csp, 'style-src-elem')).toContain("'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='")
+    expect(cspDirective(csp, 'style-src-elem')).toContain("'sha256-CIxDM5jnsGiKqXs2v7NKCY5MzdR9gu6TtiMJrDw29AY='")
+    expect(cspDirective(csp, 'style-src-elem')).not.toContain("'unsafe-inline'")
+    expect(cspDirective(csp, 'style-src-attr')).toBe("style-src-attr 'none'")
     expect(cspDirective(csp, 'connect-src')).toContain('wss://*.ably.io')
     expect(cspDirective(csp, 'frame-src')).toContain('https://www.youtube-nocookie.com')
     expect(cspDirective(csp, 'frame-src')).toContain('https://player.vdocipher.com')
     expect(cspDirective(csp, 'frame-src')).toContain('blob:')
+    expect(cspDirective(csp, 'frame-src')).toContain('about:')
     expect(cspDirective(csp, 'form-action')).toBe("form-action 'self' https://cmi.co.ma https://*.cmi.co.ma")
     expect(cspDirective(csp, 'img-src')).toContain('https://images.unsplash.com')
     expect(cspDirective(csp, 'img-src')).toContain('https://*.googleusercontent.com')

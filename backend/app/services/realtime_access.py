@@ -24,6 +24,18 @@ def active_live_session_filters(now: datetime) -> tuple:
     )
 
 
+def student_offering_filters(user: User, access_context: AccessContext | None = None) -> tuple:
+    filters = (
+        ProgramTrack.niveau == user.niveau,
+        ProgramTrack.filiere == user.filiere,
+        CourseOffering.status == "active",
+        ProgramTrack.status == "active",
+    )
+    if access_context and access_context.subject_scope_enforced:
+        return (*filters, CourseOffering.subject_id.in_(access_context.active_subject_ids))
+    return filters
+
+
 async def live_session_ids_for_user(
     db: AsyncSession,
     user: User,
@@ -49,15 +61,10 @@ async def live_session_ids_for_user(
     if not _allows_unscoped_realtime(access_context):
         return []
 
-    filters = [
+    filters = (
         *active_live_session_filters(now),
-        ProgramTrack.niveau == user.niveau,
-        ProgramTrack.filiere == user.filiere,
-        CourseOffering.status == "active",
-        ProgramTrack.status == "active",
-    ]
-    if access_context.subject_scope_enforced:
-        filters.append(CourseOffering.subject_id.in_(access_context.active_subject_ids))
+        *student_offering_filters(user, access_context),
+    )
 
     result = await db.execute(
         select(LiveSession.id)
@@ -94,14 +101,7 @@ async def offering_ids_for_user(
     if not _allows_unscoped_realtime(access_context):
         return []
 
-    filters = [
-        ProgramTrack.niveau == user.niveau,
-        ProgramTrack.filiere == user.filiere,
-        CourseOffering.status == "active",
-        ProgramTrack.status == "active",
-    ]
-    if access_context.subject_scope_enforced:
-        filters.append(CourseOffering.subject_id.in_(access_context.active_subject_ids))
+    filters = student_offering_filters(user, access_context)
 
     result = await db.execute(
         select(CourseOffering.id)

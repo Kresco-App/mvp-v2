@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.courses import ExamProblem, Resource, TabContent, Topic, TopicItem
 from app.config import Settings
+from app.database import get_or_create
+from app.models.courses import ExamProblem, Resource, Subject, TabContent, Topic, TopicItem
+from app.models.exercises import EXERCISE_STATUS_PUBLISHED, Exercise
 from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
 from app.models.quizzes import Question, QuestionSet
 from app.models.users import User
@@ -15,6 +17,7 @@ from app.schemas.interactions import (
     CommentAuthorOut,
     CommentCreateIn,
     CommentOut,
+    ExerciseCommentCreateIn,
     InteractionDeleteOut,
     NoteCreateIn,
     NoteOut,
@@ -69,6 +72,7 @@ async def comment_out(comment: Comment, settings: Settings, *, reply_count: int 
     return CommentOut(
         id=comment.id,
         topic_item_id=comment.topic_item_id,
+        exercise_id=comment.exercise_id,
         body=comment.body,
         author=CommentAuthorOut(
             id=comment.user.id,
@@ -79,6 +83,31 @@ async def comment_out(comment: Comment, settings: Settings, *, reply_count: int 
         reply_count=reply_count,
         created_at=comment.created_at,
     )
+
+
+async def require_exercise_comments_access(db: AsyncSession, user: User, exercise_id: int) -> Exercise:
+    exercise = await db.scalar(
+        select(Exercise)
+        .join(Subject, Subject.id == Exercise.subject_id)
+        .outerjoin(Topic, Topic.id == Exercise.topic_id)
+        .where(
+            Exercise.id == exercise_id,
+            Exercise.status == EXERCISE_STATUS_PUBLISHED,
+            Subject.is_published == True,  # noqa: E712
+            or_(Exercise.topic_id.is_(None), Topic.status == "published"),
+        )
+    )
+    if exercise is None:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    if bool(exercise.is_free_preview):
+        return exercise
+    access_context = await build_access_context(db, user)
+    if int(exercise.subject_id) not in access_context.active_subject_ids:
+        raise HTTPException(status_code=403, detail="subject_access_required")
+    decision = access_context.decide_for(exercise, subject_id=int(exercise.subject_id))
+    if not decision.can_access:
+        raise HTTPException(status_code=403, detail=decision.locked_reason)
+    return exercise
 
 
 async def list_topic_item_comments(
@@ -120,12 +149,97 @@ def comment_parent_mismatch(parent: Comment, topic_item_id: int) -> bool:
     return parent.topic_item_id != topic_item_id
 
 
+def exercise_comment_parent_mismatch(parent: Comment, exercise_id: int) -> bool:
+    return parent.exercise_id != exercise_id
+
+
+async def list_exercise_comments(
+    db: AsyncSession,
+    *,
+    user: User,
+    exercise_id: int,
+    settings: Settings,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[CommentOut]:
+    await require_exercise_comments_access(db, user, exercise_id)
+
+    reply_counts = (
+        select(Comment.parent_id.label("parent_id"), func.count(Comment.id).label("reply_count"))
+        .where(Comment.exercise_id == exercise_id, Comment.parent_id.is_not(None))
+        .group_by(Comment.parent_id)
+        .subquery()
+    )
+    result = await db.execute(
+        select(Comment, func.coalesce(reply_counts.c.reply_count, 0).label("reply_count"))
+        .outerjoin(reply_counts, reply_counts.c.parent_id == Comment.id)
+        .options(selectinload(Comment.user))
+        .where(
+            Comment.exercise_id == exercise_id,
+            Comment.parent_id == None,  # noqa: E711
+        )
+        .order_by(Comment.created_at, Comment.id)
+        .offset(offset)
+        .limit(limit)
+    )
+    return [
+        await comment_out(comment, settings, reply_count=int(reply_count))
+        for comment, reply_count in result.all()
+    ]
+
+
 async def require_saved_target_exists(db: AsyncSession, target_type: str, target_id: int) -> None:
     model = SAVED_TARGET_MODELS.get(target_type)
     if model is None:
         raise HTTPException(status_code=400, detail=f"Invalid target_type. Use one of: {ALLOWED_TARGET_TYPES}")
     if await db.get(model, target_id) is None:
         raise HTTPException(status_code=404, detail="Saved item target not found")
+
+
+async def require_interaction_context_access(
+    db: AsyncSession,
+    user: User,
+    context: dict[str, int | None],
+) -> None:
+    tab_content_id = context.get("tab_content_id")
+    if tab_content_id is not None:
+        tab = await db.scalar(
+            select(TabContent)
+            .options(selectinload(TabContent.topic_item).selectinload(TopicItem.topic))
+            .where(TabContent.id == int(tab_content_id))
+        )
+        if tab is None:
+            raise HTTPException(status_code=404, detail="Tab not found")
+        decision = await access_for_tab(db, user, tab)
+        if not decision.can_access:
+            raise HTTPException(status_code=403, detail=decision.locked_reason)
+        return
+
+    topic_item_id = context.get("topic_item_id")
+    if topic_item_id is not None:
+        await require_topic_item_access(db, user, int(topic_item_id))
+        return
+
+    topic_id = context.get("topic_id")
+    if topic_id is not None:
+        topic = await db.get(Topic, int(topic_id))
+        if topic is None:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        access_context = await build_access_context(db, user)
+        decision = access_context.decide_for(topic, subject_id=topic.subject_id)
+        if not decision.can_access:
+            raise HTTPException(status_code=403, detail=decision.locked_reason)
+        return
+
+    subject_id = context.get("subject_id")
+    if subject_id is not None:
+        subject = await db.get(Subject, int(subject_id))
+        if subject is None:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        access_context = await build_access_context(db, user)
+        decision = access_context.decide_for(subject, subject_id=subject.id)
+        if not decision.can_access:
+            raise HTTPException(status_code=403, detail=decision.locked_reason)
 
 
 async def create_topic_item_comment(
@@ -147,6 +261,35 @@ async def create_topic_item_comment(
     comment = Comment(
         user_id=user.id,
         topic_item_id=body.topic_item_id,
+        body=body.body,
+        parent_id=body.parent_id,
+    )
+    db.add(comment)
+    await db.commit()
+    await db.refresh(comment)
+    comment.user = user
+    return await comment_out(comment, settings)
+
+
+async def create_exercise_comment(
+    db: AsyncSession,
+    *,
+    user: User,
+    settings: Settings,
+    body: ExerciseCommentCreateIn,
+) -> CommentOut:
+    await require_exercise_comments_access(db, user, body.exercise_id)
+
+    if body.parent_id is not None:
+        parent = await db.get(Comment, body.parent_id)
+        if parent is None:
+            raise HTTPException(status_code=404, detail="Parent comment not found")
+        if exercise_comment_parent_mismatch(parent, body.exercise_id):
+            raise HTTPException(status_code=400, detail="Parent comment belongs to a different exercise")
+
+    comment = Comment(
+        user_id=user.id,
+        exercise_id=body.exercise_id,
         body=body.body,
         parent_id=body.parent_id,
     )
@@ -194,8 +337,7 @@ async def create_user_note(
         topic_item_id=body.topic_item_id,
         tab_content_id=body.tab_content_id,
     )
-    if context.get("topic_item_id") is not None:
-        await require_topic_item_access(db, user, int(context["topic_item_id"]))
+    await require_interaction_context_access(db, user, context)
     note = UserNote(
         user_id=user.id,
         subject_id=context.get("subject_id"),
@@ -275,8 +417,6 @@ async def list_user_saves(
     return [SavedItemOut.model_validate(save) for save in result.scalars().all()]
 
 
-from app.database import get_or_create
-
 async def save_user_item(
     db: AsyncSession,
     *,
@@ -286,8 +426,6 @@ async def save_user_item(
     if body.target_type not in ALLOWED_TARGET_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid target_type. Use one of: {ALLOWED_TARGET_TYPES}")
     await require_saved_target_exists(db, body.target_type, body.target_id)
-    if body.topic_item_id is not None:
-        await require_topic_item_access(db, user, body.topic_item_id)
     context = await infer_interaction_context(
         db,
         subject_id=body.subject_id,
@@ -296,9 +434,8 @@ async def save_user_item(
         target_type=body.target_type,
         target_id=body.target_id,
     )
-    if context.get("topic_item_id") is not None:
-        await require_topic_item_access(db, user, int(context["topic_item_id"]))
-    
+    await require_interaction_context_access(db, user, context)
+
     save, created = await get_or_create(
         db,
         SavedItem,
@@ -323,6 +460,64 @@ async def save_user_item(
     await db.commit()
     await db.refresh(save)
     return SavedItemOut.model_validate(save)
+
+
+async def require_owned_saved_item(
+    db: AsyncSession,
+    *,
+    user: User,
+    save_id: int,
+) -> SavedItem:
+    save = await db.scalar(
+        select(SavedItem).where(
+            SavedItem.id == save_id,
+            SavedItem.user_id == user.id,
+        )
+    )
+    if save is None:
+        raise HTTPException(status_code=404, detail="Saved item not found")
+    return save
+
+
+async def delete_user_save(
+    db: AsyncSession,
+    *,
+    user: User,
+    save_id: int,
+) -> InteractionDeleteOut:
+    save = await require_owned_saved_item(db, user=user, save_id=save_id)
+    await db.delete(save)
+    await db.commit()
+    return InteractionDeleteOut(ok=True, id=save_id)
+
+
+async def require_owned_comment(
+    db: AsyncSession,
+    *,
+    user: User,
+    comment_id: int,
+) -> Comment:
+    comment = await db.scalar(
+        select(Comment).where(
+            Comment.id == comment_id,
+            Comment.user_id == user.id,
+        )
+    )
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return comment
+
+
+async def delete_topic_item_comment(
+    db: AsyncSession,
+    *,
+    user: User,
+    comment_id: int,
+) -> InteractionDeleteOut:
+    await require_owned_comment(db, user=user, comment_id=comment_id)
+    await db.execute(delete(Comment).where(Comment.id == comment_id))
+    await db.commit()
+    return InteractionDeleteOut(ok=True, id=comment_id)
 
 
 async def _workspace_tab_for_resource(

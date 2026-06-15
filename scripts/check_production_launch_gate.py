@@ -12,6 +12,37 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TRACEABILITY_PATH = REPO_ROOT / "docs" / "production-remediation-traceability.md"
 DEFAULT_SWITCH_PATH = REPO_ROOT / "PRODUCTION-SWITCH.md"
 PASSING_STATUS = "verified"
+ALLOWED_STATUSES = frozenset({"blocked", "in_progress", "pending", "verified"})
+REQUIRED_TRACEABILITY_IDS = (
+    "OPS-FREEZE-001",
+    "SEC-CSRF-001",
+    "SEC-CSP-001",
+    "SEC-CSP-STYLE-001",
+    "SEC-ADMIN-001",
+    "SEC-LIVE-001",
+    "SEC-SECRETS-001",
+    "MEDIA-S3-001",
+    "MEDIA-AUTH-001",
+    "RT-FANOUT-001",
+    "RT-OUTBOX-001",
+    "E2E-STUDENT-001",
+    "E2E-PROF-001",
+    "E2E-UPLOAD-001",
+    "E2E-NEGATIVE-001",
+    "PERF-TOPIC-001",
+    "PERF-WATCH-001",
+    "PERF-XP-001",
+    "PERF-LIVE-001",
+    "PERF-PAGE-001",
+    "FE-ERROR-001",
+    "FE-DATA-001",
+    "FE-DEMO-001",
+    "OPS-STAGE-001",
+    "OPS-RDS-001",
+    "OPS-LAMBDA-001",
+    "OPS-RUNBOOK-001",
+    "OPS-READY-001",
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +80,24 @@ def evaluate_launch_gate(traceability_text: str, switch_text: str) -> LaunchGate
 
     if not rows:
         errors.append("No traceability gate rows were found.")
+
+    row_ids = [row.gate_id for row in rows]
+    row_id_set = set(row_ids)
+    duplicate_ids = sorted({gate_id for gate_id in row_ids if row_ids.count(gate_id) > 1})
+    missing_ids = [gate_id for gate_id in REQUIRED_TRACEABILITY_IDS if gate_id not in row_id_set]
+    unexpected_ids = sorted(row_id_set - set(REQUIRED_TRACEABILITY_IDS))
+    invalid_status_rows = tuple(row for row in rows if row.status.lower() not in ALLOWED_STATUSES)
+
+    if missing_ids:
+        errors.append(f"Missing required traceability gate row(s): {', '.join(missing_ids)}.")
+    if duplicate_ids:
+        errors.append(f"Duplicate traceability gate row(s): {', '.join(duplicate_ids)}.")
+    if unexpected_ids:
+        errors.append(f"Unexpected traceability gate row(s): {', '.join(unexpected_ids)}.")
+    if invalid_status_rows:
+        rendered = ", ".join(f"{row.gate_id}={row.status}" for row in invalid_status_rows[:10])
+        suffix = "" if len(invalid_status_rows) <= 10 else f", ...and {len(invalid_status_rows) - 10} more"
+        errors.append(f"Invalid traceability status value(s): {rendered}{suffix}.")
 
     incomplete_rows = tuple(row for row in rows if row.status.lower() != PASSING_STATUS)
     if incomplete_rows:

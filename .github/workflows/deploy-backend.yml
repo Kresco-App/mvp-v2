@@ -59,6 +59,10 @@ jobs:
       - name: Check secret hygiene
         run: python scripts/check_secret_hygiene.py
 
+      - name: Enforce production secret rotation checklist
+        if: ${{ env.ZAPPA_STAGE == 'production' }}
+        run: python scripts/check_secret_hygiene.py --require-rotation-checklist
+
       - name: Enforce production launch gate
         if: ${{ env.ZAPPA_STAGE == 'production' }}
         run: python scripts/check_production_launch_gate.py
@@ -216,6 +220,21 @@ jobs:
           RDS_DB_CLUSTER_IDENTIFIER: ${{ vars.RDS_DB_CLUSTER_IDENTIFIER }}
           RDS_DB_INSTANCE_IDENTIFIER: ${{ vars.RDS_DB_INSTANCE_IDENTIFIER }}
 
+      - name: Validate target database URL policy
+        run: |
+          set -euo pipefail
+          cd backend
+          source venv/bin/activate
+          python - <<'PY'
+          import os
+          from scripts.render_zappa_settings import validate_database_url_policy
+
+          validate_database_url_policy(os.environ.get("DATABASE_URL", ""))
+          print("Target DATABASE_URL policy validates.")
+          PY
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Run Alembic migrations on target database
         run: |
           set -euo pipefail
@@ -271,6 +290,20 @@ jobs:
           zappa schedule "$ZAPPA_STAGE"
 
       - name: Post-deploy staging runtime verification
-        run: python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"
+        run: python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}" --include-provider-reachability
         env:
           KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+
+      - name: Post-deploy S3 media posture verification
+        run: |
+          set -euo pipefail
+          python scripts/check_s3_media_posture.py "${MEDIA_S3_BUCKET:?MEDIA_S3_BUCKET is required.}" \
+            --prefix "${MEDIA_S3_PREFIX:-$ZAPPA_STAGE}" \
+            --anonymous-read-key "${MEDIA_S3_ANONYMOUS_READ_KEY:-}" \
+            --json
+        env:
+          MEDIA_S3_BUCKET: ${{ vars.MEDIA_S3_BUCKET }}
+          MEDIA_S3_REGION: ${{ vars.MEDIA_S3_REGION }}
+          MEDIA_S3_PREFIX: ${{ vars.MEDIA_S3_PREFIX }}
+          MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS: ${{ vars.MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS }}
+          MEDIA_S3_ANONYMOUS_READ_KEY: ${{ vars.MEDIA_S3_ANONYMOUS_READ_KEY }}

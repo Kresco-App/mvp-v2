@@ -6,7 +6,12 @@ from fastapi import HTTPException
 
 from app.models.users import User
 from app.services import stripe_service
-from app.services.stripe_service import create_checkout_session, customer_id_for_charge, verify_checkout_session
+from app.services.stripe_service import (
+    CheckoutSessionCreation,
+    create_checkout_session,
+    customer_id_for_charge,
+    verify_checkout_session,
+)
 
 
 class FakeCustomers:
@@ -61,7 +66,7 @@ class FakeStripeClient:
         )
 
 
-def test_create_checkout_session_creates_customer_and_assigns_user_id(monkeypatch, test_settings):
+def test_create_checkout_session_creates_customer_without_mutating_user(monkeypatch, test_settings):
     client = FakeStripeClient()
     monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
     settings = test_settings.model_copy(
@@ -73,10 +78,12 @@ def test_create_checkout_session_creates_customer_and_assigns_user_id(monkeypatc
     )
     user = User(id=123, email="buyer@example.com", full_name="Buyer", stripe_customer_id="")
 
-    checkout_url = asyncio.run(create_checkout_session(user, "pro", settings))
+    checkout = asyncio.run(create_checkout_session(user, "pro", settings))
 
-    assert checkout_url == "https://checkout.example/session"
-    assert user.stripe_customer_id == "cus_new"
+    assert isinstance(checkout, CheckoutSessionCreation)
+    assert checkout.checkout_url == "https://checkout.example/session"
+    assert checkout.customer_id == "cus_new"
+    assert user.stripe_customer_id == ""
     assert client.v1.customers.created_params == {
         "email": "buyer@example.com",
         "name": "Buyer",
@@ -99,6 +106,25 @@ def test_create_checkout_session_creates_customer_and_assigns_user_id(monkeypatc
     }
 
 
+def test_create_checkout_session_supports_development_fake_checkout_without_stripe(test_settings):
+    settings = test_settings.model_copy(
+        update={
+            "environment": "development",
+            "fake_stripe_checkout": True,
+            "frontend_url": "http://127.0.0.1:3101",
+            "stripe_product_id": "",
+            "stripe_sk": "",
+        }
+    )
+    user = User(id=125, email="fake-buyer@example.com", full_name="Fake Buyer", stripe_customer_id="")
+
+    checkout = asyncio.run(create_checkout_session(user, "pro", settings))
+
+    assert checkout.checkout_url == "http://127.0.0.1:3101/payment-success?session_id=fake_125"
+    assert checkout.customer_id == ""
+    assert user.stripe_customer_id == ""
+
+
 def test_create_checkout_session_reuses_existing_customer_and_normalizes_return_urls(monkeypatch, test_settings):
     client = FakeStripeClient()
     monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
@@ -111,9 +137,10 @@ def test_create_checkout_session_reuses_existing_customer_and_normalizes_return_
     )
     user = User(id=124, email="existing-buyer@example.com", full_name="Existing Buyer", stripe_customer_id="cus_existing")
 
-    checkout_url = asyncio.run(create_checkout_session(user, "pro", settings))
+    checkout = asyncio.run(create_checkout_session(user, "pro", settings))
 
-    assert checkout_url == "https://checkout.example/session"
+    assert checkout.checkout_url == "https://checkout.example/session"
+    assert checkout.customer_id == "cus_existing"
     assert user.stripe_customer_id == "cus_existing"
     assert client.v1.customers.created_params is None
     assert client.v1.checkout.sessions.created_params["customer"] == "cus_existing"
@@ -141,7 +168,7 @@ def test_create_checkout_session_uses_safe_relative_return_paths(monkeypatch, te
     )
     user = User(id=125, email="return-path-buyer@example.com", full_name="Return Buyer", stripe_customer_id="cus_existing")
 
-    checkout_url = asyncio.run(create_checkout_session(
+    checkout = asyncio.run(create_checkout_session(
         user,
         "pro",
         settings,
@@ -149,7 +176,7 @@ def test_create_checkout_session_uses_safe_relative_return_paths(monkeypatch, te
         cancel_path="/topics/42",
     ))
 
-    assert checkout_url == "https://checkout.example/session"
+    assert checkout.checkout_url == "https://checkout.example/session"
     assert client.v1.checkout.sessions.created_params["success_url"] == (
         "https://app.example/payment-success?return_to=/topics/42&session_id={CHECKOUT_SESSION_ID}"
     )
@@ -256,13 +283,15 @@ def test_verify_checkout_session_maps_payment_status(monkeypatch, test_settings,
     assert verification.customer_id == "cus_test"
 
 
-def test_verify_checkout_session_returns_false_on_stripe_error(monkeypatch, test_settings):
+def test_verify_checkout_session_raises_unavailable_on_stripe_error(monkeypatch, test_settings):
     client = FakeStripeClient(sessions=FakeSessions(retrieve_error=stripe_service.stripe.StripeError("boom")))
     monkeypatch.setattr(stripe_service, "_stripe_client", lambda settings: client)
 
-    verification = asyncio.run(verify_checkout_session("cs_test", test_settings))
-    assert verification.is_paid is False
-    assert verification.user_id is None
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(verify_checkout_session("cs_test", test_settings))
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail == stripe_service.VERIFY_CHECKOUT_UNAVAILABLE_DETAIL
 
 
 def test_verify_checkout_session_retries_transient_fetch_errors(monkeypatch, test_settings):

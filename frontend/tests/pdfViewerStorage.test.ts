@@ -24,4 +24,20 @@ describe('PdfViewer storage policy', () => {
     expect(source).not.toContain('allow-scripts')
     expect(source).not.toContain('allow-same-origin')
   })
+
+  it('extracts real text and image snippets through pdf.js without reading iframe internals', () => {
+    const source = readFileSync(resolve(process.cwd(), 'components/zed/PdfViewer.tsx'), 'utf8')
+
+    expect(source).toContain("import('pdfjs-dist')")
+    expect(source).toContain('GlobalWorkerOptions.workerSrc')
+    expect(source).toContain('getTextContent()')
+    expect(source).toContain('page.render({ canvas, canvasContext: context, viewport }).promise')
+    expect(source).toContain("canvas.toDataURL('image/png')")
+    expect(source).toContain("type: 'image'")
+    expect(source).toContain('MAX_SNIP_OUTPUT_PIXELS')
+    expect(source).toContain('maxImageSize: MAX_PDF_IMAGE_PIXELS')
+    expect(source).not.toContain('contentWindow')
+    expect(source).not.toContain('contentDocument')
+    expect(source).not.toContain('zone (')
+  })
 })

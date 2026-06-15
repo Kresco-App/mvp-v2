@@ -57,7 +57,7 @@ async def get_current_user(
 async def get_current_staff_user(
     user: User = Depends(get_current_user),
 ) -> User:
-    if not user.is_staff:
+    if not user.is_staff or not user.is_email_verified:
         raise HTTPException(status_code=403, detail="Staff access required")
     return user
 

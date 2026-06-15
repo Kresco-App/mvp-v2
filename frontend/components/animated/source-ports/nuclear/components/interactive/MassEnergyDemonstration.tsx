@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { Calculator, ArrowRight, Zap } from 'lucide-react';
-import { Latex } from '../Latex';
+import { Latex } from '@/components/animated/shared/Latex';
 
 export const MassEnergyDemonstration: React.FC = () => {
   return (

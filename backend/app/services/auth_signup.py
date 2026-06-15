@@ -1,17 +1,13 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import UserXP
 from app.models.users import User
 from app.security.passwords import hash_password_async
-
-
-def _normalize_email(email: str) -> str:
-    return email.lower().strip()
+from app.services.auth_users import get_user_by_email, normalize_email, require_user_by_email
 
 
 async def _apply_unverified_signup_reclaim(
@@ -23,6 +19,7 @@ async def _apply_unverified_signup_reclaim(
     user.full_name = full_name
     user.password = await hash_password_async(plain_password)
     user.auth_token_version = (user.auth_token_version or 0) + 1
+    user.email_token_version = (user.email_token_version or 0) + 1
     user.password_changed_at = datetime.now(timezone.utc)
 
 
@@ -48,11 +45,7 @@ async def _reclaim_unverified_user(
 
 
 async def _reselect_signup_user(db: AsyncSession, email: str) -> User:
-    result = await db.execute(select(User).where(User.email == _normalize_email(email)))
-    existing = result.scalar_one_or_none()
-    if existing is None:
-        raise HTTPException(status_code=503, detail="Could not complete signup.")
-    return existing
+    return await require_user_by_email(db, email, detail="Could not complete signup.")
 
 
 async def create_or_reclaim_signup_user(
@@ -62,9 +55,8 @@ async def create_or_reclaim_signup_user(
     full_name: str,
     plain_password: str,
 ) -> User:
-    normalized_email = _normalize_email(email)
-    result = await db.execute(select(User).where(User.email == normalized_email))
-    existing = result.scalar_one_or_none()
+    normalized_email = normalize_email(email)
+    existing = await get_user_by_email(db, normalized_email)
 
     if existing is not None:
         try:

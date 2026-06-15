@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Check, ChevronUp, ImageIcon, Loader2, MessageCircle, MoreHorizontal, Pencil, Pin, Search, Send, Star, Trash2, UserRoundCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
@@ -15,7 +16,11 @@ import {
   nextVisibleChatMessageCount,
 } from '@/lib/chatVirtualization'
 import {
+  parseProfessorChatUrlState,
+  professorChatUrlStateToSearchParams,
+  professorChatUrlStatesEqual,
   useProfessorChatData,
+  type ProfessorChatUrlState,
   type ProfessorMessagesEnvelope,
 } from '@/lib/professorChatData'
 import {
@@ -32,9 +37,14 @@ import { useAuthStore } from '@/lib/store'
 
 export default function ProfessorChatPage() {
   const user = useAuthStore((state) => state.user)
-  const [activeId, setActiveId] = useState<number | null>(null)
-  const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<'all' | 'unread' | 'pinned'>('all')
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const searchKey = searchParams.toString()
+  const routeChatState = useMemo(() => parseProfessorChatUrlState(new URLSearchParams(searchKey)), [searchKey])
+  const [activeId, setActiveId] = useState<number | null>(routeChatState.conversationId)
+  const [query, setQuery] = useState(routeChatState.q)
+  const [filter, setFilter] = useState<'all' | 'unread' | 'pinned'>(routeChatState.filter)
   const [draft, setDraft] = useState('')
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [selectedImagePreview, setSelectedImagePreview] = useState('')
@@ -49,6 +59,7 @@ export default function ProfessorChatPage() {
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const conversationErrorRef = useRef<unknown>(null)
   const messageErrorRef = useRef<unknown>(null)
+  const chatUrlStateRef = useRef(routeChatState)
 
   const {
     conversations,
@@ -70,6 +81,23 @@ export default function ProfessorChatPage() {
     [messagesError],
   )
 
+  const replaceChatUrlState = useCallback((nextState: ProfessorChatUrlState) => {
+    const params = professorChatUrlStateToSearchParams(nextState, new URLSearchParams(searchKey))
+    const queryString = params.toString()
+    const nextUrl = queryString ? `${pathname}?${queryString}` : pathname
+    const currentUrl = searchKey ? `${pathname}?${searchKey}` : pathname
+    if (nextUrl !== currentUrl) router.replace(nextUrl, { scroll: false })
+  }, [pathname, router, searchKey])
+
+  const applyChatUrlState = useCallback((patch: Partial<ProfessorChatUrlState>) => {
+    const nextState = { ...chatUrlStateRef.current, ...patch }
+    chatUrlStateRef.current = nextState
+    setActiveId((current) => (current === nextState.conversationId ? current : nextState.conversationId))
+    setQuery((current) => (current === nextState.q ? current : nextState.q))
+    setFilter((current) => (current === nextState.filter ? current : nextState.filter))
+    replaceChatUrlState(nextState)
+  }, [replaceChatUrlState])
+
   const refreshChat = useCallback(async () => {
     const refreshes: Promise<unknown>[] = [mutateConversations()]
     if (activeId) refreshes.push(mutateMessages())
@@ -77,16 +105,24 @@ export default function ProfessorChatPage() {
   }, [activeId, mutateConversations, mutateMessages])
 
   useEffect(() => {
-    if (conversations.length === 0) {
-      setActiveId(null)
-      return
-    }
-    setActiveId((current) => (
-      current && conversations.some((conversation) => conversation.id === current)
-        ? current
+    if (professorChatUrlStatesEqual(chatUrlStateRef.current, routeChatState)) return
+    chatUrlStateRef.current = routeChatState
+    setActiveId((current) => (current === routeChatState.conversationId ? current : routeChatState.conversationId))
+    setQuery((current) => (current === routeChatState.q ? current : routeChatState.q))
+    setFilter((current) => (current === routeChatState.filter ? current : routeChatState.filter))
+  }, [routeChatState])
+
+  useEffect(() => {
+    if (conversationsLoading || (conversationsError && conversations.length === 0)) return
+    const nextActiveId = conversations.length === 0
+      ? null
+      : activeId && conversations.some((conversation) => conversation.id === activeId)
+        ? activeId
         : conversations[0]?.id ?? null
-    ))
-  }, [conversations])
+    if (nextActiveId !== activeId || chatUrlStateRef.current.conversationId !== nextActiveId) {
+      applyChatUrlState({ conversationId: nextActiveId })
+    }
+  }, [activeId, applyChatUrlState, conversations, conversationsError, conversationsLoading])
 
   useEffect(() => {
     if (!conversationsError) {
@@ -283,7 +319,7 @@ export default function ProfessorChatPage() {
               <input
                 aria-label="Search conversations"
                 value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => applyChatUrlState({ q: event.target.value })}
                   className="h-full min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold text-[#3f3f46] outline-none"
                   placeholder="Search conversations"
                 />
@@ -293,7 +329,8 @@ export default function ProfessorChatPage() {
                   <button
                     key={item}
                     type="button"
-                    onClick={() => setFilter(item)}
+                    onClick={() => applyChatUrlState({ filter: item })}
+                    aria-pressed={filter === item}
                     className={`h-9 rounded-[12px] px-3 text-[12px] font-black ${filter === item ? 'bg-[#453dee] text-white' : 'border-[2px] border-[#e4e4e7] bg-white text-[#52525c]'}`}
                   >
                     {item}
@@ -323,7 +360,8 @@ export default function ProfessorChatPage() {
                   <button
                     key={conversation.id}
                     type="button"
-                    onClick={() => setActiveId(conversation.id)}
+                    onClick={() => applyChatUrlState({ conversationId: conversation.id })}
+                    aria-pressed={conversation.id === activeId}
                     className={`grid w-full grid-cols-[44px_1fr_auto] items-center gap-3 border-0 border-b border-[#ececf0] bg-transparent p-4 text-left transition hover:bg-white ${conversation.id === activeId ? 'bg-white' : ''}`}
                   >
                     <span className="grid h-11 w-11 place-items-center rounded-[14px] bg-[#f0f0ff] text-[14px] font-black text-[#453dee]">
@@ -360,6 +398,8 @@ export default function ProfessorChatPage() {
                     onClick={() => void togglePin(active)}
                     className={`grid h-10 w-10 place-items-center rounded-[13px] border-[2px] ${active.is_pinned_by_professor ? 'border-[#f5900b] bg-[#fff7df] text-[#f5900b]' : 'border-[#e4e4e7] bg-white text-[#71717b]'}`}
                     title="Pin conversation"
+                    aria-label={active.is_pinned_by_professor ? 'Unpin conversation' : 'Pin conversation'}
+                    aria-pressed={active.is_pinned_by_professor}
                   >
                     <Pin size={17} />
                   </button>
@@ -466,7 +506,14 @@ export default function ProfessorChatPage() {
                                   {message.body && <p className="m-0 whitespace-pre-wrap text-[14px] font-bold leading-[1.4]">{message.body}</p>}
                                   {message.attachment_url && (
                                     <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[12px] border border-black/10 bg-white/10' : 'block overflow-hidden rounded-[12px] border border-black/10 bg-white/10'}>
-                                      <Image src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} width={520} height={280} className="max-h-[280px] w-full object-cover" />
+                                      <Image
+                                        src={chatMediaUrl(message.attachment_url)}
+                                        alt={message.attachment_name || 'Chat image'}
+                                        width={520}
+                                        height={280}
+                                        unoptimized
+                                        className="max-h-[280px] w-full object-cover"
+                                      />
                                     </a>
                                   )}
                                   {showTimestamp && (
@@ -487,7 +534,7 @@ export default function ProfessorChatPage() {
                     <div className="mb-3 flex items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-[#fbfbfc] p-2">
                       <Image src={selectedImagePreview} alt="" width={64} height={64} unoptimized className="h-16 w-16 rounded-[10px] object-cover" />
                       <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-[#52525c]">{selectedImage?.name}</span>
-                      <button type="button" onClick={clearSelectedImage} className="grid h-9 w-9 place-items-center rounded-[11px] border-0 bg-white text-[#71717b]">
+                      <button type="button" onClick={clearSelectedImage} className="grid h-9 w-9 place-items-center rounded-[11px] border-0 bg-white text-[#71717b]" aria-label="Remove image">
                         <X size={16} />
                       </button>
                     </div>
@@ -504,7 +551,7 @@ export default function ProfessorChatPage() {
                         if (file) setSelectedImageFile(file)
                       }}
                     />
-                    <button type="button" onClick={() => imageInputRef.current?.click()} className="grid h-12 w-12 place-items-center rounded-[14px] border-[2px] border-[#e4e4e7] bg-white text-[#71717b]">
+                    <button type="button" onClick={() => imageInputRef.current?.click()} className="grid h-12 w-12 place-items-center rounded-[14px] border-[2px] border-[#e4e4e7] bg-white text-[#71717b]" aria-label="Add image">
                       <ImageIcon size={18} />
                     </button>
                     <input

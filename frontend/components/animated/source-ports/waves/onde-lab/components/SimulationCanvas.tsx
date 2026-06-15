@@ -668,16 +668,16 @@ const SimulationCanvas = forwardRef<SimulationCanvasRef, SimulationCanvasProps>(
         return () => cancelAnimationFrame(animationRef.current);
     }, []);
 
-    const getCursor = () => {
-        if (draggingTracerRef.current !== null) return 'grabbing';
-        if (isDraggingSourceRef.current) return 'grabbing';
-        if (props.showTracerPoints) return 'grab';
-        if (props.waveMode === 'manual') return 'grab';
-        return 'default';
+    const getCursorClass = () => {
+        if (draggingTracerRef.current !== null) return 'cursor-grabbing';
+        if (isDraggingSourceRef.current) return 'cursor-grabbing';
+        if (props.showTracerPoints) return 'cursor-grab';
+        if (props.waveMode === 'manual') return 'cursor-grab';
+        return 'cursor-default';
     };
 
     return (
-        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <div ref={containerRef} className="relative h-full w-full">
             <canvas 
                 ref={canvasRef} 
                 onMouseDown={handleMouseDown}
@@ -688,21 +688,10 @@ const SimulationCanvas = forwardRef<SimulationCanvasRef, SimulationCanvasProps>(
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleMouseUp}
                 onTouchCancel={handleMouseUp}
-                style={{ cursor: getCursor(), display: 'block', touchAction: 'none' }}
+                className={`${getCursorClass()} block touch-none`}
             />
             {props.showTracerPoints && (
-                <div style={{
-                    position: 'absolute',
-                    bottom: 8,
-                    left: 8,
-                    background: props.theme === 'dark' ? 'rgba(15, 23, 42, 0.9)' : 'rgba(255, 255, 255, 0.95)',
-                    padding: '6px 12px',
-                    borderRadius: 20,
-                    fontSize: 11,
-                    color: props.theme === 'dark' ? '#94A3B8' : '#64748B',
-                    fontFamily: '"Inter", sans-serif',
-                    border: props.theme === 'dark' ? '1px solid #334155' : '1px solid #E2E8F0',
-                }}>
+                <div className={`absolute bottom-2 left-2 rounded-full border px-3 py-1.5 font-sans text-[11px] ${props.theme === 'dark' ? 'border-[#334155] bg-[#0F172A]/90 text-[#94A3B8]' : 'border-[#E2E8F0] bg-white/95 text-[#64748B]'}`}>
                     ↔️ Glissez les points pour les déplacer
                 </div>
             )}

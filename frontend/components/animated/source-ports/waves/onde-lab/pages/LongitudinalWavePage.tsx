@@ -159,7 +159,7 @@ export default function LongitudinalWavePage({ onNavigate }: LongitudinalWavePag
                 {/* Canvas Area + Graph */}
                 <div className={`flex-1 flex flex-col ${canvasBg}`}>
                     {/* Simulation Canvas */}
-                    <div className="flex-1 relative" style={{ minHeight: showGraph ? '55%' : '100%' }}>
+                    <div className={`flex-1 relative ${showGraph ? 'min-h-[55%]' : 'min-h-full'}`}>
                         <LongitudinalCanvas 
                             ref={canvasRef}
                             isPlaying={isPlaying}
@@ -198,8 +198,7 @@ export default function LongitudinalWavePage({ onNavigate }: LongitudinalWavePag
                     {/* Graph hint when tracers off */}
                     {showGraph && !showTracerPoints && (
                         <div 
-                            className={`flex items-center justify-center ${isDark ? 'bg-[#1E293B] border-[#334155]' : 'bg-white border-[#E2E8F0]'} border-t text-sm ${textSecondary}`}
-                            style={{ height: '60px' }}
+                            className={`flex h-[60px] items-center justify-center ${isDark ? 'bg-[#1E293B] border-[#334155]' : 'bg-white border-[#E2E8F0]'} border-t text-sm ${textSecondary}`}
                         >
                             Activez "Traceurs" pour voir le graphique
                         </div>

@@ -13,6 +13,16 @@ export type ProfessorConversationFilters = {
   filter?: ProfessorConversationFilter
 }
 
+export type ProfessorChatUrlState = {
+  conversationId: number | null
+  q: string
+  filter: ProfessorConversationFilter
+}
+
+export type ProfessorChatSearchParams = {
+  get(name: string): string | null
+}
+
 export type ProfessorConversationRequest = {
   q: string
   filter: ProfessorConversationFilter
@@ -25,6 +35,14 @@ export type ProfessorMessagesEnvelope = {
 
 export const PROFESSOR_CONVERSATIONS_RESOURCE = '/professor/chat/conversations'
 export const PROFESSOR_MESSAGES_RESOURCE = '/professor/chat/conversations/messages'
+
+const professorChatUrlParamKeys = ['conversation', 'conversationId', 'thread', 'q', 'search', 'filter']
+
+export const defaultProfessorChatUrlState: ProfessorChatUrlState = {
+  conversationId: null,
+  q: '',
+  filter: 'all',
+}
 
 export type ProfessorConversationsSWRKey = readonly [
   typeof PROFESSOR_CONVERSATIONS_RESOURCE,
@@ -41,6 +59,39 @@ export function normalizeProfessorConversationFilters(filters: ProfessorConversa
     q: filters.q?.trim() ?? '',
     filter: filters.filter ?? 'all',
   }
+}
+
+export function parseProfessorChatUrlState(params: ProfessorChatSearchParams): ProfessorChatUrlState {
+  return {
+    conversationId: parsePositiveIntegerParam(params.get('conversation') ?? params.get('conversationId') ?? params.get('thread')),
+    q: params.get('q')?.trim() || params.get('search')?.trim() || '',
+    filter: parseProfessorConversationFilter(params.get('filter')) ?? 'all',
+  }
+}
+
+export function professorChatUrlStateToSearchParams(state: ProfessorChatUrlState, current?: URLSearchParams) {
+  const params = new URLSearchParams(current)
+  for (const key of professorChatUrlParamKeys) params.delete(key)
+
+  if (state.conversationId) params.set('conversation', String(state.conversationId))
+  const query = state.q.trim()
+  if (query) params.set('q', query)
+  if (state.filter !== 'all') params.set('filter', state.filter)
+  return params
+}
+
+export function professorChatUrlStatesEqual(left: ProfessorChatUrlState, right: ProfessorChatUrlState) {
+  return (
+    left.conversationId === right.conversationId
+    && left.q === right.q
+    && left.filter === right.filter
+  )
+}
+
+export function parseProfessorConversationFilter(value: string | null): ProfessorConversationFilter | null {
+  const normalized = value?.trim().toLowerCase()
+  if (normalized === 'all' || normalized === 'unread' || normalized === 'pinned') return normalized
+  return null
 }
 
 export function professorConversationListParams(filters: ProfessorConversationFilters = {}) {
@@ -98,4 +149,11 @@ export function useProfessorChatData(filters: ProfessorConversationFilters, acti
     mutateConversations: conversationQuery.mutate,
     mutateMessages: messageQuery.mutate,
   }
+}
+
+function parsePositiveIntegerParam(value: string | null) {
+  const normalized = value?.trim()
+  if (!normalized) return null
+  const parsed = Number(normalized)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 }

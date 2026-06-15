@@ -9,16 +9,7 @@ from pathlib import Path
 BACKEND_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = BACKEND_ROOT.parent
 
-BASELINED_FINDINGS = {
-    "backend/app/routers/courses.py:77",
-    "backend/app/routers/quizzes.py:34",
-    "backend/app/services/course_progress.py:111",
-    "backend/app/services/course_progress.py:143",
-    "backend/app/services/course_progress.py:144",
-    "backend/app/services/course_tab_quiz_submission.py:246",
-    "backend/app/services/course_tab_quiz_submission.py:296",
-    "backend/app/services/course_tab_quiz_submission.py:344",
-}
+BASELINED_FINDINGS: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -55,12 +46,42 @@ def check_file(path: Path) -> list[N1Finding]:
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
-            for child in ast.walk(node):
-                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
-                    if child.func.attr in {"execute", "scalar", "scalars"}:
-                        findings.append(N1Finding(path, child.lineno))
+            if _is_small_bounded_retry_loop(node):
+                continue
+            for statement in node.body:
+                for child in ast.walk(statement):
+                    if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+                        if child.func.attr in {"execute", "scalar", "scalars"}:
+                            findings.append(N1Finding(path, child.lineno))
+            for statement in getattr(node, "orelse", []):
+                for child in ast.walk(statement):
+                    if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+                        if child.func.attr in {"execute", "scalar", "scalars"}:
+                            findings.append(N1Finding(path, child.lineno))
 
     return findings
+
+
+def _is_small_bounded_retry_loop(node: ast.AST) -> bool:
+    if not isinstance(node, ast.For):
+        return False
+    iterator = node.iter
+    if not isinstance(iterator, ast.Call) or not isinstance(iterator.func, ast.Name):
+        return False
+    if iterator.func.id != "range" or len(iterator.args) not in {1, 2, 3}:
+        return False
+
+    numeric_args: list[int] = []
+    for arg in iterator.args:
+        if not isinstance(arg, ast.Constant) or not isinstance(arg.value, int):
+            return False
+        numeric_args.append(arg.value)
+
+    try:
+        iteration_count = len(range(*numeric_args))
+    except ValueError:
+        return False
+    return 0 <= iteration_count <= 3
 
 
 def scan(paths: list[Path]) -> tuple[list[N1Finding], list[str]]:

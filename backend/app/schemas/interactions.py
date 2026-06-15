@@ -16,7 +16,8 @@ class CommentAuthorOut(BaseModel):
 
 class CommentOut(BaseModel):
     id: int
-    topic_item_id: int
+    topic_item_id: int | None = None
+    exercise_id: int | None = None
     body: LongText
     author: CommentAuthorOut
     parent_id: Optional[int] = None
@@ -76,6 +77,12 @@ class SavedItemOut(BaseModel):
 class CommentCreateIn(StrictInputModel):
     body: LongText
     topic_item_id: int
+    parent_id: Optional[int] = None
+
+
+class ExerciseCommentCreateIn(StrictInputModel):
+    body: LongText
+    exercise_id: int
     parent_id: Optional[int] = None
 
 

@@ -33,7 +33,7 @@ Subject
 -> TabContent / Resource
 ```
 
-Existing `Chapter`, `Lesson`, and `ChapterSection` routes remain compatibility surfaces for active screens and tests. New learning-room work should prefer TopicItem-first endpoints.
+Historical `Chapter`, `Lesson`, and `ChapterSection` routes are no longer active runtime surfaces. Remaining `lesson` naming in schemas, stats, tests, or UI copy is compatibility terminology around `TopicItem`-first learning content.
 
 ## Current Verification
 

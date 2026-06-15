@@ -112,7 +112,7 @@ function missingVideoFrameSrcDoc() {
 
 export function LessonBody({ children }: { children?: React.ReactNode }) {
   return (
-    <article className="kresco-enter max-w-[1057px] pt-[46px]" style={{ animationDelay: '80ms' }} data-figma-lesson-body>
+    <article className="kresco-enter max-w-[1057px] pt-[46px] [animation-delay:80ms]" data-figma-lesson-body>
       {children ?? (
         <p className="m-0 text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#52525c]">
           The result is quite intuitive: if a continuous function takes two distinct values on an interval, it necessarily takes all the values

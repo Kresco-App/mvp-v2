@@ -5,16 +5,24 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, HelpCircle, ListChecks, MessageCircle, Radio, RotateCcw, Send } from 'lucide-react'
 import { toast } from 'sonner'
-import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
+import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import {
+  refreshStudentLiveInteractionsEnvelope,
   updateLiveInteractionsEnvelope,
+  useLiveSessionRealtimeSubscription,
   useStudentLiveRoomData,
 } from '@/lib/liveSessionData'
-import { liveInteractionInitials, liveMessages, liveQuestions, mergeLiveInteraction } from '@/lib/liveInteractions'
+import {
+  formatLiveDateTime as formatDateTime,
+  formatLiveShortTime as formatShortTime,
+  liveInteractionInitials,
+  liveMessages,
+  liveQuestions,
+  mergeLiveInteraction,
+} from '@/lib/liveInteractions'
 import {
   createStudentLiveInteraction,
-  type LiveSessionInteraction,
 } from '@/lib/professor'
 import { useAuthStore } from '@/lib/store'
 
@@ -71,34 +79,12 @@ export default function LiveSessionRoomPage() {
     })
   }, [mutateSessions, user?.id])
 
-  useEffect(() => {
-    if (!numericSessionId) return
-
-    const handleEvent = (message: { name?: string; data?: unknown }) => {
-      if (message.name?.startsWith('live.session.')) {
-        void mutateAll()
-        return
-      }
-      if (message.name?.startsWith('live.interaction.') && isLiveInteraction(message.data)) {
-        const interaction = message.data
-        void mutateInteractions(
-          (current) => updateLiveInteractionsEnvelope(current, numericSessionId, (items) => mergeLiveInteraction(items, interaction)),
-          { revalidate: false },
-        )
-      }
-    }
-    return subscribeKrescoRealtime({
-      channelName: liveSessionChannelName(numericSessionId),
-      onMessage: handleEvent,
-      beforeSubscribe: refreshKrescoRealtimeAuthorization,
-      fallback: {
-        intervalMs: 5000,
-        poll: async () => {
-          await mutateInteractions()
-        },
-      },
-    })
-  }, [mutateAll, mutateInteractions, numericSessionId])
+  useLiveSessionRealtimeSubscription({
+    sessionId: numericSessionId,
+    mutateAll,
+    mutateInteractions,
+    refreshInteractions: refreshStudentLiveInteractionsEnvelope,
+  })
 
   useEffect(() => {
     if (activePanel === 'message') {
@@ -186,7 +172,6 @@ export default function LiveSessionRoomPage() {
                   allowFullScreen
                   sandbox="allow-scripts allow-forms allow-popups allow-presentation"
                   scrolling="no"
-                  style={{ overflow: 'hidden' }}
                   title={`${title} live player`}
                 />
               ) : (
@@ -315,16 +300,4 @@ export default function LiveSessionRoomPage() {
       </div>
     </main>
   )
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
-
-function formatShortTime(value: string) {
-  return new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(value))
-}
-
-function isLiveInteraction(value: unknown): value is LiveSessionInteraction {
-  return Boolean(value && typeof value === 'object' && 'id' in value && 'kind' in value && 'body' in value)
 }

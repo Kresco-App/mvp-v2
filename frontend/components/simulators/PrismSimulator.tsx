@@ -5,6 +5,25 @@ import { Droplet, RefreshCw, Sun } from 'lucide-react'
 import { calculatePrism, SimulationResult } from './PrismLogic'
 
 type SourceMode = 'white' | 'single' | 'double'
+type LaserTone = 'violet' | 'blue' | 'green' | 'yellow' | 'orange' | 'red'
+
+const laserToneClasses: Record<LaserTone, { text: string; accent: string }> = {
+  violet: { text: 'text-violet-400', accent: 'accent-violet-500' },
+  blue: { text: 'text-blue-400', accent: 'accent-blue-500' },
+  green: { text: 'text-green-400', accent: 'accent-green-500' },
+  yellow: { text: 'text-yellow-400', accent: 'accent-yellow-500' },
+  orange: { text: 'text-orange-400', accent: 'accent-orange-500' },
+  red: { text: 'text-red-400', accent: 'accent-red-500' },
+}
+
+const getLaserTone = (nm: number): LaserTone => {
+  if (nm < 450) return 'violet'
+  if (nm < 495) return 'blue'
+  if (nm < 570) return 'green'
+  if (nm < 590) return 'yellow'
+  if (nm < 620) return 'orange'
+  return 'red'
+}
 
 export default function PrismSimulator() {
   const [incidentAngle, setIncidentAngle] = useState(45)
@@ -274,6 +293,8 @@ export default function PrismSimulator() {
 
   const textPrimary = 'text-[#1E293B]'
   const textSecondary = 'text-[#64748B]'
+  const laser1Classes = laserToneClasses[getLaserTone(laser1Wavelength)]
+  const laser2Classes = laserToneClasses[getLaserTone(laser2Wavelength)]
 
   return (
     <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-4 sm:p-6 shadow-lg">
@@ -331,7 +352,7 @@ export default function PrismSimulator() {
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs">
                     <span className={textSecondary}>{sourceMode === 'double' ? 'Laser 1' : 'Couleur'}</span>
-                    <span className="font-mono font-medium" style={{ color: getWavelengthColor(laser1Wavelength) }}>
+                    <span className={`font-mono font-medium ${laser1Classes.text}`}>
                       {laser1Wavelength} nm
                     </span>
                   </div>
@@ -343,8 +364,7 @@ export default function PrismSimulator() {
                     step="1"
                     value={laser1Wavelength}
                     onChange={(e) => setLaser1Wavelength(Number(e.target.value))}
-                    className="w-full h-1.5"
-                    style={{ accentColor: getWavelengthColor(laser1Wavelength) }}
+                    className={`w-full h-1.5 ${laser1Classes.accent}`}
                   />
                 </div>
 
@@ -352,7 +372,7 @@ export default function PrismSimulator() {
                   <div className="space-y-1 border-t border-purple-500/10 pt-2">
                     <div className="flex justify-between text-xs">
                       <span className={textSecondary}>Laser 2</span>
-                      <span className="font-mono font-medium" style={{ color: getWavelengthColor(laser2Wavelength) }}>
+                      <span className={`font-mono font-medium ${laser2Classes.text}`}>
                         {laser2Wavelength} nm
                       </span>
                     </div>
@@ -364,8 +384,7 @@ export default function PrismSimulator() {
                       step="1"
                       value={laser2Wavelength}
                       onChange={(e) => setLaser2Wavelength(Number(e.target.value))}
-                      className="w-full h-1.5"
-                      style={{ accentColor: getWavelengthColor(laser2Wavelength) }}
+                      className={`w-full h-1.5 ${laser2Classes.accent}`}
                     />
                   </div>
                 )}

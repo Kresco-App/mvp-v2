@@ -304,19 +304,12 @@ export function DisplacementGraph({
         return () => cancelAnimationFrame(animationRef.current);
     }, [draw]);
 
-    const colors = THEMES[theme];
-
     return (
         <div 
             ref={containerRef} 
-            style={{ 
-                width: '100%', 
-                height: `${height}px`,
-                backgroundColor: colors.backgroundColor,
-                borderTop: `1px solid ${colors.borderColor}`,
-            }}
+            className={`w-full border-t ${theme === 'dark' ? 'bg-[#0F172A] border-[#334155]' : 'bg-[#F8FAFC] border-[#E2E8F0]'}`}
         >
-            <canvas ref={canvasRef} style={{ display: 'block' }} />
+            <canvas ref={canvasRef} height={height} className="block" />
         </div>
     );
 }

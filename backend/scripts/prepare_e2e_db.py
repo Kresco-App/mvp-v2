@@ -52,7 +52,7 @@ def _run_alembic_upgrade(database_url: str) -> None:
             os.environ["DATABASE_URL"] = previous_database_url
 
 
-async def prepare_e2e_db(database_url: str) -> None:
+async def _reset_e2e_db(database_url: str) -> None:
     sqlite_path = _sqlite_file_path(database_url)
     if sqlite_path is not None:
         sqlite_path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,8 +71,10 @@ async def prepare_e2e_db(database_url: str) -> None:
             await conn.execute(text("GRANT ALL ON SCHEMA public TO CURRENT_USER"))
 
     await engine.dispose()
-    _run_alembic_upgrade(database_url)
 
+
+async def _seed_e2e_db(database_url: str) -> None:
+    async_url, connect_args = _build_async_url(database_url)
     engine = create_async_engine(async_url, poolclass=NullPool, connect_args=connect_args)
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with session_factory() as db:
@@ -81,11 +83,17 @@ async def prepare_e2e_db(database_url: str) -> None:
     await engine.dispose()
 
 
+def prepare_e2e_db(database_url: str) -> None:
+    asyncio.run(_reset_e2e_db(database_url))
+    _run_alembic_upgrade(database_url)
+    asyncio.run(_seed_e2e_db(database_url))
+
+
 def main() -> None:
     database_url = os.environ.get("KRESCO_E2E_DATABASE_URL") or os.environ.get("DATABASE_URL") or DEFAULT_E2E_DATABASE_URL
     if os.environ.get("CI") and not os.environ.get("KRESCO_E2E_DATABASE_URL"):
         raise SystemExit("KRESCO_E2E_DATABASE_URL is required for CI integration tests.")
-    asyncio.run(prepare_e2e_db(database_url))
+    prepare_e2e_db(database_url)
     print(f"E2E database prepared: {database_url}")
 
 

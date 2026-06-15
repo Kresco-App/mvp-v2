@@ -7,12 +7,15 @@ const json = process.argv.includes('--json')
 const scanRoots = ['app', 'components', 'lib']
 const extensions = new Set(['.js', '.jsx', '.ts', '.tsx'])
 const debtBudget = {
-  filesWithInlineStyleDebt: Number(process.env.KRESCO_CSP_STYLE_FILE_BUDGET ?? 56),
-  inlineStyleAttributes: Number(process.env.KRESCO_CSP_INLINE_STYLE_BUDGET ?? 114),
+  filesWithInlineStyleDebt: Number(process.env.KRESCO_CSP_STYLE_FILE_BUDGET ?? 0),
+  inlineStyleAttributes: Number(process.env.KRESCO_CSP_INLINE_STYLE_BUDGET ?? 0),
   styleJsxBlocks: Number(process.env.KRESCO_CSP_STYLE_JSX_BUDGET ?? 0),
   dangerouslySetInnerHTML: Number(process.env.KRESCO_CSP_DANGEROUS_HTML_BUDGET ?? 0),
   filesWithCssomStyleWrites: Number(process.env.KRESCO_CSP_CSSOM_FILE_BUDGET ?? 0),
   cssomStyleWrites: Number(process.env.KRESCO_CSP_CSSOM_STYLE_BUDGET ?? 0),
+  filesWithDynamicStyleInjection: Number(process.env.KRESCO_CSP_DYNAMIC_STYLE_FILE_BUDGET ?? 0),
+  dynamicStyleTagCreations: Number(process.env.KRESCO_CSP_DYNAMIC_STYLE_TAG_BUDGET ?? 0),
+  dynamicStyleContentWrites: Number(process.env.KRESCO_CSP_DYNAMIC_STYLE_CONTENT_BUDGET ?? 0),
 }
 
 function walk(dir, files = []) {
@@ -40,6 +43,46 @@ function countMatches(content, pattern) {
     matches.push(match.index ?? 0)
   }
   return matches
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function dynamicStyleInjectionMatches(content) {
+  const styleTagCreations = countMatches(
+    content,
+    /\bdocument\s*\.\s*createElement\s*\(\s*['"]style['"]\s*\)/g,
+  )
+  const styleNodeNames = new Set()
+  const styleNodeAssignmentPattern =
+    /(?:\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*|\b([A-Za-z_$][\w$]*)\s*=\s*)document\s*\.\s*createElement\s*\(\s*['"]style['"]\s*\)/g
+
+  for (const match of content.matchAll(styleNodeAssignmentPattern)) {
+    const name = match[1] ?? match[2]
+    if (name) styleNodeNames.add(name)
+  }
+
+  const styleContentWriteIndexes = []
+  const directStyleContentWritePattern =
+    /\bdocument\s*\.\s*createElement\s*\(\s*['"]style['"]\s*\)\s*\.\s*(?:innerHTML|textContent)\s*=/g
+
+  for (const match of content.matchAll(directStyleContentWritePattern)) {
+    styleContentWriteIndexes.push(match.index ?? 0)
+  }
+
+  for (const name of styleNodeNames) {
+    const escapedName = escapeRegExp(name)
+    const propertyWritePattern = new RegExp(`\\b${escapedName}\\s*\\.\\s*(?:innerHTML|textContent)\\s*=`, 'g')
+    const bracketWritePattern = new RegExp(`\\b${escapedName}\\s*\\[\\s*['"](?:innerHTML|textContent)['"]\\s*\\]\\s*=`, 'g')
+    styleContentWriteIndexes.push(...countMatches(content, propertyWritePattern))
+    styleContentWriteIndexes.push(...countMatches(content, bracketWritePattern))
+  }
+
+  return {
+    styleTagCreations,
+    styleContentWrites: [...new Set(styleContentWriteIndexes)],
+  }
 }
 
 function directiveMapFromStrings(strings) {
@@ -94,10 +137,13 @@ async function nextConfigCspAudit() {
 const files = scanRoots.flatMap((dir) => walk(join(root, dir)))
 const fileSummaries = []
 const cssomSummaries = []
+const dynamicStyleSummaries = []
 let inlineStyleAttributes = 0
 let styleJsxBlocks = 0
 let dangerouslySetInnerHTML = 0
 let cssomStyleWrites = 0
+let dynamicStyleTagCreations = 0
+let dynamicStyleContentWrites = 0
 
 for (const file of files) {
   const content = readFileSync(file, 'utf8')
@@ -105,13 +151,17 @@ for (const file of files) {
   const styleJsxMatches = countMatches(content, /<style\s+jsx\b/g)
   const dangerousMatches = countMatches(content, /\bdangerouslySetInnerHTML\b/g)
   const cssomMatches = countMatches(content, /\.\s*style\s*\.|\bcssText\b|\bsetAttribute\s*\(\s*['"]style['"]/g)
+  const dynamicStyleMatches = dynamicStyleInjectionMatches(content)
   const count = styleMatches.length + styleJsxMatches.length + dangerousMatches.length
   const cssomCount = cssomMatches.length
+  const dynamicStyleCount = dynamicStyleMatches.styleTagCreations.length + dynamicStyleMatches.styleContentWrites.length
 
   inlineStyleAttributes += styleMatches.length
   styleJsxBlocks += styleJsxMatches.length
   dangerouslySetInnerHTML += dangerousMatches.length
   cssomStyleWrites += cssomCount
+  dynamicStyleTagCreations += dynamicStyleMatches.styleTagCreations.length
+  dynamicStyleContentWrites += dynamicStyleMatches.styleContentWrites.length
   if (count) {
     fileSummaries.push({
       file: relative(root, file).replaceAll('\\', '/'),
@@ -132,6 +182,17 @@ for (const file of files) {
       firstLines: cssomMatches.sort((a, b) => a - b).slice(0, 3).map((index) => lineNumber(content, index)),
     })
   }
+  if (dynamicStyleCount) {
+    dynamicStyleSummaries.push({
+      file: relative(root, file).replaceAll('\\', '/'),
+      dynamicStyleTagCreations: dynamicStyleMatches.styleTagCreations.length,
+      dynamicStyleContentWrites: dynamicStyleMatches.styleContentWrites.length,
+      firstLines: [
+        ...dynamicStyleMatches.styleTagCreations,
+        ...dynamicStyleMatches.styleContentWrites,
+      ].sort((a, b) => a - b).slice(0, 3).map((index) => lineNumber(content, index)),
+    })
+  }
 }
 
 fileSummaries.sort((a, b) => {
@@ -142,11 +203,21 @@ fileSummaries.sort((a, b) => {
 
 cssomSummaries.sort((a, b) => b.cssomStyleWrites - a.cssomStyleWrites || a.file.localeCompare(b.file))
 
+dynamicStyleSummaries.sort((a, b) => {
+  const left = b.dynamicStyleTagCreations + b.dynamicStyleContentWrites
+  const right = a.dynamicStyleTagCreations + a.dynamicStyleContentWrites
+  return left - right || a.file.localeCompare(b.file)
+})
+
 const directives = proxyCspDirectives()
 const broadStyleSrcAllowsInline = /\bstyle-src\b[^;"]*'unsafe-inline'/.test(directives['style-src'] ?? '')
+const styleSrcElemAllowsInline = /\bstyle-src-elem\b[^;"]*'unsafe-inline'/.test(directives['style-src-elem'] ?? '')
+const styleSrcAttrAllowsInline = /\bstyle-src-attr\b[^;"]*'unsafe-inline'/.test(directives['style-src-attr'] ?? '')
 const nextConfigAudit = await nextConfigCspAudit()
 const result = {
   broadStyleSrcAllowsInline,
+  styleSrcElemAllowsInline,
+  styleSrcAttrAllowsInline,
   directives: {
     styleSrc: directives['style-src'] ?? '',
     styleSrcElem: directives['style-src-elem'] ?? '',
@@ -161,9 +232,13 @@ const result = {
     dangerouslySetInnerHTML,
     filesWithCssomStyleWrites: cssomSummaries.length,
     cssomStyleWrites,
+    filesWithDynamicStyleInjection: dynamicStyleSummaries.length,
+    dynamicStyleTagCreations,
+    dynamicStyleContentWrites,
   },
   topFiles: fileSummaries.slice(0, 20),
   cssomTopFiles: cssomSummaries.slice(0, 20),
+  dynamicStyleTopFiles: dynamicStyleSummaries.slice(0, 20),
 }
 
 if (json) {
@@ -184,6 +259,9 @@ if (json) {
   console.log(`dangerouslySetInnerHTML: ${dangerouslySetInnerHTML}`)
   console.log(`files with CSSOM style writes: ${cssomSummaries.length}`)
   console.log(`CSSOM style writes: ${cssomStyleWrites}`)
+  console.log(`files with dynamic style injection: ${dynamicStyleSummaries.length}`)
+  console.log(`dynamic style tag creations: ${dynamicStyleTagCreations}`)
+  console.log(`dynamic style content writes: ${dynamicStyleContentWrites}`)
   console.log('top files:')
   for (const item of result.topFiles.slice(0, 10)) {
     const total = item.inlineStyleAttributes + item.styleJsxBlocks + item.dangerouslySetInnerHTML
@@ -205,6 +283,15 @@ if (nextConfigAudit.emitsContentSecurityPolicy) {
 
 if (broadStyleSrcAllowsInline) {
   console.error("CSP still allows broad style-src 'unsafe-inline'. Move inline style allowance to style-src-elem/style-src-attr while migration is incomplete.")
+  process.exit(1)
+}
+
+if (styleSrcElemAllowsInline || styleSrcAttrAllowsInline) {
+  const unsafeDirectives = [
+    styleSrcElemAllowsInline ? 'style-src-elem' : '',
+    styleSrcAttrAllowsInline ? 'style-src-attr' : '',
+  ].filter(Boolean).join(' and ')
+  console.error(`CSP still allows ${unsafeDirectives} 'unsafe-inline'. Remove temporary inline style allowances after source cleanup.`)
   process.exit(1)
 }
 

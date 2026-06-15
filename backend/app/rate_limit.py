@@ -2,7 +2,9 @@ import os
 from functools import lru_cache
 from ipaddress import ip_address, ip_network
 
+from limits.storage import storage_from_string
 from slowapi import Limiter
+from slowapi.extension import C, STRATEGIES
 
 DEFAULT_RATE_LIMITS_ENV = "KRESCO_DEFAULT_RATE_LIMITS"
 APPLICATION_RATE_LIMITS_ENV = "KRESCO_APPLICATION_RATE_LIMITS"
@@ -78,9 +80,10 @@ def trusted_remote_address(request) -> str:
     return _first_forwarded_for_ip(forwarded_for) or host
 
 RATE_LIMIT_STORAGE_URI_ENV = "KRESCO_RATE_LIMIT_STORAGE_URI"
+DEFAULT_RATE_LIMIT_STORAGE_URI = "memory://"
 # Shared store (e.g. redis://...) makes limits global across Lambda containers.
 # Defaults to in-memory for local/dev; production validation requires a shared URI.
-_rate_limit_storage_uri = os.environ.get(RATE_LIMIT_STORAGE_URI_ENV, "").strip() or "memory://"
+_rate_limit_storage_uri = os.environ.get(RATE_LIMIT_STORAGE_URI_ENV, "").strip() or DEFAULT_RATE_LIMIT_STORAGE_URI
 
 limiter = Limiter(
     key_func=trusted_remote_address,
@@ -88,3 +91,16 @@ limiter = Limiter(
     application_limits=APPLICATION_RATE_LIMITS,
     storage_uri=_rate_limit_storage_uri,
 )
+
+
+def configure_rate_limit_storage(storage_uri: str) -> None:
+    normalized = storage_uri.strip() or DEFAULT_RATE_LIMIT_STORAGE_URI
+    if limiter._storage_uri == normalized:
+        return
+
+    storage = storage_from_string(normalized, **limiter._storage_options)
+    strategy = limiter._strategy or limiter.get_app_config(C.STRATEGY, "fixed-window")
+    limiter._storage_uri = normalized
+    limiter._storage = storage
+    limiter._limiter = STRATEGIES[strategy](storage)
+    limiter._storage_dead = False

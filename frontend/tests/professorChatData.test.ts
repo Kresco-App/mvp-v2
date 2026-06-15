@@ -9,7 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiSWRConfig } from '@/lib/apiData'
 import {
+  parseProfessorChatUrlState,
   professorConversationListParams,
+  professorChatUrlStatesEqual,
+  professorChatUrlStateToSearchParams,
   professorConversationsSWRKey,
   professorMessagesSWRKey,
   useProfessorChatData,
@@ -61,6 +64,31 @@ describe('professor chat SWR data', () => {
     expect(professorConversationListParams({ filter: 'all' })).toEqual({})
     expect(professorMessagesSWRKey(81)).toEqual(['/professor/chat/conversations/messages', 81])
     expect(professorMessagesSWRKey(null)).toBeNull()
+  })
+
+  it('parses and serializes professor chat URL state', () => {
+    expect(parseProfessorChatUrlState(new URLSearchParams('conversation=82&q= Sara &filter=unread'))).toEqual({
+      conversationId: 82,
+      q: 'Sara',
+      filter: 'unread',
+    })
+    expect(parseProfessorChatUrlState(new URLSearchParams('thread=abc&search= Youssef &filter=missing'))).toEqual({
+      conversationId: null,
+      q: 'Youssef',
+      filter: 'all',
+    })
+
+    const params = professorChatUrlStateToSearchParams(
+      { conversationId: 82, q: '  Sara ', filter: 'pinned' },
+      new URLSearchParams('page=2&conversationId=99&search=old&filter=unread'),
+    )
+
+    expect(params.toString()).toBe('page=2&conversation=82&q=Sara&filter=pinned')
+    expect(professorChatUrlStateToSearchParams({ conversationId: null, q: '', filter: 'all' }).toString()).toBe('')
+    expect(professorChatUrlStatesEqual(
+      { conversationId: 82, q: 'Sara', filter: 'pinned' },
+      { conversationId: 82, q: 'Sara', filter: 'pinned' },
+    )).toBe(true)
   })
 
   it('loads conversations and active messages through independent SWR resources', async () => {
@@ -165,6 +193,20 @@ describe('professor chat SWR data', () => {
     expect(source).toContain('const threadOptions = useMemo(() => status ? teacherThreads(status) : [], [status])')
     expect(source).not.toContain('fallback: { intervalMs: 2500')
     expect(source).not.toContain('{teacherThreads(status).map')
+  })
+
+  it('keeps professor chat page selection and filters URL-backed', () => {
+    const professorSource = readFileSync(join(process.cwd(), 'app', 'professor', 'chat', 'page.tsx'), 'utf8')
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+
+    expect(professorSource).toContain('parseProfessorChatUrlState')
+    expect(professorSource).toContain('professorChatUrlStateToSearchParams')
+    expect(professorSource).toContain('applyChatUrlState({ q: event.target.value })')
+    expect(professorSource).toContain('applyChatUrlState({ filter: item })')
+    expect(professorSource).toContain('applyChatUrlState({ conversationId: conversation.id })')
+    expect(studentSource).toContain('parseStudentProfessorChatUrlState')
+    expect(studentSource).toContain('studentProfessorChatUrlStateToSearchParams')
+    expect(studentSource).toContain('applyChatUrlState({ conversationId: conversationId ?? null, offeringId: courseOfferingId })')
   })
 })
 

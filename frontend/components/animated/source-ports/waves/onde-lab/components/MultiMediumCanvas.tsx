@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react/display-name, prefer-const, @typescript-eslint/no-unused-expressions */
 'use client';
 
-import { useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useState } from 'react';
 import { MultiMediumWaveEngine, DualWaveParams, WaveMode, DualWaveMetrics, LongWavePoint } from '../physics/MultiMediumWaveEngine';
 
 interface MultiMediumCanvasProps {
@@ -35,6 +35,7 @@ const MultiMediumCanvas = forwardRef<MultiMediumCanvasRef, MultiMediumCanvasProp
 
     // Dragging source only (applied to both)
     const isDraggingSourceRef = useRef(false);
+    const [isDraggingSource, setIsDraggingSource] = useState(false);
     const mousePosRef = useRef(0);
 
     const reset = useCallback(() => {
@@ -58,6 +59,7 @@ const MultiMediumCanvas = forwardRef<MultiMediumCanvasRef, MultiMediumCanvasProp
         
         if (Math.abs(x - equilibriumX) < 60) {
             isDraggingSourceRef.current = true;
+            setIsDraggingSource(true);
             mousePosRef.current = x;
         }
     };
@@ -77,6 +79,7 @@ const MultiMediumCanvas = forwardRef<MultiMediumCanvasRef, MultiMediumCanvasProp
 
     const handleMouseUp = () => {
         isDraggingSourceRef.current = false;
+        setIsDraggingSource(false);
     };
 
     const drawWave = (ctx: CanvasRenderingContext2D, points: LongWavePoint[], yCenter: number, label: string, isDark: boolean) => {
@@ -257,14 +260,14 @@ const MultiMediumCanvas = forwardRef<MultiMediumCanvasRef, MultiMediumCanvasProp
     }, []);
 
     return (
-        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <div ref={containerRef} className="relative h-full w-full">
             <canvas 
                 ref={canvasRef} 
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                style={{ cursor: isDraggingSourceRef.current ? 'ew-resize' : 'default', display: 'block' }}
+                className={`${isDraggingSource ? 'cursor-ew-resize' : 'cursor-default'} block`}
             />
         </div>
     );

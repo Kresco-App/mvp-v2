@@ -465,7 +465,9 @@ function ReadinessRow({
         </div>
       </div>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
-        <div className="h-full rounded-full bg-indigo-600 transition-all" style={{ width: `${loading ? 25 : ratio}%` }} />
+        <svg viewBox="0 0 100 1" preserveAspectRatio="none" className="block h-full w-full" aria-hidden="true">
+          <rect width={loading ? 25 : ratio} height="1" fill="#4f46e5" rx="0.5" />
+        </svg>
       </div>
     </div>
   )

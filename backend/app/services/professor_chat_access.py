@@ -2,13 +2,14 @@ from dataclasses import dataclass
 
 from app.models.professor import CourseOffering
 from app.models.users import User
-from app.services.access import effective_user_tier
+from app.services.access import AccessContext, AccessDecision, FeatureAccessRequirement, effective_user_tier
 
 PROFESSOR_CHAT_ALLOWED_TIERS = frozenset({"vip", "platinum"})
 PROFESSOR_CHAT_ACCESS_DENIED_REASON = "VIP or Platinum access required for professor chat"
 PROFESSOR_CHAT_TRACK_NOT_CONFIGURED_REASON = "Course offering track is not configured"
 PROFESSOR_CHAT_LEVEL_MISMATCH_REASON = "Course offering does not match your level"
 PROFESSOR_CHAT_FILIERE_MISMATCH_REASON = "Course offering does not match your filiere"
+TEACHER_CHAT_ACCESS_REQUIREMENT = FeatureAccessRequirement("teacher_chat")
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,20 @@ def professor_chat_eligibility(user: User) -> ProfessorChatEligibility:
     if effective_user_tier(user) in PROFESSOR_CHAT_ALLOWED_TIERS:
         return ProfessorChatEligibility(eligible=True)
     return ProfessorChatEligibility(eligible=False, reason=PROFESSOR_CHAT_ACCESS_DENIED_REASON)
+
+
+def professor_chat_access_decision(
+    access_context: AccessContext,
+    *,
+    subject_id: int | None = None,
+) -> AccessDecision:
+    return access_context.decide_for(TEACHER_CHAT_ACCESS_REQUIREMENT, subject_id=subject_id)
+
+
+def professor_chat_access_denied_reason(decision: AccessDecision) -> str:
+    if decision.reason == "subject_access_required":
+        return decision.locked_reason
+    return PROFESSOR_CHAT_ACCESS_DENIED_REASON
 
 
 def professor_chat_offering_mismatch_reason(student: User, offering: CourseOffering) -> str | None:

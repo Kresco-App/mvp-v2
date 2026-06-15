@@ -156,7 +156,7 @@ export default function PascalTriangleLab({ rows, stepSpeed, isPlaying, onComple
         const hasRightParent = currentCol < currentRow;
 
         return (
-            <svg className="absolute w-full h-full pointer-events-none" style={{ top: 0, left: 0, overflow: 'visible' }}>
+            <svg className="absolute left-0 top-0 h-full w-full overflow-visible pointer-events-none">
                 <g transform="translate(50%, 50%)">
                     <AnimatePresence>
                         {hasLeftParent && (
@@ -262,20 +262,15 @@ export default function PascalTriangleLab({ rows, stepSpeed, isPlaying, onComple
                             nodeStyle = 'bg-amber-400 text-white border-amber-300 font-bold scale-105 shadow-md shadow-amber-500/20 z-10';
                         }
 
+                        const nodeScale = isCurr ? 1.1 : (isPar ? 1.05 : 1);
+
                         return (
                             <motion.div
                                 key={`${rIndex}-${cIndex}`}
-                                initial={{ opacity: 0, scale: 0, y: -20 }}
-                                animate={{ opacity: 1, scale: isCurr ? 1.1 : (isPar ? 1.05 : 1), y: 0 }}
+                                initial={{ opacity: 0, scale: 0, x, y: y - 20 }}
+                                animate={{ opacity: 1, scale: nodeScale, x, y }}
                                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                                className={`absolute flex items-center justify-center rounded-full border-2 transition-colors duration-300 ${nodeStyle}`}
-                                style={{
-                                    width: cellRadius * 2,
-                                    height: cellRadius * 2,
-                                    transform: `translate(${x}px, ${y}px)`,
-                                    marginLeft: `calc(50% - ${cellRadius}px)`,
-                                    marginTop: `calc(50% - ${cellRadius}px)`
-                                }}
+                                className={`absolute left-1/2 top-1/2 -ml-6 -mt-6 flex h-12 w-12 items-center justify-center rounded-full border-2 transition-colors duration-300 ${nodeStyle}`}
                             >
                                 {val}
                             </motion.div>

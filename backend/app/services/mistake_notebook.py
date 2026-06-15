@@ -30,15 +30,22 @@ async def update_mistake_notebook_from_question_attempts(
 
     now = datetime.now(timezone.utc)
     corrected_question_ids: list[int] = []
-    for question_attempt in question_attempts:
-        entry = await db.scalar(
-            select(MistakeNotebookEntry)
-            .where(
-                MistakeNotebookEntry.user_id == user_id,
-                MistakeNotebookEntry.question_id == question_attempt["question_id"],
-            )
-            .with_for_update()
+    question_ids = {int(question_attempt["question_id"]) for question_attempt in question_attempts}
+    existing_entries = await db.execute(
+        select(MistakeNotebookEntry)
+        .where(
+            MistakeNotebookEntry.user_id == user_id,
+            MistakeNotebookEntry.question_id.in_(question_ids),
         )
+        .with_for_update()
+    )
+    entries_by_question_id = {
+        int(entry.question_id): entry
+        for entry in existing_entries.scalars().all()
+    }
+    for question_attempt in question_attempts:
+        question_id = int(question_attempt["question_id"])
+        entry = entries_by_question_id.get(question_id)
         if question_attempt["is_correct"]:
             if entry is not None and entry.status == MISTAKE_NOTEBOOK_STATUS_OPEN:
                 _mark_entry_corrected(
@@ -54,7 +61,7 @@ async def update_mistake_notebook_from_question_attempts(
         if entry is None:
             entry = MistakeNotebookEntry(
                 user_id=user_id,
-                question_id=question_attempt["question_id"],
+                question_id=question_id,
                 question_set_id=question_set.id,
                 subject_id=question_attempt["subject_id"],
                 topic_id=question_attempt["topic_id"],
@@ -65,6 +72,7 @@ async def update_mistake_notebook_from_question_attempts(
                 first_question_attempt_id=question_attempt["id"],
             )
             db.add(entry)
+            entries_by_question_id[question_id] = entry
         _mark_entry_open(
             entry,
             question_attempt=question_attempt,

@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { Latex } from '../Latex';
+import { Latex } from '@/components/animated/shared/Latex';
 
 export const TauDemonstration: React.FC = () => {
   return (
@@ -90,14 +90,14 @@ export const TauDemonstration: React.FC = () => {
               <line x1="0" y1="200" x2="0" y2="-15" stroke="#64748b" strokeWidth="2" markerEnd="url(#arrow-axis)" strokeLinecap="round" />
               
               {/* Axis Labels */}
-              <text x="320" y="215" className="text-sm fill-slate-500 font-bold" style={{fontFamily: 'sans-serif'}}>t (s)</text>
-              <text x="-15" y="-10" className="text-sm fill-slate-500 font-bold" style={{fontFamily: 'sans-serif'}}>N(t)</text>
+              <text x="320" y="215" className="text-sm fill-slate-500 font-bold font-sans">t (s)</text>
+              <text x="-15" y="-10" className="text-sm fill-slate-500 font-bold font-sans">N(t)</text>
               
               {/* Y-Axis Values */}
-              <text x="-10" y="45" className="text-xs fill-[#2E2E8A] font-bold text-right" style={{fontFamily: 'sans-serif'}}>N₀</text>
+              <text x="-10" y="45" className="text-xs fill-[#2E2E8A] font-bold text-right font-sans">N₀</text>
               <line x1="-5" y1="40" x2="5" y2="40" stroke="#2E2E8A" strokeWidth="2" />
               
-              <text x="-10" y="145" className="text-xs fill-[#F4D35E] font-bold text-right shadow-sm" style={{fontFamily: 'sans-serif', textShadow: '0 1px 2px rgba(0,0,0,0.1)'}}>0,37N₀</text>
+              <text x="-10" y="145" className="text-xs fill-[#F4D35E] font-bold text-right shadow-sm font-sans [text-shadow:0_1px_2px_rgba(0,0,0,0.1)]">0,37N₀</text>
               <line x1="-5" y1="140.8" x2="5" y2="140.8" stroke="#F4D35E" strokeWidth="2" />
 
               {/* Exponential Curve */}
@@ -117,7 +117,7 @@ export const TauDemonstration: React.FC = () => {
               <line x1="0" y1="140.8" x2="60" y2="140.8" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="3,3" />
               
               {/* Tau Label on Axis */}
-              <text x="60" y="220" textAnchor="middle" className="text-sm font-bold fill-[#ef4444]" style={{fontFamily: 'sans-serif'}}>τ</text>
+              <text x="60" y="220" textAnchor="middle" className="text-sm font-bold fill-[#ef4444] font-sans">τ</text>
               
               {/* Intersection Point */}
               <circle cx="60" cy="140.8" r="5" fill="#F4D35E" stroke="white" strokeWidth="2" />

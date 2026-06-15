@@ -89,7 +89,9 @@ export default function OndeTrueFalse({ statements, onComplete }: Props) {
         <span className="text-xs text-slate-500">{idx + 1} / {qs.length}</span>
       </div>
       <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden mb-4">
-        <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${(idx / qs.length) * 100}%` }} />
+        <svg viewBox="0 0 100 1" preserveAspectRatio="none" className="block h-full w-full" aria-hidden="true">
+          <rect width={(idx / qs.length) * 100} height="1" fill="#6366f1" rx="0.5" />
+        </svg>
       </div>
       <TrueFalse
         key={qs[idx].statement}

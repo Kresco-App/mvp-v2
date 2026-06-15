@@ -19,6 +19,25 @@ def _load_launch_gate_module():
     return module
 
 
+def _traceability_table(launch_gate, *, statuses: dict[str, str] | None = None, skip: set[str] | None = None) -> str:
+    statuses = statuses or {}
+    skip = skip or set()
+    rows = "\n".join(
+        f"| {gate_id} | finding | change | evidence | {statuses.get(gate_id, 'verified')} |"
+        for gate_id in launch_gate.REQUIRED_TRACEABILITY_IDS
+        if gate_id not in skip
+    )
+    return f"""
+## Launch Gate
+
+| ID | Finding | Required Change | Evidence Required | Status |
+| --- | --- | --- | --- | --- |
+{rows}
+
+## Evidence Log
+"""
+
+
 def test_launch_gate_fails_current_repo_until_all_rows_and_score_are_ready():
     launch_gate = _load_launch_gate_module()
     result = launch_gate.check_paths(
@@ -29,29 +48,20 @@ def test_launch_gate_fails_current_repo_until_all_rows_and_score_are_ready():
     incomplete_ids = {row.gate_id for row in result.incomplete_rows}
 
     assert result.passed is False
-    assert "SEC-CSP-STYLE-001" in incomplete_ids
     assert "SEC-SECRETS-001" in incomplete_ids
+    assert "MEDIA-S3-001" in incomplete_ids
     assert any("below target" in error for error in result.errors)
 
 
 def test_launch_gate_passes_only_when_traceability_and_score_pass():
     launch_gate = _load_launch_gate_module()
-    traceability = """
-## Launch Gate
-
-| ID | Finding | Required Change | Evidence Required | Status |
-| --- | --- | --- | --- | --- |
-| SEC-ONE | finding | change | evidence | verified |
-
-## Evidence Log
-"""
     switch = """
 Current non-Stripe launch readiness: **9/10**.
 
 Target for broad student production: **9/10**.
 """
 
-    result = launch_gate.evaluate_launch_gate(traceability, switch)
+    result = launch_gate.evaluate_launch_gate(_traceability_table(launch_gate), switch)
 
     assert result.passed is True
     assert result.errors == ()
@@ -60,15 +70,34 @@ Target for broad student production: **9/10**.
 
 def test_launch_gate_rejects_stale_score_even_if_rows_are_verified():
     launch_gate = _load_launch_gate_module()
-    traceability = """
-| ID | Finding | Required Change | Evidence Required | Status |
-| --- | --- | --- | --- | --- |
-| SEC-ONE | finding | change | evidence | verified |
-
-## Evidence Log
-"""
     switch = """
 Current non-Stripe launch readiness: **8.5/10**.
+
+Target for broad student production: **9/10**.
+"""
+
+    result = launch_gate.evaluate_launch_gate(_traceability_table(launch_gate), switch)
+
+    assert result.passed is False
+    assert "Launch readiness score 8.5/10 is below target 9/10." in result.errors
+
+
+def test_launch_gate_rejects_missing_duplicate_unknown_and_invalid_rows():
+    launch_gate = _load_launch_gate_module()
+    traceability = _traceability_table(
+        launch_gate,
+        statuses={"SEC-CSRF-001": "done"},
+        skip={"SEC-SECRETS-001"},
+    ).replace(
+        "| SEC-CSP-001 | finding | change | evidence | verified |",
+        (
+            "| SEC-CSP-001 | finding | change | evidence | verified |\n"
+            "| SEC-CSP-001 | finding | change | evidence | verified |\n"
+            "| EXTRA-001 | finding | change | evidence | verified |"
+        ),
+    )
+    switch = """
+Current non-Stripe launch readiness: **9/10**.
 
 Target for broad student production: **9/10**.
 """
@@ -76,7 +105,10 @@ Target for broad student production: **9/10**.
     result = launch_gate.evaluate_launch_gate(traceability, switch)
 
     assert result.passed is False
-    assert "Launch readiness score 8.5/10 is below target 9/10." in result.errors
+    assert "Missing required traceability gate row(s): SEC-SECRETS-001." in result.errors
+    assert "Duplicate traceability gate row(s): SEC-CSP-001." in result.errors
+    assert "Unexpected traceability gate row(s): EXTRA-001." in result.errors
+    assert "Invalid traceability status value(s): SEC-CSRF-001=done." in result.errors
 
 
 def test_deploy_workflows_are_manual_only_and_gate_production():
@@ -87,6 +119,7 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
         assert "\n  workflow_dispatch:" in workflow
         assert "\n  push:" not in workflow
         assert "python scripts/check_production_launch_gate.py" in workflow
+        assert "python scripts/check_secret_hygiene.py --require-rotation-checklist" in workflow
 
     assert "if: ${{ env.ZAPPA_STAGE == 'production' }}" in backend_workflow
     assert "environment: ${{ inputs.stage }}" in backend_workflow
@@ -110,6 +143,12 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "NEXT_PUBLIC_RELEASE_SHA: ${{ github.sha }}" in frontend_workflow
     assert "vercel deploy --prebuilt --prod" in frontend_workflow
     assert "vercel deploy --prebuilt --token" in frontend_workflow
+    assert "Post-deploy production surface scan" in frontend_workflow
+    assert "FRONTEND_PRODUCTION_BASE_URLS: ${{ vars.FRONTEND_PRODUCTION_BASE_URLS }}" in frontend_workflow
+    assert "FRONTEND_PRODUCTION_BASE_URLS must include every public production alias to scan." in frontend_workflow
+    assert 'scan_urls="$deployment_url ${production_base_urls//,/ }"' in frontend_workflow
+    assert "for base_url in $scan_urls" in frontend_workflow
+    assert 'npm run check:production-demo-surface -- --base-url "$base_url" --json' in frontend_workflow
 
 
 def test_ci_and_deploy_workflows_report_test_coverage():
@@ -123,6 +162,13 @@ def test_ci_and_deploy_workflows_report_test_coverage():
     assert "pytest-cov" in (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
     assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_ci
     assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_deploy
+    for workflow_path in (
+        ".github/workflows/ci-frontend.yml",
+        ".github/workflows/deploy-frontend.yml",
+        ".github/workflows/staging-provider-diagnostics.yml",
+        ".github/workflows/staging-launch-evidence.yml",
+    ):
+        assert workflow_path in backend_ci
     assert "npm run test:coverage" in frontend_ci
     assert "npm run test:coverage" in frontend_deploy
     for workflow in (frontend_ci, frontend_deploy):

@@ -15,7 +15,7 @@ from app.models.courses import (
 )
 from app.models.gamification import TopicItemProgress
 from app.models.users import User
-from app.schemas.courses import ExamOut, ExamProblemOut, ResourceOut, TabContentOut, TopicItemOut
+from app.schemas.courses import AccessGuardedMixin, ExamOut, ExamProblemOut, ResourceOut, TabContentOut, TopicItemOut
 from app.services.access import AccessContext, AccessDecision, build_access_context
 
 ORPHANED_PARENT_ACCESS_DECISION = AccessDecision(can_access=False, reason="parent_not_found")
@@ -40,15 +40,13 @@ def _loaded_relationship(obj, name: str):
     return None if name in inspect(obj).unloaded else getattr(obj, name)
 
 
-def apply_access_decision(out, decision: AccessDecision):
+def apply_access_decision(out: AccessGuardedMixin, decision: AccessDecision) -> AccessGuardedMixin:
     out.can_access = decision.can_access
     out.locked_reason = decision.locked_reason
     out.required_tier = decision.required_tier
     out.required_feature_key = decision.required_feature_key
-    if hasattr(out, "required_subject_id"):
-        out.required_subject_id = decision.required_subject_id
-    if hasattr(out, "access_reason"):
-        out.access_reason = decision.reason
+    out.required_subject_id = decision.required_subject_id
+    out.access_reason = decision.reason
     return out
 
 
@@ -312,6 +310,21 @@ async def require_topic_item_access(
     topic_item_id: int,
 ) -> TopicItem:
     """Raise 404/403 if the user cannot access the given topic item."""
+    item, _topic, _access_context, _item_access = await _require_topic_item_access_with_context(
+        db,
+        user,
+        topic_item_id,
+    )
+    return item
+
+
+async def _require_topic_item_access_with_context(
+    db: AsyncSession,
+    user: User,
+    topic_item_id: int,
+    *,
+    require_topic: bool = False,
+) -> tuple[TopicItem, Topic | None, AccessContext, AccessDecision]:
     item = await db.scalar(
         select(TopicItem)
         .options(selectinload(TopicItem.topic))
@@ -319,10 +332,14 @@ async def require_topic_item_access(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Topic item not found")
-    decision = await access_for_topic_item(db, user, item)
-    if not decision.can_access:
-        raise HTTPException(status_code=403, detail=decision.locked_reason)
-    return item
+    topic = item.topic
+    if topic is None and require_topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    access_context = await build_access_context(db, user)
+    item_access = await access_for_topic_item(db, user, item, access_context=access_context)
+    if not item_access.can_access:
+        raise HTTPException(status_code=403, detail=item_access.locked_reason)
+    return item, topic, access_context, item_access
 
 
 async def require_topic_item_primary_video_resource_access(
@@ -330,21 +347,14 @@ async def require_topic_item_primary_video_resource_access(
     user: User,
     topic_item_id: int,
 ) -> tuple[TopicItem, Resource]:
-    item = await db.scalar(
-        select(TopicItem)
-        .options(selectinload(TopicItem.topic))
-        .where(TopicItem.id == topic_item_id)
+    item, topic, access_context, item_access = await _require_topic_item_access_with_context(
+        db,
+        user,
+        topic_item_id,
+        require_topic=True,
     )
-    if item is None:
-        raise HTTPException(status_code=404, detail="Topic item not found")
-    access_context = await build_access_context(db, user)
-    topic = item.topic
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
-    topic_access = access_context.decide_for(topic, subject_id=topic.subject_id)
-    item_access = access_context.decide_child(topic_access, item, subject_id=topic.subject_id)
-    if not item_access.can_access:
-        raise HTTPException(status_code=403, detail=item_access.locked_reason)
     if item.primary_resource_id is None:
         raise HTTPException(status_code=404, detail="No video resource configured for this topic item")
     resource = await db.scalar(

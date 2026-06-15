@@ -131,6 +131,8 @@ export function TopicWorkspaceResourcePanel({
           <iframe
             title={`Preview ${resource.title}`}
             src={previewUrl}
+            loading="lazy"
+            referrerPolicy="no-referrer"
             className="h-[420px] w-full border-0 bg-white"
           />
         </div>

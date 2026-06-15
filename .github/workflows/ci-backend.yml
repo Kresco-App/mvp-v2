@@ -7,7 +7,11 @@ on:
       - "scripts/**"
       - ".gitignore"
       - ".github/workflows/ci-backend.yml"
+      - ".github/workflows/ci-frontend.yml"
       - ".github/workflows/deploy-backend.yml"
+      - ".github/workflows/deploy-frontend.yml"
+      - ".github/workflows/staging-provider-diagnostics.yml"
+      - ".github/workflows/staging-launch-evidence.yml"
   push:
     branches:
       - master
@@ -17,7 +21,11 @@ on:
       - "scripts/**"
       - ".gitignore"
       - ".github/workflows/ci-backend.yml"
+      - ".github/workflows/ci-frontend.yml"
       - ".github/workflows/deploy-backend.yml"
+      - ".github/workflows/deploy-frontend.yml"
+      - ".github/workflows/staging-provider-diagnostics.yml"
+      - ".github/workflows/staging-launch-evidence.yml"
 
 jobs:
   test:
@@ -76,6 +84,7 @@ jobs:
       - name: Run data integrity audit on Postgres
         run: |
           DATABASE_URL="$CI_POSTGRES_DATABASE_URL" python scripts/audit_data_integrity.py
+          DATABASE_URL="$CI_POSTGRES_DATABASE_URL" python scripts/audit_data_integrity.py --fixture-self-test
 
       - name: Run query plan audit on Postgres
         run: |

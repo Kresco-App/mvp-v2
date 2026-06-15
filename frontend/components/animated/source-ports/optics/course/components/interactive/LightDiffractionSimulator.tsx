@@ -5,6 +5,39 @@ import React, { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Ruler, MoveHorizontal, Maximize2 } from 'lucide-react';
 import { Slider } from '../ui/Slider';
 
+interface WavelengthValueProps {
+    value: number;
+    color: string;
+}
+
+const WAVELENGTH_VALUE_WIDTH = 64;
+
+function WavelengthValue({ value, color }: WavelengthValueProps) {
+    return (
+        <span className="inline-flex min-w-[4rem] justify-end">
+            <svg
+                viewBox={`0 0 ${WAVELENGTH_VALUE_WIDTH} 18`}
+                width={WAVELENGTH_VALUE_WIDTH}
+                height={18}
+                aria-hidden="true"
+                focusable="false"
+            >
+                <text
+                    x={WAVELENGTH_VALUE_WIDTH}
+                    y={13}
+                    textAnchor="end"
+                    fill={color}
+                    fontSize={12}
+                    fontWeight={700}
+                >
+                    {value} nm
+                </text>
+            </svg>
+            <span className="sr-only">{value} nm</span>
+        </span>
+    );
+}
+
 export const LightDiffractionSimulator: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [wavelength, setWavelength] = useState(650); // nm (Red)
@@ -169,7 +202,7 @@ export const LightDiffractionSimulator: React.FC = () => {
                 <div>
                     <label className="flex justify-between text-xs font-bold text-slate-500 mb-1">
                         <span>Longueur d'onde (λ)</span>
-                        <span style={{ color: getWavelengthColor(wavelength) }}>{wavelength} nm</span>
+                        <WavelengthValue value={wavelength} color={getWavelengthColor(wavelength)} />
                     </label>
                     <Slider
                         min={400} max={750}

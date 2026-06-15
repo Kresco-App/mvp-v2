@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +11,14 @@ InteractionContext = dict[str, int | None]
 
 def _merge_context(base: InteractionContext, patch: InteractionContext) -> InteractionContext:
     keys = set(base) | set(patch)
-    return {key: base.get(key) if base.get(key) is not None else patch.get(key) for key in keys}
+    merged: InteractionContext = {}
+    for key in keys:
+        base_value = base.get(key)
+        patch_value = patch.get(key)
+        if base_value is not None and patch_value is not None and int(base_value) != int(patch_value):
+            raise HTTPException(status_code=400, detail="Interaction context parent IDs conflict")
+        merged[key] = base_value if base_value is not None else patch_value
+    return merged
 
 
 async def _context_from_topic(db: AsyncSession, topic_id: int) -> InteractionContext:

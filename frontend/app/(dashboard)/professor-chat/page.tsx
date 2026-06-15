@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronUp, ImageIcon, Link2, Loader2, LockKeyhole, MessageCircle, MoreHorizontal, Pencil, Send, Trash2, X } from 'lucide-react'
 import Image from 'next/image'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
 import { apiDataErrorMessage } from '@/lib/apiData'
@@ -25,18 +26,27 @@ import {
 } from '@/lib/professor'
 import { useAuthStore } from '@/lib/store'
 import {
+  parseStudentProfessorChatUrlState,
+  studentProfessorChatUrlStateToSearchParams,
+  studentProfessorChatUrlStatesEqual,
   updateStudentProfessorMessagesEnvelope,
   useStudentProfessorChatData,
+  type StudentProfessorChatUrlState,
 } from '@/lib/studentProfessorChatData'
 
 export default function StudentProfessorChatPage() {
   const user = useAuthStore((state) => state.user)
-  const [activeId, setActiveId] = useState<number | null>(null)
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const searchKey = searchParams.toString()
+  const routeChatState = useMemo(() => parseStudentProfessorChatUrlState(new URLSearchParams(searchKey)), [searchKey])
+  const [activeId, setActiveId] = useState<number | null>(routeChatState.conversationId)
   const [draft, setDraft] = useState('')
   const [newMessage, setNewMessage] = useState('')
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [selectedImagePreview, setSelectedImagePreview] = useState('')
-  const [selectedOfferingId, setSelectedOfferingId] = useState<number | null>(null)
+  const [selectedOfferingId, setSelectedOfferingId] = useState<number | null>(routeChatState.offeringId)
   const [sending, setSending] = useState(false)
   const [messageMenuId, setMessageMenuId] = useState<number | null>(null)
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
@@ -48,6 +58,7 @@ export default function StudentProfessorChatPage() {
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const statusErrorRef = useRef<unknown>(null)
   const messagesErrorRef = useRef<unknown>(null)
+  const chatUrlStateRef = useRef(routeChatState)
   const {
     status,
     statusError,
@@ -65,14 +76,28 @@ export default function StudentProfessorChatPage() {
     await Promise.allSettled(refreshes)
   }, [activeId, mutateMessages, mutateStatus])
 
+  const replaceChatUrlState = useCallback((nextState: StudentProfessorChatUrlState) => {
+    const params = studentProfessorChatUrlStateToSearchParams(nextState, new URLSearchParams(searchKey))
+    const queryString = params.toString()
+    const nextUrl = queryString ? `${pathname}?${queryString}` : pathname
+    const currentUrl = searchKey ? `${pathname}?${searchKey}` : pathname
+    if (nextUrl !== currentUrl) router.replace(nextUrl, { scroll: false })
+  }, [pathname, router, searchKey])
+
+  const applyChatUrlState = useCallback((patch: Partial<StudentProfessorChatUrlState>) => {
+    const nextState = { ...chatUrlStateRef.current, ...patch }
+    chatUrlStateRef.current = nextState
+    setActiveId((current) => (current === nextState.conversationId ? current : nextState.conversationId))
+    setSelectedOfferingId((current) => (current === nextState.offeringId ? current : nextState.offeringId))
+    replaceChatUrlState(nextState)
+  }, [replaceChatUrlState])
+
   useEffect(() => {
-    if (!status) return
-    setActiveId((current) => {
-      if (current && status.conversations.some((conversation) => conversation.id === current)) return current
-      return status.teacher_threads?.find((thread) => thread.conversation)?.conversation?.id ?? status.conversations[0]?.id ?? null
-    })
-    setSelectedOfferingId((current) => current ?? status.teacher_threads?.[0]?.course_offering_id ?? status.offerings[0]?.id ?? null)
-  }, [status])
+    if (studentProfessorChatUrlStatesEqual(chatUrlStateRef.current, routeChatState)) return
+    chatUrlStateRef.current = routeChatState
+    setActiveId((current) => (current === routeChatState.conversationId ? current : routeChatState.conversationId))
+    setSelectedOfferingId((current) => (current === routeChatState.offeringId ? current : routeChatState.offeringId))
+  }, [routeChatState])
 
   useEffect(() => {
     if (!statusError) {
@@ -129,6 +154,38 @@ export default function StudentProfessorChatPage() {
   }, [selectedOfferingId, threadOptions])
 
   useEffect(() => {
+    if (!status || statusLoading) return
+
+    const requestedOfferingThread = chatUrlStateRef.current.offeringId
+      ? threadOptions.find((thread) => thread.course_offering_id === chatUrlStateRef.current.offeringId) ?? null
+      : null
+    const firstConversationId = status.teacher_threads?.find((thread) => thread.conversation)?.conversation?.id ?? status.conversations[0]?.id ?? null
+    const activeConversationStillAvailable = activeId !== null && status.conversations.some((conversation) => conversation.id === activeId)
+    const nextActiveId = activeConversationStillAvailable
+      ? activeId
+      : requestedOfferingThread?.conversation?.id ?? (chatUrlStateRef.current.offeringId ? null : firstConversationId)
+    const nextActiveConversation = nextActiveId
+      ? status.conversations.find((conversation) => conversation.id === nextActiveId) ?? null
+      : null
+    const selectedOfferingStillAvailable = selectedOfferingId !== null && threadOptions.some((thread) => thread.course_offering_id === selectedOfferingId)
+    const nextOfferingId = nextActiveConversation?.course_offering_id
+      ?? requestedOfferingThread?.course_offering_id
+      ?? (selectedOfferingStillAvailable ? selectedOfferingId : null)
+      ?? threadOptions[0]?.course_offering_id
+      ?? status.offerings[0]?.id
+      ?? null
+
+    if (
+      nextActiveId !== activeId
+      || nextOfferingId !== selectedOfferingId
+      || chatUrlStateRef.current.conversationId !== nextActiveId
+      || chatUrlStateRef.current.offeringId !== nextOfferingId
+    ) {
+      applyChatUrlState({ conversationId: nextActiveId, offeringId: nextOfferingId })
+    }
+  }, [activeId, applyChatUrlState, selectedOfferingId, status, statusLoading, threadOptions])
+
+  useEffect(() => {
     setVisibleMessageCount(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
   }, [activeId])
 
@@ -156,21 +213,16 @@ export default function StudentProfessorChatPage() {
           : thread
       )),
     } : current, { revalidate: false })
-    setActiveId(conversation.id)
+    applyChatUrlState({ conversationId: conversation.id, offeringId: conversation.course_offering_id })
     setNewMessage('')
     toast.success('Conversation started.')
   }
 
   function selectThread(courseOfferingId: number, conversationId?: number | null) {
-    setSelectedOfferingId(courseOfferingId)
     setNewMessage('')
     setMessageMenuId(null)
     setEditingMessageId(null)
-    if (conversationId) {
-      setActiveId(conversationId)
-    } else {
-      setActiveId(null)
-    }
+    applyChatUrlState({ conversationId: conversationId ?? null, offeringId: courseOfferingId })
   }
 
   async function send(event: FormEvent<HTMLFormElement>) {
@@ -416,7 +468,14 @@ export default function StudentProfessorChatPage() {
                                       {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#71717b]">{message.body}</p>}
                                       {message.attachment_url && (
                                         <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[10px] border border-[#e4e4e7]' : 'block overflow-hidden rounded-[10px] border border-[#e4e4e7]'}>
-                                          <Image src={chatMediaUrl(message.attachment_url)} alt={message.attachment_name || 'Chat image'} width={520} height={260} unoptimized className="max-h-[260px] w-full object-cover" />
+                                          <Image
+                                            src={chatMediaUrl(message.attachment_url)}
+                                            alt={message.attachment_name || 'Chat image'}
+                                            width={520}
+                                            height={260}
+                                            unoptimized
+                                            className="max-h-[260px] w-full object-cover"
+                                          />
                                         </a>
                                       )}
                                     </>
@@ -479,7 +538,7 @@ export default function StudentProfessorChatPage() {
                       <button type="button" onClick={() => imageInputRef.current?.click()} className="grid h-8 w-5 place-items-center border-0 bg-transparent p-0 text-[#71717b]" aria-label="Add image">
                         <ImageIcon size={16} />
                       </button>
-                      <button type="button" className="grid h-8 w-5 place-items-center border-0 bg-transparent p-0 text-[#71717b]" aria-label="Attach file">
+                      <button type="button" className="grid h-8 w-5 place-items-center border-0 bg-transparent p-0 text-[#71717b] opacity-40" aria-label="Attach file" disabled title="File attachments are not available yet">
                         <Link2 size={16} />
                       </button>
                     </div>
@@ -535,6 +594,7 @@ export default function StudentProfessorChatPage() {
                     key={thread.course_offering_id}
                     type="button"
                     onClick={() => selectThread(thread.course_offering_id, thread.conversation?.id)}
+                    aria-pressed={thread.conversation?.id === activeId || (!activeId && selectedOfferingId === thread.course_offering_id)}
                     className={`grid w-full grid-cols-[40px_1fr_auto] gap-4 rounded-[12px] border-0 bg-transparent p-0 text-left transition hover:bg-[#f4f4f5] ${thread.conversation?.id === activeId || (!activeId && selectedOfferingId === thread.course_offering_id) ? 'bg-[#f4f4f5]' : ''}`}
                   >
                     <Avatar name={thread.professor.full_name} src={thread.professor.avatar_url} />

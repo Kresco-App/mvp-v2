@@ -9,10 +9,10 @@ from app.schemas.gamification import (
     DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
     LeaderboardEntryOut, MistakeNotebookListOut, SidebarSummaryOut,
 )
+from app.services.daily_quests import ensure_daily_quests_for_user, claim_daily_quest_reward
 from app.services.gamification_read_models import (
     build_sidebar_summary,
     build_xp_summary,
-    claim_daily_quest_reward,
     build_user_stats,
     list_daily_quest_entries,
     list_leaderboard_entries,
@@ -65,6 +65,8 @@ async def get_daily_quests(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if await ensure_daily_quests_for_user(db, user=user):
+        await db.commit()
     return await list_daily_quest_entries(db, user=user)
 
 
@@ -74,6 +76,8 @@ async def get_sidebar_summary(
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
+    if await ensure_daily_quests_for_user(db, user=user):
+        await db.commit()
     return await build_sidebar_summary(db, user=user, settings=settings)
 
 
@@ -97,6 +101,7 @@ async def get_mistake_notebook(
         offset=offset,
     )
 
+
 @router.post("/daily-quests/{quest_id}/claim")
 @limiter.limit("10/minute")
 async def claim_daily_quest(
@@ -105,7 +110,9 @@ async def claim_daily_quest(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return await claim_daily_quest_reward(db, user=user, quest_id=quest_id)
+    result = await claim_daily_quest_reward(db, user=user, quest_id=quest_id)
+    await db.commit()
+    return result
 
 
 @router.get("/stats", response_model=UserStatsOut)

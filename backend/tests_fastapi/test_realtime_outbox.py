@@ -51,6 +51,131 @@ def test_realtime_outbox_publishes_events_concurrently(run_db, monkeypatch, test
     assert stored and all(row.status == realtime_outbox.OUTBOX_PUBLISHED for row in stored)
 
 
+def test_realtime_outbox_respects_publish_concurrency_limit(run_db, monkeypatch, test_settings):
+    current_publishers = 0
+    max_publishers = 0
+
+    async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
+        del settings, channel, name, data, attempts, retry_delay_seconds, http_client
+        nonlocal current_publishers, max_publishers
+        current_publishers += 1
+        max_publishers = max(max_publishers, current_publishers)
+        await asyncio.sleep(0.01)
+        current_publishers -= 1
+        return True
+
+    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            for index in range(realtime_outbox.OUTBOX_MAX_CONCURRENCY + 3):
+                await realtime_outbox.enqueue_realtime_event(
+                    db,
+                    channel=f"kresco:live:{index + 1}",
+                    event_name="test.bounded",
+                    payload={"index": index},
+                )
+            await db.commit()
+
+        async with session_factory() as db:
+            return await realtime_outbox.process_realtime_outbox(db, test_settings, retry_base_seconds=0)
+
+    result = run_db(_case())
+
+    assert result == {
+        "claimed": realtime_outbox.OUTBOX_MAX_CONCURRENCY + 3,
+        "published": realtime_outbox.OUTBOX_MAX_CONCURRENCY + 3,
+        "retry": 0,
+        "dead": 0,
+    }
+    assert max_publishers == realtime_outbox.OUTBOX_MAX_CONCURRENCY
+
+
+def test_realtime_outbox_reclaims_only_stale_publishing_locks(run_db, monkeypatch, test_settings):
+    now = datetime.now(timezone.utc)
+    stale_locked_at = now - timedelta(seconds=realtime_outbox.OUTBOX_STALE_LOCK_SECONDS + 1)
+    fresh_locked_at = now - timedelta(seconds=realtime_outbox.OUTBOX_STALE_LOCK_SECONDS - 1)
+    future_available_at = now + timedelta(minutes=5)
+    published_channels: list[str] = []
+
+    async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
+        del settings, name, data, attempts, retry_delay_seconds, http_client
+        published_channels.append(channel)
+        return True
+
+    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+
+    async def _case():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
+            pending = RealtimeOutbox(
+                channel="kresco:live:pending",
+                event_name="pending.event",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_PENDING,
+                available_at=now,
+            )
+            retry_later = RealtimeOutbox(
+                channel="kresco:live:retry-later",
+                event_name="retry.later",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_RETRY,
+                available_at=future_available_at,
+            )
+            fresh_publishing = RealtimeOutbox(
+                channel="kresco:live:fresh-publishing",
+                event_name="fresh.publishing",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_PUBLISHING,
+                available_at=now,
+                locked_at=fresh_locked_at,
+                attempts=2,
+            )
+            stale_publishing = RealtimeOutbox(
+                channel="kresco:live:stale-publishing",
+                event_name="stale.publishing",
+                payload_json={},
+                status=realtime_outbox.OUTBOX_PUBLISHING,
+                available_at=now,
+                locked_at=stale_locked_at,
+                attempts=2,
+            )
+            db.add_all([pending, retry_later, fresh_publishing, stale_publishing])
+            await db.commit()
+            row_ids = {
+                "pending": pending.id,
+                "retry_later": retry_later.id,
+                "fresh_publishing": fresh_publishing.id,
+                "stale_publishing": stale_publishing.id,
+            }
+
+        async with session_factory() as db:
+            result = await realtime_outbox.process_realtime_outbox(
+                db,
+                test_settings,
+                retry_base_seconds=0,
+                now=now,
+            )
+            rows = {name: await db.get(RealtimeOutbox, row_id) for name, row_id in row_ids.items()}
+            return result, rows
+
+    result, rows = run_db(_case())
+
+    assert result == {"claimed": 2, "published": 2, "retry": 0, "dead": 0}
+    assert published_channels == ["kresco:live:pending", "kresco:live:stale-publishing"]
+    assert rows["pending"].status == realtime_outbox.OUTBOX_PUBLISHED
+    assert rows["pending"].attempts == 1
+    assert rows["stale_publishing"].status == realtime_outbox.OUTBOX_PUBLISHED
+    assert rows["stale_publishing"].attempts == 3
+    assert rows["fresh_publishing"].status == realtime_outbox.OUTBOX_PUBLISHING
+    assert rows["fresh_publishing"].attempts == 2
+    assert rows["retry_later"].status == realtime_outbox.OUTBOX_RETRY
+    assert rows["retry_later"].attempts == 0
+
+
 def test_realtime_outbox_records_retry_and_dead_letter_states(run_db, monkeypatch, test_settings):
     calls: list[str] = []
 

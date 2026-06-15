@@ -52,6 +52,51 @@ def test_query_plan_audit_detects_missing_required_indexes():
     assert any(item.startswith("topic_item_progress.ix_topic_item_progress_user_item_status") for item in missing)
 
 
+def test_query_plan_audit_normalizes_database_url_before_engine_creation(monkeypatch):
+    audit = _load_query_plan_audit_module()
+    captured: dict[str, object] = {}
+
+    def fake_build_async_url(database_url):
+        captured["database_url"] = database_url
+        return "postgresql+asyncpg://user:pass@db.example/kresco", {"ssl": True}
+
+    class FakeConnection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def run_sync(self, callback):
+            del callback
+            return {}
+
+    class FakeEngine:
+        def connect(self):
+            return FakeConnection()
+
+        async def dispose(self):
+            captured["disposed"] = True
+
+    def fake_create_async_engine(url, **kwargs):
+        captured["engine_url"] = url
+        captured["engine_kwargs"] = kwargs
+        return FakeEngine()
+
+    monkeypatch.setattr(audit, "_build_async_url", fake_build_async_url)
+    monkeypatch.setattr(audit, "create_async_engine", fake_create_async_engine)
+
+    result = asyncio.run(audit.run_query_plan_audit("postgresql://user:pass@db.example/kresco?sslmode=verify-full"))
+
+    assert result.ok is False
+    assert captured == {
+        "database_url": "postgresql://user:pass@db.example/kresco?sslmode=verify-full",
+        "engine_url": "postgresql+asyncpg://user:pass@db.example/kresco",
+        "engine_kwargs": {"connect_args": {"ssl": True}},
+        "disposed": True,
+    }
+
+
 def test_query_plan_audit_accepts_expected_index_plans(monkeypatch):
     audit = _load_query_plan_audit_module()
 
@@ -64,18 +109,20 @@ def test_query_plan_audit_accepts_expected_index_plans(monkeypatch):
     assert asyncio.run(audit._plan_failures(connection)) == []
 
 
-def test_query_plan_audit_accepts_alternate_valid_progress_index(monkeypatch):
+def test_query_plan_audit_checks_distinct_progress_hot_paths():
     audit = _load_query_plan_audit_module()
 
-    async def fake_explain(_connection, sql):
-        if "topic_item_progress" in sql:
-            return "Index Scan using ix_topic_item_progress_user_topic_status on topic_item_progress"
-        return "\n".join(f"Index Scan using {check.expected_indexes[0]}" for check in audit.PLAN_CHECKS)
+    checks = {check.name: check for check in audit.PLAN_CHECKS}
 
-    monkeypatch.setattr(audit, "explain_query", fake_explain)
-    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    workspace_progress = checks["topic workspace progress"]
+    assert "topic_id = 1" in workspace_progress.sql
+    assert "status = 'completed'" not in workspace_progress.sql
+    assert workspace_progress.expected_indexes == ("ix_topic_item_progress_user_topic_item",)
 
-    assert asyncio.run(audit._plan_failures(connection)) == []
+    card_progress = checks["topic card progress"]
+    assert "topic_id = 1" not in card_progress.sql
+    assert "status = 'completed'" in card_progress.sql
+    assert card_progress.expected_indexes == ("ix_topic_item_progress_user_item_status",)
 
 
 def test_query_plan_audit_rejects_sequential_scans(monkeypatch):

@@ -28,6 +28,7 @@ import { AUTH_ROUTES, canUseStudentProfessorChat } from '@/lib/authPolicy'
 import { isActiveNavHref } from '@/lib/navigationPolicy'
 import { deleteAllNotifications, deleteNotification, listNotifications, markAllNotificationsRead, markNotificationRead, type NotificationItem } from '@/lib/notifications'
 import { useAuthStore } from '@/lib/store'
+import { useDismissable } from '@/hooks/useClickOutside'
 
 const links = [
   { href: '/home', label: 'Home', Icon: Home },
@@ -105,23 +106,10 @@ export default function TopNav() {
     })
   }, [refreshNotifications, user?.id])
 
-  useEffect(() => {
-    if (!notificationsOpen) return
-    function onPointerDown(event: MouseEvent) {
-      if (!notificationsRef.current?.contains(event.target as Node)) {
-        setNotificationsOpen(false)
-      }
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setNotificationsOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [notificationsOpen])
+  useDismissable(notificationsRef, () => setNotificationsOpen(false), {
+    enabled: notificationsOpen,
+    eventName: 'mousedown',
+  })
 
   async function openNotifications() {
     setNotificationsOpen((value) => !value)

@@ -10,6 +10,16 @@ if TYPE_CHECKING:
     from app.models.quizzes import Quiz
 
 
+class AccessControlMixin:
+    status: Mapped[str] = mapped_column(String(30), default="published")
+    required_tier: Mapped[str] = mapped_column(String(40), default="")
+    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
+
+
+class FreePreviewMixin:
+    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class Subject(Base):
     __tablename__ = "subjects"
 
@@ -33,7 +43,7 @@ class ConceptTag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class Topic(Base):
+class Topic(AccessControlMixin, FreePreviewMixin, Base):
     __tablename__ = "topics"
     __table_args__ = (
         Index("ix_topics_status", "status"),
@@ -45,12 +55,8 @@ class Topic(Base):
     slug: Mapped[str] = mapped_column(String(160), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(30), default="published")
     order: Mapped[int] = mapped_column(Integer, default=0)
     progress_weight_main: Mapped[int] = mapped_column(Integer, default=75)
-    required_tier: Mapped[str] = mapped_column(String(40), default="")
-    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
-    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     subject: Mapped["Subject"] = relationship("Subject")
@@ -83,7 +89,7 @@ class TopicSection(Base):
     )
 
 
-class Resource(Base):
+class Resource(AccessControlMixin, FreePreviewMixin, Base):
     __tablename__ = "resources"
     __table_args__ = (
         Index("ix_resources_status", "status"),
@@ -98,16 +104,12 @@ class Resource(Base):
     url: Mapped[str] = mapped_column(String(500), default="")
     summary: Mapped[str] = mapped_column(Text, default="")
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String(30), default="published")
-    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
-    required_tier: Mapped[str] = mapped_column(String(40), default="")
-    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     topic: Mapped[Optional["Topic"]] = relationship("Topic", back_populates="resources")
 
 
-class TopicItem(Base):
+class TopicItem(AccessControlMixin, FreePreviewMixin, Base):
     __tablename__ = "topic_items"
     __table_args__ = (
         Index("ix_topic_items_workspace_order", "topic_id", "status", "section_id", "order", "id"),
@@ -134,11 +136,7 @@ class TopicItem(Base):
     renderer_key: Mapped[str] = mapped_column(String(120), default="")
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
     order: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(30), default="published")
     completion_policy: Mapped[str] = mapped_column(String(40), default="manual")
-    required_tier: Mapped[str] = mapped_column(String(40), default="")
-    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
-    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
     concept_slugs: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -158,7 +156,7 @@ class TopicItem(Base):
     )
 
 
-class TabContent(Base):
+class TabContent(AccessControlMixin, Base):
     __tablename__ = "tab_contents"
     __table_args__ = (
         Index("ix_tab_contents_item_status_order", "topic_item_id", "status", "order", "id"),
@@ -173,16 +171,13 @@ class TabContent(Base):
     config_json: Mapped[dict] = mapped_column(JSON, default=dict)
     renderer_key: Mapped[str] = mapped_column(String(120), default="")
     order: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(30), default="published")
-    required_tier: Mapped[str] = mapped_column(String(40), default="")
-    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
     concept_slugs: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     topic_item: Mapped["TopicItem"] = relationship("TopicItem", back_populates="tabs", foreign_keys=[topic_item_id])
     resource: Mapped[Optional["Resource"]] = relationship("Resource")
 
 
-class Exam(Base):
+class Exam(AccessControlMixin, FreePreviewMixin, Base):
     __tablename__ = "exams"
     __table_args__ = (
         Index("ix_exams_status", "status"),
@@ -194,10 +189,6 @@ class Exam(Base):
     year: Mapped[int] = mapped_column(Integer)
     session: Mapped[str] = mapped_column(String(120), default="National")
     statement_url: Mapped[str] = mapped_column(String(500), default="")
-    status: Mapped[str] = mapped_column(String(30), default="published")
-    required_tier: Mapped[str] = mapped_column(String(40), default="")
-    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
-    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
 
     subject: Mapped["Subject"] = relationship("Subject")
     problems: Mapped[list["ExamProblem"]] = relationship(
@@ -208,7 +199,7 @@ class Exam(Base):
     )
 
 
-class ExamProblem(Base):
+class ExamProblem(AccessControlMixin, FreePreviewMixin, Base):
     __tablename__ = "exam_problems"
     __table_args__ = (
         Index("ix_exam_problems_status", "status"),
@@ -224,10 +215,6 @@ class ExamProblem(Base):
     written_solution_url: Mapped[str] = mapped_column(String(500), default="")
     order: Mapped[int] = mapped_column(Integer, default=0)
     difficulty: Mapped[str] = mapped_column(String(40), default="bac")
-    status: Mapped[str] = mapped_column(String(30), default="published")
-    required_tier: Mapped[str] = mapped_column(String(40), default="")
-    required_feature_key: Mapped[str] = mapped_column(String(80), default="")
-    is_free_preview: Mapped[bool] = mapped_column(Boolean, default=False)
     concept_slugs: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     exam: Mapped["Exam"] = relationship("Exam", back_populates="problems")

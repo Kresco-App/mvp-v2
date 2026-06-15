@@ -5,53 +5,113 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FlaskConical } from 'lucide-react';
 
+type IndicatorId = 'heliantine' | 'bromothymol' | 'phenolphthaleine';
+
 interface Indicator {
+  id: IndicatorId;
   name: string;
   pka: number;
   virageStart: number;
   virageEnd: number;
-  acidColor: string; 
   acidColorName: string;
-  baseColor: string;
   baseColorName: string;
   mixColorName: string;
 }
 
 const indicators: Indicator[] = [
   { 
+    id: 'heliantine',
     name: 'Hélianthine', 
     pka: 3.7, 
     virageStart: 3.1, 
     virageEnd: 4.4, 
-    acidColor: '#ef4444', 
     acidColorName: 'Rouge', 
-    baseColor: '#fbbf24', 
     baseColorName: 'Jaune', 
     mixColorName: 'Orange' 
   },
   { 
+    id: 'bromothymol',
     name: 'Bleu de Bromothymol', 
     pka: 7.1, 
     virageStart: 6.0, 
     virageEnd: 7.6, 
-    acidColor: '#facc15', 
     acidColorName: 'Jaune', 
-    baseColor: '#2563eb', 
     baseColorName: 'Bleu', 
     mixColorName: 'Vert' 
   },
   { 
+    id: 'phenolphthaleine',
     name: 'Phénolphtaléine', 
     pka: 9.4, 
     virageStart: 8.2, 
     virageEnd: 10.0, 
-    acidColor: '#ffffff', 
     acidColorName: 'Incolore', 
-    baseColor: '#db2777', 
     baseColorName: 'Rose Fuchsia', 
     mixColorName: 'Rose Pâle' 
   },
 ];
+
+const indicatorClasses: Record<IndicatorId, {
+  acidBg: string;
+  baseBg: string;
+  observedAcidText: string;
+  observedBaseText: string;
+  scaleAcidOpacity: string;
+  acidWidth: string;
+  mixWidth: string;
+  baseWidth: string;
+  mixGradient: string;
+  pkaLeft: string;
+  startLeft: string;
+  endLeft: string;
+  zoneLeft: string;
+}> = {
+  heliantine: {
+    acidBg: 'bg-red-500',
+    baseBg: 'bg-amber-400',
+    observedAcidText: 'text-red-500',
+    observedBaseText: 'text-amber-400',
+    scaleAcidOpacity: 'opacity-80',
+    acidWidth: 'w-[22.142857%]',
+    mixWidth: 'w-[9.285714%]',
+    baseWidth: 'w-[68.571429%]',
+    mixGradient: 'bg-gradient-to-r from-red-500 to-amber-400',
+    pkaLeft: 'left-[26.428571%]',
+    startLeft: 'left-[22.142857%]',
+    endLeft: 'left-[31.428571%]',
+    zoneLeft: 'left-[26.785714%]',
+  },
+  bromothymol: {
+    acidBg: 'bg-yellow-400',
+    baseBg: 'bg-blue-600',
+    observedAcidText: 'text-yellow-400',
+    observedBaseText: 'text-blue-600',
+    scaleAcidOpacity: 'opacity-80',
+    acidWidth: 'w-[42.857143%]',
+    mixWidth: 'w-[11.428571%]',
+    baseWidth: 'w-[45.714286%]',
+    mixGradient: 'bg-gradient-to-r from-yellow-400 to-blue-600',
+    pkaLeft: 'left-[50.714286%]',
+    startLeft: 'left-[42.857143%]',
+    endLeft: 'left-[54.285714%]',
+    zoneLeft: 'left-[48.571429%]',
+  },
+  phenolphthaleine: {
+    acidBg: 'bg-white',
+    baseBg: 'bg-pink-600',
+    observedAcidText: 'text-slate-400',
+    observedBaseText: 'text-pink-600',
+    scaleAcidOpacity: 'opacity-10',
+    acidWidth: 'w-[58.571429%]',
+    mixWidth: 'w-[12.857143%]',
+    baseWidth: 'w-[28.571429%]',
+    mixGradient: 'bg-gradient-to-r from-transparent to-pink-600',
+    pkaLeft: 'left-[67.142857%]',
+    startLeft: 'left-[58.571429%]',
+    endLeft: 'left-[71.428571%]',
+    zoneLeft: 'left-[65%]',
+  },
+};
 
 export const IndicatorSimulator: React.FC = () => {
   const [selectedInd, setSelectedInd] = useState(indicators[0]);
@@ -64,10 +124,15 @@ export const IndicatorSimulator: React.FC = () => {
   };
 
   const blendFactor = getBlend(ph, selectedInd.virageStart, selectedInd.virageEnd);
-  const totalScale = 14;
-  const acidWidth = (selectedInd.virageStart / totalScale) * 100;
-  const mixWidth = ((selectedInd.virageEnd - selectedInd.virageStart) / totalScale) * 100;
-  const baseWidth = ((14 - selectedInd.virageEnd) / totalScale) * 100;
+  const classes = indicatorClasses[selectedInd.id];
+  const acidLiquidClass = selectedInd.id === 'phenolphthaleine'
+    ? `bg-white ${blendFactor === 0 ? 'opacity-[0.05]' : 'opacity-0'}`
+    : `${classes.acidBg} opacity-100`;
+  const observedToneClass = blendFactor < 0.2
+    ? classes.observedAcidText
+    : blendFactor > 0.8
+      ? classes.observedBaseText
+      : 'text-slate-500';
 
   return (
     <div className="bg-white p-6 md:p-10 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 my-12">
@@ -112,18 +177,16 @@ export const IndicatorSimulator: React.FC = () => {
                     <div className="absolute bottom-2 left-2 right-2 top-12 rounded-b-[2.5rem] overflow-hidden z-10 transition-all duration-300">
                         {/* Acid Color Layer */}
                         <div 
-                            className="absolute inset-0 transition-colors duration-200"
-                            style={{ backgroundColor: selectedInd.acidColor, opacity: selectedInd.name === 'Phénolphtaléine' ? (blendFactor === 0 ? 0.05 : 0) : 1 }} 
+                            className={`absolute inset-0 transition-colors duration-200 ${acidLiquidClass}`}
                         ></div>
                          {/* Incolore bg */}
-                         {selectedInd.name === 'Phénolphtaléine' && blendFactor < 1 && (
+                         {selectedInd.id === 'phenolphthaleine' && blendFactor < 1 && (
                             <div className="absolute inset-0 bg-slate-100/50"></div>
                          )}
 
                         {/* Base Color Layer */}
                         <motion.div 
-                            className="absolute inset-0"
-                            style={{ backgroundColor: selectedInd.baseColor }}
+                            className={`absolute inset-0 ${classes.baseBg}`}
                             animate={{ opacity: blendFactor }}
                             transition={{ duration: 0.1 }}
                         />
@@ -135,10 +198,7 @@ export const IndicatorSimulator: React.FC = () => {
 
                 <div className="mt-6 text-center">
                     <div className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-1">Teinte Observée</div>
-                    <div className="text-2xl font-black transition-colors duration-300 tracking-tight" style={{ 
-                        color: blendFactor < 0.2 ? (selectedInd.name === 'Phénolphtaléine' ? '#94a3b8' : selectedInd.acidColor) : 
-                               blendFactor > 0.8 ? selectedInd.baseColor : '#64748b' 
-                    }}>
+                    <div className={`text-2xl font-black transition-colors duration-300 tracking-tight ${observedToneClass}`}>
                         {blendFactor < 0.1 ? selectedInd.acidColorName : 
                          blendFactor > 0.9 ? selectedInd.baseColorName : 
                          selectedInd.mixColorName}
@@ -175,26 +235,19 @@ export const IndicatorSimulator: React.FC = () => {
                     {/* Scale Bar */}
                     <div className="h-4 w-full rounded-full relative overflow-hidden flex shadow-sm border border-slate-100">
                         <div 
-                            className="h-full transition-all duration-500" 
-                            style={{ width: `${acidWidth}%`, backgroundColor: selectedInd.acidColor, opacity: selectedInd.name === 'Phénolphtaléine' ? 0.1 : 0.8 }}
+                            className={`h-full transition-all duration-500 ${classes.acidWidth} ${classes.acidBg} ${classes.scaleAcidOpacity}`}
                         />
                         <div 
-                            className="h-full transition-all duration-500" 
-                            style={{ 
-                                width: `${mixWidth}%`,
-                                background: `linear-gradient(to right, ${selectedInd.name === 'Phénolphtaléine' ? 'rgba(255,255,255,0)' : selectedInd.acidColor}, ${selectedInd.baseColor})` 
-                            }}
+                            className={`h-full transition-all duration-500 ${classes.mixWidth} ${classes.mixGradient}`}
                         />
                         <div 
-                            className="h-full transition-all duration-500" 
-                            style={{ width: `${baseWidth}%`, backgroundColor: selectedInd.baseColor, opacity: 0.8 }}
+                            className={`h-full transition-all duration-500 ${classes.baseWidth} ${classes.baseBg} opacity-80`}
                         />
                     </div>
 
                     {/* pKa Marker */}
                     <div 
-                        className="absolute top-0 flex flex-col items-center transition-all duration-500"
-                        style={{ left: `${(selectedInd.pka / 14) * 100}%`, transform: 'translateX(-50%)' }}
+                        className={`absolute top-0 flex -translate-x-1/2 flex-col items-center transition-all duration-500 ${classes.pkaLeft}`}
                     >
                          <span className="font-math text-[10px] font-bold text-slate-500 mb-1 whitespace-nowrap bg-white px-1 rounded shadow-sm">pKₐ = {selectedInd.pka}</span>
                          <div className="w-px h-12 bg-slate-400/50 dashed"></div>
@@ -202,12 +255,11 @@ export const IndicatorSimulator: React.FC = () => {
 
                     {/* Zone Labels */}
                     <div className="mt-2 text-[10px] text-slate-400 font-mono relative h-6">
-                        <span className="absolute transition-all duration-500" style={{ left: `${(selectedInd.virageStart / 14) * 100}%`, transform: 'translateX(-50%)' }}>{selectedInd.virageStart}</span>
-                        <span className="absolute transition-all duration-500" style={{ left: `${(selectedInd.virageEnd / 14) * 100}%`, transform: 'translateX(-50%)' }}>{selectedInd.virageEnd}</span>
+                        <span className={`absolute -translate-x-1/2 transition-all duration-500 ${classes.startLeft}`}>{selectedInd.virageStart}</span>
+                        <span className={`absolute -translate-x-1/2 transition-all duration-500 ${classes.endLeft}`}>{selectedInd.virageEnd}</span>
                         
                         <div 
-                            className="absolute top-6 text-[9px] font-bold uppercase tracking-widest text-[#4c1d95] transition-all duration-500 whitespace-nowrap bg-purple-50 px-2 py-0.5 rounded-full"
-                            style={{ left: `${((selectedInd.virageStart + selectedInd.virageEnd) / 2 / 14) * 100}%`, transform: 'translateX(-50%)' }}
+                            className={`absolute top-6 -translate-x-1/2 text-[9px] font-bold uppercase tracking-widest text-[#4c1d95] transition-all duration-500 whitespace-nowrap bg-purple-50 px-2 py-0.5 rounded-full ${classes.zoneLeft}`}
                         >
                             Zone de Virage
                         </div>

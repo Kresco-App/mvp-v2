@@ -73,8 +73,8 @@ export const NucleusBuilder: React.FC = () => {
           </div>
           
           {/* Orbital Rings Decoration */}
-          <div className="absolute inset-0 rounded-full border border-indigo-200/30 scale-110 animate-[spin_20s_linear_infinite]" style={{borderStyle: 'dashed'}} />
-          <div className="absolute inset-0 rounded-full border border-indigo-200/30 scale-150 animate-[spin_25s_linear_infinite_reverse]" style={{borderStyle: 'dashed'}} />
+          <div className="absolute inset-0 rounded-full border border-dashed border-indigo-200/30 scale-110 animate-[spin_20s_linear_infinite]" />
+          <div className="absolute inset-0 rounded-full border border-dashed border-indigo-200/30 scale-150 animate-[spin_25s_linear_infinite_reverse]" />
         </div>
         
         <div className="mt-6 flex justify-center gap-4 text-xs">

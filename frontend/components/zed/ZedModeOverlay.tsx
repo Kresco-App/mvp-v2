@@ -1,6 +1,6 @@
 'use client'
 
-import type { CSSProperties, MutableRefObject } from 'react'
+import type { MutableRefObject } from 'react'
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -42,16 +42,70 @@ const RIGHT_TABS: { id: RightTab; label: string; icon: typeof FileText }[] = [
 const SPLIT_STORAGE_KEY = 'kresco_zed_split'
 const PINS_STORAGE_KEY = 'kresco_zed_pins'
 const STORAGE_DEFER_DELAY_MS = 0
+const MIN_SPLIT_PERCENT = 45
+const MAX_SPLIT_PERCENT = 65
+
+const PDF_WIDTH_CLASSES = [
+  'md:w-[45%]', 'md:w-[46%]', 'md:w-[47%]', 'md:w-[48%]', 'md:w-[49%]',
+  'md:w-[50%]', 'md:w-[51%]', 'md:w-[52%]', 'md:w-[53%]', 'md:w-[54%]',
+  'md:w-[55%]', 'md:w-[56%]', 'md:w-[57%]', 'md:w-[58%]', 'md:w-[59%]',
+  'md:w-[60%]', 'md:w-[61%]', 'md:w-[62%]', 'md:w-[63%]', 'md:w-[64%]',
+  'md:w-[65%]',
+] as const
+
+const RAIL_WIDTH_CLASSES = [
+  'md:w-[55%]', 'md:w-[54%]', 'md:w-[53%]', 'md:w-[52%]', 'md:w-[51%]',
+  'md:w-[50%]', 'md:w-[49%]', 'md:w-[48%]', 'md:w-[47%]', 'md:w-[46%]',
+  'md:w-[45%]', 'md:w-[44%]', 'md:w-[43%]', 'md:w-[42%]', 'md:w-[41%]',
+  'md:w-[40%]', 'md:w-[39%]', 'md:w-[38%]', 'md:w-[37%]', 'md:w-[36%]',
+  'md:w-[35%]',
+] as const
 
 function clampSplit(value: number) {
   if (!Number.isFinite(value)) return 58
-  return Math.max(45, Math.min(65, value))
+  return Math.max(MIN_SPLIT_PERCENT, Math.min(MAX_SPLIT_PERCENT, value))
+}
+
+function splitClassIndex(value: number) {
+  return Math.round(clampSplit(value)) - MIN_SPLIT_PERCENT
 }
 
 interface PinnedSnippet {
   id: string
   content: string
   type: 'text' | 'image'
+}
+
+function isPinnedSnippet(value: unknown): value is PinnedSnippet {
+  if (!value || typeof value !== 'object') return false
+  const snippet = value as Partial<PinnedSnippet>
+  return (
+    typeof snippet.id === 'string' &&
+    typeof snippet.content === 'string' &&
+    (snippet.type === 'text' || snippet.type === 'image')
+  )
+}
+
+function parsePinnedSnippets(raw: string | null): PinnedSnippet[] | null {
+  if (raw === null) return []
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed) || !parsed.every(isPinnedSnippet)) return null
+    return parsed.map(snippet => ({
+      id: snippet.id,
+      content: snippet.content,
+      type: snippet.type,
+    }))
+  } catch {
+    return null
+  }
+}
+
+function mergePinnedSnippets(current: PinnedSnippet[], incoming: PinnedSnippet[]) {
+  const currentIds = new Set(current.map(snippet => snippet.id))
+  const additions = incoming.filter(snippet => !currentIds.has(snippet.id))
+  return additions.length > 0 ? [...current, ...additions] : current
 }
 
 interface Props {
@@ -70,6 +124,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
   const splitStorageWriteTimerRef = useRef<number | null>(null)
   const pinsStorageWriteTimerRef = useRef<number | null>(null)
   const isStorageHydratedRef = useRef(false)
+  const skipNextPinsPersistRef = useRef(false)
   const [rightTab, setRightTab] = useState<RightTab>('scratchpad')
   const [splitPercent, setSplitPercent] = useState(58)
   const [isResizing, setIsResizing] = useState(false)
@@ -106,20 +161,14 @@ export default function ZedModeOverlay({ onClose }: Props) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     isStorageHydratedRef.current = false
+    skipNextPinsPersistRef.current = false
 
     const idleCallback = window.requestIdleCallback?.(() => {
       const saved = localStorage.getItem(SPLIT_STORAGE_KEY)
       if (saved) setSplitPercent(clampSplit(Number(saved)))
 
-      const savedPins = localStorage.getItem(pinsStorageKey)
-      if (savedPins) {
-        try {
-          const parsed = JSON.parse(savedPins) as PinnedSnippet[]
-          if (Array.isArray(parsed)) setPinnedSnippets(parsed)
-        } catch {}
-      } else {
-        setPinnedSnippets([])
-      }
+      const savedPins = parsePinnedSnippets(localStorage.getItem(pinsStorageKey))
+      setPinnedSnippets(savedPins ?? [])
 
       isStorageHydratedRef.current = true
     })
@@ -134,15 +183,8 @@ export default function ZedModeOverlay({ onClose }: Props) {
       const saved = localStorage.getItem(SPLIT_STORAGE_KEY)
       if (saved) setSplitPercent(clampSplit(Number(saved)))
 
-      const savedPins = localStorage.getItem(pinsStorageKey)
-      if (savedPins) {
-        try {
-          const parsed = JSON.parse(savedPins) as PinnedSnippet[]
-          if (Array.isArray(parsed)) setPinnedSnippets(parsed)
-        } catch {}
-      } else {
-        setPinnedSnippets([])
-      }
+      const savedPins = parsePinnedSnippets(localStorage.getItem(pinsStorageKey))
+      setPinnedSnippets(savedPins ?? [])
 
       isStorageHydratedRef.current = true
     }, STORAGE_DEFER_DELAY_MS)
@@ -153,9 +195,59 @@ export default function ZedModeOverlay({ onClose }: Props) {
   useEffect(() => {
     if (!isStorageHydratedRef.current) return
     scheduleStorageWrite(pinsStorageWriteTimerRef, () => {
-      localStorage.setItem(pinsStorageKey, JSON.stringify(pinnedSnippets))
+      if (skipNextPinsPersistRef.current) {
+        skipNextPinsPersistRef.current = false
+        return
+      }
+
+      if (pinnedSnippets.length === 0) {
+        localStorage.removeItem(pinsStorageKey)
+      } else {
+        localStorage.setItem(pinsStorageKey, JSON.stringify(pinnedSnippets))
+      }
     })
   }, [pinnedSnippets, pinsStorageKey, scheduleStorageWrite])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    function clearPinsFromExternalStorage() {
+      setPinnedSnippets(prev => {
+        if (prev.length === 0) return prev
+        skipNextPinsPersistRef.current = true
+        return []
+      })
+    }
+
+    function handleStorage(event: StorageEvent) {
+      if (event.storageArea && event.storageArea !== localStorage) return
+
+      if (event.key === null) {
+        setSplitPercent(58)
+        clearPinsFromExternalStorage()
+        return
+      }
+
+      if (event.key === SPLIT_STORAGE_KEY) {
+        setSplitPercent(event.newValue === null ? 58 : clampSplit(Number(event.newValue)))
+        return
+      }
+
+      if (event.key !== pinsStorageKey) return
+
+      if (event.newValue === null) {
+        clearPinsFromExternalStorage()
+        return
+      }
+
+      const incomingPins = parsePinnedSnippets(event.newValue)
+      if (!incomingPins) return
+      setPinnedSnippets(prev => mergePinnedSnippets(prev, incomingPins))
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [pinsStorageKey])
 
   useEffect(() => {
     return () => {
@@ -183,6 +275,12 @@ export default function ZedModeOverlay({ onClose }: Props) {
 
   useEffect(() => cleanupActiveResize, [cleanupActiveResize])
 
+  const persistSplitPercent = useCallback((nextSplit: number) => {
+    scheduleStorageWrite(splitStorageWriteTimerRef, () => {
+      localStorage.setItem(SPLIT_STORAGE_KEY, String(nextSplit))
+    })
+  }, [scheduleStorageWrite])
+
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     if (!splitContainerRef.current) return
@@ -206,16 +304,28 @@ export default function ZedModeOverlay({ onClose }: Props) {
 
     function handleMouseUp() {
       setIsResizing(false)
-      scheduleStorageWrite(splitStorageWriteTimerRef, () => {
-        localStorage.setItem(SPLIT_STORAGE_KEY, String(latestSplit))
-      })
+      persistSplitPercent(latestSplit)
       cleanupActiveResize()
     }
 
     activeResizeCleanupRef.current = removeResizeListeners
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
-  }, [cleanupActiveResize, scheduleStorageWrite, splitPercent])
+  }, [cleanupActiveResize, persistSplitPercent, splitPercent])
+
+  const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    let nextSplit = splitPercent
+    if (event.key === 'ArrowLeft') nextSplit = splitPercent - 2
+    else if (event.key === 'ArrowRight') nextSplit = splitPercent + 2
+    else if (event.key === 'Home') nextSplit = 45
+    else if (event.key === 'End') nextSplit = 65
+    else return
+
+    event.preventDefault()
+    const clamped = clampSplit(nextSplit)
+    setSplitPercent(clamped)
+    persistSplitPercent(clamped)
+  }, [persistSplitPercent, splitPercent])
 
   const addPinnedSnippet = useCallback((snippet: PinnedSnippet) => {
     setPinnedSnippets(prev => [...prev, snippet])
@@ -254,10 +364,9 @@ export default function ZedModeOverlay({ onClose }: Props) {
     setIsFullscreenPdf(false)
   }, [])
 
-  const splitVars = {
-    '--zed-pdf-width': isFullscreenPdf ? '100%' : `${splitPercent}%`,
-    '--zed-rail-width': `${100 - splitPercent}%`,
-  } as CSSProperties
+  const splitIndex = splitClassIndex(splitPercent)
+  const pdfWidthClass = isFullscreenPdf ? 'md:w-full' : PDF_WIDTH_CLASSES[splitIndex]
+  const railWidthClass = RAIL_WIDTH_CLASSES[splitIndex]
 
   return (
     <motion.div
@@ -283,12 +392,16 @@ export default function ZedModeOverlay({ onClose }: Props) {
             onClick={() => setIsFullscreenPdf(current => !current)}
             className={`rounded-lg p-1.5 text-sm transition ${isFullscreenPdf ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
             title={isFullscreenPdf ? 'Afficher le panneau droit' : 'PDF plein ecran'}
+            aria-label={isFullscreenPdf ? 'Afficher le panneau droit' : 'PDF plein ecran'}
+            aria-pressed={isFullscreenPdf}
           >
             {isFullscreenPdf ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
           <button type="button"
             onClick={() => setShowCalculator(current => !current)}
             title="Calculatrice scientifique"
+            aria-label="Calculatrice scientifique"
+            aria-pressed={showCalculator}
             className={`rounded-lg p-1.5 text-sm transition ${showCalculator ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
           >
             <Calculator size={15} />
@@ -296,6 +409,8 @@ export default function ZedModeOverlay({ onClose }: Props) {
           <button type="button"
             onClick={openRappelsRail}
             title="Rappels de cours"
+            aria-label="Rappels de cours"
+            aria-pressed={rightTab === 'rappels' && !isFullscreenPdf}
             className={`rounded-lg p-1.5 text-sm transition ${rightTab === 'rappels' && !isFullscreenPdf ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
           >
             <BookOpen size={15} />
@@ -319,6 +434,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
             onClick={requestExit}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 sm:px-3"
             title="Retour a l'accueil"
+            aria-label="Retour a l'accueil"
           >
             <House size={14} />
             <span className="hidden sm:inline">Accueil</span>
@@ -327,6 +443,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
             onClick={requestExit}
             className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
             title="Quitter Zed Mode (Echap)"
+            aria-label="Quitter Zed Mode"
           >
             <X size={16} />
           </button>
@@ -335,11 +452,10 @@ export default function ZedModeOverlay({ onClose }: Props) {
 
       <div
         ref={splitContainerRef}
-        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50 md:flex-row"
-        style={{ ...splitVars, cursor: isResizing ? 'col-resize' : undefined }}
+        className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50 md:flex-row ${isResizing ? 'cursor-col-resize' : ''}`}
       >
         <div
-          className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-slate-200 bg-white md:h-full md:w-[var(--zed-pdf-width)] md:border-b-0"
+          className={`flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-slate-200 bg-white md:h-full md:border-b-0 ${pdfWidthClass}`}
         >
           <PdfViewer onPinSnippet={addPinnedSnippet} />
         </div>
@@ -349,8 +465,13 @@ export default function ZedModeOverlay({ onClose }: Props) {
             role="separator"
             aria-label="Redimensionner le panneau Zed"
             aria-orientation="vertical"
+            aria-valuemin={45}
+            aria-valuemax={65}
+            aria-valuenow={Math.round(splitPercent)}
+            tabIndex={0}
             className="group hidden w-2 flex-shrink-0 cursor-col-resize items-center justify-center bg-slate-100 transition-colors hover:bg-indigo-100 md:flex"
             onMouseDown={handleResizeStart}
+            onKeyDown={handleResizeKeyDown}
           >
             <GripVertical size={12} className="text-slate-400 group-hover:text-indigo-600" />
           </div>
@@ -358,7 +479,7 @@ export default function ZedModeOverlay({ onClose }: Props) {
 
         {!isFullscreenPdf && (
           <div
-            className="flex min-h-[18rem] w-full min-w-0 flex-col overflow-hidden border-t border-slate-200 bg-white md:h-full md:min-h-0 md:w-[var(--zed-rail-width)] md:border-l md:border-t-0"
+            className={`flex min-h-[18rem] w-full min-w-0 flex-col overflow-hidden border-t border-slate-200 bg-white md:h-full md:min-h-0 md:border-l md:border-t-0 ${railWidthClass}`}
           >
             <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {RIGHT_TABS.map(({ id, label, icon: Icon }) => (

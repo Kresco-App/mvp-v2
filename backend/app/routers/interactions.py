@@ -8,6 +8,7 @@ from app.rate_limit import limiter
 from app.schemas.interactions import (
     CommentCreateIn,
     CommentOut,
+    ExerciseCommentCreateIn,
     InteractionDeleteOut,
     NoteCreateIn,
     NoteOut,
@@ -17,9 +18,13 @@ from app.schemas.interactions import (
 )
 from app.services.interaction_mutations import (
     create_topic_item_comment,
+    create_exercise_comment,
     create_user_note,
+    delete_topic_item_comment,
     delete_user_note,
+    delete_user_save,
     list_topic_item_comments,
+    list_exercise_comments,
     list_user_notes,
     list_user_saves,
     save_user_item,
@@ -58,6 +63,50 @@ async def create_comment(
     settings: Settings = Depends(get_settings),
 ):
     return await create_topic_item_comment(db, user=user, settings=settings, body=body)
+
+
+@router.get("/exercise-comments", response_model=list[CommentOut])
+async def list_comments_for_exercise(
+    exercise_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+):
+    return await list_exercise_comments(
+        db,
+        user=user,
+        exercise_id=exercise_id,
+        settings=settings,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post("/exercise-comments", response_model=CommentOut)
+@limiter.limit("20/minute")
+async def create_comment_for_exercise(
+    request: Request,
+    body: ExerciseCommentCreateIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+):
+    del request
+    return await create_exercise_comment(db, user=user, settings=settings, body=body)
+
+
+@router.delete("/comments/{comment_id}", response_model=InteractionDeleteOut)
+@limiter.limit("20/minute")
+async def delete_comment(
+    request: Request,
+    comment_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await delete_topic_item_comment(db, user=user, comment_id=comment_id)
 
 
 @router.get("/notes", response_model=list[NoteOut])
@@ -151,3 +200,15 @@ async def save_item(
 ):
     del request
     return await save_user_item(db, user=user, body=body)
+
+
+@router.delete("/saves/{save_id}", response_model=InteractionDeleteOut)
+@limiter.limit("20/minute")
+async def delete_save(
+    request: Request,
+    save_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await delete_user_save(db, user=user, save_id=save_id)

@@ -183,6 +183,16 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                             <div className="flex min-w-0 flex-1 items-center gap-4">
                                 <span className={`text-xs ${textSecondary} font-medium w-16`}>Temps</span>
                                 <div className="flex-1 relative">
+                                    <svg
+                                        aria-hidden="true"
+                                        focusable="false"
+                                        className="pointer-events-none absolute left-0 top-1/2 h-3 w-full -translate-y-1/2 rounded-full"
+                                        viewBox="0 0 100 12"
+                                        preserveAspectRatio="none"
+                                    >
+                                        <rect width="100" height="12" rx="6" className={isDark ? 'fill-[#334155]' : 'fill-[#E2E8F0]'} />
+                                        <rect width={timeSliderValue} height="12" rx="6" className="fill-[#707FFF]" />
+                                    </svg>
                                     <input
                                         type="range"
                                         min="0"
@@ -190,15 +200,11 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                                         step="0.5"
                                         value={timeSliderValue}
                                         onChange={(e) => handleTimeSliderChange(Number(e.target.value))}
-                                        className="w-full h-3 appearance-none rounded-full cursor-pointer accent-[#707FFF]"
-                                        style={{
-                                            background: `linear-gradient(to right, #707FFF 0%, #707FFF ${timeSliderValue}%, ${isDark ? '#334155' : '#E2E8F0'} ${timeSliderValue}%, ${isDark ? '#334155' : '#E2E8F0'} 100%)`
-                                        }}
+                                        className="relative z-10 block h-3 w-full cursor-pointer appearance-none rounded-full bg-transparent accent-[#707FFF]"
                                     />
                                     {/* Collision marker at 50% */}
                                     <div 
-                                        className="absolute top-1/2 -translate-y-1/2 w-1 h-5 bg-[#FBAE17] rounded pointer-events-none"
-                                        style={{ left: '50%', transform: 'translateX(-50%) translateY(-50%)' }}
+                                        className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-1 -translate-x-1/2 -translate-y-1/2 rounded bg-[#FBAE17]"
                                         title="Point de collision"
                                     />
                                 </div>
@@ -352,7 +358,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                                         : isDark ? 'bg-[#475569] text-[#94A3B8] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#94A3B8] hover:bg-[#E2E8F0]'
                                 }`}
                             >
-                                <span className={`w-4 h-1 rounded ${showGhostWaves ? isDark ? 'bg-[#94A3B8]' : 'bg-[#64748B]' : isDark ? 'bg-[#64748B]' : 'bg-[#94A3B8]'}`} style={{borderBottom: showGhostWaves ? '2px dashed currentColor' : 'none'}} />
+                                <span className={`h-1 w-4 rounded border-current ${showGhostWaves ? `border-b-2 border-dashed ${isDark ? 'bg-[#94A3B8]' : 'bg-[#64748B]'}` : isDark ? 'border-b-0 bg-[#64748B]' : 'border-b-0 bg-[#94A3B8]'}`} />
                                 Ondes Fantômes
                             </button>
                         </div>

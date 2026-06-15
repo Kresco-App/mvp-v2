@@ -61,8 +61,42 @@ def test_find_n1_allows_current_repository_baseline(capsys):
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "backend/app/routers/quizzes.py" in captured.out
+    assert captured.out == ""
     assert captured.err == ""
+
+
+def test_find_n1_ignores_small_bounded_retry_loops(tmp_path, capsys):
+    target = tmp_path / "retry.py"
+    target.write_text(
+        "async def save_with_retry(db):\n"
+        "    for attempt in range(2):\n"
+        "        await db.execute('insert')\n",
+        encoding="utf-8",
+    )
+
+    exit_code = find_n1.main([str(target)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_find_n1_still_flags_large_fixed_loops(tmp_path, capsys):
+    target = tmp_path / "batch.py"
+    target.write_text(
+        "async def load_many(db):\n"
+        "    for index in range(10):\n"
+        "        await db.execute(index)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = find_n1.main([str(target)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "N+1 candidate" in captured.out
+    assert "Unapproved N+1 finding" in captured.err
 
 
 def test_find_n1_succeeds_when_all_files_parse(tmp_path, capsys):

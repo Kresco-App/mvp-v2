@@ -1,5 +1,8 @@
 import inspect
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME
@@ -7,6 +10,7 @@ from app.database import get_session_factory
 from app.models.users import User
 import app.routers.users as users_router
 from app.services import user_profile
+from app.services.media_storage import LocalMediaStorage
 
 
 def test_profile_mutations_stay_out_of_router():
@@ -35,6 +39,10 @@ def _install_cookie_session(app_client, test_settings, token: str, user_id: int,
     csrf_token = csrf_token_for_user(SimpleNamespace(id=user_id, auth_token_version=0), test_settings)
     app_client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
     return csrf_token
+
+
+def _local_media_path(root: Path, url: str) -> Path:
+    return root.joinpath(*url.removeprefix("/media/").split("/"))
 
 
 def test_patch_profile_updates_identity_fields(app_client, auth_token):
@@ -277,6 +285,78 @@ def test_profile_media_upload_enforces_aggregate_quota(app_client, auth_token, t
                 return user.avatar_media_size, user.banner_media_size
 
         assert run_db(_sizes()) == (len(png_10), len(png_20))
+    finally:
+        test_settings.media_profile_quota_bytes = original_quota
+
+
+@pytest.mark.parametrize(("kind", "size_field"), [("avatar", "avatar_media_size"), ("banner", "banner_media_size")])
+def test_profile_media_replacement_and_clear_delete_old_object_and_keep_quota_fresh(
+    app_client,
+    auth_token,
+    test_settings,
+    run_db,
+    tmp_path,
+    monkeypatch,
+    kind,
+    size_field,
+):
+    storage_root = tmp_path / "media"
+    monkeypatch.setattr("app.routers.users.get_media_storage", lambda settings: LocalMediaStorage(root=storage_root))
+    monkeypatch.setattr("app.services.user_profile.get_media_storage", lambda settings: LocalMediaStorage(root=storage_root))
+    token, user_id = auth_token(email=f"profile-{kind}-orphan-quota@example.com")
+    other_kind = "banner" if kind == "avatar" else "avatar"
+    original_quota = test_settings.media_profile_quota_bytes
+    test_settings.media_profile_quota_bytes = 30
+    png_20 = b"\x89PNG\r\n\x1a\n" + b"a" * 12
+    png_10 = b"\x89PNG\r\n\x1a\n" + b"b" * 2
+    try:
+        first = app_client.post(
+            f"/api/profile/me/media/{kind}",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": (f"{kind}.png", png_20, "image/png")},
+        )
+        assert first.status_code == 200
+        first_path = _local_media_path(storage_root, first.json()["url"])
+        assert first_path.exists()
+
+        replacement = app_client.post(
+            f"/api/profile/me/media/{kind}",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": (f"{kind}.png", png_10, "image/png")},
+        )
+        assert replacement.status_code == 200
+        replacement_path = _local_media_path(storage_root, replacement.json()["url"])
+        assert replacement_path.exists()
+        assert not first_path.exists()
+
+        accepted_other_media = app_client.post(
+            f"/api/profile/me/media/{other_kind}",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": (f"{other_kind}.png", png_20, "image/png")},
+        )
+        assert accepted_other_media.status_code == 200
+
+        cleared = app_client.patch(
+            "/api/profile/me",
+            headers={"Authorization": f"Bearer {token}"},
+            json={f"{kind}_url": ""},
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()[f"{kind}_url"] == ""
+        assert not replacement_path.exists()
+
+        async def _media_sizes():
+            session_factory = get_session_factory()
+            async with session_factory() as db:
+                user = await db.get(User, user_id)
+                return {
+                    "avatar_media_size": user.avatar_media_size,
+                    "banner_media_size": user.banner_media_size,
+                }
+
+        sizes = run_db(_media_sizes())
+        assert sizes[size_field] == 0
+        assert sizes[f"{other_kind}_media_size"] == len(png_20)
     finally:
         test_settings.media_profile_quota_bytes = original_quota
 

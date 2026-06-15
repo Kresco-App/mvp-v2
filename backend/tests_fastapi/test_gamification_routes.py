@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.gamification_read_models as gamification_read_models
+import app.services.daily_quests as daily_quests
 import app.routers.internal as internal_router
 import app.scheduled as scheduled
 from app.database import get_session_factory
@@ -94,7 +95,7 @@ def test_daily_quest_claim_is_single_use(app_client, auth_token, run_db):
 
 
 def test_daily_quest_claim_locks_quest_before_awarding_xp():
-    source = inspect.getsource(gamification_read_models.claim_daily_quest_reward)
+    source = inspect.getsource(daily_quests.claim_daily_quest_reward)
 
     assert ".with_for_update()" in source
     assert source.index(".with_for_update()") < source.index("award_xp(")

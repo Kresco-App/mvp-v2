@@ -203,9 +203,8 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
             {/* Gamma Wave Visual */}
             {isGamma && status !== 'initial' && (
                 <motion.svg
-                    className="absolute z-10 w-[150px] md:w-[200px]"
+                    className="absolute left-[55%] top-[45%] z-10 w-[150px] md:w-[200px]"
                     height="50"
-                    style={{ left: '55%', top: '45%' }}
                     initial={{ opacity: 0, pathLength: 0 }}
                     animate={{ opacity: 1, pathLength: 1 }}
                 >

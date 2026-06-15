@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -87,6 +89,18 @@ afterEach(() => {
 })
 
 describe('ExamPage timer', () => {
+  it('keeps draft storage and validation helpers outside the page component', () => {
+    const pageSource = readFileSync(resolve(process.cwd(), 'app/(dashboard)/exam/[subjectId]/page.tsx'), 'utf8')
+    const draftSource = readFileSync(resolve(process.cwd(), 'lib/examDraft.ts'), 'utf8')
+
+    expect(pageSource).toContain('useExamDraft({')
+    expect(pageSource).not.toContain('window.localStorage')
+    expect(pageSource).not.toContain('function readExamDraft')
+    expect(draftSource).toContain("EXAM_DRAFT_STORAGE_PREFIX = 'kresco:exam-draft:v1'")
+    expect(draftSource).toContain('sameQuestionOrder')
+    expect(draftSource).toContain('sanitizeDraftAnswers')
+  })
+
   it('keeps the countdown cadence when answer changes re-render the page', async () => {
     const { container } = renderExamPage()
 

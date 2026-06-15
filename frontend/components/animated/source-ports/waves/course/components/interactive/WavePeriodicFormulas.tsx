@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { FormulaCard } from '../FormulaCard';
+import { FormulaCard } from '@/components/animated/shared/FormulaCard';
 import { Clock, Ruler, ArrowRight, Zap } from 'lucide-react';
 
 export const WavePeriodicFormulas: React.FC = () => {

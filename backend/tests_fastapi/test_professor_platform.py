@@ -1,8 +1,10 @@
 import inspect
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,10 +23,13 @@ from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.courses import Subject, Topic, TopicItem, TopicSection
+from app.models.notifications import Notification
 from app.models.professor import CourseOffering, LiveSession, ProfessorChangeRequest, ProfessorChatConversation, ProfessorChatMessage, ProgramTrack, RealtimeOutbox
 from app.models.users import User, UserSubjectEntitlement
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
+from app.security.passwords import hash_password
 from app.services.auth import AUTH_COOKIE_NAME, create_token
+from app.services.media_storage import LocalMediaStorage
 
 
 def _utc_datetime(value: str) -> datetime:
@@ -165,8 +170,6 @@ async def _seed_professor_platform(test_settings):
 
 
 async def _seed_unassigned_professor(test_settings):
-    import app.routers.users as users_router
-
     suffix = uuid4().hex[:8]
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -177,7 +180,7 @@ async def _seed_unassigned_professor(test_settings):
             tier="basic",
             is_active=True,
             is_email_verified=True,
-            password=users_router._hash_password("strong-pass-123"),
+            password=hash_password("strong-pass-123"),
         )
         db.add(professor)
         await db.commit()
@@ -211,6 +214,10 @@ def _install_cookie_session(app_client, test_settings, user_id: int, *, with_csr
     csrf_token = csrf_token_for_user(SimpleNamespace(id=user_id, auth_token_version=0), test_settings)
     app_client.cookies.set(CSRF_COOKIE_NAME, csrf_token)
     return csrf_token
+
+
+def _local_media_path(root: Path, url: str) -> Path:
+    return root.joinpath(*url.removeprefix("/media/").split("/"))
 
 
 def test_professor_dashboard_requires_professor_and_returns_scope(app_client, query_counter, run_db, test_settings):
@@ -1070,6 +1077,105 @@ def test_professor_live_session_generation_failure_does_not_create_session(app_c
     assert run_db(_live_count()) == 0
 
 
+def test_professor_live_session_generation_cleans_up_provider_stream_when_db_persistence_fails(
+    app_client,
+    run_db,
+    test_settings,
+    monkeypatch,
+):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    cleanup_calls = []
+
+    async def fake_create_live_stream(title, settings, *, chat_mode="off"):
+        del title, settings, chat_mode
+        return {
+            "live_id": "generated_orphan_live",
+            "stream_ingest_url": "rtmp://ingest.example/orphan",
+            "stream_key": "secret-orphan-key",
+            "raw": {
+                "liveId": "generated_orphan_live",
+                "streamUrl": "rtmp://ingest.example/orphan",
+                "streamKey": "secret-orphan-key",
+            },
+        }
+
+    async def fake_delete_live_stream(live_id, settings):
+        cleanup_calls.append({"live_id": live_id, "settings": settings})
+        return {"cleanup_state": "deleted"}
+
+    original_flush = professor_live_sessions.AsyncSession.flush
+    failed_once = False
+
+    async def fail_first_flush_after_provider_create(self, *args, **kwargs):
+        nonlocal failed_once
+        if not failed_once:
+            failed_once = True
+            raise RuntimeError("db persistence failed after provider create")
+        return await original_flush(self, *args, **kwargs)
+
+    monkeypatch.setattr(professor_live_sessions, "create_live_stream", fake_create_live_stream)
+    monkeypatch.setattr(professor_live_sessions, "delete_live_stream", fake_delete_live_stream)
+    monkeypatch.setattr(professor_live_sessions.AsyncSession, "flush", fail_first_flush_after_provider_create)
+
+    with pytest.raises(RuntimeError, match="db persistence failed after provider create"):
+        app_client.post(
+            "/api/professor/live-sessions",
+            json={
+                "course_offering_id": seeded["offering_id"],
+                "title": "Generated orphan cleanup",
+                "description": "",
+                "starts_at": starts_at.isoformat(),
+                "ends_at": (starts_at + timedelta(hours=1)).isoformat(),
+                "vdocipher_live_id": "",
+                "auto_create_vdocipher": True,
+            },
+            headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+        )
+
+    assert len(cleanup_calls) == 1
+    assert cleanup_calls[0]["live_id"] == "generated_orphan_live"
+    assert cleanup_calls[0]["settings"] is test_settings
+
+    async def _orphan_cleanup_state():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            live_result = await db.execute(
+                select(LiveSession).where(
+                    LiveSession.course_offering_id == seeded["offering_id"],
+                    LiveSession.title == "Generated orphan cleanup",
+                )
+            )
+            audit_result = await db.execute(
+                select(AdminAuditLog)
+                .where(
+                    AdminAuditLog.model_name == "VdoCipherLiveCleanup",
+                    AdminAuditLog.object_pk == "generated_orphan_live",
+                )
+                .order_by(AdminAuditLog.id.desc())
+            )
+            return len(live_result.scalars().all()), audit_result.scalars().first()
+
+    live_count, audit = run_db(_orphan_cleanup_state())
+    assert live_count == 0
+    assert audit is not None
+    assert audit.action == "provider_cleanup"
+    assert audit.request_path == "/api/professor/live-sessions"
+    assert audit.changed_data == {
+        "provider": "vdocipher",
+        "vdocipher_live_id": "generated_orphan_live",
+        "cleanup": {"cleanup_state": "deleted"},
+        "cleanup_state": "deleted",
+        "cleanup_reason": "",
+        "persist_failure_type": "RuntimeError",
+        "provider_payload": {
+            "liveId": "generated_orphan_live",
+            "streamUrl": "rtmp://ingest.example/orphan",
+            "streamKey": "[redacted]",
+        },
+    }
+
+
 def test_live_interactions_are_trimmed_rate_limited_and_published(app_client, run_db, test_settings, monkeypatch):
     seeded = run_db(_seed_professor_platform(test_settings))
     starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
@@ -1139,12 +1245,73 @@ def test_live_interactions_are_trimmed_rate_limited_and_published(app_client, ru
     assert rate_limited.status_code == 429
 
 
+def test_professor_live_session_notify_is_idempotent_per_student(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+    starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    created = app_client.post(
+        "/api/professor/live-sessions",
+        json={
+            "course_offering_id": seeded["offering_id"],
+            "title": "Manual notify dedupe live",
+            "description": "",
+            "starts_at": starts_at.isoformat(),
+            "ends_at": (starts_at + timedelta(hours=1)).isoformat(),
+            "vdocipher_live_id": "live_manual_notify_dedupe",
+        },
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert created.status_code == 201
+    live_id = created.json()["id"]
+
+    first_notify = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/notify",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    second_notify = app_client.post(
+        f"/api/professor/live-sessions/{live_id}/notify",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert first_notify.status_code == 200
+    assert second_notify.status_code == 200
+
+    async def _manual_notify_counts():
+        target_ids = [seeded["vip_student_id"], seeded["basic_student_id"]]
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            result = await db.execute(
+                select(Notification.user_id).where(
+                    Notification.user_id.in_(target_ids),
+                    Notification.type == "live_session",
+                    Notification.title == "Upcoming live session",
+                    Notification.body == f"Manual notify dedupe live is scheduled for {starts_at:%Y-%m-%d %H:%M}.",
+                )
+            )
+            rows = [int(row[0]) for row in result.all()]
+            outbox_result = await db.execute(
+                select(RealtimeOutbox.id).where(
+                    RealtimeOutbox.channel == f"kresco:offering:{seeded['offering_id']}:notifications",
+                    RealtimeOutbox.event_name == "live.session.notify",
+                    RealtimeOutbox.payload_json["live_session_id"].as_integer() == live_id,
+                )
+            )
+            return {
+                "notifications": {user_id: rows.count(user_id) for user_id in target_ids},
+                "offering_events": len(outbox_result.all()),
+            }
+
+    notify_counts = run_db(_manual_notify_counts())
+    assert notify_counts["notifications"][seeded["vip_student_id"]] == 1
+    assert notify_counts["notifications"][seeded["basic_student_id"]] == 0
+    assert notify_counts["offering_events"] == 1
+
+
 def test_live_session_notifications_use_single_offering_realtime_event(app_client, run_db, test_settings):
     seeded = run_db(_seed_professor_platform(test_settings))
 
     async def _add_students():
         session_factory = get_session_factory()
         async with session_factory() as db:
+            await db.execute(delete(RealtimeOutbox))
             for index in range(50):
                 db.add(User(
                     email=f"live-fanout-{seeded['offering_id']}-{index}@example.com",
@@ -1157,9 +1324,30 @@ def test_live_session_notifications_use_single_offering_realtime_event(app_clien
                     is_email_verified=True,
                     password="!",
                 ))
+            wrong_subject_vip = User(
+                email=f"live-fanout-wrong-subject-{seeded['offering_id']}@example.com",
+                full_name="Live Fanout Wrong Subject",
+                role="student",
+                tier="vip",
+                niveau="2BAC",
+                filiere=seeded["filiere"],
+                is_active=True,
+                is_email_verified=True,
+                password="!",
+            )
+            db.add(wrong_subject_vip)
+            await db.flush()
+            db.add(UserSubjectEntitlement(
+                user_id=wrong_subject_vip.id,
+                subject_id=seeded["second_subject_id"],
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
             await db.commit()
+            return wrong_subject_vip.id
 
-    run_db(_add_students())
+    wrong_subject_student_id = run_db(_add_students())
 
     starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
     created = app_client.post(
@@ -1176,6 +1364,26 @@ def test_live_session_notifications_use_single_offering_realtime_event(app_clien
     )
     assert created.status_code == 201
     live_id = created.json()["id"]
+
+    async def _created_live_notification_counts():
+        target_ids = [seeded["vip_student_id"], seeded["basic_student_id"], wrong_subject_student_id]
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            result = await db.execute(
+                select(Notification.user_id).where(
+                    Notification.user_id.in_(target_ids),
+                    Notification.type == "live_session",
+                    Notification.title == "New live session scheduled",
+                    Notification.body == "Broadcast fanout live was added to your calendar.",
+                )
+            )
+            rows = [int(row[0]) for row in result.all()]
+            return {user_id: rows.count(user_id) for user_id in target_ids}
+
+    notification_counts = run_db(_created_live_notification_counts())
+    assert notification_counts[seeded["vip_student_id"]] == 1
+    assert notification_counts[seeded["basic_student_id"]] == 0
+    assert notification_counts[wrong_subject_student_id] == 0
 
     started = app_client.post(
         f"/api/professor/live-sessions/{live_id}/start",
@@ -1506,26 +1714,23 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     )
     assert student_chat_status.status_code == 200
     teacher_threads = student_chat_status.json()["teacher_threads"]
-    assert len(teacher_threads) == 3
-    first_thread = next(item for item in teacher_threads if item["course_offering_id"] == seeded["offering_id"])
-    other_professor_thread = next(item for item in teacher_threads if item["course_offering_id"] == seeded["other_professor_offering_id"])
+    assert [item["id"] for item in student_chat_status.json()["offerings"]] == [seeded["offering_id"]]
+    assert [item["course_offering_id"] for item in teacher_threads] == [seeded["offering_id"]]
+    first_thread = teacher_threads[0]
     assert first_thread["conversation"]["id"] == conversation_id
     assert first_thread["last_message_sender_role"] == "student"
     assert first_thread["last_message_preview"] == "Can you explain the last step?"
     assert first_thread["unread_count"] == 0
     assert "email" not in first_thread["professor"]
     assert "email" not in first_thread["conversation"]["student"]
-    assert other_professor_thread["conversation"] is None
-    assert other_professor_thread["professor"]["full_name"] == "Pr Other"
-    assert "email" not in other_professor_thread["professor"]
 
     paged_status = app_client.get(
         "/api/professor/student-chat?limit=1&offset=1",
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
     assert paged_status.status_code == 200
-    assert len(paged_status.json()["offerings"]) == 1
-    assert len(paged_status.json()["teacher_threads"]) == 1
+    assert paged_status.json()["offerings"] == []
+    assert paged_status.json()["teacher_threads"] == []
 
     invalid_status_limit = app_client.get(
         "/api/professor/student-chat?limit=101",
@@ -1533,15 +1738,13 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     )
     assert invalid_status_limit.status_code == 422
 
-    second_conversation = app_client.post(
+    locked_subject_conversation = app_client.post(
         "/api/professor/student-chat/conversations",
-        json={"course_offering_id": seeded["other_professor_offering_id"], "body": "Can I ask the chemistry teacher?"},
+        json={"course_offering_id": seeded["second_offering_id"], "body": "Can I ask the physics teacher?"},
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
-    assert second_conversation.status_code == 201
-    assert second_conversation.json()["professor"]["full_name"] == "Pr Other"
-    assert "email" not in second_conversation.json()["professor"]
-    assert "email" not in second_conversation.json()["student"]
+    assert locked_subject_conversation.status_code == 403
+    assert locked_subject_conversation.json()["detail"] == "subject_access_required"
 
     reply = app_client.post(
         f"/api/professor/chat/conversations/{conversation_id}/messages",
@@ -1565,6 +1768,20 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
         headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
     )
     assert read_messages.status_code == 200
+
+    still_unread_status = app_client.get(
+        "/api/professor/student-chat",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    still_unread_thread = next(item for item in still_unread_status.json()["teacher_threads"] if item["course_offering_id"] == seeded["offering_id"])
+    assert still_unread_thread["unread_count"] == 1
+
+    marked_read = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/read",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert marked_read.status_code == 200
+    assert marked_read.json()["unread_for_student"] == 0
 
     read_status = app_client.get(
         "/api/professor/student-chat",
@@ -1685,6 +1902,90 @@ def test_vip_student_can_start_one_conversation_and_professor_can_reply(app_clie
     assert blocked_reply.status_code == 404
 
 
+def test_subject_scoped_vip_student_chat_rejects_same_track_locked_subject(app_client, run_db, test_settings):
+    seeded = run_db(_seed_professor_platform(test_settings))
+
+    async def _seed_locked_subject_conversation():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            conversation = ProfessorChatConversation(
+                course_offering_id=seeded["second_offering_id"],
+                professor_user_id=seeded["professor_id"],
+                student_user_id=seeded["vip_student_id"],
+                unread_for_student=1,
+                last_message_preview="Physics bypass attempt",
+                last_message_at=datetime.now(timezone.utc),
+            )
+            db.add(conversation)
+            await db.flush()
+            message = ProfessorChatMessage(
+                conversation_id=conversation.id,
+                sender_user_id=seeded["vip_student_id"],
+                body="Physics bypass attempt",
+            )
+            db.add(message)
+            await db.commit()
+            return conversation.id, message.id
+
+    conversation_id, message_id = run_db(_seed_locked_subject_conversation())
+
+    status = app_client.get(
+        "/api/professor/student-chat",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert status.status_code == 200
+    assert seeded["second_offering_id"] not in [item["id"] for item in status.json()["offerings"]]
+    assert seeded["second_offering_id"] not in [item["course_offering_id"] for item in status.json()["teacher_threads"]]
+    assert conversation_id not in [item["id"] for item in status.json()["conversations"]]
+
+    start = app_client.post(
+        "/api/professor/student-chat/conversations",
+        json={"course_offering_id": seeded["second_offering_id"], "body": "Can I ask physics?"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert start.status_code == 403
+    assert start.json()["detail"] == "subject_access_required"
+
+    messages = app_client.get(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert messages.status_code == 403
+    assert messages.json()["detail"] == "subject_access_required"
+
+    sent = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/messages",
+        json={"body": "Still trying physics"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert sent.status_code == 403
+    assert sent.json()["detail"] == "subject_access_required"
+
+    image = app_client.post(
+        f"/api/professor/student-chat/conversations/{conversation_id}/images",
+        data={"body": "Physics image"},
+        files={"file": ("work.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR", "image/png")},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert image.status_code == 403
+    assert image.json()["detail"] == "subject_access_required"
+
+    edited = app_client.patch(
+        f"/api/professor/chat/messages/{message_id}",
+        json={"body": "Edited locked physics message"},
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert edited.status_code == 403
+    assert edited.json()["detail"] == "subject_access_required"
+
+    deleted = app_client.delete(
+        f"/api/professor/chat/messages/{message_id}",
+        headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+    )
+    assert deleted.status_code == 403
+    assert deleted.json()["detail"] == "subject_access_required"
+
+
 def test_student_conversation_duplicate_flush_race_returns_409(app_client, run_db, test_settings, monkeypatch):
     seeded = run_db(_seed_professor_platform(test_settings))
     original_flush = professor_chat_mutations.AsyncSession.flush
@@ -1748,15 +2049,19 @@ def test_revoked_student_cannot_delete_existing_professor_chat_message(app_clien
 def test_professor_chat_and_live_mutations_keep_race_guards():
     start_source = inspect.getsource(professor_chat_mutations.start_student_conversation_state)
     assert ".with_for_update()" in start_source
+    assert "subject_id=offering.subject_id" in start_source
     conversation_lock_source = "\n".join([
         inspect.getsource(professor_queries.require_professor_conversation),
         inspect.getsource(professor_queries.require_student_conversation),
+        inspect.getsource(professor_queries._require_conversation),
     ])
     assert ".with_for_update(nowait=True)" in conversation_lock_source
     assert "CONVERSATION_LOCKED_DETAIL" in conversation_lock_source
 
     delete_source = inspect.getsource(professor_chat_mutations.delete_chat_message_state)
-    assert "ensure_student_professor_chat_access(user)" in delete_source
+    access_source = inspect.getsource(professor_chat_mutations.ensure_student_can_use_conversation)
+    assert "ensure_student_can_use_conversation(" in delete_source
+    assert "ensure_student_professor_chat_access(db, user, subject_id=offering.subject_id)" in access_source
     assert "Messages can only be deleted for 15 minutes" in delete_source
 
     for function_name in (
@@ -1798,6 +2103,14 @@ def test_professor_live_session_lifecycle_stays_out_of_router():
     assert "await db.rollback()" in create_source
     assert create_source.index("await db.rollback()") < create_source.index("await create_live_stream")
     assert "async def update_professor_live_session" in live_service_source
+    assert "async def _apply_professor_live_session_transition" in live_service_source
+    for function_name in (
+        "cancel_professor_live_session",
+        "notify_professor_live_session",
+        "start_professor_live_session",
+        "end_professor_live_session",
+    ):
+        assert "_apply_professor_live_session_transition(" in inspect.getsource(getattr(professor_live_sessions, function_name))
     assert "async def notify_students_for_live" in live_service_source
     assert ".from_select(" in notification_source
     assert ".scalars().all()" not in notification_source
@@ -1878,6 +2191,7 @@ def test_professor_chat_mutation_helpers_stay_out_of_router():
         ("update_chat_message", "update_chat_message_state("),
         ("delete_chat_message", "delete_chat_message_state("),
         ("patch_professor_conversation", "patch_professor_conversation_state("),
+        ("mark_student_conversation_read", "mark_student_conversation_read_state("),
         ("start_student_conversation", "start_student_conversation_state("),
         ("list_student_messages", "list_student_messages_for_conversation("),
         ("send_student_message", "send_student_message_state("),
@@ -1894,8 +2208,11 @@ def test_professor_chat_mutation_helpers_stay_out_of_router():
         assert "enqueue_realtime_event(" not in source
     assert "async def apply_professor_sent_message_update" in chat_mutation_source
     assert "async def apply_student_sent_message_update" in chat_mutation_source
+    assert "async def apply_sent_message_update" in chat_mutation_source
+    assert "async def _persist_chat_message_state" in chat_mutation_source
     assert "async def refresh_chat_preview" in chat_mutation_source
     assert "async def save_chat_image" in chat_mutation_source
+    assert "async def mark_student_conversation_read_state" in chat_mutation_source
     assert "async def start_student_conversation_state" in chat_mutation_source
     assert "async def send_professor_message_state" in chat_mutation_source
     assert "async def send_student_image_message_state" in chat_mutation_source
@@ -1996,8 +2313,13 @@ def test_professor_read_list_services_clamp_pagination_bounds():
     assert "limit = min(max(limit, 1), MAX_CHAT_MESSAGES_LIMIT)" in query_source
 
 
-def test_professor_chat_image_upload_enforces_conversation_quota(app_client, run_db, test_settings):
+def test_professor_chat_image_upload_enforces_conversation_quota(app_client, run_db, test_settings, tmp_path, monkeypatch):
     seeded = run_db(_seed_professor_platform(test_settings))
+    storage_root = tmp_path / "media"
+    monkeypatch.setattr(
+        "app.services.professor_chat_mutations.get_media_storage",
+        lambda settings: LocalMediaStorage(root=storage_root),
+    )
     original_quota = test_settings.media_chat_conversation_quota_bytes
     test_settings.media_chat_conversation_quota_bytes = 30
     png_20 = b"\x89PNG\r\n\x1a\n" + b"a" * 12
@@ -2018,6 +2340,8 @@ def test_professor_chat_image_upload_enforces_conversation_quota(app_client, run
         )
         assert first_image.status_code == 201
         assert first_image.json()["attachment_size"] == len(png_20)
+        first_image_path = _local_media_path(storage_root, first_image.json()["attachment_url"])
+        assert first_image_path.exists()
 
         over_quota_reply = app_client.post(
             f"/api/professor/chat/conversations/{conversation_id}/images",
@@ -2027,6 +2351,22 @@ def test_professor_chat_image_upload_enforces_conversation_quota(app_client, run
         )
         assert over_quota_reply.status_code == 413
         assert over_quota_reply.json()["detail"] == "Conversation media quota exceeded"
+
+        deleted = app_client.delete(
+            f"/api/professor/chat/messages/{first_image.json()['id']}",
+            headers={"Authorization": f"Bearer {seeded['vip_student_token']}"},
+        )
+        assert deleted.status_code == 200
+        assert not first_image_path.exists()
+
+        replacement = app_client.post(
+            f"/api/professor/chat/conversations/{conversation_id}/images",
+            data={"body": "Replacement image"},
+            files={"file": ("replacement.png", png_20, "image/png")},
+            headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+        )
+        assert replacement.status_code == 201
+        assert replacement.json()["attachment_size"] == len(png_20)
     finally:
         test_settings.media_chat_conversation_quota_bytes = original_quota
 
@@ -2145,7 +2485,7 @@ def test_professor_chat_messages_are_cursor_paginated(app_client, run_db, test_s
             conversation = await db.get(ProfessorChatConversation, conversation_id)
             return conversation.unread_for_professor, conversation.unread_for_student
 
-    assert run_db(_conversation_unread_counts()) == (0, 0)
+    assert run_db(_conversation_unread_counts()) == (4, 3)
 
 
 def test_deleting_unread_student_message_decrements_professor_unread_total(app_client, run_db, test_settings):
@@ -2228,7 +2568,7 @@ def test_deleting_unread_professor_message_decrements_student_unread_counter(app
     assert run_db(_conversation_unread_counts()) == (0, 0)
 
 
-def test_professor_chat_message_reads_skip_commit_when_unread_counts_are_zero(
+def test_professor_chat_message_get_routes_do_not_acknowledge_or_commit(
     app_client,
     run_db,
     test_settings,
@@ -2243,15 +2583,17 @@ def test_professor_chat_message_reads_skip_commit_when_unread_counts_are_zero(
     assert created.status_code == 201
     conversation_id = created.json()["id"]
 
-    async def _clear_unread_counts():
+    async def _set_unread_counts():
         session_factory = get_session_factory()
         async with session_factory() as db:
             conversation = await db.get(ProfessorChatConversation, conversation_id)
-            conversation.unread_for_professor = 0
-            conversation.unread_for_student = 0
+            professor = await db.get(User, seeded["professor_id"])
+            conversation.unread_for_professor = 2
+            conversation.unread_for_student = 1
+            professor.professor_unread_chat_count = 2
             await db.commit()
 
-    run_db(_clear_unread_counts())
+    run_db(_set_unread_counts())
 
     commit_calls = []
     original_commit = AsyncSession.commit
@@ -2274,6 +2616,14 @@ def test_professor_chat_message_reads_skip_commit_when_unread_counts_are_zero(
     )
     assert student_page.status_code == 200
     assert commit_calls == []
+
+    async def _conversation_unread_counts():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            conversation = await db.get(ProfessorChatConversation, conversation_id)
+            return conversation.unread_for_professor, conversation.unread_for_student
+
+    assert run_db(_conversation_unread_counts()) == (2, 1)
 
 
 def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db, test_settings, monkeypatch):

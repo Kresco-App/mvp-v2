@@ -14,6 +14,11 @@ export type NotificationList = {
   unread_count: number
 }
 
+export type NotificationBulkDeleteConfirmation = {
+  confirmation_token: string
+  expires_in_seconds: number
+}
+
 export async function listNotifications() {
   return getJson<NotificationList>('/notifications')
 }
@@ -30,6 +35,11 @@ export async function deleteNotification(id: number) {
   await deleteJson(`/notifications/${id}`)
 }
 
+export async function getNotificationBulkDeleteConfirmation() {
+  return getJson<NotificationBulkDeleteConfirmation>('/notifications/delete-all-confirmation')
+}
+
 export async function deleteAllNotifications() {
-  await deleteJson('/notifications')
+  const { confirmation_token } = await getNotificationBulkDeleteConfirmation()
+  await deleteJson('/notifications', { params: { confirmation_token } })
 }

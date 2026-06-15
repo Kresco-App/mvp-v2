@@ -1,4 +1,13 @@
-export interface Resource {
+export interface AccessGuarded {
+  can_access?: boolean
+  locked_reason?: string
+  access_reason?: string
+  required_tier?: string
+  required_feature_key?: string
+  required_subject_id?: number | null
+}
+
+export interface Resource extends AccessGuarded {
   id: number
   title: string
   resource_type: string
@@ -7,28 +16,24 @@ export interface Resource {
   url: string
   summary: string
   metadata_json?: Record<string, unknown>
-  can_access?: boolean
-  locked_reason?: string
-  access_reason?: string
 }
 
-export interface TabContent {
+export interface TabContent extends AccessGuarded {
   id: number
   label: string
   tab_type: string
   content: string
   config_json: any
+  body_omitted?: boolean
   renderer_key: string
   order: number
-  can_access?: boolean
-  locked_reason?: string
   resource?: Resource | null
   is_missing?: boolean
   empty_title?: string
   empty_message?: string
 }
 
-export interface TopicItem {
+export interface TopicItem extends AccessGuarded {
   id: number
   topic_id: number
   section_id: number
@@ -37,11 +42,10 @@ export interface TopicItem {
   item_type: string
   renderer_key: string
   duration_seconds: number
+  completion_policy?: string
   progress_status: string
   watched_seconds?: number
   resume_seconds?: number
-  can_access?: boolean
-  locked_reason?: string
   primary_resource?: Resource | null
   primary_tab_content_id?: number | null
   primary_tab?: TabContent | null
@@ -56,7 +60,7 @@ export interface TopicSection {
   items: TopicItem[]
 }
 
-export interface TopicWorkspace {
+export interface TopicWorkspace extends AccessGuarded {
   id: number
   subject_id?: number
   subject_title: string
@@ -70,9 +74,6 @@ export interface TopicWorkspace {
   sections: TopicSection[]
   active_item: TopicItem | null
   search_results: TopicItem[]
-  can_access?: boolean
-  locked_reason?: string
-  access_reason?: string
 }
 
 export interface TopicWorkspaceNote {

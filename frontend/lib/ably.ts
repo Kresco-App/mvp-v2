@@ -31,6 +31,45 @@ type RealtimeFailureContext = {
   operation: string
 }
 
+function createRealtimeFallbackPoller(
+  fallback: RealtimeFallback | undefined,
+  isStopped: () => boolean,
+  failureContext: RealtimeFailureContext,
+) {
+  let fallbackTimer: number | null = null
+  let pollInFlight = false
+
+  const runPoll = async () => {
+    if (!fallback || pollInFlight || isStopped()) return
+    pollInFlight = true
+    try {
+      await fallback.poll()
+    } catch (error) {
+      reportRealtimeAsyncFailure(error, failureContext)
+    } finally {
+      pollInFlight = false
+    }
+  }
+
+  const startFallback = fallback
+    ? (runNow: boolean) => {
+        if (fallbackTimer !== null || isStopped()) return
+        if (runNow) void runPoll()
+        fallbackTimer = window.setInterval(() => {
+          void runPoll()
+        }, fallback.intervalMs)
+      }
+    : undefined
+
+  const stopFallback = () => {
+    if (fallbackTimer === null) return
+    window.clearInterval(fallbackTimer)
+    fallbackTimer = null
+  }
+
+  return { runPoll, startFallback, stopFallback }
+}
+
 export function isKrescoRealtimeEnabled() {
   return process.env.NEXT_PUBLIC_ABLY_ENABLED !== 'false'
 }
@@ -45,7 +84,7 @@ function reportRealtimeAsyncFailure(error: unknown, context: RealtimeFailureCont
     console.warn('Kresco realtime async failure', { ...context, error })
   }
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
     window.dispatchEvent(new CustomEvent('kresco:realtime-error', {
       detail: {
         ...context,
@@ -94,36 +133,15 @@ export function subscribeKrescoRealtime({
   beforeSubscribe,
 }: RealtimeSubscriptionOptions) {
   let stopped = false
-  let fallbackTimer: number | null = null
-  let pollInFlight = false
   let subscribing = false
   let subscribed = false
-
-  const startFallback = fallback
-    ? (runNow: boolean) => {
-        if (fallbackTimer || stopped) return
-        if (runNow) void runPoll()
-        fallbackTimer = window.setInterval(() => {
-          void runPoll()
-        }, fallback.intervalMs)
-      }
-    : undefined
-
-  const stopFallback = () => {
-    if (!fallbackTimer) return
-    window.clearInterval(fallbackTimer)
-    fallbackTimer = null
-  }
-
-  const runPoll = async () => {
-    if (!fallback || pollInFlight || stopped) return
-    pollInFlight = true
-    try {
-      await fallback.poll()
-    } finally {
-      pollInFlight = false
-    }
-  }
+  let subscribeRetryTimer: number | null = null
+  const subscribeRetryMs = Math.min(Math.max(fallback?.intervalMs ?? 5000, 1000), 5000)
+  const { runPoll, startFallback, stopFallback } = createRealtimeFallbackPoller(
+    fallback,
+    () => stopped,
+    { channelName, operation: 'fallback-poll' },
+  )
 
   const realtime = getKrescoRealtime()
   if (!realtime) {
@@ -134,6 +152,24 @@ export function subscribeKrescoRealtime({
     }
   }
 
+  const stopSubscribeRetry = () => {
+    if (subscribeRetryTimer === null) return
+    window.clearTimeout(subscribeRetryTimer)
+    subscribeRetryTimer = null
+  }
+
+  const scheduleSubscribeRetry = () => {
+    if (stopped || subscribed || subscribeRetryTimer !== null) return
+    subscribeRetryTimer = window.setTimeout(() => {
+      subscribeRetryTimer = null
+      void ensureSubscribed().catch((error) => {
+        reportRealtimeAsyncFailure(error, { channelName, operation: 'subscribe-retry' })
+        startFallback?.(true)
+        scheduleSubscribeRetry()
+      })
+    }, subscribeRetryMs)
+  }
+
   const channel = realtime.channels.get(channelName)
   const ensureSubscribed = async () => {
     if (subscribing || subscribed || stopped) return
@@ -142,12 +178,18 @@ export function subscribeKrescoRealtime({
       await beforeSubscribe?.()
       if (stopped) return
       await channel.subscribe(onMessage)
+      if (stopped) {
+        channel.unsubscribe(onMessage)
+        return
+      }
       subscribed = true
+      stopSubscribeRetry()
       stopFallback()
       void runPoll()
     } catch (error) {
       reportRealtimeAsyncFailure(error, { channelName, operation: 'subscribe' })
       startFallback?.(true)
+      scheduleSubscribeRetry()
     } finally {
       subscribing = false
     }
@@ -177,6 +219,7 @@ export function subscribeKrescoRealtime({
 
   return () => {
     stopped = true
+    stopSubscribeRetry()
     stopFallback()
     realtime.connection.off(handleConnectionState)
     channel.unsubscribe(onMessage)
@@ -199,36 +242,18 @@ export function subscribeKrescoRealtimeChannels({
   fallback?: RealtimeFallback
 }) {
   let stopped = false
-  let fallbackTimer: number | null = null
-  let pollInFlight = false
+  let subscribing = false
+  let subscribeRetryTimer: number | null = null
   const subscribedChannels: Array<{ unsubscribe: (listener?: (message: Ably.InboundMessage) => void) => void }> = []
+  const subscribedChannelNames = new Set<string>()
   const uniqueChannelNames = Array.from(new Set(channelNames.map((name) => name.trim()).filter(Boolean)))
-
-  const runPoll = async () => {
-    if (!fallback || pollInFlight || stopped) return
-    pollInFlight = true
-    try {
-      await fallback.poll()
-    } finally {
-      pollInFlight = false
-    }
-  }
-
-  const startFallback = fallback
-    ? (runNow: boolean) => {
-        if (fallbackTimer || stopped) return
-        if (runNow) void runPoll()
-        fallbackTimer = window.setInterval(() => {
-          void runPoll()
-        }, fallback.intervalMs)
-      }
-    : undefined
-
-  const stopFallback = () => {
-    if (!fallbackTimer) return
-    window.clearInterval(fallbackTimer)
-    fallbackTimer = null
-  }
+  const subscribeRetryMs = Math.min(Math.max(fallback?.intervalMs ?? 5000, 1000), 5000)
+  const hasPendingChannels = () => subscribedChannelNames.size < uniqueChannelNames.length
+  const { runPoll, startFallback, stopFallback } = createRealtimeFallbackPoller(
+    fallback,
+    () => stopped,
+    { operation: 'fallback-poll' },
+  )
 
   const realtime = getKrescoRealtime()
   if (!realtime || uniqueChannelNames.length === 0) {
@@ -239,10 +264,75 @@ export function subscribeKrescoRealtimeChannels({
     }
   }
 
-  const handleConnectionState: Ably.connectionEventCallback = (change) => {
-    if (change.current === 'connected') {
+  const stopSubscribeRetry = () => {
+    if (!subscribeRetryTimer) return
+    window.clearTimeout(subscribeRetryTimer)
+    subscribeRetryTimer = null
+  }
+
+  const scheduleSubscribeRetry = () => {
+    if (stopped || subscribeRetryTimer || !hasPendingChannels()) return
+    subscribeRetryTimer = window.setTimeout(() => {
+      subscribeRetryTimer = null
+      void ensureSubscribed().catch((error) => {
+        reportRealtimeAsyncFailure(error, { operation: 'subscribe-channels-retry' })
+        startFallback?.(true)
+        scheduleSubscribeRetry()
+      })
+    }, subscribeRetryMs)
+  }
+
+  const ensureSubscribed = async () => {
+    if (subscribing || stopped || !hasPendingChannels()) return
+    subscribing = true
+    try {
+      try {
+        await beforeSubscribe?.()
+      } catch (error) {
+        reportRealtimeAsyncFailure(error, { operation: 'before-subscribe-channels' })
+        startFallback?.(true)
+        scheduleSubscribeRetry()
+        return
+      }
+      if (stopped) return
+      for (const channelName of uniqueChannelNames) {
+        if (stopped) return
+        if (subscribedChannelNames.has(channelName)) continue
+        const channel = realtime.channels.get(channelName)
+        try {
+          await channel.subscribe(onMessage)
+          if (stopped) {
+            channel.unsubscribe(onMessage)
+            return
+          }
+          subscribedChannels.push(channel)
+          subscribedChannelNames.add(channelName)
+        } catch (error) {
+          reportRealtimeAsyncFailure(error, { channelName, operation: 'subscribe-channel' })
+        }
+      }
+      if (hasPendingChannels()) {
+        startFallback?.(true)
+        scheduleSubscribeRetry()
+        return
+      }
+      stopSubscribeRetry()
       stopFallback()
       void runPoll()
+    } finally {
+      subscribing = false
+    }
+  }
+
+  const handleConnectionState: Ably.connectionEventCallback = (change) => {
+    if (change.current === 'connected') {
+      void ensureSubscribed().catch((error) => {
+        reportRealtimeAsyncFailure(error, { operation: 'subscribe-channels' })
+        startFallback?.(true)
+        scheduleSubscribeRetry()
+      })
+      void runPoll()
+      if (!hasPendingChannels()) stopFallback()
       return
     }
     if (change.current === 'suspended' || change.current === 'failed') {
@@ -255,24 +345,15 @@ export function subscribeKrescoRealtimeChannels({
     startFallback?.(true)
   }
 
-  void (async () => {
-    await beforeSubscribe?.()
-    if (stopped) return
-    for (const channelName of uniqueChannelNames) {
-      if (stopped) return
-      const channel = realtime.channels.get(channelName)
-      await channel.subscribe(onMessage)
-      subscribedChannels.push(channel)
-    }
-    stopFallback()
-    void runPoll()
-  })().catch((error) => {
+  void ensureSubscribed().catch((error) => {
     reportRealtimeAsyncFailure(error, { operation: 'subscribe-channels' })
     startFallback?.(true)
+    scheduleSubscribeRetry()
   })
 
   return () => {
     stopped = true
+    stopSubscribeRetry()
     stopFallback()
     realtime.connection.off(handleConnectionState)
     subscribedChannels.forEach((channel) => channel.unsubscribe(onMessage))

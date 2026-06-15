@@ -140,9 +140,9 @@ describe('auth page onboarding state', () => {
     renderController()
 
     await waitFor(() => {
-      expect(mocks.routerReplace).toHaveBeenCalledWith('/home')
+      expect(latestController?.step).toBe('auth')
     })
-    expect(latestController?.step).toBe('auth')
+    expect(mocks.routerReplace).not.toHaveBeenCalled()
   })
 
   it('hydrates the saved niveau when resuming at the filiere step', async () => {

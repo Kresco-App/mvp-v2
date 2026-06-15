@@ -2,6 +2,21 @@
 
 This file records repository cleanup decisions so future agents can trace what changed and why.
 
+## 2026-06-05 - Generated artifact and scratch script cleanup
+
+Goal: remove files that are provably outside runtime behavior and tighten hygiene gates so they do not return.
+
+### Source cleanup
+
+- Removed unreferenced one-off root/helper scripts: `dark_mode.py`, `find_missing.py`, `find_missing2.py`, `find_missing3.py`, `fix.py`, `fix_dump.py`, `validate_simps.py`, `scripts/split_professor.py`, and `scripts/append_bugs.py`.
+- Removed tracked frontend dev/build output captures: `frontend/.next-dev-3001.err.log`, `frontend/.next-dev-3001.log`, `frontend/.next-dev-3001.out.log`, `frontend/build_stats.txt`, and `frontend/build_stats_utf8.txt`.
+- Updated `scripts/check_repo_hygiene.py` to reject tracked `.log` files and the stale frontend build-stat captures.
+- Updated `docs/backend-contract.md` so the current content model no longer claims active `Chapter`, `Lesson`, or `ChapterSection` routes exist.
+
+### Verification target
+
+- `python scripts/check_repo_hygiene.py`
+
 ## 2026-05-16 - Topic Workspace cleanup
 
 Goal: remove stale Study Tools wiring and clean local runtime artifacts while preserving the new Topic/TopicSection/TopicItem/TabContent model.

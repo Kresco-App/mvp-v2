@@ -39,6 +39,7 @@ from app.services.professor_chat_mutations import (
     delete_chat_message_state,
     list_professor_messages_for_conversation,
     list_student_messages_for_conversation,
+    mark_student_conversation_read_state,
     patch_professor_conversation_state,
     send_professor_image_message_state,
     send_professor_message_state,
@@ -196,17 +197,20 @@ async def reveal_professor_live_stream_credentials(
 async def create_live_session(
     body: LiveSessionIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await create_professor_live_session(
+    result = await create_professor_live_session(
         db,
         professor=professor,
         request=request,
         body=body,
         settings=settings,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.delete("/live-sessions/{live_session_id}")
@@ -231,17 +235,20 @@ async def update_live_session(
     live_session_id: int,
     body: LiveSessionUpdateIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await update_professor_live_session(
+    result = await update_professor_live_session(
         db,
         professor=professor,
         request=request,
         live_session_id=live_session_id,
         body=body,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.post("/live-sessions/{live_session_id}/cancel", response_model=ProfessorLiveSessionOut)
@@ -249,16 +256,19 @@ async def update_live_session(
 async def cancel_live_session(
     live_session_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await cancel_professor_live_session(
+    result = await cancel_professor_live_session(
         db,
         professor=professor,
         request=request,
         live_session_id=live_session_id,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.get("/student-live-sessions", response_model=list[LiveSessionViewerOut])
@@ -317,18 +327,20 @@ async def update_professor_live_interaction(
     interaction_id: int,
     body: LiveSessionInteractionPatchIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    del settings
-    return await update_professor_live_interaction_state(
+    result = await update_professor_live_interaction_state(
         db,
         professor=professor,
         request=request,
         interaction_id=interaction_id,
         body=body,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.delete("/live-sessions/interactions/{interaction_id}", response_model=LiveSessionInteractionOut)
@@ -336,17 +348,19 @@ async def update_professor_live_interaction(
 async def delete_professor_live_interaction(
     interaction_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    del settings
-    return await delete_professor_live_interaction_state(
+    result = await delete_professor_live_interaction_state(
         db,
         professor=professor,
         request=request,
         interaction_id=interaction_id,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.get("/student-live-sessions/{live_session_id}/interactions", response_model=list[LiveSessionInteractionOut])
@@ -374,17 +388,20 @@ async def create_student_live_interaction(
     request: Request,
     live_session_id: int,
     body: LiveSessionInteractionIn,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    del request, settings
-    return await create_student_live_interaction_state(
+    del request
+    result = await create_student_live_interaction_state(
         db,
         user=user,
         live_session_id=live_session_id,
         body=body,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.get("/live-sessions/{live_session_id}/checkpoints", response_model=list[LiveSessionCheckpointOut])
@@ -410,18 +427,20 @@ async def create_professor_live_checkpoint(
     live_session_id: int,
     body: LiveSessionCheckpointIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    del settings
-    return await create_professor_live_checkpoint_state(
+    result = await create_professor_live_checkpoint_state(
         db,
         professor=professor,
         request=request,
         live_session_id=live_session_id,
         body=body,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.patch("/live-sessions/checkpoints/{checkpoint_id}", response_model=LiveSessionCheckpointOut)
@@ -430,18 +449,20 @@ async def update_professor_live_checkpoint(
     checkpoint_id: int,
     body: LiveSessionCheckpointPatchIn,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    del settings
-    return await update_professor_live_checkpoint_state(
+    result = await update_professor_live_checkpoint_state(
         db,
         professor=professor,
         request=request,
         checkpoint_id=checkpoint_id,
         body=body,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.get("/student-live-sessions/{live_session_id}/checkpoints", response_model=list[LiveSessionCheckpointOut])
@@ -478,16 +499,19 @@ async def notify_live_session(
 async def start_live_session(
     live_session_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await start_professor_live_session(
+    result = await start_professor_live_session(
         db,
         professor=professor,
         request=request,
         live_session_id=live_session_id,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.post("/live-sessions/{live_session_id}/end", response_model=ProfessorLiveSessionOut)
@@ -495,16 +519,19 @@ async def start_live_session(
 async def end_live_session(
     live_session_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     professor: User = Depends(get_current_professor_user),
     settings: Settings = Depends(get_settings),
 ):
-    return await end_professor_live_session(
+    result = await end_professor_live_session(
         db,
         professor=professor,
         request=request,
         live_session_id=live_session_id,
     )
+    background_tasks.add_task(drain_realtime_outbox_in_background, settings)
+    return result
 
 
 @router.get("/change-requests", response_model=list[ProfessorChangeRequestOut])
@@ -737,6 +764,24 @@ async def list_student_messages(
         settings=settings,
         limit=limit,
         before_id=before_id,
+    )
+
+
+@router.post("/student-chat/conversations/{conversation_id}/read", response_model=ProfessorChatConversationOut)
+@limiter.limit(STUDENT_CHAT_ROUTE_LIMIT)
+async def mark_student_conversation_read(
+    request: Request,
+    conversation_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+):
+    del request
+    return await mark_student_conversation_read_state(
+        db,
+        user=user,
+        conversation_id=conversation_id,
+        settings=settings,
     )
 
 

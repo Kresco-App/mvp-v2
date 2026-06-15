@@ -6,6 +6,7 @@ import { BellRing, CalendarPlus, Eye, ExternalLink, MonitorCog, MoreHorizontal, 
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { apiDataErrorMessage } from '@/lib/apiData'
+import { formatLiveDateTime as formatDateTime } from '@/lib/liveInteractions'
 import { useProfessorLiveScheduleData } from '@/lib/liveSessionData'
 import {
   cancelProfessorLiveSession,
@@ -34,6 +35,18 @@ type LiveForm = {
   auto_create_vdocipher: boolean
 }
 
+const EMPTY_LIVE_FORM: LiveForm = {
+  course_offering_id: '',
+  title: '',
+  description: '',
+  starts_at: '',
+  ends_at: '',
+  vdocipher_live_id: '',
+  stream_ingest_url: '',
+  stream_key: '',
+  auto_create_vdocipher: false,
+}
+
 export default function ProfessorLivePage() {
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
@@ -41,7 +54,7 @@ export default function ProfessorLivePage() {
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
   const [revealedCredentials, setRevealedCredentials] = useState<Record<number, LiveSessionStreamCredentials>>({})
   const [showAdvancedForm, setShowAdvancedForm] = useState(false)
-  const [form, setForm] = useState<LiveForm>(() => defaultLiveForm())
+  const [form, setForm] = useState<LiveForm>(EMPTY_LIVE_FORM)
   const loadErrorRef = useRef<unknown>(null)
   const {
     sessions,
@@ -51,6 +64,14 @@ export default function ProfessorLivePage() {
     error,
     mutateAll,
   } = useProfessorLiveScheduleData()
+
+  useEffect(() => {
+    setForm((current) => (
+      current.starts_at || current.ends_at || current.title || current.description
+        ? current
+        : defaultLiveForm()
+    ))
+  }, [])
 
   useEffect(() => {
     if (offerings.length === 0) return
@@ -534,10 +555,6 @@ function toDatetimeLocal(date: Date) {
   const offset = date.getTimezoneOffset()
   const local = new Date(date.getTime() - offset * 60000)
   return local.toISOString().slice(0, 16)
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
 function compareLiveSessions(a: ProfessorLiveSession, b: ProfessorLiveSession) {

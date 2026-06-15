@@ -16,7 +16,17 @@ FAST_LANE_WRITE_ENDPOINTS = [
     "send_student_image_message",
     "send_professor_message",
     "send_professor_image_message",
+    "create_live_session",
+    "update_live_session",
+    "cancel_live_session",
     "notify_live_session",
+    "start_live_session",
+    "end_live_session",
+    "update_professor_live_interaction",
+    "delete_professor_live_interaction",
+    "create_student_live_interaction",
+    "create_professor_live_checkpoint",
+    "update_professor_live_checkpoint",
 ]
 
 

@@ -10,7 +10,7 @@ from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, 
 from app.models.gamification import UserXP
 from app.models.quizzes import Question, QuestionSet
 from app.models.users import User, UserSubjectEntitlement
-from app.routers.users import _hash_password
+from app.security.passwords import hash_password
 from seed_professor_demo import DEMO_PASSWORD, seed_professor_demo
 from seed_safety import require_destructive_seed_session
 
@@ -99,7 +99,7 @@ async def upsert_user(
     user.is_email_verified = True
     user.is_staff = is_staff
     user.is_superuser = is_superuser
-    user.password = _hash_password(DEMO_PASSWORD)
+    user.password = hash_password(DEMO_PASSWORD)
     user.updated_at = now()
     await db.flush()
     return user

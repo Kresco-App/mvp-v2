@@ -1,12 +1,16 @@
+import logging
+from datetime import datetime, timezone
+
 from fastapi import HTTPException, Request
-from sqlalchemy import insert, literal, select
+from sqlalchemy import and_, insert, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
+from app.models.admin_audit import AdminAuditLog
 from app.models.calendar import CalendarEvent
 from app.models.notifications import Notification
 from app.models.professor import CourseOffering, LiveSession
-from app.models.users import User
+from app.models.users import User, UserSubjectEntitlement
 from app.schemas.professor import (
     LiveSessionIn,
     LiveSessionStreamCredentialsOut,
@@ -23,9 +27,98 @@ from app.services.professor_serializers import (
 )
 from app.services.professor_status import ALLOWED_LIVE_STATUSES, LiveSessionStatus
 from app.services.realtime_outbox import enqueue_realtime_event
-from app.services.vdocipher import create_live_stream, sanitize_provider_payload
+from app.services.vdocipher import create_live_stream, delete_live_stream, sanitize_provider_payload
 
 MAX_PROFESSOR_LIVE_SESSIONS_LIMIT = 100
+LIVE_SESSION_NOTIFICATION_TYPE = "live_session"
+LIVE_SESSION_NOTIFICATION_TIERS = ("pro", "vip", "platinum")
+
+logger = logging.getLogger(__name__)
+
+
+async def cleanup_created_vdocipher_live_stream_after_failure(
+    db: AsyncSession,
+    *,
+    request: Request,
+    professor_id: int,
+    title: str,
+    created_stream: dict,
+    settings: Settings,
+    failure: Exception,
+) -> None:
+    live_id = str(created_stream.get("live_id", "")).strip()
+    if not live_id:
+        logger.critical(
+            "vdocipher_live_cleanup_missing_created_live_id",
+            extra={"professor_user_id": professor_id, "persist_failure_type": type(failure).__name__},
+        )
+        return
+
+    try:
+        await db.rollback()
+    except Exception:
+        logger.warning(
+            "vdocipher_live_cleanup_rollback_failed",
+            exc_info=True,
+            extra={"vdocipher_live_id": live_id, "professor_user_id": professor_id},
+        )
+
+    try:
+        cleanup_result = await delete_live_stream(live_id, settings)
+    except Exception as cleanup_exc:
+        logger.exception(
+            "vdocipher_live_cleanup_hook_failed",
+            extra={"vdocipher_live_id": live_id, "professor_user_id": professor_id},
+        )
+        cleanup_result = {
+            "cleanup_state": "cleanup_required",
+            "cleanup_reason": "cleanup_hook_failed",
+            "cleanup_error_type": type(cleanup_exc).__name__,
+        }
+
+    changed_data = {
+        "provider": "vdocipher",
+        "vdocipher_live_id": live_id,
+        "cleanup": sanitize_provider_payload(cleanup_result),
+        "cleanup_state": cleanup_result.get("cleanup_state", "unknown"),
+        "cleanup_reason": cleanup_result.get("cleanup_reason", ""),
+        "persist_failure_type": type(failure).__name__,
+        "provider_payload": sanitize_provider_payload(created_stream.get("raw", {})),
+    }
+    if changed_data["cleanup_state"] != "deleted":
+        logger.critical(
+            "vdocipher_live_cleanup_required_after_persist_failure",
+            extra={"vdocipher_live_cleanup": changed_data},
+        )
+
+    try:
+        db.add(
+            AdminAuditLog(
+                action="provider_cleanup",
+                model_name="VdoCipherLiveCleanup",
+                object_pk=live_id,
+                object_repr=title[:500],
+                changed_data=changed_data,
+                request_path=str(request.url.path),
+                client_host=request.client.host if request.client else "",
+                note=f"professor_user_id={professor_id}",
+            )
+        )
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            logger.warning(
+                "vdocipher_live_cleanup_audit_rollback_failed",
+                exc_info=True,
+                extra={"vdocipher_live_id": live_id, "professor_user_id": professor_id},
+            )
+        logger.critical(
+            "vdocipher_live_cleanup_audit_failed",
+            exc_info=True,
+            extra={"vdocipher_live_cleanup": changed_data},
+        )
 
 
 async def enqueue_live_session_event(db: AsyncSession, live_session_id: int, event_name: str, payload: dict) -> None:
@@ -67,45 +160,133 @@ def sync_calendar_event_from_live_session(
     event.color = "#453dee"
 
 
+def user_live_session_feature_filter():
+    return or_(
+        User.tier.in_(LIVE_SESSION_NOTIFICATION_TIERS),
+        and_(
+            or_(User.tier.is_(None), User.tier == "", User.tier == "basic"),
+            User.is_pro == True,  # noqa: E712
+        ),
+    )
+
+
+def any_subject_entitlement_filter():
+    return (
+        select(UserSubjectEntitlement.id)
+        .where(UserSubjectEntitlement.user_id == User.id)
+        .exists()
+    )
+
+
+def active_subject_entitlement_filter(subject_id: int, now: datetime):
+    return (
+        select(UserSubjectEntitlement.id)
+        .where(
+            UserSubjectEntitlement.user_id == User.id,
+            UserSubjectEntitlement.subject_id == subject_id,
+            UserSubjectEntitlement.status == "active",
+            or_(UserSubjectEntitlement.starts_at.is_(None), UserSubjectEntitlement.starts_at <= now),
+            or_(UserSubjectEntitlement.ends_at.is_(None), UserSubjectEntitlement.ends_at >= now),
+        )
+        .exists()
+    )
+
+
+def student_ids_for_live_scope_query(
+    *,
+    subject_id: int,
+    track_niveau: str,
+    track_filiere: str,
+):
+    if not track_niveau or not track_filiere:
+        return None
+    now = datetime.now(timezone.utc)
+    return select(User.id).where(
+        User.role == "student",
+        User.is_active == True,  # noqa: E712
+        User.niveau == track_niveau,
+        User.filiere == track_filiere,
+        user_live_session_feature_filter(),
+        or_(
+            ~any_subject_entitlement_filter(),
+            active_subject_entitlement_filter(subject_id, now),
+        ),
+    )
+
+
 def student_ids_for_offering_query(offering: CourseOffering):
     if offering.track is None:
         return None
-    return select(User.id).where(
-            User.role == "student",
-            User.is_active == True,  # noqa: E712
-            User.niveau == offering.track.niveau,
-            User.filiere == offering.track.filiere,
+    return student_ids_for_live_scope_query(
+        subject_id=offering.subject_id,
+        track_niveau=offering.track.niveau,
+        track_filiere=offering.track.filiere,
+    )
+
+
+def live_notification_already_sent_filter(user_id_column, title: str, body: str):
+    return (
+        select(Notification.id)
+        .where(
+            Notification.user_id == user_id_column,
+            Notification.type == LIVE_SESSION_NOTIFICATION_TYPE,
+            Notification.title == title,
+            Notification.body == body,
         )
+        .exists()
+    )
 
 
 async def notify_students_for_live(
     db: AsyncSession,
     session: LiveSession,
-    offering: CourseOffering,
+    offering: CourseOffering | None,
     event_name: str,
     title: str,
     body: str,
+    *,
+    offering_id: int | None = None,
+    subject_id: int | None = None,
+    track_niveau: str = "",
+    track_filiere: str = "",
 ) -> bool:
-    student_ids_query = student_ids_for_offering_query(offering)
+    if offering is not None:
+        offering_id = offering.id
+        subject_id = offering.subject_id
+        track_niveau = offering.track.niveau if offering.track else ""
+        track_filiere = offering.track.filiere if offering.track else ""
+
+    if offering_id is None or subject_id is None:
+        await db.flush()
+        return True
+
+    student_ids_query = student_ids_for_live_scope_query(
+        subject_id=subject_id,
+        track_niveau=track_niveau,
+        track_filiere=track_filiere,
+    )
     if student_ids_query is None:
         await db.flush()
         return True
 
-    has_student = await db.scalar(student_ids_query.limit(1))
-    if has_student is None:
+    student_ids = student_ids_query.subquery()
+    duplicate_notification_exists = live_notification_already_sent_filter(student_ids.c.id, title, body)
+    has_unsent_student = await db.scalar(
+        select(student_ids.c.id)
+        .where(~duplicate_notification_exists)
+        .limit(1)
+    )
+    if has_unsent_student is None:
         await db.flush()
         return True
 
     notification_rows = select(
-        User.id,
-        literal("live_session"),
+        student_ids.c.id,
+        literal(LIVE_SESSION_NOTIFICATION_TYPE),
         literal(title),
         literal(body),
     ).where(
-        User.role == "student",
-        User.is_active == True,  # noqa: E712
-        User.niveau == offering.track.niveau,
-        User.filiere == offering.track.filiere,
+        ~duplicate_notification_exists,
     )
     await db.execute(
         insert(Notification).from_select(
@@ -125,7 +306,7 @@ async def notify_students_for_live(
     }
     await enqueue_realtime_event(
         db,
-        channel=offering_notifications_channel_name(offering.id),
+        channel=offering_notifications_channel_name(offering_id),
         event_name=event_name,
         payload=payload,
     )
@@ -221,104 +402,81 @@ async def create_professor_live_session(
     if not vdocipher_live_id:
         raise HTTPException(status_code=400, detail="VdoCipher live ID is required")
 
-    session = LiveSession(
-        course_offering_id=body.course_offering_id,
-        professor_user_id=professor_id,
-        title=body.title,
-        description=body.description,
-        starts_at=body.starts_at,
-        ends_at=body.ends_at,
-        join_url=body.join_url.strip(),
-        vdocipher_live_id=vdocipher_live_id,
-        stream_ingest_url=(created_stream or {}).get("stream_ingest_url", body.stream_ingest_url.strip()),
-        stream_key=(created_stream or {}).get("stream_key", body.stream_key.strip()),
-        provider_payload_json=sanitize_provider_payload((created_stream or {}).get("raw", {})),
-    )
-    db.add(session)
-    await db.flush()
-
-    event = CalendarEvent(title=session.title, starts_at=session.starts_at, ends_at=session.ends_at)
-    event.event_type = "live_session"
-    event.title = session.title
-    event.subtitle = calendar_subtitle
-    event.teacher_name = professor_name
-    event.subject_id = subject_id
-    event.topic_id = None
-    event.starts_at = session.starts_at
-    event.ends_at = session.ends_at
-    event.description = session.description
-    event.join_url = session.join_url or f"/live/{session.id}"
-    event.status = session.status
-    event.color = "#453dee"
-    db.add(event)
-    await db.flush()
-    event.preparation_href = f"/calendar?event={event.id}"
-    session.calendar_event_id = event.id
-    session.join_url = session.join_url or f"/live/{session.id}"
-
-    if track_niveau and track_filiere:
-        has_student = await db.scalar(
-            select(User.id).where(
-                User.role == "student",
-                User.is_active == True,  # noqa: E712
-                User.niveau == track_niveau,
-                User.filiere == track_filiere,
-            ).limit(1)
+    try:
+        session = LiveSession(
+            course_offering_id=body.course_offering_id,
+            professor_user_id=professor_id,
+            title=body.title,
+            description=body.description,
+            starts_at=body.starts_at,
+            ends_at=body.ends_at,
+            join_url=body.join_url.strip(),
+            vdocipher_live_id=vdocipher_live_id,
+            stream_ingest_url=(created_stream or {}).get("stream_ingest_url", body.stream_ingest_url.strip()),
+            stream_key=(created_stream or {}).get("stream_key", body.stream_key.strip()),
+            provider_payload_json=sanitize_provider_payload((created_stream or {}).get("raw", {})),
         )
-        if has_student is not None:
-            notification_rows = select(
-                User.id,
-                literal("live_session"),
-                literal("New live session scheduled"),
-                literal(f"{session.title} was added to your calendar."),
-            ).where(
-                User.role == "student",
-                User.is_active == True,  # noqa: E712
-                User.niveau == track_niveau,
-                User.filiere == track_filiere,
-            )
-            await db.execute(
-                insert(Notification).from_select(
-                    [Notification.user_id, Notification.type, Notification.title, Notification.body],
-                    notification_rows,
-                )
-            )
-            await db.flush()
-            await enqueue_realtime_event(
-                db,
-                channel=offering_notifications_channel_name(offering_id),
-                event_name="live.session.created",
-                payload={
-                    "live_session_id": session.id,
-                    "course_offering_id": session.course_offering_id,
-                    "calendar_event_id": session.calendar_event_id,
-                    "title": session.title,
-                    "starts_at": session.starts_at.isoformat(),
-                    "status": session.status,
-                },
-            )
-            notification_delivered = True
-        else:
-            await db.flush()
-            notification_delivered = True
-    else:
+        db.add(session)
         await db.flush()
-        notification_delivered = True
-    session.notification_status = notification_status_from_realtime(notification_delivered)
-    record_professor_audit(
-        db,
-        professor_id=professor_id,
-        request=request,
-        action="professor_create",
-        model_name="LiveSession",
-        object_pk=session.id,
-        object_repr=session.title,
-        changed_data={"course_offering_id": session.course_offering_id, "status": session.status},
-    )
-    await enqueue_live_session_event_and_track(db, session, "live.session.created")
-    await db.commit()
-    await db.refresh(session)
-    return professor_live_session_out(session)
+
+        event = CalendarEvent(title=session.title, starts_at=session.starts_at, ends_at=session.ends_at)
+        event.event_type = "live_session"
+        event.title = session.title
+        event.subtitle = calendar_subtitle
+        event.teacher_name = professor_name
+        event.subject_id = subject_id
+        event.topic_id = None
+        event.starts_at = session.starts_at
+        event.ends_at = session.ends_at
+        event.description = session.description
+        event.join_url = session.join_url or f"/live/{session.id}"
+        event.status = session.status
+        event.color = "#453dee"
+        db.add(event)
+        await db.flush()
+        event.preparation_href = f"/calendar?event={event.id}"
+        session.calendar_event_id = event.id
+        session.join_url = session.join_url or f"/live/{session.id}"
+
+        notification_delivered = await notify_students_for_live(
+            db,
+            session,
+            None,
+            "live.session.created",
+            "New live session scheduled",
+            f"{session.title} was added to your calendar.",
+            offering_id=offering_id,
+            subject_id=subject_id,
+            track_niveau=track_niveau,
+            track_filiere=track_filiere,
+        )
+        session.notification_status = notification_status_from_realtime(notification_delivered)
+        record_professor_audit(
+            db,
+            professor_id=professor_id,
+            request=request,
+            action="professor_create",
+            model_name="LiveSession",
+            object_pk=session.id,
+            object_repr=session.title,
+            changed_data={"course_offering_id": session.course_offering_id, "status": session.status},
+        )
+        await enqueue_live_session_event_and_track(db, session, "live.session.created")
+        await db.commit()
+        await db.refresh(session)
+        return professor_live_session_out(session)
+    except Exception as exc:
+        if created_stream is not None:
+            await cleanup_created_vdocipher_live_stream_after_failure(
+                db,
+                request=request,
+                professor_id=professor_id,
+                title=body.title,
+                created_stream=created_stream,
+                settings=settings,
+                failure=exc,
+            )
+        raise
 
 
 async def delete_professor_live_session(
@@ -400,6 +558,54 @@ async def update_professor_live_session(
     return professor_live_session_out(session)
 
 
+async def _apply_professor_live_session_transition(
+    db: AsyncSession,
+    *,
+    professor: User,
+    request: Request,
+    session: LiveSession,
+    target_status: LiveSessionStatus | None,
+    notification_event_name: str,
+    notification_title: str,
+    notification_body: str,
+    realtime_event_name: str,
+) -> ProfessorLiveSessionOut:
+    await enforce_professor_mutation_rate_limit(db, professor, request)
+    if target_status is not None:
+        session.status = target_status
+        if session.calendar_event:
+            sync_calendar_event_from_live_session(session.calendar_event, session, session.course_offering, professor)
+
+    notification_delivered = await notify_students_for_live(
+        db,
+        session,
+        session.course_offering,
+        notification_event_name,
+        notification_title,
+        notification_body,
+    )
+    session.notification_status = notification_status_from_realtime(notification_delivered)
+    changed_data = (
+        {"status": target_status.value}
+        if target_status is not None
+        else {"notification_status": session.notification_status}
+    )
+    record_professor_audit(
+        db,
+        professor=professor,
+        request=request,
+        action="professor_update",
+        model_name="LiveSession",
+        object_pk=session.id,
+        object_repr=session.title,
+        changed_data=changed_data,
+    )
+    await enqueue_live_session_event_and_track(db, session, realtime_event_name)
+    await db.commit()
+    await db.refresh(session)
+    return professor_live_session_out(session)
+
+
 async def cancel_professor_live_session(
     db: AsyncSession,
     *,
@@ -410,33 +616,17 @@ async def cancel_professor_live_session(
     session = await require_professor_live_session(db, professor, live_session_id, for_update=True)
     if session.status == LiveSessionStatus.COMPLETED:
         raise HTTPException(status_code=409, detail="Completed sessions cannot be cancelled")
-    await enforce_professor_mutation_rate_limit(db, professor, request)
-    session.status = LiveSessionStatus.CANCELLED
-    if session.calendar_event:
-        sync_calendar_event_from_live_session(session.calendar_event, session, session.course_offering, professor)
-    notification_delivered = await notify_students_for_live(
-        db,
-        session,
-        session.course_offering,
-        "live.session.cancelled",
-        "Live session cancelled",
-        f"{session.title} was cancelled.",
-    )
-    session.notification_status = notification_status_from_realtime(notification_delivered)
-    record_professor_audit(
+    return await _apply_professor_live_session_transition(
         db,
         professor=professor,
         request=request,
-        action="professor_update",
-        model_name="LiveSession",
-        object_pk=session.id,
-        object_repr=session.title,
-        changed_data={"status": LiveSessionStatus.CANCELLED.value},
+        session=session,
+        target_status=LiveSessionStatus.CANCELLED,
+        notification_event_name="live.session.cancelled",
+        notification_title="Live session cancelled",
+        notification_body=f"{session.title} was cancelled.",
+        realtime_event_name="live.session.cancelled",
     )
-    await enqueue_live_session_event_and_track(db, session, "live.session.cancelled")
-    await db.commit()
-    await db.refresh(session)
-    return professor_live_session_out(session)
 
 
 async def notify_professor_live_session(
@@ -447,30 +637,17 @@ async def notify_professor_live_session(
     live_session_id: int,
 ) -> ProfessorLiveSessionOut:
     session = await require_professor_live_session(db, professor, live_session_id, for_update=True)
-    await enforce_professor_mutation_rate_limit(db, professor, request)
-    notification_delivered = await notify_students_for_live(
-        db,
-        session,
-        session.course_offering,
-        "live.session.notify",
-        "Upcoming live session",
-        f"{session.title} is scheduled for {session.starts_at:%Y-%m-%d %H:%M}.",
-    )
-    session.notification_status = notification_status_from_realtime(notification_delivered)
-    record_professor_audit(
+    return await _apply_professor_live_session_transition(
         db,
         professor=professor,
         request=request,
-        action="professor_update",
-        model_name="LiveSession",
-        object_pk=session.id,
-        object_repr=session.title,
-        changed_data={"notification_status": session.notification_status},
+        session=session,
+        target_status=None,
+        notification_event_name="live.session.notify",
+        notification_title="Upcoming live session",
+        notification_body=f"{session.title} is scheduled for {session.starts_at:%Y-%m-%d %H:%M}.",
+        realtime_event_name="live.session.notified",
     )
-    await enqueue_live_session_event_and_track(db, session, "live.session.notified")
-    await db.commit()
-    await db.refresh(session)
-    return professor_live_session_out(session)
 
 
 async def start_professor_live_session(
@@ -481,33 +658,17 @@ async def start_professor_live_session(
     live_session_id: int,
 ) -> ProfessorLiveSessionOut:
     session = await require_professor_live_session(db, professor, live_session_id, for_update=True)
-    await enforce_professor_mutation_rate_limit(db, professor, request)
-    session.status = LiveSessionStatus.LIVE
-    if session.calendar_event:
-        sync_calendar_event_from_live_session(session.calendar_event, session, session.course_offering, professor)
-    notification_delivered = await notify_students_for_live(
-        db,
-        session,
-        session.course_offering,
-        "live.session.started",
-        "Live session started",
-        f"{session.title} is live now.",
-    )
-    session.notification_status = notification_status_from_realtime(notification_delivered)
-    record_professor_audit(
+    return await _apply_professor_live_session_transition(
         db,
         professor=professor,
         request=request,
-        action="professor_update",
-        model_name="LiveSession",
-        object_pk=session.id,
-        object_repr=session.title,
-        changed_data={"status": LiveSessionStatus.LIVE.value},
+        session=session,
+        target_status=LiveSessionStatus.LIVE,
+        notification_event_name="live.session.started",
+        notification_title="Live session started",
+        notification_body=f"{session.title} is live now.",
+        realtime_event_name="live.session.started",
     )
-    await enqueue_live_session_event_and_track(db, session, "live.session.started")
-    await db.commit()
-    await db.refresh(session)
-    return professor_live_session_out(session)
 
 
 async def end_professor_live_session(
@@ -518,30 +679,14 @@ async def end_professor_live_session(
     live_session_id: int,
 ) -> ProfessorLiveSessionOut:
     session = await require_professor_live_session(db, professor, live_session_id, for_update=True)
-    await enforce_professor_mutation_rate_limit(db, professor, request)
-    session.status = LiveSessionStatus.COMPLETED
-    if session.calendar_event:
-        sync_calendar_event_from_live_session(session.calendar_event, session, session.course_offering, professor)
-    notification_delivered = await notify_students_for_live(
-        db,
-        session,
-        session.course_offering,
-        "live.session.completed",
-        "Live session ended",
-        f"{session.title} has ended.",
-    )
-    session.notification_status = notification_status_from_realtime(notification_delivered)
-    record_professor_audit(
+    return await _apply_professor_live_session_transition(
         db,
         professor=professor,
         request=request,
-        action="professor_update",
-        model_name="LiveSession",
-        object_pk=session.id,
-        object_repr=session.title,
-        changed_data={"status": LiveSessionStatus.COMPLETED.value},
+        session=session,
+        target_status=LiveSessionStatus.COMPLETED,
+        notification_event_name="live.session.completed",
+        notification_title="Live session ended",
+        notification_body=f"{session.title} has ended.",
+        realtime_event_name="live.session.completed",
     )
-    await enqueue_live_session_event_and_track(db, session, "live.session.completed")
-    await db.commit()
-    await db.refresh(session)
-    return professor_live_session_out(session)

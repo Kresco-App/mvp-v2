@@ -15,6 +15,7 @@ import {
 const FRONTEND_ROOT = fileURLToPath(new URL('..', import.meta.url))
 type HeaderEntry = { key: string; value: string }
 type HeaderRule = { headers?: HeaderEntry[] }
+type RewriteRule = { source: string; destination: string }
 
 function sourceFilesUnder(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -28,6 +29,32 @@ function sourceFilesUnder(dir: string): string[] {
 async function configuredHeaders() {
   const rules = await nextConfig.headers?.() as HeaderRule[] | undefined
   return (rules ?? []).flatMap((rule: HeaderRule) => rule.headers ?? [])
+}
+
+async function configuredRewritesWithEnv(env: Record<string, string | undefined>) {
+  const previous = Object.fromEntries(
+    Object.keys(env).map((key) => [key, process.env[key]]),
+  )
+
+  try {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+
+    return await nextConfig.rewrites?.() as RewriteRule[] | undefined
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
 }
 
 describe('Next production config boundaries', () => {
@@ -48,16 +75,66 @@ describe('Next production config boundaries', () => {
     ]))
   })
 
-  it('does not enable local API rewrites in production even if the override is set', () => {
-    expect(shouldEnableLocalRewrites('production', 'true')).toBe(false)
-    expect(shouldEnableLocalRewrites('development', 'true')).toBe(true)
-    expect(shouldEnableLocalRewrites('development', 'false')).toBe(false)
+  it('enables local API rewrites only for non-production or development-marked integration builds', () => {
+    const previousKrescoEnv = process.env.KRESCO_ENV
+    try {
+      process.env.KRESCO_ENV = 'production'
+      expect(shouldEnableLocalRewrites('production', 'true')).toBe(false)
+      expect(shouldEnableLocalRewrites('production', undefined)).toBe(false)
+
+      process.env.KRESCO_ENV = 'development'
+      expect(shouldEnableLocalRewrites('production', 'true')).toBe(true)
+      expect(shouldEnableLocalRewrites('development', 'true')).toBe(true)
+      expect(shouldEnableLocalRewrites('development', 'false')).toBe(false)
+    } finally {
+      if (previousKrescoEnv === undefined) {
+        delete process.env.KRESCO_ENV
+      } else {
+        process.env.KRESCO_ENV = previousKrescoEnv
+      }
+    }
   })
 
   it('allows production backend rewrites only for HTTPS origins', () => {
     expect(shouldEnableBackendRewrites('https://api.example.com/staging')).toBe(true)
     expect(shouldEnableBackendRewrites('http://api.example.com')).toBe(false)
     expect(shouldEnableBackendRewrites('not-a-url')).toBe(false)
+  })
+
+  it('does not emit localhost rewrites for production-marked builds even when local flags are present', async () => {
+    await expect(configuredRewritesWithEnv({
+      NODE_ENV: 'production',
+      KRESCO_ENV: 'production',
+      KRESCO_ENABLE_LOCAL_REWRITES: 'true',
+      KRESCO_LOCAL_BACKEND_ORIGIN: 'http://127.0.0.1:8000',
+      KRESCO_BACKEND_ORIGIN: undefined,
+    })).resolves.toEqual([])
+  })
+
+  it('emits localhost rewrites only for development-marked integration builds', async () => {
+    await expect(configuredRewritesWithEnv({
+      NODE_ENV: 'production',
+      KRESCO_ENV: 'development',
+      KRESCO_ENABLE_LOCAL_REWRITES: 'true',
+      KRESCO_LOCAL_BACKEND_ORIGIN: 'http://127.0.0.1:8010/',
+      KRESCO_BACKEND_ORIGIN: undefined,
+    })).resolves.toEqual([
+      { source: '/api/:path*', destination: 'http://127.0.0.1:8010/api/:path*' },
+      { source: '/media/:path*', destination: 'http://127.0.0.1:8010/media/:path*' },
+    ])
+  })
+
+  it('prefers explicit HTTPS backend rewrites over local integration origins', async () => {
+    await expect(configuredRewritesWithEnv({
+      NODE_ENV: 'production',
+      KRESCO_ENV: 'production',
+      KRESCO_ENABLE_LOCAL_REWRITES: 'true',
+      KRESCO_LOCAL_BACKEND_ORIGIN: 'http://127.0.0.1:8000',
+      KRESCO_BACKEND_ORIGIN: 'https://api.kresco.example/backend/',
+    })).resolves.toEqual([
+      { source: '/api/:path*', destination: 'https://api.kresco.example/backend/api/:path*' },
+      { source: '/media/:path*', destination: 'https://api.kresco.example/backend/media/:path*' },
+    ])
   })
 
   it('keeps the strict CSP in proxy.ts instead of emitting a weaker global next.config header', async () => {

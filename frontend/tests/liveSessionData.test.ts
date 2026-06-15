@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import React, { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { SWRConfig } from 'swr'
@@ -10,6 +12,7 @@ import {
   positiveSessionId,
   professorLiveEmbedSWRKey,
   professorLiveInteractionsSWRKey,
+  refreshStudentLiveInteractionsEnvelope,
   studentLiveEmbedSWRKey,
   useProfessorLiveControlData,
   useStudentLiveRoomData,
@@ -54,11 +57,55 @@ afterEach(() => {
 describe('live session SWR data', () => {
   it('builds route keys defensively and gates student embeds by joinability', () => {
     expect(positiveSessionId('61')).toBe(61)
+    expect(positiveSessionId('61.5')).toBeNull()
+    expect(positiveSessionId(0)).toBeNull()
     expect(positiveSessionId('not-a-session')).toBeNull()
     expect(professorLiveEmbedSWRKey(61)).toEqual(['/professor/live-sessions/embed', 61])
     expect(professorLiveInteractionsSWRKey(61)).toEqual(['/professor/live-sessions/interactions', 61])
     expect(studentLiveEmbedSWRKey(61, true)).toEqual(['/professor/student-live-sessions/embed', 61])
     expect(studentLiveEmbedSWRKey(61, false)).toBeNull()
+  })
+
+  it('merges fallback live interaction refreshes into cached paginated history', async () => {
+    const current = {
+      sessionId: 71,
+      interactions: [
+        interactionFixture(601, 71, 'Cached current question'),
+        interactionFixture(501, 71, 'Older paginated question'),
+      ],
+    }
+    const refreshedCurrent = {
+      ...interactionFixture(601, 71, 'Cached current question'),
+      status: 'answered',
+    }
+    const newest = interactionFixture(701, 71, 'Newest fallback message')
+    mocks.apiGet.mockResolvedValueOnce({ data: [newest, refreshedCurrent] })
+
+    const envelope = await refreshStudentLiveInteractionsEnvelope(current, 71)
+
+    expect(mocks.apiGet).toHaveBeenCalledWith('/professor/student-live-sessions/71/interactions', {
+      params: { limit: 100 },
+    })
+    expect(envelope.sessionId).toBe(71)
+    expect(envelope.interactions.map((item) => item.id)).toEqual([701, 601, 501])
+    expect(envelope.interactions.find((item) => item.id === 601)?.status).toBe('answered')
+    expect(envelope.interactions.map((item) => item.body)).toContain('Older paginated question')
+  })
+
+  it('uses merge refresh helpers from live room fallback polling', () => {
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'live', '[sessionId]', 'page.tsx'), 'utf8')
+    const professorSource = readFileSync(join(process.cwd(), 'app', 'professor', 'live', '[sessionId]', 'page.tsx'), 'utf8')
+    const dataSource = readFileSync(join(process.cwd(), 'lib', 'liveSessionData.ts'), 'utf8')
+
+    expect(studentSource).toContain('useLiveSessionRealtimeSubscription({')
+    expect(professorSource).toContain('refreshProfessorLiveInteractionsEnvelope(current, numericSessionId)')
+    expect(professorSource).toContain('useLiveSessionRealtimeSubscription({')
+    expect(studentSource).not.toContain("message.name?.startsWith('live.session.')")
+    expect(professorSource).not.toContain("message.name?.startsWith('live.session.')")
+    expect(dataSource).toContain("message.name?.startsWith('live.session.')")
+    expect(dataSource).toContain('liveSessionChannelName(sessionId)')
+    expect(studentSource).not.toMatch(/poll:\s*async\s*\(\)\s*=>\s*\{\s*await mutateInteractions\(\)\s*\}/)
+    expect(professorSource).not.toMatch(/poll:\s*async\s*\(\)\s*=>\s*\{\s*await mutateAll\(\)\s*\}/)
   })
 
   it('keeps professor control room embed and interactions scoped to the active route session', async () => {

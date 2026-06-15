@@ -440,7 +440,11 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
     await expect(forbiddenPage.getByRole('heading', { name: 'Staff access required' })).toBeVisible()
     await expect(forbiddenPage.getByText('Your account is signed in, but it does not have permission to open this area.')).toBeVisible()
     const storedForbiddenUser = await forbiddenPage.evaluate(() => window.localStorage.getItem('kresco_user'))
-    expect(storedForbiddenUser).toContain('student@example.com')
+    expect(JSON.parse(storedForbiddenUser || '{}')).toMatchObject({
+      __kresco_minimal_auth_snapshot: true,
+      role: 'student',
+      is_staff: false,
+    })
 
     const backendFailurePage = await backendFailureContext.newPage()
     await loginViaBackend(backendFailurePage, 'admin@example.com')

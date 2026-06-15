@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TabPanel } from '@/components/topic-workspace/TopicWorkspacePanels'
 import type { TabContent, TopicItem, TopicWorkspaceNote } from '@/lib/topicWorkspaceViewModel'
+import { buildTabContent, buildTopicItem, buildTopicResource } from './factories/topicWorkspace'
 
 const mocks = vi.hoisted(() => ({
   deleteJson: vi.fn(),
@@ -44,29 +45,22 @@ vi.mock('@/lib/apiClient', () => ({
 
 let mountedRoot: { root: Root; container: HTMLDivElement } | null = null
 
-const baseItem: TopicItem = {
+const baseItem: TopicItem = buildTopicItem({
   id: 101,
   topic_id: 42,
   section_id: 11,
   title: 'Continuity introduction',
   description: 'Study the worksheet and keep notes here.',
-  item_type: 'lesson',
-  renderer_key: '',
   duration_seconds: 600,
-  progress_status: 'in_progress',
-  primary_resource: null,
-  tabs: [],
-}
+})
 
-const resourceTab: TabContent = {
+const resourceTab: TabContent = buildTabContent({
   id: 12,
   label: 'Worksheet',
   tab_type: 'resource',
   content: 'Practice worksheet for continuity.',
-  config_json: {},
-  renderer_key: '',
   order: 2,
-  resource: {
+  resource: buildTopicResource({
     id: 22,
     title: 'Worksheet PDF',
     resource_type: 'pdf',
@@ -74,30 +68,24 @@ const resourceTab: TabContent = {
     provider_resource_id: '',
     url: '/worksheet.pdf',
     summary: 'Practice worksheet',
-  },
-}
+  }),
+})
 
-const notesTab: TabContent = {
+const notesTab: TabContent = buildTabContent({
   id: 8,
   label: 'Notes',
   tab_type: 'notes',
   content: '',
-  config_json: {},
-  renderer_key: '',
   order: 4,
-  resource: null,
-}
+})
 
-const commentsTab: TabContent = {
+const commentsTab: TabContent = buildTabContent({
   id: 9,
   label: 'Comments',
   tab_type: 'comments',
   content: '',
-  config_json: {},
-  renderer_key: '',
   order: 5,
-  resource: null,
-}
+})
 
 beforeEach(() => {
   vi.clearAllMocks()

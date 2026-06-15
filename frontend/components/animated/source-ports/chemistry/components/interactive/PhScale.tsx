@@ -43,11 +43,11 @@ export const PHScale: React.FC = () => {
 
       {/* Main Display & Slider */}
       <div className="bg-slate-50 p-6 md:p-8 rounded-2xl border border-slate-200 mb-10 shadow-inner">
-          <div 
-            className="w-full h-32 rounded-xl flex items-center justify-center transition-colors duration-300 relative overflow-hidden border border-slate-200 shadow-sm mb-8"
-            style={{ backgroundColor: getBackgroundColor(ph) }}
-          >
-            <div className="z-10 text-center bg-white/90 px-12 py-4 rounded-2xl shadow-xl backdrop-blur-md transform transition-transform duration-200 hover:scale-105 border border-white/50">
+          <div className="w-full h-32 rounded-xl flex items-center justify-center transition-colors duration-300 relative overflow-hidden border border-slate-200 shadow-sm mb-8 bg-white">
+            <svg className="absolute inset-0 h-full w-full" preserveAspectRatio="none" aria-hidden="true">
+              <rect width="100%" height="100%" fill={getBackgroundColor(ph)} />
+            </svg>
+            <div className="relative z-10 text-center bg-white/90 px-12 py-4 rounded-2xl shadow-xl backdrop-blur-md transform transition-transform duration-200 hover:scale-105 border border-white/50">
                 <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Valeur du pH</div>
                 <div className="text-6xl font-math font-black text-slate-800 tracking-tighter">{ph.toFixed(1)}</div>
             </div>
@@ -63,10 +63,17 @@ export const PHScale: React.FC = () => {
                 onChange={(e) => setPh(parseFloat(e.target.value))}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
             />
-            <div 
-                className="absolute top-1/2 -translate-y-1/2 w-8 h-8 bg-white border-4 border-slate-900 rounded-full shadow-xl pointer-events-none transition-all"
-                style={{ left: `calc(${(ph/14)*100}% - 16px)` }}
-            />
+            <svg className="absolute inset-x-0 top-1/2 h-8 -translate-y-1/2 overflow-visible pointer-events-none" aria-hidden="true">
+                <circle
+                    cx={`${(ph / 14) * 100}%`}
+                    cy="16"
+                    r="14"
+                    fill="white"
+                    stroke="#0f172a"
+                    strokeWidth="4"
+                    className="drop-shadow-xl transition-all"
+                />
+            </svg>
           </div>
           <div className="flex justify-between text-xs font-bold text-slate-400 font-mono mt-3">
             <span>0 (Acide)</span>

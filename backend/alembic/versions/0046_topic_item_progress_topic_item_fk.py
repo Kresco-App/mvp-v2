@@ -41,16 +41,17 @@ def upgrade() -> None:
         )
         """
     )
-    op.create_foreign_key(
-        CONSTRAINT_NAME,
-        TABLE_NAME,
-        "topic_items",
-        ["topic_item_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
+    with op.batch_alter_table(TABLE_NAME) as batch_op:
+        batch_op.create_foreign_key(
+            CONSTRAINT_NAME,
+            "topic_items",
+            ["topic_item_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
 
 
 def downgrade() -> None:
     if CONSTRAINT_NAME in _existing_foreign_keys(TABLE_NAME):
-        op.drop_constraint(CONSTRAINT_NAME, TABLE_NAME, type_="foreignkey")
+        with op.batch_alter_table(TABLE_NAME) as batch_op:
+            batch_op.drop_constraint(CONSTRAINT_NAME, type_="foreignkey")

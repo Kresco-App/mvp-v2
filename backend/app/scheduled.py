@@ -85,7 +85,7 @@ async def process_realtime_outbox_once(
     settings: Settings | None = None,
 ) -> dict[str, int | bool]:
     resolved_settings = settings or get_settings()
-    init_engine(resolved_settings.database_url, resolved_settings.is_lambda, resolved_settings.pgsslrootcert)
+    _init_scheduled_database(resolved_settings)
     session_factory = get_session_factory()
     if session_factory is None:
         raise RuntimeError("Database engine was not initialized for scheduled outbox processing.")
@@ -118,7 +118,7 @@ async def refresh_leaderboard_projection_once(
     settings: Settings | None = None,
 ) -> dict[str, bool]:
     resolved_settings = settings or get_settings()
-    init_engine(resolved_settings.database_url, resolved_settings.is_lambda, resolved_settings.pgsslrootcert)
+    _init_scheduled_database(resolved_settings)
     session_factory = get_session_factory()
     if session_factory is None:
         raise RuntimeError("Database engine was not initialized for scheduled leaderboard refresh.")
@@ -132,43 +132,46 @@ async def refresh_leaderboard_projection_once(
     return {"ok": True, "refreshed": refreshed}
 
 
+def _init_scheduled_database(settings: Settings) -> None:
+    init_engine(
+        settings.database_url,
+        settings.is_lambda,
+        settings.pgsslrootcert,
+        pool_size=settings.database_pool_size,
+        max_overflow=settings.database_max_overflow,
+        pool_timeout=settings.database_pool_timeout,
+    )
+
+
 def _outbox_limit_from_event(event: Mapping[str, Any]) -> int:
-    raw_limit = event.get("limit")
-    detail = event.get("detail")
-    if raw_limit is None and isinstance(detail, Mapping):
-        raw_limit = detail.get("limit")
-
-    try:
-        limit = int(raw_limit) if raw_limit is not None else DEFAULT_OUTBOX_LIMIT
-    except (TypeError, ValueError):
-        limit = DEFAULT_OUTBOX_LIMIT
-
-    return max(1, min(limit, MAX_OUTBOX_LIMIT))
+    return _event_int(event, "limit", default=DEFAULT_OUTBOX_LIMIT, max_value=MAX_OUTBOX_LIMIT)
 
 
 def _outbox_retention_days_from_event(event: Mapping[str, Any]) -> int:
-    raw_days = event.get("retention_days")
-    detail = event.get("detail")
-    if raw_days is None and isinstance(detail, Mapping):
-        raw_days = detail.get("retention_days")
-
-    try:
-        retention_days = int(raw_days) if raw_days is not None else OUTBOX_DEFAULT_RETENTION_DAYS
-    except (TypeError, ValueError):
-        retention_days = OUTBOX_DEFAULT_RETENTION_DAYS
-
-    return max(1, retention_days)
+    return _event_int(event, "retention_days", default=OUTBOX_DEFAULT_RETENTION_DAYS)
 
 
 def _outbox_purge_limit_from_event(event: Mapping[str, Any]) -> int:
-    raw_limit = event.get("purge_limit")
+    return _event_int(event, "purge_limit", default=DEFAULT_OUTBOX_PURGE_LIMIT, max_value=OUTBOX_MAX_PURGE_LIMIT)
+
+
+def _event_int(
+    event: Mapping[str, Any],
+    key: str,
+    *,
+    default: int,
+    max_value: int | None = None,
+) -> int:
+    raw_value = event.get(key)
     detail = event.get("detail")
-    if raw_limit is None and isinstance(detail, Mapping):
-        raw_limit = detail.get("purge_limit")
+    if raw_value is None and isinstance(detail, Mapping):
+        raw_value = detail.get(key)
 
     try:
-        limit = int(raw_limit) if raw_limit is not None else DEFAULT_OUTBOX_PURGE_LIMIT
+        value = int(raw_value) if raw_value is not None else default
     except (TypeError, ValueError):
-        limit = DEFAULT_OUTBOX_PURGE_LIMIT
+        value = default
 
-    return max(1, min(limit, OUTBOX_MAX_PURGE_LIMIT))
+    if max_value is not None:
+        value = min(value, max_value)
+    return max(1, value)

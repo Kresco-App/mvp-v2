@@ -3,25 +3,36 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import UserXP
 from app.models.users import User
 from app.security.passwords import is_unusable_password, make_unusable_password
+from app.services.auth_users import get_user_by_email, normalize_email, require_user_by_email
 
 logger = logging.getLogger("kresco.auth")
 RequireProfessorOffering = Callable[[AsyncSession, User], Awaitable[None]]
 
 
 def _google_payload_fields(payload: dict) -> tuple[str, str, str, str]:
-    email = str(payload.get("email", "")).lower().strip()
+    raw_email = payload.get("email", "")
+    if not isinstance(raw_email, str):
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+    email = normalize_email(raw_email)
     if not email:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+    if payload.get("email_verified") is not True:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+    google_id = payload.get("sub", "")
+    if not isinstance(google_id, str) or not google_id.strip():
         raise HTTPException(status_code=401, detail="Invalid Google credential")
     full_name = payload.get("name", "")
     avatar_url = payload.get("picture", "")
-    google_id = payload.get("sub", "")
+    if not isinstance(full_name, str):
+        full_name = ""
+    if not isinstance(avatar_url, str):
+        avatar_url = ""
     return email, full_name, avatar_url, google_id
 
 
@@ -40,9 +51,10 @@ async def _merge_google_profile(
     changed = False
     if not user.is_email_verified:
         user.is_email_verified = True
+        user.email_token_version = (user.email_token_version or 0) + 1
+        user.auth_token_version = (user.auth_token_version or 0) + 1
         if not is_unusable_password(user.password):
             user.password = make_unusable_password()
-            user.auth_token_version = (user.auth_token_version or 0) + 1
             user.password_changed_at = datetime.now(timezone.utc)
         changed = True
     if user.google_id != google_id:
@@ -66,11 +78,7 @@ async def _merge_google_profile(
 
 
 async def _reselect_google_user(db: AsyncSession, email: str) -> User:
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=503, detail="Could not complete Google login.")
-    return user
+    return await require_user_by_email(db, email, detail="Could not complete Google login.")
 
 
 async def complete_google_login(
@@ -81,8 +89,7 @@ async def complete_google_login(
 ) -> User:
     email, full_name, avatar_url, google_id = _google_payload_fields(payload)
 
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
+    user = await get_user_by_email(db, email)
 
     if user is None:
         user = User(

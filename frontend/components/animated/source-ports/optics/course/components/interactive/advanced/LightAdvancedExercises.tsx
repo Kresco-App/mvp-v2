@@ -26,6 +26,30 @@ const ExerciseCard = ({ title, difficulty, children }: { title: string, difficul
     </div>
 );
 
+const interferenceFringeClasses = [
+    '-translate-x-[300px] opacity-[0.1054]',
+    '-translate-x-[270px] opacity-[0.1616]',
+    '-translate-x-[240px] opacity-[0.2369]',
+    '-translate-x-[210px] opacity-[0.3320]',
+    '-translate-x-[180px] opacity-[0.4449]',
+    '-translate-x-[150px] opacity-[0.5698]',
+    '-translate-x-[120px] opacity-[0.6977]',
+    '-translate-x-[90px] opacity-[0.8167]',
+    '-translate-x-[60px] opacity-[0.9139]',
+    '-translate-x-[30px] opacity-[0.9778]',
+    'translate-x-0 opacity-[1.0000]',
+    'translate-x-[30px] opacity-[0.9778]',
+    'translate-x-[60px] opacity-[0.9139]',
+    'translate-x-[90px] opacity-[0.8167]',
+    'translate-x-[120px] opacity-[0.6977]',
+    'translate-x-[150px] opacity-[0.5698]',
+    'translate-x-[180px] opacity-[0.4449]',
+    'translate-x-[210px] opacity-[0.3320]',
+    'translate-x-[240px] opacity-[0.2369]',
+    'translate-x-[270px] opacity-[0.1616]',
+    'translate-x-[300px] opacity-[0.1054]',
+];
+
 // --- Challenge 1: The Unknown Prism ---
 const PrismChallenge = () => {
     const [userIdx, setUserIdx] = useState('');
@@ -240,20 +264,12 @@ const InterferenceChallenge = () => {
                          Ruler needs to match this.
                      */}
                     <div className="absolute inset-0 flex items-center justify-center">
-                        {Array.from({ length: 21 }).map((_, idx) => {
-                            const offset = (idx - 10) * 30; // 30px spacing
-                            const opacity = Math.exp(-Math.pow(offset / 200, 2)); // Gaussian envelope
-                            return (
-                                <div
-                                    key={idx}
-                                    className="absolute w-4 h-32 bg-red-600 blur-sm rounded-full"
-                                    style={{
-                                        left: `calc(50% + ${offset}px)`,
-                                        opacity: opacity
-                                    }}
-                                />
-                            )
-                        })}
+                        {interferenceFringeClasses.map((fringeClass, idx) => (
+                            <div
+                                key={idx}
+                                className={`absolute left-1/2 w-4 h-32 bg-red-600 blur-sm rounded-full ${fringeClass}`}
+                            />
+                        ))}
                     </div>
                     <div className="absolute top-2 left-2 text-xs text-red-500 font-mono">LASER λ = ?</div>
 
@@ -262,8 +278,7 @@ const InterferenceChallenge = () => {
                         drag="x"
                         dragMomentum={false}
                         dragConstraints={{ left: -100, right: 400 }}
-                        className="absolute top-1/2 -translate-y-1/2 h-16 bg-yellow-300/90 border border-yellow-600 rounded shadow-xl flex flex-col cursor-grab active:cursor-grabbing"
-                        style={{ width: '310px' }} // Width doesn't matter much visually, ticks matter
+                        className="absolute top-1/2 -translate-y-1/2 h-16 w-[310px] bg-yellow-300/90 border border-yellow-600 rounded shadow-xl flex flex-col cursor-grab active:cursor-grabbing"
                     >
                         <div className="flex-1 flex items-end px-2 border-b border-black/20 pb-1">
                             {/* Ticks. We need to match scale. 

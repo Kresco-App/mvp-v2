@@ -5,6 +5,45 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Ruler, MoveHorizontal, Info, Eye, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+type LaserTone = 'violet' | 'blue' | 'green' | 'yellow' | 'orange' | 'red';
+
+const laserToneClasses: Record<LaserTone, {
+    bg: string;
+    text: string;
+    gradient: string;
+}> = {
+    violet: {
+        bg: 'bg-violet-500',
+        text: 'text-violet-500',
+        gradient: 'bg-gradient-to-r from-violet-500 to-transparent',
+    },
+    blue: {
+        bg: 'bg-blue-500',
+        text: 'text-blue-500',
+        gradient: 'bg-gradient-to-r from-blue-500 to-transparent',
+    },
+    green: {
+        bg: 'bg-green-500',
+        text: 'text-green-500',
+        gradient: 'bg-gradient-to-r from-green-500 to-transparent',
+    },
+    yellow: {
+        bg: 'bg-yellow-500',
+        text: 'text-yellow-500',
+        gradient: 'bg-gradient-to-r from-yellow-500 to-transparent',
+    },
+    orange: {
+        bg: 'bg-orange-500',
+        text: 'text-orange-500',
+        gradient: 'bg-gradient-to-r from-orange-500 to-transparent',
+    },
+    red: {
+        bg: 'bg-red-500',
+        text: 'text-red-500',
+        gradient: 'bg-gradient-to-r from-red-500 to-transparent',
+    },
+};
+
 export const DiffractionLab: React.FC = () => {
     // --- State ---
     const [wavelength, setWavelength] = useState(650); // nm (Red)
@@ -43,16 +82,17 @@ export const DiffractionLab: React.FC = () => {
     const isMeasurementCorrect = errorMargin < 0.1; // 10% tolerance
 
     // --- Color Helper ---
-    const getColor = (nm: number) => {
-        if (nm < 450) return '#8b5cf6'; // Violet
-        if (nm < 495) return '#3b82f6'; // Blue
-        if (nm < 570) return '#22c55e'; // Green
-        if (nm < 590) return '#eab308'; // Yellow
-        if (nm < 620) return '#f97316'; // Orange
-        return '#ef4444'; // Red
+    const getLaserTone = (nm: number): LaserTone => {
+        if (nm < 450) return 'violet';
+        if (nm < 495) return 'blue';
+        if (nm < 570) return 'green';
+        if (nm < 590) return 'yellow';
+        if (nm < 620) return 'orange';
+        return 'red';
     };
 
-    const laserColor = getColor(wavelength);
+    const laserTone = getLaserTone(wavelength);
+    const laserClasses = laserToneClasses[laserTone];
 
     return (
         <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
@@ -89,26 +129,20 @@ export const DiffractionLab: React.FC = () => {
 
                 {/* Laser Beam Part 1 */}
                 <div
-                    className="absolute left-[3rem] w-[calc(33%-3rem)] h-1 shadow-[0_0_10px_currentColor] z-0 opacity-80"
-                    style={{ backgroundColor: laserColor, color: laserColor }}
+                    className={`absolute left-[3rem] w-[calc(33%-3rem)] h-1 shadow-[0_0_10px_currentColor] z-0 opacity-80 ${laserClasses.bg} ${laserClasses.text}`}
                 />
 
                 {/* Laser Beam Part 2 (Diffracted Cone) */}
                 <div
-                    className="absolute left-[33%] top-1/2 -translate-y-1/2 h-1 z-0 opacity-40 mix-blend-screen"
-                    style={{
-                        width: 'calc(66%-2rem)',
-                        background: `linear-gradient(90deg, ${laserColor}, transparent)`,
-                        transform: 'perspective(500px) rotateY(0deg)',
-                        clipPath: 'polygon(0 45%, 100% 0, 100% 100%, 0 55%)'
-                    }}
+                    className={`absolute left-[33%] top-1/2 h-1 w-[calc(66%-2rem)] z-0 opacity-40 mix-blend-screen [clip-path:polygon(0_45%,_100%_0,_100%_100%,_0_55%)] [transform:perspective(500px)_rotateY(0deg)] ${laserClasses.gradient}`}
                 />
 
                 {/* Screen */}
                 <div className="absolute right-8 h-32 w-2 bg-slate-200 shadow-[0_0_20px_rgba(255,255,255,0.1)] z-10 flex flex-col justify-center items-center">
-                    <div
-                        className="w-1 rounded-full shadow-[0_0_15px_4px_currentColor]"
-                        style={{ height: `${Math.min(100, L_cm * 5)}%`, backgroundColor: laserColor, color: laserColor }}
+                    <motion.div
+                        className={`w-1 rounded-full shadow-[0_0_15px_4px_currentColor] ${laserClasses.bg} ${laserClasses.text}`}
+                        animate={{ height: `${Math.min(100, L_cm * 5)}%` }}
+                        transition={{ duration: 0.18 }}
                     />
                 </div>
                 <div className="absolute right-4 bottom-8 text-xs text-slate-400 font-bold">ÉCRAN</div>
@@ -122,7 +156,7 @@ export const DiffractionLab: React.FC = () => {
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                         <label className="flex justify-between font-bold text-slate-700 mb-2">
                             <span>Longueur d'onde (λ)</span>
-                            <span style={{ color: laserColor }}>{wavelength} nm</span>
+                            <span className={laserClasses.text}>{wavelength} nm</span>
                         </label>
                         <input
                             type="range" min="400" max="700" step="10"
@@ -171,23 +205,20 @@ export const DiffractionLab: React.FC = () => {
                         <div className="absolute inset-0 flex items-center justify-center">
                             {/* Central Spot */}
                             <motion.div
-                                className="h-full blur-xl opacity-80"
-                                style={{
-                                    width: `${L_cm * PIXELS_PER_CM}px`,
-                                    backgroundColor: laserColor,
-                                    boxShadow: `0 0 40px 10px ${laserColor}`
-                                }}
+                                className={`h-full blur-xl opacity-80 shadow-[0_0_40px_10px_currentColor] ${laserClasses.bg} ${laserClasses.text}`}
+                                animate={{ width: `${L_cm * PIXELS_PER_CM}px` }}
+                                transition={{ duration: 0.18 }}
                             />
                             {/* Secondary spots? Simplified visual for now or multiple divs */}
                             {/* Let's draw a few secondary maxima */}
                             {[-1.5, 1.5].map((offset, i) => (
-                                <div key={i}
-                                    className="absolute h-3/4 opacity-30 blur-md rounded-full"
-                                    style={{
+                                <motion.div key={i}
+                                    className={`absolute h-3/4 opacity-30 blur-md rounded-full ${laserClasses.bg}`}
+                                    animate={{
                                         width: `${(L_cm / 2) * PIXELS_PER_CM}px`,
-                                        backgroundColor: laserColor,
-                                        transform: `translateX(${offset * L_cm * PIXELS_PER_CM}px)`
+                                        x: offset * L_cm * PIXELS_PER_CM,
                                     }}
+                                    transition={{ duration: 0.18 }}
                                 />
                             ))}
                         </div>
@@ -211,9 +242,10 @@ export const DiffractionLab: React.FC = () => {
                             </div>
 
                             {/* Left Cursor */}
-                            <div
-                                className="absolute top-0 bottom-0 w-8 cursor-ew-resize flex flex-col items-center group touch-none"
-                                style={{ left: rulerPos.x1 - 16 }}
+                            <motion.div
+                                className="absolute left-0 top-0 bottom-0 w-8 cursor-ew-resize flex flex-col items-center group touch-none"
+                                animate={{ x: rulerPos.x1 - 16 }}
+                                transition={{ duration: 0 }}
                                 onPointerDown={(e) => {
                                     const startX = e.clientX;
                                     const startPos = rulerPos.x1;
@@ -231,12 +263,13 @@ export const DiffractionLab: React.FC = () => {
                             >
                                 <div className="h-full w-[1px] bg-white group-hover:bg-yellow-400 shadow-[0_0_5px_rgba(0,0,0,1)]"></div>
                                 <div className="absolute bottom-10 bg-white text-black p-1 rounded font-bold text-xs"><MoveHorizontal size={14} /></div>
-                            </div>
+                            </motion.div>
 
                             {/* Right Cursor */}
-                            <div
-                                className="absolute top-0 bottom-0 w-8 cursor-ew-resize flex flex-col items-center group touch-none"
-                                style={{ left: rulerPos.x2 - 16 }}
+                            <motion.div
+                                className="absolute left-0 top-0 bottom-0 w-8 cursor-ew-resize flex flex-col items-center group touch-none"
+                                animate={{ x: rulerPos.x2 - 16 }}
+                                transition={{ duration: 0 }}
                                 onPointerDown={(e) => {
                                     const startX = e.clientX;
                                     const startPos = rulerPos.x2;
@@ -254,7 +287,7 @@ export const DiffractionLab: React.FC = () => {
                             >
                                 <div className="h-full w-[1px] bg-white group-hover:bg-yellow-400 shadow-[0_0_5px_rgba(0,0,0,1)]"></div>
                                 <div className="absolute bottom-10 bg-white text-black p-1 rounded font-bold text-xs"><MoveHorizontal size={14} /></div>
-                            </div>
+                            </motion.div>
                         </div>
 
                     </div>

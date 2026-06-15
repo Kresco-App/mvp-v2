@@ -26,9 +26,12 @@ async def persist_created_stripe_customer(
     user: User,
     *,
     previous_customer_id: str,
+    customer_id: str | None = "",
 ) -> bool:
-    if previous_customer_id or not user.stripe_customer_id:
+    normalized_customer_id = _normalize_customer_id(customer_id)
+    if previous_customer_id or not normalized_customer_id:
         return False
+    user.stripe_customer_id = normalized_customer_id
     await db.commit()
     return True
 

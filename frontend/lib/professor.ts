@@ -188,6 +188,11 @@ export type StudentProfessorChatStatus = {
   teacher_threads?: StudentProfessorThread[]
 }
 
+type OffsetPageParams = { limit?: number; offset?: number }
+type CursorPageParams = { limit?: number; before_id?: number }
+type LiveInteractionPageParams = CursorPageParams & { status?: string; kind?: string }
+type StudentLiveInteractionPageParams = CursorPageParams & { kind?: string }
+
 export async function getProfessorDashboard() {
   return getJson<ProfessorDashboard>('/professor/dashboard')
 }
@@ -262,9 +267,12 @@ export async function getStudentLiveEmbed(id: number) {
   return getJson<LiveSessionEmbed>(`/professor/student-live-sessions/${id}/embed`)
 }
 
-export async function listProfessorLiveInteractions(id: number, status?: string) {
+export async function listProfessorLiveInteractions(id: number, paramsOrStatus: string | LiveInteractionPageParams = {}) {
+  const params = typeof paramsOrStatus === 'string'
+    ? (paramsOrStatus ? { status: paramsOrStatus } : {})
+    : paramsOrStatus
   return getJson<LiveSessionInteraction[]>(`/professor/live-sessions/${id}/interactions`, {
-    params: status ? { status } : undefined,
+    params: Object.keys(params).length ? params : undefined,
   })
 }
 
@@ -280,8 +288,10 @@ export async function deleteProfessorLiveInteraction(id: number) {
   return deleteJson<LiveSessionInteraction>(`/professor/live-sessions/interactions/${id}`)
 }
 
-export async function listStudentLiveInteractions(id: number) {
-  return getJson<LiveSessionInteraction[]>(`/professor/student-live-sessions/${id}/interactions`)
+export async function listStudentLiveInteractions(id: number, params: StudentLiveInteractionPageParams = {}) {
+  return getJson<LiveSessionInteraction[]>(`/professor/student-live-sessions/${id}/interactions`, {
+    params: Object.keys(params).length ? params : undefined,
+  })
 }
 
 export async function createStudentLiveInteraction(id: number, body: string, kind = 'question') {
@@ -307,9 +317,6 @@ export async function listStudentLiveCheckpoints(id: number) {
 export async function listProfessorChangeRequests(status = 'pending') {
   return getJson<ChangeRequest[]>('/professor/change-requests', { params: { status } })
 }
-
-type OffsetPageParams = { limit?: number; offset?: number }
-type CursorPageParams = { limit?: number; before_id?: number }
 
 export async function listProfessorConversations(params: { q?: string; unread?: boolean; pinned?: boolean } & OffsetPageParams = {}) {
   return getJson<ProfessorConversation[]>('/professor/chat/conversations', { params })

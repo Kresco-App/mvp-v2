@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle } from 'lucide-react'
-import { postJson } from '@/lib/apiClient'
+import { useVideoProgress } from '@/hooks/useVideoProgress'
 
 const YOUTUBE_API_SRC = 'https://www.youtube.com/iframe_api'
 const YOUTUBE_NOCOOKIE_HOST = 'https://www.youtube-nocookie.com'
@@ -106,10 +106,6 @@ export function buildYouTubePlayerVars() {
   }
 }
 
-function activeLessonMatches(progressLessonId: string | number, activeLessonId: string | number) {
-  return progressLessonId === activeLessonId
-}
-
 type YouTubeVideoPlayerProps = {
   lessonId: string | number
   videoId: string
@@ -129,77 +125,40 @@ export default function YouTubeVideoPlayer({
 }: YouTubeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const playerRef = useRef<YouTubePlayer | null>(null)
-  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lessonIdentityRef = useRef(lessonId)
-  const completionReportedRef = useRef(false)
-  const onProgressRef = useRef<ProgressCallback>(onProgress)
-  const onCompleteRef = useRef<CompleteCallback>(onComplete)
-  const lastSavedRef = useRef(0)
   const initialSeekDoneRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
 
-  const clearProgressInterval = useCallback(() => {
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current)
-      progressIntervalRef.current = null
-    }
-  }, [])
-
-  const saveProgress = useCallback(async (watchedSeconds: number) => {
-    if (!activeLessonMatches(lessonId, lessonIdentityRef.current)) return
-    try {
-      await postJson(`/courses/topic-items/${lessonId}/complete`, {
-        watched_seconds: Math.max(0, Math.round(watchedSeconds)),
-      })
-    } catch {
-      // Playback should not be interrupted by transient progress-save failures.
-    }
-  }, [lessonId])
-
-  const currentDuration = useCallback(() => {
-    const playerDuration = playerRef.current?.getDuration?.() ?? 0
-    return playerDuration > 0 ? playerDuration : durationSeconds
-  }, [durationSeconds])
-
   const currentResumeSeconds = useCallback(() => (
     Math.max(0, Math.round(Number(resumeSeconds || 0)))
   ), [resumeSeconds])
 
-  const currentWatchedSeconds = useCallback(() => (
+  const getCurrentTime = useCallback(() => playerRef.current?.getCurrentTime?.() ?? 0, [])
+  const getDuration = useCallback(() => playerRef.current?.getDuration?.() ?? 0, [])
+  const getWatchedSeconds = useCallback(() => (
     Math.max(0, Math.round(playerRef.current?.getCurrentTime?.() ?? currentResumeSeconds()))
   ), [currentResumeSeconds])
 
-  const reportCompletion = useCallback(() => {
-    if (completionReportedRef.current) return
-    completionReportedRef.current = true
-    setIsPlaying(false)
-    clearProgressInterval()
-    void saveProgress(currentDuration() || durationSeconds)
-    onCompleteRef.current?.()
-  }, [clearProgressInterval, currentDuration, durationSeconds, saveProgress])
-
-  const syncProgress = useCallback(() => {
-    if (!activeLessonMatches(lessonId, lessonIdentityRef.current)) return
-    const current = playerRef.current?.getCurrentTime?.() ?? 0
-    const duration = currentDuration()
-    const progress = duration > 0 ? current / duration : 0
-    onProgressRef.current?.(current, progress)
-    if (progress >= 0.9) {
-      reportCompletion()
-    }
-  }, [currentDuration, lessonId, reportCompletion])
+  const {
+    clearProgressInterval,
+    currentWatchedSeconds,
+    reportCompletion,
+    saveProgress,
+    syncProgress,
+  } = useVideoProgress({
+    lessonId,
+    durationSeconds,
+    isPlaying,
+    getCurrentTime,
+    getDuration,
+    getWatchedSeconds,
+    onProgress,
+    onComplete,
+    onStopPlayback: () => setIsPlaying(false),
+  })
 
   useEffect(() => {
-    onProgressRef.current = onProgress
-    onCompleteRef.current = onComplete
-  }, [onComplete, onProgress])
-
-  useEffect(() => {
-    lessonIdentityRef.current = lessonId
-    completionReportedRef.current = false
-    lastSavedRef.current = 0
     initialSeekDoneRef.current = false
     clearProgressInterval()
     setLoading(true)
@@ -235,7 +194,7 @@ export default function YouTubeVideoPlayer({
                 return
               }
               if (event.data === YOUTUBE_ENDED_STATE) {
-                reportCompletion()
+                void reportCompletion()
               }
             },
             onError: () => {
@@ -265,42 +224,6 @@ export default function YouTubeVideoPlayer({
       playerRef.current = null
     }
   }, [clearProgressInterval, currentResumeSeconds, currentWatchedSeconds, lessonId, reportCompletion, saveProgress, syncProgress, videoId])
-
-  useEffect(() => {
-    if (!isPlaying) {
-      clearProgressInterval()
-      return
-    }
-
-    const activeLessonId = lessonId
-    const intervalId = setInterval(() => {
-      if (!activeLessonMatches(activeLessonId, lessonIdentityRef.current)) return
-      syncProgress()
-      const current = Math.round(playerRef.current?.getCurrentTime?.() ?? 0)
-      if (current !== lastSavedRef.current) {
-        lastSavedRef.current = current
-        void saveProgress(current)
-      }
-    }, 30000)
-    progressIntervalRef.current = intervalId
-
-    return () => {
-      clearInterval(intervalId)
-      if (progressIntervalRef.current === intervalId) {
-        progressIntervalRef.current = null
-      }
-    }
-  }, [clearProgressInterval, isPlaying, lessonId, saveProgress, syncProgress])
-
-  useEffect(() => {
-    const flushProgress = () => {
-      void saveProgress(currentWatchedSeconds())
-    }
-    window.addEventListener('pagehide', flushProgress)
-    return () => {
-      window.removeEventListener('pagehide', flushProgress)
-    }
-  }, [currentWatchedSeconds, saveProgress])
 
   if (error) {
     return (

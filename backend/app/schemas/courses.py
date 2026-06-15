@@ -36,7 +36,16 @@ class StreamOut(BaseModel):
     resume_seconds: int = 0
 
 
-class ResourceOut(BaseModel):
+class AccessGuardedMixin(BaseModel):
+    required_tier: str = ""
+    required_feature_key: str = ""
+    required_subject_id: Optional[int] = None
+    can_access: bool = True
+    locked_reason: str = ""
+    access_reason: str = "unlocked"
+
+
+class ResourceOut(AccessGuardedMixin):
     id: int
     title: str
     resource_type: str
@@ -46,37 +55,26 @@ class ResourceOut(BaseModel):
     summary: str = ""
     metadata_json: dict = {}
     is_free_preview: bool = False
-    required_tier: str = ""
-    required_feature_key: str = ""
-    required_subject_id: Optional[int] = None
-    can_access: bool = True
-    locked_reason: str = ""
-    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
 
-class TabContentOut(BaseModel):
+class TabContentOut(AccessGuardedMixin):
     id: int
     label: str
     tab_type: str
     content: str = ""
     config_json: dict = {}
+    body_omitted: bool = False
     renderer_key: str = ""
     order: int
     concept_slugs: list[str] = []
     resource: Optional[ResourceOut] = None
-    required_tier: str = ""
-    required_feature_key: str = ""
-    required_subject_id: Optional[int] = None
-    can_access: bool = True
-    locked_reason: str = ""
-    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
 
-class TopicItemOut(BaseModel):
+class TopicItemOut(AccessGuardedMixin):
     id: int
     topic_id: int
     section_id: int
@@ -97,12 +95,6 @@ class TopicItemOut(BaseModel):
     watched_seconds: int = 0
     resume_seconds: int = 0
     best_score: Optional[int] = None
-    required_tier: str = ""
-    required_feature_key: str = ""
-    required_subject_id: Optional[int] = None
-    can_access: bool = True
-    locked_reason: str = ""
-    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
@@ -117,7 +109,7 @@ class TopicSectionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class TopicCardOut(BaseModel):
+class TopicCardOut(AccessGuardedMixin):
     id: int
     subject_id: int
     subject_title: str
@@ -129,15 +121,9 @@ class TopicCardOut(BaseModel):
     completed_count: int = 0
     progress_pct: int = 0
     concepts: list[str] = []
-    required_tier: str = ""
-    required_feature_key: str = ""
-    required_subject_id: Optional[int] = None
-    can_access: bool = True
-    locked_reason: str = ""
-    access_reason: str = "unlocked"
 
 
-class TopicWorkspaceOut(BaseModel):
+class TopicWorkspaceOut(AccessGuardedMixin):
     id: int
     subject_id: int
     subject_title: str
@@ -147,12 +133,6 @@ class TopicWorkspaceOut(BaseModel):
     progress_pct: int
     completed_count: int
     item_count: int
-    required_tier: str = ""
-    required_feature_key: str = ""
-    required_subject_id: Optional[int] = None
-    can_access: bool = True
-    locked_reason: str = ""
-    access_reason: str = "unlocked"
     active_item_id: Optional[int]
     sections: list[TopicSectionOut]
     active_item: Optional[TopicItemOut]
@@ -162,6 +142,16 @@ class TopicWorkspaceOut(BaseModel):
 class TopicItemCompleteIn(StrictInputModel):
     watched_seconds: int = Field(default=0, ge=0)
     score: Optional[int] = Field(default=None, ge=0, le=100)
+
+
+class TopicItemProgressIn(StrictInputModel):
+    watched_seconds: int = Field(default=0, ge=0)
+
+
+class TopicItemProgressOut(BaseModel):
+    ok: bool = True
+    watched_seconds: int = 0
+    completed: bool = False
 
 
 class TabQuizSubmitIn(StrictInputModel):
@@ -208,7 +198,7 @@ class TabQuizResultOut(BaseModel):
     attempt: Optional[TabQuizAttemptSummaryOut] = None
 
 
-class ExamProblemOut(BaseModel):
+class ExamProblemOut(AccessGuardedMixin):
     id: int
     exam_id: int
     topic_id: Optional[int] = None
@@ -219,16 +209,10 @@ class ExamProblemOut(BaseModel):
     difficulty: str
     concept_slugs: list[str] = []
     video_resource: Optional[ResourceOut] = None
-    required_tier: str = ""
-    required_feature_key: str = ""
-    required_subject_id: Optional[int] = None
-    can_access: bool = True
-    locked_reason: str = ""
-    access_reason: str = "unlocked"
 
     model_config = {"from_attributes": True}
 
-class ExamOut(BaseModel):
+class ExamOut(AccessGuardedMixin):
     id: int
     subject_id: int
     subject_title: str = ""
@@ -236,12 +220,6 @@ class ExamOut(BaseModel):
     year: int
     session: str
     statement_url: str
-    required_tier: str = ""
-    required_feature_key: str = ""
-    required_subject_id: Optional[int] = None
-    can_access: bool = True
-    locked_reason: str = ""
-    access_reason: str = "unlocked"
     problems: list[ExamProblemOut] = []
 
     model_config = {"from_attributes": True}

@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import RouteErrorState from '@/components/RouteErrorState'
 import { apiDataErrorMessage } from '@/lib/apiData'
+import { formatLiveDateTime as formatDateTime } from '@/lib/liveInteractions'
 import { useProfessorDashboardData } from '@/lib/professorDashboardData'
 import {
   notifyProfessorLiveSession,
@@ -244,8 +245,4 @@ function MetricRow({ icon, label, value }: { icon: React.ReactNode; label: strin
 
 function offeringTitle(offering: CourseOffering) {
   return offering.title || `${offering.subject_title} - ${offering.track.niveau} ${offering.track.filiere}`
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }

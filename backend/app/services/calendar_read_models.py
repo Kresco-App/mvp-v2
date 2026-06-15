@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -10,10 +10,13 @@ from app.models.calendar import CalendarEvent
 from app.models.professor import CourseOffering, LiveSession, ProgramTrack
 from app.models.users import User
 from app.schemas.calendar import CalendarEventDetailOut, CalendarEventOut
+from app.services.access import AccessContext, FeatureAccessRequirement, build_access_context
+
+LIVE_SESSION_ACCESS_REQUIREMENT = FeatureAccessRequirement("live_sessions")
 
 
 def can_view_broad_calendar(user: User) -> bool:
-    return bool(user.is_staff or user.is_superuser or user.role == "professor")
+    return bool(user.is_staff or user.is_superuser)
 
 
 def calendar_timezone(timezone_name: str) -> ZoneInfo:
@@ -61,18 +64,59 @@ def calendar_event_out(event: CalendarEvent) -> CalendarEventOut:
     )
 
 
-def calendar_event_visibility_filter(user: User):
+def professor_live_calendar_filter(user: User):
+    return and_(
+        LiveSession.id.is_not(None),
+        LiveSession.professor_user_id == user.id,
+        CourseOffering.professor_user_id == user.id,
+        CourseOffering.status == "active",
+    )
+
+
+def student_live_calendar_filter(user: User, access_context: AccessContext):
+    access = access_context.decide_for(LIVE_SESSION_ACCESS_REQUIREMENT)
+    if not access.can_access:
+        return false()
+
+    filters = [
+        LiveSession.id.is_not(None),
+        ProgramTrack.niveau == user.niveau,
+        ProgramTrack.filiere == user.filiere,
+        CourseOffering.status == "active",
+        ProgramTrack.status == "active",
+    ]
+    if access_context.subject_scope_enforced:
+        filters.append(CourseOffering.subject_id.in_(access_context.active_subject_ids))
+    return and_(*filters)
+
+
+def calendar_event_visibility_filter(user: User, access_context: AccessContext | None = None):
     if can_view_broad_calendar(user):
         return None
+    if user.role == "professor":
+        live_filter = professor_live_calendar_filter(user)
+    else:
+        if access_context is None:
+            raise RuntimeError("access_context is required for student calendar visibility")
+        live_filter = student_live_calendar_filter(user, access_context)
+    non_live_event = or_(CalendarEvent.event_type.is_(None), CalendarEvent.event_type != "live_session")
     return or_(
+        non_live_event,
         LiveSession.id.is_(None),
-        and_(ProgramTrack.niveau == user.niveau, ProgramTrack.filiere == user.filiere),
+        live_filter,
     )
+
+
+async def calendar_access_context(db: AsyncSession, user: User) -> AccessContext | None:
+    if can_view_broad_calendar(user) or user.role == "professor":
+        return None
+    return await build_access_context(db, user)
 
 
 def calendar_event_base_query():
     return (
         select(CalendarEvent)
+        .distinct()
         .outerjoin(LiveSession, LiveSession.calendar_event_id == CalendarEvent.id)
         .outerjoin(CourseOffering, CourseOffering.id == LiveSession.course_offering_id)
         .outerjoin(ProgramTrack, ProgramTrack.id == CourseOffering.track_id)
@@ -106,11 +150,12 @@ async def list_visible_calendar_events(
         )
         .order_by(CalendarEvent.starts_at, CalendarEvent.id)
     )
-    visibility_filter = calendar_event_visibility_filter(user)
+    access_context = await calendar_access_context(db, user)
+    visibility_filter = calendar_event_visibility_filter(user, access_context)
     if visibility_filter is not None:
         stmt = stmt.where(visibility_filter)
     result = await db.execute(stmt.offset(offset).limit(limit))
-    return [calendar_event_out(event) for event in result.scalars().all()]
+    return [calendar_event_out(event) for event in result.scalars().unique().all()]
 
 
 async def get_visible_calendar_event_detail(
@@ -119,11 +164,12 @@ async def get_visible_calendar_event_detail(
     event_id: int,
 ) -> CalendarEventDetailOut:
     stmt = calendar_event_base_query().where(CalendarEvent.id == event_id)
-    visibility_filter = calendar_event_visibility_filter(user)
+    access_context = await calendar_access_context(db, user)
+    visibility_filter = calendar_event_visibility_filter(user, access_context)
     if visibility_filter is not None:
         stmt = stmt.where(visibility_filter)
     result = await db.execute(stmt)
-    event = result.scalar_one_or_none()
+    event = result.scalars().unique().one_or_none()
     if event is None:
         raise HTTPException(status_code=404, detail="Calendar event not found")
     return CalendarEventDetailOut(**calendar_event_out(event).model_dump())

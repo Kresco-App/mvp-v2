@@ -65,8 +65,8 @@ export const AtomComposition: React.FC = () => {
           </motion.div>
           
           {/* Decorative Electron Cloud Ring */}
-          <div className="absolute inset-0 rounded-full border border-purple-200 opacity-40 animate-[spin_12s_linear_infinite]" style={{borderStyle: 'dashed', borderWidth: '1px'}} />
-          <div className="absolute inset-4 rounded-full border border-purple-200 opacity-30 animate-[spin_15s_linear_infinite_reverse]" style={{borderStyle: 'dashed', borderWidth: '1px'}} />
+          <div className="absolute inset-0 rounded-full border border-dashed border-purple-200 opacity-40 animate-[spin_12s_linear_infinite]" />
+          <div className="absolute inset-4 rounded-full border border-dashed border-purple-200 opacity-30 animate-[spin_15s_linear_infinite_reverse]" />
         </div>
         
         <div className="mt-6 flex justify-center gap-4 text-xs flex-wrap">
@@ -109,8 +109,7 @@ export const AtomComposition: React.FC = () => {
                         key={`Z-${protons}`}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="text-3xl md:text-4xl text-yellow-500 block shadow-sm"
-                        style={{ textShadow: '1px 1px 0px rgba(0,0,0,0.1)' }}
+                        className="text-3xl md:text-4xl text-yellow-500 block shadow-sm [text-shadow:1px_1px_0px_rgba(0,0,0,0.1)]"
                     >
                         {protons}
                     </motion.span>

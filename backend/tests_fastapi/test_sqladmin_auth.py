@@ -1,9 +1,12 @@
 import pytest
+import inspect
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.admin.views import UserAdmin
+import app.admin.auth as admin_auth
+from app.admin.views import LiveSessionAdmin, SENSITIVE_COLUMN_NAMES, UserAdmin
 from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.security.csrf import ADMIN_CSRF_COOKIE_NAME, ADMIN_CSRF_FIELD_NAME
@@ -13,6 +16,14 @@ from app.security.passwords import hash_password
 
 TRUSTED_ORIGIN = "http://testserver"
 STAFF_PASSWORD = "strong-admin-pass-123"
+
+
+def _admin_column_keys(values) -> set[str]:
+    return {
+        key
+        for value in values or []
+        if (key := getattr(value, "key", str(value)))
+    }
 
 
 async def _seed_admin_auth_users(prefix: str) -> dict[str, int | str]:
@@ -91,6 +102,41 @@ def test_sqladmin_login_requires_database_staff_user_and_audits(app_client, run_
 
     admin_home = app_client.get("/admin/")
     assert admin_home.status_code == 200
+
+
+def test_sqladmin_login_delegates_password_authentication_to_account_service():
+    source = inspect.getsource(admin_auth.StaffAdminAuth.login)
+
+    assert "authenticate_password_login(" in source
+    assert "verify_password(" not in source
+    assert "verify_password_async(" not in source
+    assert "is_unusable_password(" not in source
+
+
+def test_sqladmin_hides_sensitive_columns_from_read_and_export_surfaces():
+    sensitive_live_session_keys = {"provider_payload_json", "stream_ingest_url", "stream_key"}
+    sensitive_user_keys = {
+        "auth_token_version",
+        "email_token_version",
+        "google_id",
+        "password",
+        "password_changed_at",
+        "stripe_customer_id",
+    }
+
+    for view, sensitive_keys in (
+        (LiveSessionAdmin, sensitive_live_session_keys),
+        (UserAdmin, sensitive_user_keys),
+    ):
+        assert sensitive_keys <= SENSITIVE_COLUMN_NAMES
+        for configured_columns in (
+            view.column_list,
+            view.column_details_list,
+            view.column_export_list,
+            view.column_searchable_list,
+        ):
+            assert _admin_column_keys(configured_columns).isdisjoint(sensitive_keys)
+        assert set(view.form_excluded_columns) >= sensitive_keys
 
 
 def test_sqladmin_rejects_untrusted_origin_before_login(app_client, run_db):

@@ -3,6 +3,40 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 
+interface WavelengthValueProps {
+  value: number
+  color: string
+}
+
+const MONO_FONT_FAMILY = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+const WAVELENGTH_VALUE_WIDTH = 64
+
+function WavelengthValue({ value, color }: WavelengthValueProps) {
+  return (
+    <span className="inline-flex min-w-[4rem] justify-end">
+      <svg
+        viewBox={`0 0 ${WAVELENGTH_VALUE_WIDTH} 20`}
+        width={WAVELENGTH_VALUE_WIDTH}
+        height={20}
+        aria-hidden="true"
+        focusable="false"
+      >
+        <text
+          x={WAVELENGTH_VALUE_WIDTH}
+          y={15}
+          textAnchor="end"
+          fill={color}
+          fontFamily={MONO_FONT_FAMILY}
+          fontSize={14}
+        >
+          {value} nm
+        </text>
+      </svg>
+      <span className="sr-only">{value} nm</span>
+    </span>
+  )
+}
+
 export default function DiffractionSimulator() {
   const [wavelength, setWavelength] = useState(400)
   const [slitWidth, setSlitWidth] = useState(100)
@@ -471,7 +505,7 @@ export default function DiffractionSimulator() {
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-300">Longueur d&apos;onde (lambda)</span>
-                <span className="font-mono" style={{ color: getWavelengthColor(wavelength) }}>{wavelength} nm</span>
+                <WavelengthValue value={wavelength} color={getWavelengthColor(wavelength)} />
               </div>
               <input
                 aria-label="Longueur d'onde"

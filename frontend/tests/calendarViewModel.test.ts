@@ -40,10 +40,15 @@ describe('calendar view model helpers', () => {
 
   it('keeps realtime subscriptions stable across week navigation', () => {
     const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8')
+    const hookSource = readFileSync(join(process.cwd(), 'hooks', 'useNotificationChannelsSubscription.ts'), 'utf8')
 
     expect(source).toContain('const loadEventsForWeekRef = useRef(loadEventsForWeek)')
     expect(source).toContain('useEffect(() => {\n    loadEventsForWeekRef.current = loadEventsForWeek\n  }, [loadEventsForWeek])')
-    expect(source).toContain('const refresh = () => void loadEventsForWeekRef.current(() => !stopped)')
+    expect(source).toContain('useNotificationChannelsSubscription({')
+    expect(source).toContain('void loadEventsForWeekRef.current(isActive)')
+    expect(source).not.toContain('listKrescoRealtimeSubscriptions')
+    expect(hookSource).toContain('listKrescoRealtimeSubscriptions()')
+    expect(hookSource).toContain('channelNames: [fallbackUserChannel]')
     expect(source).not.toContain('}, [loadEventsForWeek, user?.id])')
   })
 

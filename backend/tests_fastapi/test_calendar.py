@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 import inspect
+from uuid import uuid4
 
 from sqlalchemy import delete
 
@@ -9,7 +10,8 @@ from app.database import get_session_factory
 from app.models.calendar import CalendarEvent
 from app.models.courses import Subject, Topic
 from app.models.professor import CourseOffering, LiveSession, ProgramTrack
-from app.models.users import User
+from app.models.users import User, UserSubjectEntitlement
+from app.services.auth import create_token
 from app.services.gamification_read_models import _sidebar_calendar_days
 
 
@@ -168,6 +170,76 @@ def test_calendar_events_apply_requested_timezone_window(app_client, auth_token,
     assert invalid_response.json()["detail"] == "Invalid timezone"
 
 
+def test_calendar_non_live_events_ignore_live_session_join_rows(app_client, auth_token, run_db):
+    token, _ = auth_token(email="calendar-non-live-stale-join@example.com", is_pro=False)
+    suffix = uuid4().hex[:8]
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title=f"Calendar Non Live {suffix}", description="", is_published=True, order=1)
+            track = ProgramTrack(niveau="2BAC", filiere=f"Non Live {suffix}", title=f"Non Live {suffix}")
+            professor = User(
+                email=f"calendar-non-live-prof-{suffix}@example.com",
+                full_name="Prof Non Live",
+                role="professor",
+                is_email_verified=True,
+                is_active=True,
+                password="!",
+            )
+            db.add_all([subject, track, professor])
+            await db.flush()
+            offering = CourseOffering(
+                subject_id=subject.id,
+                track_id=track.id,
+                professor_user_id=professor.id,
+                title=f"Non Live Offering {suffix}",
+                status="active",
+            )
+            db.add(offering)
+            await db.flush()
+            starts_at = datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc)
+            event = CalendarEvent(
+                event_type="study_block",
+                title="Study block with stale live join",
+                subject_id=subject.id,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(hours=1),
+            )
+            db.add(event)
+            await db.flush()
+            db.add(LiveSession(
+                course_offering_id=offering.id,
+                professor_user_id=professor.id,
+                calendar_event_id=event.id,
+                title="Unrelated stale live row",
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(hours=1),
+                status="scheduled",
+            ))
+            await db.commit()
+
+    run_db(_seed())
+
+    async def _cleanup():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await db.execute(delete(LiveSession).where(LiveSession.title == "Unrelated stale live row"))
+            await db.execute(delete(CalendarEvent).where(CalendarEvent.title == "Study block with stale live join"))
+            await db.commit()
+
+    try:
+        response = app_client.get(
+            "/api/calendar/events?start=2026-06-01&end=2026-06-01",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert [event["title"] for event in response.json()] == ["Study block with stale live join"]
+    finally:
+        run_db(_cleanup())
+
+
 def test_calendar_event_detail_404(app_client, auth_token):
     token, _ = auth_token(email="calendar-404@example.com", is_pro=True)
     response = app_client.get(
@@ -285,6 +357,144 @@ def test_calendar_events_scope_legacy_role_users_and_hide_live_join_url(app_clie
     assert detail.status_code == 404
 
 
+def test_calendar_live_events_require_live_access_and_professor_ownership(app_client, run_db, test_settings):
+    suffix = uuid4().hex[:8]
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title=f"Calendar Live Access {suffix}", description="", is_published=True, order=1)
+            track = ProgramTrack(niveau="2BAC", filiere=f"Calendar Live {suffix}", title=f"Calendar Live {suffix}")
+            professor = User(
+                email=f"calendar-live-owner-{suffix}@example.com",
+                full_name="Prof Calendar Owner",
+                role="professor",
+                is_email_verified=True,
+                is_active=True,
+                password="!",
+            )
+            inactive_professor = User(
+                email=f"calendar-live-inactive-{suffix}@example.com",
+                full_name="Prof No Offering",
+                role="professor",
+                is_email_verified=True,
+                is_active=True,
+                password="!",
+            )
+            vip_student = User(
+                email=f"calendar-live-vip-{suffix}@example.com",
+                full_name="VIP Calendar",
+                role="student",
+                tier="vip",
+                niveau="2BAC",
+                filiere=track.filiere,
+                is_email_verified=True,
+                is_active=True,
+                password="!",
+            )
+            basic_student = User(
+                email=f"calendar-live-basic-{suffix}@example.com",
+                full_name="Basic Calendar",
+                role="student",
+                tier="basic",
+                niveau="2BAC",
+                filiere=track.filiere,
+                is_email_verified=True,
+                is_active=True,
+                password="!",
+            )
+            db.add_all([subject, track, professor, inactive_professor, vip_student, basic_student])
+            await db.flush()
+            db.add(UserSubjectEntitlement(
+                user_id=vip_student.id,
+                subject_id=subject.id,
+                starts_at=datetime.now(timezone.utc) - timedelta(days=1),
+                source="test",
+                status="active",
+            ))
+            offering = CourseOffering(
+                subject_id=subject.id,
+                track_id=track.id,
+                professor_user_id=professor.id,
+                title=f"Calendar Live Offering {suffix}",
+                status="active",
+            )
+            db.add(offering)
+            await db.flush()
+            starts_at = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
+            live_event = CalendarEvent(
+                event_type="live_session",
+                title="Entitled live calendar",
+                subtitle="Calendar Live",
+                teacher_name=professor.full_name,
+                subject_id=subject.id,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(hours=1),
+                join_url="https://live.example/calendar-entitled",
+            )
+            db.add(live_event)
+            await db.flush()
+            db.add(LiveSession(
+                course_offering_id=offering.id,
+                professor_user_id=professor.id,
+                calendar_event_id=live_event.id,
+                title=live_event.title,
+                starts_at=live_event.starts_at,
+                ends_at=live_event.ends_at,
+                join_url=live_event.join_url,
+                status="scheduled",
+            ))
+            await db.commit()
+            return {
+                "event_id": live_event.id,
+                "owner_token": create_token(professor.id, test_settings),
+                "inactive_professor_token": create_token(inactive_professor.id, test_settings),
+                "vip_token": create_token(vip_student.id, test_settings),
+                "basic_token": create_token(basic_student.id, test_settings),
+            }
+
+    seeded = run_db(_seed())
+    url = "/api/calendar/events?start=2026-10-01&end=2026-10-01"
+
+    vip_list = app_client.get(url, headers={"Authorization": f"Bearer {seeded['vip_token']}"})
+    assert vip_list.status_code == 200
+    assert any(event["title"] == "Entitled live calendar" for event in vip_list.json())
+
+    vip_detail = app_client.get(
+        f"/api/calendar/events/{seeded['event_id']}",
+        headers={"Authorization": f"Bearer {seeded['vip_token']}"},
+    )
+    assert vip_detail.status_code == 200
+    assert vip_detail.json()["join_url"] == "https://live.example/calendar-entitled"
+
+    basic_list = app_client.get(url, headers={"Authorization": f"Bearer {seeded['basic_token']}"})
+    assert basic_list.status_code == 200
+    assert all(event["title"] != "Entitled live calendar" for event in basic_list.json())
+
+    basic_detail = app_client.get(
+        f"/api/calendar/events/{seeded['event_id']}",
+        headers={"Authorization": f"Bearer {seeded['basic_token']}"},
+    )
+    assert basic_detail.status_code == 404
+
+    owner_list = app_client.get(url, headers={"Authorization": f"Bearer {seeded['owner_token']}"})
+    assert owner_list.status_code == 200
+    assert any(event["title"] == "Entitled live calendar" for event in owner_list.json())
+
+    inactive_professor_list = app_client.get(
+        url,
+        headers={"Authorization": f"Bearer {seeded['inactive_professor_token']}"},
+    )
+    assert inactive_professor_list.status_code == 200
+    assert all(event["title"] != "Entitled live calendar" for event in inactive_professor_list.json())
+
+    inactive_professor_detail = app_client.get(
+        f"/api/calendar/events/{seeded['event_id']}",
+        headers={"Authorization": f"Bearer {seeded['inactive_professor_token']}"},
+    )
+    assert inactive_professor_detail.status_code == 404
+
+
 def test_calendar_read_models_stay_out_of_router():
     router_source = inspect.getsource(calendar_router)
     service_source = inspect.getsource(calendar_read_models)
@@ -302,6 +512,9 @@ def test_calendar_read_models_stay_out_of_router():
     assert "def calendar_event_visibility_filter" in service_source
     assert "def calendar_event_out" in service_source
     assert "LiveSession.id.is_(None)" in service_source
+    assert "FeatureAccessRequirement(\"live_sessions\")" in service_source
+    assert "build_access_context" in service_source
+    assert "CourseOffering.professor_user_id == user.id" in service_source
     assert "ProgramTrack.niveau == user.niveau" in service_source
     assert "end must be on or after start" in service_source
     assert "Calendar event not found" in service_source

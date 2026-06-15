@@ -26,9 +26,10 @@ from app.schemas.professor import (
     StudentProfessorChatStatusOut,
     StudentProfessorThreadOut,
 )
-from app.services.access import FeatureAccessRequirement, build_access_context
+from app.services.access import AccessContext, FeatureAccessRequirement, build_access_context
 from app.services.professor_chat_access import (
-    professor_chat_eligibility,
+    professor_chat_access_decision,
+    professor_chat_access_denied_reason,
     professor_chat_offering_mismatch_reason,
 )
 from app.services.professor_change_request_targets import close_dangling_change_requests
@@ -42,6 +43,7 @@ from app.services.professor_serializers import (
     professor_live_session_out,
 )
 from app.services.professor_status import LiveSessionStatus
+from app.services.realtime_access import student_offering_filters
 from app.services.search import LIKE_ESCAPE, substring_search_pattern
 
 LIVE_SESSION_ACCESS_REQUIREMENT = FeatureAccessRequirement("live_sessions")
@@ -246,6 +248,7 @@ async def student_offerings(
     db: AsyncSession,
     student: User,
     *,
+    access_context: AccessContext | None = None,
     limit: int | None = None,
     offset: int = 0,
 ) -> list[CourseOffering]:
@@ -257,12 +260,7 @@ async def student_offerings(
             selectinload(CourseOffering.track),
             selectinload(CourseOffering.professor),
         )
-        .where(
-            CourseOffering.status == "active",
-            ProgramTrack.status == "active",
-            ProgramTrack.niveau == student.niveau,
-            ProgramTrack.filiere == student.filiere,
-        )
+        .where(*student_offering_filters(student, access_context))
         .order_by(CourseOffering.id)
     )
     if offset:
@@ -285,13 +283,8 @@ async def student_live_sessions(
         return []
     filters = [
         LiveSession.status != LiveSessionStatus.CANCELLED.value,
-        CourseOffering.status == "active",
-        ProgramTrack.status == "active",
-        ProgramTrack.niveau == student.niveau,
-        ProgramTrack.filiere == student.filiere,
+        *student_offering_filters(student, access_context),
     ]
-    if access_context.subject_scope_enforced:
-        filters.append(CourseOffering.subject_id.in_(access_context.active_subject_ids))
 
     result = await db.execute(
         select(LiveSession)
@@ -318,38 +311,59 @@ async def student_professor_chat_status(
     limit: int = 50,
     offset: int = 0,
 ) -> StudentProfessorChatStatusOut:
-    eligibility = professor_chat_eligibility(student)
-    offerings = await student_offerings(db, student, limit=limit, offset=offset) if eligibility.eligible else []
+    access_context = await build_access_context(db, student)
+    access = professor_chat_access_decision(access_context)
+    eligible = access.can_access
+    reason = "" if eligible else professor_chat_access_denied_reason(access)
+    offerings = await student_offerings(
+        db,
+        student,
+        access_context=access_context,
+        limit=limit,
+        offset=offset,
+    ) if eligible else []
     conversations: list[ProfessorChatConversation] = []
-    if eligibility.eligible:
+    if eligible:
         result = await db.execute(
             select(ProfessorChatConversation)
+            .join(CourseOffering, CourseOffering.id == ProfessorChatConversation.course_offering_id)
+            .join(ProgramTrack, ProgramTrack.id == CourseOffering.track_id)
             .options(
                 selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.subject),
                 selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.track),
                 selectinload(ProfessorChatConversation.professor),
                 selectinload(ProfessorChatConversation.student),
             )
-            .where(ProfessorChatConversation.student_user_id == student.id)
+            .where(
+                ProfessorChatConversation.student_user_id == student.id,
+                *student_offering_filters(student, access_context),
+            )
             .order_by(ProfessorChatConversation.last_message_at.desc())
             .offset(offset)
             .limit(limit)
         )
         conversations = list(result.scalars().all())
-    teacher_threads = await student_teacher_threads(db, offerings, conversations, settings) if eligibility.eligible else []
+    teacher_threads = await student_teacher_threads(db, offerings, conversations, settings) if eligible else []
     return StudentProfessorChatStatusOut(
-        eligible=eligibility.eligible,
-        reason=eligibility.reason,
+        eligible=eligible,
+        reason=reason,
         offerings=[offering_out(offering) for offering in offerings],
         conversations=[await conversation_out(conversation, settings) for conversation in conversations],
         teacher_threads=teacher_threads,
     )
 
 
-def ensure_student_professor_chat_access(user: User) -> None:
-    eligibility = professor_chat_eligibility(user)
-    if not eligibility.eligible:
-        raise HTTPException(status_code=403, detail=eligibility.reason)
+async def ensure_student_professor_chat_access(
+    db: AsyncSession,
+    user: User,
+    *,
+    subject_id: int | None = None,
+) -> AccessContext:
+    access_context = await build_access_context(db, user)
+    access = professor_chat_access_decision(access_context, subject_id=subject_id)
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=professor_chat_access_denied_reason(access))
+    return access_context
 
 
 def ensure_student_matches_offering(student: User, offering: CourseOffering) -> None:
@@ -365,6 +379,21 @@ async def require_professor_conversation(
     *,
     for_update: bool = False,
 ) -> ProfessorChatConversation:
+    return await _require_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_filter=ProfessorChatConversation.professor_user_id == professor.id,
+        for_update=for_update,
+    )
+
+
+async def _require_conversation(
+    db: AsyncSession,
+    *,
+    conversation_id: int,
+    user_filter,
+    for_update: bool,
+) -> ProfessorChatConversation:
     stmt = (
         select(ProfessorChatConversation)
         .options(
@@ -375,7 +404,7 @@ async def require_professor_conversation(
         )
         .where(
             ProfessorChatConversation.id == conversation_id,
-            ProfessorChatConversation.professor_user_id == professor.id,
+            user_filter,
         )
     )
     if for_update:
@@ -443,31 +472,12 @@ async def require_student_conversation(
     *,
     for_update: bool = False,
 ) -> ProfessorChatConversation:
-    stmt = (
-        select(ProfessorChatConversation)
-        .options(
-            selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.subject),
-            selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.track),
-            selectinload(ProfessorChatConversation.professor),
-            selectinload(ProfessorChatConversation.student),
-        )
-        .where(
-            ProfessorChatConversation.id == conversation_id,
-            ProfessorChatConversation.student_user_id == student.id,
-        )
+    return await _require_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_filter=ProfessorChatConversation.student_user_id == student.id,
+        for_update=for_update,
     )
-    if for_update:
-        stmt = stmt.with_for_update(nowait=True)
-    try:
-        result = await db.execute(stmt)
-    except DBAPIError as exc:
-        if for_update and is_lock_unavailable_error(exc):
-            raise HTTPException(status_code=409, detail=CONVERSATION_LOCKED_DETAIL) from exc
-        raise
-    conversation = result.scalar_one_or_none()
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return conversation
 
 
 async def require_student_live_session(db: AsyncSession, student: User, live_session_id: int) -> LiveSession:
@@ -483,10 +493,7 @@ async def require_student_live_session(db: AsyncSession, student: User, live_ses
         .where(
             LiveSession.id == live_session_id,
             LiveSession.status != LiveSessionStatus.CANCELLED.value,
-            CourseOffering.status == "active",
-            ProgramTrack.status == "active",
-            ProgramTrack.niveau == student.niveau,
-            ProgramTrack.filiere == student.filiere,
+            *student_offering_filters(student),
         )
     )
     session = result.scalar_one_or_none()

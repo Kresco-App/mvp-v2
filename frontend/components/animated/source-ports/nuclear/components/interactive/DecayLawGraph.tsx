@@ -9,21 +9,14 @@ import { motion } from 'framer-motion';
 
 const TOTAL_ATOMS = 200;
 const MAX_TIME = 20; // Simulation duration in seconds
+const ATOM_RANKS = Array.from({ length: TOTAL_ATOMS }, (_, index) => (index * 73) % TOTAL_ATOMS);
 
 export const DecayLawGraph: React.FC = () => {
   const [halfLife, setHalfLife] = useState(4); // seconds
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Generate a random "survival rank" for each grid position only once on mount.
-  const atomRanks = useMemo(() => {
-    const ranks = Array.from({ length: TOTAL_ATOMS }, (_, i) => i);
-    for (let i = ranks.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [ranks[i], ranks[j]] = [ranks[j], ranks[i]];
-    }
-    return ranks;
-  }, []);
+  const atomRanks = ATOM_RANKS;
 
   const lambda = Math.log(2) / halfLife;
   const currentN = Math.round(TOTAL_ATOMS * Math.exp(-lambda * currentTime));

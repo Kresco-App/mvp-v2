@@ -6,6 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import TopicWorkspacePage from '@/app/(dashboard)/topics/[topicId]/page'
 import type { TopicItem, TopicWorkspace } from '@/lib/topicWorkspaceViewModel'
+import {
+  buildTabContent,
+  buildTopicItem,
+  buildTopicResource,
+  buildTopicSection,
+  buildTopicWorkspace,
+} from './factories/topicWorkspace'
 
 const mocks = vi.hoisted(() => ({
   mutateWorkspace: vi.fn(),
@@ -105,251 +112,76 @@ vi.mock('@/lib/topicWorkspaceData', () => ({
 let mountedRoot: { root: Root; container: HTMLDivElement } | null = null
 let currentWorkspace: TopicWorkspace
 
-const providerVideoWorkspace: TopicWorkspace = {
-  id: 42,
-  subject_title: 'Mathematics',
-  title: 'Limits and Continuity',
+const providerVideoResource = buildTopicResource({
+  id: 601,
+  title: 'Continuity stream',
+  resource_type: 'video',
+  provider: 'vdocipher',
+  provider_resource_id: 'demo-preview',
+  url: 'https://video.example/stream',
+  summary: 'Watch the stream',
+})
+const providerVideoTab = buildTabContent({
+  id: 500,
+  label: 'Lesson video',
+  tab_type: 'video',
+  content: '',
+  renderer_key: 'vdocipher',
+  order: 0,
+  resource: providerVideoResource,
+})
+const providerCourseTab = buildTabContent({
+  id: 501,
+  label: 'Course',
+  tab_type: 'course',
+  content: 'Course content remains available below the player.',
+  order: 1,
+})
+const providerActiveItem: TopicItem = buildTopicItem({
+  id: 101,
+  topic_id: 42,
+  section_id: 11,
+  title: 'Continuity introduction',
+  description: 'Provider-backed lesson',
+  item_type: 'video',
+  duration_seconds: 600,
+  watched_seconds: 75,
+  resume_seconds: 75,
+  primary_resource: providerVideoResource,
+  primary_tab_content_id: providerVideoTab.id,
+  primary_tab: providerVideoTab,
+  tabs: [providerVideoTab, providerCourseTab],
+})
+const providerVideoWorkspace: TopicWorkspace = buildWorkspaceForActiveItem(providerActiveItem, {
   description: 'Provider-backed workspace',
   progress_pct: 25,
-  completed_count: 0,
-  item_count: 1,
-  active_item_id: 101,
-  active_item: {
-    id: 101,
-    topic_id: 42,
-    section_id: 11,
-    title: 'Continuity introduction',
-    description: 'Provider-backed lesson',
-    item_type: 'video',
-    renderer_key: '',
-    duration_seconds: 600,
-    watched_seconds: 75,
-    resume_seconds: 75,
-    progress_status: 'in_progress',
-    primary_resource: {
-      id: 601,
-      title: 'Continuity stream',
-      resource_type: 'video',
-      provider: 'vdocipher',
-      provider_resource_id: 'demo-preview',
-      url: 'https://video.example/stream',
-      summary: 'Watch the stream',
-    },
-    primary_tab_content_id: 500,
-    primary_tab: {
-      id: 500,
-      label: 'Lesson video',
-      tab_type: 'video',
-      content: '',
-      config_json: {},
-      renderer_key: 'vdocipher',
-      order: 0,
-      resource: {
-        id: 601,
-        title: 'Continuity stream',
-        resource_type: 'video',
-        provider: 'vdocipher',
-        provider_resource_id: 'demo-preview',
-        url: 'https://video.example/stream',
-        summary: 'Watch the stream',
-      },
-    },
-    tabs: [
-      {
-        id: 500,
-        label: 'Lesson video',
-        tab_type: 'video',
-        content: '',
-        config_json: {},
-        renderer_key: 'vdocipher',
-        order: 0,
-        resource: {
-          id: 601,
-          title: 'Continuity stream',
-          resource_type: 'video',
-          provider: 'vdocipher',
-          provider_resource_id: 'demo-preview',
-          url: 'https://video.example/stream',
-          summary: 'Watch the stream',
-        },
-      },
-      {
-        id: 501,
-        label: 'Course',
-        tab_type: 'course',
-        content: 'Course content remains available below the player.',
-        config_json: {},
-        renderer_key: '',
-        order: 1,
-        resource: null,
-      },
-    ],
-  },
-  sections: [
-    {
-      id: 11,
-      title: 'Lessons',
-      section_type: 'lesson',
-      order: 1,
-      items: [
-        {
-          id: 101,
-          topic_id: 42,
-          section_id: 11,
-          title: 'Continuity introduction',
-          description: 'Provider-backed lesson',
-          item_type: 'video',
-          renderer_key: '',
-          duration_seconds: 600,
-          watched_seconds: 75,
-          resume_seconds: 75,
-          progress_status: 'in_progress',
-          primary_resource: {
-            id: 601,
-            title: 'Continuity stream',
-            resource_type: 'video',
-            provider: 'vdocipher',
-            provider_resource_id: 'demo-preview',
-            url: 'https://video.example/stream',
-            summary: 'Watch the stream',
-          },
-          primary_tab_content_id: 500,
-          primary_tab: {
-            id: 500,
-            label: 'Lesson video',
-            tab_type: 'video',
-            content: '',
-            config_json: {},
-            renderer_key: 'vdocipher',
-            order: 0,
-            resource: {
-              id: 601,
-              title: 'Continuity stream',
-              resource_type: 'video',
-              provider: 'vdocipher',
-              provider_resource_id: 'demo-preview',
-              url: 'https://video.example/stream',
-              summary: 'Watch the stream',
-            },
-          },
-          tabs: [
-            {
-              id: 500,
-              label: 'Lesson video',
-              tab_type: 'video',
-              content: '',
-              config_json: {},
-              renderer_key: 'vdocipher',
-              order: 0,
-              resource: {
-                id: 601,
-                title: 'Continuity stream',
-                resource_type: 'video',
-                provider: 'vdocipher',
-                provider_resource_id: 'demo-preview',
-                url: 'https://video.example/stream',
-                summary: 'Watch the stream',
-              },
-            },
-            {
-              id: 501,
-              label: 'Course',
-              tab_type: 'course',
-              content: 'Course content remains available below the player.',
-              config_json: {},
-              renderer_key: '',
-              order: 1,
-              resource: null,
-            },
-          ],
-        },
-      ],
-    },
-  ],
-  search_results: [],
-}
+})
 
-const providerActiveItem = providerVideoWorkspace.active_item as TopicItem
-const providerSectionItem = providerVideoWorkspace.sections[0].items[0]
-
-const youtubeWorkspace: TopicWorkspace = {
-  ...providerVideoWorkspace,
-  active_item: {
-    ...providerActiveItem,
-    title: 'YouTube continuity introduction',
-    primary_resource: {
-      id: 701,
-      title: 'YouTube continuity stream',
-      resource_type: 'video',
-      provider: 'youtube',
-      provider_resource_id: 'dQw4w9WgXcQ',
-      url: '',
-      summary: 'Watch the YouTube lesson',
-    },
-    primary_tab: {
-      ...providerActiveItem.primary_tab!,
-      renderer_key: 'youtube_embed',
-      resource: {
-        id: 701,
-        title: 'YouTube continuity stream',
-        resource_type: 'video',
-        provider: 'youtube',
-        provider_resource_id: 'dQw4w9WgXcQ',
-        url: '',
-        summary: 'Watch the YouTube lesson',
-      },
-    },
-  },
-  sections: [
-    {
-      ...providerVideoWorkspace.sections[0],
-      items: [
-        {
-          ...providerSectionItem,
-          title: 'YouTube continuity introduction',
-          primary_resource: {
-            id: 701,
-            title: 'YouTube continuity stream',
-            resource_type: 'video',
-            provider: 'youtube',
-            provider_resource_id: 'dQw4w9WgXcQ',
-            url: '',
-            summary: 'Watch the YouTube lesson',
-          },
-          primary_tab: {
-            ...providerSectionItem.primary_tab!,
-            renderer_key: 'youtube_embed',
-            resource: {
-              id: 701,
-              title: 'YouTube continuity stream',
-              resource_type: 'video',
-              provider: 'youtube',
-              provider_resource_id: 'dQw4w9WgXcQ',
-              url: '',
-              summary: 'Watch the YouTube lesson',
-            },
-          },
-          tabs: [
-            {
-              ...providerSectionItem.tabs[0],
-              renderer_key: 'youtube_embed',
-              resource: {
-                id: 701,
-                title: 'YouTube continuity stream',
-                resource_type: 'video',
-                provider: 'youtube',
-                provider_resource_id: 'dQw4w9WgXcQ',
-                url: '',
-                summary: 'Watch the YouTube lesson',
-              },
-            },
-            providerSectionItem.tabs[1],
-          ],
-        },
-      ],
-    },
-  ],
+const youtubeResource = buildTopicResource({
+  id: 701,
+  title: 'YouTube continuity stream',
+  resource_type: 'video',
+  provider: 'youtube',
+  provider_resource_id: 'dQw4w9WgXcQ',
+  url: '',
+  summary: 'Watch the YouTube lesson',
+})
+const youtubeVideoTab = {
+  ...providerVideoTab,
+  renderer_key: 'youtube_embed',
+  resource: youtubeResource,
 }
+const youtubeActiveItem: TopicItem = {
+  ...providerActiveItem,
+  title: 'YouTube continuity introduction',
+  primary_resource: youtubeResource,
+  primary_tab: youtubeVideoTab,
+  tabs: [youtubeVideoTab, providerCourseTab],
+}
+const youtubeWorkspace: TopicWorkspace = buildWorkspaceForActiveItem(youtubeActiveItem, {
+  description: 'Provider-backed workspace',
+  progress_pct: 25,
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -398,6 +230,71 @@ describe('TopicWorkspacePage primary playback', () => {
     expect(container.querySelector('[data-testid="video-player"]')).toBeNull()
     expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
   })
+
+  it('does not expose generic completion for under-watched timed video items', () => {
+    const { container } = renderPage()
+
+    expect(buttonByText(container, 'Mark complete')).toBeUndefined()
+  })
+
+  it('does not expose generic completion for under-watched timed policy items', () => {
+    currentWorkspace = workspaceWithActiveItem({
+      item_type: 'lesson',
+      completion_policy: 'timed',
+      duration_seconds: 120,
+      watched_seconds: 20,
+      primary_resource: null,
+      primary_tab: providerActiveItem.tabs[1],
+      tabs: [providerActiveItem.tabs[1]],
+    })
+
+    const { container } = renderPage()
+
+    expect(buttonByText(container, 'Mark complete')).toBeUndefined()
+  })
+
+  it('does not expose generic completion for quiz items', () => {
+    currentWorkspace = workspaceWithActiveItem({
+      item_type: 'checkpoint_quiz',
+      duration_seconds: 0,
+      watched_seconds: 0,
+      primary_resource: null,
+      primary_tab: {
+        ...providerActiveItem.primary_tab!,
+        tab_type: 'quiz',
+        label: 'Quiz',
+        renderer_key: '',
+        resource: null,
+      },
+      tabs: [
+        {
+          ...providerActiveItem.tabs[1],
+          id: 502,
+          tab_type: 'quiz',
+          label: 'Quiz',
+        },
+      ],
+    })
+
+    const { container } = renderPage()
+
+    expect(buttonByText(container, 'Mark complete')).toBeUndefined()
+  })
+
+  it('keeps generic completion available for untimed lesson items', () => {
+    currentWorkspace = workspaceWithActiveItem({
+      item_type: 'lesson',
+      duration_seconds: 0,
+      watched_seconds: 0,
+      primary_resource: null,
+      primary_tab: providerActiveItem.tabs[1],
+      tabs: [providerActiveItem.tabs[1]],
+    })
+
+    const { container } = renderPage()
+
+    expect(buttonByText(container, 'Mark complete')).toBeDefined()
+  })
 })
 
 function renderPage() {
@@ -411,4 +308,40 @@ function renderPage() {
   })
 
   return { container, root }
+}
+
+function buildWorkspaceForActiveItem(activeItem: TopicItem, overrides: Partial<TopicWorkspace> = {}): TopicWorkspace {
+  return buildTopicWorkspace({
+    id: 42,
+    subject_title: 'Mathematics',
+    title: 'Limits and Continuity',
+    description: 'Provider-backed workspace',
+    progress_pct: 25,
+    completed_count: 0,
+    item_count: 1,
+    active_item_id: activeItem.id,
+    active_item: activeItem,
+    sections: [
+      buildTopicSection({
+        id: activeItem.section_id,
+        title: 'Lessons',
+        section_type: 'lesson',
+        order: 1,
+        items: [activeItem],
+      }),
+    ],
+    ...overrides,
+  })
+}
+
+function workspaceWithActiveItem(overrides: Partial<TopicItem>): TopicWorkspace {
+  const activeItem = {
+    ...providerActiveItem,
+    ...overrides,
+  }
+  return buildWorkspaceForActiveItem(activeItem)
+}
+
+function buttonByText(container: HTMLElement, text: string) {
+  return Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes(text))
 }

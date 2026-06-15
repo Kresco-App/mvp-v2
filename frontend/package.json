@@ -11,8 +11,9 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov",
     "validate:production-env": "node scripts/validate-production-env.mjs",
+    "check:production-demo-surface": "node scripts/check-production-demo-surface.mjs",
     "test:e2e": "playwright test",
-    "test:e2e:integration": "playwright test --config playwright.integration.config.ts",
+    "test:e2e:integration": "node scripts/build-integration.mjs && playwright test --config playwright.integration.config.ts",
     "test:e2e:install": "playwright install chromium",
     "audit:csp-styles": "node scripts/audit-csp-styles.mjs",
     "ci": "npm run lint && npm run audit:csp-styles && npm run typecheck && npm run test:coverage && npm run build && npm run test:e2e && npm run test:e2e:integration"
@@ -32,6 +33,7 @@
     "katex": "^0.16.37",
     "lucide-react": "^0.577.0",
     "next": "^16.2.6",
+    "pdfjs-dist": "^6.0.227",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "recharts": "^3.4.1",

@@ -153,6 +153,47 @@ describe('AuthGuard component behavior', () => {
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
   })
 
+  it('restarts profile verification when auth state changes during an in-flight check', async () => {
+    let resolveFirstProfile: ((user: typeof studentUser) => void) | null = null
+    getMyProfileMock
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveFirstProfile = resolve
+      }) as never)
+      .mockResolvedValueOnce(studentUser as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Student child')),
+    )
+
+    await waitFor(() => {
+      expect(getMyProfileMock).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      useAuthStore.setState({
+        token: 'cookie-session',
+        user: {
+          [KRESCO_STORED_AUTH_SNAPSHOT]: true,
+          role: 'student',
+          is_staff: false,
+        },
+      })
+    })
+
+    await waitFor(() => {
+      expect(getMyProfileMock).toHaveBeenCalledTimes(2)
+    })
+
+    await act(async () => {
+      resolveFirstProfile?.(studentUser)
+    })
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Student child')
+    })
+    expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
+  })
+
   it('redirects server-verified incomplete students to onboarding before rendering protected routes', async () => {
     window.history.pushState({}, '', '/topics/42?tab=quiz')
     getMyProfileMock.mockResolvedValueOnce(incompleteStudentUser as never)
@@ -182,6 +223,22 @@ describe('AuthGuard component behavior', () => {
     })
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
     expect(useAuthStore.getState().user).toMatchObject(incompleteStudentUser)
+  })
+
+  it('redirects completed students away from onboarding', async () => {
+    window.history.pushState({}, '', '/onboarding?next=%2Ftopics%2F42')
+    getMyProfileMock.mockResolvedValueOnce(studentUser as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Onboarding child')),
+    )
+
+    await waitFor(() => {
+      expect(replaceBrowserLocationMock).toHaveBeenCalledWith('/home')
+    })
+    expect(container.textContent).toContain('Completing setup')
+    expect(container.textContent).not.toContain('Onboarding child')
+    expect(useAuthStore.getState().user).toMatchObject(studentUser)
   })
 
   it('renders ProfessorAuthGate children after the server confirms professor role', async () => {

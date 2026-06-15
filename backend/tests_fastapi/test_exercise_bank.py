@@ -12,6 +12,7 @@ from app.models.exercises import (
     UserExerciseProgress,
 )
 from app.models.gamification import UserXP, XPTransaction
+from app.models.interactions import Comment
 from app.models.users import UserSubjectEntitlement
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +52,27 @@ def test_exercise_bank_models_and_migration_are_declared():
     assert "exercises" in migration_text
     assert "exercise_assets" in migration_text
     assert "user_exercise_progress" in migration_text
+
+
+def test_exercise_comments_model_and_migration_are_declared():
+    columns = Comment.__table__.columns
+    constraints = {constraint.name for constraint in Comment.__table__.constraints}
+    indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in Comment.__table__.indexes
+    }
+    migration_text = (BACKEND_ROOT / "alembic" / "versions" / "0065_exercise_comments.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert columns["topic_item_id"].nullable is True
+    assert columns["exercise_id"].nullable is True
+    assert "ck_comments_exactly_one_target" in constraints
+    assert indexes["ix_comments_exercise_created"] == ("exercise_id", "created_at")
+    assert 'down_revision: Union[str, None] = "0064"' in migration_text
+    assert "exercise_id" in migration_text
+    assert "ck_comments_exactly_one_target" in migration_text
+    assert "ix_comments_exercise_created" in migration_text
 
 
 def test_exercise_bank_lists_published_subject_exercises_with_progress(app_client, auth_token, run_db):
@@ -437,6 +459,96 @@ def test_exercise_self_grade_rejects_unknown_grade(app_client, auth_token, run_d
 
     assert response.status_code == 422
     assert "self_grade must be one of" in response.text
+
+
+def test_exercise_comments_support_threads(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-comments@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    parent = app_client.post(
+        "/api/interactions/exercise-comments",
+        json={"exercise_id": seeded["exercise_id"], "body": "I solved it with substitution."},
+        headers=headers,
+    )
+    reply = app_client.post(
+        "/api/interactions/exercise-comments",
+        json={"exercise_id": seeded["exercise_id"], "body": "Same here.", "parent_id": parent.json()["id"]},
+        headers=headers,
+    )
+    listing = app_client.get(
+        f"/api/interactions/exercise-comments?exercise_id={seeded['exercise_id']}",
+        headers=headers,
+    )
+
+    assert parent.status_code == 200
+    assert parent.json()["exercise_id"] == seeded["exercise_id"]
+    assert parent.json()["topic_item_id"] is None
+    assert reply.status_code == 200
+    assert listing.status_code == 200
+    assert listing.json()[0]["id"] == parent.json()["id"]
+    assert listing.json()[0]["reply_count"] == 1
+
+
+def test_exercise_comments_require_access_and_keep_parent_inside_exercise(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-comments-access@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+    locked = run_db(_seed_exercise_bank_fixture(user_id=user_id, slug_suffix="comment-locked"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    parent = app_client.post(
+        "/api/interactions/exercise-comments",
+        json={"exercise_id": seeded["exercise_id"], "body": "parent"},
+        headers=headers,
+    )
+    bad_reply = app_client.post(
+        "/api/interactions/exercise-comments",
+        json={"exercise_id": seeded["second_exercise_id"], "body": "bad reply", "parent_id": parent.json()["id"]},
+        headers=headers,
+    )
+    locked_create = app_client.post(
+        "/api/interactions/exercise-comments",
+        json={"exercise_id": locked["exercise_id"], "body": "locked"},
+        headers=headers,
+    )
+    locked_list = app_client.get(
+        f"/api/interactions/exercise-comments?exercise_id={locked['exercise_id']}",
+        headers=headers,
+    )
+
+    assert parent.status_code == 200
+    assert bad_reply.status_code == 400
+    assert bad_reply.json()["detail"] == "Parent comment belongs to a different exercise"
+    assert locked_create.status_code == 403
+    assert locked_create.json()["detail"] == "subject_access_required"
+    assert locked_list.status_code == 403
+    assert locked_list.json()["detail"] == "subject_access_required"
+
+
+def test_exercise_comments_allow_free_preview_with_other_subject_entitlement(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-comments-free-preview@example.com")
+    seeded = run_db(
+        _seed_exercise_bank_fixture(
+            user_id=user_id,
+            include_other_subject_entitlement=True,
+            free_preview=True,
+        )
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = app_client.post(
+        "/api/interactions/exercise-comments",
+        json={"exercise_id": seeded["exercise_id"], "body": "Free preview question."},
+        headers=headers,
+    )
+    listing = app_client.get(
+        f"/api/interactions/exercise-comments?exercise_id={seeded['exercise_id']}",
+        headers=headers,
+    )
+
+    assert created.status_code == 200
+    assert listing.status_code == 200
+    assert listing.json()[0]["id"] == created.json()["id"]
 
 
 async def _user_xp_total(user_id: int) -> int:

@@ -107,7 +107,7 @@ export const DecayDiagrams: React.FC<DecayDiagramsProps> = ({ type }) => {
 
         {/* Point Labels */}
         <text x={parentX + 10} y={parentY - 10} className="font-bold fill-slate-800 text-sm">Père {config.parentLabel}</text>
-        <text x={daughterX + 10} y={daughterY + 15} className="font-bold fill-slate-800 text-sm" style={{fill: config.color}}>Fils</text>
+        <text x={daughterX + 10} y={daughterY + 15} fill={config.color} className="font-bold text-sm">Fils</text>
 
         {/* Ticks Labels (Dynamic) */}
         {/* Z axis ticks */}

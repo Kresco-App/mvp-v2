@@ -1,7 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import HTTPException
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,7 +28,7 @@ from app.services.access import build_access_context
 from app.services.gamification_stats import read_user_stats
 from app.services.media_storage import async_media_url
 from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
-from app.services.xp import award_xp, calculate_level, generate_daily_quests_with_status
+from app.services.xp import calculate_level
 
 
 async def build_xp_summary(db: AsyncSession, *, user: User) -> XPOut:
@@ -66,58 +65,8 @@ async def list_xp_transactions(
 
 
 async def list_daily_quest_entries(db: AsyncSession, *, user: User) -> list[DailyQuestOut]:
-    quests, created = await generate_daily_quests_with_status(user.id, db)
-    if created:
-        await db.commit()
+    quests = await _read_daily_quests_for_user(db, user_id=user.id)
     return [DailyQuestOut.model_validate(quest) for quest in quests]
-
-
-async def claim_daily_quest_reward(
-    db: AsyncSession,
-    *,
-    user: User,
-    quest_id: int,
-) -> dict[str, int | bool]:
-    quest = await db.scalar(
-        select(DailyQuest)
-        .where(DailyQuest.id == quest_id, DailyQuest.user_id == user.id)
-        .with_for_update()
-    )
-    if quest is None:
-        raise HTTPException(status_code=404, detail="Quest not found")
-    if quest.completed:
-        raise HTTPException(status_code=400, detail="Quest already claimed")
-    today = datetime.now(timezone.utc).date()
-    if quest.date != today:
-        raise HTTPException(status_code=410, detail="Quest has expired")
-    if quest.progress < quest.target:
-        raise HTTPException(status_code=400, detail="Quest not yet completed")
-
-    claim_result = await db.execute(
-        update(DailyQuest)
-        .where(
-            DailyQuest.id == quest_id,
-            DailyQuest.user_id == user.id,
-            DailyQuest.completed == False,  # noqa: E712
-            DailyQuest.date == today,
-            DailyQuest.progress >= DailyQuest.target,
-        )
-        .values(completed=True)
-    )
-    if claim_result.rowcount != 1:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail="Quest already claimed")
-    xp_awarded = await award_xp(
-        user.id,
-        "daily_quest",
-        quest.title,
-        db,
-        amount_override=quest.xp_reward,
-        idempotency_key=f"daily_quest_claim:user:{user.id}:quest:{quest.id}",
-        update_daily_quests=False,
-    )
-    await db.commit()
-    return {"success": True, "xp_awarded": xp_awarded}
 
 
 async def list_leaderboard_entries(
@@ -222,9 +171,7 @@ async def build_sidebar_summary(db: AsyncSession, *, user: User, settings: Setti
     xp_record = xp_result.scalar_one_or_none()
     streak_days = xp_record.streak_days if xp_record else 0
 
-    quests, created = await generate_daily_quests_with_status(user.id, db)
-    if created:
-        await db.commit()
+    quests = await _read_daily_quests_for_user(db, user_id=user.id)
     leaderboard = await list_leaderboard_entries(
         db,
         user=user,
@@ -263,6 +210,16 @@ async def build_user_stats(db: AsyncSession, *, user: User) -> UserStatsOut:
         items_completed=items_completed,
         is_pro=user.is_pro,
     )
+
+
+async def _read_daily_quests_for_user(db: AsyncSession, *, user_id: int) -> list[DailyQuest]:
+    today = datetime.now(timezone.utc).date()
+    result = await db.execute(
+        select(DailyQuest)
+        .where(DailyQuest.user_id == user_id, DailyQuest.date == today)
+        .order_by(DailyQuest.id)
+    )
+    return list(result.scalars().all())
 
 
 def _sidebar_calendar_days(today: date | None = None) -> list[dict[str, int | str | bool]]:

@@ -5,25 +5,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, ArrowRight, RefreshCw, HelpCircle, Target, BarChart, Calculator, Zap } from 'lucide-react';
 import { useSettings } from '../../context/SettingsContext';
-
-// --- Types ---
-type ExerciseState = 'idle' | 'correct' | 'incorrect';
-type Difficulty = 'Facile' | 'Moyen' | 'Difficile';
-
-// --- Shared Components ---
-
-const DifficultyBadge = ({ level }: { level: Difficulty }) => {
-    const colors = {
-        'Facile': 'bg-emerald-100 text-emerald-700 border-emerald-200',
-        'Moyen': 'bg-amber-100 text-amber-700 border-amber-200',
-        'Difficile': 'bg-rose-100 text-rose-700 border-rose-200',
-    };
-    return (
-        <span className={`text - [10px] px - 2 py - 0.5 rounded border font - bold uppercase tracking - wider ${colors[level]} `}>
-            {level}
-        </span>
-    );
-};
+import { DifficultyBadge, type ExerciseState } from '../../../../shared/DifficultyBadge';
 
 // --- Exercise 1: Composition & Binding Energy ---
 const UraniumExercise = () => {

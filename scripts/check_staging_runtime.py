@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -14,6 +15,21 @@ from urllib.request import Request, urlopen
 DEFAULT_RETRIES = 12
 DEFAULT_DELAY_SECONDS = 5
 DEFAULT_TIMEOUT_SECONDS = 10
+DEFERRED_PAYMENT_CONFIGURATION_MARKERS = (
+    "STRIPE_SK",
+    "STRIPE_PRODUCT_ID",
+    "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_PK",
+    "FAKE_STRIPE_CHECKOUT",
+)
+SENSITIVE_PAYLOAD_KEY_RE = re.compile(r"(SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|API[_-]?KEY|AUTH)", re.I)
+SECRET_SHAPED_PATTERNS = (
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b"),
+    re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b"),
+    re.compile(r"\bwhsec_[A-Za-z0-9]{16,}\b"),
+)
 
 
 @dataclass(frozen=True)
@@ -23,6 +39,7 @@ class RuntimeVerificationResult:
     readiness_status: str | None
     diagnostics_status: str | None
     outbox_result: dict[str, Any] | None
+    deferred_payment_check: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -31,6 +48,7 @@ class RuntimeVerificationResult:
             "readiness_status": self.readiness_status,
             "diagnostics_status": self.diagnostics_status,
             "outbox_result": self.outbox_result,
+            "deferred_payment_check": self.deferred_payment_check,
         }
 
 
@@ -38,22 +56,47 @@ def validate_runtime_payloads(
     readiness: dict[str, Any],
     diagnostics: dict[str, Any],
     outbox_result: dict[str, Any] | None = None,
+    *,
+    require_payment_provider_reachability: bool = False,
 ) -> RuntimeVerificationResult:
     errors: list[str] = []
 
     if readiness.get("status") != "ready":
         errors.append("readiness.status must be ready.")
-    if diagnostics.get("status") != "ready":
-        errors.append("diagnostics.status must be ready.")
+    diagnostics_errors = _diagnostics_errors(diagnostics)
 
     checks = diagnostics.get("checks")
     if not isinstance(checks, dict):
         errors.append("diagnostics.checks must be an object.")
         checks = {}
 
-    configuration = _check(checks, "configuration", errors)
+    configuration = _configuration_check(
+        checks,
+        errors,
+        require_payment=require_payment_provider_reachability,
+    )
+    if diagnostics.get("status") != "ready":
+        blocking_errors = _blocking_diagnostics_errors(
+            diagnostics_errors,
+            configuration,
+            require_payment=require_payment_provider_reachability,
+        )
+        if blocking_errors:
+            joined = ", ".join(blocking_errors)
+            errors.append(f"diagnostics.status must be ready for non-deferred systems (blocking errors: {joined}).")
+        elif diagnostics_errors and set(diagnostics_errors).issubset({"configuration", "payment"}):
+            pass
+        else:
+            errors.append("diagnostics.status must be ready or name only deferred payment errors.")
+
     _require(configuration.get("production_like") is True, "configuration.production_like must be true.", errors)
-    _require(configuration.get("error_count") == 0, "configuration.error_count must be zero.", errors)
+    blocking_configuration_errors = _blocking_configuration_errors(
+        configuration,
+        require_payment=require_payment_provider_reachability,
+    )
+    if blocking_configuration_errors:
+        joined = "; ".join(blocking_configuration_errors)
+        errors.append(f"configuration.errors contains blocking errors: {joined}")
 
     database = _check(checks, "database", errors)
     _require(database.get("strategy") == "rds_proxy", "database.strategy must be rds_proxy.", errors)
@@ -103,10 +146,20 @@ def validate_runtime_payloads(
     email = _check(checks, "email", errors)
     _require(email.get("resend_api_key_configured") is True, "email.resend_api_key_configured must be true.", errors)
 
-    payment = _check(checks, "payment", errors)
-    _require(payment.get("stripe_sk_configured") is True, "payment.stripe_sk_configured must be true.", errors)
-    _require(payment.get("stripe_product_id_configured") is True, "payment.stripe_product_id_configured must be true.", errors)
-    _require(payment.get("stripe_webhook_secret_configured") is True, "payment.stripe_webhook_secret_configured must be true.", errors)
+    payment = _payment_check(checks, errors, require_payment=require_payment_provider_reachability)
+    if require_payment_provider_reachability:
+        _require(payment.get("stripe_sk_configured") is True, "payment.stripe_sk_configured must be true.", errors)
+        _require(payment.get("stripe_product_id_configured") is True, "payment.stripe_product_id_configured must be true.", errors)
+        _require(payment.get("stripe_webhook_secret_configured") is True, "payment.stripe_webhook_secret_configured must be true.", errors)
+        provider_reachability = payment.get("provider_reachability")
+        if not isinstance(provider_reachability, dict):
+            errors.append("payment.provider_reachability must be present when payment provider reachability is required.")
+        else:
+            _require(
+                provider_reachability.get("status") == "ok",
+                f"payment.provider_reachability.status must be ok (current: {provider_reachability.get('status')!r}).",
+                errors,
+            )
 
     if outbox_result is not None:
         _require(outbox_result.get("ok") is True, "outbox drain endpoint must return ok=true.", errors)
@@ -119,6 +172,7 @@ def validate_runtime_payloads(
         readiness_status=str(readiness.get("status")) if readiness.get("status") is not None else None,
         diagnostics_status=str(diagnostics.get("status")) if diagnostics.get("status") is not None else None,
         outbox_result=outbox_result,
+        deferred_payment_check=_deferred_payment_summary(payment),
     )
 
 
@@ -130,6 +184,95 @@ def _check(checks: dict[str, Any], name: str, errors: list[str]) -> dict[str, An
     if check.get("status") != "ok":
         errors.append(f"diagnostics.checks.{name}.status must be ok.")
     return check
+
+
+def _configuration_check(checks: dict[str, Any], errors: list[str], *, require_payment: bool) -> dict[str, Any]:
+    check = checks.get("configuration")
+    if not isinstance(check, dict):
+        errors.append("diagnostics.checks.configuration must be an object.")
+        return {}
+    if check.get("status") != "ok" and _blocking_configuration_errors(check, require_payment=require_payment):
+        errors.append("diagnostics.checks.configuration.status must be ok for blocking configuration errors.")
+    return check
+
+
+def _payment_check(checks: dict[str, Any], errors: list[str], *, require_payment: bool) -> dict[str, Any]:
+    check = checks.get("payment")
+    if not isinstance(check, dict):
+        if require_payment:
+            errors.append("diagnostics.checks.payment must be an object.")
+        return {}
+    if require_payment and check.get("status") != "ok":
+        errors.append("diagnostics.checks.payment.status must be ok.")
+    return check
+
+
+def _diagnostics_errors(diagnostics: dict[str, Any]) -> tuple[str, ...]:
+    raw_errors = diagnostics.get("errors")
+    if not isinstance(raw_errors, list):
+        return ()
+    return tuple(str(error) for error in raw_errors)
+
+
+def _blocking_diagnostics_errors(
+    errors: tuple[str, ...],
+    configuration: dict[str, Any],
+    *,
+    require_payment: bool,
+) -> tuple[str, ...]:
+    if require_payment:
+        return errors
+    blocking_errors: list[str] = []
+    for error in errors:
+        if error == "payment":
+            continue
+        if error == "configuration" and not _blocking_configuration_errors(configuration, require_payment=False):
+            continue
+        blocking_errors.append(error)
+    return tuple(blocking_errors)
+
+
+def _configuration_errors(configuration: dict[str, Any]) -> tuple[str, ...]:
+    raw_errors = configuration.get("errors")
+    if not isinstance(raw_errors, list):
+        return ()
+    return tuple(str(error) for error in raw_errors)
+
+
+def _blocking_configuration_errors(configuration: dict[str, Any], *, require_payment: bool) -> tuple[str, ...]:
+    errors = _configuration_errors(configuration)
+    if not errors:
+        if configuration.get("status") != "ok" or _int_value(configuration, "error_count") > 0:
+            return ("configuration status/error_count is not ok but no error details were provided.",)
+        return ()
+    if require_payment:
+        return errors
+    return tuple(
+        error for error in errors
+        if not any(marker in error for marker in DEFERRED_PAYMENT_CONFIGURATION_MARKERS)
+    )
+
+
+def _deferred_payment_summary(payment: dict[str, Any]) -> dict[str, Any] | None:
+    if not payment:
+        return None
+    summary: dict[str, Any] = {}
+    for key in (
+        "status",
+        "stripe_sk_configured",
+        "stripe_product_id_configured",
+        "stripe_webhook_secret_configured",
+    ):
+        if key in payment:
+            summary[key] = payment[key]
+    provider_reachability = payment.get("provider_reachability")
+    if isinstance(provider_reachability, dict):
+        summary["provider_reachability"] = {
+            key: provider_reachability[key]
+            for key in ("status", "detail", "error_type", "code", "product_id_matches", "product_active")
+            if key in provider_reachability
+        }
+    return summary
 
 
 def _require(condition: bool, message: str, errors: list[str]) -> None:
@@ -149,6 +292,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--process-outbox-url", default="")
     parser.add_argument("--internal-secret", default=os.environ.get("KRESCO_INTERNAL_SECRET", ""))
     parser.add_argument("--skip-outbox-drain", action="store_true")
+    parser.add_argument(
+        "--include-provider-reachability",
+        action="store_true",
+        help="Ask diagnostics to report provider reachability. Deferred Stripe reachability is reported but not enforced.",
+    )
+    parser.add_argument(
+        "--require-payment-provider-reachability",
+        action="store_true",
+        help="Fail if deferred Stripe payment configuration or provider reachability is not healthy.",
+    )
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
     parser.add_argument("--delay-seconds", type=int, default=DEFAULT_DELAY_SECONDS)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
@@ -164,7 +317,13 @@ def main(argv: list[str] | None = None) -> int:
         print("error: KRESCO_INTERNAL_SECRET is required for protected diagnostics.", file=sys.stderr)
         return 1
 
-    diagnostics_url = args.diagnostics_url.strip() or derive_url(ready_url, "/api/internal/diagnostics")
+    include_provider_reachability = args.include_provider_reachability or args.require_payment_provider_reachability
+    diagnostics_path = (
+        "/api/internal/diagnostics?include_provider_reachability=true"
+        if include_provider_reachability
+        else "/api/internal/diagnostics"
+    )
+    diagnostics_url = args.diagnostics_url.strip() or derive_url(ready_url, diagnostics_path)
     process_outbox_url = args.process_outbox_url.strip() or derive_url(
         ready_url,
         "/api/internal/realtime/process-outbox?limit=1",
@@ -183,7 +342,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: staging runtime verifier failed while fetching runtime evidence: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
-    result = validate_runtime_payloads(readiness, diagnostics, outbox_result)
+    result = validate_runtime_payloads(
+        readiness,
+        diagnostics,
+        outbox_result,
+        require_payment_provider_reachability=args.require_payment_provider_reachability,
+    )
     if args.json:
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
     else:
@@ -213,7 +377,7 @@ def _fetch_with_retries(url: str, timeout_seconds: int, retries: int, delay: int
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
         if attempt < retries:
-            print(f"Runtime readiness attempt {attempt}/{retries} failed: {last_error}. Retrying...")
+            print(f"Runtime readiness attempt {attempt}/{retries} failed: {last_error}. Retrying...", file=sys.stderr)
             time.sleep(max(delay, 1))
     raise RuntimeError(f"readiness did not become ready: {last_error}")
 
@@ -235,7 +399,7 @@ def fetch_json(
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         payload = _parse_json(body)
-        raise RuntimeError(f"{method} {_redact_url(url)} returned {exc.code}: {payload}") from exc
+        raise RuntimeError(f"{method} {_redact_url(url)} returned {exc.code}: {_redact_payload(payload)}") from exc
     except URLError as exc:
         reason = getattr(exc, "reason", exc)
         raise RuntimeError(str(reason)) from exc
@@ -251,6 +415,23 @@ def _parse_json(value: str) -> dict[str, Any]:
 def _redact_url(url: str) -> str:
     parsed = urlparse(url)
     return urlunparse(parsed._replace(query="[redacted]" if parsed.query else ""))
+
+
+def _redact_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            redacted[key_text] = "[redacted]" if SENSITIVE_PAYLOAD_KEY_RE.search(key_text) else _redact_payload(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_payload(item) for item in value]
+    if isinstance(value, str):
+        redacted = value
+        for pattern in SECRET_SHAPED_PATTERNS:
+            redacted = pattern.sub("[redacted]", redacted)
+        return redacted
+    return value
 
 
 def _print_human_result(result: RuntimeVerificationResult, ready_url: str) -> None:

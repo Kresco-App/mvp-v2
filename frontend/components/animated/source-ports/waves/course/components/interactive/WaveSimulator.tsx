@@ -34,28 +34,28 @@ export const WaveSimulator: React.FC = () => {
       <div className="p-8 flex items-center justify-center bg-slate-900 min-h-[300px]">
         {activeTab === 'transverse' ? (
           <div className="relative w-full h-40 flex items-center">
-             {/* CSS Animation for Transverse Wave */}
-             <div className="w-full flex justify-between items-center px-4">
-                {Array.from({ length: 50 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-2 h-2 bg-purple-500 rounded-full shadow-sm"
-                    style={{
-                      animation: `bounce 1.5s infinite linear`,
-                      animationDelay: `-${i * 0.06}s`
-                    }}
-                  />
-                ))}
+             {/* SVG Animation for Transverse Wave */}
+             <div className="w-full px-4">
+                <svg className="h-24 w-full overflow-visible" aria-hidden="true" focusable="false">
+                  {Array.from({ length: 50 }).map((_, i) => {
+                    const x = `${2 + (i / 49) * 96}%`;
+                    const begin = i === 0 ? '0s' : `-${(i * 0.06).toFixed(2)}s`;
+
+                    return (
+                      <circle key={i} cx={x} cy="50%" r="4" className="fill-purple-500 drop-shadow-sm">
+                        <animateTransform
+                          attributeName="transform"
+                          type="translate"
+                          values="0 0; 0 -25; 0 0; 0 25; 0 0"
+                          dur="1.5s"
+                          begin={begin}
+                          repeatCount="indefinite"
+                        />
+                      </circle>
+                    );
+                  })}
+                </svg>
              </div>
-             <style>{`
-               @keyframes bounce {
-                 0% { transform: translateY(0); animation-timing-function: ease-out; }
-                 25% { transform: translateY(-25px); animation-timing-function: ease-in; }
-                 50% { transform: translateY(0); animation-timing-function: ease-out; }
-                 75% { transform: translateY(25px); animation-timing-function: ease-in; }
-                 100% { transform: translateY(0); }
-               }
-             `}</style>
              
              {/* Propagation Arrow */}
              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-white/50 text-xs font-mono flex items-center gap-2">
@@ -67,28 +67,28 @@ export const WaveSimulator: React.FC = () => {
           </div>
         ) : (
           <div className="relative w-full h-40 flex items-center justify-center">
-             {/* CSS Animation for Longitudinal Wave */}
-             <div className="w-full flex justify-between items-center px-8 overflow-hidden">
-                {Array.from({ length: 60 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-0.5 h-10 bg-emerald-500/90 rounded-full"
-                    style={{
-                      animation: `compress 1.5s infinite linear`,
-                      animationDelay: `-${i * 0.05}s` // 60 * 0.05 = 3s total phase (2 cycles)
-                    }}
-                  />
-                ))}
+             {/* SVG Animation for Longitudinal Wave */}
+             <div className="w-full overflow-hidden px-8">
+                <svg className="h-24 w-full overflow-visible" aria-hidden="true" focusable="false">
+                  {Array.from({ length: 60 }).map((_, i) => {
+                    const x = `${1.5 + (i / 59) * 97}%`;
+                    const begin = i === 0 ? '0s' : `-${(i * 0.05).toFixed(2)}s`;
+
+                    return (
+                      <rect key={i} x={x} y="28" width="2" height="40" rx="1" className="fill-emerald-500 opacity-90">
+                        <animateTransform
+                          attributeName="transform"
+                          type="translate"
+                          values="0 0; 8 0; 0 0; -8 0; 0 0"
+                          dur="1.5s"
+                          begin={begin}
+                          repeatCount="indefinite"
+                        />
+                      </rect>
+                    );
+                  })}
+                </svg>
              </div>
-             <style>{`
-               @keyframes compress {
-                 0% { transform: translateX(0); animation-timing-function: ease-out; }
-                 25% { transform: translateX(8px); animation-timing-function: ease-in; }
-                 50% { transform: translateX(0); animation-timing-function: ease-out; }
-                 75% { transform: translateX(-8px); animation-timing-function: ease-in; }
-                 100% { transform: translateX(0); }
-               }
-             `}</style>
              
              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-white/50 text-xs font-mono flex items-center gap-2">
                <span>Propagation</span>

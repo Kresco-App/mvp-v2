@@ -6,6 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import parse_qs, urlparse
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -27,12 +28,13 @@ RUNTIME_SECRET_BACKED_ENV_KEYS = {
     "STRIPE_WEBHOOK_SECRET",
     "RESEND_API_KEY",
     "ABLY_API_KEY",
+    "KRESCO_RATE_LIMIT_STORAGE_URI",
     "REALTIME_OUTBOX_SECRET",
     "MEDIA_S3_BUCKET",
 }
 RUNTIME_SECRET_VALIDATION_VALUES = {
     "DATABASE_URL": "postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-    "JWT_SECRET_KEY": "test-secret-key-for-production-32-bytes-minimum",
+    "JWT_SECRET_KEY": "prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
     "GOOGLE_CLIENT_ID": "google-client",
     "VDOCIPHER_API_SECRET": "vdocipher-secret",
     "VDOCIPHER_API_BASE_URL": "https://video.example.com/api",
@@ -42,6 +44,7 @@ RUNTIME_SECRET_VALIDATION_VALUES = {
     "STRIPE_WEBHOOK_SECRET": "stripe-webhook",
     "RESEND_API_KEY": "resend-key",
     "ABLY_API_KEY": "ably:key",
+    "KRESCO_RATE_LIMIT_STORAGE_URI": "redis://rate-limit.example.com:6379/0",
     "REALTIME_OUTBOX_SECRET": "test-realtime-outbox-secret-32-bytes",
     "MEDIA_S3_BUCKET": "kresco-media-production",
 }
@@ -54,6 +57,12 @@ OPTIONAL_OVERRIDE_KEYS = {
 VPC_CONFIG_ENV_KEYS = {
     "SubnetIds": "ZAPPA_SUBNET_IDS",
     "SecurityGroupIds": "ZAPPA_SECURITY_GROUP_IDS",
+}
+MIN_LAMBDA_MEMORY_MB = 1024
+MIN_LAMBDA_TIMEOUT_SECONDS = 45
+REQUIRED_REALTIME_OUTBOX_EVENT = {
+    "function": "app.scheduled.process_realtime_outbox_event",
+    "expression": "rate(1 minute)",
 }
 
 ENV_TO_SETTINGS_FIELD = {
@@ -80,6 +89,7 @@ ENV_TO_SETTINGS_FIELD = {
     "RESEND_API_KEY": "resend_api_key",
     "ABLY_API_KEY": "ably_api_key",
     "ABLY_TOKEN_TTL_SECONDS": "ably_token_ttl_seconds",
+    "KRESCO_RATE_LIMIT_STORAGE_URI": "rate_limit_storage_uri",
     "REALTIME_OUTBOX_SECRET": "realtime_outbox_secret",
     "MEDIA_STORAGE_BACKEND": "media_storage_backend",
     "MEDIA_S3_BUCKET": "media_s3_bucket",
@@ -131,6 +141,7 @@ def render_zappa_settings(
     resolved_env, replaced_keys, overridden_keys = _resolve_environment_variables(zappa_env, env)
     _resolve_vpc_config(zappa_stage, env)
     _resolve_runtime_secret_permission(zappa_stage, resolved_env)
+    _validate_stage_runtime_settings(zappa_stage, target_stage)
     _validate_rendered_environment(resolved_env, target_stage)
 
     zappa_stage["environment_variables"] = resolved_env
@@ -231,6 +242,45 @@ def _valid_prefixed_id_list(value: object, prefix: str) -> bool:
     return isinstance(value, list) and bool(value) and all(isinstance(item, str) and item.startswith(prefix) for item in value)
 
 
+def _validate_stage_runtime_settings(zappa_stage: Mapping[str, object], stage: str) -> None:
+    errors: list[str] = []
+    if zappa_stage.get("app_function") != "app_handler.application":
+        errors.append("app_function must be app_handler.application.")
+    if zappa_stage.get("runtime") != "python3.11":
+        errors.append("runtime must be python3.11.")
+    if _int_stage_setting(zappa_stage, "memory_size") < MIN_LAMBDA_MEMORY_MB:
+        errors.append(f"memory_size must be at least {MIN_LAMBDA_MEMORY_MB}.")
+    if _int_stage_setting(zappa_stage, "timeout_seconds") < MIN_LAMBDA_TIMEOUT_SECONDS:
+        errors.append(f"timeout_seconds must be at least {MIN_LAMBDA_TIMEOUT_SECONDS}.")
+    if zappa_stage.get("keep_warm") is not True:
+        errors.append("keep_warm must be true for production-like Lambda stages.")
+    if zappa_stage.get("touch") is not False:
+        errors.append("touch must be false so deploys rely on explicit runtime verification.")
+    if zappa_stage.get("cors") is not False:
+        errors.append("cors must be false; CORS is handled by the FastAPI app.")
+    if zappa_stage.get("apigateway_enabled") is not True:
+        errors.append("apigateway_enabled must be true.")
+    if zappa_stage.get("slim_handler") is not True:
+        errors.append("slim_handler must be true to keep Lambda packages lean.")
+
+    events = zappa_stage.get("events")
+    if not isinstance(events, list) or REQUIRED_REALTIME_OUTBOX_EVENT not in events:
+        errors.append("events must include the realtime outbox EventBridge schedule.")
+
+    if errors:
+        raise ZappaRenderError(f"Zappa {stage} Lambda runtime settings are invalid: " + " ".join(errors))
+
+
+def _int_stage_setting(zappa_stage: Mapping[str, object], key: str) -> int:
+    value = zappa_stage.get(key)
+    if isinstance(value, bool):
+        return -1
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return -1
+
+
 def _resolve_runtime_secret_permission(zappa_stage: dict[str, object], resolved_env: Mapping[str, str]) -> None:
     secret_id = str(resolved_env.get(RUNTIME_SECRET_ID_ENV, "")).strip()
     if not secret_id:
@@ -282,6 +332,41 @@ def _validate_rendered_environment(rendered_env: Mapping[str, str], stage: str) 
         errors.append("The Zappa production stage must render with KRESCO_ENV=production or prod.")
     if errors:
         raise ZappaRenderError(f"Rendered Zappa {stage} environment is invalid: " + " ".join(errors))
+
+
+def validate_database_url_policy(database_url: str) -> None:
+    raw_url = str(database_url or "").strip()
+    errors: list[str] = []
+    if not raw_url:
+        raise ZappaRenderError("DATABASE_URL must be configured for target database migrations.")
+
+    parsed = urlparse(raw_url)
+    if parsed.scheme.lower() not in {"postgres", "postgresql", "postgresql+asyncpg"}:
+        errors.append("DATABASE_URL must use PostgreSQL.")
+    if not parsed.hostname:
+        errors.append("DATABASE_URL must include a database hostname.")
+    elif _is_local_or_ip_hostname(parsed.hostname):
+        errors.append("DATABASE_URL host must be a remote RDS Proxy hostname, not localhost or an IP address.")
+
+    sslmode = parse_qs(parsed.query).get("sslmode", [""])[0].strip().lower()
+    if sslmode != "verify-full":
+        errors.append("DATABASE_URL must include sslmode=verify-full.")
+
+    if errors:
+        raise ZappaRenderError("DATABASE_URL policy is invalid: " + " ".join(errors))
+
+
+def _is_local_or_ip_hostname(hostname: str) -> bool:
+    normalized = hostname.strip().lower()
+    if normalized in {"localhost", "localhost.localdomain"} or normalized.endswith(".localhost"):
+        return True
+    try:
+        import ipaddress
+
+        ipaddress.ip_address(normalized.strip("[]"))
+    except ValueError:
+        return False
+    return True
 
 
 def _settings_kwargs_from_environment(rendered_env: Mapping[str, str]) -> dict[str, object]:

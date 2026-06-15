@@ -1,11 +1,10 @@
 'use client'
 
-import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
+import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
 import {
   Check,
   CircleDot,
   GripVertical,
-  MousePointer2,
   MoveRight,
   RotateCcw,
   X,
@@ -792,6 +791,21 @@ function HotspotQuestion({ question }: { question: Extract<QuizPrimitiveQuestion
   const [cursor, setCursor] = useState(question.cursor)
   const [dragging, setDragging] = useState(false)
   const [status, setStatus] = useState<'idle' | 'correct' | 'wrong'>('idle')
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+
+    const updateStageSize = () => setStageSize({ width: stage.clientWidth, height: stage.clientHeight })
+    updateStageSize()
+
+    if (typeof ResizeObserver === 'undefined') return undefined
+
+    const observer = new ResizeObserver(updateStageSize)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [])
 
   function pointFromClient(clientX: number, clientY: number) {
     const rect = stageRef.current?.getBoundingClientRect()
@@ -825,6 +839,12 @@ function HotspotQuestion({ question }: { question: Extract<QuizPrimitiveQuestion
     setStatus('idle')
   }
 
+  const cursorRadiusY = stageSize.height > 0 ? cursor.radius * (stageSize.width / stageSize.height) : cursor.radius
+  const cursorStroke = status === 'correct' ? '#16a34a' : status === 'wrong' ? '#facc15' : '#453dee'
+  const cursorTextStroke = status === 'correct' ? '#15803d' : status === 'wrong' ? '#9a5c00' : '#453dee'
+  const targetStroke = status === 'correct' ? '#16a34a' : '#facc15'
+  const targetFill = status === 'correct' ? '#dcfce7' : '#fff7df'
+
   return (
     <div className="grid gap-4">
       <div
@@ -852,22 +872,22 @@ function HotspotQuestion({ question }: { question: Extract<QuizPrimitiveQuestion
         </svg>
 
         {status !== 'idle' && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.86 }}
-            animate={{ opacity: 1, scale: status === 'correct' ? 1 : [1, 1.08, 1] }}
-            className={`pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 ${
-              status === 'correct' ? 'border-[#16a34a] bg-[#dcfce7]/45' : 'border-[#facc15] bg-[#fff7df]/55'
-            }`}
-            style={{
-              left: `${question.answerRegion.x}%`,
-              top: `${question.answerRegion.y}%`,
-              width: `${question.answerRegion.rx * 2}%`,
-              height: `${question.answerRegion.ry * 2}%`,
-            }}
-          />
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+            <ellipse
+              cx={question.answerRegion.x}
+              cy={question.answerRegion.y}
+              rx={question.answerRegion.rx}
+              ry={question.answerRegion.ry}
+              fill={targetFill}
+              fillOpacity={status === 'correct' ? '0.45' : '0.55'}
+              stroke={targetStroke}
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
         )}
 
-        <motion.button
+        <button
           type="button"
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture(event.pointerId)
@@ -884,26 +904,59 @@ function HotspotQuestion({ question }: { question: Extract<QuizPrimitiveQuestion
           onPointerCancel={() => setDragging(false)}
           onKeyDown={nudge}
           onDoubleClick={validate}
-          animate={{ scale: dragging ? 1.08 : 1, boxShadow: dragging ? '0 20px 46px rgba(24,24,27,0.24)' : '0 10px 24px rgba(69,61,238,0.18)' }}
-          transition={{ type: 'spring', stiffness: 520, damping: 34 }}
-          className={`absolute grid -translate-x-1/2 -translate-y-1/2 cursor-grab place-items-center rounded-full border-2 bg-white/90 text-[#453dee] outline-none backdrop-blur active:cursor-grabbing ${
-            status === 'correct'
-              ? 'border-[#16a34a] text-[#15803d] ring-4 ring-[#dcfce7]'
-              : status === 'wrong'
-                ? 'border-[#facc15] text-[#9a5c00] ring-4 ring-[#fff7df]'
-                : 'border-[#453dee] focus:ring-4 focus:ring-[#cfd3ff]'
+          className={`absolute inset-0 z-10 h-full w-full border-0 bg-transparent p-0 outline-none focus-visible:ring-4 focus-visible:ring-[#cfd3ff] ${
+            dragging ? 'cursor-grabbing' : 'cursor-grab active:cursor-grabbing'
           }`}
-          style={{
-            left: `${cursor.x}%`,
-            top: `${cursor.y}%`,
-            width: `${cursor.radius * 2}%`,
-            aspectRatio: '1 / 1',
-          }}
           aria-label="Move answer circle"
           title="Drag the circle or use arrow keys"
         >
-          <MousePointer2 size={18} />
-        </motion.button>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="pointer-events-none h-full w-full" aria-hidden="true">
+            {status !== 'idle' && (
+              <ellipse
+                cx={cursor.x}
+                cy={cursor.y}
+                rx={cursor.radius + 1.2}
+                ry={cursorRadiusY + 1.2}
+                fill="none"
+                stroke={status === 'correct' ? '#dcfce7' : '#fff7df'}
+                strokeWidth="4"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            <ellipse
+              cx={cursor.x}
+              cy={cursor.y}
+              rx={cursor.radius}
+              ry={cursorRadiusY}
+              fill="#ffffff"
+              fillOpacity="0.9"
+              stroke={cursorStroke}
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+              className={dragging ? 'drop-shadow-[0_20px_46px_rgba(24,24,27,0.24)]' : 'drop-shadow-[0_10px_24px_rgba(69,61,238,0.18)]'}
+            />
+            <line
+              x1={cursor.x - 2.2}
+              y1={cursor.y}
+              x2={cursor.x + 2.2}
+              y2={cursor.y}
+              stroke={cursorTextStroke}
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+            <line
+              x1={cursor.x}
+              y1={cursor.y - Math.min(cursorRadiusY * 0.42, 2.2)}
+              x2={cursor.x}
+              y2={cursor.y + Math.min(cursorRadiusY * 0.42, 2.2)}
+              stroke={cursorTextStroke}
+              strokeWidth="1.3"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        </button>
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_150px] gap-3 max-[760px]:grid-cols-1">

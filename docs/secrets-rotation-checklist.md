@@ -22,6 +22,8 @@ Do not record secret values in this file. Record only provider, secret name, own
 | `JWT_SECRET_KEY` | GitHub Environment | production | TBD | TBD | TBD | TBD |
 | `REALTIME_OUTBOX_SECRET` | GitHub Environment | staging | TBD | TBD | TBD | TBD |
 | `REALTIME_OUTBOX_SECRET` | GitHub Environment | production | TBD | TBD | TBD | TBD |
+| `KRESCO_RATE_LIMIT_STORAGE_URI` | GitHub Environment / Redis provider | staging | TBD | TBD | TBD | TBD |
+| `KRESCO_RATE_LIMIT_STORAGE_URI` | GitHub Environment / Redis provider | production | TBD | TBD | TBD | TBD |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | GitHub Environment / AWS IAM | deploy | TBD | TBD | TBD | TBD |
 | `MEDIA_S3_BUCKET` policy and lifecycle | AWS S3 | staging | TBD | TBD | TBD | TBD |
 | `MEDIA_S3_BUCKET` policy and lifecycle | AWS S3 | production | TBD | TBD | TBD | TBD |

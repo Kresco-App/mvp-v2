@@ -5,8 +5,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertCircle, Play } from 'lucide-react'
-import { getJson, postJson } from '@/lib/apiClient'
+import { getJson } from '@/lib/apiClient'
 import { isLocalDemoVideoStream } from '@/lib/devFeatures'
+import { useVideoProgress } from '@/hooks/useVideoProgress'
+
+export { isActiveLesson } from '@/hooks/useVideoProgress'
 
 const VDO_API_SRC = 'https://player.vdocipher.com/v2/api.js'
 
@@ -55,10 +58,6 @@ export function buildVdoCipherIframeSrc(streamData: StreamData) {
 
 export function resolveLessonStreamData(streamState: LessonStreamState, topicItemId: string | number) {
   return streamState?.topicItemId === topicItemId ? streamState.data : null
-}
-
-export function isActiveLesson(progressLessonId: string | number, activeLessonId: string | number) {
-  return progressLessonId === activeLessonId
 }
 
 function loadVdoApi() {
@@ -125,46 +124,12 @@ type VideoPlayerProps = {
 export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds = 0, onProgress, onComplete }: VideoPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const playerRef = useRef<VdoCipherPlayer | null>(null)
-  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lessonIdentityRef = useRef(lessonId)
-  const completionReportedRef = useRef(false)
-  const completionSaveInFlightRef = useRef(false)
-  const onProgressRef = useRef<ProgressCallback>(onProgress)
-  const onCompleteRef = useRef<CompleteCallback>(onComplete)
   const [streamState, setStreamState] = useState<LessonStreamState>({ topicItemId: null, data: null })
   const streamData = resolveLessonStreamData(streamState, lessonId)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
-  const lastSavedRef = useRef(0)
   const initialSeekDoneRef = useRef(false)
-
-  const clearProgressInterval = useCallback(() => {
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current)
-      progressIntervalRef.current = null
-    }
-  }, [])
-
-  const saveProgress = useCallback(async (watchedSeconds: number) => {
-    if (!isActiveLesson(lessonId, lessonIdentityRef.current)) {
-      return false
-    }
-
-    try {
-      await postJson(`/courses/topic-items/${lessonId}/complete`, {
-        watched_seconds: Math.max(0, Math.round(watchedSeconds)),
-      })
-      return true
-    } catch {
-      return false
-    }
-  }, [lessonId])
-
-  const currentDuration = useCallback(() => {
-    const nativeDuration = playerRef.current?.video?.duration ?? 0
-    return Number.isFinite(nativeDuration) && nativeDuration > 0 ? nativeDuration : durationSeconds
-  }, [durationSeconds])
 
   const currentResumeSeconds = useCallback(() => {
     const streamResume = Number(streamData?.resume_seconds ?? 0)
@@ -179,38 +144,30 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
     return Math.max(0, current, Math.round(streamWatched || propResume))
   }, [resumeSeconds, streamData?.watched_seconds])
 
-  const reportCompletion = useCallback(async () => {
-    if (completionReportedRef.current || completionSaveInFlightRef.current) return
+  const getCurrentTime = useCallback(() => playerRef.current?.video?.currentTime ?? 0, [])
+  const getDuration = useCallback(() => playerRef.current?.video?.duration ?? 0, [])
 
-    completionSaveInFlightRef.current = true
-    setIsPlaying(false)
-    clearProgressInterval()
-    const saved = await saveProgress(currentDuration() || durationSeconds)
-    if (!isActiveLesson(lessonId, lessonIdentityRef.current)) {
-      completionSaveInFlightRef.current = false
-      return
-    }
-    if (!saved) {
-      completionSaveInFlightRef.current = false
-      completionReportedRef.current = false
-      toast.error('Could not save video completion.')
-      return
-    }
-    completionReportedRef.current = true
-    completionSaveInFlightRef.current = false
-    await onCompleteRef.current?.()
-  }, [clearProgressInterval, currentDuration, durationSeconds, lessonId, saveProgress])
-
-  useEffect(() => {
-    onProgressRef.current = onProgress
-    onCompleteRef.current = onComplete
-  }, [onComplete, onProgress])
+  const {
+    clearProgressInterval,
+    reportCompletion,
+    saveProgress,
+    syncProgress,
+  } = useVideoProgress({
+    lessonId,
+    durationSeconds,
+    isPlaying,
+    getCurrentTime,
+    getDuration,
+    getWatchedSeconds: currentWatchedSeconds,
+    onProgress,
+    onComplete,
+    onStopPlayback: () => setIsPlaying(false),
+    awaitCompletionSave: true,
+    completionSaveErrorMessage: 'Could not save video completion.',
+    syncOnInterval: false,
+  })
 
   useEffect(() => {
-    lessonIdentityRef.current = lessonId
-    completionReportedRef.current = false
-    completionSaveInFlightRef.current = false
-    lastSavedRef.current = 0
     initialSeekDoneRef.current = false
     clearProgressInterval()
 
@@ -251,26 +208,8 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
 
     let cancelled = false
     let cleanupVideoEvents: (() => void) | null = null
-    let activePlayer: VdoCipherPlayer | null = null
 
-    const activeLessonId = lessonId
     clearProgressInterval()
-
-    const syncProgress = () => {
-      if (!isActiveLesson(activeLessonId, lessonIdentityRef.current)) {
-        return
-      }
-
-      const current = activePlayer?.video?.currentTime ?? 0
-      const duration = currentDuration()
-      const pct = duration > 0 ? current / duration : 0
-
-      onProgressRef.current?.(current, pct)
-
-      if (pct >= 0.9) {
-        void reportCompletion()
-      }
-    }
 
     loadVdoApi()
       .then((VdoPlayer) => {
@@ -284,7 +223,6 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
         }
 
         playerRef.current = player
-        activePlayer = player
         const resumeAt = currentResumeSeconds()
         if (!initialSeekDoneRef.current && resumeAt > 0) {
           video.currentTime = resumeAt
@@ -333,53 +271,14 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
     }
   }, [
     clearProgressInterval,
-    currentDuration,
     currentResumeSeconds,
     currentWatchedSeconds,
-    durationSeconds,
     lessonId,
     reportCompletion,
     saveProgress,
     streamData,
+    syncProgress,
   ])
-
-  useEffect(() => {
-    if (!isPlaying) {
-      clearProgressInterval()
-      return
-    }
-
-    const activeLessonId = lessonId
-    const intervalId = setInterval(() => {
-      if (!isActiveLesson(activeLessonId, lessonIdentityRef.current)) {
-        return
-      }
-
-      const current = Math.round(playerRef.current?.video?.currentTime ?? 0)
-      if (current !== lastSavedRef.current) {
-        lastSavedRef.current = current
-        void saveProgress(current)
-      }
-    }, 30000)
-    progressIntervalRef.current = intervalId
-
-    return () => {
-      clearInterval(intervalId)
-      if (progressIntervalRef.current === intervalId) {
-        progressIntervalRef.current = null
-      }
-    }
-  }, [clearProgressInterval, isPlaying, lessonId, saveProgress])
-
-  useEffect(() => {
-    const flushProgress = () => {
-      void saveProgress(currentWatchedSeconds())
-    }
-    window.addEventListener('pagehide', flushProgress)
-    return () => {
-      window.removeEventListener('pagehide', flushProgress)
-    }
-  }, [currentWatchedSeconds, saveProgress])
 
   if (error) {
     return (
@@ -421,8 +320,8 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
           <button
             type="button"
             onClick={() => {
-              void reportCompletion().then(() => {
-                if (completionReportedRef.current) {
+              void reportCompletion().then((completed) => {
+                if (completed) {
                   toast.success('Lecon marquee comme terminee !')
                 }
               })
@@ -446,8 +345,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
         allow="encrypted-media"
         allowFullScreen
         sandbox="allow-scripts allow-presentation"
-        className="w-full h-full"
-        style={{ border: 'none' }}
+        className="h-full w-full border-0"
       />
     </div>
   )

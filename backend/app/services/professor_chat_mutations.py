@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
@@ -7,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.models.professor import CourseOffering, ProfessorChatConversation, ProfessorChatMessage
 from app.models.users import User
 from app.schemas.professor import (
@@ -23,7 +24,7 @@ from app.services.image_uploads import (
     image_matches_mime_type,
     normalize_image_mime_type,
 )
-from app.services.media_storage import get_media_storage, professor_chat_media_key, safe_original_filename
+from app.services.media_storage import delete_media_reference, get_media_storage, professor_chat_media_key, safe_original_filename
 from app.services.professor_audit import enforce_professor_mutation_rate_limit, record_professor_audit
 from app.services.professor_queries import (
     ensure_student_matches_offering,
@@ -38,6 +39,7 @@ from app.services.realtime_outbox import enqueue_realtime_event
 MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
 CHAT_MESSAGE_EDIT_WINDOW = timedelta(minutes=15)
 RequireProfessorActiveOfferingFn = Callable[[AsyncSession, User], Awaitable[object]]
+logger = logging.getLogger(__name__)
 
 
 def touch_conversation(conversation: ProfessorChatConversation, body: str) -> None:
@@ -73,21 +75,7 @@ async def apply_professor_sent_message_update(
     conversation: ProfessorChatConversation,
     body: str,
 ) -> None:
-    touch_conversation(conversation, body)
-    cleared_professor_unread = int(conversation.unread_for_professor or 0)
-    await db.execute(
-        update(ProfessorChatConversation)
-        .where(ProfessorChatConversation.id == conversation.id)
-        .values(
-            unread_for_student=ProfessorChatConversation.unread_for_student + 1,
-            unread_for_professor=0,
-            last_message_preview=conversation.last_message_preview,
-            last_message_at=conversation.last_message_at,
-            updated_at=conversation.updated_at,
-        )
-        .execution_options(synchronize_session=False)
-    )
-    await adjust_professor_unread_chat_count(db, conversation.professor_user_id, -cleared_professor_unread)
+    await apply_sent_message_update(db, conversation, body, sender_is_professor=True)
 
 
 async def apply_student_sent_message_update(
@@ -95,20 +83,42 @@ async def apply_student_sent_message_update(
     conversation: ProfessorChatConversation,
     body: str,
 ) -> None:
+    await apply_sent_message_update(db, conversation, body, sender_is_professor=False)
+
+
+async def apply_sent_message_update(
+    db: AsyncSession,
+    conversation: ProfessorChatConversation,
+    body: str,
+    *,
+    sender_is_professor: bool,
+) -> None:
     touch_conversation(conversation, body)
+    values = {
+        "last_message_preview": conversation.last_message_preview,
+        "last_message_at": conversation.last_message_at,
+        "updated_at": conversation.updated_at,
+    }
+    if sender_is_professor:
+        cleared_professor_unread = int(conversation.unread_for_professor or 0)
+        values.update(
+            unread_for_student=ProfessorChatConversation.unread_for_student + 1,
+            unread_for_professor=0,
+        )
+        professor_unread_delta = -cleared_professor_unread
+    else:
+        values.update(
+            unread_for_professor=ProfessorChatConversation.unread_for_professor + 1,
+            unread_for_student=0,
+        )
+        professor_unread_delta = 1
     await db.execute(
         update(ProfessorChatConversation)
         .where(ProfessorChatConversation.id == conversation.id)
-        .values(
-            unread_for_professor=ProfessorChatConversation.unread_for_professor + 1,
-            unread_for_student=0,
-            last_message_preview=conversation.last_message_preview,
-            last_message_at=conversation.last_message_at,
-            updated_at=conversation.updated_at,
-        )
+        .values(**values)
         .execution_options(synchronize_session=False)
     )
-    await adjust_professor_unread_chat_count(db, conversation.professor_user_id, 1)
+    await adjust_professor_unread_chat_count(db, conversation.professor_user_id, professor_unread_delta)
 
 
 async def deleted_message_is_unread_tail(
@@ -265,6 +275,10 @@ async def require_owned_chat_message(
     result = await db.execute(
         select(ProfessorChatMessage, ProfessorChatConversation)
         .join(ProfessorChatConversation, ProfessorChatConversation.id == ProfessorChatMessage.conversation_id)
+        .options(
+            selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.subject),
+            selectinload(ProfessorChatConversation.course_offering).selectinload(CourseOffering.track),
+        )
         .where(
             ProfessorChatMessage.id == message_id,
             ProfessorChatMessage.sender_user_id == user.id,
@@ -280,6 +294,18 @@ async def require_owned_chat_message(
     return row[0], row[1]
 
 
+async def ensure_student_can_use_conversation(
+    db: AsyncSession,
+    user: User,
+    conversation: ProfessorChatConversation,
+) -> None:
+    offering = conversation.course_offering
+    if offering is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    ensure_student_matches_offering(user, offering)
+    await ensure_student_professor_chat_access(db, user, subject_id=offering.subject_id)
+
+
 async def list_professor_messages_for_conversation(
     db: AsyncSession,
     *,
@@ -289,20 +315,73 @@ async def list_professor_messages_for_conversation(
     limit: int,
     before_id: int | None,
 ) -> list[ProfessorChatMessageOut]:
-    conversation = await require_professor_conversation(db, professor, conversation_id)
-    if conversation.unread_for_professor > 0:
-        unread_delta = int(conversation.unread_for_professor)
-        await db.execute(
-            update(ProfessorChatConversation)
-            .where(
-                ProfessorChatConversation.id == conversation.id,
-                ProfessorChatConversation.unread_for_professor > 0,
-            )
-            .values(unread_for_professor=0)
-        )
-        await adjust_professor_unread_chat_count(db, conversation.professor_user_id, -unread_delta)
-        await db.commit()
+    await require_professor_conversation(db, professor, conversation_id)
     return await messages_for_conversation(db, conversation_id, settings, limit=limit, before_id=before_id)
+
+
+async def _require_send_conversation(
+    db: AsyncSession,
+    *,
+    user: User,
+    conversation_id: int,
+    sender_is_professor: bool,
+    request: Request | None = None,
+) -> ProfessorChatConversation:
+    if sender_is_professor:
+        conversation = await require_professor_conversation(db, user, conversation_id, for_update=True)
+        if request is None:
+            raise HTTPException(status_code=500, detail="Professor mutation request missing")
+        await enforce_professor_mutation_rate_limit(db, user, request)
+        return conversation
+
+    conversation = await require_student_conversation(db, user, conversation_id, for_update=True)
+    await ensure_student_can_use_conversation(db, user, conversation)
+    return conversation
+
+
+async def _persist_chat_message_state(
+    db: AsyncSession,
+    *,
+    user: User,
+    conversation: ProfessorChatConversation,
+    message_body: str,
+    preview_body: str,
+    sender_is_professor: bool,
+    request: Request | None = None,
+    attachment_url: str | None = None,
+    attachment_mime_type: str | None = None,
+    attachment_name: str | None = None,
+    attachment_size: int | None = None,
+) -> ProfessorChatMessage:
+    message = ProfessorChatMessage(
+        conversation_id=conversation.id,
+        sender_user_id=user.id,
+        body=message_body,
+        attachment_url=attachment_url,
+        attachment_mime_type=attachment_mime_type,
+        attachment_name=attachment_name,
+        attachment_size=attachment_size,
+    )
+    db.add(message)
+    await apply_sent_message_update(db, conversation, preview_body, sender_is_professor=sender_is_professor)
+    await db.flush()
+    if sender_is_professor and request is not None:
+        changed_data = {"conversation_id": conversation.id}
+        if attachment_mime_type is not None:
+            changed_data["attachment_mime_type"] = attachment_mime_type
+        record_professor_audit(
+            db,
+            professor=user,
+            request=request,
+            action="professor_create",
+            model_name="ProfessorChatMessage",
+            object_pk=message.id,
+            object_repr=conversation.last_message_preview,
+            changed_data=changed_data,
+        )
+    await publish_chat_message_change(db, conversation, user, "professor.chat.message", message.id)
+    await db.commit()
+    return message
 
 
 async def send_professor_message_state(
@@ -314,24 +393,22 @@ async def send_professor_message_state(
     request: Request,
     settings: Settings,
 ) -> ProfessorChatMessageOut:
-    conversation = await require_professor_conversation(db, professor, conversation_id, for_update=True)
-    await enforce_professor_mutation_rate_limit(db, professor, request)
-    message = ProfessorChatMessage(conversation_id=conversation.id, sender_user_id=professor.id, body=body.body)
-    db.add(message)
-    await apply_professor_sent_message_update(db, conversation, body.body)
-    await db.flush()
-    record_professor_audit(
+    conversation = await _require_send_conversation(
         db,
-        professor=professor,
+        user=professor,
+        conversation_id=conversation_id,
+        sender_is_professor=True,
         request=request,
-        action="professor_create",
-        model_name="ProfessorChatMessage",
-        object_pk=message.id,
-        object_repr=conversation.last_message_preview,
-        changed_data={"conversation_id": conversation.id},
     )
-    await publish_chat_message_change(db, conversation, professor, "professor.chat.message", message.id)
-    await db.commit()
+    message = await _persist_chat_message_state(
+        db,
+        user=professor,
+        conversation=conversation,
+        message_body=body.body,
+        preview_body=body.body,
+        sender_is_professor=True,
+        request=request,
+    )
     await db.refresh(message)
     return await message_out(message, professor.role, settings)
 
@@ -346,39 +423,38 @@ async def send_professor_image_message_state(
     request: Request,
     settings: Settings,
 ) -> ProfessorChatMessageOut:
-    conversation = await require_professor_conversation(db, professor, conversation_id, for_update=True)
-    await enforce_professor_mutation_rate_limit(db, professor, request)
+    conversation = await _require_send_conversation(
+        db,
+        user=professor,
+        conversation_id=conversation_id,
+        sender_is_professor=True,
+        request=request,
+    )
     attachment_url, attachment_mime_type, attachment_name, attachment_size = await save_chat_image(
         db,
         settings,
         conversation.id,
         file,
     )
-    clean_body = body.strip()[:1000]
-    message = ProfessorChatMessage(
-        conversation_id=conversation.id,
-        sender_user_id=professor.id,
-        body=clean_body,
-        attachment_url=attachment_url,
-        attachment_mime_type=attachment_mime_type,
-        attachment_name=attachment_name,
-        attachment_size=attachment_size,
-    )
-    db.add(message)
-    await apply_professor_sent_message_update(db, conversation, clean_body or "Image")
-    await db.flush()
-    record_professor_audit(
-        db,
-        professor=professor,
-        request=request,
-        action="professor_create",
-        model_name="ProfessorChatMessage",
-        object_pk=message.id,
-        object_repr=conversation.last_message_preview,
-        changed_data={"conversation_id": conversation.id, "attachment_mime_type": attachment_mime_type},
-    )
-    await publish_chat_message_change(db, conversation, professor, "professor.chat.message", message.id)
-    await db.commit()
+    try:
+        clean_body = body.strip()[:1000]
+        message = await _persist_chat_message_state(
+            db,
+            user=professor,
+            conversation=conversation,
+            message_body=clean_body,
+            preview_body=clean_body or "Image",
+            sender_is_professor=True,
+            request=request,
+            attachment_url=attachment_url,
+            attachment_mime_type=attachment_mime_type,
+            attachment_name=attachment_name,
+            attachment_size=attachment_size,
+        )
+    except Exception:
+        await db.rollback()
+        await _delete_chat_media_reference(settings, attachment_url)
+        raise
     await db.refresh(message)
     return await message_out(message, professor.role, settings)
 
@@ -397,6 +473,8 @@ async def update_chat_message_state(
     if user.role == "professor":
         await require_professor_active_offering_fn(db, user)
         await enforce_professor_mutation_rate_limit(db, user, request)
+    else:
+        await ensure_student_can_use_conversation(db, user, conversation)
     if datetime.now(timezone.utc) - chat_datetime(message.created_at) > CHAT_MESSAGE_EDIT_WINDOW:
         raise HTTPException(status_code=403, detail="Messages can only be edited for 15 minutes")
 
@@ -432,11 +510,12 @@ async def delete_chat_message_state(
     require_professor_active_offering_fn: RequireProfessorActiveOfferingFn,
 ) -> dict[str, bool]:
     message, conversation = await require_owned_chat_message(db, user, message_id)
+    attachment_reference = message.attachment_url
     if user.role == "professor":
         await require_professor_active_offering_fn(db, user)
         await enforce_professor_mutation_rate_limit(db, user, request)
     else:
-        ensure_student_professor_chat_access(user)
+        await ensure_student_can_use_conversation(db, user, conversation)
     if datetime.now(timezone.utc) - chat_datetime(message.created_at) > CHAT_MESSAGE_EDIT_WINDOW:
         raise HTTPException(status_code=403, detail="Messages can only be deleted for 15 minutes")
     await reconcile_deleted_message_unread_counter(db, message, conversation)
@@ -456,6 +535,8 @@ async def delete_chat_message_state(
         )
     await publish_chat_message_change(db, conversation, user, "professor.chat.message.deleted", message_id)
     await db.commit()
+    if attachment_reference:
+        await _delete_chat_media_reference(_settings_from_request(request), attachment_reference)
     return {"ok": True}
 
 
@@ -491,6 +572,22 @@ async def patch_professor_conversation_state(
     return await conversation_out(conversation, settings)
 
 
+async def mark_student_conversation_read_state(
+    db: AsyncSession,
+    *,
+    user: User,
+    conversation_id: int,
+    settings: Settings,
+) -> ProfessorChatConversationOut:
+    conversation = await require_student_conversation(db, user, conversation_id, for_update=True)
+    await ensure_student_can_use_conversation(db, user, conversation)
+    if conversation.unread_for_student > 0:
+        conversation.unread_for_student = 0
+        await db.commit()
+        await db.refresh(conversation)
+    return await conversation_out(conversation, settings)
+
+
 async def start_student_conversation_state(
     db: AsyncSession,
     *,
@@ -498,7 +595,6 @@ async def start_student_conversation_state(
     body: StudentStartConversationIn,
     settings: Settings,
 ) -> ProfessorChatConversationOut:
-    ensure_student_professor_chat_access(user)
     result = await db.execute(
         select(CourseOffering)
         .options(selectinload(CourseOffering.subject), selectinload(CourseOffering.track), selectinload(CourseOffering.professor))
@@ -509,6 +605,7 @@ async def start_student_conversation_state(
     if offering is None:
         raise HTTPException(status_code=404, detail="Course offering not found")
     ensure_student_matches_offering(user, offering)
+    await ensure_student_professor_chat_access(db, user, subject_id=offering.subject_id)
 
     existing = await db.scalar(
         select(ProfessorChatConversation).where(
@@ -564,18 +661,8 @@ async def list_student_messages_for_conversation(
     limit: int,
     before_id: int | None,
 ) -> list[ProfessorChatMessageOut]:
-    ensure_student_professor_chat_access(user)
     conversation = await require_student_conversation(db, user, conversation_id)
-    if conversation.unread_for_student > 0:
-        await db.execute(
-            update(ProfessorChatConversation)
-            .where(
-                ProfessorChatConversation.id == conversation.id,
-                ProfessorChatConversation.unread_for_student > 0,
-            )
-            .values(unread_for_student=0)
-        )
-        await db.commit()
+    await ensure_student_can_use_conversation(db, user, conversation)
     return await messages_for_conversation(db, conversation_id, settings, limit=limit, before_id=before_id)
 
 
@@ -587,14 +674,20 @@ async def send_student_message_state(
     body: ChatMessageIn,
     settings: Settings,
 ) -> ProfessorChatMessageOut:
-    ensure_student_professor_chat_access(user)
-    conversation = await require_student_conversation(db, user, conversation_id, for_update=True)
-    message = ProfessorChatMessage(conversation_id=conversation.id, sender_user_id=user.id, body=body.body)
-    db.add(message)
-    await apply_student_sent_message_update(db, conversation, body.body)
-    await db.flush()
-    await publish_chat_message_change(db, conversation, user, "professor.chat.message", message.id)
-    await db.commit()
+    conversation = await _require_send_conversation(
+        db,
+        user=user,
+        conversation_id=conversation_id,
+        sender_is_professor=False,
+    )
+    message = await _persist_chat_message_state(
+        db,
+        user=user,
+        conversation=conversation,
+        message_body=body.body,
+        preview_body=body.body,
+        sender_is_professor=False,
+    )
     await db.refresh(message)
     return await message_out(message, user.role, settings)
 
@@ -608,28 +701,51 @@ async def send_student_image_message_state(
     file: UploadFile,
     settings: Settings,
 ) -> ProfessorChatMessageOut:
-    ensure_student_professor_chat_access(user)
-    conversation = await require_student_conversation(db, user, conversation_id, for_update=True)
+    conversation = await _require_send_conversation(
+        db,
+        user=user,
+        conversation_id=conversation_id,
+        sender_is_professor=False,
+    )
     attachment_url, attachment_mime_type, attachment_name, attachment_size = await save_chat_image(
         db,
         settings,
         conversation.id,
         file,
     )
-    clean_body = body.strip()[:1000]
-    message = ProfessorChatMessage(
-        conversation_id=conversation.id,
-        sender_user_id=user.id,
-        body=clean_body,
-        attachment_url=attachment_url,
-        attachment_mime_type=attachment_mime_type,
-        attachment_name=attachment_name,
-        attachment_size=attachment_size,
-    )
-    db.add(message)
-    await apply_student_sent_message_update(db, conversation, clean_body or "Image")
-    await db.flush()
-    await publish_chat_message_change(db, conversation, user, "professor.chat.message", message.id)
-    await db.commit()
+    try:
+        clean_body = body.strip()[:1000]
+        message = await _persist_chat_message_state(
+            db,
+            user=user,
+            conversation=conversation,
+            message_body=clean_body,
+            preview_body=clean_body or "Image",
+            sender_is_professor=False,
+            attachment_url=attachment_url,
+            attachment_mime_type=attachment_mime_type,
+            attachment_name=attachment_name,
+            attachment_size=attachment_size,
+        )
+    except Exception:
+        await db.rollback()
+        await _delete_chat_media_reference(settings, attachment_url)
+        raise
     await db.refresh(message)
     return await message_out(message, user.role, settings)
+
+
+def _settings_from_request(request: Request) -> Settings:
+    app = getattr(request, "app", None)
+    state = getattr(app, "state", None)
+    settings = getattr(state, "settings", None)
+    if settings is not None:
+        return settings
+    return get_settings()
+
+
+async def _delete_chat_media_reference(settings: Settings, reference: str | None) -> None:
+    try:
+        await delete_media_reference(get_media_storage(settings), reference)
+    except Exception:
+        logger.warning("professor_chat_media_cleanup_failed", exc_info=True)

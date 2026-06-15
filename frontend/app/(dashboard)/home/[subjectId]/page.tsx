@@ -118,7 +118,9 @@ export default function SubjectDetailPage() {
                     <span className="text-[#453dee]">{percentage}%</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-[#f4f4f5]">
-                    <span className="block h-full rounded-full bg-[#453dee] transition-[width] duration-500" style={{ width: `${percentage}%` }} />
+                    <svg viewBox="0 0 100 1" preserveAspectRatio="none" className="block h-full w-full" aria-hidden="true">
+                      <rect width={percentage} height="1" fill="#453dee" rx="0.5" />
+                    </svg>
                   </div>
                 </div>
               </div>

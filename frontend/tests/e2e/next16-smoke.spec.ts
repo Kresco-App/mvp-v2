@@ -363,13 +363,7 @@ const liveCheckpoints = [
 ]
 
 function mockFrameUrl(label: string) {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(`
-    <html>
-      <body style="margin:0;height:100vh;display:grid;place-items:center;background:#0f0f12;color:white;font:700 18px system-ui,sans-serif;">
-        ${label}
-      </body>
-    </html>
-  `)}`
+  return `https://player.vdocipher.com/mock-frame?label=${encodeURIComponent(label)}`
 }
 
 const professorChangeRequests = [
@@ -596,6 +590,11 @@ async function mockApi(page: Page) {
       return
     }
 
+    if (path === '/payments/verify-session') {
+      await route.fulfill({ json: { is_pro: true } })
+      return
+    }
+
     if (request.method() === 'POST' || request.method() === 'PATCH') {
       await route.fulfill({ json: { ok: true, xp_earned: 0, is_pro: true } })
       return
@@ -603,11 +602,6 @@ async function mockApi(page: Page) {
 
     if (path === '/calendar/events') {
       await route.fulfill({ json: [calendarEvent] })
-      return
-    }
-
-    if (path === '/payments/verify-session') {
-      await route.fulfill({ json: { is_pro: true } })
       return
     }
 
@@ -816,7 +810,10 @@ function collectCriticalBrowserErrors(page: Page) {
 
   page.on('console', (message) => {
     const text = message.text()
-    if (message.type() === 'error' && /hydration|did not match|server rendered|client rendered|Minified React error/i.test(text)) {
+    if (
+      message.type() === 'error' &&
+      /hydration|did not match|server rendered|client rendered|Minified React error|Content Security Policy|Refused to (?:apply|execute|load)|violates the following Content Security Policy/i.test(text)
+    ) {
       errors.push(text)
     }
   })
@@ -835,6 +832,19 @@ function collectCriticalBrowserErrors(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.route('https://accounts.google.com/**', (route) => route.abort())
+  await page.route('https://player.vdocipher.com/mock-frame**', async (route) => {
+    const label = new URL(route.request().url()).searchParams.get('label') ?? 'VdoCipher live player'
+    await route.fulfill({
+      contentType: 'text/html',
+      body: `
+        <html>
+          <body>
+            <main>${label}</main>
+          </body>
+        </html>
+      `,
+    })
+  })
   await mockApi(page)
 })
 

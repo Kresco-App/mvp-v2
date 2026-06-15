@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { ArrowRight, CalendarDays, Radio } from 'lucide-react'
 import { toast } from 'sonner'
-import { listKrescoRealtimeSubscriptions, subscribeKrescoRealtimeChannels, userNotificationsChannelName } from '@/lib/ably'
+import { useNotificationChannelsSubscription } from '@/hooks/useNotificationChannelsSubscription'
 import { apiDataErrorMessage } from '@/lib/apiData'
+import { formatLiveDateTime as formatDateTime } from '@/lib/liveInteractions'
 import { useStudentLiveScheduleData } from '@/lib/liveSessionData'
 import { useAuthStore } from '@/lib/store'
 
@@ -30,34 +31,19 @@ export default function LivePage() {
     }
   }, [error])
 
-  useEffect(() => {
-    if (!user?.id) return
-    const userId = user.id
-    let cleanup = () => {}
-    let stopped = false
-    const refresh = () => void mutateSessions()
-    void listKrescoRealtimeSubscriptions()
-      .then(({ notification_channels }) => {
-        if (stopped) return
-        cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: notification_channels,
-          onMessage: refresh,
-          fallback: { intervalMs: 5000, poll: refresh },
-        })
-      })
-      .catch(() => {
-        if (stopped) return
-        cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: [userNotificationsChannelName(userId)],
-          onMessage: refresh,
-          fallback: { intervalMs: 5000, poll: refresh },
-        })
-      })
-    return () => {
-      stopped = true
-      cleanup()
-    }
-  }, [mutateSessions, user?.id])
+  const refreshSessions = useCallback(() => {
+    void mutateSessions()
+  }, [mutateSessions])
+
+  const pollSessions = useCallback(async () => {
+    await mutateSessions()
+  }, [mutateSessions])
+
+  useNotificationChannelsSubscription({
+    userId: user?.id,
+    onMessage: refreshSessions,
+    fallbackPoll: pollSessions,
+  })
 
   return (
     <section className="kresco-shell w-full max-w-[860px]">
@@ -138,8 +124,4 @@ function LiveSkeleton() {
       <div className="mt-3 h-4 w-44 rounded bg-[#f4f4f5]" />
     </div>
   )
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }

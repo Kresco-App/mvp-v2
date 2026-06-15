@@ -4,6 +4,17 @@
 import React, { useState } from 'react';
 import { CheckCircle2, XCircle, ArrowRight, RefreshCw, HelpCircle } from 'lucide-react';
 
+const QUIZ_PROGRESS_WIDTH_CLASSES = [
+  'w-[12.5%]',
+  'w-[25%]',
+  'w-[37.5%]',
+  'w-[50%]',
+  'w-[62.5%]',
+  'w-[75%]',
+  'w-[87.5%]',
+  'w-full',
+] as const;
+
 export const LightExercises: React.FC = () => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [score, setScore] = useState(0);
@@ -124,7 +135,7 @@ export const LightExercises: React.FC = () => {
     setShowFeedback(false);
   };
 
-  const progress = ((currentQuestion + 1) / questions.length) * 100;
+  const progressWidthClass = QUIZ_PROGRESS_WIDTH_CLASSES[currentQuestion] ?? 'w-full';
 
   return (
     <div className="bg-white p-8 rounded-3xl shadow-lg border border-slate-100 max-w-3xl mx-auto my-8">
@@ -134,10 +145,7 @@ export const LightExercises: React.FC = () => {
             <div className="flex items-center gap-4 text-sm text-slate-500">
                 <span>Question {currentQuestion + 1} / {questions.length}</span>
                 <div className="h-2 w-32 bg-slate-100 rounded-full overflow-hidden">
-                    <div 
-                        className="h-full bg-indigo-500 transition-all duration-500"
-                        style={{ width: `${progress}%` }}
-                    />
+                    <div className={`h-full bg-indigo-500 transition-all duration-500 ${progressWidthClass}`} />
                 </div>
             </div>
         </div>

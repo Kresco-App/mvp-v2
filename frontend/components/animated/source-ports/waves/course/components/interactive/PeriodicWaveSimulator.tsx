@@ -25,6 +25,35 @@ const useResponsiveCanvas = () => {
     return { canvasRef, ...size };
 };
 
+interface MeasurementGuideProps {
+    width: number;
+    label: string;
+    tone: 'blue' | 'pink';
+}
+
+const MeasurementGuide = ({ width, label, tone }: MeasurementGuideProps) => {
+    const guideWidth = Math.max(width, 1);
+    const labelClass = tone === 'blue' ? 'fill-blue-600' : 'fill-pink-600';
+
+    return (
+        <svg
+            aria-hidden="true"
+            focusable="false"
+            width={guideWidth}
+            height="40"
+            viewBox={`0 0 ${guideWidth} 40`}
+            className="absolute h-10 overflow-visible"
+        >
+            <line x1="0" y1="5" x2={guideWidth} y2="5" className="stroke-slate-400" strokeWidth="1" />
+            <line x1="0" y1="5" x2="0" y2="13" className="stroke-slate-400" strokeWidth="1" />
+            <line x1={guideWidth} y1="5" x2={guideWidth} y2="13" className="stroke-slate-400" strokeWidth="1" />
+            <text x={guideWidth / 2} y="33" textAnchor="middle" className={`text-sm font-bold ${labelClass}`}>
+                {label}
+            </text>
+        </svg>
+    );
+};
+
 // The new architecture for smooth, real-time animation
 export const PeriodicWaveSimulator: React.FC = () => {
     const { canvasRef, width, height } = useResponsiveCanvas();
@@ -206,25 +235,11 @@ export const PeriodicWaveSimulator: React.FC = () => {
                 <div className="mt-4 pt-4 border-t border-slate-200">
                     {viewMode === 'spatial' ? (
                         <div className="relative h-10 w-full flex items-center justify-center">
-                            <div style={{ width: `${displayWavelength}px` }} className="absolute h-full flex flex-col items-center">
-                                <div className="w-full h-px bg-slate-400"></div>
-                                <div className="w-full flex justify-between h-2">
-                                    <div className="h-full w-px bg-slate-400"></div>
-                                    <div className="h-full w-px bg-slate-400"></div>
-                                </div>
-                                <div className="text-sm font-bold text-blue-600 mt-1">λ</div>
-                            </div>
+                            <MeasurementGuide width={displayWavelength} label={'\u03bb'} tone="blue" />
                         </div>
                     ) : (
                         <div className="relative h-10 w-full flex items-center justify-center">
-                            <div style={{ width: `${pixelsPerPeriod}px` }} className="absolute h-full flex flex-col items-center">
-                                <div className="w-full h-px bg-slate-400"></div>
-                                <div className="w-full flex justify-between h-2">
-                                    <div className="h-full w-px bg-slate-400"></div>
-                                    <div className="h-full w-px bg-slate-400"></div>
-                                </div>
-                                <div className="text-sm font-bold text-pink-600 mt-1">T = {period.toFixed(2)}s</div>
-                            </div>
+                            <MeasurementGuide width={pixelsPerPeriod} label={`T = ${period.toFixed(2)}s`} tone="pink" />
                         </div>
                     )}
                 </div>

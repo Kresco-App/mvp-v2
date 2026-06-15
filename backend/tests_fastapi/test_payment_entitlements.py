@@ -52,8 +52,12 @@ async def _persist_new_customer(user_id: int):
     async with session_factory() as db:
         user = await db.get(User, user_id)
         previous_customer_id = user.stripe_customer_id
-        user.stripe_customer_id = "cus_created"
-        return await persist_created_stripe_customer(db, user, previous_customer_id=previous_customer_id)
+        return await persist_created_stripe_customer(
+            db,
+            user,
+            previous_customer_id=previous_customer_id,
+            customer_id="cus_created",
+        )
 
 
 async def _apply_paid_by_id(user_id: int, customer_id: str):

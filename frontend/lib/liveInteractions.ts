@@ -4,6 +4,18 @@ export type LiveInteractionKind = 'message' | 'question'
 
 const HIDDEN_STATUSES = new Set(['deleted', 'hidden'])
 
+export function formatLiveDateTime(value: string) {
+  return new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+}
+
+export function formatLiveShortTime(value: string) {
+  return new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date(value))
+}
+
+export function isLiveInteraction(value: unknown): value is LiveSessionInteraction {
+  return Boolean(value && typeof value === 'object' && 'id' in value && 'kind' in value && 'body' in value)
+}
+
 function timeValue(value: string | null | undefined) {
   if (!value) return 0
   const parsed = Date.parse(value)
@@ -24,11 +36,19 @@ export function mergeLiveInteraction(
   current: LiveSessionInteraction[],
   next: LiveSessionInteraction,
 ) {
-  const existing = current.some((item) => item.id === next.id)
-  const merged = existing
-    ? current.map((item) => (item.id === next.id ? { ...item, ...next } : item))
-    : [...current, next]
-  return sortLiveInteractions(merged)
+  return mergeLiveInteractions(current, [next])
+}
+
+export function mergeLiveInteractions(
+  current: LiveSessionInteraction[],
+  next: LiveSessionInteraction[],
+) {
+  const byId = new Map(current.map((item) => [item.id, item]))
+  for (const interaction of next) {
+    const existing = byId.get(interaction.id)
+    byId.set(interaction.id, existing ? { ...existing, ...interaction } : interaction)
+  }
+  return sortLiveInteractions(Array.from(byId.values()))
 }
 
 export function sortLiveInteractions(items: LiveSessionInteraction[]) {

@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.courses import TopicItem
 from app.models.users import User
-from app.schemas.courses import TopicItemCompleteIn
+from app.schemas.courses import TopicItemCompleteIn, TopicItemProgressIn
 from app.services.course_access import access_for_topic_item
 from app.services.course_progress import (
     bounded_topic_watch_seconds,
@@ -69,36 +69,14 @@ async def complete_topic_item_state(
     item = await _get_accessible_topic_item(db, user, item_id)
     if _is_quiz_item_type(item.item_type):
         raise HTTPException(status_code=400, detail="Quiz items must be submitted through quiz endpoints")
-    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
-    progress = await get_or_create_topic_item_progress(
+    progress = await _record_topic_item_watch_progress(
         db,
-        user_id=user.id,
-        topic_id=item.topic_id,
-        topic_item_id=item.id,
+        user=user,
+        item=item,
+        watched_seconds=body.watched_seconds,
     )
     was_completed = progress.status == "completed" if progress else False
-    previous_watched_seconds = progress.watched_seconds or 0
     now = datetime.now(timezone.utc)
-    latest_other_watch_updated_at = await latest_other_watch_progress_updated_at(
-        db,
-        user_id=user.id,
-        topic_item_id=item.id,
-    )
-    bounded_watched_seconds = bounded_topic_watch_seconds(
-        item=item,
-        progress=progress,
-        requested_seconds=body.watched_seconds,
-        now=now,
-        latest_other_watch_updated_at=latest_other_watch_updated_at,
-    )
-    watched_seconds_delta = max(0, bounded_watched_seconds - previous_watched_seconds)
-    if watched_seconds_delta > 0:
-        progress.watched_seconds = bounded_watched_seconds
-        await apply_lesson_progress_stats_delta(
-            db,
-            user_id=user.id,
-            watched_seconds_delta=watched_seconds_delta,
-        )
     if (
         not was_completed
         and requires_timed_topic_completion(item)
@@ -129,3 +107,66 @@ async def complete_topic_item_state(
         )
     await db.commit()
     return {"ok": True, "xp_earned": xp_earned}
+
+
+async def record_topic_item_progress_state(
+    db: AsyncSession,
+    *,
+    user: User,
+    item_id: int,
+    body: TopicItemProgressIn,
+) -> dict[str, int | bool]:
+    item = await _get_accessible_topic_item(db, user, item_id)
+    if _is_quiz_item_type(item.item_type):
+        raise HTTPException(status_code=400, detail="Quiz items must be submitted through quiz endpoints")
+    progress = await _record_topic_item_watch_progress(
+        db,
+        user=user,
+        item=item,
+        watched_seconds=body.watched_seconds,
+    )
+    await db.commit()
+    return {
+        "ok": True,
+        "watched_seconds": int(progress.watched_seconds or 0),
+        "completed": progress.status == "completed",
+    }
+
+
+async def _record_topic_item_watch_progress(
+    db: AsyncSession,
+    *,
+    user: User,
+    item: TopicItem,
+    watched_seconds: int,
+):
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    progress = await get_or_create_topic_item_progress(
+        db,
+        user_id=user.id,
+        topic_id=item.topic_id,
+        topic_item_id=item.id,
+    )
+    previous_watched_seconds = progress.watched_seconds or 0
+    now = datetime.now(timezone.utc)
+    latest_other_watch_updated_at = await latest_other_watch_progress_updated_at(
+        db,
+        user_id=user.id,
+        topic_item_id=item.id,
+    )
+    bounded_watched_seconds = bounded_topic_watch_seconds(
+        item=item,
+        progress=progress,
+        requested_seconds=watched_seconds,
+        now=now,
+        latest_other_watch_updated_at=latest_other_watch_updated_at,
+    )
+    watched_seconds_delta = max(0, bounded_watched_seconds - previous_watched_seconds)
+    if watched_seconds_delta > 0:
+        progress.watched_seconds = bounded_watched_seconds
+        await apply_lesson_progress_stats_delta(
+            db,
+            user_id=user.id,
+            watched_seconds_delta=watched_seconds_delta,
+        )
+    return progress

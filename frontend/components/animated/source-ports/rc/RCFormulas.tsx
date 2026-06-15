@@ -7,7 +7,7 @@ import { Clock, Zap, Activity, Battery, Layers } from 'lucide-react';
 
 // Helper for mathematical fractions
 const MathFrac = ({ n, d }: { n: React.ReactNode, d: React.ReactNode }) => (
-  <span className="inline-flex flex-col items-center align-middle mx-1" style={{ verticalAlign: 'middle' }}>
+  <span className="mx-1 inline-flex flex-col items-center align-middle">
     <span className="border-b border-slate-800 w-full text-center leading-tight pb-[1px] mb-[1px]">{n}</span>
     <span className="w-full text-center leading-tight">{d}</span>
   </span>

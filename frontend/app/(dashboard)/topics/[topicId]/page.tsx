@@ -18,32 +18,18 @@ import {
 } from 'lucide-react'
 import { postJson } from '@/lib/apiClient'
 import { apiDataErrorMessage } from '@/lib/apiData'
+import { useWorkspaceTree } from '@/lib/topicWorkspaceTree'
 import {
-  defaultTopicWorkspaceDataRequest,
-  topicWorkspaceSWRKey,
-  useTopicWorkspaceData,
-  type TopicWorkspaceDataRequest,
-} from '@/lib/topicWorkspaceData'
-import {
-  activeSectionIdForWorkspace,
-  buildRailSections,
-  buildTopicLookups,
-  defaultSecondaryTabSlotForItem,
   formatTopicItemDuration,
   lockedContentReason,
   lockedVideoSrcDoc,
   missingVideoSrcDoc,
   parseTopicWorkspaceQuery,
-  resolvePrimaryTab,
-  resolveTabForSlot,
-  secondaryTabSlotSpecsForItem,
-  selectTopicWorkspaceQueryState,
   shouldUseTopicItemVideoPlayer,
   topicWorkspaceQueryTargetsFromItemId,
   youtubeVideoId,
   youtubeVideoIdForTab,
   type TopicItem,
-  type TopicWorkspace,
   type WorkspaceTabSlot,
 } from '@/lib/topicWorkspaceViewModel'
 import VideoPlayer from '@/components/VideoPlayer'
@@ -61,6 +47,7 @@ const workspaceTabIcons: Record<WorkspaceTabSlot, LucideIcon> = {
   notes: StickyNote,
   comments: MessageSquare,
 }
+const QUIZ_ITEM_TYPES = new Set(['quiz', 'checkpoint_quiz', 'quiz_set', 'question_set'])
 
 export default function TopicWorkspacePage() {
   const { topicId } = useParams<{ topicId: string }>()
@@ -70,66 +57,28 @@ export default function TopicWorkspacePage() {
   const routeQueryTargets = useMemo(() => (
     parseTopicWorkspaceQuery(new URLSearchParams(workspaceSearchKey))
   ), [workspaceSearchKey])
-  const [workspace, setWorkspace] = useState<TopicWorkspace | null>(null)
-  const [activeItemId, setActiveItemId] = useState<number | null>(null)
-  const [activeTabSlot, setActiveTabSlot] = useState<WorkspaceTabSlot>('course')
-  const [openSectionIds, setOpenSectionIds] = useState<Set<string | number>>(new Set())
-  const [workspaceRequest, setWorkspaceRequest] = useState<TopicWorkspaceDataRequest>(() => ({
-    ...defaultTopicWorkspaceDataRequest(),
-    targets: routeQueryTargets,
-  }))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const actionInFlightRef = useRef(false)
   const lastWorkspaceErrorToastRef = useRef('')
-  const previousTopicIdRef = useRef(topicId)
   const {
-    key: workspaceKey,
-    workspace: fetchedWorkspace,
-    error: workspaceError,
+    workspace,
+    workspaceError,
     loading,
     isValidating,
-    mutate: mutateWorkspace,
-  } = useTopicWorkspaceData(topicId, workspaceRequest)
+    topicLookups,
+    activeItem,
+    activePrimaryTab,
+    availableTabSlots,
+    activeTab,
+    activeTabSlot,
+    railSections,
+    requestWorkspace,
+    retryWorkspace,
+    selectWorkspaceItem,
+    selectWorkspaceTab: setWorkspaceTabSlot,
+    toggleSectionId,
+  } = useWorkspaceTree(topicId, routeQueryTargets)
   const loadError = workspaceError ? apiDataErrorMessage(workspaceError, 'Could not load topic workspace.') : ''
-
-  useEffect(() => {
-    const topicChanged = previousTopicIdRef.current !== topicId
-    previousTopicIdRef.current = topicId
-    setWorkspaceRequest({
-      ...defaultTopicWorkspaceDataRequest(),
-      targets: routeQueryTargets,
-    })
-    if (!topicChanged) return
-    setWorkspace(null)
-    setActiveItemId(null)
-    setActiveTabSlot('course')
-    setOpenSectionIds(new Set())
-  }, [routeQueryTargets, topicId])
-
-  useEffect(() => {
-    if (!fetchedWorkspace) return
-    const numericTopicId = Number(topicId)
-    if (Number.isFinite(numericTopicId) && fetchedWorkspace.id !== numericTopicId) return
-
-    const selection = selectTopicWorkspaceQueryState(fetchedWorkspace, workspaceRequest.targets)
-    const nextActiveItemId = selection.activeItemId
-      ?? fetchedWorkspace.active_item_id
-      ?? workspaceRequest.targets.itemId
-      ?? fetchedWorkspace.active_item?.id
-      ?? null
-    const nextOpenSectionId = activeSectionIdForWorkspace(fetchedWorkspace, nextActiveItemId)
-
-    setWorkspace(fetchedWorkspace)
-    setActiveItemId(nextActiveItemId)
-    if (!workspaceRequest.preserveActiveTab) setActiveTabSlot(selection.activeTabSlot)
-    setOpenSectionIds((prev) => {
-      if (nextOpenSectionId == null) return workspaceRequest.preserveOpenSections ? prev : new Set()
-      if (!workspaceRequest.preserveOpenSections) return new Set([nextOpenSectionId])
-      const next = new Set(prev)
-      next.add(nextOpenSectionId)
-      return next
-    })
-  }, [fetchedWorkspace, topicId, workspaceRequest])
 
   useEffect(() => {
     if (!workspaceError) {
@@ -141,52 +90,6 @@ export default function TopicWorkspacePage() {
     toast.error(loadError)
   }, [loadError, workspaceError])
 
-  const requestWorkspace = useCallback((
-    targets = topicWorkspaceQueryTargetsFromItemId(null),
-    options: Pick<TopicWorkspaceDataRequest, 'preserveActiveTab' | 'preserveOpenSections'> = {},
-  ) => {
-    setWorkspaceRequest({
-      targets,
-      ...options,
-    })
-    if (topicWorkspaceSWRKey(topicId, targets) === workspaceKey) {
-      void mutateWorkspace()
-    }
-  }, [mutateWorkspace, topicId, workspaceKey])
-
-  const retryWorkspace = useCallback(async () => {
-    try {
-      await mutateWorkspace()
-    } catch {
-      // SWR exposes the latest error through state; the effect above owns reporting.
-    }
-  }, [mutateWorkspace])
-
-  const topicLookups = useMemo(() => {
-    if (!workspace) return null
-    return buildTopicLookups(workspace.sections)
-  }, [workspace])
-
-  const activeItem = useMemo(() => {
-    if (!workspace) return null
-    return topicLookups?.itemById.get(activeItemId ?? -1) || workspace.active_item
-  }, [activeItemId, topicLookups, workspace])
-
-  const activePrimaryTab = useMemo(() => (
-    activeItem ? resolvePrimaryTab(activeItem) : null
-  ), [activeItem])
-  const availableTabSlots = useMemo(() => (
-    activeItem ? secondaryTabSlotSpecsForItem(activeItem, activePrimaryTab) : []
-  ), [activeItem, activePrimaryTab])
-  const activeTab = useMemo(() => (
-    activeItem && availableTabSlots.some((slot) => slot.id === activeTabSlot)
-      ? resolveTabForSlot(activeItem.tabs, activeTabSlot, activeItem)
-      : null
-  ), [activeItem, activeTabSlot, availableTabSlots])
-  const railSections = useMemo(() => {
-    if (!workspace) return []
-    return buildRailSections(workspace, activeItemId, openSectionIds)
-  }, [workspace, activeItemId, openSectionIds])
   const workspaceTabs = useMemo<FigmaTabItem[]>(() => {
     return availableTabSlots.map((slot) => ({
       id: slot.id,
@@ -195,11 +98,6 @@ export default function TopicWorkspacePage() {
       active: slot.id === activeTabSlot,
     }))
   }, [activeTabSlot, availableTabSlots])
-  useEffect(() => {
-    if (!activeItem) return
-    if (availableTabSlots.some((slot) => slot.id === activeTabSlot)) return
-    setActiveTabSlot(defaultSecondaryTabSlotForItem(activeItem, activePrimaryTab))
-  }, [activeItem, activePrimaryTab, activeTabSlot, availableTabSlots])
   const isActiveItemLocked = activeItem?.can_access === false
   const activePrimaryVideoId = useMemo(() => {
     if (!activeItem || isActiveItemLocked) return null
@@ -210,27 +108,21 @@ export default function TopicWorkspacePage() {
     return shouldUseTopicItemVideoPlayer(activePrimaryTab, activeItem)
   }, [activeItem, activePrimaryTab, isActiveItemLocked])
   const activeDurationLabel = activeItem ? formatTopicItemDuration(activeItem.duration_seconds) : ''
+  const canMarkActiveItemComplete = activeItem ? canUseGenericCompletion(activeItem) : false
 
   const selectItem = useCallback(async (item: TopicItem) => {
-    setActiveItemId(item.id)
-    setActiveTabSlot(defaultSecondaryTabSlotForItem(item, resolvePrimaryTab(item)))
-    setOpenSectionIds((prev) => new Set(prev).add(item.section_id))
+    selectWorkspaceItem(item)
     router.replace(`/topics/${topicId}?item=${item.id}`, { scroll: false })
 
     if (item.can_access === false) {
       toast.info(lockedContentReason(item.locked_reason))
       return
     }
-  }, [router, topicId])
+  }, [router, selectWorkspaceItem, topicId])
 
   const toggleSection = useCallback((section: FigmaRailSection) => {
-    setOpenSectionIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(section.id)) next.delete(section.id)
-      else next.add(section.id)
-      return next
-    })
-  }, [])
+    toggleSectionId(section.id)
+  }, [toggleSectionId])
 
   const selectRailItem = useCallback((railItem: FigmaRailItem) => {
     const item = topicLookups?.itemById.get(Number(railItem.id))
@@ -239,10 +131,8 @@ export default function TopicWorkspacePage() {
 
   const selectWorkspaceTab = useCallback((tab: FigmaTabItem) => {
     const slotId = tab.id as WorkspaceTabSlot
-    if (availableTabSlots.some((slot) => slot.id === slotId)) {
-      setActiveTabSlot(slotId)
-    }
-  }, [availableTabSlots])
+    setWorkspaceTabSlot(slotId)
+  }, [setWorkspaceTabSlot])
 
   const completeActive = useCallback(async () => {
     if (!activeItem || actionInFlightRef.current) return
@@ -422,15 +312,17 @@ export default function TopicWorkspacePage() {
           <div className="flex flex-wrap items-center gap-2 border-t border-[#f4f4f5] pt-4">
             {activeItem.can_access !== false && (
               <>
-                <button
-                  type="button"
-                  onClick={completeActive}
-                  disabled={isSubmitting}
-                  className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition hover:bg-[#2f27b8] disabled:opacity-50"
-                >
-                  <Check size={15} />
-                  Mark complete
-                </button>
+                {canMarkActiveItemComplete && (
+                  <button
+                    type="button"
+                    onClick={completeActive}
+                    disabled={isSubmitting}
+                    className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition hover:bg-[#2f27b8] disabled:opacity-50"
+                  >
+                    <Check size={15} />
+                    Mark complete
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={saveActive}
@@ -450,4 +342,25 @@ export default function TopicWorkspacePage() {
       </LessonBody>
     </VideoLearningWorkspace>
   )
+}
+
+function canUseGenericCompletion(item: TopicItem) {
+  const itemType = item.item_type.trim().toLowerCase()
+  if (QUIZ_ITEM_TYPES.has(itemType)) return false
+  if (requiresTimedCompletion(item)) {
+    return (item.watched_seconds ?? 0) >= requiredWatchSeconds(item.duration_seconds)
+  }
+  return item.progress_status !== 'completed'
+}
+
+function requiresTimedCompletion(item: TopicItem) {
+  const itemType = item.item_type.trim().toLowerCase()
+  const completionPolicy = (item.completion_policy ?? '').trim().toLowerCase()
+  return item.duration_seconds > 0 && (
+    itemType.includes('video') || ['watch', 'video', 'timed'].includes(completionPolicy)
+  )
+}
+
+function requiredWatchSeconds(durationSeconds: number) {
+  return Math.max(1, Math.ceil(durationSeconds * 0.9))
 }

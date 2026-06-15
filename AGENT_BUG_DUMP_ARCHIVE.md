@@ -1,6 +1,6 @@
 # Agent Bug Dump Archive
 
-Last curated: 2026-06-04
+Last curated: 2026-06-05
 
 This file keeps resolved, stale, duplicate, and corrected legacy findings out of
 `AGENT_BUG_DUMP.md`. Agents should read the active queue first and open this file
@@ -13,6 +13,12 @@ git show cee76e2^:AGENT_BUG_DUMP.md
 ```
 
 ## Resolved in Recent Commits
+
+## Resolved in Current Workspace (Uncommitted)
+
+- Current workspace continuation - Fixed or materially mitigated `BUG-P1-019`, `BUG-P1-021`, `BUG-P1-023` local provider-reachability enforcement, `BUG-P1-024`, `BUG-P1-025`, `BUG-P1-027`, `BUG-P1-028`, `BUG-P1-030`, `BUG-P1-031`, `BUG-P1-032`, `BUG-P2-015`, `BUG-P1-033`, `BUG-P1-034`, `BUG-P1-035`, `BUG-P1-036`, `BUG-P1-037`, `BUG-P1-038`, `BUG-P1-039`, `BUG-P1-041`, `BUG-P1-044`, `BUG-P1-045`, `BUG-P2-016`, `BUG-P2-008`, `BUG-P2-009`, `BUG-P2-010`, `BUG-P2-011`, `BUG-P2-013`, `BUG-P2-014`, and `BUG-P2-017`; validation: `python -m pytest -q` (`569 passed`), `npm run test:coverage` (`75 files / 317 tests passed`), `npm run typecheck`, `npm run lint`, `npm run audit:csp-styles -- --json`, `npm run build`, `npm run test:e2e` (`6 passed`), `npm run test:e2e:integration` (`7 passed / 2 skipped`), `python -m compileall -q scripts backend\scripts backend\alembic\versions`, `python scripts/check_repo_hygiene.py`, `python scripts/check_secret_hygiene.py`, `python -m alembic heads` (`0052 (head)`), `python find_n1.py --no-baseline app`, and `git diff --check`.
+
+- 2026-06-05 current workspace continuation - Fixed `BUG-P1-020` with lazy pdf.js text extraction and rendered PNG snippets, fixed `BUG-P2-004` by URL-backing professor/student chat state, fixed `BUG-P2-012` by omitting inactive/search tab bodies while hydrating the active item, marked `BUG-P2-003` stale against the current timer implementation, completed `BUG-P1-029` by reducing inline style/CSSOM/dynamic style debt to zero and removing `style-src-elem`/`style-src-attr` `unsafe-inline`, and patched the local `FE-DEMO-001` rewrite gap by disallowing production local rewrites unless `KRESCO_ENV=development`; validation includes `python -m pytest -q` (`569 passed`), focused frontend CSP/Zed/config tests, `npm run typecheck`, scoped ESLint, `npm run audit:csp-styles -- --json` with zero budgets, and `python scripts/check_secret_hygiene.py`.
 
 - `b6fec51` - Fixed BUG-P1-018 by persisting exam attempt drafts in per-subject/quiz localStorage, restoring only compatible quiz drafts with sanitized answers, deriving remaining time from the saved wall-clock `startedAt`, auto-submitting expired restored attempts, and preserving submitted result screens across reloads; validation: `npm test -- --run tests/examPage.test.ts`, `npm run typecheck`, `npm run lint`, and `git diff --check`.
 - `d686018` - Fixed BUG-P1-017 by exposing `watched_seconds` and `resume_seconds` in topic workspace items and stream responses, passing resume checkpoints into VdoCipher and YouTube players, seeking after player readiness, and flushing latest progress on pagehide/unmount; validation: `python -m pytest tests_fastapi/test_course_access.py -q`, `python -m py_compile app/schemas/courses.py app/services/course_access.py app/routers/courses.py`, `npm test -- --run tests/topicWorkspacePage.test.ts tests/topicWorkspaceViewModel.test.ts tests/topicWorkspacePanels.test.ts tests/topicWorkspaceResources.test.ts tests/coreLearningComponents.render.test.ts tests/youtubeVideoPlayer.test.tsx tests/videoPlayer.test.ts`, `npm run typecheck`, `npm run lint`, and `git diff --check`.

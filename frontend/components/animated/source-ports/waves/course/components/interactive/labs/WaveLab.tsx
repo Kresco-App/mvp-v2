@@ -221,6 +221,7 @@ export const WaveLab: React.FC = () => {
             setMissionStatus('failed');
         }
     };
+    const harborAmplitudePercent = Math.min(100, amplitudeInside * 20);
 
     return (
         <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
@@ -339,10 +340,14 @@ export const WaveLab: React.FC = () => {
 
                         {/* Meter */}
                         <div className="h-4 bg-white rounded-full overflow-hidden border border-indigo-200 mb-4 relative">
-                            <div
-                                className={`h-full transition-all duration-300 ${amplitudeInside < 1 ? 'bg-emerald-500' : 'bg-rose-500'}`}
-                                style={{ width: `${Math.min(100, amplitudeInside * 20)}%` }}
-                            />
+                            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true">
+                                <rect
+                                    width={harborAmplitudePercent}
+                                    height="4"
+                                    rx="2"
+                                    className={`transition-all duration-300 ${amplitudeInside < 1 ? 'fill-emerald-500' : 'fill-rose-500'}`}
+                                />
+                            </svg>
                             {/* Safe zone indicator */}
                             <div className="absolute top-0 bottom-0 left-0 w-[20%] border-r-2 border-emerald-500/50 bg-emerald-500/10 pointer-events-none"></div>
                         </div>

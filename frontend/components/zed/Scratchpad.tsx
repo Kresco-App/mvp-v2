@@ -18,20 +18,93 @@ interface Props {
   storageKey: string
 }
 
+interface ScratchpadHistoryEntry {
+  expr: string
+  result: string
+}
+
+function isScratchpadHistoryEntry(value: unknown): value is ScratchpadHistoryEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Partial<ScratchpadHistoryEntry>
+  return typeof entry.expr === 'string' && typeof entry.result === 'string'
+}
+
+function parseScratchpadHistory(raw: string | null): ScratchpadHistoryEntry[] | null {
+  if (raw === null) return []
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed) || !parsed.every(isScratchpadHistoryEntry)) return null
+    return parsed.map(entry => ({ expr: entry.expr, result: entry.result }))
+  } catch {
+    return null
+  }
+}
+
+function scratchpadHistoryEntryKey(entry: ScratchpadHistoryEntry) {
+  return JSON.stringify([entry.expr, entry.result])
+}
+
+function mergeScratchpadHistory(
+  current: ScratchpadHistoryEntry[],
+  incoming: ScratchpadHistoryEntry[],
+): ScratchpadHistoryEntry[] {
+  const representedCounts = new Map<string, number>()
+  for (const entry of current) {
+    const key = scratchpadHistoryEntryKey(entry)
+    representedCounts.set(key, (representedCounts.get(key) ?? 0) + 1)
+  }
+
+  const additions: ScratchpadHistoryEntry[] = []
+  for (const entry of incoming) {
+    const key = scratchpadHistoryEntryKey(entry)
+    const representedCount = representedCounts.get(key) ?? 0
+    if (representedCount > 0) {
+      representedCounts.set(key, representedCount - 1)
+    } else {
+      additions.push(entry)
+    }
+  }
+
+  return additions.length > 0 ? [...current, ...additions] : current
+}
+
+function scratchpadHistoryContainsAll(
+  container: ScratchpadHistoryEntry[],
+  entries: ScratchpadHistoryEntry[],
+) {
+  const remainingCounts = new Map<string, number>()
+  for (const entry of container) {
+    const key = scratchpadHistoryEntryKey(entry)
+    remainingCounts.set(key, (remainingCounts.get(key) ?? 0) + 1)
+  }
+
+  for (const entry of entries) {
+    const key = scratchpadHistoryEntryKey(entry)
+    const remainingCount = remainingCounts.get(key) ?? 0
+    if (remainingCount === 0) return false
+    remainingCounts.set(key, remainingCount - 1)
+  }
+
+  return true
+}
+
 export default function Scratchpad({ pinnedSnippets, onRemoveSnippet, storageKey }: Props) {
   const [input, setInput] = useState('')
-  const [history, setHistory] = useState<{ expr: string; result: string }[]>([])
+  const [history, setHistory] = useState<ScratchpadHistoryEntry[]>([])
   const [storageHydrated, setStorageHydrated] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const skipNextPersistRef = useRef(false)
   const hasInput = input.trim().length > 0
 
   useEffect(() => {
     setStorageHydrated(false)
+    skipNextPersistRef.current = false
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(storageKey)
-      if (saved) {
-        try { setHistory(JSON.parse(saved)) } catch {}
-      } else {
+      try {
+        const parsed = parseScratchpadHistory(localStorage.getItem(storageKey))
+        setHistory(parsed ?? [])
+      } catch {
         setHistory([])
       }
     }
@@ -40,12 +113,50 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet, storageKey
 
   useEffect(() => {
     if (typeof window !== 'undefined' && storageHydrated) {
-      localStorage.setItem(storageKey, JSON.stringify(history))
+      if (skipNextPersistRef.current) {
+        skipNextPersistRef.current = false
+        return
+      }
+
+      if (history.length === 0) {
+        localStorage.removeItem(storageKey)
+      } else {
+        localStorage.setItem(storageKey, JSON.stringify(history))
+      }
     }
   }, [history, storageHydrated, storageKey])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (typeof window === 'undefined') return
+
+    function handleStorage(event: StorageEvent) {
+      if (event.storageArea && event.storageArea !== localStorage) return
+      if (event.key !== null && event.key !== storageKey) return
+
+      if (event.key === null || event.newValue === null) {
+        setHistory(prev => {
+          if (prev.length === 0) return prev
+          skipNextPersistRef.current = true
+          return []
+        })
+        return
+      }
+
+      const incoming = parseScratchpadHistory(event.newValue)
+      if (!incoming) return
+      setHistory(prev => {
+        const merged = mergeScratchpadHistory(prev, incoming)
+        if (merged !== prev) return merged
+        return scratchpadHistoryContainsAll(incoming, prev) ? prev : [...prev]
+      })
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [storageKey])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [history])
 
   function evaluate(expr: string): string {

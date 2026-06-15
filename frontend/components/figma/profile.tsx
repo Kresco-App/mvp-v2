@@ -36,6 +36,7 @@ import {
   ChronoCard,
 } from './permanent-sidebar'
 import type { PermanentSidebarLeaderboardEntry } from '@/lib/permanentSidebarViewModel'
+import { useEscapeKey } from '@/hooks/useClickOutside'
 
 export type FigmaProfileProps = {
   user: FigmaProfileUser | null
@@ -55,6 +56,44 @@ export type FigmaProfileProps = {
 
 const badgeTones = ['#5b60f9', '#c4d1ff', '#51a2ff', '#ff8904']
 const PROFILE_HUB_VISIBLE_ITEMS = 4
+
+function profileToneTextClass(tone: string) {
+  switch (tone) {
+    case '#ff8904':
+      return 'text-[#ff8904]'
+    case '#ffd61a':
+      return 'text-[#ffd61a]'
+    case '#707fff':
+      return 'text-[#707fff]'
+    case '#51a2ff':
+      return 'text-[#51a2ff]'
+    case '#009966':
+      return 'text-[#009966]'
+    case '#5b60f9':
+      return 'text-[#5b60f9]'
+    case '#ff6467':
+      return 'text-[#ff6467]'
+    case '#453dee':
+      return 'text-[#453dee]'
+    case '#c4d1ff':
+      return 'text-[#c4d1ff]'
+    default:
+      return 'text-[#5b60f9]'
+  }
+}
+
+function profileToneBgClass(tone: string) {
+  switch (tone) {
+    case '#c4d1ff':
+      return 'bg-[#c4d1ff]'
+    case '#51a2ff':
+      return 'bg-[#51a2ff]'
+    case '#ff8904':
+      return 'bg-[#ff8904]'
+    default:
+      return 'bg-[#5b60f9]'
+  }
+}
 
 export function FigmaProfile({
   user,
@@ -101,19 +140,11 @@ export function FigmaProfile({
     setDraft(baseDraft)
   }, [baseDraft])
 
-  useEffect(() => {
-    if (!editing) return
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !isSaving && !isMediaSelecting) {
-        setEditing(false)
-        setLocalError(null)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [editing, isSaving, isMediaSelecting])
+  useEscapeKey(() => {
+    if (isSaving || isMediaSelecting) return
+    setEditing(false)
+    setLocalError(null)
+  }, editing)
 
   function openEditor() {
     setDraft(optimisticDraft ?? baseDraft)
@@ -183,7 +214,7 @@ export function FigmaProfile({
 
             <div className="figma-profile-badges" aria-label="Badges">
               {badgeTones.map((tone) => (
-                <span key={tone} className="figma-profile-badge" style={{ backgroundColor: tone }}>
+                <span key={tone} className={`figma-profile-badge ${profileToneBgClass(tone)}`}>
                   <Star size={13} fill="#ffffff" strokeWidth={2.4} />
                   <i />
                 </span>
@@ -753,7 +784,7 @@ function ProfileStatCard({
 
   return (
     <article className="figma-profile-stat">
-      <span className="figma-profile-stat-icon" style={{ color: tone }}>
+      <span className={`figma-profile-stat-icon ${profileToneTextClass(tone)}`}>
         <Icon size={28} fill={icon === 'flame' || icon === 'bolt' ? tone : 'none'} strokeWidth={2.4} />
       </span>
       <span>
@@ -801,7 +832,7 @@ function SubjectRadar({ subjects }: { subjects: FigmaProfileSubject[] }) {
 function SubjectScoreCard({ subject }: { subject: FigmaProfileSubject }) {
   return (
     <article className="figma-profile-score-card">
-      <strong style={{ color: subject.tone }}>{subject.score}</strong>
+      <strong className={profileToneTextClass(subject.tone)}>{subject.score}</strong>
       <h2>{subject.title}</h2>
       <p>{subject.caption}</p>
     </article>
@@ -821,7 +852,7 @@ function FollowerPanel({ entries }: { entries: PermanentSidebarLeaderboardEntry[
         <button type="button" role="tab" aria-selected={tab === 'following'} onClick={() => setTab('following')}>
           Following
         </button>
-        <span style={{ transform: tab === 'followers' ? 'translateX(0)' : 'translateX(100%)' }} />
+        <span className={tab === 'followers' ? 'translate-x-0' : 'translate-x-full'} />
       </div>
       <div className="figma-profile-follow-list">
         {visible.map((entry, index) => (

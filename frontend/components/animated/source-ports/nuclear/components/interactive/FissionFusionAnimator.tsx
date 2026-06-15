@@ -6,6 +6,29 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Split, Merge } from 'lucide-react';
 
+const FUSION_STAR_CLASSES = [
+  'top-[11%] left-[7%]',
+  'top-[48%] left-[60%]',
+  'top-[85%] left-[13%]',
+  'top-[22%] left-[66%]',
+  'top-[59%] left-[19%]',
+  'top-[96%] left-[72%]',
+  'top-[33%] left-[25%]',
+  'top-[70%] left-[78%]',
+  'top-[7%] left-[31%]',
+  'top-[44%] left-[84%]',
+  'top-[81%] left-[37%]',
+  'top-[18%] left-[90%]',
+  'top-[55%] left-[43%]',
+  'top-[92%] left-[96%]',
+  'top-[29%] left-[49%]',
+  'top-[66%] left-[2%]',
+  'top-[3%] left-[55%]',
+  'top-[40%] left-[8%]',
+  'top-[77%] left-[61%]',
+  'top-[14%] left-[14%]',
+];
+
 export const FissionFusionAnimator: React.FC = () => {
   const [mode, setMode] = useState<'fission' | 'fusion'>('fission');
   const [key, setKey] = useState(0);
@@ -39,8 +62,8 @@ export const FissionFusionAnimator: React.FC = () => {
           {/* Starry Background for Fusion */}
           {mode === 'fusion' && (
               <div className="absolute inset-0 opacity-30">
-                  {[...Array(20)].map((_, i) => (
-                      <div key={i} className="absolute bg-white rounded-full w-1 h-1" style={{ top: `${Math.random()*100}%`, left: `${Math.random()*100}%` }} />
+                  {FUSION_STAR_CLASSES.map((starClass) => (
+                      <div key={starClass} className={`absolute h-1 w-1 rounded-full bg-white ${starClass}`} />
                   ))}
               </div>
           )}

@@ -2,19 +2,15 @@ from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.models.users import User
 from app.security.passwords import hash_password_async, is_unusable_password, verify_password_async
 from app.services.email import verify_reset_token, verify_verification_token
+from app.services.auth_users import get_user_by_email
 
 RequireProfessorOffering = Callable[[AsyncSession, User], Awaitable[None]]
-
-
-def _normalize_email(email: str) -> str:
-    return email.lower().strip()
 
 
 async def verify_email_account(
@@ -27,18 +23,16 @@ async def verify_email_account(
     if verification is None:
         raise HTTPException(status_code=400, detail="Lien de verification invalide ou expire")
 
-    result = await db.execute(
-        select(User).where(User.email == _normalize_email(verification.email))
-    )
-    user = result.scalar_one_or_none()
+    user = await get_user_by_email(db, verification.email)
     if user is None:
         raise HTTPException(status_code=404, detail="Compte introuvable")
 
-    if (user.auth_token_version or 0) != verification.token_version:
+    if (user.email_token_version or 0) != verification.token_version:
         raise HTTPException(status_code=400, detail="Lien de verification invalide ou expire")
 
     if not user.is_email_verified:
         user.is_email_verified = True
+        user.email_token_version = (user.email_token_version or 0) + 1
         user.auth_token_version = (user.auth_token_version or 0) + 1
         await db.commit()
         await db.refresh(user)
@@ -52,13 +46,7 @@ async def authenticate_password_login(
     password: str,
     require_professor_active_offering_fn: RequireProfessorOffering,
 ) -> User:
-    result = await db.execute(
-        select(User).where(
-            User.email == _normalize_email(email),
-            User.is_active == True,  # noqa: E712
-        )
-    )
-    user = result.scalar_one_or_none()
+    user = await get_user_by_email(db, email, active_only=True)
 
     if (
         user is None
@@ -88,16 +76,14 @@ async def reset_password_account(
     if reset_payload is None:
         raise HTTPException(status_code=400, detail="Lien de reinitialisation invalide ou expire")
 
-    result = await db.execute(
-        select(User).where(User.email == _normalize_email(reset_payload.email))
-    )
-    user = result.scalar_one_or_none()
+    user = await get_user_by_email(db, reset_payload.email)
     if user is None:
         raise HTTPException(status_code=400, detail="Lien de reinitialisation invalide ou expire")
-    if (user.auth_token_version or 0) != reset_payload.token_version:
+    if (user.email_token_version or 0) != reset_payload.token_version:
         raise HTTPException(status_code=400, detail="Lien de reinitialisation invalide ou expire")
 
     user.password = await hash_password_async(password)
+    user.email_token_version = (user.email_token_version or 0) + 1
     user.auth_token_version = (user.auth_token_version or 0) + 1
     user.password_changed_at = datetime.now(timezone.utc)
     await db.commit()

@@ -53,6 +53,7 @@ function QuizQuestion({
               key={option.key}
               type="button"
               onClick={() => onChange(option.value)}
+              aria-pressed={String(value) === String(option.value)}
               className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
                 String(value) === String(option.value) ? 'border-[#29aee4] bg-[#29aee4] text-white' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
               }`}
@@ -77,6 +78,7 @@ function QuizQuestion({
               key={option.key}
               type="button"
               onClick={() => onChange(toggleMultiAnswer(value, option.value))}
+              aria-pressed={isSelected}
               className={`rounded-2xl border px-4 py-3 text-left text-sm font-black ${
                 isSelected ? 'border-[#29aee4] bg-[#eaf8ff] text-[#1292cf]' : 'border-[#e4e4e7] bg-[#f7f8fb] text-[#71717b]'
               }`}

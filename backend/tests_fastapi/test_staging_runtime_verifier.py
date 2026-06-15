@@ -1,16 +1,36 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = REPO_ROOT / "scripts" / "check_staging_runtime.py"
+RENDERER_PATH = REPO_ROOT / "backend" / "scripts" / "render_zappa_settings.py"
+VALID_RENDER_ENV = {
+    "KRESCO_RUNTIME_SECRET_ID": "arn:aws:secretsmanager:eu-west-3:123456789012:secret:kresco/staging/runtime",
+    "KRESCO_RELEASE_SHA": "0123456789abcdef0123456789abcdef01234567",
+    "FRONTEND_URL": "https://staging.kresco.ma",
+    "CORS_ALLOWED_ORIGINS": "https://staging.kresco.ma",
+    "ZAPPA_SUBNET_IDS": "subnet-11111111,subnet-22222222",
+    "ZAPPA_SECURITY_GROUP_IDS": "sg-11111111",
+}
 
 
 def _load_verifier_module():
     spec = importlib.util.spec_from_file_location("check_staging_runtime_for_tests", VERIFIER_PATH)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_renderer_module():
+    spec = importlib.util.spec_from_file_location("render_zappa_settings_for_ops_tests", RENDERER_PATH)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -76,6 +96,47 @@ def _diagnostics_payload():
     }
 
 
+def _diagnostics_payload_with_deferred_payment_error():
+    diagnostics = _diagnostics_payload()
+    diagnostics["status"] = "not_ready"
+    diagnostics["errors"] = ["payment"]
+    diagnostics["checks"]["payment"] = {
+        "status": "error",
+        "stripe_sk_configured": True,
+        "stripe_product_id_configured": True,
+        "stripe_webhook_secret_configured": True,
+        "provider_reachability": {
+            "status": "error",
+            "detail": "authentication_error",
+            "error_type": "AuthenticationError",
+        },
+    }
+    return diagnostics
+
+
+def _diagnostics_payload_with_deferred_payment_config_error():
+    diagnostics = _diagnostics_payload_with_deferred_payment_error()
+    diagnostics["errors"] = ["configuration", "payment"]
+    diagnostics["checks"]["configuration"] = {
+        "status": "error",
+        "environment": "staging",
+        "production_like": True,
+        "error_count": 3,
+        "errors": [
+            "STRIPE_SK must be configured for production environments.",
+            "STRIPE_PRODUCT_ID must be configured for production environments.",
+            "STRIPE_WEBHOOK_SECRET must be configured for production environments.",
+        ],
+    }
+    diagnostics["checks"]["payment"] = {
+        "status": "error",
+        "stripe_sk_configured": False,
+        "stripe_product_id_configured": False,
+        "stripe_webhook_secret_configured": False,
+    }
+    return diagnostics
+
+
 def test_staging_runtime_verifier_accepts_ready_runtime_payloads():
     verifier = _load_verifier_module()
 
@@ -87,6 +148,144 @@ def test_staging_runtime_verifier_accepts_ready_runtime_payloads():
 
     assert result.passed is True
     assert result.errors == ()
+
+
+def test_staging_runtime_verifier_reports_deferred_payment_without_failing_non_stripe_gate():
+    verifier = _load_verifier_module()
+
+    result = verifier.validate_runtime_payloads(
+        _ready_payload(),
+        _diagnostics_payload_with_deferred_payment_error(),
+        {"ok": True, "claimed": 0, "published": 0, "retry": 0, "dead": 0},
+    )
+
+    assert result.passed is True
+    assert result.errors == ()
+    assert result.deferred_payment_check == {
+        "status": "error",
+        "stripe_sk_configured": True,
+        "stripe_product_id_configured": True,
+        "stripe_webhook_secret_configured": True,
+        "provider_reachability": {
+            "status": "error",
+            "detail": "authentication_error",
+            "error_type": "AuthenticationError",
+        },
+    }
+
+
+def test_staging_runtime_verifier_defers_payment_configuration_errors_for_non_stripe_gate():
+    verifier = _load_verifier_module()
+
+    result = verifier.validate_runtime_payloads(
+        _ready_payload(),
+        _diagnostics_payload_with_deferred_payment_config_error(),
+        {"ok": True, "claimed": 0, "published": 0, "retry": 0, "dead": 0},
+    )
+
+    assert result.passed is True
+    assert result.errors == ()
+    assert result.deferred_payment_check == {
+        "status": "error",
+        "stripe_sk_configured": False,
+        "stripe_product_id_configured": False,
+        "stripe_webhook_secret_configured": False,
+    }
+
+
+def test_staging_runtime_verifier_requires_payment_only_with_payment_specific_flag():
+    verifier = _load_verifier_module()
+
+    result = verifier.validate_runtime_payloads(
+        _ready_payload(),
+        _diagnostics_payload_with_deferred_payment_error(),
+        require_payment_provider_reachability=True,
+    )
+
+    assert result.passed is False
+    assert "diagnostics.status must be ready for non-deferred systems (blocking errors: payment)." in result.errors
+    assert "diagnostics.checks.payment.status must be ok." in result.errors
+    assert "payment.provider_reachability.status must be ok (current: 'error')." in result.errors
+
+
+def test_staging_runtime_verifier_requires_payment_reachability_payload_with_payment_flag():
+    verifier = _load_verifier_module()
+
+    result = verifier.validate_runtime_payloads(
+        _ready_payload(),
+        _diagnostics_payload(),
+        require_payment_provider_reachability=True,
+    )
+
+    assert result.passed is False
+    assert "payment.provider_reachability must be present when payment provider reachability is required." in result.errors
+
+
+def test_staging_runtime_verifier_requires_payment_config_with_payment_flag():
+    verifier = _load_verifier_module()
+
+    result = verifier.validate_runtime_payloads(
+        _ready_payload(),
+        _diagnostics_payload_with_deferred_payment_config_error(),
+        require_payment_provider_reachability=True,
+    )
+
+    assert result.passed is False
+    assert "diagnostics.checks.configuration.status must be ok for blocking configuration errors." in result.errors
+    assert "payment.stripe_sk_configured must be true." in result.errors
+    assert "payment.stripe_product_id_configured must be true." in result.errors
+    assert "payment.stripe_webhook_secret_configured must be true." in result.errors
+
+
+def test_staging_runtime_verifier_still_fails_non_deferred_diagnostics_errors():
+    verifier = _load_verifier_module()
+    diagnostics = _diagnostics_payload()
+    diagnostics["status"] = "not_ready"
+    diagnostics["errors"] = ["email"]
+    diagnostics["checks"]["email"] = {"status": "error", "resend_api_key_configured": False}
+
+    result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
+
+    assert result.passed is False
+    assert "diagnostics.status must be ready for non-deferred systems (blocking errors: email)." in result.errors
+    assert "diagnostics.checks.email.status must be ok." in result.errors
+    assert "email.resend_api_key_configured must be true." in result.errors
+
+
+def test_staging_runtime_verifier_rejects_not_ready_without_named_deferred_errors():
+    verifier = _load_verifier_module()
+    diagnostics = _diagnostics_payload()
+    diagnostics["status"] = "not_ready"
+    diagnostics["errors"] = []
+
+    result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
+
+    assert result.passed is False
+    assert "diagnostics.status must be ready or name only deferred payment errors." in result.errors
+
+
+def test_staging_runtime_verifier_still_fails_non_deferred_configuration_errors():
+    verifier = _load_verifier_module()
+    diagnostics = _diagnostics_payload()
+    diagnostics["status"] = "not_ready"
+    diagnostics["errors"] = ["configuration"]
+    diagnostics["checks"]["configuration"] = {
+        "status": "error",
+        "environment": "staging",
+        "production_like": True,
+        "error_count": 1,
+        "errors": ["DATABASE_URL must include sslmode=verify-full in production environments."],
+    }
+
+    result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
+
+    assert result.passed is False
+    assert "diagnostics.status must be ready for non-deferred systems (blocking errors: configuration)." in result.errors
+    assert "diagnostics.checks.configuration.status must be ok for blocking configuration errors." in result.errors
+    assert (
+        "configuration.errors contains blocking errors: "
+        "DATABASE_URL must include sslmode=verify-full in production environments."
+    ) in result.errors
 
 
 def test_staging_runtime_verifier_rejects_cosmetic_rds_proxy_and_local_media():
@@ -122,23 +321,140 @@ def test_staging_runtime_verifier_derives_internal_urls_from_ready_url():
     ) == "https://api.example.com/staging/api/internal/realtime/process-outbox?limit=1"
 
 
+def test_staging_runtime_retries_log_to_stderr_not_json_stdout(monkeypatch, capsys):
+    verifier = _load_verifier_module()
+    attempts = {"count": 0}
+
+    def fake_fetch_json(url, *, timeout_seconds):
+        del url, timeout_seconds
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return {"status": "warming"}
+        return {"status": "ready"}
+
+    monkeypatch.setattr(verifier, "fetch_json", fake_fetch_json)
+    monkeypatch.setattr(verifier.time, "sleep", lambda delay: None)
+
+    payload = verifier._fetch_with_retries("https://api.example.com/ready", timeout_seconds=1, retries=2, delay=1)
+    captured = capsys.readouterr()
+
+    assert payload == {"status": "ready"}
+    assert captured.out == ""
+    assert "Runtime readiness attempt 1/2 failed" in captured.err
+
+
+def test_staging_runtime_http_error_payload_redacts_sensitive_values():
+    verifier = _load_verifier_module()
+
+    redacted = verifier._redact_payload({
+        "token": "secret-token-value-123",
+        "nested": {"detail": "eyJheaderpart00.payloadpart00.signaturepart00"},
+    })
+
+    assert redacted["token"] == "[redacted]"
+    assert redacted["nested"]["detail"] == "[redacted]"
+
+
 def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
+    db_policy_index = workflow.index("- name: Validate target database URL policy")
     migration_index = workflow.index("- name: Run Alembic migrations on target database")
     vpc_index = workflow.index("- name: Resolve Lambda VPC config")
     render_index = workflow.index("- name: Render Zappa environment")
     deploy_index = workflow.index('zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"')
     schedule_index = workflow.index('zappa schedule "$ZAPPA_STAGE"')
-    verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"')
+    verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}" --include-provider-reachability')
+    s3_posture_index = workflow.index('python scripts/check_s3_media_posture.py "${MEDIA_S3_BUCKET:?MEDIA_S3_BUCKET is required.}"')
 
-    assert migration_index < vpc_index < render_index < deploy_index
+    assert db_policy_index < migration_index < vpc_index < render_index < deploy_index
     assert deploy_index < schedule_index
-    assert schedule_index < verifier_index
+    assert schedule_index < verifier_index < s3_posture_index
     assert 'zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event' not in workflow
     assert "DATABASE_URL: ${{ secrets.DATABASE_URL }}" in workflow
+    assert "validate_database_url_policy" in workflow
     assert "python scripts/resolve_zappa_vpc_config.py" in workflow
     assert "KRESCO_TEST_DATABASE_URL: ${{ env.CI_POSTGRES_DATABASE_URL }}" in workflow
     assert "ZAPPA_SUBNET_IDS: ${{ steps.vpc_config.outputs.subnet_ids }}" in workflow
     assert "ZAPPA_SECURITY_GROUP_IDS: ${{ steps.vpc_config.outputs.security_group_ids }}" in workflow
     assert "KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}" in workflow
+    assert "MEDIA_S3_BUCKET: ${{ vars.MEDIA_S3_BUCKET }}" in workflow
+    assert "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS: ${{ vars.MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS }}" in workflow
+    assert "MEDIA_S3_ANONYMOUS_READ_KEY: ${{ vars.MEDIA_S3_ANONYMOUS_READ_KEY }}" in workflow
+    assert "--require-payment-provider-reachability" not in workflow
+
+
+def test_provider_diagnostics_workflow_uses_non_stripe_runtime_verifier():
+    workflow = (REPO_ROOT / ".github" / "workflows" / "staging-provider-diagnostics.yml").read_text(encoding="utf-8")
+
+    assert "actions/checkout@v4" in workflow
+    assert "python scripts/check_staging_runtime.py" in workflow
+    assert "--include-provider-reachability" in workflow
+    assert "--json" in workflow
+    assert "--require-payment-provider-reachability" not in workflow
+
+
+def test_frontend_deploy_workflow_smokes_deployed_url():
+    workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
+
+    assert "FRONTEND_DEPLOYMENT_URL" in workflow
+    assert "Post-deploy frontend smoke" in workflow
+    assert "urllib.request.urlopen" in workflow
+    assert "Validate staging frontend environment" in workflow
+    assert "VERCEL_ENV: preview" in workflow
+
+
+def test_target_database_url_policy_rejects_non_rds_proxy_shapes():
+    renderer = _load_renderer_module()
+
+    invalid_urls = [
+        "",
+        "sqlite+aiosqlite:///./db.sqlite3",
+        "postgresql+asyncpg://user:pass@localhost:5432/kresco?sslmode=verify-full",
+        "postgresql+asyncpg://user:pass@127.0.0.1:5432/kresco?sslmode=verify-full",
+        "postgresql+asyncpg://user:pass@db.example.com:5432/kresco?sslmode=require",
+    ]
+
+    for database_url in invalid_urls:
+        try:
+            renderer.validate_database_url_policy(database_url)
+        except renderer.ZappaRenderError:
+            continue
+        raise AssertionError(f"DATABASE_URL policy accepted invalid URL: {database_url!r}")
+
+    renderer.validate_database_url_policy(
+        "postgresql+asyncpg://user:pass@kresco-staging-proxy.proxy-c123.eu-west-3.rds.amazonaws.com:5432/kresco"
+        "?sslmode=verify-full"
+    )
+
+
+def test_render_zappa_settings_rejects_lambda_runtime_drift(tmp_path):
+    renderer = _load_renderer_module()
+    settings_path = REPO_ROOT / "backend" / "zappa_settings.json"
+    zappa_settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    zappa_settings["staging"]["memory_size"] = 512
+    zappa_path = tmp_path / "zappa_settings.json"
+    zappa_path.write_text(json.dumps(zappa_settings), encoding="utf-8")
+
+    try:
+        renderer.render_zappa_settings(zappa_path, VALID_RENDER_ENV, stage="staging")
+    except renderer.ZappaRenderError as exc:
+        assert "memory_size must be at least 1024" in str(exc)
+        return
+    raise AssertionError("render_zappa_settings accepted staging Lambda memory drift")
+
+
+def test_render_zappa_settings_requires_realtime_outbox_schedule(tmp_path):
+    renderer = _load_renderer_module()
+    settings_path = REPO_ROOT / "backend" / "zappa_settings.json"
+    zappa_settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    zappa_settings["staging"]["events"] = []
+    zappa_path = tmp_path / "zappa_settings.json"
+    zappa_path.write_text(json.dumps(zappa_settings), encoding="utf-8")
+
+    try:
+        renderer.render_zappa_settings(zappa_path, VALID_RENDER_ENV, stage="staging")
+    except renderer.ZappaRenderError as exc:
+        assert "events must include the realtime outbox EventBridge schedule" in str(exc)
+        return
+    raise AssertionError("render_zappa_settings accepted missing realtime outbox schedule")

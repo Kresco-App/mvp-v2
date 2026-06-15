@@ -45,6 +45,9 @@ class MediaStorage(Protocol):
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
         ...
 
+    async def delete_reference(self, reference: str | None) -> bool:
+        ...
+
 
 class LocalMediaStorage:
     def __init__(self, root: Path = Path("media"), public_prefix: str = "/media") -> None:
@@ -53,11 +56,19 @@ class LocalMediaStorage:
 
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
         del content_type
-        destination = _safe_local_destination(self.root, key)
+        clean_key = _normalize_media_object_key(key)
+        destination = _safe_local_destination(self.root, clean_key)
         await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
         await asyncio.to_thread(destination.write_bytes, content)
-        url = f"{self.public_prefix}/{quote(key, safe='/')}"
-        return StoredMedia(key=key, reference=url, url=url)
+        url = f"{self.public_prefix}/{quote(clean_key, safe='/')}"
+        return StoredMedia(key=clean_key, reference=url, url=url)
+
+    async def delete_reference(self, reference: str | None) -> bool:
+        key = _local_reference_key(reference, self.public_prefix)
+        if key is None:
+            return False
+        destination = _safe_local_destination(self.root, key)
+        return await asyncio.to_thread(_unlink_if_exists, destination)
 
 
 class S3MediaStorage:
@@ -72,7 +83,8 @@ class S3MediaStorage:
         self.client = _s3_client(self.region, settings.media_s3_endpoint_url.strip())
 
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
-        object_key = "/".join(part for part in [self.prefix, key] if part)
+        clean_key = _normalize_media_object_key(key)
+        object_key = "/".join(part for part in [self.prefix, clean_key] if part)
         await _put_s3_object_with_retry(
             self.client,
             bucket=self.bucket,
@@ -85,6 +97,13 @@ class S3MediaStorage:
             reference=s3_reference(self.bucket, object_key),
             url=presign_s3_reference(s3_reference(self.bucket, object_key), settings=None, client=self.client, expires_in=self.presign_ttl_seconds),
         )
+
+    async def delete_reference(self, reference: str | None) -> bool:
+        object_key = _owned_s3_reference_key(reference, bucket=self.bucket, prefix=self.prefix)
+        if object_key is None:
+            return False
+        await _delete_s3_object_with_retry(self.client, bucket=self.bucket, key=object_key)
+        return True
 
 
 class S3MockMediaStorage:
@@ -99,7 +118,8 @@ class S3MockMediaStorage:
 
     async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
         del content_type
-        object_key = "/".join(part for part in [self.prefix, key] if part)
+        clean_key = _normalize_media_object_key(key)
+        object_key = "/".join(part for part in [self.prefix, clean_key] if part)
         destination = _safe_local_destination(self.root / self.bucket, object_key)
         await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
         await asyncio.to_thread(destination.write_bytes, content)
@@ -109,6 +129,13 @@ class S3MockMediaStorage:
             reference=reference,
             url=mock_presign_s3_reference(reference, expires_in=self.presign_ttl_seconds),
         )
+
+    async def delete_reference(self, reference: str | None) -> bool:
+        object_key = _owned_s3_reference_key(reference, bucket=self.bucket, prefix=self.prefix)
+        if object_key is None:
+            return False
+        destination = _safe_local_destination(self.root / self.bucket, object_key)
+        return await asyncio.to_thread(_unlink_if_exists, destination)
 
 
 def get_media_storage(settings: Settings) -> MediaStorage:
@@ -135,6 +162,8 @@ def media_url(reference: str | None, settings: Settings) -> str:
         return ""
     if not reference.startswith("s3://"):
         return reference
+    if not _s3_reference_matches_settings_scope(reference, settings):
+        return ""
     if getattr(settings, "media_storage_backend", "").strip().lower() == MEDIA_STORAGE_S3_MOCK:
         return mock_presign_s3_reference(reference, settings=settings)
     return presign_s3_reference(reference, settings=settings)
@@ -145,6 +174,8 @@ async def async_media_url(reference: str | None, settings: Settings) -> str:
         return ""
     if not reference.startswith("s3://"):
         return reference
+    if not _s3_reference_matches_settings_scope(reference, settings):
+        return ""
     if getattr(settings, "media_storage_backend", "").strip().lower() == MEDIA_STORAGE_S3_MOCK:
         return await asyncio.to_thread(mock_presign_s3_reference, reference, settings=settings)
     return await asyncio.to_thread(presign_s3_reference, reference, settings=settings)
@@ -152,6 +183,12 @@ async def async_media_url(reference: str | None, settings: Settings) -> str:
 
 def s3_reference(bucket: str, key: str) -> str:
     return f"s3://{bucket}/{quote(key, safe='/')}"
+
+
+async def delete_media_reference(storage: MediaStorage, reference: str | None) -> bool:
+    if not reference:
+        return False
+    return await storage.delete_reference(reference)
 
 
 def mock_presign_s3_reference(
@@ -212,7 +249,68 @@ def _clean_prefix(prefix: str) -> str:
     return "/".join(part for part in prefix.strip("/").split("/") if part)
 
 
-def _safe_local_destination(root: Path, key: str) -> Path:
+def _local_reference_key(reference: str | None, public_prefix: str) -> str | None:
+    if not reference:
+        return None
+    parsed = urlparse(reference)
+    if parsed.scheme or parsed.netloc:
+        return None
+    prefix = public_prefix.rstrip("/")
+    path = parsed.path
+    if not path.startswith(f"{prefix}/"):
+        return None
+    return unquote(path[len(prefix) + 1:])
+
+
+def _s3_reference_parts(reference: str | None) -> tuple[str, str] | None:
+    if not reference:
+        return None
+    parsed = urlparse(reference)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path:
+        return None
+    key = unquote(parsed.path.lstrip("/"))
+    if not key:
+        return None
+    return parsed.netloc, key
+
+
+def _owned_s3_reference_key(reference: str | None, *, bucket: str, prefix: str) -> str | None:
+    parts = _s3_reference_parts(reference)
+    if parts is None:
+        return None
+    reference_bucket, key = parts
+    if reference_bucket != bucket or not _key_matches_prefix(key, prefix):
+        return None
+    return key
+
+
+def _s3_reference_matches_settings_scope(reference: str, settings: Settings) -> bool:
+    configured_bucket = str(getattr(settings, "media_s3_bucket", "") or "").strip()
+    if not configured_bucket:
+        return False
+
+    parts = _s3_reference_parts(reference)
+    if parts is None:
+        return False
+
+    reference_bucket, key = parts
+    configured_prefix = _clean_prefix(str(getattr(settings, "media_s3_prefix", "") or ""))
+    return reference_bucket == configured_bucket and _key_matches_prefix(key, configured_prefix)
+
+
+def _key_matches_prefix(key: str, prefix: str) -> bool:
+    return not prefix or key == prefix or key.startswith(f"{prefix}/")
+
+
+def _unlink_if_exists(path: Path) -> bool:
+    try:
+        path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _normalize_media_object_key(key: str) -> str:
     cleaned_key = key.strip().replace("\\", "/")
     key_parts = cleaned_key.split("/")
     if (
@@ -222,7 +320,11 @@ def _safe_local_destination(root: Path, key: str) -> Path:
         or any(part in {"", ".", ".."} for part in key_parts)
     ):
         raise MediaStorageError("Invalid media object key.")
+    return cleaned_key
 
+
+def _safe_local_destination(root: Path, key: str) -> Path:
+    cleaned_key = _normalize_media_object_key(key)
     root_path = root.resolve()
     destination = (root_path / cleaned_key).resolve()
     try:
@@ -254,6 +356,26 @@ async def _put_s3_object_with_retry(
         except Exception as exc:
             if attempt >= S3_PUT_ATTEMPTS or not _is_retryable_s3_error(exc):
                 raise MediaStorageError("S3 media upload failed.") from exc
+            await asyncio.sleep(S3_PUT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
+
+
+async def _delete_s3_object_with_retry(
+    client: object,
+    *,
+    bucket: str,
+    key: str,
+) -> None:
+    for attempt in range(1, S3_PUT_ATTEMPTS + 1):
+        try:
+            await asyncio.to_thread(
+                client.delete_object,
+                Bucket=bucket,
+                Key=key,
+            )
+            return
+        except Exception as exc:
+            if attempt >= S3_PUT_ATTEMPTS or not _is_retryable_s3_error(exc):
+                raise MediaStorageError("S3 media delete failed.") from exc
             await asyncio.sleep(S3_PUT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
 
 

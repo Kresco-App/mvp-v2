@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import type { CourseStatusFilter } from '@/lib/courseFilters'
+import { useClickOutside } from '@/hooks/useClickOutside'
 
 export type FigmaCourseSubjectOption = {
   label: string
@@ -32,14 +33,7 @@ export function FigmaCourseSearchControls({
   const subjectRef = useRef<HTMLDivElement>(null)
   const selectedSubject = subjects.find((item) => item.value === subject)
 
-  useEffect(() => {
-    function handlePointerDown(event: PointerEvent) {
-      if (!subjectRef.current?.contains(event.target as Node)) setSubjectOpen(false)
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [])
+  useClickOutside(subjectRef, () => setSubjectOpen(false), { eventName: 'pointerdown' })
 
   return (
     <header className="mb-[32px]">

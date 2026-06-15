@@ -407,39 +407,46 @@ async def _apply_daily_caps(
 
 
 async def _record_daily_cap_usage(db: AsyncSession, inserted: list[dict]) -> None:
-    totals: Counter[tuple[int, date, str]] = Counter()
+    user_id: int | None = None
+    cap_date: date | None = None
+    amounts_by_category: Counter[str] = Counter()
     for row in inserted:
         category = row.get("daily_cap_category")
-        cap_date = row.get("daily_cap_date")
-        if not category or cap_date is None:
+        row_cap_date = row.get("daily_cap_date")
+        if not category or row_cap_date is None:
             continue
-        totals[(int(row["user_id"]), cap_date, str(category))] += int(row["amount"])
-    grouped: dict[tuple[int, date], dict[str, int]] = {}
-    for (user_id, cap_date, category), amount in totals.items():
-        if amount <= 0:
-            continue
-        grouped.setdefault((user_id, cap_date), {})[category] = amount
+        row_user_id = int(row["user_id"])
+        if user_id is None:
+            user_id = row_user_id
+            cap_date = row_cap_date
+        elif user_id != row_user_id or cap_date != row_cap_date:
+            raise RuntimeError("XP daily cap usage can only be recorded for one user and date at a time")
+        amounts_by_category[str(category)] += int(row["amount"])
 
-    for (user_id, cap_date), amounts_by_category in grouped.items():
-        await db.execute(
-            update(XPDailyCapUsage)
-            .where(
-                XPDailyCapUsage.user_id == user_id,
-                XPDailyCapUsage.award_date == cap_date,
-                XPDailyCapUsage.category.in_(list(amounts_by_category)),
-            )
-            .values(
-                amount_awarded=XPDailyCapUsage.amount_awarded
-                + case(
-                    *[
-                        (XPDailyCapUsage.category == category, amount)
-                        for category, amount in amounts_by_category.items()
-                    ],
-                    else_=0,
-                ),
-                updated_at=func.now(),
-            )
+    amounts_by_category = Counter({
+        category: amount
+        for category, amount in amounts_by_category.items()
+        if amount > 0
+    })
+    if user_id is None or cap_date is None or not amounts_by_category:
+        return
+
+    await db.execute(
+        update(XPDailyCapUsage)
+        .where(
+            XPDailyCapUsage.user_id == user_id,
+            XPDailyCapUsage.award_date == cap_date,
+            XPDailyCapUsage.category.in_(list(amounts_by_category)),
         )
+        .values(
+            amount_awarded=XPDailyCapUsage.amount_awarded
+            + case(
+                *[(XPDailyCapUsage.category == category, amount) for category, amount in amounts_by_category.items()],
+                else_=0,
+            ),
+            updated_at=func.now(),
+        )
+    )
 
 
 async def _insert_xp_transaction_rows(db: AsyncSession, rows: list[dict]) -> list[dict]:

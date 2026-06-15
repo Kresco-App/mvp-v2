@@ -21,6 +21,8 @@ Set this in the backend environment:
 ```text
 VDOCIPHER_API_SECRET=
 VDOCIPHER_API_BASE_URL=https://dev.vdocipher.com/api
+VDOCIPHER_LIVE_CREATE_URL=
+VDOCIPHER_LIVE_DELETE_URL=
 ```
 
 Do not expose this value to the frontend.
@@ -40,6 +42,13 @@ Do not expose this value to the frontend.
   "playback_info": "..."
 }
 ```
+
+`create_live_stream(title, settings)`:
+
+- Uses `VDOCIPHER_LIVE_CREATE_URL` for professor live-session auto-create.
+- If database persistence fails after provider creation, `delete_live_stream(live_id, settings)` is called as a compensating cleanup hook.
+- `VDOCIPHER_LIVE_DELETE_URL` is optional. When configured, it should be a `DELETE` endpoint template containing `{live_id}` or `{liveId}`; without a placeholder, the encoded live id is appended as the final path segment.
+- When no delete endpoint is configured or provider deletion fails, the backend writes a `VdoCipherLiveCleanup` admin audit record and emits `vdocipher_live_cleanup_required_after_persist_failure` for manual cleanup.
 
 ## Content Data
 

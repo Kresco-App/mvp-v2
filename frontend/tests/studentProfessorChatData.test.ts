@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { apiSWRConfig } from '@/lib/apiData'
 import {
+  parseStudentProfessorChatUrlState,
   studentProfessorMessagesSWRKey,
+  studentProfessorChatUrlStatesEqual,
+  studentProfessorChatUrlStateToSearchParams,
   useStudentProfessorChatData,
 } from '@/lib/studentProfessorChatData'
 import type { ProfessorConversation, ProfessorMessage, StudentProfessorChatStatus } from '@/lib/professor'
@@ -46,6 +49,29 @@ describe('student professor chat SWR data', () => {
   it('builds message keys defensively', () => {
     expect(studentProfessorMessagesSWRKey(81)).toEqual(['/professor/student-chat/conversations/messages', 81])
     expect(studentProfessorMessagesSWRKey(null)).toBeNull()
+  })
+
+  it('parses and serializes student professor chat URL state', () => {
+    expect(parseStudentProfessorChatUrlState(new URLSearchParams('conversation=81&offering=11'))).toEqual({
+      conversationId: 81,
+      offeringId: 11,
+    })
+    expect(parseStudentProfessorChatUrlState(new URLSearchParams('thread=abc&offeringId=-1'))).toEqual({
+      conversationId: null,
+      offeringId: null,
+    })
+
+    const params = studentProfessorChatUrlStateToSearchParams(
+      { conversationId: 82, offeringId: 12 },
+      new URLSearchParams('tab=chat&conversationId=81&thread=80&offeringId=11'),
+    )
+
+    expect(params.toString()).toBe('tab=chat&conversation=82&offering=12')
+    expect(studentProfessorChatUrlStateToSearchParams({ conversationId: null, offeringId: null }).toString()).toBe('')
+    expect(studentProfessorChatUrlStatesEqual(
+      { conversationId: 82, offeringId: 12 },
+      { conversationId: 82, offeringId: 12 },
+    )).toBe(true)
   })
 
   it('loads eligibility status and active messages through separate resources', async () => {

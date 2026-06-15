@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 
 from fastapi import HTTPException, UploadFile
@@ -12,11 +13,13 @@ from app.services.image_uploads import (
     normalize_image_mime_type,
 )
 from app.services.media_storage import MediaStorage, media_url, profile_media_key
+from app.services.media_storage import delete_media_reference, get_media_storage
 
 MAX_PROFILE_MEDIA_BYTES = 5 * 1024 * 1024
 MediaUrlFn = Callable[[str, Settings], str]
 MediaStorageFactory = Callable[[Settings], MediaStorage]
 TRACK_FIELDS = {"niveau", "filiere"}
+logger = logging.getLogger(__name__)
 
 
 def profile_media_projected_bytes(user: User, kind: str, incoming_bytes: int) -> int:
@@ -58,11 +61,13 @@ async def update_profile_state(
     body: UserUpdateIn,
     settings: Settings,
     media_url_fn: MediaUrlFn = media_url,
+    storage_factory: MediaStorageFactory | None = None,
 ) -> UserOut:
     updates = body.model_dump(exclude_none=True)
     if not updates:
         return user_out(user, settings, media_url_fn=media_url_fn)
     _enforce_self_service_track_boundary(user, updates)
+    references_to_delete: list[str] = []
     if "avatar_url" in updates:
         avatar_reference = updates["avatar_url"]
         if avatar_reference not in {"", user.avatar_url}:
@@ -71,6 +76,8 @@ async def update_profile_state(
                 detail="Upload new avatar media through the profile media endpoint before referencing it here",
             )
         if avatar_reference == "":
+            if user.avatar_url:
+                references_to_delete.append(user.avatar_url)
             user.avatar_media_size = 0
     if "banner_url" in updates:
         banner_reference = updates["banner_url"]
@@ -80,11 +87,16 @@ async def update_profile_state(
                 detail="Upload new banner media through the profile media endpoint before referencing it here",
             )
         if banner_reference == "":
+            if user.banner_url:
+                references_to_delete.append(user.banner_url)
             user.banner_media_size = 0
     for field, value in updates.items():
         setattr(user, field, value)
     await db.commit()
     await db.refresh(user)
+    if references_to_delete:
+        storage = (storage_factory or get_media_storage)(settings)
+        await _delete_profile_media_references(storage, references_to_delete)
     return user_out(user, settings, media_url_fn=media_url_fn)
 
 
@@ -115,7 +127,9 @@ async def upload_profile_media_state(
     if profile_media_projected_bytes(user, kind, len(content)) > int(settings.media_profile_quota_bytes):
         raise HTTPException(status_code=413, detail="Profile media quota exceeded")
 
-    stored = await storage_factory(settings).put_object(
+    storage = storage_factory(settings)
+    previous_reference = user.avatar_url if kind == "avatar" else user.banner_url
+    stored = await storage.put_object(
         key=profile_media_key(user.id, kind, extension),
         content=content,
         content_type=mime_type,
@@ -127,6 +141,25 @@ async def upload_profile_media_state(
         user.banner_url = stored.reference
         user.banner_media_size = len(content)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await _delete_profile_media_references(storage, [stored.reference])
+        raise
     await db.refresh(user)
+    if previous_reference and previous_reference != stored.reference:
+        await _delete_profile_media_references(storage, [previous_reference])
     return ProfileMediaOut(url=stored.url)
+
+
+async def _delete_profile_media_references(storage: MediaStorage, references: list[str]) -> None:
+    seen: set[str] = set()
+    for reference in references:
+        if not reference or reference in seen:
+            continue
+        seen.add(reference)
+        try:
+            await delete_media_reference(storage, reference)
+        except Exception:
+            logger.warning("profile_media_cleanup_failed", exc_info=True)

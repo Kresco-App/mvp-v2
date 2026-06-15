@@ -55,17 +55,16 @@ export type PaymentRequestResult =
   | { status: 'error'; message: string }
 
 export async function verifyCheckoutSession(
-  apiClient: Pick<PaymentApiClient, 'get'>,
+  apiClient: Pick<PaymentApiClient, 'post'>,
   sessionId: string | null | undefined,
 ): Promise<PaymentVerificationResult> {
   const normalizedSessionId = sessionId?.trim()
   if (!normalizedSessionId) return { status: 'error' }
-  const idempotencyKey = paymentVerificationIdempotencyKey(normalizedSessionId)
 
   try {
-    const { data } = await apiClient.get<{ is_pro?: boolean }>(
-      `/payments/verify-session?session_id=${encodeURIComponent(normalizedSessionId)}`,
-      { headers: { 'Idempotency-Key': idempotencyKey } },
+    const { data } = await apiClient.post<{ is_pro?: boolean }>(
+      '/payments/verify-session',
+      { session_id: normalizedSessionId },
     )
     if (data?.is_pro === true) {
       return { status: 'success', userPatch: { is_pro: true } }
@@ -75,10 +74,6 @@ export async function verifyCheckoutSession(
   }
 
   return { status: 'error' }
-}
-
-export function paymentVerificationIdempotencyKey(sessionId: string) {
-  return `verify-${sessionId.trim().replace(/[^a-zA-Z0-9._:-]/g, '_').slice(0, 153)}`
 }
 
 export async function createProCheckoutSession(
@@ -135,7 +130,7 @@ export function submitProviderPaymentForm(actionUrl: string, formFields: Record<
   const form = document.createElement('form')
   form.method = 'POST'
   form.action = actionUrl
-  form.style.display = 'none'
+  form.hidden = true
 
   Object.entries(formFields).forEach(([name, value]) => {
     const input = document.createElement('input')

@@ -34,6 +34,12 @@ class CheckoutSessionVerification:
     customer_id: str = ""
 
 
+@dataclass(frozen=True)
+class CheckoutSessionCreation:
+    checkout_url: str
+    customer_id: str = ""
+
+
 def _stripe_client(settings: Settings) -> stripe.StripeClient:
     return stripe.StripeClient(
         settings.stripe_sk,
@@ -96,10 +102,6 @@ def _is_retryable_stripe_error(exc: stripe.StripeError) -> bool:
     return isinstance(http_status, int) and http_status >= 500
 
 
-def _is_retryable_checkout_verification_error(exc: stripe.StripeError) -> bool:
-    return _is_retryable_stripe_error(exc)
-
-
 async def create_checkout_session(
     user: User,
     plan: str,
@@ -107,9 +109,16 @@ async def create_checkout_session(
     *,
     success_path: str = "/payment-success?session_id={CHECKOUT_SESSION_ID}",
     cancel_path: str = "/pricing",
-) -> str:
+) -> CheckoutSessionCreation:
     if plan not in PRICES:
         raise HTTPException(status_code=400, detail=VALID_PLAN_DETAIL)
+    if settings.fake_stripe_checkout and not settings.is_production_like:
+        safe_success_path = _success_path_with_session_id(
+            _safe_relative_checkout_path(success_path, fallback="/payment-success?session_id={CHECKOUT_SESSION_ID}")
+        )
+        return CheckoutSessionCreation(
+            checkout_url=_frontend_url(settings, safe_success_path).replace("{CHECKOUT_SESSION_ID}", f"fake_{user.id}")
+        )
     _require_checkout_config(settings)
     safe_success_path = _success_path_with_session_id(
         _safe_relative_checkout_path(success_path, fallback="/payment-success?session_id={CHECKOUT_SESSION_ID}")
@@ -127,7 +136,6 @@ async def create_checkout_session(
                 params={"email": user.email, "name": user.full_name, "metadata": {"user_id": str(user.id)}}
             )
             customer_id = customer.id
-            user.stripe_customer_id = customer_id
 
         session = await _call_stripe(
             client.v1.checkout.sessions.create,
@@ -161,7 +169,7 @@ async def create_checkout_session(
             type(exc).__name__,
         )
         raise HTTPException(status_code=503, detail=CHECKOUT_UNAVAILABLE_DETAIL) from exc
-    return session.url
+    return CheckoutSessionCreation(checkout_url=session.url, customer_id=str(customer_id or ""))
 
 
 async def verify_checkout_session(session_id: str, settings: Settings) -> CheckoutSessionVerification:
@@ -180,9 +188,13 @@ async def verify_checkout_session(session_id: str, settings: Settings) -> Checko
             customer_id=str(getattr(session, "customer", "") or ""),
         )
     except stripe.StripeError as exc:
-        if _is_retryable_checkout_verification_error(exc):
-            raise HTTPException(status_code=503, detail=VERIFY_CHECKOUT_UNAVAILABLE_DETAIL) from exc
-        return CheckoutSessionVerification(is_paid=False)
+        logger.warning(
+            "stripe_checkout_verify_failed session_id=%s error_type=%s retryable=%s",
+            session_id,
+            type(exc).__name__,
+            _is_retryable_stripe_error(exc),
+        )
+        raise HTTPException(status_code=503, detail=VERIFY_CHECKOUT_UNAVAILABLE_DETAIL) from exc
 
 
 async def customer_id_for_charge(charge_id: str | None, settings: Settings) -> str:

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuthStore } from '@/lib/store'
 import {
+  AUTH_ROUTES,
   getAccessDeniedDestination,
   getStudentOnboardingDestination,
   getStudentOnboardingStep,
@@ -153,6 +154,17 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
           replaceBrowserLocation(getStudentOnboardingDestination(currentLocation))
           return
         }
+        if (
+          !requireStaff
+          && !isProfessorUser(profile)
+          && isStudentOnboardingRoute(currentPathname)
+          && !getStudentOnboardingStep(profile)
+        ) {
+          verificationStateRef.current = 'denied'
+          setAccessState('redirecting')
+          replaceBrowserLocation(AUTH_ROUTES.studentHome)
+          return
+        }
 
         verificationStateRef.current = 'verified'
         setAccessState('ready')
@@ -170,7 +182,12 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
         setAccessState('error')
       })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (verificationStateRef.current === 'checking') {
+        verificationStateRef.current = 'idle'
+      }
+    }
   }, [isHydrated, token, user, requireRole, requireStaff, login, updateUser, clearSession, retryCount])
 
   if (!isHydrated) {

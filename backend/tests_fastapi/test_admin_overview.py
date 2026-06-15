@@ -44,8 +44,16 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
                 is_staff=True,
                 password="!",
             )
+            unverified_staff = User(
+                email="admin-overview-unverified-staff@example.com",
+                full_name="Unverified Staff",
+                is_active=True,
+                is_email_verified=False,
+                is_staff=True,
+                password="!",
+            )
             subject = Subject(title="Admin Physics", is_published=True, order=99)
-            db.add_all([student, staff, subject])
+            db.add_all([student, staff, unverified_staff, subject])
             await db.flush()
             topic = Topic(
                 subject_id=subject.id,
@@ -106,15 +114,25 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
                 )
             )
             await db.commit()
-            return create_token(student.id, test_settings), create_token(staff.id, test_settings)
+            return (
+                create_token(student.id, test_settings),
+                create_token(staff.id, test_settings),
+                create_token(unverified_staff.id, test_settings),
+            )
 
-    student_token, staff_token = run_db(_seed())
+    student_token, staff_token, unverified_staff_token = run_db(_seed())
 
     blocked = app_client.get(
         "/api/admin/overview",
         headers={"Authorization": f"Bearer {student_token}"},
     )
     assert blocked.status_code == 403
+
+    unverified_blocked = app_client.get(
+        "/api/admin/overview",
+        headers={"Authorization": f"Bearer {unverified_staff_token}"},
+    )
+    assert unverified_blocked.status_code == 403
 
     response = app_client.get(
         "/api/admin/overview",

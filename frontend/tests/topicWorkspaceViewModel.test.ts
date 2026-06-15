@@ -34,48 +34,41 @@ import {
   type TopicItem,
   type TopicWorkspace,
 } from '@/lib/topicWorkspaceViewModel'
+import {
+  buildTabContent,
+  buildTopicItem,
+  buildTopicResource,
+  buildTopicSection,
+  buildTopicWorkspace,
+} from './factories/topicWorkspace'
 
-const baseItem: TopicItem = {
+const baseItem: TopicItem = buildTopicItem({
   id: 10,
-  topic_id: 2,
-  section_id: 4,
   title: 'Limits <basics>',
   description: 'Intro & overview',
-  item_type: 'lesson',
-  renderer_key: '',
-  duration_seconds: 125,
-  progress_status: 'in_progress',
-  primary_resource: {
+  primary_resource: buildTopicResource({
     id: 1,
     title: 'Video',
-    resource_type: 'video',
-    provider: 'youtube',
-    provider_resource_id: 'dQw4w9WgXcQ',
-    url: '',
     summary: 'Watch this',
-  },
-  tabs: [],
-}
+  }),
+})
 
-const quizTab: TabContent = {
+const quizTab: TabContent = buildTabContent({
   id: 9,
   label: 'Checkpoint',
   tab_type: 'quiz',
   content: 'Answer',
   config_json: { questions: [{ id: 77, prompt: 'Question 77' }] },
-  renderer_key: '',
   order: 1,
-}
+})
 
-const resourceTab: TabContent = {
+const resourceTab: TabContent = buildTabContent({
   id: 12,
   label: 'Worksheet',
   tab_type: 'resource',
   content: 'Resource summary',
-  config_json: {},
-  renderer_key: '',
   order: 2,
-  resource: {
+  resource: buildTopicResource({
     id: 22,
     title: 'Worksheet PDF',
     resource_type: 'pdf',
@@ -83,28 +76,25 @@ const resourceTab: TabContent = {
     provider_resource_id: '',
     url: '/worksheet.pdf',
     summary: 'Practice worksheet',
-  },
-}
+  }),
+})
 
-const commentsTab: TabContent = {
+const commentsTab: TabContent = buildTabContent({
   id: 13,
   label: 'Discussion',
   tab_type: 'comments',
   content: '',
-  config_json: {},
-  renderer_key: '',
   order: 3,
-}
+})
 
-const providerVideoTab: TabContent = {
+const providerVideoTab: TabContent = buildTabContent({
   id: 14,
   label: 'Lesson video',
   tab_type: 'video',
   content: '',
-  config_json: {},
   renderer_key: 'vdocipher',
   order: 0,
-  resource: {
+  resource: buildTopicResource({
     id: 33,
     title: 'VdoCipher stream',
     resource_type: 'video',
@@ -112,8 +102,8 @@ const providerVideoTab: TabContent = {
     provider_resource_id: 'demo-preview',
     url: 'https://cdn.example/video',
     summary: 'Provider stream',
-  },
-}
+  }),
+})
 
 describe('topic workspace view model', () => {
   it('formats videos and escapes srcdoc content', () => {
@@ -143,19 +133,12 @@ describe('topic workspace view model', () => {
 
   it('maps workspace sections into rail data with lock metadata', () => {
     const lockedItem = { ...baseItem, id: 11, can_access: false, locked_reason: 'vip_required', progress_status: 'completed' }
-    const workspace: TopicWorkspace = {
-      id: 2,
-      subject_title: 'Math',
-      title: 'Continuity',
-      description: '',
-      progress_pct: 0,
-      completed_count: 0,
+    const workspace: TopicWorkspace = buildTopicWorkspace({
       item_count: 2,
       active_item_id: baseItem.id,
       active_item: baseItem,
-      search_results: [],
-      sections: [{ id: 4, title: 'Lessons', section_type: 'lesson', order: 1, items: [baseItem, lockedItem] }],
-    }
+      sections: [buildTopicSection({ id: 4, items: [baseItem, lockedItem] })],
+    })
 
     const lookups = buildTopicLookups(workspace.sections)
     const rail = buildRailSections(workspace, lockedItem.id, new Set([4]))
@@ -217,22 +200,15 @@ describe('topic workspace view model', () => {
       title: 'Practice resources',
       tabs: [resourceTab, quizTab],
     }
-    const workspace: TopicWorkspace = {
-      id: 2,
-      subject_title: 'Math',
-      title: 'Continuity',
-      description: '',
-      progress_pct: 0,
-      completed_count: 0,
+    const workspace: TopicWorkspace = buildTopicWorkspace({
       item_count: 2,
       active_item_id: baseItem.id,
       active_item: baseItem,
-      search_results: [],
       sections: [
-        { id: 4, title: 'Lessons', section_type: 'lesson', order: 1, items: [baseItem] },
-        { id: 5, title: 'Practice', section_type: 'practice', order: 2, items: [resourceItem] },
+        buildTopicSection({ id: 4, items: [baseItem] }),
+        buildTopicSection({ id: 5, title: 'Practice', section_type: 'practice', order: 2, items: [resourceItem] }),
       ],
-    }
+    })
 
     expect(selectTopicWorkspaceQueryState(workspace, {
       ...topicWorkspaceQueryTargetsFromItemId(null),

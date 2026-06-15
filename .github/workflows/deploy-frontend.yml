@@ -63,6 +63,11 @@ jobs:
         working-directory: .
         run: python scripts/check_secret_hygiene.py
 
+      - name: Enforce production secret rotation checklist
+        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
+        working-directory: .
+        run: python scripts/check_secret_hygiene.py --require-rotation-checklist
+
       - name: Enforce production launch gate
         if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
         working-directory: .
@@ -123,6 +128,12 @@ jobs:
         if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
         run: npm run validate:production-env
 
+      - name: Validate staging frontend environment
+        if: ${{ env.DEPLOY_ENVIRONMENT != 'production' }}
+        run: npm run validate:production-env
+        env:
+          VERCEL_ENV: preview
+
       - name: Build frontend preview
         if: ${{ env.DEPLOY_ENVIRONMENT != 'production' }}
         run: vercel build --token="${{ secrets.VERCEL_TOKEN }}"
@@ -139,14 +150,69 @@ jobs:
 
       - name: Deploy prebuilt frontend preview
         if: ${{ env.DEPLOY_ENVIRONMENT != 'production' }}
-        run: vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}"
+        run: |
+          set -euo pipefail
+          deployment_url="$(vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}")"
+          echo "FRONTEND_DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
+          echo "Deployed preview to $deployment_url"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Deploy prebuilt frontend production
         if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
-        run: vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
+        run: |
+          set -euo pipefail
+          deployment_url="$(vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}")"
+          echo "FRONTEND_DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
+          echo "Deployed production to $deployment_url"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Post-deploy frontend smoke
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import urllib.request
+
+          raw_url = os.environ.get("FRONTEND_DEPLOYMENT_URL", "").strip()
+          if not raw_url:
+              raise SystemExit("FRONTEND_DEPLOYMENT_URL was not captured from Vercel deploy.")
+          url = raw_url if raw_url.startswith(("http://", "https://")) else f"https://{raw_url}"
+          request = urllib.request.Request(
+              url,
+              headers={"Accept": "text/html", "User-Agent": "kresco-frontend-deploy-smoke/1.0"},
+              method="GET",
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              status = response.getcode()
+              body = response.read(4096).decode("utf-8", errors="replace")
+          if status >= 400:
+              raise SystemExit(f"Frontend smoke request failed with HTTP {status}.")
+          if "<html" not in body.lower():
+              raise SystemExit("Frontend smoke response did not look like an HTML page.")
+          print(f"Frontend smoke passed for {url}")
+          PY
+
+      - name: Post-deploy production surface scan
+        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
+        run: |
+          set -euo pipefail
+          deployment_url="${FRONTEND_DEPLOYMENT_URL:?FRONTEND_DEPLOYMENT_URL was not captured from Vercel deploy.}"
+          production_base_urls="${FRONTEND_PRODUCTION_BASE_URLS:-}"
+          if [ -z "$production_base_urls" ]; then
+            echo "::error::FRONTEND_PRODUCTION_BASE_URLS must include every public production alias to scan."
+            exit 1
+          fi
+          scan_urls="$deployment_url ${production_base_urls//,/ }"
+          for base_url in $scan_urls; do
+            case "$base_url" in
+              http://*|https://*) ;;
+              *) base_url="https://$base_url" ;;
+            esac
+            npm run check:production-demo-surface -- --base-url "$base_url" --json
+          done
+        env:
+          FRONTEND_PRODUCTION_BASE_URLS: ${{ vars.FRONTEND_PRODUCTION_BASE_URLS }}

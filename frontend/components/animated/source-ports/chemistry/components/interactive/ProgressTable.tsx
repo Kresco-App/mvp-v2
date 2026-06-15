@@ -2,11 +2,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { ListFilter } from 'lucide-react';
 
 export const ProgressTable: React.FC = () => {
   const [advancement, setAdvancement] = useState(0); 
+  const progressGradientId = React.useId();
 
   return (
     <div className="bg-white p-6 md:p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 my-10 overflow-hidden">
@@ -26,10 +26,15 @@ export const ProgressTable: React.FC = () => {
             <span>Équilibre</span>
         </div>
         <div className="relative h-4 bg-slate-200 rounded-full cursor-pointer group">
-            <motion.div 
-                className="absolute top-0 left-0 h-full bg-gradient-to-r from-[#fbbf24] to-[#d97706] rounded-full"
-                style={{ width: `${advancement}%` }}
-            />
+            <svg className="absolute inset-0 h-full w-full overflow-hidden rounded-full" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                    <linearGradient id={progressGradientId} x1="0" x2="1" y1="0" y2="0">
+                        <stop offset="0%" stopColor="#fbbf24" />
+                        <stop offset="100%" stopColor="#d97706" />
+                    </linearGradient>
+                </defs>
+                <rect width={`${advancement}%`} height="100%" rx="8" fill={`url(#${progressGradientId})`} />
+            </svg>
             <input 
                 type="range" 
                 min="0" 
@@ -39,10 +44,17 @@ export const ProgressTable: React.FC = () => {
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
             />
             {/* Thumb */}
-            <div 
-                className="absolute top-1/2 -translate-y-1/2 w-8 h-8 bg-white border-4 border-[#d97706] rounded-full shadow-lg pointer-events-none transition-all group-hover:scale-110"
-                style={{ left: `calc(${advancement}% - 16px)` }}
-            />
+            <svg className="absolute inset-x-0 top-1/2 h-8 -translate-y-1/2 overflow-visible pointer-events-none" aria-hidden="true">
+                <circle
+                    cx={`${advancement}%`}
+                    cy="16"
+                    r="14"
+                    fill="white"
+                    stroke="#d97706"
+                    strokeWidth="4"
+                    className="drop-shadow-lg transition-transform duration-200 group-hover:scale-110 [transform-box:fill-box] [transform-origin:center]"
+                />
+            </svg>
         </div>
         <div className="text-center mt-4 font-math text-xl text-[#4c1d95] font-bold">
             Avancement x = <span className="inline-block min-w-[3ch] text-left">{advancement === 0 ? "0" : advancement === 100 ? "xéq" : (advancement/100).toFixed(1) + "xéq"}</span>

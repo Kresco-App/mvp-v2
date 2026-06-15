@@ -478,10 +478,10 @@ const InterferenceCanvas = forwardRef<InterferenceCanvasRef, InterferenceCanvasP
     }, [loop]);
 
     return (
-        <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <div ref={containerRef} className="relative h-full w-full">
             <canvas 
                 ref={canvasRef} 
-                style={{ cursor: 'default', display: 'block' }}
+                className="block cursor-default"
             />
         </div>
     );

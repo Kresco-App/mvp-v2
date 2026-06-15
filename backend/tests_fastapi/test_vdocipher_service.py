@@ -28,6 +28,12 @@ class FakeAsyncClient:
             return self.__class__.responses.pop(0)
         return self.__class__.response
 
+    async def delete(self, url: str, *, headers: dict):
+        self.__class__.calls.append({"method": "DELETE", "url": url, "headers": headers, "timeout": self.timeout})
+        if self.__class__.responses:
+            return self.__class__.responses.pop(0)
+        return self.__class__.response
+
 
 class FailingAsyncClient:
     def __init__(self, *, timeout: int):
@@ -41,6 +47,10 @@ class FailingAsyncClient:
 
     async def post(self, url: str, *, headers: dict, json: dict):
         del url, headers, json
+        raise httpx.ConnectTimeout("provider timed out")
+
+    async def delete(self, url: str, *, headers: dict):
+        del url, headers
         raise httpx.ConnectTimeout("provider timed out")
 
 
@@ -145,6 +155,7 @@ def test_get_video_stream_data_caches_otp_per_user_and_binds_payload(monkeypatch
     assert len(FakeAsyncClient.calls) == 2
     assert FakeAsyncClient.calls[0]["json"] == {"ttl": 300, "userId": "7"}
     assert FakeAsyncClient.calls[1]["json"] == {"ttl": 300, "userId": "8"}
+
 
 def test_get_video_otp_surfaces_provider_error(monkeypatch):
     FakeAsyncClient.calls = []
@@ -304,6 +315,38 @@ def test_create_live_stream_rejects_missing_live_id(monkeypatch):
 
     assert error.value.status_code == 502
     assert error.value.detail == "VdoCipher did not return a live stream ID"
+
+
+def test_delete_live_stream_uses_configured_cleanup_endpoint(monkeypatch):
+    FakeAsyncClient.calls = []
+    FakeAsyncClient.responses = []
+    FakeAsyncClient.response = httpx.Response(204)
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        vdocipher.delete_live_stream(
+            " live/id 1 ",
+            live_settings(vdocipher_live_delete_url="https://provider.example/live/{live_id}"),
+        )
+    )
+
+    assert result == {"cleanup_state": "deleted"}
+    assert FakeAsyncClient.calls == [
+        {
+            "method": "DELETE",
+            "url": "https://provider.example/live/live%2Fid%201",
+            "headers": {"Authorization": "Apisecret api-secret"},
+            "timeout": 15,
+        }
+    ]
+
+
+def test_delete_live_stream_returns_cleanup_required_without_endpoint(caplog):
+    with caplog.at_level("CRITICAL", logger=vdocipher.logger.name):
+        result = asyncio.run(vdocipher.delete_live_stream("generated_live_123", live_settings()))
+
+    assert result == {"cleanup_state": "cleanup_required", "cleanup_reason": "delete_endpoint_unconfigured"}
+    assert "vdocipher_live_cleanup_required" in caplog.text
 
 
 def test_provider_payload_sanitizer_redacts_nested_secrets():

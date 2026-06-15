@@ -6,8 +6,8 @@ import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
-import { listKrescoRealtimeSubscriptions, subscribeKrescoRealtimeChannels, userNotificationsChannelName } from '@/lib/ably'
 import { getJson } from '@/lib/apiClient'
+import { useNotificationChannelsSubscription } from '@/hooks/useNotificationChannelsSubscription'
 import {
   addDays,
   addMonths,
@@ -139,32 +139,14 @@ export default function CalendarPage() {
     scrollContainer.scrollTop = Math.max(0, (earliest / 60) * hourHeight - hourHeight)
   }, [loading, weekEvents])
 
-  useEffect(() => {
-    if (!user?.id) return
-    const userId = user.id
-    let cleanup = () => {}
-    let stopped = false
-    const refresh = () => void loadEventsForWeekRef.current(() => !stopped)
-    void listKrescoRealtimeSubscriptions()
-      .then(({ notification_channels }) => {
-        if (stopped) return
-        cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: notification_channels,
-          onMessage: refresh,
-        })
-      })
-      .catch(() => {
-        if (stopped) return
-        cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: [userNotificationsChannelName(userId)],
-          onMessage: refresh,
-        })
-      })
-    return () => {
-      stopped = true
-      cleanup()
-    }
-  }, [user?.id])
+  const refreshSubscribedEvents = useCallback((isActive: () => boolean) => {
+    void loadEventsForWeekRef.current(isActive)
+  }, [])
+
+  useNotificationChannelsSubscription({
+    userId: user?.id,
+    onMessage: refreshSubscribedEvents,
+  })
 
   function moveWeek(direction: -1 | 1) {
     setSelectedDate((current) => addDays(current, direction * 7))

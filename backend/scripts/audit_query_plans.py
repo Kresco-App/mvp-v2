@@ -15,6 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config import Settings
+from app.database import _build_async_url
 
 
 @dataclass(frozen=True)
@@ -81,9 +82,17 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
         "topic workspace progress",
         (
             "SELECT id FROM topic_item_progress "
+            "WHERE user_id = 1 AND topic_id = 1 AND topic_item_id IN (1, 2, 3)"
+        ),
+        ("ix_topic_item_progress_user_topic_item",),
+    ),
+    PlanCheck(
+        "topic card progress",
+        (
+            "SELECT topic_item_id FROM topic_item_progress "
             "WHERE user_id = 1 AND topic_item_id IN (1, 2, 3) AND status = 'completed'"
         ),
-        ("ix_topic_item_progress_user_item_status", "ix_topic_item_progress_user_topic_status"),
+        ("ix_topic_item_progress_user_item_status",),
     ),
     PlanCheck(
         "topic workspace notes",
@@ -95,7 +104,8 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
 
 async def run_query_plan_audit(database_url: str | None = None) -> QueryPlanAuditResult:
     url = database_url or os.environ.get("DATABASE_URL") or Settings().database_url
-    engine = create_async_engine(url)
+    async_url, connect_args = _build_async_url(url)
+    engine = create_async_engine(async_url, connect_args=connect_args)
     try:
         async with engine.connect() as connection:
             existing_indexes = await connection.run_sync(_load_indexes)

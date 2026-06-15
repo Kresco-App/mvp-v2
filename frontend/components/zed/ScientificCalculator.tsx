@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { Calculator, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { evaluateMathExpression } from '@/lib/zedMath'
+import { useEscapeKey } from '@/hooks/useClickOutside'
 
 interface Props {
   onClose: () => void
@@ -50,6 +51,8 @@ export default function ScientificCalculator({ onClose }: Props) {
   const [pos, setPos] = useState({ x: 80, y: 80 })
   const dragOffset = useRef({ x: 0, y: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
+
+  useEscapeKey(onClose)
 
   const onPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('button')) return
@@ -120,11 +123,7 @@ export default function ScientificCalculator({ onClose }: Props) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!containerRef.current?.offsetParent) return
-      if (e.key === 'Escape') {
-        onClose()
-        return
-      }
+      if (!containerRef.current?.isConnected) return
       if (e.key === 'Enter') {
         handleButton('=')
         return
@@ -142,12 +141,16 @@ export default function ScientificCalculator({ onClose }: Props) {
   }, [handleButton, onClose])
 
   return (
-    <div
-      ref={containerRef}
-      style={{ left: pos.x, top: pos.y }}
-      className="fixed z-[200] select-none"
-    >
-      <div className={cn(
+    <svg className="pointer-events-none fixed inset-0 z-[200] h-screen w-screen select-none overflow-visible">
+      <foreignObject
+        x={pos.x}
+        y={pos.y}
+        width={DEFAULT_WIDTH}
+        height={DEFAULT_HEIGHT + 160}
+        className="pointer-events-auto overflow-visible"
+      >
+        <div ref={containerRef} className="select-none">
+          <div className={cn(
         'flex max-h-[calc(100vh-1.5rem)] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white',
         'shadow-[0_24px_70px_rgba(15,23,42,0.20)] ring-1 ring-white/80'
       )}>
@@ -215,7 +218,9 @@ export default function ScientificCalculator({ onClose }: Props) {
             ))}
           </div>
         )}
+          </div>
       </div>
-    </div>
+      </foreignObject>
+    </svg>
   )
 }

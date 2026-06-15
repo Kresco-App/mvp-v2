@@ -1,6 +1,7 @@
-import { useCallback } from 'react'
-import useSWR from 'swr'
-import { sortLiveInteractions } from '@/lib/liveInteractions'
+import { useCallback, useEffect } from 'react'
+import useSWR, { type KeyedMutator } from 'swr'
+import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime } from '@/lib/ably'
+import { isLiveInteraction, mergeLiveInteraction, mergeLiveInteractions, sortLiveInteractions } from '@/lib/liveInteractions'
 import {
   getProfessorLiveEmbed,
   getProfessorLiveProviderConfig,
@@ -39,9 +40,20 @@ export type LiveInteractionsEnvelope = {
   interactions: LiveSessionInteraction[]
 }
 
+type LiveSessionRealtimeOptions = {
+  sessionId: number | null
+  mutateAll: () => Promise<unknown>
+  mutateInteractions: KeyedMutator<LiveInteractionsEnvelope>
+  refreshInteractions: (
+    current: LiveInteractionsEnvelope | undefined,
+    sessionId: number,
+  ) => Promise<LiveInteractionsEnvelope>
+  fallbackPoll?: () => Promise<unknown>
+}
+
 export function positiveSessionId(value: number | string | null | undefined) {
   const numeric = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(numeric) && numeric > 0 ? numeric : null
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null
 }
 
 export function professorLiveEmbedSWRKey(sessionId: number | string | null | undefined): SessionKey<typeof PROFESSOR_LIVE_EMBED_RESOURCE> | null {
@@ -226,6 +238,51 @@ export function useStudentLiveRoomData(sessionIdValue: number | string | null | 
   }
 }
 
+export function useLiveSessionRealtimeSubscription({
+  sessionId,
+  mutateAll,
+  mutateInteractions,
+  refreshInteractions,
+  fallbackPoll,
+}: LiveSessionRealtimeOptions) {
+  useEffect(() => {
+    if (!sessionId) return
+
+    const handleEvent = (message: { name?: string; data?: unknown }) => {
+      if (message.name?.startsWith('live.session.')) {
+        void mutateAll()
+        return
+      }
+      if (message.name?.startsWith('live.interaction.') && isLiveInteraction(message.data)) {
+        const interaction = message.data
+        void mutateInteractions(
+          (current) => updateLiveInteractionsEnvelope(current, sessionId, (items) => mergeLiveInteraction(items, interaction)),
+          { revalidate: false },
+        )
+      }
+    }
+
+    return subscribeKrescoRealtime({
+      channelName: liveSessionChannelName(sessionId),
+      onMessage: handleEvent,
+      beforeSubscribe: refreshKrescoRealtimeAuthorization,
+      fallback: {
+        intervalMs: 5000,
+        poll: async () => {
+          if (fallbackPoll) {
+            await fallbackPoll()
+            return
+          }
+          await mutateInteractions(
+            (current) => refreshInteractions(current, sessionId),
+            { revalidate: false },
+          )
+        },
+      },
+    })
+  }, [fallbackPoll, mutateAll, mutateInteractions, refreshInteractions, sessionId])
+}
+
 export function updateLiveInteractionsEnvelope(
   current: LiveInteractionsEnvelope | undefined,
   sessionId: number,
@@ -235,6 +292,30 @@ export function updateLiveInteractionsEnvelope(
     sessionId,
     interactions: sortLiveInteractions(update(current?.sessionId === sessionId ? current.interactions : [])),
   }
+}
+
+export function mergeLiveInteractionsEnvelope(
+  current: LiveInteractionsEnvelope | undefined,
+  sessionId: number,
+  next: LiveSessionInteraction[],
+): LiveInteractionsEnvelope {
+  return updateLiveInteractionsEnvelope(current, sessionId, (items) => mergeLiveInteractions(items, next))
+}
+
+export async function refreshProfessorLiveInteractionsEnvelope(
+  current: LiveInteractionsEnvelope | undefined,
+  sessionId: number,
+): Promise<LiveInteractionsEnvelope> {
+  const refreshed = await listProfessorLiveInteractions(sessionId)
+  return mergeLiveInteractionsEnvelope(current, sessionId, refreshed)
+}
+
+export async function refreshStudentLiveInteractionsEnvelope(
+  current: LiveInteractionsEnvelope | undefined,
+  sessionId: number,
+): Promise<LiveInteractionsEnvelope> {
+  const refreshed = await listStudentLiveInteractions(sessionId, { limit: 100 })
+  return mergeLiveInteractionsEnvelope(current, sessionId, refreshed)
 }
 
 function compareStudentLiveSessions(a: StudentLiveSession, b: StudentLiveSession) {
