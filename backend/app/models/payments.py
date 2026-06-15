@@ -281,3 +281,29 @@ class FinanceLedgerEntry(Base):
     reason: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FinanceExport(Base):
+    __tablename__ = "finance_exports"
+    __table_args__ = (
+        CheckConstraint(
+            "export_kind IN ('ledger', 'provider_events', 'reconciliation_imports')",
+            name="ck_finance_exports_kind",
+        ),
+        CheckConstraint(
+            "status IN ('completed', 'failed')",
+            name="ck_finance_exports_status",
+        ),
+        Index("ix_finance_exports_actor_created", "created_by_user_id", "created_at"),
+        Index("ix_finance_exports_kind_created", "export_kind", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    export_kind: Mapped[str] = mapped_column(String(60), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="completed", server_default="completed")
+    filters_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

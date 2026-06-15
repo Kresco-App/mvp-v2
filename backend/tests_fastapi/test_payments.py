@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+import hashlib
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ from app.models.payments import (
     PAYMENT_STATUS_PAID,
     PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
     PAYMENT_STATUS_PENDING_PROVIDER,
+    FinanceExport,
     FinanceLedgerEntry,
     PaymentProviderEvent,
     PaymentReconciliationImport,
@@ -36,7 +38,7 @@ from app.models.payments import (
 from app.models.users import User, UserSubjectEntitlement
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME, create_token
-from app.services import payment_gateway, payment_lifecycle
+from app.services import finance_exports, payment_gateway, payment_lifecycle
 from app.services.stripe_service import CheckoutSessionCreation
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +76,16 @@ def test_payment_lifecycle_stays_out_of_router():
     assert "async def process_stripe_webhook_event" in lifecycle_source
     assert "charge.dispute.created" in lifecycle_source
     assert "stripe_metadata_user_id" in lifecycle_source
+
+
+def test_finance_export_csv_safety_handles_leading_control_whitespace():
+    assert finance_exports._safe_csv_cell("\t=HYPERLINK(\"https://evil.example\")").startswith("'\t=")
+    assert finance_exports._safe_csv_cell("\r\n@SUM(1,1)").startswith("'\r\n@")
+    assert finance_exports._safe_csv_cell(" +SUM(1,1)").startswith("' +")
+    assert finance_exports._safe_csv_cell("\x00=SUM(1,1)").startswith("'\x00=")
+    assert finance_exports._safe_csv_cell("\x0b=SUM(1,1)").startswith("'\x0b=")
+    assert finance_exports._safe_csv_cell("\x1f=SUM(1,1)").startswith("'\x1f=")
+    assert finance_exports._safe_csv_cell("\u00a0=SUM(1,1)").startswith("'\u00a0=")
 
 
 def test_payment_verification_attempt_model_and_migration_are_declared():
@@ -162,6 +174,22 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert ledger_indexes["ix_finance_ledger_entries_transaction"] == ("transaction_id",)
     assert ledger_indexes["ix_finance_ledger_entries_user_created"] == ("user_id", "created_at")
     assert "ck_finance_ledger_entries_currency" in ledger_constraints
+
+    export_columns = FinanceExport.__table__.columns
+    export_indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in FinanceExport.__table__.indexes
+    }
+    export_constraints = {constraint.name for constraint in FinanceExport.__table__.constraints}
+    assert export_columns["export_kind"].nullable is False
+    assert export_columns["status"].server_default.arg == "completed"
+    assert export_columns["row_count"].server_default.arg == "0"
+    assert export_columns["checksum_sha256"].nullable is False
+    assert export_columns["created_by_user_id"].nullable is False
+    assert "ck_finance_exports_kind" in export_constraints
+    assert "ck_finance_exports_status" in export_constraints
+    assert export_indexes["ix_finance_exports_actor_created"] == ("created_by_user_id", "created_at")
+    assert export_indexes["ix_finance_exports_kind_created"] == ("export_kind", "created_at")
 
     proof_columns = PaymentTransactionProof.__table__.columns
     proof_indexes = {
@@ -252,6 +280,14 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert "payment_reconciliation_imports" in reconciliation_migration_text
     assert "payment_reconciliation_rows" in reconciliation_migration_text
     assert "uq_payment_reconciliation_rows_import_row" in reconciliation_migration_text
+
+    finance_exports_migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0066_finance_exports.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0065"' in finance_exports_migration_text
+    assert "finance_exports" in finance_exports_migration_text
+    assert "ck_finance_exports_kind" in finance_exports_migration_text
+    assert "ix_finance_exports_actor_created" in finance_exports_migration_text
 
 
 def test_webhook_requires_secret(app_client):
@@ -452,6 +488,13 @@ async def _finance_ledger_entries_for_transaction(transaction_id: int) -> list[F
             .where(FinanceLedgerEntry.transaction_id == transaction_id)
             .order_by(FinanceLedgerEntry.id)
         )
+        return list(result.scalars().all())
+
+
+async def _finance_exports() -> list[FinanceExport]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(select(FinanceExport).order_by(FinanceExport.id))
         return list(result.scalars().all())
 
 
@@ -1557,6 +1600,7 @@ def test_finance_audit_endpoints_require_verified_staff(app_client, auth_token, 
         "/api/payments/finance/ledger",
         "/api/payments/finance/provider-events",
         "/api/payments/manual-payment-reconciliation-imports",
+        "/api/payments/finance/exports",
     ):
         student_response = app_client.get(path, headers={"Authorization": f"Bearer {student_token}"})
         staff_response = app_client.get(path, headers={"Authorization": f"Bearer {staff_token}"})
@@ -1617,9 +1661,14 @@ def test_finance_write_endpoints_require_superuser(app_client, auth_token, run_d
         },
         headers=headers,
     )
+    export_response = app_client.post(
+        "/api/payments/finance/exports",
+        json={"export_kind": "ledger", "transaction_id": transaction_id, "limit": 50},
+        headers=headers,
+    )
 
     assert create_response.status_code == 200
-    for response in (approve_response, reject_response, reconcile_response, import_response):
+    for response in (approve_response, reject_response, reconcile_response, import_response, export_response):
         assert response.status_code == 403
         assert response.json()["detail"] == "Superuser access required"
 
@@ -1628,6 +1677,144 @@ def test_finance_write_endpoints_require_superuser(app_client, auth_token, run_d
     assert transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
     assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 0
     assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+    assert len(run_db(_finance_exports())) == 0
+
+
+def test_superuser_exports_finance_ledger_with_audit_record_and_csv_safety(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="finance-export-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("finance-export-superuser@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "=SUM(1,1)"},
+        headers=headers,
+    )
+    export_response = app_client.post(
+        "/api/payments/finance/exports",
+        json={"export_kind": "ledger", "transaction_id": transaction_id, "limit": 50},
+        headers=headers,
+    )
+    list_response = app_client.get("/api/payments/finance/exports", headers=headers)
+
+    assert create_response.status_code == 200
+    assert approve_response.status_code == 200
+    assert run_db(_get_user(user_id)).is_pro is True
+    assert export_response.status_code == 200
+    payload = export_response.json()
+    assert payload["export_kind"] == "ledger"
+    assert payload["status"] == "completed"
+    assert payload["filters"] == {"limit": 50, "transaction_id": transaction_id}
+    assert payload["row_count"] == 1
+    assert payload["created_by_user_id"] == staff_id
+    assert payload["filename"] == "finance-ledger.csv"
+    assert payload["content_type"] == "text/csv; charset=utf-8"
+    assert payload["checksum_sha256"] == hashlib.sha256(payload["csv_text"].encode("utf-8")).hexdigest()
+    assert "entry_type,amount_centimes,currency,reason" in payload["csv_text"]
+    assert "\"'=SUM(1,1)\"" in payload["csv_text"]
+
+    exports = run_db(_finance_exports())
+    assert len(exports) == 1
+    assert exports[0].export_kind == "ledger"
+    assert exports[0].row_count == 1
+    assert exports[0].checksum_sha256 == payload["checksum_sha256"]
+    assert exports[0].filters_json == {"limit": 50, "transaction_id": transaction_id}
+
+    assert list_response.status_code == 200
+    history = list_response.json()
+    assert history[0]["id"] == payload["id"]
+    assert "csv_text" not in history[0]
+
+
+def test_superuser_exports_provider_events_and_reconciliation_import_history(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    first_token, _first_user_id = auth_token(email="finance-export-event-student@example.com")
+    second_token, _second_user_id = auth_token(email="finance-export-import-student@example.com")
+    first_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+    second_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {second_token}"},
+    )
+    staff_id = run_db(_seed_staff_user("finance-export-kinds-superuser@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    reconcile_response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json={
+            "payment_method": "cashplus",
+            "reference_code": first_create.json()["reference_code"],
+            "amount_centimes": 9900,
+            "provider_reference": "CASHPLUS-EXPORT-EVENT",
+            "reason": "CashPlus row matched",
+        },
+        headers=headers,
+    )
+    import_response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "cashplus",
+            "source_name": "\t=HYPERLINK(\"https://evil.example\")",
+            "rows": [
+                {
+                    "reference_code": second_create.json()["reference_code"],
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-EXPORT-IMPORT",
+                    "reason": "CashPlus import row matched",
+                }
+            ],
+        },
+        headers=headers,
+    )
+    events_export_response = app_client.post(
+        "/api/payments/finance/exports",
+        json={"export_kind": "provider_events", "transaction_id": first_create.json()["id"], "limit": 10},
+        headers=headers,
+    )
+    imports_export_response = app_client.post(
+        "/api/payments/finance/exports",
+        json={"export_kind": "reconciliation_imports", "limit": 10},
+        headers=headers,
+    )
+
+    assert first_create.status_code == 200
+    assert second_create.status_code == 200
+    assert reconcile_response.status_code == 200
+    assert import_response.status_code == 200
+    assert events_export_response.status_code == 200
+    events_payload = events_export_response.json()
+    assert events_payload["export_kind"] == "provider_events"
+    assert events_payload["row_count"] == 1
+    assert "manual.reconciled" in events_payload["csv_text"]
+    assert "CASHPLUS-EXPORT-EVENT" in events_payload["csv_text"]
+
+    assert imports_export_response.status_code == 200
+    imports_payload = imports_export_response.json()
+    assert imports_payload["export_kind"] == "reconciliation_imports"
+    assert imports_payload["row_count"] >= 1
+    assert "'=HYPERLINK" in imports_payload["csv_text"]
+    assert "matched_count" in imports_payload["csv_text"]
 
 
 def test_staff_can_read_finance_ledger_and_provider_events_for_transaction(

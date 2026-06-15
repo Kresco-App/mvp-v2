@@ -2285,7 +2285,7 @@ Verification plan:
   non-Stripe launch path. Status: implemented.
 - Run focused payment and startup security tests. Status: implemented.
 - Run backend compile check. Status: implemented.
-- Run a strong diff review before committing. Status: pending.
+- Run a strong diff review before committing. Status: implemented.
 
 Verification completed:
 
@@ -2306,6 +2306,67 @@ Verification completed:
   as the normal staging/production money rail. Addressed by making CMI the
   required provider setup and moving Stripe setup to a legacy-only conditional
   path.
+
+### Slice 42: Finance Export Audit Records
+
+Status: implemented.
+
+Reason for this slice:
+
+- The finance roadmap calls for reconciliation/accountant exports and export
+  auditability, but finance reads were only visible through API list endpoints.
+- Exporting finance data can leak payment details, so launch needs bounded,
+  permissioned, auditable exports before broad testing.
+
+Implemented scope:
+
+- Added append-only `finance_exports` audit records with export kind, filters,
+  row count, SHA-256 checksum, actor, metadata, status, and timestamp. Status:
+  implemented.
+- Added a superuser-only `POST /api/payments/finance/exports` endpoint that
+  generates bounded CSV for finance ledger, provider events, and reconciliation
+  import history. Status: implemented.
+- Added a staff-readable `GET /api/payments/finance/exports` endpoint for audit
+  record history without returning CSV contents. Status: implemented.
+- Added CSV formula-injection protection for cells starting with `=`, `+`, `-`,
+  or `@`, including values with leading whitespace/control characters. Status:
+  implemented.
+
+Decisions:
+
+- Decision: export creation uses the existing `is_superuser` finance-write
+  boundary until the full finance RBAC model exists.
+- Decision: export CSV bytes are returned immediately but not stored in the DB.
+  The audit record stores checksum, filters, row count, actor, and metadata so
+  the export can be traced without persisting sensitive CSV payloads.
+- Decision: v1 supports only the existing finance read surfaces: ledger,
+  provider events, and reconciliation import summaries. Refund/manual grant
+  exports wait until those models exist.
+- Decision: exports are capped at 500 rows per request to avoid accidental
+  unbounded data pulls before keyset/background export work.
+
+Verification plan:
+
+- Add model/migration declaration tests for `finance_exports`. Status:
+  implemented.
+- Add route tests for staff denial, superuser export success, CSV safety,
+  checksum persistence, audit listing, and all supported export kinds. Status:
+  implemented.
+- Run focused payment route tests and backend compile check. Status:
+  implemented.
+- Run a strong diff review before committing. Status: pending.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 93 tests.
+- `python -m compileall app` passed.
+- Strong review found that tab/newline/space-prefixed formulas could bypass
+  CSV safety. Addressed by checking the first non-whitespace/control character
+  while preserving the original cell text behind an apostrophe.
+- Final review found additional leading control/Unicode whitespace bypasses.
+  Addressed by ignoring all leading whitespace and Unicode control-format
+  characters when checking for spreadsheet formula prefixes.
+- Final focused review found no remaining blocking export issues.
 
 ## Open Risks
 

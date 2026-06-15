@@ -10,6 +10,9 @@ from app.rate_limit import limiter
 from app.schemas.payments import (
     CheckoutCreateIn,
     CheckoutOut,
+    FinanceExportCreateIn,
+    FinanceExportOut,
+    FinanceExportSummaryOut,
     FinanceLedgerEntryOut,
     ManualPaymentProofIn,
     ManualPaymentReconciliationIn,
@@ -38,6 +41,7 @@ from app.services.payment_gateway import (
     reject_manual_payment_transaction,
     submit_manual_payment_proof,
 )
+from app.services.finance_exports import create_finance_export, list_finance_exports
 from app.services.payment_lifecycle import (
     create_checkout_state,
     process_stripe_webhook_event,
@@ -138,6 +142,27 @@ async def list_manual_payment_reconciliation_imports(
     _staff: User = Depends(get_current_staff_user),
 ):
     return await list_payment_reconciliation_imports(db, limit=limit)
+
+
+@router.get("/finance/exports", response_model=list[FinanceExportSummaryOut])
+async def list_finance_export_records(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await list_finance_exports(db, limit=limit)
+
+
+@router.post("/finance/exports", response_model=FinanceExportOut)
+@limiter.limit("5/minute")
+async def create_finance_export_record(
+    request: Request,
+    export_request: FinanceExportCreateIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(get_current_superuser),
+):
+    del request
+    return await create_finance_export(db, actor=staff, request=export_request)
 
 
 @router.post("/manual-payment-requests/reconcile", response_model=ManualPaymentTransactionOut)

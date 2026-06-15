@@ -238,6 +238,38 @@ class PaymentProviderEventOut(BaseModel):
     processed_at: datetime | None = None
 
 
+class FinanceExportCreateIn(BaseModel):
+    export_kind: str = Field(min_length=1, max_length=60)
+    transaction_id: int | None = None
+    limit: int = Field(default=200, ge=1, le=500)
+
+    @field_validator("export_kind")
+    @classmethod
+    def normalize_export_kind(cls, value: str) -> str:
+        normalized = value.strip().lower().replace("-", "_")
+        if normalized not in {"ledger", "provider_events", "reconciliation_imports"}:
+            raise ValueError("export_kind must be one of: ledger, provider_events, reconciliation_imports")
+        return normalized
+
+
+class FinanceExportSummaryOut(BaseModel):
+    id: int
+    export_kind: str
+    status: str
+    filters: dict[str, Any]
+    row_count: int
+    checksum_sha256: str
+    created_by_user_id: int
+    metadata: dict[str, Any]
+    created_at: datetime
+
+
+class FinanceExportOut(FinanceExportSummaryOut):
+    filename: str
+    content_type: str
+    csv_text: str
+
+
 class FinanceLedgerEntryOut(BaseModel):
     id: int
     transaction_id: int | None = None
