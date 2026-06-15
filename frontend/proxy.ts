@@ -105,7 +105,7 @@ function getContentSecurityPolicyTemplate() {
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    "form-action 'self' https://cmi.co.ma https://*.cmi.co.ma",
     "frame-ancestors 'none'",
     "manifest-src 'self'",
   ])

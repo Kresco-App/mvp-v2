@@ -179,6 +179,7 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'frame-src')).toContain('https://www.youtube-nocookie.com')
     expect(cspDirective(csp, 'frame-src')).toContain('https://player.vdocipher.com')
     expect(cspDirective(csp, 'frame-src')).toContain('blob:')
+    expect(cspDirective(csp, 'form-action')).toBe("form-action 'self' https://cmi.co.ma https://*.cmi.co.ma")
     expect(cspDirective(csp, 'img-src')).toContain('https://images.unsplash.com')
     expect(cspDirective(csp, 'img-src')).toContain('https://*.googleusercontent.com')
     expect(cspDirective(csp, 'img-src')).toContain('https://i.ytimg.com')

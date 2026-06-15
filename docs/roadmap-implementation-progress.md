@@ -683,6 +683,70 @@ These may change after subagent reconnaissance.
 1. Payment gateway completion: minimal payment UI states and removal of Stripe
    from the launch checkout path.
 
+### Slice 13: Provider-Neutral Pricing Payment UI
+
+Status: implemented.
+
+Reason for this slice:
+
+- The backend now supports CMI, virement bancaire, CashPlus, and AshPlus rails,
+  but the visible pricing page still starts with the legacy Stripe checkout
+  helper.
+- The user asked to keep UI choices minimal until a later UI pass, so this
+  slice should change only the launch-facing payment behavior and keep the
+  existing pricing layout coherent.
+
+Planned frontend scope:
+
+- Add a provider-neutral payment request client for `POST /payments/payment-requests`.
+  Status: implemented.
+- Keep the old Stripe checkout helper only as compatibility code; do not use it
+  from the visible pricing page. Status: implemented.
+- Add a compact payment-method selector for CMI, virement, CashPlus, and
+  AshPlus on the existing pricing card. Status: implemented.
+- For CMI, submit the signed provider form returned by the backend. Status:
+  implemented.
+- Allow CMI form POSTs through CSP with a narrow `form-action` CMI host
+  allowance. Status: implemented.
+- For manual rails, show the pending payment reference and instructions instead
+  of redirecting or marking access active. Status: implemented.
+
+Decisions:
+
+- Decision: the first launch UI slice stays inside `/pricing` instead of adding
+  a new checkout route. That keeps the product surface small until the dedicated
+  UI pass.
+- Decision: CMI uses backend-returned form-post metadata directly. The frontend
+  does not calculate hashes or store CMI secrets.
+- Decision: CSP allows form submissions only to `self`, `https://cmi.co.ma`,
+  and `https://*.cmi.co.ma` for the CMI provider post. Do not broaden
+  `form-action` to arbitrary HTTPS payment hosts.
+- Decision: virement, CashPlus, and AshPlus produce a visible pending state with
+  reference and amount. Access remains locked until finance/provider
+  confirmation.
+- Decision: legacy Stripe verification/success compatibility remains for now so
+  old routes/tests can be migrated deliberately later, but no new pricing UI
+  depends on Stripe checkout.
+
+Verification plan:
+
+- Add frontend unit tests for CMI form-post metadata, manual pending requests,
+  missing CMI metadata, and hidden form submission. Status: implemented.
+- Add pricing-page tests for CMI form submission and manual pending-state
+  rendering. Status: implemented.
+- Replace the fake-Stripe purchase integration smoke with a provider-neutral
+  CashPlus pending-payment smoke. Status: implemented.
+- Run targeted frontend payment tests, pricing tests, proxy tests, lint, and
+  TypeScript checks. Status: implemented.
+- Add proxy CSP coverage for the CMI `form-action` allowance. Status:
+  implemented.
+- Browser smoke note: a standalone frontend dev server redirects `/pricing` to
+  `/` without authenticated backend session state, so rendered pricing behavior
+  is verified through the focused jsdom page test in this slice.
+- Use a strong review subagent before committing this slice. Status:
+  implemented; initial CSP finding was fixed and follow-up review found no new
+  high/medium issues.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
