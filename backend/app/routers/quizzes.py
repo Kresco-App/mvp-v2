@@ -1,25 +1,23 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import func, insert, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_current_user, get_db
 from app.models.courses import TabContent, Topic, TopicItem
-from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
+from app.models.gamification import QuestionAttempt
 from app.models.quizzes import QuestionSet
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.quizzes import QuizDiscoveryOut, QuizOptionOut, QuizOut, QuizQuestionOut, QuizResultOut, QuizSubmitIn
 from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.course_access import ORPHANED_PARENT_ACCESS_DECISION, access_for_tab, access_for_topic_item
-from app.services.gamification_stats import apply_quiz_pass_stats_delta
-from app.services.quiz_grading import answer_payload, grade_quiz_question, tab_quiz_submission_hash
-from app.services.xp import XPAward, award_xp_bulk
+from app.services.quiz_attempt_submission import persist_quiz_submission
+from app.services.quiz_grading import answer_payload, grade_quiz_question
 
 router = APIRouter(tags=["Quizzes"])
+QUIZ_DISCOVERY_BATCH_SIZE = 20
 
 
 @router.get("/subjects/{subject_id}/discovery", response_model=QuizDiscoveryOut)
@@ -29,24 +27,24 @@ async def get_subject_quiz_discovery(
     user: User = Depends(get_current_user),
 ):
     access_context = await build_access_context(db, user)
-    result = await db.execute(
-        select(QuestionSet)
-        .options(selectinload(QuestionSet.questions))
-        .where(QuestionSet.subject_id == subject_id, QuestionSet.status == "published")
-        .order_by(QuestionSet.order, QuestionSet.id)
-    )
-    question_sets = result.scalars().all()
-    parents = await _question_set_parent_maps(db, question_sets)
     locked_reason = ""
-    for question_set in question_sets:
-        access = _question_set_access_from_maps(access_context, question_set, parents)
-        if access.can_access:
-            return QuizDiscoveryOut(
-                subject_id=subject_id,
-                lesson_id=None,
-                quiz=_quiz_out(question_set),
-            )
-        locked_reason = access.locked_reason or locked_reason
+    offset = 0
+    while True:
+        question_sets = await _load_quiz_discovery_batch(db, subject_id=subject_id, offset=offset)
+        if not question_sets:
+            break
+        parents = await _question_set_parent_maps(db, question_sets)
+        for question_set in question_sets:
+            access = _question_set_access_from_maps(access_context, question_set, parents)
+            if access.can_access:
+                selected_question_set = await _get_question_set(db, question_set.id)
+                return QuizDiscoveryOut(
+                    subject_id=subject_id,
+                    lesson_id=None,
+                    quiz=_quiz_out(selected_question_set),
+                )
+            locked_reason = access.locked_reason or locked_reason
+        offset += len(question_sets)
     if locked_reason:
         raise HTTPException(status_code=403, detail=locked_reason)
     return QuizDiscoveryOut(
@@ -54,6 +52,22 @@ async def get_subject_quiz_discovery(
         lesson_id=None,
         quiz=None,
     )
+
+
+async def _load_quiz_discovery_batch(
+    db: AsyncSession,
+    *,
+    subject_id: int,
+    offset: int,
+) -> list[QuestionSet]:
+    result = await db.execute(
+        select(QuestionSet)
+        .where(QuestionSet.subject_id == subject_id, QuestionSet.status == "published")
+        .order_by(QuestionSet.order, QuestionSet.id)
+        .offset(offset)
+        .limit(QUIZ_DISCOVERY_BATCH_SIZE)
+    )
+    return result.scalars().all()
 
 
 @router.get("/{question_set_id}", response_model=QuizOut)
@@ -117,7 +131,6 @@ async def _submit_legacy_quiz_attempt(
     questions = [question for question in question_set.questions if question.status == "published"]
     answers_by_id = {str(key): value for key, value in body.answers.items()}
     raw_questions = [_raw_question(question) for question in questions]
-    submission_hash = tab_quiz_submission_hash(raw_questions, answers_by_id)
     correct = 0
     grading = {"questions": []}
     pending_question_attempts: list[QuestionAttempt] = []
@@ -156,19 +169,19 @@ async def _submit_legacy_quiz_attempt(
     total = len(questions)
     score = round((correct / total) * 100) if total else 0
     passed = score >= question_set.pass_score
-    existing_attempt = await db.scalar(
-        select(QuizAttempt)
-        .where(
-            QuizAttempt.user_id == user.id,
-            QuizAttempt.question_set_id == question_set.id,
-            QuizAttempt.submission_hash == submission_hash,
-        )
-        .order_by(QuizAttempt.id.asc())
-        .limit(1)
-        .with_for_update()
+    persisted = await persist_quiz_submission(
+        db,
+        user_id=user.id,
+        question_set=question_set,
+        raw_questions=raw_questions,
+        answers=body.answers,
+        hash_answers=answers_by_id,
+        score=score,
+        passed=passed,
+        grading=grading,
+        question_attempt_rows=pending_question_attempts,
     )
-    if existing_attempt is not None:
-        await db.rollback()
+    if persisted.is_duplicate:
         return QuizResultOut(
             score=score,
             passed=passed,
@@ -178,112 +191,6 @@ async def _submit_legacy_quiz_attempt(
             xp_earned=0,
         )
 
-    attempts_count = await db.scalar(
-        select(func.max(QuizAttempt.attempt_number)).where(
-            QuizAttempt.user_id == user.id,
-            QuizAttempt.question_set_id == question_set.id,
-        )
-    )
-    now = datetime.now(timezone.utc)
-    attempt = QuizAttempt(
-        user_id=user.id,
-        question_set_id=question_set.id,
-        subject_id=question_set.subject_id,
-        topic_id=question_set.topic_id,
-        topic_section_id=question_set.topic_section_id,
-        topic_item_id=question_set.topic_item_id,
-        tab_content_id=question_set.tab_content_id,
-        source_type=question_set.source_type,
-        submission_hash=submission_hash,
-        score=score,
-        passed=passed,
-        answers=body.answers,
-        grading=grading,
-        attempt_number=(attempts_count or 0) + 1,
-        started_at=now,
-        completed_at=now,
-    )
-    db.add(attempt)
-    await db.flush()
-
-    inserted_question_attempts: list[dict] = []
-    if pending_question_attempts:
-        question_attempt_payloads = [
-            {
-                "quiz_attempt_id": attempt.id,
-                "question_id": question_attempt.question_id,
-                "user_id": question_attempt.user_id,
-                "subject_id": question_attempt.subject_id,
-                "topic_id": question_attempt.topic_id,
-                "topic_section_id": question_attempt.topic_section_id,
-                "topic_item_id": question_attempt.topic_item_id,
-                "tab_content_id": question_attempt.tab_content_id,
-                "selected_answer_json": question_attempt.selected_answer_json,
-                "correct_answer_json": question_attempt.correct_answer_json,
-                "is_correct": question_attempt.is_correct,
-                "score_awarded": question_attempt.score_awarded,
-                "max_score": question_attempt.max_score,
-                "grading_json": question_attempt.grading_json,
-            }
-            for question_attempt in pending_question_attempts
-        ]
-        inserted_result = await db.execute(
-            insert(QuestionAttempt)
-            .returning(
-                QuestionAttempt.id,
-                QuestionAttempt.question_id,
-                QuestionAttempt.subject_id,
-                QuestionAttempt.topic_id,
-                QuestionAttempt.topic_section_id,
-                QuestionAttempt.topic_item_id,
-                QuestionAttempt.is_correct,
-            ),
-            question_attempt_payloads,
-        )
-        inserted_question_attempts = [dict(row) for row in inserted_result.mappings().all()]
-
-    xp_awards: list[XPAward] = []
-    for question_attempt in inserted_question_attempts:
-        if not question_attempt["is_correct"]:
-            continue
-        xp_awards.append(XPAward(
-            reason="quiz_correct",
-            description=f"Question {question_attempt['question_id']} first correct",
-            subject_id=question_attempt["subject_id"],
-            topic_id=question_attempt["topic_id"],
-            topic_section_id=question_attempt["topic_section_id"],
-            topic_item_id=question_attempt["topic_item_id"],
-            question_set_id=question_set.id,
-            question_id=question_attempt["question_id"],
-            quiz_attempt_id=attempt.id,
-            question_attempt_id=question_attempt["id"],
-            idempotency_key=f"quiz_correct:user:{user.id}:question:{question_attempt['question_id']}",
-        ))
-    quiz_pass_idempotency_key = f"quiz_pass:user:{user.id}:question_set:{question_set.id}"
-    if passed:
-        xp_awards.append(XPAward(
-            reason="quiz_pass",
-            description=f"QuestionSet {question_set.id} passed",
-            subject_id=question_set.subject_id,
-            topic_id=question_set.topic_id,
-            topic_section_id=question_set.topic_section_id,
-            topic_item_id=question_set.topic_item_id,
-            question_set_id=question_set.id,
-            quiz_attempt_id=attempt.id,
-            idempotency_key=quiz_pass_idempotency_key,
-        ))
-    xp_earned = await award_xp_bulk(user.id, xp_awards, db)
-
-    if passed:
-        quiz_pass_transaction = await db.scalar(
-            select(XPTransaction).where(
-                XPTransaction.user_id == user.id,
-                XPTransaction.idempotency_key == quiz_pass_idempotency_key,
-            )
-        )
-        if quiz_pass_transaction is not None and quiz_pass_transaction.quiz_attempt_id == attempt.id:
-            await apply_quiz_pass_stats_delta(db, user_id=user.id, quizzes_passed_delta=1)
-
     await db.commit()
     return QuizResultOut(
         score=score,
@@ -291,7 +198,7 @@ async def _submit_legacy_quiz_attempt(
         correct=correct,
         total=total,
         pass_score=question_set.pass_score,
-        xp_earned=xp_earned,
+        xp_earned=persisted.xp_earned,
     )
 
 

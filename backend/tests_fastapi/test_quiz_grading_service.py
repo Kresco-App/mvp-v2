@@ -15,6 +15,9 @@ def test_quiz_grading_logic_lives_outside_courses_router():
     tab_submission_service_source = (
         Path(__file__).resolve().parents[1] / "app" / "services" / "course_tab_quiz_submission.py"
     ).read_text(encoding="utf-8")
+    attempt_submission_service_source = (
+        Path(__file__).resolve().parents[1] / "app" / "services" / "quiz_attempt_submission.py"
+    ).read_text(encoding="utf-8")
 
     forbidden_router_defs = (
         "def _normalize_answer",
@@ -38,11 +41,13 @@ def test_quiz_grading_logic_lives_outside_courses_router():
     assert "return await submit_tab_quiz_attempt(db, user=user, tab_id=tab_id, body=body)" in router_source
     assert "from app.services.course_progress import" in tab_submission_service_source
     assert "from app.services.quiz_grading import" in tab_submission_service_source
+    assert "from app.services.quiz_attempt_submission import" in tab_submission_service_source
     assert "grade_quiz_question(question, submitted)" in tab_submission_service_source
-    assert "tab_quiz_submission_hash(questions, body.answers)" in tab_submission_service_source
-    assert "insert(QuestionAttempt)" in tab_submission_service_source
-    assert "award_xp_bulk" in tab_submission_service_source
+    assert "tab_quiz_submission_hash(raw_questions" in attempt_submission_service_source
+    assert "insert(QuestionAttempt)" in attempt_submission_service_source
+    assert "award_xp_bulk" in attempt_submission_service_source
     assert "async def find_existing_tab_quiz_submission" in tab_submission_service_source
+    assert "async def persist_quiz_submission" in attempt_submission_service_source
     assert "async def get_or_create_topic_item_progress" in progress_service_source
     assert "async def ensure_question_set_for_tab" in progress_service_source
 
@@ -76,6 +81,22 @@ def test_quiz_grading_service_rejects_negative_hotspot_radius_expansion():
         True,
         question["answerRegion"],
     )
+
+
+def test_drag_and_drop_grading_uses_normalized_mapping_contract():
+    question = {
+        "id": "drag",
+        "type": "drag_and_drop",
+        "answer": {
+            "Category A": "Answer 1",
+            "Category B": "Answer 2",
+        },
+    }
+
+    assert grade_quiz_question(question, {
+        "Category B": " answer 2 ",
+        " category a ": "ANSWER 1",
+    }) == (True, question["answer"])
 
 
 def test_tab_quiz_submission_hash_keeps_idempotency_normalization_with_grading():

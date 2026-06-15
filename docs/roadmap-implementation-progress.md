@@ -33,6 +33,9 @@ Reason for starting here:
   gateway.
 - CMI, virement bancaire, and CashPlus need provider-neutral transaction states
   and auditability before UI polish or payment-method screens.
+- AshPlus or any equivalent cash-agency rail should be handled through the same
+  provider-neutral manual/cash reconciliation model, not as one-off payment
+  code.
 - This is foundational for access, entitlements, finance backoffice, support,
   reconciliation, and the 10-day test freeze.
 
@@ -60,8 +63,14 @@ Initial decisions:
 
 - Decision: keep current Stripe code as legacy/current-state compatibility for
   now, but do not build new payment features on top of it.
+- Decision: Stripe is not a launch gateway. Future slices should remove Stripe
+  from the student launch surface once CMI, virement, and cash-agency rails are
+  wired end to end.
 - Decision: model virement and CashPlus as pending/manual-confirmation rails,
   not instant checkout.
+- Decision: model AshPlus or another cash-agency provider as the same type of
+  pending/manual-confirmation rail unless its final integration contract proves
+  it supports safe signed callbacks.
 - Decision: entitlements are not granted from virement/CashPlus request
   creation. Entitlement grant requires finance confirmation or matched
   reconciliation.
@@ -239,7 +248,7 @@ Review notes addressed:
 
 ### Slice 5: Exam Bank Part Capsules
 
-Status: in progress.
+Status: committed in `bd21e5b0`.
 
 Reason for this slice:
 
@@ -288,12 +297,71 @@ Review notes addressed:
 - Added regression coverage for both problem-topic and hidden part-topic filter
   cases.
 
+### Slice 6: Quiz Snapshot and Version Integrity
+
+Status: committed in `0d1588e4`.
+
+Reason for this slice:
+
+- Quiz attempts need to remain auditable when authors edit a question set after
+  students have submitted answers.
+- The grading payload used at submit time must be frozen with the attempt so XP,
+  self-review, support, and future backoffice dispute handling can reconstruct
+  what the student saw.
+- This should stay server-side and not leak answers or snapshots through student
+  attempt-history APIs.
+
+Planned backend scope:
+
+- Add snapshot JSON, hash, and schema-version fields to `QuizAttempt`. Status:
+  implemented.
+- Build deterministic snapshots from the exact question payload used for
+  grading. Status: implemented.
+- Persist the snapshot on new quiz attempts through the shared quiz submission
+  service. Status: implemented.
+- Keep duplicate submission behavior idempotent. Status: implemented by reusing
+  the existing submission hash path.
+
+Decisions:
+
+- Decision: store snapshots on `QuizAttempt`, not on individual
+  `QuestionAttempt`, because the integrity boundary is the full submitted quiz
+  payload.
+- Decision: include correct answers in the server-side snapshot because the
+  snapshot is an audit record, but do not expose it through student attempt
+  summaries.
+- Decision: use a simple integer snapshot schema version plus SHA-256 hash over
+  canonical JSON. This is sufficient for v1 and leaves room for future snapshot
+  upgrades.
+
+Verification plan:
+
+- Add helper tests for deterministic snapshot hashing.
+- Add submit-path regression coverage proving an attempt keeps the original
+  snapshot after the source question is edited.
+- Add a response-shape regression check that student attempt history does not
+  expose snapshot fields.
+
+Review notes addressed:
+
+- Included the snapshot hash in the quiz submission idempotency key so a
+  same-answer submission after a pass-score, tolerance, prompt, option, or
+  answer edit creates a new versioned attempt instead of collapsing into the
+  older attempt.
+- Removed volatile `updated_at` from the snapshot hash input so metadata touch
+  updates do not create unnecessary attempt versions.
+- Added a migration guard for missing-table baselines.
+- Expanded tests to cover exact duplicate retry, changed-version resubmit, and
+  recursive absence of answer/snapshot keys in student attempt-history payloads.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Quiz snapshot/version integrity.
-2. XP economy caps and auditability.
+1. XP economy caps and auditability.
+2. Payment gateway completion: CMI signed callback flow, virement proof and
+   reconciliation workflow, CashPlus/AshPlus cash-agency handling, and removal
+   of Stripe from the launch checkout path.
 
 ## Open Risks
 

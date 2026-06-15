@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, insert, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.courses import TabContent, TopicItem
-from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
+from app.models.gamification import QuestionAttempt, QuizAttempt
 from app.models.users import User
 from app.schemas.courses import (
     TabQuizAttemptSummaryOut,
@@ -18,14 +18,12 @@ from app.schemas.courses import (
 )
 from app.services.course_access import access_for_tab
 from app.services.course_progress import ensure_question_set_for_tab, get_or_create_topic_item_progress
-from app.services.gamification_stats import apply_quiz_pass_stats_delta
+from app.services.quiz_attempt_submission import find_existing_quiz_submission, persist_quiz_submission
 from app.services.quiz_grading import (
     answer_payload,
     grade_quiz_question,
     question_external_id,
-    tab_quiz_submission_hash,
 )
-from app.services.xp import XPAward, award_xp_bulk
 
 QUIZ_ATTEMPT_HISTORY_LIMIT = 5
 
@@ -150,16 +148,11 @@ async def find_existing_tab_quiz_submission(
     question_set_id: int,
     submission_hash: str,
 ) -> QuizAttempt | None:
-    return await db.scalar(
-        select(QuizAttempt)
-        .where(
-            QuizAttempt.user_id == user_id,
-            QuizAttempt.question_set_id == question_set_id,
-            QuizAttempt.submission_hash == submission_hash,
-        )
-        .order_by(QuizAttempt.id.asc())
-        .limit(1)
-        .with_for_update()
+    return await find_existing_quiz_submission(
+        db,
+        user_id=user_id,
+        question_set_id=question_set_id,
+        submission_hash=submission_hash,
     )
 
 
@@ -230,125 +223,26 @@ async def submit_tab_quiz_attempt(
                 "pass_score": pass_score,
                 "grading": grading,
             }
-            submission_hash = tab_quiz_submission_hash(questions, body.answers)
-
-            existing_attempt = await find_existing_tab_quiz_submission(
+            persisted = await persist_quiz_submission(
                 db,
                 user_id=user_id,
-                question_set_id=question_set.id,
-                submission_hash=submission_hash,
-            )
-            if existing_attempt is not None:
-                existing_summary = _quiz_attempt_summary(existing_attempt, pass_score=pass_score)
-                await db.rollback()
-                return TabQuizResultOut(**result_payload, xp_earned=0, attempt=existing_summary)
-
-            attempts_count = await db.scalar(
-                select(func.max(QuizAttempt.attempt_number)).where(
-                    QuizAttempt.user_id == user_id,
-                    QuizAttempt.question_set_id == question_set.id,
-                )
-            )
-            now = datetime.now(timezone.utc)
-            attempt = QuizAttempt(
-                user_id=user_id,
-                question_set_id=question_set.id,
-                subject_id=question_set.subject_id,
-                topic_id=question_set.topic_id,
-                topic_section_id=question_set.topic_section_id,
-                topic_item_id=tab.topic_item_id,
-                tab_content_id=tab.id,
-                source_type="tab",
-                submission_hash=submission_hash,
+                question_set=question_set,
+                raw_questions=questions,
+                answers=body.answers,
                 score=score,
                 passed=passed,
-                answers=body.answers,
                 grading=grading.model_dump(mode="json"),
-                attempt_number=(attempts_count or 0) + 1,
+                question_attempt_rows=question_attempt_rows,
+                source_type="tab",
+                topic_item_id=tab.topic_item_id,
+                tab_content_id=tab.id,
                 duration_seconds=body.duration_seconds,
-                started_at=now,
-                completed_at=now,
             )
-            db.add(attempt)
-            await db.flush()
+            if persisted.is_duplicate and persisted.existing_attempt is not None:
+                existing_summary = _quiz_attempt_summary(persisted.existing_attempt, pass_score=pass_score)
+                return TabQuizResultOut(**result_payload, xp_earned=0, attempt=existing_summary)
 
-            inserted_question_attempts: list[dict] = []
-            if question_attempt_rows:
-                question_attempt_payloads = [
-                    {
-                        "quiz_attempt_id": attempt.id,
-                        "question_id": question_attempt.question_id,
-                        "user_id": question_attempt.user_id,
-                        "subject_id": question_attempt.subject_id,
-                        "topic_id": question_attempt.topic_id,
-                        "topic_section_id": question_attempt.topic_section_id,
-                        "topic_item_id": question_attempt.topic_item_id,
-                        "tab_content_id": question_attempt.tab_content_id,
-                        "selected_answer_json": question_attempt.selected_answer_json,
-                        "correct_answer_json": question_attempt.correct_answer_json,
-                        "is_correct": question_attempt.is_correct,
-                        "score_awarded": question_attempt.score_awarded,
-                        "max_score": question_attempt.max_score,
-                        "grading_json": question_attempt.grading_json,
-                    }
-                    for question_attempt in question_attempt_rows
-                ]
-                inserted_result = await db.execute(
-                    insert(QuestionAttempt)
-                    .returning(
-                        QuestionAttempt.id,
-                        QuestionAttempt.question_id,
-                        QuestionAttempt.subject_id,
-                        QuestionAttempt.topic_id,
-                        QuestionAttempt.topic_section_id,
-                        QuestionAttempt.topic_item_id,
-                        QuestionAttempt.is_correct,
-                    ),
-                    question_attempt_payloads,
-                )
-                inserted_question_attempts = [dict(row) for row in inserted_result.mappings().all()]
-
-            xp_awards: list[XPAward] = []
-            for question_attempt in inserted_question_attempts:
-                if not question_attempt["is_correct"]:
-                    continue
-                xp_awards.append(XPAward(
-                    reason="quiz_correct",
-                    description=f"Question {question_attempt['question_id']} first correct",
-                    subject_id=question_attempt["subject_id"],
-                    topic_id=question_attempt["topic_id"],
-                    topic_section_id=question_attempt["topic_section_id"],
-                    topic_item_id=question_attempt["topic_item_id"],
-                    question_set_id=question_set.id,
-                    question_id=question_attempt["question_id"],
-                    quiz_attempt_id=attempt.id,
-                    question_attempt_id=question_attempt["id"],
-                    idempotency_key=f"quiz_correct:user:{user_id}:question:{question_attempt['question_id']}",
-                ))
-            quiz_pass_idempotency_key = f"quiz_pass:user:{user_id}:question_set:{question_set.id}"
-            if passed:
-                xp_awards.append(XPAward(
-                    reason="quiz_pass",
-                    description=f"QuestionSet {question_set.id} passed",
-                    subject_id=question_set.subject_id,
-                    topic_id=question_set.topic_id,
-                    topic_section_id=question_set.topic_section_id,
-                    topic_item_id=question_set.topic_item_id,
-                    question_set_id=question_set.id,
-                    quiz_attempt_id=attempt.id,
-                    idempotency_key=quiz_pass_idempotency_key,
-                ))
-            xp_earned = await award_xp_bulk(user_id, xp_awards, db)
-
-            if passed:
-                quiz_pass_transaction = await db.scalar(
-                    select(XPTransaction).where(
-                        XPTransaction.user_id == user_id,
-                        XPTransaction.idempotency_key == quiz_pass_idempotency_key,
-                    )
-                )
-                if quiz_pass_transaction is not None and quiz_pass_transaction.quiz_attempt_id == attempt.id:
-                    await apply_quiz_pass_stats_delta(db, user_id=user_id, quizzes_passed_delta=1)
+            if passed and persisted.quiz_pass_awarded:
                 progress = await get_or_create_topic_item_progress(
                     db,
                     user_id=user_id,
@@ -359,9 +253,12 @@ async def submit_tab_quiz_attempt(
                 progress.best_score = max(progress.best_score or 0, score)
                 progress.status = "completed"
                 progress.completed_at = datetime.now(timezone.utc)
+            if persisted.attempt is None:
+                raise HTTPException(status_code=409, detail="Quiz submission conflict")
+            attempt = persisted.attempt
             attempt_summary = _quiz_attempt_summary(attempt, pass_score=pass_score)
             await db.commit()
-            return TabQuizResultOut(**result_payload, xp_earned=xp_earned, attempt=attempt_summary)
+            return TabQuizResultOut(**result_payload, xp_earned=persisted.xp_earned, attempt=attempt_summary)
         except IntegrityError:
             await db.rollback()
             if attempt_retry == 1:

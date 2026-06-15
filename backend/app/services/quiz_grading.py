@@ -39,31 +39,32 @@ def grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
 
     if question_type in TEXT_MATCH_QUESTION_TYPES:
         accepted = question.get("accepted_answers") or [expected]
-        return _normalize_answer(submitted) in {_normalize_answer(item) for item in accepted}, accepted
+        return _normalize_typed_value(question, submitted) in {
+            _normalize_typed_value(question, item)
+            for item in accepted
+        }, accepted
 
     if question_type in NUMERIC_QUESTION_TYPES:
         tolerance = float(question.get("tolerance", 0))
-        try:
-            return abs(float(submitted) - float(expected)) <= tolerance, expected
-        except (TypeError, ValueError):
+        submitted_value = _normalize_typed_value(question, submitted)
+        expected_value = _normalize_typed_value(question, expected)
+        if not isinstance(submitted_value, float) or not isinstance(expected_value, float):
             return False, expected
+        return abs(submitted_value - expected_value) <= tolerance, expected
 
     if question_type == "multi_select":
-        return sorted(_normalize_list(submitted)) == sorted(_normalize_list(expected)), expected
+        return _normalize_typed_value(question, submitted) == _normalize_typed_value(question, expected), expected
 
     if question_type == "ordering":
         expected_order = expected or [item.get("id") for item in question.get("items", []) if isinstance(item, dict)]
-        return _normalize_list(submitted) == _normalize_list(expected_order), expected_order
+        return _normalize_typed_value(question, submitted) == _normalize_typed_value(question, expected_order), expected_order
 
     if question_type == "formula_builder":
-        return _normalize_list(submitted) == _normalize_list(expected), expected
+        return _normalize_typed_value(question, submitted) == _normalize_typed_value(question, expected), expected
 
-    if question_type == "matching":
+    if question_type in {"matching", "drag_and_drop"}:
         expected_map = expected or {pair.get("left"): pair.get("right") for pair in question.get("pairs", [])}
-        submitted_map = submitted if isinstance(submitted, dict) else {}
-        normalized_expected = {_normalize_answer(k): _normalize_answer(v) for k, v in expected_map.items()}
-        normalized_submitted = {_normalize_answer(k): _normalize_answer(v) for k, v in submitted_map.items()}
-        return normalized_submitted == normalized_expected, expected_map
+        return _normalize_typed_value(question, submitted) == _normalize_typed_value(question, expected_map), expected_map
 
     if question_type == "image_hotspot":
         return _grade_image_hotspot(question, submitted)
@@ -85,41 +86,53 @@ def tab_quiz_submission_hash(questions: list[dict], answers: dict) -> str:
 
 
 def normalized_submission_value(question: dict, submitted) -> object:
+    return _normalize_typed_value(question, submitted)
+
+
+def _normalize_typed_value(question: dict, value) -> object:
     question_type = str(question.get("type") or "multiple_choice")
 
     if question_type in TEXT_MATCH_QUESTION_TYPES:
-        return _normalize_answer(submitted)
+        return _normalize_answer(value)
 
     if question_type in NUMERIC_QUESTION_TYPES:
         try:
-            return float(submitted)
+            return float(value)
         except (TypeError, ValueError):
-            return _normalize_answer(submitted)
+            return _normalize_answer(value)
 
     if question_type == "multi_select":
-        return sorted(_normalize_list(submitted))
+        return sorted(_normalize_list(value))
 
     if question_type in {"ordering", "formula_builder"}:
-        return _normalize_list(submitted)
+        return _normalize_list(value)
 
     if question_type in {"matching", "drag_and_drop"}:
-        submitted_map = submitted if isinstance(submitted, dict) else {}
-        return {
-            _normalize_answer(key): _normalize_answer(value)
-            for key, value in sorted(submitted_map.items(), key=lambda item: _normalize_answer(item[0]))
-        }
+        return _normalize_mapping(value)
 
     if question_type == "image_hotspot":
-        cursor = submitted if isinstance(submitted, dict) else {}
-        normalized_cursor = {}
-        for key in ("x", "y", "radius"):
-            try:
-                normalized_cursor[key] = float(cursor.get(key, 0))
-            except (TypeError, ValueError):
-                normalized_cursor[key] = _normalize_answer(cursor.get(key))
-        return normalized_cursor
+        return _normalize_hotspot_cursor(value)
 
-    return submitted
+    return value
+
+
+def _normalize_mapping(value) -> dict[str, str]:
+    submitted_map = value if isinstance(value, dict) else {}
+    return {
+        _normalize_answer(key): _normalize_answer(item)
+        for key, item in sorted(submitted_map.items(), key=lambda pair: _normalize_answer(pair[0]))
+    }
+
+
+def _normalize_hotspot_cursor(value) -> dict[str, float | str]:
+    cursor = value if isinstance(value, dict) else {}
+    normalized_cursor = {}
+    for key in ("x", "y", "radius"):
+        try:
+            normalized_cursor[key] = float(cursor.get(key, 0))
+        except (TypeError, ValueError):
+            normalized_cursor[key] = _normalize_answer(cursor.get(key))
+    return normalized_cursor
 
 
 def _grade_image_hotspot(question: dict, submitted) -> tuple[bool, object]:

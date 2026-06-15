@@ -11,34 +11,28 @@ from app.models.users import User
 from app.models.users import UserSubjectEntitlement
 from app.schemas.courses import TabQuizSubmitIn
 from app.services.course_tab_quiz_submission import submit_tab_quiz_attempt
+from tests_fastapi.course_factories import seed_course_hierarchy
 
 
 async def _seed_quiz_tab(user_id: int, slug: str, questions: list[dict], *, pass_score: int = 70):
-    session_factory = get_session_factory()
-    async with session_factory() as db:
-        subject = Subject(title=f"Quiz {slug}", description="", is_published=True, order=1)
-        db.add(subject)
-        await db.flush()
-        topic = Topic(subject_id=subject.id, slug=slug, title=f"Topic {slug}", order=1, is_free_preview=True)
-        db.add(topic)
-        await db.flush()
-        section = TopicSection(topic_id=topic.id, title="Quizzes", section_type="quizzes", order=1)
-        db.add(section)
-        await db.flush()
-        item = TopicItem(topic_id=topic.id, section_id=section.id, title="Quiz item", item_type="checkpoint_quiz", order=1)
-        db.add(item)
-        await db.flush()
-        tab = TabContent(
-            topic_item_id=item.id,
-            label="Quiz",
-            tab_type="quiz",
-            order=1,
-            config_json={"pass_score": pass_score, "questions": questions},
-        )
-        db.add(tab)
-        db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
-        await db.commit()
-        return subject.id, topic.id, section.id, item.id, tab.id
+    seeded = await seed_course_hierarchy(
+        user_id,
+        slug,
+        subject_kwargs={"title": f"Quiz {slug}"},
+        topic_kwargs={"order": 1},
+        section_kwargs={"title": "Quizzes", "section_type": "quizzes", "order": 1},
+        create_resource=False,
+        item_kwargs={"title": "Quiz item", "item_type": "checkpoint_quiz", "order": 1},
+        tab_kwargs={
+            "resource_id": None,
+            "label": "Quiz",
+            "tab_type": "quiz",
+            "content": "",
+            "order": 1,
+            "config_json": {"pass_score": pass_score, "questions": questions},
+        },
+    )
+    return seeded.quiz_tuple()
 
 
 def test_tab_quiz_grades_tracks_xp_and_question_attempts(app_client, auth_token, run_db):
@@ -502,6 +496,93 @@ def test_subject_quiz_discovery_skips_locked_candidates_past_initial_window(app_
 
     assert response.status_code == 200
     assert response.json()["quiz"]["id"] == accessible_id
+
+
+def test_subject_quiz_discovery_loads_questions_only_for_selected_quiz(app_client, auth_token, query_counter, run_db):
+    token, user_id = auth_token(email="quiz-discovery-question-load@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Discovery question load", description="", is_published=True, order=1)
+            db.add(subject)
+            await db.flush()
+            db.add(UserSubjectEntitlement(user_id=user_id, subject_id=subject.id, source="test", status="active"))
+            for index in range(12):
+                topic = Topic(
+                    subject_id=subject.id,
+                    slug=f"discovery-question-load-locked-{index}",
+                    title=f"Locked question load {index}",
+                    status="published",
+                    required_tier="vip",
+                )
+                db.add(topic)
+                await db.flush()
+                question_set = QuestionSet(
+                    subject_id=subject.id,
+                    topic_id=topic.id,
+                    title=f"Locked quiz with question {index}",
+                    source_type="topic",
+                    pass_score=70,
+                    status="published",
+                    order=index,
+                )
+                db.add(question_set)
+                await db.flush()
+                db.add(
+                    Question(
+                        question_set_id=question_set.id,
+                        external_id=f"locked-q-{index}",
+                        type="multiple_choice",
+                        prompt="Locked question",
+                        config_json={"options": [{"id": 1, "text": "Correct"}]},
+                        answer_json={"answer": 1},
+                        status="published",
+                    )
+                )
+            accessible = QuestionSet(
+                subject_id=subject.id,
+                title="Accessible quiz with question",
+                source_type="subject_exam",
+                pass_score=70,
+                status="published",
+                order=12,
+            )
+            db.add(accessible)
+            await db.flush()
+            db.add(
+                Question(
+                    question_set_id=accessible.id,
+                    external_id="accessible-question-load-q1",
+                    type="multiple_choice",
+                    prompt="Choose one",
+                    config_json={"options": [{"id": 1, "text": "Correct"}, {"id": 2, "text": "Wrong"}]},
+                    answer_json={"answer": 1},
+                    status="published",
+                )
+            )
+            await db.commit()
+            return subject.id, accessible.id
+
+    subject_id, accessible_id = run_db(_seed())
+
+    with query_counter() as queries:
+        response = app_client.get(
+            f"/api/quizzes/subjects/{subject_id}/discovery",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quiz"]["id"] == accessible_id
+    assert len(body["quiz"]["questions"]) == 1
+    question_loads = [
+        statement
+        for statement in queries.statements
+        if "FROM questions" in statement and "questions.question_set_id" in statement
+    ]
+    assert len(question_loads) == 1, queries.statements
+    assert question_loads[0].count("?") == 1, question_loads[0]
 
 
 def test_topic_item_completion_rejects_spoofed_video_and_quiz_completion(app_client, auth_token, run_db):
