@@ -1,12 +1,13 @@
 import stripe
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
 from app.rate_limit import limiter
-from app.schemas.payments import CheckoutCreateIn, CheckoutOut, VerifyOut
+from app.schemas.payments import CheckoutCreateIn, CheckoutOut, PaymentRequestCreateIn, PaymentRequestOut, VerifyIn, VerifyOut
+from app.services.payment_gateway import create_pending_manual_payment_request
 from app.services.payment_lifecycle import (
     create_checkout_state,
     process_stripe_webhook_event,
@@ -40,12 +41,28 @@ async def create_checkout(
     )
 
 
-@router.get("/verify-session", response_model=VerifyOut)
+@router.post("/payment-requests", response_model=PaymentRequestOut)
+@limiter.limit("10/minute")
+async def create_payment_request(
+    request: Request,
+    payment_request: PaymentRequestCreateIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await create_pending_manual_payment_request(
+        db,
+        user=user,
+        payment_method=payment_request.payment_method,
+        plan=payment_request.plan,
+    )
+
+
+@router.post("/verify-session", response_model=VerifyOut)
 @limiter.limit("20/minute")
 async def verify_session(
     request: Request,
-    session_id: str,
-    idempotency_key: str = Header(..., min_length=8, max_length=160, alias="Idempotency-Key"),
+    verification: VerifyIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -54,11 +71,21 @@ async def verify_session(
     return await verify_checkout_session_state(
         db,
         user=user,
-        session_id=session_id,
-        idempotency_key=idempotency_key,
+        session_id=verification.session_id,
         settings=settings,
         verify_checkout_session_fn=verify_checkout_session,
     )
+
+
+@router.get("/verify-session", response_model=VerifyOut)
+@limiter.limit("20/minute")
+async def verify_session_status(
+    request: Request,
+    session_id: str = "",
+    user: User = Depends(get_current_user),
+):
+    del request, session_id
+    return VerifyOut(is_pro=bool(user.is_pro))
 
 
 @router.post("/webhook")

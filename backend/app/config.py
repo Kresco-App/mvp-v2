@@ -8,9 +8,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 LEGACY_FALLBACK_JWT_SECRET = "fallback-secret-change-in-production"
+PUBLIC_DEV_JWT_SECRET = "dev-jwt-secret-change-me-32-bytes-minimum"
 LOCAL_DATABASE_URL = "sqlite+aiosqlite:///./db.sqlite3"
 PRODUCTION_ENVIRONMENTS = {"production", "prod", "staging"}
-DISALLOWED_JWT_SECRETS = {"", "change-me", LEGACY_FALLBACK_JWT_SECRET}
+DISALLOWED_JWT_SECRETS = {"", "change-me", LEGACY_FALLBACK_JWT_SECRET, PUBLIC_DEV_JWT_SECRET}
+DISALLOWED_JWT_SECRET_MARKERS = ("change-me", "placeholder", "test-secret", "development", "local")
 
 REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("google_client_id", "GOOGLE_CLIENT_ID"),
@@ -53,12 +55,20 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "VDOCIPHER_API_SECRET": "vdocipher_api_secret",
     "VDOCIPHER_API_BASE_URL": "vdocipher_api_base_url",
     "VDOCIPHER_LIVE_CREATE_URL": "vdocipher_live_create_url",
+    "VDOCIPHER_LIVE_DELETE_URL": "vdocipher_live_delete_url",
     "STRIPE_SK": "stripe_sk",
     "STRIPE_SECRET_KEY": "stripe_sk",
     "STRIPE_PK": "stripe_pk",
     "STRIPE_PUBLISHABLE_KEY": "stripe_pk",
     "STRIPE_PRODUCT_ID": "stripe_product_id",
     "STRIPE_WEBHOOK_SECRET": "stripe_webhook_secret",
+    "FAKE_STRIPE_CHECKOUT": "fake_stripe_checkout",
+    "CMI_CLIENT_ID": "cmi_client_id",
+    "CMI_STORE_KEY": "cmi_store_key",
+    "CMI_PAYMENT_URL": "cmi_payment_url",
+    "CMI_OK_URL": "cmi_ok_url",
+    "CMI_FAIL_URL": "cmi_fail_url",
+    "CMI_CALLBACK_URL": "cmi_callback_url",
     "CORS_ALLOWED_ORIGINS": "cors_allowed_origins",
     "CORS_ALLOW_ORIGIN_REGEX": "cors_allow_origin_regex",
     "FRONTEND_URL": "frontend_url",
@@ -68,6 +78,7 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "RESEND_API_KEY": "resend_api_key",
     "ABLY_API_KEY": "ably_api_key",
     "ABLY_TOKEN_TTL_SECONDS": "ably_token_ttl_seconds",
+    "KRESCO_RATE_LIMIT_STORAGE_URI": "rate_limit_storage_uri",
     "REALTIME_OUTBOX_SECRET": "realtime_outbox_secret",
     "MEDIA_STORAGE_BACKEND": "media_storage_backend",
     "MEDIA_S3_BUCKET": "media_s3_bucket",
@@ -142,6 +153,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("vdocipher_live_create_url", "VDOCIPHER_LIVE_CREATE_URL"),
     )
+    vdocipher_live_delete_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("vdocipher_live_delete_url", "VDOCIPHER_LIVE_DELETE_URL"),
+    )
     stripe_sk: str = Field(default="", validation_alias=AliasChoices("stripe_sk", "STRIPE_SK", "STRIPE_SECRET_KEY"))
     stripe_pk: str = Field(
         default="",
@@ -152,6 +167,16 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
     )
+    fake_stripe_checkout: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("fake_stripe_checkout", "FAKE_STRIPE_CHECKOUT"),
+    )
+    cmi_client_id: str = Field(default="", validation_alias=AliasChoices("cmi_client_id", "CMI_CLIENT_ID"))
+    cmi_store_key: str = Field(default="", validation_alias=AliasChoices("cmi_store_key", "CMI_STORE_KEY"))
+    cmi_payment_url: str = Field(default="", validation_alias=AliasChoices("cmi_payment_url", "CMI_PAYMENT_URL"))
+    cmi_ok_url: str = Field(default="", validation_alias=AliasChoices("cmi_ok_url", "CMI_OK_URL"))
+    cmi_fail_url: str = Field(default="", validation_alias=AliasChoices("cmi_fail_url", "CMI_FAIL_URL"))
+    cmi_callback_url: str = Field(default="", validation_alias=AliasChoices("cmi_callback_url", "CMI_CALLBACK_URL"))
     cors_allowed_origins: str = Field(
         default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002",
         validation_alias=AliasChoices("cors_allowed_origins", "CORS_ALLOWED_ORIGINS"),
@@ -236,7 +261,7 @@ class Settings(BaseSettings):
         if not _is_valid_release_sha(self.release_sha):
             errors.append("KRESCO_RELEASE_SHA must identify the deployed commit or build in production environments.")
 
-        if self.jwt_secret_key.strip() in DISALLOWED_JWT_SECRETS or len(self.jwt_secret_key.strip()) < 32:
+        if _is_disallowed_jwt_secret(self.jwt_secret_key):
             errors.append("JWT_SECRET_KEY must be configured to a non-default secret with at least 32 characters.")
 
         if _is_sqlite_database_url(self.database_url):
@@ -257,6 +282,9 @@ class Settings(BaseSettings):
             value = getattr(self, field_name, "")
             if not str(value).strip():
                 errors.append(f"{env_name} must be configured for production environments.")
+
+        if self.fake_stripe_checkout:
+            errors.append("FAKE_STRIPE_CHECKOUT must be disabled in production environments.")
 
         storage_backend = self.media_storage_backend.strip().lower()
         if storage_backend != MEDIA_STORAGE_S3:
@@ -279,6 +307,8 @@ class Settings(BaseSettings):
             errors.append("MAX_REQUEST_BODY_BYTES must be greater than zero.")
         if len(self.realtime_outbox_secret.strip()) < 32:
             errors.append("REALTIME_OUTBOX_SECRET must be configured with at least 32 characters.")
+        if not _is_shared_rate_limit_storage_uri(self.rate_limit_storage_uri):
+            errors.append("KRESCO_RATE_LIMIT_STORAGE_URI must point to a shared rate-limit store in production environments.")
 
         if _is_local_origin(self.frontend_url):
             errors.append("FRONTEND_URL must not point to localhost in production environments.")
@@ -415,6 +445,20 @@ def _is_permissive_origin_regex(value: str) -> bool:
     if compact in {"*", ".*", "^.*$", "https?://.*", "^https?://.*$", "^https://.*$", "^http://.*$"}:
         return True
     return ".*" in compact or ".+" in compact
+
+
+def _is_shared_rate_limit_storage_uri(value: str) -> bool:
+    normalized = value.strip().lower()
+    return bool(normalized) and not normalized.startswith("memory://")
+
+
+def _is_disallowed_jwt_secret(value: str) -> bool:
+    normalized = value.strip().lower()
+    return (
+        normalized in DISALLOWED_JWT_SECRETS
+        or len(value.strip()) < 32
+        or any(marker in normalized for marker in DISALLOWED_JWT_SECRET_MARKERS)
+    )
 
 
 def _is_valid_release_sha(value: str) -> bool:

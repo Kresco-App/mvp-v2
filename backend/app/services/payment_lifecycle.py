@@ -1,10 +1,11 @@
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 
 import stripe
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,13 +20,19 @@ from app.services.payment_entitlements import (
     revoke_paid_access_by_customer_id,
     stripe_metadata_user_id,
 )
-from app.services.stripe_service import CheckoutSessionVerification
+from app.services.stripe_service import CheckoutSessionCreation, CheckoutSessionVerification
+from app.services.stripe_service import VERIFY_CHECKOUT_UNAVAILABLE_DETAIL
 
 logger = logging.getLogger("kresco.payments")
 DISPUTE_CUSTOMER_LOOKUP_UNAVAILABLE_DETAIL = "Stripe dispute customer lookup is temporarily unavailable"
+PAYMENT_VERIFICATION_PENDING_STATUS = "pending"
+PAYMENT_VERIFICATION_COMPLETED_STATUS = "completed"
+PAYMENT_VERIFICATION_FAILED_STATUS = "failed"
+PAYMENT_VERIFICATION_PENDING_TIMEOUT_SECONDS = 20.0
+PAYMENT_VERIFICATION_PENDING_POLL_SECONDS = 0.05
 
 
-CreateCheckoutSession = Callable[..., Awaitable[str]]
+CreateCheckoutSession = Callable[..., Awaitable[CheckoutSessionCreation]]
 VerifyCheckoutSession = Callable[[str, Settings], Awaitable[CheckoutSessionVerification]]
 CustomerIdForCharge = Callable[[str, Settings], Awaitable[str]]
 ConstructStripeEvent = Callable[[bytes, str, str], object]
@@ -58,13 +65,11 @@ async def record_payment_verification_attempt_once(
     *,
     user_id: int,
     session_id: str,
-    idempotency_key: str,
 ) -> bool:
     db.add(
         PaymentVerificationAttempt(
             user_id=user_id,
             session_id=session_id,
-            idempotency_key=idempotency_key,
         )
     )
     try:
@@ -79,21 +84,124 @@ async def record_payment_verification_attempt_once(
     return True
 
 
+async def complete_payment_verification_attempt(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    session_id: str,
+    is_pro: bool,
+) -> None:
+    await db.execute(
+        update(PaymentVerificationAttempt)
+        .where(
+            PaymentVerificationAttempt.user_id == user_id,
+            PaymentVerificationAttempt.session_id == session_id,
+        )
+        .values(
+            status=PAYMENT_VERIFICATION_COMPLETED_STATUS,
+            is_pro_result=is_pro,
+            response_status_code=None,
+            response_detail=None,
+            completed_at=func.now(),
+        )
+    )
+    await db.commit()
+
+
+async def fail_payment_verification_attempt(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    session_id: str,
+    status_code: int,
+    detail: str,
+) -> None:
+    await db.execute(
+        update(PaymentVerificationAttempt)
+        .where(
+            PaymentVerificationAttempt.user_id == user_id,
+            PaymentVerificationAttempt.session_id == session_id,
+        )
+        .values(
+            status=PAYMENT_VERIFICATION_FAILED_STATUS,
+            is_pro_result=None,
+            response_status_code=status_code,
+            response_detail=detail[:255],
+            completed_at=func.now(),
+        )
+    )
+    await db.commit()
+
+
 async def release_payment_verification_attempt(
     db: AsyncSession,
     *,
     user_id: int,
     session_id: str,
-    idempotency_key: str,
 ) -> None:
     await db.execute(
         delete(PaymentVerificationAttempt).where(
             PaymentVerificationAttempt.user_id == user_id,
             PaymentVerificationAttempt.session_id == session_id,
-            PaymentVerificationAttempt.idempotency_key == idempotency_key,
         )
     )
     await db.commit()
+
+
+async def load_payment_verification_attempt_result(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    session_id: str,
+):
+    return (
+        await db.execute(
+            select(
+                PaymentVerificationAttempt.status,
+                PaymentVerificationAttempt.is_pro_result,
+                PaymentVerificationAttempt.response_status_code,
+                PaymentVerificationAttempt.response_detail,
+            ).where(
+                PaymentVerificationAttempt.user_id == user_id,
+                PaymentVerificationAttempt.session_id == session_id,
+            )
+        )
+    ).one_or_none()
+
+
+async def wait_for_payment_verification_attempt_result(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    session_id: str,
+) -> VerifyOut:
+    deadline = time.monotonic() + PAYMENT_VERIFICATION_PENDING_TIMEOUT_SECONDS
+    while True:
+        row = await load_payment_verification_attempt_result(
+            db,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if row is None:
+            raise HTTPException(status_code=503, detail=VERIFY_CHECKOUT_UNAVAILABLE_DETAIL)
+
+        status, is_pro_result, response_status_code, response_detail = row
+        if status == PAYMENT_VERIFICATION_COMPLETED_STATUS:
+            return VerifyOut(is_pro=bool(is_pro_result))
+        if status == PAYMENT_VERIFICATION_FAILED_STATUS:
+            raise HTTPException(
+                status_code=int(response_status_code or 400),
+                detail=response_detail or "Payment verification failed",
+            )
+
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "payment_verify_duplicate_pending_timeout",
+                extra={"user_id": user_id, "stripe_session_id": session_id},
+            )
+            raise HTTPException(status_code=409, detail="Payment verification is still in progress")
+
+        await asyncio.sleep(PAYMENT_VERIFICATION_PENDING_POLL_SECONDS)
 
 
 async def create_checkout_state(
@@ -108,15 +216,20 @@ async def create_checkout_state(
 ) -> CheckoutOut:
     previous_customer_id = user.stripe_customer_id
     await db.commit()
-    checkout_url = await create_checkout_session_fn(
+    checkout_session = await create_checkout_session_fn(
         user,
         plan,
         settings,
         success_path=success_path,
         cancel_path=cancel_path,
     )
-    await persist_created_stripe_customer(db, user, previous_customer_id=previous_customer_id)
-    return CheckoutOut(checkout_url=checkout_url)
+    await persist_created_stripe_customer(
+        db,
+        user,
+        previous_customer_id=previous_customer_id,
+        customer_id=checkout_session.customer_id,
+    )
+    return CheckoutOut(checkout_url=checkout_session.checkout_url)
 
 
 async def verify_checkout_session_state(
@@ -124,43 +237,66 @@ async def verify_checkout_session_state(
     *,
     user: User,
     session_id: str,
-    idempotency_key: str,
     settings: Settings,
     verify_checkout_session_fn: VerifyCheckoutSession,
 ) -> VerifyOut:
-    normalized_idempotency_key = idempotency_key.strip()
-    if not normalized_idempotency_key:
-        raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
-
     user_id = int(user.id)
     first_attempt = await record_payment_verification_attempt_once(
         db,
         user_id=user_id,
         session_id=session_id,
-        idempotency_key=normalized_idempotency_key,
     )
     if not first_attempt:
-        refreshed_user = await db.get(User, user_id)
-        if refreshed_user is not None:
-            await db.refresh(refreshed_user)
-        return VerifyOut(is_pro=bool(refreshed_user.is_pro) if refreshed_user else False)
+        return await wait_for_payment_verification_attempt_result(
+            db,
+            user_id=user_id,
+            session_id=session_id,
+        )
 
     try:
         verification = await verify_checkout_session_fn(session_id, settings)
+        if verification.is_paid and verification.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Checkout session does not belong to this user")
+        if verification.is_paid:
+            await apply_paid_checkout_to_user(db, user, customer_id=verification.customer_id)
+        else:
+            await release_payment_verification_attempt(
+                db,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            return VerifyOut(is_pro=False)
+        result = VerifyOut(is_pro=bool(user.is_pro))
+        await complete_payment_verification_attempt(
+            db,
+            user_id=user_id,
+            session_id=session_id,
+            is_pro=result.is_pro,
+        )
+        return result
     except HTTPException as exc:
         if exc.status_code == 503:
             await release_payment_verification_attempt(
                 db,
                 user_id=user_id,
                 session_id=session_id,
-                idempotency_key=normalized_idempotency_key,
+            )
+        else:
+            await fail_payment_verification_attempt(
+                db,
+                user_id=user_id,
+                session_id=session_id,
+                status_code=exc.status_code,
+                detail=str(exc.detail or "Payment verification failed"),
             )
         raise
-    if verification.is_paid and verification.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Checkout session does not belong to this user")
-    if verification.is_paid:
-        await apply_paid_checkout_to_user(db, user, customer_id=verification.customer_id)
-    return VerifyOut(is_pro=user.is_pro)
+    except Exception:
+        await release_payment_verification_attempt(
+            db,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        raise
 
 
 async def construct_stripe_webhook_event(

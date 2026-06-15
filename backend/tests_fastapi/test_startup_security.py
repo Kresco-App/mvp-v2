@@ -22,7 +22,7 @@ SECRET_PLACEHOLDERS = {
     "KRESCO_RELEASE_SHA": "0123456789abcdef0123456789abcdef01234567",
     "DATABASE_URL": "postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
     "DATABASE_CONNECTION_STRATEGY": "rds_proxy",
-    "JWT_SECRET_KEY": "test-secret-key-for-production-32-bytes-minimum",
+    "JWT_SECRET_KEY": "prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
     "GOOGLE_CLIENT_ID": "google-client",
     "VDOCIPHER_API_SECRET": "vdocipher-secret",
     "VDOCIPHER_API_BASE_URL": "https://video.example.com/api",
@@ -31,8 +31,15 @@ SECRET_PLACEHOLDERS = {
     "STRIPE_SK": "stripe-secret",
     "STRIPE_PRODUCT_ID": "stripe-product",
     "STRIPE_WEBHOOK_SECRET": "stripe-webhook",
+    "CMI_CLIENT_ID": "cmi-client",
+    "CMI_STORE_KEY": "cmi-store-key",
+    "CMI_PAYMENT_URL": "https://cmi.example.com/payment",
+    "CMI_OK_URL": "https://app.example.com/payment/cmi/ok",
+    "CMI_FAIL_URL": "https://app.example.com/payment/cmi/fail",
+    "CMI_CALLBACK_URL": "https://api.example.com/api/payments/cmi/callback",
     "RESEND_API_KEY": "resend-key",
     "ABLY_API_KEY": "ably:key",
+    "KRESCO_RATE_LIMIT_STORAGE_URI": "redis://rate-limit.example.com:6379/0",
     "REALTIME_OUTBOX_SECRET": "test-realtime-outbox-secret-32-bytes",
     "FRONTEND_URL": "https://app.example.com",
     "CORS_ALLOWED_ORIGINS": "https://app.example.com",
@@ -58,6 +65,7 @@ PRODUCTION_MEDIA_SETTINGS = {
     "media_profile_quota_bytes": 10 * 1024 * 1024,
     "media_chat_conversation_quota_bytes": 50 * 1024 * 1024,
     "media_s3_lifecycle_expiration_days": 365,
+    "rate_limit_storage_uri": "redis://rate-limit.example.com:6379/0",
 }
 
 
@@ -117,6 +125,10 @@ def test_get_settings_loads_runtime_secret_from_secrets_manager(monkeypatch):
     assert settings.database_max_overflow == 6
     assert settings.database_pool_timeout == 9
     assert settings.jwt_secret_key == SECRET_PLACEHOLDERS["JWT_SECRET_KEY"]
+    assert settings.cmi_client_id == SECRET_PLACEHOLDERS["CMI_CLIENT_ID"]
+    assert settings.cmi_store_key == SECRET_PLACEHOLDERS["CMI_STORE_KEY"]
+    assert settings.cmi_payment_url == SECRET_PLACEHOLDERS["CMI_PAYMENT_URL"]
+    assert settings.cmi_callback_url == SECRET_PLACEHOLDERS["CMI_CALLBACK_URL"]
     assert settings.media_s3_bucket == SECRET_PLACEHOLDERS["MEDIA_S3_BUCKET"]
     assert settings.production_config_errors() == []
     assert calls == [
@@ -133,6 +145,15 @@ def test_security_headers_are_applied_to_responses(app_client):
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-release-sha"] == app_client.app.state.release_sha
+
+
+def test_create_app_applies_configured_rate_limit_storage(monkeypatch, test_settings):
+    applied: list[str] = []
+    monkeypatch.setattr("app.main.configure_rate_limit_storage", lambda uri: applied.append(uri))
+
+    create_app(test_settings.model_copy(update={"rate_limit_storage_uri": "redis://rate-limit.example.com:6379/0"}))
+
+    assert applied == ["redis://rate-limit.example.com:6379/0"]
 
 
 def test_health_and_ready_expose_release_correlation(app_client):
@@ -224,11 +245,25 @@ def test_deployed_app_rejects_fallback_jwt_secret(monkeypatch):
         create_app(settings)
 
 
+def test_production_settings_reject_public_jwt_secret_placeholders():
+    for jwt_secret_key in (
+        "dev-jwt-secret-change-me-32-bytes-minimum",
+        "test-secret-key-for-production-32-bytes-minimum",
+        "placeholder-secret-for-production-32-bytes",
+    ):
+        settings = Settings(
+            environment="production",
+            jwt_secret_key=jwt_secret_key,
+        )
+
+        assert any("JWT_SECRET_KEY" in error for error in settings.production_config_errors())
+
+
 def test_production_settings_reject_missing_integration_config():
     settings = Settings(
         environment="production",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="",
         vdocipher_api_secret="",
         vdocipher_api_base_url="",
@@ -255,12 +290,42 @@ def test_production_settings_reject_missing_integration_config():
     assert any("REALTIME_OUTBOX_SECRET" in error for error in errors)
 
 
+def test_production_settings_require_shared_rate_limit_storage():
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        google_client_id="google-client",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://video.example.com/api",
+        vdocipher_live_create_url="https://video.example.com/live",
+        stripe_sk="stripe-secret",
+        stripe_product_id="stripe-product",
+        stripe_webhook_secret="stripe-webhook",
+        resend_api_key="resend-key",
+        ably_api_key="ably:key",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        **{
+            **PRODUCTION_MEDIA_SETTINGS,
+            "rate_limit_storage_uri": "memory://",
+        },
+    )
+
+    errors = settings.production_config_errors()
+
+    assert any("KRESCO_RATE_LIMIT_STORAGE_URI" in error for error in errors)
+
+
 def test_production_settings_require_release_sha():
     settings = Settings(
         environment="production",
         release_sha="development",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -286,7 +351,7 @@ def test_production_settings_require_private_media_storage_config():
     settings = Settings(
         environment="production",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -316,7 +381,7 @@ def test_production_settings_require_media_quota_and_lifecycle_config():
     settings = Settings(
         environment="production",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -350,7 +415,7 @@ def test_production_settings_require_verified_postgres_tls():
         environment="production",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=require",
         pgsslrootcert="missing-rds-ca.pem",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -377,7 +442,7 @@ def test_production_settings_require_rds_proxy_connection_strategy():
     settings = Settings(
         environment="production",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -407,7 +472,7 @@ def test_production_settings_do_not_require_stripe_publishable_key_for_hosted_ch
         environment="production",
         release_sha="0123456789abcdef0123456789abcdef01234567",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -428,10 +493,38 @@ def test_production_settings_do_not_require_stripe_publishable_key_for_hosted_ch
     assert settings.production_config_errors() == []
 
 
+def test_production_settings_reject_fake_stripe_checkout():
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        google_client_id="google-client",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://video.example.com/api",
+        vdocipher_live_create_url="https://video.example.com/live",
+        stripe_sk="stripe-secret",
+        stripe_product_id="stripe-product",
+        stripe_webhook_secret="stripe-webhook",
+        resend_api_key="resend-key",
+        ably_api_key="ably:key",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        fake_stripe_checkout=True,
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert any("FAKE_STRIPE_CHECKOUT" in error for error in errors)
+
+
 def test_production_settings_reject_local_runtime_defaults():
     settings = Settings(
         environment="production",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -461,7 +554,7 @@ def test_production_settings_reject_permissive_cors_policy():
     settings = Settings(
         environment="production",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
-        jwt_secret_key="test-secret-key-for-production-32-bytes-minimum",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         google_client_id="google-client",
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
@@ -544,6 +637,7 @@ def test_zappa_environments_match_startup_validation(monkeypatch):
             "STRIPE_WEBHOOK_SECRET",
             "RESEND_API_KEY",
             "ABLY_API_KEY",
+            "KRESCO_RATE_LIMIT_STORAGE_URI",
             "REALTIME_OUTBOX_SECRET",
             "MEDIA_S3_BUCKET",
         ):
@@ -718,6 +812,7 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
         "STRIPE_WEBHOOK_SECRET",
         "RESEND_API_KEY",
         "ABLY_API_KEY",
+        "KRESCO_RATE_LIMIT_STORAGE_URI",
         "REALTIME_OUTBOX_SECRET",
         "MEDIA_S3_BUCKET",
     ):
