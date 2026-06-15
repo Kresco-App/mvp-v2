@@ -62,6 +62,14 @@ async def get_current_staff_user(
     return user
 
 
+async def get_current_superuser(
+    user: User = Depends(get_current_staff_user),
+) -> User:
+    if not user.is_superuser:
+        raise HTTPException(status_code=403, detail="Superuser access required")
+    return user
+
+
 async def get_current_professor_user(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

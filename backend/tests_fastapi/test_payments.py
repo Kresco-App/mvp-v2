@@ -308,7 +308,7 @@ async def _seed_user(email: str, *, is_pro: bool = False, stripe_customer_id: st
         return user.id
 
 
-async def _seed_staff_user(email: str) -> int:
+async def _seed_staff_user(email: str, *, is_superuser: bool = False) -> int:
     session_factory = get_session_factory()
     async with session_factory() as db:
         user = User(
@@ -317,6 +317,7 @@ async def _seed_staff_user(email: str) -> int:
             is_active=True,
             is_email_verified=True,
             is_staff=True,
+            is_superuser=is_superuser,
             password="!",
         )
         db.add(user)
@@ -1534,6 +1535,69 @@ def test_finance_audit_endpoints_require_verified_staff(app_client, auth_token, 
         assert isinstance(staff_response.json(), list)
 
 
+def test_finance_write_endpoints_require_superuser(app_client, auth_token, run_db, test_settings):
+    student_token, user_id = auth_token(email="finance-write-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    reference_code = create_response.json()["reference_code"]
+    staff_id = run_db(_seed_staff_user("finance-write-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Plain staff should not approve"},
+        headers=headers,
+    )
+    reject_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/reject",
+        json={"reason": "Plain staff should not reject"},
+        headers=headers,
+    )
+    reconcile_response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json={
+            "payment_method": "bank_transfer",
+            "reference_code": reference_code,
+            "amount_centimes": 9900,
+            "provider_reference": "BANK-PLAIN-STAFF-DENIED",
+            "reason": "Plain staff should not reconcile",
+        },
+        headers=headers,
+    )
+    import_response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "bank_transfer",
+            "source_name": "plain-staff-denied.csv",
+            "rows": [
+                {
+                    "reference_code": reference_code,
+                    "amount_centimes": 9900,
+                    "provider_reference": "BANK-PLAIN-STAFF-IMPORT-DENIED",
+                    "reason": "Plain staff should not import",
+                }
+            ],
+        },
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    for response in (approve_response, reject_response, reconcile_response, import_response):
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Superuser access required"
+
+    assert run_db(_get_user(user_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 0
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+
+
 def test_staff_can_read_finance_ledger_and_provider_events_for_transaction(
     app_client,
     auth_token,
@@ -1547,7 +1611,7 @@ def test_staff_can_read_finance_ledger_and_provider_events_for_transaction(
         headers={"Authorization": f"Bearer {student_token}"},
     )
     transaction_id = create_response.json()["id"]
-    staff_id = run_db(_seed_staff_user("finance-audit-records-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("finance-audit-records-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
     headers = {"Authorization": f"Bearer {staff_token}"}
 
@@ -1595,7 +1659,7 @@ def test_staff_can_read_reconciliation_import_history(app_client, auth_token, ru
         json={"payment_method": "bank_transfer", "plan": "pro"},
         headers={"Authorization": f"Bearer {student_token}"},
     )
-    staff_id = run_db(_seed_staff_user("finance-import-history-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("finance-import-history-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
     headers = {"Authorization": f"Bearer {staff_token}"}
     import_response = app_client.post(
@@ -1647,7 +1711,7 @@ def test_staff_approve_manual_payment_grants_access_and_records_audit(
         headers={"Authorization": f"Bearer {student_token}"},
     )
     transaction_id = create_response.json()["id"]
-    staff_id = run_db(_seed_staff_user("manual-approve-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-approve-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     approve_response = app_client.post(
@@ -1704,7 +1768,7 @@ def test_staff_approve_manual_payment_grants_access_and_records_audit(
 
 
 def test_staff_cannot_approve_own_manual_payment_request(app_client, run_db, test_settings):
-    staff_id = run_db(_seed_staff_user("manual-self-approve-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-self-approve-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
     headers = {"Authorization": f"Bearer {staff_token}"}
     create_response = app_client.post(
@@ -1744,7 +1808,7 @@ def test_staff_cannot_approve_expired_manual_payment_request(
     )
     transaction_id = create_response.json()["id"]
     run_db(_set_payment_transaction_expired(transaction_id))
-    staff_id = run_db(_seed_staff_user("manual-expired-approve-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-expired-approve-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     approve_response = app_client.post(
@@ -1786,7 +1850,7 @@ def test_staff_reject_manual_payment_keeps_access_locked_and_allows_retry(
         headers=headers,
     )
     transaction_id = create_response.json()["id"]
-    staff_id = run_db(_seed_staff_user("manual-reject-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-reject-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     reject_response = app_client.post(
@@ -1838,7 +1902,7 @@ def test_current_payment_request_exposes_latest_failed_request_without_granting_
         headers=headers,
     )
     transaction_id = create_response.json()["id"]
-    staff_id = run_db(_seed_staff_user("current-payment-failed-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("current-payment-failed-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
     reject_response = app_client.post(
         f"/api/payments/manual-payment-requests/{transaction_id}/reject",
@@ -1987,7 +2051,7 @@ def test_staff_reconciles_manual_payment_by_reference_once(
     )
     transaction_id = create_response.json()["id"]
     reference_code = create_response.json()["reference_code"]
-    staff_id = run_db(_seed_staff_user("manual-reconcile-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-reconcile-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
     reconciliation_payload = {
         "payment_method": "cashplus",
@@ -2058,7 +2122,7 @@ def test_ashplus_proof_and_reconciliation_use_manual_cash_agency_workflow(
     assert proof_response.json()["status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
     assert run_db(_get_user(user_id)).is_pro is False
 
-    staff_id = run_db(_seed_staff_user("ashplus-workflow-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("ashplus-workflow-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     reconcile_response = app_client.post(
@@ -2105,7 +2169,7 @@ def test_staff_reconciliation_amount_mismatch_stays_locked_and_filterable(
     )
     transaction_id = create_response.json()["id"]
     reference_code = create_response.json()["reference_code"]
-    staff_id = run_db(_seed_staff_user("manual-reconcile-mismatch-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-reconcile-mismatch-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     response = app_client.post(
@@ -2161,7 +2225,7 @@ def test_staff_reconciliation_external_reference_cannot_unlock_two_transactions(
     )
     first_transaction_id = first_create.json()["id"]
     second_transaction_id = second_create.json()["id"]
-    staff_id = run_db(_seed_staff_user("manual-reconcile-reused-reference-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-reconcile-reused-reference-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     first_response = app_client.post(
@@ -2224,7 +2288,7 @@ def test_staff_imports_manual_payment_reconciliation_batch_with_audited_rows(
     )
     first_transaction_id = first_create.json()["id"]
     second_transaction_id = second_create.json()["id"]
-    staff_id = run_db(_seed_staff_user("manual-import-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-import-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     response = app_client.post(
@@ -2317,7 +2381,7 @@ def test_import_consumes_new_provider_reference_aimed_at_paid_transaction(
         json={"payment_method": "cashplus", "plan": "pro"},
         headers={"Authorization": f"Bearer {second_token}"},
     )
-    staff_id = run_db(_seed_staff_user("manual-import-paid-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-import-paid-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     first_reconcile = app_client.post(
@@ -2375,7 +2439,7 @@ def test_import_records_error_row_when_row_processing_raises(
     test_settings,
     monkeypatch,
 ):
-    staff_id = run_db(_seed_staff_user("manual-import-error-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-import-error-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     async def fail_reconcile(*args, **kwargs):
@@ -2466,7 +2530,7 @@ def test_staff_cannot_reject_paid_manual_payment(app_client, auth_token, run_db,
         headers={"Authorization": f"Bearer {student_token}"},
     )
     transaction_id = create_response.json()["id"]
-    staff_id = run_db(_seed_staff_user("manual-paid-reject-staff@example.com"))
+    staff_id = run_db(_seed_staff_user("manual-paid-reject-staff@example.com", is_superuser=True))
     staff_token = create_token(staff_id, test_settings)
 
     approve_response = app_client.post(

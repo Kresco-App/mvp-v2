@@ -2188,6 +2188,51 @@ Review notes addressed:
 - Paid entitlement grants no longer treat a future-start active row as current
   access; they create an immediate paid row when needed.
 
+### Slice 40: Finance Write Superuser Boundary
+
+Status: implemented.
+
+Reason for this slice:
+
+- Manual finance actions can grant paid access or close payment requests, so
+  launch cannot leave those mutations available to every verified staff user.
+- Full finance roles and permissions are still deferred, but the current
+  backoffice needs a clean stopgap before broader testing.
+
+Implemented scope:
+
+- Added a reusable `get_current_superuser` dependency layered on top of verified
+  staff access. Status: implemented.
+- Restricted manual payment approval, rejection, reconciliation, and
+  reconciliation import endpoints to superusers. Status: implemented.
+- Kept manual payment queues, finance ledger reads, provider event reads, and
+  reconciliation import history staff-readable. Status: implemented.
+- Added backend coverage proving plain staff cannot perform finance write
+  actions while existing write flows still succeed for superusers. Status:
+  implemented.
+
+Decisions:
+
+- Decision: use `is_superuser` as the temporary finance-write authority for v1
+  rather than inventing a partial role model before the full RBAC pass.
+- Decision: keep finance read/audit endpoints available to verified staff so
+  operations can inspect payment state without being able to mutate money state.
+- Decision: leave frontend read-only affordances for non-superusers as a later
+  UX polish slice; the backend is authoritative now.
+
+Verification plan:
+
+- Run focused payment route tests to cover staff denial, superuser approval,
+  rejection, reconciliation, and import flows. Status: implemented.
+- Run backend compile check. Status: implemented.
+- Run a strong diff review before committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 89 tests.
+- `python -m compileall app` passed.
+- Strong review found no blocking finance boundary issues.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
