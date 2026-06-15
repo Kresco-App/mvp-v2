@@ -85,6 +85,7 @@ class ExamProblemProgressOut(BaseModel):
     exam_problem_id: int
     status: str = "not_started"
     saved: bool = False
+    xp_awarded: int = 0
     opened_at: datetime | None = None
     completed_at: datetime | None = None
     last_activity_at: datetime | None = None

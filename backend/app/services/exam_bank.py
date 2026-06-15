@@ -27,6 +27,7 @@ from app.schemas.exam_bank import (
 from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.course_access import apply_access_decision, redact_locked_resource, resource_out
 from app.services.search import LIKE_ESCAPE, substring_search_pattern
+from app.services.xp import award_xp
 
 EXAM_BANK_LIMIT = 50
 
@@ -241,14 +242,26 @@ async def record_exam_problem_progress(
             })
     if body.saved is not None:
         values[UserExamProblemProgress.saved] = bool(body.saved)
+    xp_awarded = 0
+    should_award_completion_xp = body.status == EXAM_PROBLEM_PROGRESS_COMPLETED
     await db.execute(
         update(UserExamProblemProgress)
         .where(UserExamProblemProgress.id == progress.id)
         .values(values)
     )
+    if should_award_completion_xp:
+        xp_awarded = await award_xp(
+            int(user.id),
+            "exam_complete",
+            f"Exam problem {problem_id} completed",
+            db,
+            subject_id=int(problem.subject_id),
+            topic_id=int(problem.topic_id) if problem.topic_id is not None else None,
+            idempotency_key=f"exam_complete:user:{user.id}:problem:{problem_id}",
+        )
     await db.commit()
     await db.refresh(progress)
-    return _problem_progress_out(progress)
+    return _problem_progress_out(progress, xp_awarded=xp_awarded)
 
 
 def exam_problem_part_out(
@@ -335,11 +348,12 @@ def _problem_progress_status(progress: UserExamProblemProgress | None) -> str:
     return progress.status or EXAM_PROBLEM_PROGRESS_NOT_STARTED
 
 
-def _problem_progress_out(progress: UserExamProblemProgress) -> ExamProblemProgressOut:
+def _problem_progress_out(progress: UserExamProblemProgress, *, xp_awarded: int = 0) -> ExamProblemProgressOut:
     return ExamProblemProgressOut(
         exam_problem_id=int(progress.exam_problem_id),
         status=_problem_progress_status(progress),
         saved=bool(progress.saved),
+        xp_awarded=xp_awarded,
         opened_at=progress.opened_at,
         completed_at=progress.completed_at,
         last_activity_at=progress.last_activity_at,

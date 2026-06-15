@@ -1,9 +1,10 @@
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.database import get_session_factory
 from app.models.courses import Exam, ExamProblem, Resource, Subject, Topic
+from app.models.gamification import UserXP, XPTransaction
 from app.models.users import User
 from app.models.exam_bank import ExamProblemPart
 from app.models.exam_progress import (
@@ -244,6 +245,7 @@ def test_exam_problem_progress_records_opened_completed_and_saved(app_client, au
     assert opened_payload["exam_problem_id"] == seeded["problem_id"]
     assert opened_payload["status"] == "opened"
     assert opened_payload["saved"] is True
+    assert opened_payload["xp_awarded"] == 0
     assert opened_payload["opened_at"] is not None
     assert opened_payload["last_activity_at"] is not None
 
@@ -257,9 +259,37 @@ def test_exam_problem_progress_records_opened_completed_and_saved(app_client, au
 
     assert completed.status_code == 200
     assert completed.json()["status"] == "completed"
+    assert completed.json()["xp_awarded"] == 100
     assert completed.json()["completed_at"] is not None
     assert reopened.status_code == 200
     assert reopened.json()["status"] == "completed"
+    assert reopened.json()["xp_awarded"] == 0
+    assert run_db(_user_xp_total(user_id)) == 100
+    assert run_db(_exam_complete_xp_count(user_id, seeded["problem_id"])) == 1
+
+
+def test_exam_problem_completion_xp_is_single_use(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-progress-xp-once@example.com")
+    seeded = run_db(_seed_exam_parts_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = app_client.post(
+        f"/api/exam-bank/problems/{seeded['problem_id']}/progress",
+        json={"status": EXAM_PROBLEM_PROGRESS_COMPLETED},
+        headers=headers,
+    )
+    second = app_client.post(
+        f"/api/exam-bank/problems/{seeded['problem_id']}/progress",
+        json={"status": EXAM_PROBLEM_PROGRESS_COMPLETED},
+        headers=headers,
+    )
+
+    assert first.status_code == 200
+    assert first.json()["xp_awarded"] == 100
+    assert second.status_code == 200
+    assert second.json()["xp_awarded"] == 0
+    assert run_db(_user_xp_total(user_id)) == 100
+    assert run_db(_exam_complete_xp_count(user_id, seeded["problem_id"])) == 1
 
 
 def test_exam_bank_filters_by_progress_and_saved(app_client, auth_token, run_db):
@@ -523,3 +553,27 @@ async def _stale_opened_request_after_completed(*, user_id: int, problem_id: int
             body=ExamProblemProgressIn(status=EXAM_PROBLEM_PROGRESS_OPENED),
         )
         return result.status
+
+
+async def _user_xp_total(user_id: int) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        total = await db.scalar(select(UserXP.total_xp).where(UserXP.user_id == user_id))
+        return int(total or 0)
+
+
+async def _exam_complete_xp_count(user_id: int, problem_id: int) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        return int(
+            await db.scalar(
+                select(func.count())
+                .select_from(XPTransaction)
+                .where(
+                    XPTransaction.user_id == user_id,
+                    XPTransaction.reason == "exam_complete",
+                    XPTransaction.idempotency_key == f"exam_complete:user:{user_id}:problem:{problem_id}",
+                )
+            )
+            or 0
+        )

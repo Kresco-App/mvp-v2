@@ -1585,6 +1585,56 @@ Review notes addressed:
 - Repaired the capped-login edge case where inserted zero-amount transactions
   could otherwise skip the `UserXP` activity projection update.
 
+### Slice 30: Exam Problem Completion XP
+
+Status: implemented.
+
+Reason for this slice:
+
+- `exam_complete` existed in the XP reward table and daily cap mapping but was
+  not wired.
+- Slice 21 intentionally deferred exam XP while adding exam problem progress
+  storage. That storage now gives us a clear backend-owned completion event.
+
+Planned backend scope:
+
+- Award `exam_complete` when an entitled student marks an Exam Bank problem as
+  completed. Status: implemented.
+- Deduplicate the reward once per `(user, exam problem)` using an XP
+  idempotency key. Status: implemented.
+- Keep saved/opened progress mutations free of XP side effects. Status:
+  implemented.
+- Return `xp_awarded` from the progress mutation for future UI feedback.
+  Status: implemented.
+- Avoid broad UI changes in this slice. Status: implemented.
+
+Decisions:
+
+- Decision: exam completion XP is tied to the whole exam problem capsule, not
+  each individual part. Part-level progress can be a later model if needed.
+- Decision: the reward is backend-owned and only granted after the existing
+  subject-access check succeeds.
+- Decision: repeated completion requests and stale opened requests remain
+  monotonic and cannot duplicate XP because the XP transaction key is scoped to
+  `(user, problem)`.
+- Decision: `exam_complete` remains in the existing `lab_exam` daily cap
+  category.
+
+Verification plan:
+
+- Add route-level tests proving opened/saved progress awards no XP, first
+  completion awards `exam_complete`, repeated completion awards zero, and
+  stale opened requests do not downgrade completion. Status: implemented.
+- Run focused exam-bank progress and XP service tests plus compile checks.
+  Status: implemented.
+- Run strong review before committing. Status: implemented.
+
+Review notes addressed:
+
+- Strong review found no blocking issues. It noted concurrent duplicate
+  completion coverage as a residual gap; the slice relies on the shared XP
+  idempotency constraint for that case.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
