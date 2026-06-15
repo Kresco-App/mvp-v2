@@ -6,11 +6,14 @@ from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.admin import AdminOverviewOut
 from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionOut, UserPermissionRevokeIn
+from app.schemas.gamification import XPAdjustmentCreateIn, XPAdjustmentOut
 from app.services.admin_permissions import grant_user_permission, list_user_permissions, revoke_user_permission
 from app.services.admin_overview import build_admin_overview
+from app.services.xp_adjustments import create_xp_adjustment
 
 router = APIRouter(tags=["Admin"])
 require_roles_manage = require_staff_permission("roles:manage")
+require_xp_adjust = require_staff_permission("xp:adjust")
 
 
 @router.get("/overview", response_model=AdminOverviewOut)
@@ -72,6 +75,25 @@ async def revoke_permission(
         actor=staff,
         permission_id=permission_id,
         reason=body.reason,
+        request_path=request_path,
+        client_host=client_host,
+    )
+
+
+@router.post("/xp-adjustments", response_model=XPAdjustmentOut)
+@limiter.limit("10/minute")
+async def create_admin_xp_adjustment(
+    request: Request,
+    adjustment: XPAdjustmentCreateIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_xp_adjust),
+):
+    request_path = str(request.url.path)
+    client_host = request.client.host if request.client else ""
+    return await create_xp_adjustment(
+        db,
+        actor=staff,
+        request=adjustment,
         request_path=request_path,
         client_host=client_host,
     )

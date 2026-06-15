@@ -349,6 +349,11 @@ def test_admin_permission_grant_revoke_and_reactivate(app_client, run_db, test_s
         json={"reason": "bad id, not a permission id"},
         headers=headers,
     )
+    xp_grant_response = app_client.post(
+        "/api/admin/permissions",
+        json={"user_id": target_id, "permission": "xp:adjust", "reason": "xp correction access"},
+        headers=headers,
+    )
 
     assert unsupported_response.status_code == 400
     assert unsupported_response.json()["detail"] == "Unsupported permission"
@@ -367,6 +372,9 @@ def test_admin_permission_grant_revoke_and_reactivate(app_client, run_db, test_s
     assert list_response.status_code == 200
     assert [item["id"] for item in list_response.json()] == [permission_id]
     assert missing_response.status_code == 404
+    assert xp_grant_response.status_code == 200
+    assert xp_grant_response.json()["permission"] == "xp:adjust"
+    assert xp_grant_response.json()["granted_by_user_id"] == manager_id
     audits = run_db(_permission_audits_for_permission(permission_id))
     assert [audit.action for audit in audits] == [
         "permission_grant",
@@ -697,11 +705,13 @@ def test_admin_overview_router_stays_thin():
         "list_permissions",
         "grant_permission",
         "revoke_permission",
+        "create_admin_xp_adjustment",
     ]
     assert "build_admin_overview" in router_source
     assert "list_user_permissions" in router_source
     assert "grant_user_permission" in router_source
     assert "revoke_user_permission" in router_source
+    assert "create_xp_adjustment" in router_source
     assert "_ops_readiness" not in router_source
     assert "_gather_reads" not in router_source
     assert "select(" not in router_source

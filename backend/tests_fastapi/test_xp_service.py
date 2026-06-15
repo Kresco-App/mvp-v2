@@ -1,13 +1,18 @@
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session_factory
+from app.models.admin_audit import AdminAuditLog
 from app.models.gamification import DailyQuest, UserXP, XPDailyCapUsage, XPTransaction
-from app.models.users import User
+from app.models.users import User, UserPermission
+from app.services.auth import create_token
 from app.services.xp import XPAward, XP_DAILY_CAPS, award_xp, award_xp_bulk, generate_daily_quests
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 async def _seed_xp_user(email: str) -> int:
@@ -18,6 +23,70 @@ async def _seed_xp_user(email: str) -> int:
         await db.commit()
         await db.refresh(user)
         return user.id
+
+
+async def _seed_xp_staff(email: str, *, is_superuser: bool = False) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        user = User(
+            email=email,
+            full_name="XP Staff",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=True,
+            is_superuser=is_superuser,
+            password="!",
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return user.id
+
+
+async def _grant_xp_permission(user_id: int, permission: str) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        grant = UserPermission(user_id=user_id, permission=permission, reason="test xp permission")
+        db.add(grant)
+        await db.commit()
+        await db.refresh(grant)
+        return grant.id
+
+
+async def _xp_transactions_for_user(user_id: int) -> list[XPTransaction]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(XPTransaction).where(XPTransaction.user_id == user_id).order_by(XPTransaction.id.asc())
+        )
+        return list(result.scalars().all())
+
+
+async def _xp_adjustment_audits(user_id: int | None = None) -> list[AdminAuditLog]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(AdminAuditLog)
+            .where(AdminAuditLog.action == "xp_adjustment")
+            .order_by(AdminAuditLog.id.asc())
+        )
+        audits = list(result.scalars().all())
+        if user_id is None:
+            return audits
+        return [audit for audit in audits if (audit.changed_data or {}).get("user_id") == int(user_id)]
+
+
+def test_xp_transactions_allow_signed_admin_adjustments_model_and_migration():
+    constraint_names = {constraint.name for constraint in XPTransaction.__table__.constraints}
+    assert "ck_xp_transactions_amount_nonnegative" not in constraint_names
+
+    migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0070_signed_xp_adjustments.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0069"' in migration_text
+    assert "drop_constraint(\"ck_xp_transactions_amount_nonnegative\"" in migration_text
+    assert "create_check_constraint(\"ck_xp_transactions_amount_nonnegative\"" in migration_text
+    assert "negative XP transactions exist" in migration_text
 
 
 async def _daily_quest_progress(user_id: int, quest_date: date) -> dict[str, int]:
@@ -480,6 +549,233 @@ def test_amount_overrides_are_policy_bounded(app_client, run_db):
 
     with pytest.raises(ValueError, match="override"):
         run_db(_unknown_override())
+
+
+def test_admin_xp_adjustment_requires_xp_adjust_permission(app_client, auth_token, run_db, test_settings):
+    student_token, target_user_id = auth_token(email="xp-adjust-permission-student@example.com")
+    plain_staff_id = run_db(_seed_xp_staff("xp-adjust-plain-staff@example.com"))
+    plain_staff_token = create_token(plain_staff_id, test_settings)
+    payload = {
+        "user_id": target_user_id,
+        "amount": 25,
+        "reason": "Support correction",
+        "idempotency_key": f"xp-adjust-permission:user:{target_user_id}",
+    }
+
+    student_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json=payload,
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    plain_staff_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json=payload,
+        headers={"Authorization": f"Bearer {plain_staff_token}"},
+    )
+
+    assert student_response.status_code == 403
+    assert student_response.json()["detail"] == "Staff access required"
+    assert plain_staff_response.status_code == 403
+    assert plain_staff_response.json()["detail"] == "Permission required: xp:adjust"
+    assert run_db(_user_xp_state(target_user_id)) == (0, 0, None)
+    assert run_db(_xp_transactions_for_user(target_user_id)) == []
+    assert run_db(_xp_adjustment_audits()) == []
+
+
+def test_staff_with_xp_adjust_permission_can_apply_signed_audited_adjustments(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    _student_token, target_user_id = auth_token(email="xp-adjust-target@example.com")
+    staff_id = run_db(_seed_xp_staff("xp-adjust-staff@example.com"))
+    run_db(_grant_xp_permission(staff_id, "xp:adjust"))
+    second_staff_id = run_db(_seed_xp_staff("xp-adjust-second-staff@example.com"))
+    run_db(_grant_xp_permission(second_staff_id, "xp:adjust"))
+    headers = {"Authorization": f"Bearer {create_token(staff_id, test_settings)}"}
+    second_headers = {"Authorization": f"Bearer {create_token(second_staff_id, test_settings)}"}
+
+    first_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": 120,
+            "reason": "Imported quiz correction",
+            "idempotency_key": f"xp-adjust:user:{target_user_id}:grant",
+        },
+        headers=headers,
+    )
+    duplicate_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": 120,
+            "reason": "Imported quiz correction",
+            "idempotency_key": f"xp-adjust:user:{target_user_id}:grant",
+        },
+        headers=second_headers,
+    )
+    reversal_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": -40,
+            "reason": "Remove duplicate exercise reward",
+            "idempotency_key": f"xp-adjust:user:{target_user_id}:reversal",
+        },
+        headers=headers,
+    )
+
+    assert first_response.status_code == 200
+    first = first_response.json()
+    assert first["user_id"] == target_user_id
+    assert first["amount"] == 120
+    assert first["requested_amount"] == 120
+    assert first["reason"] == "admin_adjustment"
+    assert first["description"] == "Imported quiz correction"
+    assert first["actor_user_id"] == staff_id
+    assert first["total_xp"] == 120
+
+    assert duplicate_response.status_code == 200
+    duplicate = duplicate_response.json()
+    assert duplicate["transaction_id"] == first["transaction_id"]
+    assert duplicate["actor_user_id"] == staff_id
+    assert duplicate["total_xp"] == 120
+
+    assert reversal_response.status_code == 200
+    reversal = reversal_response.json()
+    assert reversal["amount"] == -40
+    assert reversal["total_xp"] == 80
+    assert run_db(_user_xp_state(target_user_id))[0] == 80
+
+    transactions = run_db(_xp_transactions_for_user(target_user_id))
+    assert [(row.amount, row.requested_amount, row.reason, row.description) for row in transactions] == [
+        (120, 120, "admin_adjustment", "Imported quiz correction"),
+        (-40, -40, "admin_adjustment", "Remove duplicate exercise reward"),
+    ]
+    assert all(row.daily_cap_category is None and row.daily_cap_date is None for row in transactions)
+
+    audits = run_db(_xp_adjustment_audits(target_user_id))
+    assert len(audits) == 2
+    assert audits[0].object_pk == str(first["transaction_id"])
+    assert audits[0].changed_data["previous_total_xp"] == 0
+    assert audits[0].changed_data["next_total_xp"] == 120
+    assert audits[0].changed_data["actor_user_id"] == staff_id
+    assert audits[1].object_pk == str(reversal["transaction_id"])
+    assert audits[1].changed_data["previous_total_xp"] == 120
+    assert audits[1].changed_data["next_total_xp"] == 80
+
+
+def test_admin_xp_adjustment_rejects_negative_final_total_and_self_adjustment(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    _student_token, target_user_id = auth_token(email="xp-adjust-negative-target@example.com")
+    staff_id = run_db(_seed_xp_staff("xp-adjust-negative-staff@example.com"))
+    run_db(_grant_xp_permission(staff_id, "xp:adjust"))
+    headers = {"Authorization": f"Bearer {create_token(staff_id, test_settings)}"}
+
+    negative_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": -1,
+            "reason": "Too much reversal",
+            "idempotency_key": f"xp-adjust:user:{target_user_id}:negative",
+        },
+        headers=headers,
+    )
+    self_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": staff_id,
+            "amount": 10,
+            "reason": "Self bonus",
+            "idempotency_key": f"xp-adjust:user:{staff_id}:self",
+        },
+        headers=headers,
+    )
+
+    assert negative_response.status_code == 400
+    assert negative_response.json()["detail"] == "XP adjustment cannot make total XP negative"
+    assert self_response.status_code == 400
+    assert self_response.json()["detail"] == "Cannot adjust your own XP"
+    assert run_db(_user_xp_state(target_user_id)) == (0, 0, None)
+    assert run_db(_xp_transactions_for_user(target_user_id)) == []
+
+
+def test_admin_xp_adjustment_rejects_idempotency_collisions(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    _student_token, target_user_id = auth_token(email="xp-adjust-collision-target@example.com")
+    staff_id = run_db(_seed_xp_staff("xp-adjust-collision-staff@example.com"))
+    run_db(_grant_xp_permission(staff_id, "xp:adjust"))
+    headers = {"Authorization": f"Bearer {create_token(staff_id, test_settings)}"}
+    normal_key = f"normal-xp:user:{target_user_id}:quiz"
+
+    async def _seed_normal_xp():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await award_xp(
+                target_user_id,
+                "quiz_pass",
+                "Normal quiz pass",
+                db,
+                idempotency_key=normal_key,
+            )
+            await db.commit()
+
+    run_db(_seed_normal_xp())
+
+    normal_collision_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": 10,
+            "reason": "Try colliding with normal XP",
+            "idempotency_key": normal_key,
+        },
+        headers=headers,
+    )
+    first_admin_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": 30,
+            "reason": "Admin correction",
+            "idempotency_key": f"xp-adjust:user:{target_user_id}:collision",
+        },
+        headers=headers,
+    )
+    changed_payload_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": 31,
+            "reason": "Admin correction changed",
+            "idempotency_key": f"xp-adjust:user:{target_user_id}:collision",
+        },
+        headers=headers,
+    )
+
+    assert normal_collision_response.status_code == 409
+    assert normal_collision_response.json()["detail"] == "XP idempotency key already belongs to another XP transaction"
+    assert first_admin_response.status_code == 200
+    assert changed_payload_response.status_code == 409
+    assert changed_payload_response.json()["detail"] == "XP adjustment idempotency key payload mismatch"
+    assert run_db(_user_xp_state(target_user_id))[0] == 50
+    transactions = run_db(_xp_transactions_for_user(target_user_id))
+    assert [(row.amount, row.reason) for row in transactions] == [
+        (20, "quiz_pass"),
+        (30, "admin_adjustment"),
+    ]
+    assert len(run_db(_xp_adjustment_audits(target_user_id))) == 1
 
 
 def test_generate_daily_quests_does_not_rollback_caller_transaction_on_flush_error(app_client, monkeypatch, run_db):

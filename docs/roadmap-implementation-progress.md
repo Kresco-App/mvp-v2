@@ -480,7 +480,7 @@ Verification plan:
 
 ### Slice 9: CMI Signed Callback Processing
 
-Status: implemented.
+Status: committed.
 
 Reason for this slice:
 
@@ -2888,6 +2888,79 @@ Verification completed:
   Fixed before commit by defaulting to problem rows only and requiring
   explicit `status=all` for full audit history. Re-review found no blocking
   issues.
+
+### Slice 51: Admin XP Adjustments and Reversals
+
+Status: implemented.
+
+Reason for this slice:
+
+- The XP roadmap calls for first-class XP reversals/adjustments for bugs,
+  abuse, or admin correction.
+- Existing XP transactions were append-only but positive-only, so the platform
+  could not represent a real reversal in the same ledger as normal learning
+  awards.
+- This is backend-first and UI-light: it gives tomorrow's admin UI a safe API
+  while preserving existing student XP earning behavior.
+
+Implemented scope:
+
+- Added signed XP transaction support by removing the nonnegative amount check
+  from the ORM model and adding migration `0070_signed_xp_adjustments`. Status:
+  implemented.
+- Added `xp:adjust` to the explicit permission allowlist. Status:
+  implemented.
+- Added `POST /api/admin/xp-adjustments`, gated by `xp:adjust`, rate-limited,
+  and requiring an explicit idempotency key. Status: implemented.
+- Added an admin adjustment service that writes signed `XPTransaction` rows,
+  updates `UserXP.total_xp`, rejects self-adjustment, rejects reversals that
+  would make total XP negative, and replays duplicate idempotency keys without
+  double-adjusting. Status: implemented.
+- Added `AdminAuditLog` entries for each new adjustment with actor, target,
+  previous total, next total, amount, reason, and idempotency key. Status:
+  implemented.
+- Kept admin adjustments out of daily cap and quest accounting by leaving
+  daily cap fields null. Status: implemented.
+
+Decisions:
+
+- Decision: use signed `XPTransaction.amount` rows instead of a separate
+  correction table. This keeps XP history, total reconciliation, and later
+  audit UI on one ledger.
+- Decision: normal XP award helpers still reject negative amounts. Only the
+  `xp:adjust` admin service can create negative rows.
+- Decision: require caller-supplied idempotency keys for admin adjustments.
+  This makes retries explicit and avoids deriving keys from mutable reason
+  text.
+- Decision: block self-adjustment to reduce privilege-abuse risk.
+- Decision: do not update streaks, daily quests, or cap usage for admin
+  corrections; they are ledger corrections, not learning actions.
+
+Verification plan:
+
+- Add model/migration tests proving signed XP transactions are supported.
+  Status: implemented.
+- Add permission tests proving students and plain staff cannot adjust XP.
+  Status: implemented.
+- Add route tests for positive adjustment, negative reversal, idempotent replay,
+  lower-bound rejection, self-adjustment rejection, and admin audit records.
+  Status: implemented.
+- Add permission-management coverage proving `xp:adjust` can be granted through
+  the existing roles API. Status: implemented.
+- Run focused XP/admin/migration tests, compile check, and strong review before
+  committing. Status: completed.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_xp_service.py tests_fastapi/test_admin_overview.py tests_fastapi/test_migrations.py -q`
+  passed: 39 tests.
+- `python -m pytest tests_fastapi/test_data_integrity_audit.py tests_fastapi/test_xp_service.py tests_fastapi/test_admin_overview.py tests_fastapi/test_migrations.py -q`
+  passed: 50 tests.
+- `python -m compileall app` passed.
+- Independent review found admin idempotency keys could collide with normal XP
+  award keys, duplicate keys did not validate payload consistency, and
+  migration downgrade needed an explicit negative-row guard. All were fixed
+  before commit and covered by regression tests.
 
 ## Open Risks
 

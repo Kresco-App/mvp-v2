@@ -84,7 +84,6 @@ class UserStats(Base):
 class XPTransaction(Base):
     __tablename__ = "xp_transactions"
     __table_args__ = (
-        CheckConstraint("amount >= 0", name="ck_xp_transactions_amount_nonnegative"),
         Index("ix_xp_transactions_user_created", "user_id", "created_at"),
         Index("ix_xp_transactions_reason", "reason"),
         Index("ix_xp_transactions_user_idempotency", "user_id", "idempotency_key", unique=True),

@@ -22,6 +22,7 @@ ALLOWED_USER_PERMISSIONS = {
     "sqladmin:access",
     "users:read",
     "users:update",
+    "xp:adjust",
 }
 
 

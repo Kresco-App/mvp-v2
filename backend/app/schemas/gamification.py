@@ -2,7 +2,7 @@ from datetime import datetime
 from datetime import date
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.limits import ShortText, StrictInputModel
 
@@ -35,6 +35,41 @@ class XPTransactionOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class XPAdjustmentCreateIn(BaseModel):
+    user_id: int = Field(gt=0)
+    amount: int = Field(ge=-10000, le=10000)
+    reason: str = Field(min_length=3, max_length=200)
+    idempotency_key: str = Field(min_length=8, max_length=160)
+
+    @field_validator("amount")
+    @classmethod
+    def amount_must_be_nonzero(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("amount must be non-zero")
+        return value
+
+    @field_validator("reason", "idempotency_key")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value is required")
+        return normalized
+
+
+class XPAdjustmentOut(BaseModel):
+    transaction_id: int
+    user_id: int
+    amount: int
+    requested_amount: int
+    reason: str
+    description: str
+    idempotency_key: str
+    actor_user_id: int
+    total_xp: int
+    created_at: datetime
 
 
 class LeaderboardEntryOut(BaseModel):
