@@ -9,6 +9,7 @@ import html
 import ipaddress
 import re
 import secrets
+from types import SimpleNamespace
 from urllib.parse import urlparse
 from urllib.parse import urljoin
 
@@ -68,6 +69,7 @@ MANUAL_PAYMENT_EVENT_RECONCILED = "manual.reconciled"
 MANUAL_PAYMENT_EVENT_RECONCILIATION_MISMATCH = "manual.reconciliation_mismatch"
 MANUAL_PAYMENT_EVENT_RECONCILIATION_UNMATCHED = "manual.reconciliation_unmatched"
 MANUAL_PAYMENT_EVENT_RECONCILIATION_DUPLICATE = "manual.reconciliation_duplicate"
+MANUAL_PAYMENT_EVENT_EXPIRED = "manual.expired"
 CMI_PAYMENT_EXPIRY_MINUTES = 30
 CMI_CURRENCY_CODE_MAD = "504"
 CMI_TRAN_TYPE = "PreAuth"
@@ -77,6 +79,7 @@ CMI_CALLBACK_RESPONSE = "true"
 CMI_CALLBACK_EVENT_APPROVED = "cmi.callback.approved"
 CMI_CALLBACK_EVENT_FAILED = "cmi.callback.failed"
 CMI_CALLBACK_EVENT_INVALID = "cmi.callback.invalid"
+CMI_PAYMENT_EVENT_EXPIRED = "cmi.payment_expired"
 CMI_POSTAUTH_RESPONSE = "ACTION=POSTAUTH"
 CMI_FAILURE_RESPONSE = "FAILURE"
 
@@ -179,20 +182,23 @@ async def create_pending_cmi_payment_request(
     settings: Settings,
 ) -> PaymentRequestOut:
     _ensure_cmi_configured(settings)
+    user_id = int(user.id)
+    user_email = user.email
+    user_full_name = user.full_name
     normalized_plan = plan.strip().lower()
     amount_centimes = amount_for_plan(normalized_plan)
     now = datetime.now(timezone.utc)
-    request_key = _open_cmi_request_key(user_id=int(user.id), plan=normalized_plan)
+    request_key = _open_cmi_request_key(user_id=user_id, plan=normalized_plan)
     existing = await _load_open_cmi_request(db, request_key=request_key, now=now)
     if existing is not None:
         return payment_request_out(existing)
     await _release_expired_open_cmi_request(db, request_key=request_key, now=now)
 
     expires_at = now + timedelta(minutes=CMI_PAYMENT_EXPIRY_MINUTES)
-    reference_code = _reference_code(PAYMENT_RAIL_CMI, int(user.id))
+    reference_code = _reference_code(PAYMENT_RAIL_CMI, user_id)
     form_fields = _cmi_form_fields(
         settings=settings,
-        user=user,
+        user=SimpleNamespace(email=user_email, full_name=user_full_name),
         reference_code=reference_code,
         amount_centimes=amount_centimes,
     )
@@ -205,7 +211,7 @@ async def create_pending_cmi_payment_request(
     )
 
     transaction = PaymentTransaction(
-        user_id=int(user.id),
+        user_id=user_id,
         provider=PAYMENT_PROVIDER_CMI,
         rail=PAYMENT_RAIL_CMI,
         status=PAYMENT_STATUS_PENDING_PROVIDER,
@@ -270,7 +276,11 @@ async def process_cmi_callback(
                 processed_at=now,
             )
         )
-        await db.commit()
+        await _commit_provider_event_or_ignore_duplicate(
+            db,
+            provider=PAYMENT_PROVIDER_CMI,
+            event_id=invalid_event_id,
+        )
         return CMI_FAILURE_RESPONSE
 
     matches_transaction = (
@@ -295,7 +305,7 @@ async def process_cmi_callback(
                 processed_at=now,
             )
         )
-        await db.commit()
+        await _commit_provider_event_or_ignore_duplicate(db, provider=PAYMENT_PROVIDER_CMI, event_id=event_id)
         return CMI_FAILURE_RESPONSE
 
     if transaction.status == PAYMENT_STATUS_PAID:
@@ -309,6 +319,18 @@ async def process_cmi_callback(
         )
         return CMI_FAILURE_RESPONSE
     if transaction.status != PAYMENT_STATUS_PENDING_PROVIDER:
+        await _record_cmi_ignored_event(
+            db,
+            transaction=transaction,
+            event_id=event_id,
+            payload=normalized_payload,
+            now=now,
+            event_type=CMI_CALLBACK_EVENT_FAILED,
+        )
+        return CMI_FAILURE_RESPONSE
+    if _manual_transaction_is_expired(transaction, now=now):
+        await _expire_cmi_transaction(db, transaction=transaction, now=now)
+        await db.refresh(transaction)
         await _record_cmi_ignored_event(
             db,
             transaction=transaction,
@@ -356,6 +378,7 @@ async def create_pending_manual_payment_request(
     payment_method: str,
     plan: str,
 ) -> PaymentRequestOut:
+    user_id = int(user.id)
     normalized_method = payment_method.strip().lower()
     if normalized_method not in MANUAL_PAYMENT_RAILS:
         provider_for_rail(normalized_method)
@@ -364,14 +387,14 @@ async def create_pending_manual_payment_request(
     normalized_plan = plan.strip().lower()
     amount_centimes = amount_for_plan(normalized_plan)
     now = datetime.now(timezone.utc)
-    request_key = _open_request_key(user_id=int(user.id), payment_method=normalized_method, plan=normalized_plan)
+    request_key = _open_request_key(user_id=user_id, payment_method=normalized_method, plan=normalized_plan)
     existing = await _load_open_manual_request(db, request_key=request_key, now=now)
     if existing is not None:
         return payment_request_out(existing)
     await _release_expired_open_manual_request(db, request_key=request_key, now=now)
 
     expires_at = now + timedelta(days=MANUAL_PAYMENT_EXPIRY_DAYS)
-    reference_code = _reference_code(normalized_method, int(user.id))
+    reference_code = _reference_code(normalized_method, user_id)
     instructions = _manual_payment_instructions(
         payment_method=normalized_method,
         reference_code=reference_code,
@@ -381,7 +404,7 @@ async def create_pending_manual_payment_request(
     )
 
     transaction = PaymentTransaction(
-        user_id=int(user.id),
+        user_id=user_id,
         provider=provider_for_rail(normalized_method),
         rail=normalized_method,
         status=PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
@@ -1020,13 +1043,14 @@ async def _expire_manual_transaction(
     transaction: PaymentTransaction,
     now: datetime,
 ) -> None:
+    await _record_payment_expired_event(db, transaction=transaction, now=now, event_type=MANUAL_PAYMENT_EVENT_EXPIRED)
     transaction.status = PAYMENT_STATUS_EXPIRED
     transaction.open_request_key = None
     transaction.metadata_json = {
         **(transaction.metadata_json or {}),
         "expired_at": now.isoformat(),
     }
-    await db.commit()
+    await _commit_expired_transaction(db, transaction=transaction)
 
 
 async def _expire_cmi_transaction(
@@ -1035,13 +1059,69 @@ async def _expire_cmi_transaction(
     transaction: PaymentTransaction,
     now: datetime,
 ) -> None:
+    await _record_payment_expired_event(db, transaction=transaction, now=now, event_type=CMI_PAYMENT_EVENT_EXPIRED)
     transaction.status = PAYMENT_STATUS_EXPIRED
     transaction.open_request_key = None
     transaction.metadata_json = {
         **(transaction.metadata_json or {}),
         "expired_at": now.isoformat(),
     }
-    await db.commit()
+    await _commit_expired_transaction(db, transaction=transaction)
+
+
+async def _commit_expired_transaction(db: AsyncSession, *, transaction: PaymentTransaction) -> None:
+    transaction_id = int(transaction.id)
+    provider = transaction.provider
+    event_id = _payment_expired_event_id(transaction)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing_event = await _load_provider_event(db, provider=provider, event_id=event_id)
+        if existing_event is None:
+            raise
+        current = await db.get(PaymentTransaction, transaction_id)
+        if current is None:
+            return
+        current.status = PAYMENT_STATUS_EXPIRED
+        current.open_request_key = None
+        metadata = dict(current.metadata_json or {})
+        metadata.setdefault("expired_at", existing_event.processed_at.isoformat() if existing_event.processed_at else "")
+        current.metadata_json = metadata
+        await db.commit()
+
+
+async def _record_payment_expired_event(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    now: datetime,
+    event_type: str,
+) -> None:
+    event_id = _payment_expired_event_id(transaction)
+    existing_event = await _load_provider_event(db, provider=transaction.provider, event_id=event_id)
+    if existing_event is not None:
+        return
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=transaction.provider,
+            event_id=event_id,
+            event_type=event_type,
+            status="processed",
+            payload_json={
+                "reference_code": transaction.reference_code,
+                "rail": transaction.rail,
+                "previous_status": transaction.status,
+                "expired_at": now.isoformat(),
+            },
+            processed_at=now,
+        )
+    )
+
+
+def _payment_expired_event_id(transaction: PaymentTransaction) -> str:
+    return f"{transaction.provider}:payment_expired:{int(transaction.id)}"
 
 
 def _manual_transaction_is_expired(transaction: PaymentTransaction, *, now: datetime) -> bool:
@@ -1814,6 +1894,9 @@ async def _record_cmi_ignored_event(
     now: datetime,
     event_type: str,
 ) -> None:
+    existing_event = await _load_provider_event(db, provider=PAYMENT_PROVIDER_CMI, event_id=event_id)
+    if existing_event is not None:
+        return
     db.add(
         PaymentProviderEvent(
             transaction_id=int(transaction.id),
@@ -1825,7 +1908,23 @@ async def _record_cmi_ignored_event(
             processed_at=now,
         )
     )
-    await db.commit()
+    await _commit_provider_event_or_ignore_duplicate(db, provider=PAYMENT_PROVIDER_CMI, event_id=event_id)
+
+
+async def _commit_provider_event_or_ignore_duplicate(
+    db: AsyncSession,
+    *,
+    provider: str,
+    event_id: str,
+) -> None:
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing_event = await _load_provider_event(db, provider=provider, event_id=event_id)
+        if existing_event is not None:
+            return
+        raise
 
 
 def _cmi_callback_hash_valid(payload: dict[str, str], *, store_key: str) -> bool:

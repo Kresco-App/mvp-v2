@@ -14,6 +14,7 @@ from app.database import get_session_factory
 from app.models.courses import Subject
 from app.models.payments import (
     PAYMENT_PROVIDER_ASHPLUS,
+    PAYMENT_PROVIDER_CASHPLUS,
     PAYMENT_PROVIDER_CMI,
     PAYMENT_RAIL_ASHPLUS,
     PAYMENT_RAIL_BANK_TRANSFER,
@@ -581,6 +582,20 @@ async def _payment_provider_events_for_transaction(transaction_id: int) -> list[
         result = await db.execute(
             select(PaymentProviderEvent)
             .where(PaymentProviderEvent.transaction_id == transaction_id)
+            .order_by(PaymentProviderEvent.id)
+        )
+        return list(result.scalars().all())
+
+
+async def _payment_provider_events_by_event_id(provider: str, event_id: str) -> list[PaymentProviderEvent]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(PaymentProviderEvent)
+            .where(
+                PaymentProviderEvent.provider == provider,
+                PaymentProviderEvent.event_id == event_id,
+            )
             .order_by(PaymentProviderEvent.id)
         )
         return list(result.scalars().all())
@@ -1260,6 +1275,51 @@ def test_create_cmi_payment_request_reuses_existing_open_provider_request(
     assert run_db(_get_user(user_id)).is_pro is False
 
 
+def test_create_cmi_payment_request_records_expired_open_request_for_retry(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-expired-retry@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    body = {"payment_method": "cmi", "plan": "pro"}
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        first = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+        transaction_id = first.json()["id"]
+        run_db(_set_payment_transaction_expired(transaction_id))
+        recovered = app_client.get("/api/payments/payment-requests/current", headers=headers)
+        retry = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+        repeat_recovery = app_client.get("/api/payments/payment-requests/current", headers=headers)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert first.status_code == 200
+    assert recovered.status_code == 200
+    assert recovered.json()["status"] == PAYMENT_STATUS_EXPIRED
+    assert recovered.json()["instructions"] == {}
+    assert retry.status_code == 200
+    assert retry.json()["id"] != transaction_id
+    assert repeat_recovery.status_code == 200
+    assert repeat_recovery.json()["id"] == retry.json()["id"]
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    expired_transaction = next(transaction for transaction in transactions if transaction.id == transaction_id)
+    open_transaction = next(transaction for transaction in transactions if transaction.id == retry.json()["id"])
+    assert expired_transaction.status == PAYMENT_STATUS_EXPIRED
+    assert expired_transaction.open_request_key is None
+    assert open_transaction.status == PAYMENT_STATUS_PENDING_PROVIDER
+    assert open_transaction.open_request_key == f"cmi:{user_id}:pro"
+    assert run_db(_get_user(user_id)).is_pro is False
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_type == "cmi.payment_expired"
+    assert events[0].event_id == f"cmi:payment_expired:{transaction_id}"
+    assert events[0].payload_json["previous_status"] == PAYMENT_STATUS_PENDING_PROVIDER
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+
+
 def test_create_cmi_payment_request_rejects_non_cmi_gateway_host(
     app_client,
     auth_token,
@@ -1385,6 +1445,162 @@ def test_cmi_callback_duplicate_is_idempotent(
     assert transaction.status == PAYMENT_STATUS_PAID
     assert len(run_db(_payment_provider_events_for_transaction(transaction.id))) == 1
     assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 1
+
+
+def test_cmi_callback_after_expiry_records_failure_without_granting_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-expired@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        transaction_id = create_response.json()["id"]
+        reference_code = create_response.json()["reference_code"]
+        run_db(_set_payment_transaction_expired(transaction_id))
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-expired-late-approval")
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert create_response.status_code == 200
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_EXPIRED
+    assert transaction.open_request_key is None
+    assert transaction.confirmed_at is None
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert [event.event_type for event in events] == ["cmi.payment_expired", "cmi.callback.failed"]
+    assert [event.status for event in events] == ["processed", "ignored"]
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+    assert run_db(_subject_entitlements_for_user(user_id)) == []
+
+
+def test_cmi_ignored_callback_recovers_duplicate_event_race(
+    monkeypatch,
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-expired-race@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        transaction_id = create_response.json()["id"]
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-expired-duplicate-race")
+
+        async def _close_transaction_and_insert_callback_event() -> None:
+            session_factory = get_session_factory()
+            async with session_factory() as db:
+                transaction = await db.get(PaymentTransaction, transaction_id)
+                transaction.status = PAYMENT_STATUS_EXPIRED
+                transaction.open_request_key = None
+                transaction.metadata_json = {"expired_at": datetime.now(timezone.utc).isoformat()}
+                db.add(
+                    PaymentProviderEvent(
+                        transaction_id=transaction_id,
+                        provider=PAYMENT_PROVIDER_CMI,
+                        event_id="cmi-expired-duplicate-race",
+                        event_type="cmi.callback.failed",
+                        status="ignored",
+                        payload_json={"source": "race winner"},
+                        processed_at=datetime.now(timezone.utc),
+                    )
+                )
+                await db.commit()
+
+        run_db(_close_transaction_and_insert_callback_event())
+        original_load_provider_event = payment_gateway._load_provider_event
+        calls = {"count": 0}
+
+        async def racey_load_provider_event(db, *, provider, event_id):
+            if provider == PAYMENT_PROVIDER_CMI and event_id == "cmi-expired-duplicate-race":
+                calls["count"] += 1
+                if calls["count"] <= 2:
+                    return None
+            return await original_load_provider_event(db, provider=provider, event_id=event_id)
+
+        monkeypatch.setattr(payment_gateway, "_load_provider_event", racey_load_provider_event)
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert create_response.status_code == 200
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is False
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_id == "cmi-expired-duplicate-race"
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+    assert run_db(_subject_entitlements_for_user(user_id)) == []
+
+
+def test_cmi_missing_transaction_callback_recovers_duplicate_event_race(
+    monkeypatch,
+    app_client,
+    run_db,
+    test_settings,
+):
+    original = _set_cmi_settings(test_settings)
+    event_id = "cmi-missing-duplicate-race"
+    callback = _cmi_callback_payload("KRESCO-CMI-MISSING-REF", TransId=event_id)
+
+    async def _insert_existing_callback_event() -> None:
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(
+                PaymentProviderEvent(
+                    transaction_id=None,
+                    provider=PAYMENT_PROVIDER_CMI,
+                    event_id=event_id,
+                    event_type="cmi.callback.failed",
+                    status="ignored",
+                    payload_json={"source": "race winner"},
+                    processed_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+
+    run_db(_insert_existing_callback_event())
+    original_load_provider_event = payment_gateway._load_provider_event
+    calls = {"count": 0}
+
+    async def racey_load_provider_event(db, *, provider, event_id: str):
+        if provider == PAYMENT_PROVIDER_CMI and event_id == "cmi-missing-duplicate-race":
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return None
+        return await original_load_provider_event(db, provider=provider, event_id=event_id)
+
+    monkeypatch.setattr(payment_gateway, "_load_provider_event", racey_load_provider_event)
+
+    try:
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    events = run_db(_payment_provider_events_by_event_id(PAYMENT_PROVIDER_CMI, event_id))
+    assert len(events) == 1
+    assert events[0].transaction_id is None
 
 
 def test_cmi_callback_later_decline_cannot_downgrade_paid_transaction(
@@ -2839,7 +3055,11 @@ def test_staff_cannot_approve_expired_manual_payment_request(
     expired_transaction = next(transaction for transaction in transactions if transaction.id == transaction_id)
     assert expired_transaction.status == PAYMENT_STATUS_EXPIRED
     assert expired_transaction.open_request_key is None
-    assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 0
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_type == "manual.expired"
+    assert events[0].event_id == f"bank_transfer:payment_expired:{transaction_id}"
+    assert events[0].payload_json["previous_status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
     assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
 
 
@@ -3527,6 +3747,68 @@ def test_create_payment_request_releases_expired_open_request_for_retry(app_clie
     assert expired_transaction.open_request_key is None
     assert open_transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
     assert open_transaction.open_request_key == f"manual:{user_id}:cashplus:pro"
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_type == "manual.expired"
+    assert events[0].event_id == f"cashplus:payment_expired:{transaction_id}"
+    assert events[0].payload_json["previous_status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+
+
+def test_create_payment_request_expiry_recovers_duplicate_expiry_event(
+    monkeypatch,
+    app_client,
+    auth_token,
+    run_db,
+):
+    token, user_id = auth_token(email="manual-expired-race-student@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    body = {"payment_method": "cashplus", "plan": "pro"}
+    first_response = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+    transaction_id = first_response.json()["id"]
+    run_db(_set_payment_transaction_expired(transaction_id))
+
+    async def _insert_existing_expiry_event() -> None:
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(
+                PaymentProviderEvent(
+                    transaction_id=transaction_id,
+                    provider=PAYMENT_PROVIDER_CASHPLUS,
+                    event_id=f"cashplus:payment_expired:{transaction_id}",
+                    event_type="manual.expired",
+                    status="processed",
+                    payload_json={"source": "race winner"},
+                    processed_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+
+    run_db(_insert_existing_expiry_event())
+    original_load_provider_event = payment_gateway._load_provider_event
+    calls = {"count": 0}
+
+    async def racey_load_provider_event(db, *, provider, event_id):
+        if provider == PAYMENT_PROVIDER_CASHPLUS and event_id == f"cashplus:payment_expired:{transaction_id}":
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return None
+        return await original_load_provider_event(db, provider=provider, event_id=event_id)
+
+    monkeypatch.setattr(payment_gateway, "_load_provider_event", racey_load_provider_event)
+
+    retry_response = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+
+    assert first_response.status_code == 200
+    assert retry_response.status_code == 200
+    assert retry_response.json()["id"] != transaction_id
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    expired_transaction = next(transaction for transaction in transactions if transaction.id == transaction_id)
+    open_transaction = next(transaction for transaction in transactions if transaction.id == retry_response.json()["id"])
+    assert expired_transaction.status == PAYMENT_STATUS_EXPIRED
+    assert expired_transaction.open_request_key is None
+    assert open_transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 1
+    assert run_db(_get_user(user_id)).is_pro is False
 
 
 def test_staff_cannot_reject_paid_manual_payment(app_client, auth_token, run_db, test_settings):

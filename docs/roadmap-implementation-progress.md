@@ -2679,6 +2679,89 @@ Verification completed:
 - Strong review found no blocking security or correctness issues. A stale
   open-risk wording issue was corrected before commit.
 
+### Slice 48: Payment Expiry Event Audit
+
+Status: committed.
+
+Reason for this slice:
+
+- Provider-neutral CMI and manual payment requests already expire and allow
+  retry, but the expiry mutation was not recorded in the append-only
+  `payment_provider_events` stream.
+- The finance TODO wants money/access history to flow through provider events,
+  transactions, ledger, entitlements, and audit logs. Expiry is not money
+  movement, but it is still important operational payment history.
+- This strengthens CMI, virement, CashPlus, and AshPlus launch rails without
+  adding new Stripe work or UI.
+
+Implemented scope:
+
+- Added deterministic `manual.expired` provider events when pending manual
+  bank transfer, CashPlus, or AshPlus requests expire. Status: implemented.
+- Added deterministic `cmi.payment_expired` provider events when pending CMI
+  requests expire. Status: implemented.
+- Kept expiry non-money-moving: no entitlement grant and no finance ledger
+  entry. Status: implemented.
+- Rejected signed CMI approvals that arrive after the pending request expired,
+  recording expiry plus an ignored callback event without granting access.
+  Status: implemented.
+- Added duplicate-event recovery for concurrent expiry paths so deterministic
+  expiry events stay idempotent. Status: implemented.
+- Added duplicate-event recovery for ignored CMI callback events so repeated
+  late callbacks fail closed idempotently. Status: implemented.
+- Added duplicate-event recovery for signed CMI callbacks that do not match any
+  transaction, so provider retries fail closed instead of 500ing. Status:
+  implemented.
+
+Decisions:
+
+- Decision: expiry events live in `payment_provider_events`, not
+  `finance_ledger_entries`, because expiry changes operational request state
+  but does not represent collected or reversed money.
+- Decision: event IDs are deterministic per provider and transaction
+  (`{provider}:payment_expired:{transaction_id}`) so repeated recovery paths do
+  not duplicate expiry events.
+- Decision: preserve the current retry behavior. Expired open requests are
+  closed, then a fresh pending request can be created with a new reference.
+- Decision: a CMI callback after expiry returns provider failure even if it is
+  otherwise signed and successful. Expired form posts are outside the accepted
+  payment window and must not unlock access.
+- Decision: duplicate late CMI callbacks should remain provider failures, not
+  server errors, because the provider may retry already-closed form posts.
+- Decision: signed callbacks with no matching transaction stay recorded as
+  ignored provider events, and duplicate delivery is treated as idempotent
+  failure.
+
+Verification plan:
+
+- Add tests proving expired manual retry records one linked expiry event,
+  clears the old open request, creates a replacement pending request, and does
+  not grant access. Status: implemented.
+- Add tests proving expired CMI recovery strips stale form instructions,
+  records one linked CMI expiry event, creates a fresh pending provider request,
+  rejects late signed approvals, and does not grant access. Status:
+  implemented.
+- Add a duplicate-event race regression test for lazy expiry recovery. Status:
+  implemented.
+- Add a duplicate-event race regression test for ignored late CMI callbacks.
+  Status: implemented.
+- Add a duplicate-event race regression test for signed callbacks with no
+  matching transaction. Status: implemented.
+- Run focused payment tests, compile check, broader payment/migration tests,
+  and strong review before committing. Status: pending.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 109 tests.
+- `python -m pytest tests_fastapi/test_payments.py tests_fastapi/test_migrations.py -q`
+  passed: 111 tests.
+- `python -m compileall app` passed.
+- Strong review found expired CMI callbacks could still grant access before
+  lazy recovery, duplicate expiry events could race, and duplicate ignored
+  callback events could race. Follow-up review found signed callbacks without a
+  matching transaction needed the same duplicate recovery. All were fixed
+  before commit.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
