@@ -24,11 +24,12 @@ async def update_mistake_notebook_from_question_attempts(
     question_set: QuestionSet,
     quiz_attempt_id: int,
     question_attempts: list[dict],
-) -> None:
+) -> list[int]:
     if not question_attempts:
-        return
+        return []
 
     now = datetime.now(timezone.utc)
+    corrected_question_ids: list[int] = []
     for question_attempt in question_attempts:
         entry = await db.scalar(
             select(MistakeNotebookEntry)
@@ -47,6 +48,7 @@ async def update_mistake_notebook_from_question_attempts(
                     quiz_attempt_id=quiz_attempt_id,
                     now=now,
                 )
+                corrected_question_ids.append(int(question_attempt["question_id"]))
             continue
 
         if entry is None:
@@ -70,6 +72,7 @@ async def update_mistake_notebook_from_question_attempts(
             quiz_attempt_id=quiz_attempt_id,
             now=now,
         )
+    return corrected_question_ids
 
 
 def _mark_entry_open(

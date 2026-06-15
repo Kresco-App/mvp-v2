@@ -1635,6 +1635,57 @@ Review notes addressed:
   completion coverage as a residual gap; the slice relies on the shared XP
   idempotency constraint for that case.
 
+### Slice 31: Mistake-Corrected XP
+
+Status: implemented.
+
+Reason for this slice:
+
+- The quiz roadmap calls out medium XP for correcting previously missed
+  questions.
+- Mistake Notebook already has a backend-verified transition from `open` to
+  `corrected` when a later official quiz attempt answers the question
+  correctly.
+
+Planned backend scope:
+
+- Add a `mistake_corrected` XP reason. Status: implemented.
+- Award it only when an open Mistake Notebook entry is corrected by an official
+  quiz attempt. Status: implemented.
+- Deduplicate the reward once per `(user, question)` using an XP idempotency
+  key. Status: implemented.
+- Keep the reward in the existing quiz-correct daily cap category. Status:
+  implemented.
+- Avoid manual frontend claim/review UI in this slice. Status: implemented.
+
+Decisions:
+
+- Decision: `mistake_corrected` is backend-verified. Students cannot claim it
+  by manually marking a mistake reviewed.
+- Decision: the v1 reward is 10 XP, larger than `quiz_retry_correct` but still
+  capped with quiz-correct rewards.
+- Decision: the reward is tied to the Mistake Notebook `open -> corrected`
+  transition, not to every later correct answer for the same question.
+
+Verification plan:
+
+- Add/update tests proving a wrong-then-correct question awards
+  `quiz_retry_correct` plus `mistake_corrected`, and later correct attempts
+  award neither again. Status: implemented.
+- Update perfect-quiz retry XP expectations for the additional correction
+  bonus. Status: implemented.
+- Run focused mistake notebook, quiz perfect, Topic Workspace quiz, XP service
+  tests, and compile checks. Status: implemented.
+- Run strong review before committing. Status: implemented.
+
+Review notes addressed:
+
+- Strong review found that `mistake_corrected` was skipped when the student had
+  an earlier correct attempt before a later wrong attempt. The award assembly
+  now keeps first/retry-correct XP eligibility separate from the notebook
+  correction bonus, and regression coverage includes correct -> wrong ->
+  correct.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

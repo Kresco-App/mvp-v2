@@ -87,7 +87,10 @@ def test_quiz_perfect_xp_awards_once_per_question_set(app_client, auth_token, ru
                 ],
             )
             assert second.xp_earned == (
-                XP_REWARDS["quiz_retry_correct"] + XP_REWARDS["quiz_pass"] + XP_REWARDS["quiz_perfect"]
+                XP_REWARDS["quiz_retry_correct"]
+                + XP_REWARDS["mistake_corrected"]
+                + XP_REWARDS["quiz_pass"]
+                + XP_REWARDS["quiz_perfect"]
             )
             await db.commit()
 
@@ -133,6 +136,7 @@ def test_quiz_perfect_xp_awards_once_per_question_set(app_client, auth_token, ru
     transactions = run_db(_exercise())
 
     assert transactions == [
+        ("mistake_corrected", XP_REWARDS["mistake_corrected"], XP_REWARDS["mistake_corrected"]),
         ("quiz_pass", XP_REWARDS["quiz_pass"], XP_REWARDS["quiz_pass"]),
         ("quiz_perfect", XP_REWARDS["quiz_perfect"], XP_REWARDS["quiz_perfect"]),
         ("quiz_retry_correct", XP_REWARDS["quiz_retry_correct"], XP_REWARDS["quiz_retry_correct"]),

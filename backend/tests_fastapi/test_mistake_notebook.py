@@ -4,10 +4,11 @@ from sqlalchemy import select
 
 from app.database import get_session_factory
 from app.models.courses import Subject
-from app.models.gamification import QuestionAttempt
+from app.models.gamification import QuestionAttempt, XPTransaction
 from app.models.mistake_notebook import MistakeNotebookEntry
 from app.models.quizzes import Question, QuestionSet
 from app.services.quiz_attempt_submission import persist_quiz_submission
+from app.services.xp import XP_REWARDS
 
 
 def test_mistake_notebook_tracks_quiz_mistakes_and_corrections(app_client, auth_token, run_db):
@@ -151,6 +152,11 @@ def test_mistake_notebook_tracks_quiz_mistakes_and_corrections(app_client, auth_
                 ],
             )
             assert not second_result.is_duplicate
+            assert second_result.xp_earned == (
+                XP_REWARDS["quiz_retry_correct"]
+                + XP_REWARDS["mistake_corrected"]
+                + XP_REWARDS["quiz_pass"]
+            )
             await db.commit()
 
             question_set = await db.get(QuestionSet, question_set_id)
@@ -182,10 +188,21 @@ def test_mistake_notebook_tracks_quiz_mistakes_and_corrections(app_client, auth_
                 ],
             )
             assert not third_result.is_duplicate
+            assert third_result.xp_earned == 0
             await db.commit()
-            return subject_id, first_question_id
+            transactions = (
+                await db.execute(
+                    select(XPTransaction.reason, XPTransaction.amount)
+                    .where(
+                        XPTransaction.user_id == user_id,
+                        XPTransaction.question_id == first_question_id,
+                    )
+                    .order_by(XPTransaction.reason)
+                )
+            ).all()
+            return subject_id, first_question_id, transactions
 
-    subject_id, question_id = run_db(_seed_attempts())
+    subject_id, question_id, transactions = run_db(_seed_attempts())
     headers = {"Authorization": f"Bearer {token}"}
 
     open_response = app_client.get("/api/progress/mistakes?status=open", headers=headers)
@@ -209,6 +226,10 @@ def test_mistake_notebook_tracks_quiz_mistakes_and_corrections(app_client, auth_
     assert item["question_title"] == "Amplitude"
     assert item["question_difficulty"] == "moyen"
     assert item["question_concept_slugs"] == ["ondes"]
+    assert transactions == [
+        ("mistake_corrected", XP_REWARDS["mistake_corrected"]),
+        ("quiz_retry_correct", XP_REWARDS["quiz_retry_correct"]),
+    ]
 
 
 def test_mistake_notebook_is_scoped_to_current_user(app_client, auth_token, run_db):
@@ -254,6 +275,139 @@ def test_mistake_notebook_is_scoped_to_current_user(app_client, auth_token, run_
     assert owner_response.json()["total"] == 1
     assert other_response.status_code == 200
     assert other_response.json()["total"] == 0
+
+
+def test_mistake_corrected_xp_after_prior_correct_answer(app_client, auth_token, run_db):
+    del app_client
+    _token, user_id = auth_token(email="mistake-correct-after-prior-correct@example.com", is_pro=True)
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            subject = Subject(title="Math", is_published=True)
+            db.add(subject)
+            await db.flush()
+            question_set = QuestionSet(subject_id=subject.id, title="Sequence")
+            db.add(question_set)
+            await db.flush()
+            question = Question(
+                question_set_id=question_set.id,
+                type="short_answer",
+                title="Derivative",
+                prompt="Find f'.",
+                answer_json={"answer": "2x"},
+            )
+            db.add(question)
+            await db.flush()
+            raw_questions = [{"id": str(question.id), "type": "short_answer", "answer": "2x"}]
+
+            first = await persist_quiz_submission(
+                db,
+                user_id=user_id,
+                question_set=question_set,
+                raw_questions=raw_questions,
+                answers={str(question.id): "2x"},
+                hash_answers={str(question.id): "2x"},
+                score=100,
+                passed=True,
+                grading={"questions": [{"id": question.id, "correct": True}]},
+                question_attempt_rows=[
+                    QuestionAttempt(
+                        quiz_attempt_id=0,
+                        question_id=question.id,
+                        user_id=user_id,
+                        subject_id=subject.id,
+                        selected_answer_json={"value": "2x"},
+                        correct_answer_json={"value": "2x"},
+                        is_correct=True,
+                        score_awarded=1,
+                        max_score=1,
+                        grading_json={"correct": True},
+                    )
+                ],
+            )
+            assert first.xp_earned == (
+                XP_REWARDS["quiz_correct"] + XP_REWARDS["quiz_pass"] + XP_REWARDS["quiz_perfect"]
+            )
+            await db.commit()
+
+            question_set = await db.get(QuestionSet, question_set.id)
+            assert question_set is not None
+            wrong = await persist_quiz_submission(
+                db,
+                user_id=user_id,
+                question_set=question_set,
+                raw_questions=raw_questions,
+                answers={str(question.id): "x"},
+                hash_answers={str(question.id): "x"},
+                score=0,
+                passed=False,
+                grading={"questions": [{"id": question.id, "correct": False}]},
+                question_attempt_rows=[
+                    QuestionAttempt(
+                        quiz_attempt_id=0,
+                        question_id=question.id,
+                        user_id=user_id,
+                        subject_id=subject.id,
+                        selected_answer_json={"value": "x"},
+                        correct_answer_json={"value": "2x"},
+                        is_correct=False,
+                        score_awarded=0,
+                        max_score=1,
+                        grading_json={"correct": False},
+                    )
+                ],
+            )
+            assert wrong.xp_earned == 0
+            await db.commit()
+
+            question_set = await db.get(QuestionSet, question_set.id)
+            assert question_set is not None
+            corrected = await persist_quiz_submission(
+                db,
+                user_id=user_id,
+                question_set=question_set,
+                raw_questions=raw_questions,
+                answers={str(question.id): "2x again"},
+                hash_answers={str(question.id): "2x again"},
+                score=100,
+                passed=True,
+                grading={"questions": [{"id": question.id, "correct": True}]},
+                question_attempt_rows=[
+                    QuestionAttempt(
+                        quiz_attempt_id=0,
+                        question_id=question.id,
+                        user_id=user_id,
+                        subject_id=subject.id,
+                        selected_answer_json={"value": "2x again"},
+                        correct_answer_json={"value": "2x"},
+                        is_correct=True,
+                        score_awarded=1,
+                        max_score=1,
+                        grading_json={"correct": True},
+                    )
+                ],
+            )
+            await db.commit()
+            transactions = (
+                await db.execute(
+                    select(XPTransaction.reason, XPTransaction.amount)
+                    .where(
+                        XPTransaction.user_id == user_id,
+                        XPTransaction.question_id == question.id,
+                    )
+                    .order_by(XPTransaction.reason)
+                )
+            ).all()
+            return corrected.xp_earned, transactions
+
+    xp_earned, transactions = run_db(_exercise())
+
+    assert xp_earned == XP_REWARDS["mistake_corrected"]
+    assert transactions == [
+        ("mistake_corrected", XP_REWARDS["mistake_corrected"]),
+        ("quiz_correct", XP_REWARDS["quiz_correct"]),
+    ]
 
 
 def test_mistake_notebook_migration_and_model_are_declared():

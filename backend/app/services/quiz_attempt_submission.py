@@ -116,7 +116,7 @@ async def persist_quiz_submission(
     await db.flush()
 
     inserted_question_attempts = await _insert_question_attempts(db, attempt.id, question_attempt_rows)
-    await update_mistake_notebook_from_question_attempts(
+    corrected_mistake_question_ids = await update_mistake_notebook_from_question_attempts(
         db,
         user_id=user_id,
         question_set=question_set,
@@ -130,6 +130,7 @@ async def persist_quiz_submission(
         attempt=attempt,
         inserted_question_attempts=inserted_question_attempts,
         expected_question_count=len(raw_questions),
+        corrected_mistake_question_ids=corrected_mistake_question_ids,
         score=score,
         passed=passed,
     )
@@ -205,6 +206,7 @@ async def _award_quiz_xp(
     attempt: QuizAttempt,
     inserted_question_attempts: list[dict],
     expected_question_count: int,
+    corrected_mistake_question_ids: list[int],
     score: int,
     passed: bool,
 ) -> int:
@@ -225,26 +227,39 @@ async def _award_quiz_xp(
             continue
         question_id = question_attempt["question_id"]
         prior = prior_correctness.get(question_id, {"correct": False, "incorrect": False})
-        if prior["correct"]:
-            continue
-        reason = "quiz_retry_correct" if prior["incorrect"] else "quiz_correct"
-        xp_awards.append(XPAward(
-            reason=reason,
-            description=(
-                f"Question {question_id} retry correct"
-                if reason == "quiz_retry_correct"
-                else f"Question {question_id} first correct"
-            ),
-            subject_id=question_attempt["subject_id"],
-            topic_id=question_attempt["topic_id"],
-            topic_section_id=question_attempt["topic_section_id"],
-            topic_item_id=question_attempt["topic_item_id"],
-            question_set_id=question_set.id,
-            question_id=question_id,
-            quiz_attempt_id=attempt.id,
-            question_attempt_id=question_attempt["id"],
-            idempotency_key=f"{reason}:user:{user_id}:question:{question_id}",
-        ))
+        if not prior["correct"]:
+            reason = "quiz_retry_correct" if prior["incorrect"] else "quiz_correct"
+            xp_awards.append(XPAward(
+                reason=reason,
+                description=(
+                    f"Question {question_id} retry correct"
+                    if reason == "quiz_retry_correct"
+                    else f"Question {question_id} first correct"
+                ),
+                subject_id=question_attempt["subject_id"],
+                topic_id=question_attempt["topic_id"],
+                topic_section_id=question_attempt["topic_section_id"],
+                topic_item_id=question_attempt["topic_item_id"],
+                question_set_id=question_set.id,
+                question_id=question_id,
+                quiz_attempt_id=attempt.id,
+                question_attempt_id=question_attempt["id"],
+                idempotency_key=f"{reason}:user:{user_id}:question:{question_id}",
+            ))
+        if question_id in corrected_mistake_question_ids:
+            xp_awards.append(XPAward(
+                reason="mistake_corrected",
+                description=f"Mistake question {question_id} corrected",
+                subject_id=question_attempt["subject_id"],
+                topic_id=question_attempt["topic_id"],
+                topic_section_id=question_attempt["topic_section_id"],
+                topic_item_id=question_attempt["topic_item_id"],
+                question_set_id=question_set.id,
+                question_id=question_id,
+                quiz_attempt_id=attempt.id,
+                question_attempt_id=question_attempt["id"],
+                idempotency_key=f"mistake_corrected:user:{user_id}:question:{question_id}",
+            ))
 
     if passed:
         xp_awards.append(XPAward(

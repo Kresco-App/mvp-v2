@@ -16,6 +16,7 @@ XP_REWARDS: dict[str, int] = {
     "video_complete": 10,
     "quiz_correct": 5,
     "quiz_retry_correct": 3,
+    "mistake_corrected": 10,
     "lab_complete": 50,
     "exam_complete": 100,
     "quiz_pass": 20,
@@ -38,6 +39,7 @@ XP_DAILY_CAPS: dict[str, int] = {
 XP_DAILY_CAP_CATEGORY_BY_REASON: dict[str, str] = {
     "quiz_correct": "quiz_correct",
     "quiz_retry_correct": "quiz_correct",
+    "mistake_corrected": "quiz_correct",
     "quiz_pass": "quiz_pass",
     "quiz_perfect": "quiz_pass",
     "exercise_mastered": "exercise",
