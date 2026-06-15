@@ -10,9 +10,37 @@ from app.models.admin_audit import AdminAuditLog
 from app.models.gamification import DailyQuest, UserXP, XPDailyCapUsage, XPTransaction
 from app.models.users import User, UserPermission
 from app.services.auth import create_token
-from app.services.xp import XPAward, XP_DAILY_CAPS, award_xp, award_xp_bulk, generate_daily_quests
+from app.services.xp import (
+    DAILY_QUEST_TEMPLATES,
+    QUEST_PROGRESS_BY_REASON,
+    XPAward,
+    XP_DAILY_CAPS,
+    award_xp,
+    award_xp_bulk,
+    award_daily_login_xp,
+    generate_daily_quests,
+)
+
+EXPECTED_DAILY_QUEST_TYPES = {
+    "complete_lesson",
+    "pass_quiz",
+    "earn_xp",
+    "master_exercise",
+    "complete_exam_problem",
+    "correct_mistake",
+    "daily_login",
+    "continue_streak",
+}
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_daily_quest_reason_mappings_have_templates():
+    assert set(QUEST_PROGRESS_BY_REASON.values()) <= EXPECTED_DAILY_QUEST_TYPES
+
+
+def test_daily_quest_templates_match_expanded_quest_contract():
+    assert {template["quest_type"] for template in DAILY_QUEST_TEMPLATES} == EXPECTED_DAILY_QUEST_TYPES
 
 
 async def _seed_xp_user(email: str) -> int:
@@ -138,7 +166,7 @@ def test_generate_daily_quests_uses_explicit_quest_date(app_client, run_db):
 
     quests = run_db(_exercise())
 
-    assert len(quests) == 3
+    assert {quest.quest_type for quest in quests} == EXPECTED_DAILY_QUEST_TYPES
     assert {quest.date for quest in quests} == {quest_date}
 
 
@@ -164,8 +192,8 @@ def test_generate_daily_quests_backfills_missing_templates(app_client, run_db):
             await db.commit()
             return {quest.quest_type for quest in quests}
 
-    assert run_db(_seed_partial_and_generate()) == {"complete_lesson", "pass_quiz", "earn_xp"}
-    assert run_db(_daily_quest_count(user_id)) == 3
+    assert run_db(_seed_partial_and_generate()) == EXPECTED_DAILY_QUEST_TYPES
+    assert run_db(_daily_quest_count(user_id)) == len(EXPECTED_DAILY_QUEST_TYPES)
 
 
 def test_award_xp_updates_quests_for_explicit_active_date(app_client, run_db):
@@ -193,6 +221,11 @@ def test_award_xp_updates_quests_for_explicit_active_date(app_client, run_db):
         "complete_lesson": 0,
         "pass_quiz": 1,
         "earn_xp": 20,
+        "master_exercise": 0,
+        "complete_exam_problem": 0,
+        "correct_mistake": 0,
+        "daily_login": 0,
+        "continue_streak": 0,
     }
 
 
@@ -220,6 +253,11 @@ def test_award_xp_generates_missing_daily_quests_before_progress_update(app_clie
         "complete_lesson": 0,
         "pass_quiz": 1,
         "earn_xp": 20,
+        "master_exercise": 0,
+        "complete_exam_problem": 0,
+        "correct_mistake": 0,
+        "daily_login": 0,
+        "continue_streak": 0,
     }
 
 
@@ -267,9 +305,100 @@ def test_bulk_award_xp_batches_transactions_and_quest_updates(app_client, query_
         "complete_lesson": 0,
         "pass_quiz": 1,
         "earn_xp": 30,
+        "master_exercise": 0,
+        "complete_exam_problem": 0,
+        "correct_mistake": 0,
+        "daily_login": 0,
+        "continue_streak": 0,
     }
     assert run_db(_exercise()) == 0
     assert run_db(_assert_state()) == (30, 3)
+
+
+def test_expanded_daily_quests_track_learning_action_xp_reasons(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-expanded-quests@example.com"))
+    active_date = date(2031, 2, 23)
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await generate_daily_quests(user_id, db, quest_date=active_date)
+            amount = await award_xp_bulk(
+                user_id,
+                [
+                    XPAward(
+                        "exercise_mastered",
+                        "Exercise mastered",
+                        idempotency_key=f"expanded-quests:user:{user_id}:exercise",
+                        amount_override=5,
+                    ),
+                    XPAward(
+                        "exam_complete",
+                        "Exam completed",
+                        idempotency_key=f"expanded-quests:user:{user_id}:exam",
+                    ),
+                    XPAward(
+                        "mistake_corrected",
+                        "Mistake corrected",
+                        idempotency_key=f"expanded-quests:user:{user_id}:mistake",
+                    ),
+                ],
+                db,
+                active_date=active_date,
+            )
+            await db.commit()
+            return amount
+
+    assert run_db(_exercise()) == 115
+    assert run_db(_daily_quest_progress(user_id, active_date)) == {
+        "complete_lesson": 0,
+        "pass_quiz": 0,
+        "earn_xp": 115,
+        "master_exercise": 1,
+        "complete_exam_problem": 1,
+        "correct_mistake": 1,
+        "daily_login": 0,
+        "continue_streak": 0,
+    }
+
+
+def test_expanded_daily_quests_track_login_and_streak_xp(app_client, run_db):
+    del app_client
+    user_id = run_db(_seed_xp_user("xp-login-streak-quests@example.com"))
+    first_day = date(2031, 2, 24)
+    second_day = date(2031, 2, 25)
+
+    async def _award_login(active_date: date):
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await generate_daily_quests(user_id, db, quest_date=active_date)
+            amount = await award_daily_login_xp(db, user_id=user_id, active_date=active_date)
+            await db.commit()
+            return amount
+
+    assert run_db(_award_login(first_day)) == 10
+    assert run_db(_daily_quest_progress(user_id, first_day)) == {
+        "complete_lesson": 0,
+        "pass_quiz": 0,
+        "earn_xp": 10,
+        "master_exercise": 0,
+        "complete_exam_problem": 0,
+        "correct_mistake": 0,
+        "daily_login": 1,
+        "continue_streak": 0,
+    }
+    assert run_db(_award_login(second_day)) == 35
+    assert run_db(_daily_quest_progress(user_id, second_day)) == {
+        "complete_lesson": 0,
+        "pass_quiz": 0,
+        "earn_xp": 35,
+        "master_exercise": 0,
+        "complete_exam_problem": 0,
+        "correct_mistake": 0,
+        "daily_login": 1,
+        "continue_streak": 1,
+    }
 
 
 def test_award_xp_updates_daily_streak_once_per_active_day(app_client, run_db):
@@ -915,17 +1044,24 @@ def test_admin_xp_audit_explains_totals_adjustments_caps_and_mismatches(
     assert len(mismatch["transactions"]) == 2
 
 
-def test_generate_daily_quests_does_not_rollback_caller_transaction_on_flush_error(app_client, monkeypatch, run_db):
+def test_generate_daily_quests_does_not_rollback_caller_transaction_on_insert_error(app_client, monkeypatch, run_db):
     del app_client
     user_id = run_db(_seed_xp_user("xp-no-helper-rollback@example.com"))
 
-    async def failing_flush(self, *args, **kwargs):
-        raise RuntimeError("flush failed")
+    original_execute = AsyncSession.execute
+    execute_calls = 0
+
+    async def failing_insert(self, statement, *args, **kwargs):
+        nonlocal execute_calls
+        execute_calls += 1
+        if execute_calls == 2:
+            raise RuntimeError("insert failed")
+        return await original_execute(self, statement, *args, **kwargs)
 
     async def forbidden_rollback(self):
         raise AssertionError("generate_daily_quests must not rollback caller transaction")
 
-    monkeypatch.setattr(AsyncSession, "flush", failing_flush)
+    monkeypatch.setattr(AsyncSession, "execute", failing_insert)
     monkeypatch.setattr(AsyncSession, "rollback", forbidden_rollback)
 
     async def _exercise():
@@ -933,7 +1069,7 @@ def test_generate_daily_quests_does_not_rollback_caller_transaction_on_flush_err
         async with session_factory() as db:
             await generate_daily_quests(user_id, db, quest_date=date(2031, 3, 10))
 
-    with pytest.raises(RuntimeError, match="flush failed"):
+    with pytest.raises(RuntimeError, match="insert failed"):
         run_db(_exercise())
 
 
@@ -946,8 +1082,8 @@ def test_daily_quests_route_persists_generated_quests(app_client, auth_token, ru
     )
 
     assert response.status_code == 200
-    assert len(response.json()) == 3
-    assert run_db(_daily_quest_count(user_id)) == 3
+    assert len(response.json()) == len(EXPECTED_DAILY_QUEST_TYPES)
+    assert run_db(_daily_quest_count(user_id)) == len(EXPECTED_DAILY_QUEST_TYPES)
 
 
 def test_xp_history_supports_bounded_pagination(app_client, auth_token, run_db):

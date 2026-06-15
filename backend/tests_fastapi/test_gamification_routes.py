@@ -12,6 +12,18 @@ import app.scheduled as scheduled
 from app.database import get_session_factory
 from app.models.gamification import DailyQuest, LeaderboardRank, UserBadge, UserStats, UserXP, XPTransaction
 from app.models.users import User
+from app.services.xp import DAILY_QUEST_TEMPLATES, XP_DAILY_CAPS
+
+EXPECTED_DAILY_QUEST_TYPES = {
+    "complete_lesson",
+    "pass_quiz",
+    "earn_xp",
+    "master_exercise",
+    "complete_exam_problem",
+    "correct_mistake",
+    "daily_login",
+    "continue_streak",
+}
 
 
 def test_progress_stats_returns_topic_item_completion_projection(app_client, auth_token, run_db):
@@ -413,6 +425,59 @@ def test_daily_quest_claim_is_single_use(app_client, auth_token, run_db):
     assert second.status_code == 400
 
 
+def test_daily_quest_claim_rejects_when_cap_cannot_pay_full_reward(
+    app_client,
+    auth_token,
+    run_db,
+    monkeypatch,
+):
+    monkeypatch.setitem(XP_DAILY_CAPS, "daily_quest", 10)
+    token, user_id = auth_token(email="quest-claim-capped@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(UserXP(user_id=user_id, total_xp=0, streak_days=0))
+            quest = DailyQuest(
+                user_id=user_id,
+                quest_type="earn_xp",
+                title="Claimable quest",
+                target=1,
+                progress=1,
+                xp_reward=25,
+                date=datetime.now(timezone.utc).date(),
+            )
+            db.add(quest)
+            await db.commit()
+            await db.refresh(quest)
+            return quest.id
+
+    quest_id = run_db(_seed())
+    response = app_client.post(
+        f"/api/progress/daily-quests/{quest_id}/claim",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Daily quest XP cap reached"
+
+    async def _assert_state():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            quest = await db.get(DailyQuest, quest_id)
+            transactions = (
+                await db.execute(
+                    select(XPTransaction).where(
+                        XPTransaction.user_id == user_id,
+                        XPTransaction.reason == "daily_quest",
+                    )
+                )
+            ).scalars().all()
+            return quest.completed, transactions
+
+    assert run_db(_assert_state()) == (False, [])
+
+
 def test_daily_quest_claim_locks_quest_before_awarding_xp():
     source = inspect.getsource(daily_quests.claim_daily_quest_reward)
 
@@ -436,33 +501,8 @@ def test_daily_quest_get_paths_skip_commit_when_quests_already_exist(
             db.add(UserXP(user_id=user_id, total_xp=0, streak_days=0, updated_at=now))
             db.add(LeaderboardRank(user_id=user_id, total_xp=0, global_rank=1, refreshed_at=now))
             db.add_all([
-                DailyQuest(
-                    user_id=user_id,
-                    quest_type="complete_lesson",
-                    title="Complete lesson",
-                    target=1,
-                    progress=0,
-                    xp_reward=25,
-                    date=quest_date,
-                ),
-                DailyQuest(
-                    user_id=user_id,
-                    quest_type="pass_quiz",
-                    title="Pass quiz",
-                    target=1,
-                    progress=0,
-                    xp_reward=50,
-                    date=quest_date,
-                ),
-                DailyQuest(
-                    user_id=user_id,
-                    quest_type="earn_xp",
-                    title="Earn XP",
-                    target=100,
-                    progress=0,
-                    xp_reward=25,
-                    date=quest_date,
-                ),
+                DailyQuest(user_id=user_id, date=quest_date, **template)
+                for template in DAILY_QUEST_TEMPLATES
             ])
             await db.commit()
 
@@ -485,7 +525,8 @@ def test_daily_quest_get_paths_skip_commit_when_quests_already_exist(
             summary = await gamification_read_models.build_sidebar_summary(db, user=user, settings=test_settings)
             return len(quests), len(summary.quests)
 
-    assert run_db(_read_existing_quests()) == (3, 3)
+    expected_count = len(EXPECTED_DAILY_QUEST_TYPES)
+    assert run_db(_read_existing_quests()) == (expected_count, expected_count)
     assert commit_calls == []
 
 

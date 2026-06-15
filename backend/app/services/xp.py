@@ -61,12 +61,22 @@ QUEST_PROGRESS_BY_REASON: dict[str, str] = {
     "video_complete": "complete_lesson",
     "lesson_complete": "complete_lesson",
     "quiz_pass": "pass_quiz",
+    "exercise_mastered": "master_exercise",
+    "exam_complete": "complete_exam_problem",
+    "mistake_corrected": "correct_mistake",
+    "daily_login": "daily_login",
+    "streak_bonus": "continue_streak",
 }
 
 DAILY_QUEST_TEMPLATES = [
     {"quest_type": "complete_lesson", "title": "Completer 1 leçon", "target": 1, "xp_reward": 25},
     {"quest_type": "pass_quiz", "title": "Réussir 1 quiz", "target": 1, "xp_reward": 50},
     {"quest_type": "earn_xp", "title": "Gagner 100 XP aujourd'hui", "target": 100, "xp_reward": 25},
+    {"quest_type": "master_exercise", "title": "Maitriser 1 exercice", "target": 1, "xp_reward": 25},
+    {"quest_type": "complete_exam_problem", "title": "Terminer 1 capsule Bac", "target": 1, "xp_reward": 50},
+    {"quest_type": "correct_mistake", "title": "Corriger 1 erreur", "target": 1, "xp_reward": 35},
+    {"quest_type": "daily_login", "title": "Se connecter aujourd'hui", "target": 1, "xp_reward": 15},
+    {"quest_type": "continue_streak", "title": "Continuer sa serie", "target": 1, "xp_reward": 25},
 ]
 
 
@@ -103,6 +113,30 @@ def xp_daily_cap_category(reason: str) -> str:
 
 def xp_daily_cap_limit(category: str) -> int:
     return XP_DAILY_CAPS.get(category, XP_DAILY_CAPS["other"])
+
+
+async def has_xp_daily_cap_capacity(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    reason: str,
+    amount_override: Optional[int] = None,
+    active_date: Optional[date] = None,
+) -> bool:
+    requested = _resolve_award_amount(reason, amount_override)
+    if requested == 0:
+        return False
+    cap_date = active_date or _current_utc_date()
+    category = xp_daily_cap_category(reason)
+    usage_by_category = await _get_or_create_daily_cap_usage_rows(
+        db,
+        user_id=user_id,
+        cap_date=cap_date,
+        categories={category},
+    )
+    usage = usage_by_category[category]
+    remaining = max(0, xp_daily_cap_limit(category) - int(usage.amount_awarded or 0))
+    return remaining >= requested
 
 
 def _resolve_award_amount(reason: str, amount_override: Optional[int]) -> int:
@@ -691,7 +725,28 @@ async def generate_daily_quests_with_status(
     if not missing_templates:
         return existing, False
 
-    quests = [DailyQuest(user_id=user_id, date=today, **template) for template in missing_templates]
+    rows = [
+        {"user_id": user_id, "date": today, **template}
+        for template in missing_templates
+    ]
+    dialect_name = db.get_bind().dialect.name
+    insert_factory = sqlite_insert if dialect_name == "sqlite" else postgresql_insert if dialect_name == "postgresql" else None
+    if insert_factory is not None:
+        insert_result = await db.execute(
+            insert_factory(DailyQuest)
+            .values(rows)
+            .on_conflict_do_nothing(
+                index_elements=["user_id", "quest_type", "date"],
+            )
+            .returning(DailyQuest.id)
+        )
+        inserted_ids = insert_result.scalars().all()
+        result = await db.execute(
+            select(DailyQuest).where(DailyQuest.user_id == user_id, DailyQuest.date == today)
+        )
+        return result.scalars().all(), bool(inserted_ids)
+
+    quests = [DailyQuest(**row) for row in rows]
     try:
         async with db.begin_nested():
             db.add_all(quests)

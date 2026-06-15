@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import DailyQuest
 from app.models.users import User
-from app.services.xp import award_xp, generate_daily_quests_with_status
+from app.services.xp import award_xp, generate_daily_quests_with_status, has_xp_daily_cap_capacity
 
 
 async def ensure_daily_quests_for_user(
@@ -39,6 +39,14 @@ async def claim_daily_quest_reward(
         raise HTTPException(status_code=410, detail="Quest has expired")
     if quest.progress < quest.target:
         raise HTTPException(status_code=400, detail="Quest not yet completed")
+    if not await has_xp_daily_cap_capacity(
+        db,
+        user_id=user.id,
+        reason="daily_quest",
+        amount_override=quest.xp_reward,
+        active_date=today,
+    ):
+        raise HTTPException(status_code=409, detail="Daily quest XP cap reached")
 
     claim_result = await db.execute(
         update(DailyQuest)

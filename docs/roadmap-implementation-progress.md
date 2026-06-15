@@ -3138,6 +3138,76 @@ Verification completed:
   could return stale unearned badges. Fixed by reloading inventory after insert
   conflicts and added a regression for that branch.
 
+### Slice 55: Expanded Daily Quest Templates
+
+Status: implemented.
+
+Reason for this slice:
+
+- The gamification roadmap calls for subject, streak, exam-prep, mistake-review,
+  and weak-area quest expansion.
+- The existing daily quest engine only generated lesson, quiz, and earn-XP
+  quests, even though trusted backend XP reasons already exist for exercise
+  mastery, exam completion, mistake correction, login, and streak continuation.
+- This is backend-first and UI-light: it expands the trusted quest contract
+  without adding frontend-authored quest state.
+
+Implemented scope:
+
+- Added daily quest templates for mastered exercise, completed exam capsule,
+  corrected mistake, daily login, and continued streak. Status: implemented.
+- Mapped existing trusted XP reasons to those quest types:
+  `exercise_mastered`, `exam_complete`, `mistake_corrected`, `daily_login`,
+  and `streak_bonus`. Status: implemented.
+- Kept `earn_xp` as the aggregate progress quest for all positive XP awards.
+  Status: implemented.
+- Changed missing daily quest generation on SQLite/Postgres to a conflict-safe
+  bulk insert, so adding templates does not create one insert query per quest.
+  Status: implemented.
+- Added a locked daily quest cap preflight before reward claims, so a quest is
+  not marked completed when the remaining daily quest cap cannot pay its full
+  advertised reward. Status: implemented.
+
+Decisions:
+
+- Decision: defer a lab-specific quest for now. `lab_complete` remains covered
+  by `earn_xp`; a dedicated lab quest should wait until the lab/product flow is
+  clearer.
+- Decision: do not add quiz-per-question quest types yet. `pass_quiz` and
+  `earn_xp` already cover quiz activity without encouraging per-question XP
+  farming.
+- Decision: keep daily quest rewards subject to the existing daily quest XP cap,
+  but reject a claim with `409` when the remaining cap cannot pay the full
+  reward. The quest remains unclaimed instead of being completed for partial or
+  zero XP.
+
+Verification plan:
+
+- Add tests proving expanded quest templates are generated and backfilled.
+  Status: implemented.
+- Add tests proving exercise mastery, exam completion, mistake correction,
+  login, and streak XP reasons update the right quest progress. Status:
+  implemented.
+- Add a claim regression proving a capped-out daily quest reward is rejected
+  without completing the quest or inserting a partial XP transaction. Status:
+  implemented.
+- Add a consistency test proving every XP reason-to-quest mapping has a
+  matching daily quest template. Status: implemented.
+- Keep daily quest route/read tests template-count driven instead of hardcoding
+  three quests. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_gamification_routes.py tests_fastapi/test_xp_service.py tests_fastapi/test_daily_login_xp.py tests_fastapi/test_migrations.py tests_fastapi/test_data_integrity_audit.py -q`
+  passed with 60 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0072 (head)`.
+- Independent review found two real risks: capped daily quest claims could have
+  completed for partial/zero XP, and bulk generation could report `created=True`
+  after a concurrent insert created the missing rows. Fixed both with a locked
+  cap-capacity preflight plus `RETURNING`-based inserted-row counting.
+- Re-review found no blocking issues.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
