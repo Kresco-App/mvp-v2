@@ -1767,7 +1767,7 @@ Review notes addressed:
 
 ### Slice 33: Exam Part Revision Filters
 
-Status: in progress.
+Status: implemented.
 
 Reason for this slice:
 
@@ -1812,7 +1812,7 @@ Review notes addressed:
 
 ### Slice 34: Exercise Bank Comments
 
-Status: in progress.
+Status: implemented.
 
 Reason for this slice:
 
@@ -1849,10 +1849,74 @@ Verification plan:
 - Run focused Exercise Bank/comment tests, migration tests, compile checks, and
   strong review before committing. Status: implemented.
 
+### Slice 35: Minimal Finance Backoffice
+
+Status: implemented.
+
+Reason for this slice:
+
+- Payment rails for CMI, virement, CashPlus, and AshPlus exist, but finance
+  staff still need a launch-facing review surface outside emergency SQLAdmin.
+- The product TODO calls out finance review UI, reconciliation import UI,
+  mismatch handling, and auditability as remaining launch payment work.
+
+Planned frontend scope:
+
+- Add a staff-only `/admin/finance` page under the existing admin auth boundary.
+  Status: implemented.
+- List manual payment transactions by status using the provider-neutral
+  `/api/payments/manual-payment-requests` endpoint. Status: implemented.
+- Allow staff to approve or reject pending manual payment requests with a
+  reason. Status: implemented.
+- Add compact single-row reconciliation and normalized JSON import controls for
+  virement, CashPlus, and AshPlus. Status: implemented.
+- Link the finance page from the existing admin dashboard. Status: implemented.
+
+Decisions:
+
+- Decision: keep this slice in `/admin/finance` rather than creating the full
+  `/backoffice/*` zone now. The current app already has a staff-protected admin
+  shell; the broader role/permission split remains a later backoffice slice.
+- Decision: use the existing provider-neutral payment endpoints only. Do not add
+  new Stripe UI or route new payment work through Stripe.
+- Decision: show `user_id` rather than user email/name because the current
+  manual payment response does not expose user profile data. A richer finance
+  queue can add a backend projection later.
+- Decision: JSON import accepts normalized rows only. Bank/CashPlus/AshPlus file
+  parsing remains outside v1 until provider export formats are contracted.
+
+Verification plan:
+
+- Add typed frontend client tests for list, approve, reject, reconciliation, and
+  import payloads. Status: implemented.
+- Add jsdom page tests for queue rendering, approval action, single
+  reconciliation, and import summary. Status: implemented.
+- Run targeted finance page/client tests plus frontend typecheck/lint before
+  committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -k "manual_payment or reconciliation" -q`
+  passed: 16 passed, 65 deselected.
+- `npm test -- tests/adminFinance.test.ts tests/adminFinancePage.test.tsx`
+  passed: 8 tests.
+- `npm run typecheck` passed.
+- `npm run lint` passed.
+- `npm run audit:csp-styles` passed with zero inline style debt.
+- Playwright smoke opened `/admin/finance` behind the staff guard with mocked
+  profile and payment APIs, verified a manual payment row, and refreshed
+  `frontend/artifacts/admin-finance-smoke.png`.
+
+Review notes addressed:
+
+- Fixed filtered queue mutation behavior so approved, rejected, or reconciled
+  transactions only remain visible when their returned status matches the
+  active status filter.
+- Fixed finance review reasons to be stored per transaction id instead of one
+  shared input value across all pending payment cards.
+
 ## Open Risks
 
-- The worktree contains a large accepted baseline. New commits must keep the
-  scope clear so rollback is possible.
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
   must avoid a half-migration where both old and new flows grant access
   inconsistently.

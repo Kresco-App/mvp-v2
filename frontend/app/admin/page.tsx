@@ -191,6 +191,7 @@ export default function AdminDashboard() {
                   ['Exam bank', `${root}/exam/list`, GraduationCap],
                   ['Users', `${root}/user/list`, Users],
                   ['Access', `${root}/user-subject-entitlement/list`, KeyRound],
+                  ['Finance', '/admin/finance', CircleDollarSign],
                 ] as [string, string, any][]).map(([label, href, Icon]) => (
                   <a key={String(label)} href={String(href)} className="flex items-center justify-between rounded-xl px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/50 hover:text-white">
                     <span className="flex items-center gap-2"><Icon size={15} /> {label}</span>
