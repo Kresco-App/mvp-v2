@@ -2,7 +2,7 @@ from datetime import datetime
 
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -27,6 +27,11 @@ PAYMENT_STATUS_EXPIRED = "expired"
 PAYMENT_STATUS_REFUNDED = "refunded"
 PAYMENT_STATUS_CANCELLED = "cancelled"
 PAYMENT_STATUS_MISMATCH = "mismatch"
+
+REFUND_REQUEST_STATUS_REQUESTED = "requested"
+REFUND_REQUEST_STATUS_APPROVED_PENDING_EXECUTION = "approved_pending_execution"
+REFUND_REQUEST_STATUS_REJECTED = "rejected"
+REFUND_REQUEST_STATUS_CANCELLED = "cancelled"
 
 
 class StripeWebhookEvent(Base):
@@ -331,3 +336,40 @@ class ManualAccessGrant(Base):
     created_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RefundRequest(Base):
+    __tablename__ = "refund_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('requested', 'approved_pending_execution', 'rejected', 'cancelled')",
+            name="ck_refund_requests_status",
+        ),
+        CheckConstraint("currency = 'MAD'", name="ck_refund_requests_currency"),
+        Index("ix_refund_requests_status_created", "status", "created_at"),
+        Index("ix_refund_requests_transaction_created", "transaction_id", "created_at"),
+        Index("ix_refund_requests_user_created", "user_id", "created_at"),
+        Index(
+            "ux_refund_requests_open_transaction",
+            "transaction_id",
+            unique=True,
+            postgresql_where=text("status IN ('requested', 'approved_pending_execution')"),
+            sqlite_where=text("status IN ('requested', 'approved_pending_execution')"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transaction_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("payment_transactions.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    rail: Mapped[str] = mapped_column(String(40), nullable=False)
+    amount_centimes: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MAD", server_default="MAD")
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default=REFUND_REQUEST_STATUS_REQUESTED, server_default=REFUND_REQUEST_STATUS_REQUESTED)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    requested_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    reviewed_by_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    review_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

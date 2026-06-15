@@ -310,6 +310,50 @@ class ManualAccessGrantOut(BaseModel):
     created_at: datetime
 
 
+class RefundRequestCreateIn(BaseModel):
+    transaction_id: int = Field(gt=0)
+    amount_centimes: int = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=255)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 3:
+            raise ValueError("reason is required")
+        return normalized
+
+
+class RefundRequestReviewIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=255)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 3:
+            raise ValueError("reason is required")
+        return normalized
+
+
+class RefundRequestOut(BaseModel):
+    id: int
+    transaction_id: int | None = None
+    user_id: int
+    provider: str
+    payment_method: str
+    amount_centimes: int
+    currency: str
+    status: str
+    reason: str
+    requested_by_user_id: int
+    reviewed_by_user_id: int | None = None
+    review_reason: str | None = None
+    metadata: dict[str, Any]
+    created_at: datetime
+    reviewed_at: datetime | None = None
+
+
 class FinanceLedgerEntryOut(BaseModel):
     id: int
     transaction_id: int | None = None

@@ -26,6 +26,9 @@ from app.schemas.payments import (
     PaymentReconciliationImportIn,
     PaymentReconciliationImportOut,
     PaymentReconciliationImportSummaryOut,
+    RefundRequestCreateIn,
+    RefundRequestOut,
+    RefundRequestReviewIn,
     VerifyIn,
     VerifyOut,
 )
@@ -45,6 +48,12 @@ from app.services.payment_gateway import (
 )
 from app.services.finance_exports import create_finance_export, list_finance_exports
 from app.services.manual_access_grants import create_manual_access_grant, list_manual_access_grants
+from app.services.refund_requests import (
+    approve_refund_request,
+    create_refund_request,
+    list_refund_requests,
+    reject_refund_request,
+)
 from app.services.payment_lifecycle import (
     create_checkout_state,
     process_stripe_webhook_event,
@@ -59,6 +68,7 @@ require_finance_read = require_staff_permission("finance:read")
 require_finance_payment_review = require_staff_permission("finance:payment_review")
 require_finance_export = require_staff_permission("finance:export")
 require_finance_manual_grant = require_staff_permission("finance:manual_grant")
+require_finance_refund = require_staff_permission("finance:refund")
 
 
 @router.post("/create-checkout-session", response_model=CheckoutOut)
@@ -192,6 +202,62 @@ async def create_manual_access_grant_record(
 ):
     del request
     return await create_manual_access_grant(db, actor=staff, request=grant_request)
+
+
+@router.get("/finance/refund-requests", response_model=list[RefundRequestOut])
+async def list_refund_request_records(
+    status: str | None = None,
+    transaction_id: int | None = None,
+    user_id: int | None = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_finance_read),
+):
+    return await list_refund_requests(
+        db,
+        status=status,
+        transaction_id=transaction_id,
+        user_id=user_id,
+        limit=limit,
+    )
+
+
+@router.post("/finance/refund-requests", response_model=RefundRequestOut)
+@limiter.limit("10/minute")
+async def create_refund_request_record(
+    request: Request,
+    refund_request: RefundRequestCreateIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_finance_refund),
+):
+    del request
+    return await create_refund_request(db, actor=staff, request=refund_request)
+
+
+@router.post("/finance/refund-requests/{refund_request_id}/approve", response_model=RefundRequestOut)
+@limiter.limit("10/minute")
+async def approve_refund_request_record(
+    request: Request,
+    refund_request_id: int,
+    review: RefundRequestReviewIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_finance_refund),
+):
+    del request
+    return await approve_refund_request(db, actor=staff, refund_request_id=refund_request_id, review=review)
+
+
+@router.post("/finance/refund-requests/{refund_request_id}/reject", response_model=RefundRequestOut)
+@limiter.limit("10/minute")
+async def reject_refund_request_record(
+    request: Request,
+    refund_request_id: int,
+    review: RefundRequestReviewIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_finance_refund),
+):
+    del request
+    return await reject_refund_request(db, actor=staff, refund_request_id=refund_request_id, review=review)
 
 
 @router.post("/manual-payment-requests/reconcile", response_model=ManualPaymentTransactionOut)

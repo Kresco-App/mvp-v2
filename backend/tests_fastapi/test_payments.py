@@ -25,6 +25,9 @@ from app.models.payments import (
     PAYMENT_STATUS_PAID,
     PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
     PAYMENT_STATUS_PENDING_PROVIDER,
+    REFUND_REQUEST_STATUS_APPROVED_PENDING_EXECUTION,
+    REFUND_REQUEST_STATUS_REJECTED,
+    REFUND_REQUEST_STATUS_REQUESTED,
     FinanceExport,
     FinanceLedgerEntry,
     ManualAccessGrant,
@@ -34,6 +37,7 @@ from app.models.payments import (
     PaymentTransaction,
     PaymentTransactionProof,
     PaymentVerificationAttempt,
+    RefundRequest,
     StripeWebhookEvent,
 )
 from app.models.users import User, UserPermission, UserSubjectEntitlement
@@ -211,6 +215,30 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert manual_access_indexes["ix_manual_access_grants_subject_created"] == ("subject_id", "created_at")
     assert manual_access_indexes["ix_manual_access_grants_actor_created"] == ("created_by_user_id", "created_at")
 
+    refund_request_columns = RefundRequest.__table__.columns
+    refund_request_indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in RefundRequest.__table__.indexes
+    }
+    refund_request_constraints = {constraint.name for constraint in RefundRequest.__table__.constraints}
+    assert refund_request_columns["transaction_id"].nullable is True
+    assert refund_request_columns["user_id"].nullable is False
+    assert refund_request_columns["amount_centimes"].nullable is False
+    assert refund_request_columns["currency"].server_default.arg == "MAD"
+    assert refund_request_columns["status"].server_default.arg == REFUND_REQUEST_STATUS_REQUESTED
+    assert refund_request_columns["requested_by_user_id"].nullable is False
+    assert refund_request_columns["reviewed_by_user_id"].nullable is True
+    assert refund_request_columns["reviewed_at"].nullable is True
+    assert "ck_refund_requests_status" in refund_request_constraints
+    assert "ck_refund_requests_currency" in refund_request_constraints
+    assert refund_request_indexes["ix_refund_requests_status_created"] == ("status", "created_at")
+    assert refund_request_indexes["ix_refund_requests_transaction_created"] == ("transaction_id", "created_at")
+    assert refund_request_indexes["ix_refund_requests_user_created"] == ("user_id", "created_at")
+    assert refund_request_indexes["ux_refund_requests_open_transaction"] == ("transaction_id",)
+    assert next(
+        index for index in RefundRequest.__table__.indexes if index.name == "ux_refund_requests_open_transaction"
+    ).unique is True
+
     permission_columns = UserPermission.__table__.columns
     permission_indexes = {
         index.name: tuple(column.name for column in index.columns)
@@ -333,6 +361,16 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert "manual_access_grants" in manual_access_migration_text
     assert "ck_manual_access_grants_action" in manual_access_migration_text
     assert "ix_manual_access_grants_actor_created" in manual_access_migration_text
+
+    refund_request_migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0069_refund_requests.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0068"' in refund_request_migration_text
+    assert "refund_requests" in refund_request_migration_text
+    assert 'ondelete="SET NULL"' in refund_request_migration_text
+    assert "ck_refund_requests_status" in refund_request_migration_text
+    assert "ix_refund_requests_transaction_created" in refund_request_migration_text
+    assert "ux_refund_requests_open_transaction" in refund_request_migration_text
 
     permission_migration_text = (
         BACKEND_ROOT / "alembic" / "versions" / "0068_user_permissions.py"
@@ -571,6 +609,32 @@ async def _manual_access_grants() -> list[ManualAccessGrant]:
     async with session_factory() as db:
         result = await db.execute(select(ManualAccessGrant).order_by(ManualAccessGrant.id))
         return list(result.scalars().all())
+
+
+async def _refund_requests() -> list[RefundRequest]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(select(RefundRequest).order_by(RefundRequest.id))
+        return list(result.scalars().all())
+
+
+async def _refund_requests_for_transaction(transaction_id: int) -> list[RefundRequest]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(RefundRequest)
+            .where(RefundRequest.transaction_id == transaction_id)
+            .order_by(RefundRequest.id)
+        )
+        return list(result.scalars().all())
+
+
+async def _orphan_refund_request_transaction(refund_request_id: int) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        refund_request = await db.get(RefundRequest, refund_request_id)
+        refund_request.transaction_id = None
+        await db.commit()
 
 
 async def _access_context_subject_ids(user_id: int) -> set[int]:
@@ -1690,6 +1754,7 @@ def test_finance_audit_endpoints_require_finance_read_permission(app_client, aut
         "/api/payments/manual-payment-reconciliation-imports",
         "/api/payments/finance/exports",
         "/api/payments/finance/manual-access-grants",
+        "/api/payments/finance/refund-requests",
     ):
         student_response = app_client.get(path, headers={"Authorization": f"Bearer {student_token}"})
         unpermitted_staff_response = app_client.get(
@@ -1801,6 +1866,32 @@ def test_manual_access_write_requires_manual_grant_permission(app_client, run_db
     assert run_db(_manual_access_grants()) == []
 
 
+def test_refund_request_write_requires_refund_permission(app_client, auth_token, run_db, test_settings):
+    student_token, _user_id = auth_token(email="refund-permission-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    staff_id = run_db(_seed_staff_user("refund-permission-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": create_response.json()["id"],
+            "amount_centimes": 9900,
+            "reason": "Refund permission missing",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert create_response.status_code == 200
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Permission required: finance:refund"
+    assert run_db(_refund_requests_for_transaction(create_response.json()["id"])) == []
+
+
 def test_scoped_finance_permissions_allow_non_superuser_staff_actions(
     app_client,
     auth_token,
@@ -1822,9 +1913,11 @@ def test_scoped_finance_permissions_allow_non_superuser_staff_actions(
     review_staff_id = run_db(_seed_staff_user("finance-payment-reviewer@example.com"))
     export_staff_id = run_db(_seed_staff_user("finance-exporter@example.com"))
     manual_grant_staff_id = run_db(_seed_staff_user("finance-manual-granter@example.com"))
+    refund_staff_id = run_db(_seed_staff_user("finance-refund-staff@example.com"))
     run_db(_grant_user_permission(review_staff_id, "finance:payment_review"))
     run_db(_grant_user_permission(export_staff_id, "finance:export"))
     run_db(_grant_user_permission(manual_grant_staff_id, "finance:manual_grant"))
+    run_db(_grant_user_permission(refund_staff_id, "finance:refund"))
     export_seen = {}
 
     async def fake_create_finance_export(db, actor, request):
@@ -1869,6 +1962,15 @@ def test_scoped_finance_permissions_allow_non_superuser_staff_actions(
         },
         headers={"Authorization": f"Bearer {create_token(manual_grant_staff_id, test_settings)}"},
     )
+    refund_response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": transaction_id,
+            "amount_centimes": 9900,
+            "reason": "Scoped refund request",
+        },
+        headers={"Authorization": f"Bearer {create_token(refund_staff_id, test_settings)}"},
+    )
 
     assert create_response.status_code == 200
     assert approve_response.status_code == 200
@@ -1878,7 +1980,290 @@ def test_scoped_finance_permissions_allow_non_superuser_staff_actions(
     assert export_response.json()["created_by_user_id"] == export_staff_id
     assert grant_response.status_code == 200
     assert grant_response.json()["created_by_user_id"] == manual_grant_staff_id
+    assert refund_response.status_code == 200
+    assert refund_response.json()["requested_by_user_id"] == refund_staff_id
     assert run_db(_get_user(user_id)).is_pro is True
+
+
+def test_finance_refund_request_foundation_is_audited_without_executing_refund(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="refund-request-student@example.com")
+    subject_id = run_db(_seed_subjects("Refund Request Subject"))[0]
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("refund-request-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    run_db(_grant_user_permission(staff_id, "finance:payment_review"))
+    run_db(_grant_user_permission(staff_id, "finance:refund"))
+    run_db(_grant_user_permission(staff_id, "finance:read"))
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    approve_payment_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Paid before refund request"},
+        headers=headers,
+    )
+    run_db(
+        _grant_user_permission(
+            staff_id,
+            "finance:manual_grant",
+        )
+    )
+    manual_access_response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "grant",
+            "reason": "Independent manual access should survive refund request",
+            "ends_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        },
+        headers=headers,
+    )
+    refund_response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": transaction_id,
+            "amount_centimes": 4900,
+            "reason": "Parent requested partial refund",
+        },
+        headers=headers,
+    )
+    duplicate_response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": transaction_id,
+            "amount_centimes": 1000,
+            "reason": "Duplicate request",
+        },
+        headers=headers,
+    )
+    list_response = app_client.get(
+        f"/api/payments/finance/refund-requests?transaction_id={transaction_id}",
+        headers=headers,
+    )
+    approve_refund_response = app_client.post(
+        f"/api/payments/finance/refund-requests/{refund_response.json()['id']}/approve",
+        json={"reason": "Approved, provider execution pending"},
+        headers=headers,
+    )
+    second_review_response = app_client.post(
+        f"/api/payments/finance/refund-requests/{refund_response.json()['id']}/reject",
+        json={"reason": "Too late to reject"},
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert approve_payment_response.status_code == 200
+    assert manual_access_response.status_code == 200
+    assert refund_response.status_code == 200
+    refund = refund_response.json()
+    assert refund["transaction_id"] == transaction_id
+    assert refund["user_id"] == user_id
+    assert refund["amount_centimes"] == 4900
+    assert refund["status"] == REFUND_REQUEST_STATUS_REQUESTED
+    assert refund["requested_by_user_id"] == staff_id
+    assert refund["metadata"] == {"execution_deferred": True}
+    assert duplicate_response.status_code == 409
+    assert duplicate_response.json()["detail"] == "Open refund request already exists for transaction"
+    assert list_response.status_code == 200
+    assert [item["id"] for item in list_response.json()] == [refund["id"]]
+
+    assert approve_refund_response.status_code == 200
+    approved = approve_refund_response.json()
+    assert approved["status"] == REFUND_REQUEST_STATUS_APPROVED_PENDING_EXECUTION
+    assert approved["reviewed_by_user_id"] == staff_id
+    assert approved["review_reason"] == "Approved, provider execution pending"
+    assert second_review_response.status_code == 409
+    assert second_review_response.json()["detail"] == "Refund request is not pending review"
+
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PAID
+    assert run_db(_get_user(user_id)).is_pro is True
+    entitlements = run_db(_subject_entitlements_for_user(user_id))
+    assert {entitlement.status for entitlement in entitlements} == {"active"}
+    assert subject_id in run_db(_access_context_subject_ids(user_id))
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert [event.event_type for event in events] == ["manual.approved"]
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert [entry.entry_type for entry in ledger_entries] == [
+        "payment_confirmed",
+        "refund_requested",
+        "refund_approved_pending_execution",
+    ]
+    assert ledger_entries[1].amount_centimes == 0
+    assert ledger_entries[1].metadata_json["refund_amount_centimes"] == 4900
+    assert ledger_entries[2].amount_centimes == 0
+    assert ledger_entries[2].metadata_json["execution_deferred"] is True
+
+
+def test_finance_refund_request_rejects_invalid_transaction_state_and_amount(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, _user_id = auth_token(email="refund-invalid-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("refund-invalid-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    run_db(_grant_user_permission(staff_id, "finance:refund"))
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    pending_response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": transaction_id,
+            "amount_centimes": 9900,
+            "reason": "Cannot refund pending transaction",
+        },
+        headers=headers,
+    )
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Need paid transaction for amount test"},
+        headers={"Authorization": f"Bearer {create_token(run_db(_seed_staff_user('refund-invalid-super@example.com', is_superuser=True)), test_settings)}"},
+    )
+    too_large_response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": transaction_id,
+            "amount_centimes": 9901,
+            "reason": "Too much refund",
+        },
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert pending_response.status_code == 409
+    assert pending_response.json()["detail"] == "Only paid transactions can have refund requests"
+    assert approve_response.status_code == 200
+    assert too_large_response.status_code == 400
+    assert too_large_response.json()["detail"] == "Refund amount cannot exceed transaction amount"
+    assert run_db(_refund_requests_for_transaction(transaction_id)) == []
+
+
+def test_finance_refund_request_can_be_rejected_with_audit(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="refund-rejected-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("refund-rejected-staff@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    approve_payment_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Paid before rejected refund"},
+        headers=headers,
+    )
+    refund_response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": transaction_id,
+            "amount_centimes": 9900,
+            "reason": "Refund requested",
+        },
+        headers=headers,
+    )
+    reject_response = app_client.post(
+        f"/api/payments/finance/refund-requests/{refund_response.json()['id']}/reject",
+        json={"reason": "Outside refund policy"},
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert approve_payment_response.status_code == 200
+    assert refund_response.status_code == 200
+    assert reject_response.status_code == 200
+    rejected = reject_response.json()
+    assert rejected["status"] == REFUND_REQUEST_STATUS_REJECTED
+    assert rejected["reviewed_by_user_id"] == staff_id
+    assert rejected["review_reason"] == "Outside refund policy"
+    assert run_db(_payment_transactions_for_user(user_id))[0].status == PAYMENT_STATUS_PAID
+    assert run_db(_get_user(user_id)).is_pro is True
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert [entry.entry_type for entry in ledger_entries] == [
+        "payment_confirmed",
+        "refund_requested",
+        "refund_rejected",
+    ]
+
+
+def test_refund_request_history_survives_missing_payment_transaction(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, _user_id = auth_token(email="refund-orphaned-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("refund-orphaned-staff@example.com", is_superuser=True))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+
+    approve_payment_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Paid before orphaned refund audit"},
+        headers=headers,
+    )
+    refund_response = app_client.post(
+        "/api/payments/finance/refund-requests",
+        json={
+            "transaction_id": transaction_id,
+            "amount_centimes": 9900,
+            "reason": "Refund audit survives missing transaction",
+        },
+        headers=headers,
+    )
+    run_db(_orphan_refund_request_transaction(refund_response.json()["id"]))
+    list_response = app_client.get("/api/payments/finance/refund-requests", headers=headers)
+    reject_response = app_client.post(
+        f"/api/payments/finance/refund-requests/{refund_response.json()['id']}/reject",
+        json={"reason": "Reject orphaned refund audit"},
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert approve_payment_response.status_code == 200
+    assert refund_response.status_code == 200
+    assert list_response.status_code == 200
+    orphaned = next(item for item in list_response.json() if item["id"] == refund_response.json()["id"])
+    assert orphaned["transaction_id"] is None
+    assert reject_response.status_code == 200
+    assert reject_response.json()["transaction_id"] is None
+    assert reject_response.json()["status"] == REFUND_REQUEST_STATUS_REJECTED
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert [entry.entry_type for entry in ledger_entries] == [
+        "payment_confirmed",
+        "refund_requested",
+    ]
 
 
 def test_superuser_grants_and_revokes_manual_subject_access(app_client, run_db, test_settings):

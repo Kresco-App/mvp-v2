@@ -2437,7 +2437,7 @@ Verification completed:
 
 ### Slice 44: Finance RBAC Foundation
 
-Status: implemented.
+Status: committed in `c3ef47a4`.
 
 Reason for this slice:
 
@@ -2495,12 +2495,78 @@ Verification completed:
   `python -m pytest tests_fastapi/test_migrations.py tests_fastapi/test_payments.py -q`
   passed: 101 tests.
 
+### Slice 45: Refund Request Foundation
+
+Status: implemented.
+
+Reason for this slice:
+
+- The finance TODO requires refunds, but provider execution, ledger reversal,
+  and entitlement revocation are high-risk money mutations.
+- Slice 44 added finance-scoped permissions, so the smallest safe next step is
+  audited refund intent/review records behind `finance:refund`.
+- Finance can now record and review refund decisions without pretending money
+  moved or revoking paid access prematurely.
+
+Implemented scope:
+
+- Added `refund_requests` records with transaction, user, provider, rail,
+  amount, currency, status, reason, requester, reviewer, metadata, and
+  timestamps. Status: implemented.
+- Added staff-readable `GET /api/payments/finance/refund-requests` filtered by
+  status, transaction, user, and bounded limit. Status: implemented.
+- Added `finance:refund`-gated create, approve, and reject endpoints. Status:
+  implemented.
+- Added zero-amount finance ledger audit entries for `refund_requested`,
+  `refund_approved_pending_execution`, and `refund_rejected`. Status:
+  implemented.
+- Enforced paid-transaction-only refund requests, max refund amount, and one
+  open refund request per transaction. Status: implemented.
+
+Decisions:
+
+- Decision: do not create a `refunds` execution table yet. `refund_requests`
+  records intent/review only; a later provider-execution slice will add actual
+  refund records.
+- Decision: use `approved_pending_execution`, not `refunded`, after approval.
+  `refunded` is reserved for confirmed money movement.
+- Decision: do not mutate `payment_transactions.status`, provider events,
+  subject entitlements, or `users.is_pro` in this slice.
+- Decision: support partial refund amounts at the request layer, but defer
+  entitlement math/policy until provider execution exists.
+
+Verification plan:
+
+- Add model/migration declaration tests for `refund_requests`. Status:
+  implemented.
+- Add route tests for `finance:refund` permission gating, paid-only creation,
+  duplicate open request rejection, amount bounds, approve/reject transitions,
+  ledger audit entries, and no payment/access execution. Status: implemented.
+- Run focused payment tests, backend compile check, Alembic head check, and
+  strong review before committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 104 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0069 (head)`.
+- Strong review found duplicate-open-request race, double-review race, and
+  refund audit deletion risk on transaction delete. Addressed with a partial
+  unique open-request index plus `IntegrityError` handling, atomic conditional
+  review updates, and `SET NULL` transaction FK behavior.
+- Follow-up review found nullable transaction links still needed serializer and
+  review handling. Addressed and covered with orphaned refund history
+  regression coverage.
+- Final review found no remaining blocking refund issues.
+- `python -m pytest tests_fastapi/test_payments.py tests_fastapi/test_migrations.py -q`
+  passed: 106 tests.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
   must avoid a half-migration where both old and new flows grant access
   inconsistently.
-- Refunds remain intentionally deferred money-mutation work.
+- Refund provider execution remains intentionally deferred money-mutation work.
 - RBAC is finance-only for now. Role bundles, role-management UI, SQLAdmin
   permission replacement, and full audit logs for permission changes remain
   intentionally deferred.
