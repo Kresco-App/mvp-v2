@@ -198,7 +198,7 @@ Review notes addressed:
 
 ### Slice 4: Exercise Reveal, Self-Grade, and XP Guardrails
 
-Status: in progress.
+Status: committed in `4322a22b`.
 
 Reason for this slice:
 
@@ -237,13 +237,63 @@ Review notes addressed:
 - Self-grade mutations now require the correction to be revealed first.
 - Direct `mastered` submissions before reveal do not grant XP.
 
+### Slice 5: Exam Bank Part Capsules
+
+Status: in progress.
+
+Reason for this slice:
+
+- Exam problems need part-level enoncé and video correction, not only one
+  problem-level statement/solution.
+- The dedicated Exam Bank API should support the future capsule viewer without
+  destabilizing the existing `/api/courses/exam-bank` compatibility route.
+
+Planned backend scope:
+
+- Add `ExamProblemPart` records under existing `ExamProblem`. Status:
+  implemented.
+- Store part label, statement/enoncé body, written correction body/file, video
+  correction URL/resource, topic, difficulty, concepts, and metadata. Status:
+  implemented.
+- Add dedicated read API under `/api/exam-bank`. Status: implemented.
+- Apply subject-level access and redact locked problem/part bodies, correction
+  videos, resources, and metadata. Status: implemented.
+- Support topic filtering when either the problem or one of its parts matches
+  the topic. Status: implemented.
+
+Decisions:
+
+- Decision: keep existing `Exam` and `ExamProblem` as parents, and add
+  `ExamProblemPart` as the new capsule layer.
+- Decision: do not rewrite the legacy course Exam Bank route in this slice.
+  The new part-capable API is separate so UI work can migrate deliberately.
+- Decision: locked exam previews may expose exam/problem/part titles and counts,
+  but not body, correction, video, resource URLs, or metadata.
+
+Verification plan:
+
+- Add model/migration declaration tests.
+- Add entitled-list/detail tests for part order, enoncé, written correction, and
+  video resources.
+- Add part-topic filtering tests.
+- Add locked-preview redaction tests.
+- Add hidden-parent and draft-part tests.
+
+Review notes addressed:
+
+- Topic filters now ignore draft part-topic matches before exam/problem
+  hydration.
+- Problem-topic matches now return the full published part capsule instead of
+  dropping sibling parts.
+- Added regression coverage for both problem-topic and hidden part-topic filter
+  cases.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Exam Bank part capsule model/API skeleton.
-2. Quiz snapshot/version integrity.
-3. XP economy caps and auditability.
+1. Quiz snapshot/version integrity.
+2. XP economy caps and auditability.
 
 ## Open Risks
 
