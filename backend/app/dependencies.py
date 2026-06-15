@@ -1,4 +1,4 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Awaitable, Callable
 
 import jwt
 from fastapi import Depends, HTTPException, Request
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.database import get_session_factory
 from app.models.professor import CourseOffering
-from app.models.users import User
+from app.models.users import User, UserPermission
 from app.services.auth import AUTH_COOKIE_NAME, decode_token
 
 _bearer = HTTPBearer(auto_error=False)
@@ -68,6 +68,33 @@ async def get_current_superuser(
     if not user.is_superuser:
         raise HTTPException(status_code=403, detail="Superuser access required")
     return user
+
+
+async def user_has_permission(db: AsyncSession, user: User, permission: str) -> bool:
+    if user.is_superuser:
+        return True
+    result = await db.execute(
+        select(UserPermission.id)
+        .where(
+            UserPermission.user_id == int(user.id),
+            UserPermission.permission == permission,
+            UserPermission.status == "active",
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+def require_staff_permission(permission: str) -> Callable[..., Awaitable[User]]:
+    async def _dependency(
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_staff_user),
+    ) -> User:
+        if not await user_has_permission(db, user, permission):
+            raise HTTPException(status_code=403, detail=f"Permission required: {permission}")
+        return user
+
+    return _dependency
 
 
 async def get_current_professor_user(

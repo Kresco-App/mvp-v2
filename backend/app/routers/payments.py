@@ -4,7 +4,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.dependencies import get_current_staff_user, get_current_superuser, get_current_user, get_db
+from app.dependencies import get_current_user, get_db, require_staff_permission
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.payments import (
@@ -55,6 +55,10 @@ from app.services.stripe_service import create_checkout_session, customer_id_for
 
 router = APIRouter(tags=["Payments"])
 LEGACY_STRIPE_CHECKOUT_DISABLED_DETAIL = "Legacy Stripe checkout is disabled"
+require_finance_read = require_staff_permission("finance:read")
+require_finance_payment_review = require_staff_permission("finance:payment_review")
+require_finance_export = require_staff_permission("finance:export")
+require_finance_manual_grant = require_staff_permission("finance:manual_grant")
 
 
 @router.post("/create-checkout-session", response_model=CheckoutOut)
@@ -113,7 +117,7 @@ async def list_manual_payment_requests(
     status: str = "pending_manual_review",
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    _staff: User = Depends(get_current_staff_user),
+    _staff: User = Depends(require_finance_read),
 ):
     return await list_manual_payment_transactions(db, status=status, limit=limit)
 
@@ -123,7 +127,7 @@ async def list_finance_ledger(
     transaction_id: int | None = None,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    _staff: User = Depends(get_current_staff_user),
+    _staff: User = Depends(require_finance_read),
 ):
     return await list_finance_ledger_entries(db, transaction_id=transaction_id, limit=limit)
 
@@ -133,7 +137,7 @@ async def list_finance_provider_events(
     transaction_id: int | None = None,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
-    _staff: User = Depends(get_current_staff_user),
+    _staff: User = Depends(require_finance_read),
 ):
     return await list_payment_provider_events(db, transaction_id=transaction_id, limit=limit)
 
@@ -142,7 +146,7 @@ async def list_finance_provider_events(
 async def list_manual_payment_reconciliation_imports(
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    _staff: User = Depends(get_current_staff_user),
+    _staff: User = Depends(require_finance_read),
 ):
     return await list_payment_reconciliation_imports(db, limit=limit)
 
@@ -151,7 +155,7 @@ async def list_manual_payment_reconciliation_imports(
 async def list_finance_export_records(
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    _staff: User = Depends(get_current_staff_user),
+    _staff: User = Depends(require_finance_read),
 ):
     return await list_finance_exports(db, limit=limit)
 
@@ -162,7 +166,7 @@ async def create_finance_export_record(
     request: Request,
     export_request: FinanceExportCreateIn,
     db: AsyncSession = Depends(get_db),
-    staff: User = Depends(get_current_superuser),
+    staff: User = Depends(require_finance_export),
 ):
     del request
     return await create_finance_export(db, actor=staff, request=export_request)
@@ -173,7 +177,7 @@ async def list_manual_access_grant_records(
     user_id: int | None = None,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    _staff: User = Depends(get_current_staff_user),
+    _staff: User = Depends(require_finance_read),
 ):
     return await list_manual_access_grants(db, user_id=user_id, limit=limit)
 
@@ -184,7 +188,7 @@ async def create_manual_access_grant_record(
     request: Request,
     grant_request: ManualAccessGrantCreateIn,
     db: AsyncSession = Depends(get_db),
-    staff: User = Depends(get_current_superuser),
+    staff: User = Depends(require_finance_manual_grant),
 ):
     del request
     return await create_manual_access_grant(db, actor=staff, request=grant_request)
@@ -196,7 +200,7 @@ async def reconcile_manual_payment_request(
     request: Request,
     reconciliation: ManualPaymentReconciliationIn,
     db: AsyncSession = Depends(get_db),
-    staff: User = Depends(get_current_superuser),
+    staff: User = Depends(require_finance_payment_review),
 ):
     del request
     return await reconcile_manual_payment_transaction(
@@ -212,7 +216,7 @@ async def import_manual_payment_reconciliation_request(
     request: Request,
     reconciliation_import: PaymentReconciliationImportIn,
     db: AsyncSession = Depends(get_db),
-    staff: User = Depends(get_current_superuser),
+    staff: User = Depends(require_finance_payment_review),
 ):
     del request
     return await import_manual_payment_reconciliation(
@@ -247,7 +251,7 @@ async def approve_manual_payment_request(
     transaction_id: int,
     review: ManualPaymentReviewIn,
     db: AsyncSession = Depends(get_db),
-    staff: User = Depends(get_current_superuser),
+    staff: User = Depends(require_finance_payment_review),
 ):
     del request
     return await approve_manual_payment_transaction(
@@ -265,7 +269,7 @@ async def reject_manual_payment_request(
     transaction_id: int,
     review: ManualPaymentReviewIn,
     db: AsyncSession = Depends(get_db),
-    staff: User = Depends(get_current_superuser),
+    staff: User = Depends(require_finance_payment_review),
 ):
     del request
     return await reject_manual_payment_transaction(

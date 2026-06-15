@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Index, Integer, Boolean, DateTime, ForeignKey, String, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, CheckConstraint, Index, Integer, Boolean, DateTime, ForeignKey, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -94,3 +94,26 @@ class UserSubjectEntitlement(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship("User", back_populates="subject_entitlements")
+
+
+class UserPermission(Base):
+    __tablename__ = "user_permissions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "permission", name="uq_user_permissions_user_permission"),
+        CheckConstraint("status IN ('active', 'revoked')", name="ck_user_permissions_status"),
+        Index("ix_user_permissions_permission_status", "permission", "status"),
+        Index("ix_user_permissions_granted_by_created", "granted_by_user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    permission: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    reason: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+    granted_by_user_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

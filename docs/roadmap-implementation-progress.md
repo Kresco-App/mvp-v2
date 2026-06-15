@@ -2370,7 +2370,7 @@ Verification completed:
 
 ### Slice 43: Manual Subject Access Grants
 
-Status: implemented.
+Status: committed in `15d03080`.
 
 Reason for this slice:
 
@@ -2435,10 +2435,72 @@ Verification completed:
 - Strong review found no blocking manual access issues and verified Alembic
   reports `0067` as the current head.
 
+### Slice 44: Finance RBAC Foundation
+
+Status: implemented.
+
+Reason for this slice:
+
+- The backoffice TODO calls out that staff access is too broad and mostly
+  depends on `is_staff` / `is_superuser`.
+- Refunds and broader finance actions should not be added while every money
+  mutation requires handing out full superuser access.
+- The smallest safe RBAC step is to add explicit finance permissions and wire
+  them into existing finance routes before adding new refund behavior.
+
+Implemented scope:
+
+- Added `user_permissions` grants with explicit permission name, active/revoked
+  status, reason, granting actor, and timestamps. Status: implemented.
+- Added a `require_staff_permission(...)` dependency helper with superuser
+  allow-all compatibility. Status: implemented.
+- Required `finance:read` for manual payment queues, finance ledger reads,
+  provider event reads, reconciliation import history, export history, and
+  manual-access grant history. Status: implemented.
+- Required `finance:payment_review` for manual payment approve/reject,
+  one-off reconciliation, and reconciliation import writes. Status:
+  implemented.
+- Required `finance:export` for finance export creation. Status: implemented.
+- Required `finance:manual_grant` for manual subject grant/revoke creation.
+  Status: implemented.
+
+Decisions:
+
+- Decision: keep this slice finance-only. Content, live, SQLAdmin, professor,
+  and role-management permissions wait for later slices so the first RBAC
+  migration stays small and testable.
+- Decision: superusers implicitly have every permission for compatibility and
+  emergency operations.
+- Decision: explicit staff permissions are per-user grants for v1. Role bundles
+  and a management UI wait until the permission names settle.
+- Decision: no frontend changes in this slice. Existing admin pages will need
+  staff accounts to receive the relevant finance permission rows before use.
+
+Verification plan:
+
+- Add model/migration declaration tests for `user_permissions`. Status:
+  implemented.
+- Add route tests proving students fail staff checks, unpermitted staff fail
+  named permission checks, scoped staff can perform finance actions, and
+  superusers remain compatible. Status: implemented.
+- Run focused payment tests, backend compile check, Alembic head check, and
+  strong review before committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 99 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0068 (head)`.
+- Strong review found no blocking finance RBAC issues and separately verified
+  `python -m pytest tests_fastapi/test_migrations.py tests_fastapi/test_payments.py -q`
+  passed: 101 tests.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
   must avoid a half-migration where both old and new flows grant access
   inconsistently.
-- Refunds and full finance RBAC remain intentionally deferred
-  money-mutation work.
+- Refunds remain intentionally deferred money-mutation work.
+- RBAC is finance-only for now. Role bundles, role-management UI, SQLAdmin
+  permission replacement, and full audit logs for permission changes remain
+  intentionally deferred.

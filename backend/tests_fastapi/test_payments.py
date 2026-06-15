@@ -36,7 +36,7 @@ from app.models.payments import (
     PaymentVerificationAttempt,
     StripeWebhookEvent,
 )
-from app.models.users import User, UserSubjectEntitlement
+from app.models.users import User, UserPermission, UserSubjectEntitlement
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME, create_token
 from app.services import finance_exports, payment_gateway, payment_lifecycle
@@ -211,6 +211,23 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert manual_access_indexes["ix_manual_access_grants_subject_created"] == ("subject_id", "created_at")
     assert manual_access_indexes["ix_manual_access_grants_actor_created"] == ("created_by_user_id", "created_at")
 
+    permission_columns = UserPermission.__table__.columns
+    permission_indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in UserPermission.__table__.indexes
+    }
+    permission_constraints = {constraint.name for constraint in UserPermission.__table__.constraints}
+    assert permission_columns["user_id"].nullable is False
+    assert permission_columns["permission"].nullable is False
+    assert permission_columns["status"].server_default.arg == "active"
+    assert permission_columns["reason"].server_default.arg == ""
+    assert permission_columns["granted_by_user_id"].nullable is True
+    assert permission_columns["revoked_at"].nullable is True
+    assert "uq_user_permissions_user_permission" in permission_constraints
+    assert "ck_user_permissions_status" in permission_constraints
+    assert permission_indexes["ix_user_permissions_permission_status"] == ("permission", "status")
+    assert permission_indexes["ix_user_permissions_granted_by_created"] == ("granted_by_user_id", "created_at")
+
     proof_columns = PaymentTransactionProof.__table__.columns
     proof_indexes = {
         index.name: tuple(column.name for column in index.columns)
@@ -317,6 +334,14 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert "ck_manual_access_grants_action" in manual_access_migration_text
     assert "ix_manual_access_grants_actor_created" in manual_access_migration_text
 
+    permission_migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0068_user_permissions.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0067"' in permission_migration_text
+    assert "user_permissions" in permission_migration_text
+    assert "uq_user_permissions_user_permission" in permission_migration_text
+    assert "ix_user_permissions_permission_status" in permission_migration_text
+
 
 def test_webhook_requires_secret(app_client):
     response = app_client.post("/api/payments/webhook", content=b"{}", headers={"stripe-signature": "x"})
@@ -399,6 +424,21 @@ async def _seed_staff_user(email: str, *, is_superuser: bool = False) -> int:
         await db.commit()
         await db.refresh(user)
         return user.id
+
+
+async def _grant_user_permission(user_id: int, permission: str, *, granted_by_user_id: int | None = None) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        grant = UserPermission(
+            user_id=user_id,
+            permission=permission,
+            reason="test permission grant",
+            granted_by_user_id=granted_by_user_id,
+        )
+        db.add(grant)
+        await db.commit()
+        await db.refresh(grant)
+        return grant.id
 
 
 async def _get_user(user_id: int) -> User:
@@ -1590,10 +1630,11 @@ def test_create_payment_request_rejects_unknown_plan(app_client, auth_token, run
     assert run_db(_payment_transactions_for_user(user_id)) == []
 
 
-def test_manual_payment_review_requires_verified_staff(app_client, auth_token, run_db, test_settings):
+def test_manual_payment_review_requires_finance_read_permission(app_client, auth_token, run_db, test_settings):
     student_token, _user_id = auth_token(email="manual-review-student@example.com")
     staff_id = run_db(_seed_staff_user("manual-review-staff@example.com"))
     staff_token = create_token(staff_id, test_settings)
+    run_db(_grant_user_permission(staff_id, "finance:read"))
 
     student_response = app_client.get(
         "/api/payments/manual-payment-requests",
@@ -1619,6 +1660,7 @@ def test_staff_can_list_pending_manual_payment_requests(app_client, auth_token, 
     )
     staff_id = run_db(_seed_staff_user("manual-list-staff@example.com"))
     staff_token = create_token(staff_id, test_settings)
+    run_db(_grant_user_permission(staff_id, "finance:read"))
 
     list_response = app_client.get(
         "/api/payments/manual-payment-requests",
@@ -1634,10 +1676,13 @@ def test_staff_can_list_pending_manual_payment_requests(app_client, auth_token, 
     assert transaction["payment_method"] == PAYMENT_RAIL_BANK_TRANSFER
 
 
-def test_finance_audit_endpoints_require_verified_staff(app_client, auth_token, run_db, test_settings):
+def test_finance_audit_endpoints_require_finance_read_permission(app_client, auth_token, run_db, test_settings):
     student_token, _user_id = auth_token(email="finance-audit-student@example.com")
     staff_id = run_db(_seed_staff_user("finance-audit-staff@example.com"))
     staff_token = create_token(staff_id, test_settings)
+    run_db(_grant_user_permission(staff_id, "finance:read"))
+    unpermitted_staff_id = run_db(_seed_staff_user("finance-audit-unpermitted-staff@example.com"))
+    unpermitted_staff_token = create_token(unpermitted_staff_id, test_settings)
 
     for path in (
         "/api/payments/finance/ledger",
@@ -1647,15 +1692,21 @@ def test_finance_audit_endpoints_require_verified_staff(app_client, auth_token, 
         "/api/payments/finance/manual-access-grants",
     ):
         student_response = app_client.get(path, headers={"Authorization": f"Bearer {student_token}"})
+        unpermitted_staff_response = app_client.get(
+            path,
+            headers={"Authorization": f"Bearer {unpermitted_staff_token}"},
+        )
         staff_response = app_client.get(path, headers={"Authorization": f"Bearer {staff_token}"})
 
         assert student_response.status_code == 403
         assert student_response.json()["detail"] == "Staff access required"
+        assert unpermitted_staff_response.status_code == 403
+        assert unpermitted_staff_response.json()["detail"] == "Permission required: finance:read"
         assert staff_response.status_code == 200
         assert isinstance(staff_response.json(), list)
 
 
-def test_finance_write_endpoints_require_superuser(app_client, auth_token, run_db, test_settings):
+def test_finance_write_endpoints_require_scoped_permissions(app_client, auth_token, run_db, test_settings):
     student_token, user_id = auth_token(email="finance-write-student@example.com")
     create_response = app_client.post(
         "/api/payments/payment-requests",
@@ -1712,9 +1763,11 @@ def test_finance_write_endpoints_require_superuser(app_client, auth_token, run_d
     )
 
     assert create_response.status_code == 200
-    for response in (approve_response, reject_response, reconcile_response, import_response, export_response):
+    for response in (approve_response, reject_response, reconcile_response, import_response):
         assert response.status_code == 403
-        assert response.json()["detail"] == "Superuser access required"
+        assert response.json()["detail"] == "Permission required: finance:payment_review"
+    assert export_response.status_code == 403
+    assert export_response.json()["detail"] == "Permission required: finance:export"
 
     assert run_db(_get_user(user_id)).is_pro is False
     transaction = run_db(_payment_transactions_for_user(user_id))[0]
@@ -1724,7 +1777,7 @@ def test_finance_write_endpoints_require_superuser(app_client, auth_token, run_d
     assert len(run_db(_finance_exports())) == 0
 
 
-def test_manual_access_write_requires_superuser(app_client, run_db, test_settings):
+def test_manual_access_write_requires_manual_grant_permission(app_client, run_db, test_settings):
     user_id = run_db(_seed_user("manual-access-denied-student@example.com"))
     subject_id = run_db(_seed_subjects("Manual Access Denied"))[0]
     staff_id = run_db(_seed_staff_user("manual-access-denied-staff@example.com"))
@@ -1743,9 +1796,89 @@ def test_manual_access_write_requires_superuser(app_client, run_db, test_setting
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Superuser access required"
+    assert response.json()["detail"] == "Permission required: finance:manual_grant"
     assert run_db(_subject_entitlements_for_user(user_id)) == []
     assert run_db(_manual_access_grants()) == []
+
+
+def test_scoped_finance_permissions_allow_non_superuser_staff_actions(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+    monkeypatch,
+):
+    import app.routers.payments as payments_router
+
+    student_token, user_id = auth_token(email="finance-permission-student@example.com")
+    subject_id = run_db(_seed_subjects("Finance Permission Subject"))[0]
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+
+    review_staff_id = run_db(_seed_staff_user("finance-payment-reviewer@example.com"))
+    export_staff_id = run_db(_seed_staff_user("finance-exporter@example.com"))
+    manual_grant_staff_id = run_db(_seed_staff_user("finance-manual-granter@example.com"))
+    run_db(_grant_user_permission(review_staff_id, "finance:payment_review"))
+    run_db(_grant_user_permission(export_staff_id, "finance:export"))
+    run_db(_grant_user_permission(manual_grant_staff_id, "finance:manual_grant"))
+    export_seen = {}
+
+    async def fake_create_finance_export(db, actor, request):
+        del db
+        export_seen["actor_id"] = actor.id
+        export_seen["kind"] = request.export_kind
+        return {
+            "id": 999,
+            "export_kind": request.export_kind,
+            "status": "completed",
+            "filters": {"limit": request.limit, "transaction_id": request.transaction_id},
+            "row_count": 0,
+            "checksum_sha256": "0" * 64,
+            "created_by_user_id": int(actor.id),
+            "metadata": {},
+            "created_at": datetime.now(timezone.utc),
+            "filename": "finance-ledger.csv",
+            "content_type": "text/csv; charset=utf-8",
+            "csv_text": "",
+        }
+
+    monkeypatch.setattr(payments_router, "create_finance_export", fake_create_finance_export)
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Scoped finance review approval"},
+        headers={"Authorization": f"Bearer {create_token(review_staff_id, test_settings)}"},
+    )
+    export_response = app_client.post(
+        "/api/payments/finance/exports",
+        json={"export_kind": "ledger", "transaction_id": transaction_id, "limit": 50},
+        headers={"Authorization": f"Bearer {create_token(export_staff_id, test_settings)}"},
+    )
+    grant_response = app_client.post(
+        "/api/payments/finance/manual-access-grants",
+        json={
+            "user_id": user_id,
+            "subject_id": subject_id,
+            "action": "grant",
+            "reason": "Scoped manual access test",
+            "ends_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        },
+        headers={"Authorization": f"Bearer {create_token(manual_grant_staff_id, test_settings)}"},
+    )
+
+    assert create_response.status_code == 200
+    assert approve_response.status_code == 200
+    assert approve_response.json()["status"] == PAYMENT_STATUS_PAID
+    assert export_response.status_code == 200
+    assert export_seen == {"actor_id": export_staff_id, "kind": "ledger"}
+    assert export_response.json()["created_by_user_id"] == export_staff_id
+    assert grant_response.status_code == 200
+    assert grant_response.json()["created_by_user_id"] == manual_grant_staff_id
+    assert run_db(_get_user(user_id)).is_pro is True
 
 
 def test_superuser_grants_and_revokes_manual_subject_access(app_client, run_db, test_settings):
@@ -3044,6 +3177,7 @@ def test_staff_cannot_reject_paid_manual_payment(app_client, auth_token, run_db,
 def test_manual_payment_list_rejects_invalid_status_filter(app_client, run_db, test_settings):
     staff_id = run_db(_seed_staff_user("manual-invalid-filter-staff@example.com"))
     staff_token = create_token(staff_id, test_settings)
+    run_db(_grant_user_permission(staff_id, "finance:read"))
 
     response = app_client.get(
         "/api/payments/manual-payment-requests?status=cancelled",
