@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
-import { getJson } from '@/lib/apiClient'
+import { apiDataErrorMessage } from '@/lib/apiData'
 import {
   courseFiltersEqual,
   courseFiltersToSearchParams,
@@ -13,29 +13,12 @@ import {
   parseCourseFilters,
   type CourseFilters,
 } from '@/lib/courseFilters'
+import { useCourseTopicsData, type CourseTopicCard } from '@/lib/courseDiscoveryData'
 import { canonicalSubjectTitle as canonicalSubjectLabel, subjectKey } from '@/lib/subjectIdentity'
 import { FigmaCourseSearchControls, type FigmaCourseStatusFilter, type FigmaCourseSubjectOption } from '@/components/figma/course-search-controls'
 import { FigmaCourseCardSkeleton, FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
 
-interface TopicCard {
-  id: number
-  subject_id?: number
-  subject_title: string
-  slug: string
-  title: string
-  description: string
-  is_free_preview: boolean
-  item_count: number
-  completed_count: number
-  progress_pct: number
-  concepts: string[]
-  can_access?: boolean
-  locked_reason?: string
-  access_reason?: string
-  required_tier?: string
-  required_feature_key?: string
-  required_subject_id?: number | null
-}
+type TopicCard = CourseTopicCard
 
 type TopicView = TopicCard & {
   search_text: string
@@ -53,33 +36,23 @@ export default function CoursesPage() {
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
   const routeFilters = useMemo(() => parseCourseFilters(new URLSearchParams(searchKey)), [searchKey])
-  const [topics, setTopics] = useState<TopicCard[]>([])
-  const [loading, setLoading] = useState(true)
+  const { topics, loading, error } = useCourseTopicsData()
   const [filters, setFilters] = useState<CourseFilters>(routeFilters)
   const filtersRef = useRef(routeFilters)
   const [previewTopic, setPreviewTopic] = useState<TopicCard | null>(null)
+  const lastErrorToastRef = useRef('')
   const { query, subject: subjectFilter, status: statusFilter } = filters
 
   useEffect(() => {
-    let alive = true
-
-    getJson<TopicCard[]>('/courses/topics')
-      .then((data) => {
-        if (!alive) return
-        setTopics(Array.isArray(data) ? data : [])
-      })
-      .catch(() => {
-        if (!alive) return
-        toast.error('Could not load topics.')
-      })
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
-
-    return () => {
-      alive = false
+    if (!error) {
+      lastErrorToastRef.current = ''
+      return
     }
-  }, [])
+    const message = apiDataErrorMessage(error, 'Could not load topics.')
+    if (message === lastErrorToastRef.current) return
+    lastErrorToastRef.current = message
+    toast.error(message)
+  }, [error])
 
   useEffect(() => {
     filtersRef.current = routeFilters

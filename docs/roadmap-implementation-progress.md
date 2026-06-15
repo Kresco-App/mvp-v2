@@ -851,6 +851,48 @@ Verification plan:
   not start because the existing backend e2e seed imports missing
   `app.routers.users._hash_password`. Status: blocked by unrelated baseline.
 
+### Slice 16: Shared Course Discovery Data Cache
+
+Status: implemented.
+
+Reason for this slice:
+
+- Exercise and Exam Bank browsing needs aggressive client caching so returning
+  from detail/list surfaces does not feel like a full reload.
+- The existing course list, Exam Bank page, and admin course list each owned
+  their own fetch/loading/error loop, which would make later bank filters and
+  locked previews harder to keep consistent.
+
+Planned frontend scope:
+
+- Add a shared `courseDiscoveryData` module for course topics, Exam Bank, and
+  admin subject discovery. Status: implemented.
+- Move the student Courses page to shared SWR-backed topic loading while keeping
+  current filter URL behavior. Status: implemented.
+- Move the Exam Bank page to shared SWR-backed loading while preserving query
+  sync and locked-preview behavior. Status: implemented.
+- Move the admin course list to shared SWR-backed subject loading and retry.
+  Status: implemented.
+
+Decisions:
+
+- Decision: keep this as a data/cache foundation rather than a visual redesign.
+  The next UI pass can replace the card presentation without changing the data
+  hooks.
+- Decision: keep route query state in each page, but centralize API keys and
+  stale-data behavior in the shared hook module.
+- Decision: do not include the separate admin new-course contract cleanup in
+  this slice; it needs its own validation and commit.
+
+Verification plan:
+
+- Run the focused Exam Bank page, admin course list, admin cached-state, admin
+  subject page, and admin new-course tests. Status: implemented.
+- Run TypeScript checks and lint. Status: implemented.
+- Strong review found one cached-data regression in the admin course list; the
+  list now remains visible when a background SWR refresh fails, with direct
+  regression coverage. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

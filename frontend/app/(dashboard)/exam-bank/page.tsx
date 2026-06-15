@@ -1,47 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { BookOpen, CalendarDays, CheckCircle2, FileText, Lock, Play, Search, Trophy } from 'lucide-react'
-import { getJson } from '@/lib/apiClient'
+import { apiDataErrorMessage } from '@/lib/apiData'
+import { useExamBankData, type Exam, type ExamProblem } from '@/lib/courseDiscoveryData'
 import { SkeletonBlock } from '@/components/figma'
 
-interface ExamProblem {
-  id: number
-  topic_id?: number | null
-  title: string
-  statement: string
-  written_solution: string
-  written_solution_url: string
-  difficulty: string
-  concept_slugs: string[]
-  video_resource?: { id: number; title: string; provider: string; provider_resource_id: string } | null
-  can_access?: boolean
-  locked_reason?: string
-  access_reason?: string
-  required_tier?: string
-  required_feature_key?: string
-  required_subject_id?: number | null
-}
-
-interface Exam {
-  id: number
-  subject_id: number
-  subject_title: string
-  title: string
-  year: number
-  session: string
-  statement_url: string
-  can_access?: boolean
-  locked_reason?: string
-  access_reason?: string
-  required_tier?: string
-  required_feature_key?: string
-  required_subject_id?: number | null
-  problems: ExamProblem[]
-}
+const skeletonAnimationDelayClasses = ['[animation-delay:0ms]', '[animation-delay:60ms]', '[animation-delay:120ms]'] as const
 
 type VisibleExam = Exam & {
   totalProblemCount: number
@@ -57,41 +25,26 @@ export default function ExamBankPage() {
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
   const routeQuery = searchParams.get('q')?.trim() || ''
-  const [exams, setExams] = useState<Exam[]>([])
   const [queryInput, setQueryInput] = useState(routeQuery)
-  const [loading, setLoading] = useState(true)
+  const lastErrorToastRef = useRef('')
 
   useEffect(() => {
     setQueryInput((current) => (current === routeQuery ? current : routeQuery))
   }, [routeQuery])
 
   const query = useDebouncedValue(queryInput, EXAM_SEARCH_DEBOUNCE_MS)
+  const { exams, loading, error } = useExamBankData(query)
 
   useEffect(() => {
-    let alive = true
-    const params = new URLSearchParams()
-    const trimmedQuery = query.trim()
-    if (trimmedQuery) params.set('q', trimmedQuery)
-    const queryString = params.toString()
-
-    setLoading(true)
-    getJson<Exam[]>(`/courses/exam-bank${queryString ? `?${queryString}` : ''}`)
-      .then((data) => {
-        if (!alive) return
-        setExams(Array.isArray(data) ? data : [])
-      })
-      .catch(() => {
-        if (!alive) return
-        toast.error('Could not load Exam Bank.')
-      })
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
-
-    return () => {
-      alive = false
+    if (!error) {
+      lastErrorToastRef.current = ''
+      return
     }
-  }, [query])
+    const message = apiDataErrorMessage(error, 'Could not load Exam Bank.')
+    if (message === lastErrorToastRef.current) return
+    lastErrorToastRef.current = message
+    toast.error(message)
+  }, [error])
 
   useEffect(() => {
     const params = new URLSearchParams(searchKey)
@@ -141,7 +94,7 @@ export default function ExamBankPage() {
       {showInitialLoading ? (
         <div className="grid gap-5">
           {Array.from({ length: 3 }).map((_, index) => (
-            <section key={index} className="figma-card kresco-enter overflow-hidden" style={{ animationDelay: `${index * 60}ms` }}>
+            <section key={index} className={`figma-card kresco-enter overflow-hidden ${skeletonAnimationDelayClasses[index]}`}>
               <div className="border-b border-[#e4e4e7] p-5">
                 <SkeletonBlock className="h-3 w-40 rounded-md" />
                 <SkeletonBlock className="mt-3 h-5 w-72 max-w-full rounded-md" />
