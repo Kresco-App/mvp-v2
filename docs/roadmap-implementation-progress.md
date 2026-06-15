@@ -21,6 +21,24 @@ specification and this file stays an execution log.
 
 - `codex/roadmap-implementation-foundations`
 
+## Accepted TODO Direction
+
+- Payment launch direction: remove Stripe from the target launch payment path.
+  Stripe is legacy/current-state compatibility only until cutover.
+- Implement the provider-neutral payment gateway around Moroccan rails:
+  `cmi` for card payments, `bank_transfer`/virement for manual bank transfer,
+  `cashplus` for cash-agency payment handling, and `ashplus` or equivalent
+  cash-agency variants through the same reconciliation model.
+- Required payment implementation scope: CMI initiation and signed callback
+  verification, virement instructions/proof/reconciliation, CashPlus/AshPlus
+  pending instructions/proof or provider-report import, finance approval,
+  duplicate-safe reconciliation, append-only ledger entries, entitlement grants
+  only after confirmed payment, finance backoffice views, support states, and
+  end-to-end tests before the 10-day testing window.
+- Do not add new Stripe features. Any remaining Stripe code should be treated
+  as temporary compatibility until CMI, virement, and cash-agency rails are
+  usable end to end.
+
 ## Implementation Timeline
 
 ### Slice 1: Payment Gateway Foundation
