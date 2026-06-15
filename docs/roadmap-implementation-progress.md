@@ -3080,6 +3080,64 @@ Verification completed:
   subquery before search/pagination, and added a regression for absolute rank
   preservation under search. Re-review found no blocking issues.
 
+### Slice 54: Badge Inventory Foundation
+
+Status: implemented.
+
+Reason for this slice:
+
+- The gamification roadmap calls for badges with rules, rarity, inventory, and
+  profile display.
+- There was no backend badge inventory yet, so the future UI had no trusted
+  source for earned/unearned badges.
+- This is backend-first and UI-light: it creates the inventory contract and
+  safe earning rules without choosing the final visual badge design.
+
+Implemented scope:
+
+- Added `user_badges` persistent inventory rows with user/slug uniqueness,
+  earned timestamp, and small evidence JSON. Status: implemented.
+- Added `GET /api/progress/badges`, authenticated and student-scoped. Status:
+  implemented.
+- Added a v1 code-owned badge catalog with category and rarity metadata.
+  Status: implemented.
+- Added backend-owned earning rules for XP thresholds, 7-day streak,
+  first mastered exercise, first completed exam capsule, and first corrected
+  mistake. Status: implemented.
+- Added duplicate-safe badge insertion using nested transactions so concurrent
+  sync attempts do not fail the entire request. Status: implemented.
+
+Decisions:
+
+- Decision: store earned badge inventory in `user_badges`, but keep badge
+  definitions/rules in code for v1. This avoids an admin badge editor before
+  the badge economy is stable.
+- Decision: badge earning is derived only from trusted backend projections and
+  XP transaction reasons, never from frontend-submitted badge state.
+- Decision: `GET /api/progress/badges` may persist newly earned derived badges,
+  matching the existing daily-quest read path that can ensure missing derived
+  rows.
+- Decision: evidence JSON is intentionally small and non-PII: thresholds,
+  streak counts, XP reasons, and transaction counts only.
+
+Verification plan:
+
+- Add route tests proving badge sync from backend-owned XP/streak/reason state,
+  persisted inventory rows, idempotent rereads, empty unearned catalog, and
+  authentication requirements. Status: implemented.
+- Run focused gamification/migration tests, compile check, adjacent XP/data
+  integrity tests, and strong review before committing. Status: completed.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_gamification_routes.py tests_fastapi/test_xp_service.py tests_fastapi/test_migrations.py tests_fastapi/test_data_integrity_audit.py -q`
+  passed with 50 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0072 (head)`.
+- Independent review found a race-read issue where a duplicate insert conflict
+  could return stale unearned badges. Fixed by reloading inventory after insert
+  conflicts and added a regression for that branch.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

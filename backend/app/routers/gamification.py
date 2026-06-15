@@ -8,8 +8,9 @@ from app.rate_limit import limiter
 from app.schemas.gamification import (
     DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
     LeaderboardEntryOut, MistakeNotebookListOut, SidebarSummaryOut,
-    XPSeasonLeaderboardOut,
+    UserBadgeInventoryOut, XPSeasonLeaderboardOut,
 )
+from app.services.badges import build_user_badge_inventory
 from app.services.daily_quests import ensure_daily_quests_for_user, claim_daily_quest_reward
 from app.services.gamification_read_models import (
     build_sidebar_summary,
@@ -91,6 +92,17 @@ async def get_daily_quests(
     if await ensure_daily_quests_for_user(db, user=user):
         await db.commit()
     return await list_daily_quest_entries(db, user=user)
+
+
+@router.get("/badges", response_model=UserBadgeInventoryOut)
+async def get_badges(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    inventory, changed = await build_user_badge_inventory(db, user=user)
+    if changed:
+        await db.commit()
+    return inventory
 
 
 @router.get("/sidebar-summary", response_model=SidebarSummaryOut)

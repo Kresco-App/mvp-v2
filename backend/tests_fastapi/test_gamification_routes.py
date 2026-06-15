@@ -6,10 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.gamification_read_models as gamification_read_models
 import app.services.daily_quests as daily_quests
+import app.services.badges as badge_service
 import app.routers.internal as internal_router
 import app.scheduled as scheduled
 from app.database import get_session_factory
-from app.models.gamification import DailyQuest, LeaderboardRank, UserStats, UserXP, XPTransaction
+from app.models.gamification import DailyQuest, LeaderboardRank, UserBadge, UserStats, UserXP, XPTransaction
 from app.models.users import User
 
 
@@ -66,6 +67,153 @@ def test_xp_history_leaderboard_and_quests_are_bounded(app_client, auth_token, q
     assert xp_queries.count <= 3
     assert leaderboard_queries.count <= 9
     assert quest_queries.count <= 8
+
+
+def test_badge_inventory_syncs_backend_owned_achievements(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="badges-earned@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(UserXP(user_id=user_id, total_xp=550, streak_days=7))
+            db.add_all([
+                XPTransaction(
+                    user_id=user_id,
+                    amount=5,
+                    reason="exercise_mastered",
+                    description="mastered exercise",
+                ),
+                XPTransaction(
+                    user_id=user_id,
+                    amount=40,
+                    reason="exam_complete",
+                    description="completed exam",
+                ),
+                XPTransaction(
+                    user_id=user_id,
+                    amount=10,
+                    reason="mistake_corrected",
+                    description="corrected mistake",
+                ),
+            ])
+            await db.commit()
+
+    async def _badge_rows():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            result = await db.execute(
+                select(UserBadge)
+                .where(UserBadge.user_id == user_id)
+                .order_by(UserBadge.badge_slug)
+            )
+            return list(result.scalars().all())
+
+    run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = app_client.get("/api/progress/badges", headers=headers)
+    duplicate_response = app_client.get("/api/progress/badges", headers=headers)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_count"] == 6
+    assert payload["earned_count"] == 6
+    badges = {badge["slug"]: badge for badge in payload["badges"]}
+    assert badges["xp_100"]["earned"] is True
+    assert badges["xp_100"]["evidence"] == {"total_xp": 550, "threshold": 100}
+    assert badges["xp_500"]["rarity"] == "rare"
+    assert badges["streak_7"]["evidence"] == {"streak_days": 7, "threshold": 7}
+    assert badges["first_exercise_mastered"]["evidence"] == {
+        "reason": "exercise_mastered",
+        "transaction_count": 1,
+    }
+    assert badges["first_exam_completed"]["evidence"]["reason"] == "exam_complete"
+    assert badges["first_mistake_corrected"]["evidence"]["reason"] == "mistake_corrected"
+    assert all(badge["earned_at"] for badge in badges.values())
+
+    assert duplicate_response.status_code == 200
+    assert duplicate_response.json()["earned_count"] == 6
+    rows = run_db(_badge_rows())
+    assert len(rows) == 6
+    assert {row.badge_slug for row in rows} == set(badges)
+
+
+def test_badge_inventory_shows_unearned_catalog_and_requires_auth(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="badges-empty@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(UserXP(user_id=user_id, total_xp=20, streak_days=1))
+            await db.commit()
+
+    run_db(_seed())
+
+    unauthenticated = app_client.get("/api/progress/badges")
+    response = app_client.get(
+        "/api/progress/badges",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert unauthenticated.status_code == 401
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_count"] == 6
+    assert payload["earned_count"] == 0
+    assert all(not badge["earned"] for badge in payload["badges"])
+    assert all(badge["evidence"] == {} for badge in payload["badges"])
+
+
+def test_badge_inventory_reloads_after_duplicate_insert_conflict(auth_token, monkeypatch, run_db):
+    _token, user_id = auth_token(email="badges-conflict@example.com", is_pro=True)
+    original_insert = badge_service._insert_badge
+    conflict_seen = False
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            db.add(UserXP(user_id=user_id, total_xp=100, streak_days=0))
+            await db.commit()
+
+    async def conflict_once(db, *, user_id: int, slug: str, evidence: dict, earned_at):
+        nonlocal conflict_seen
+        if slug == "xp_100" and not conflict_seen:
+            conflict_seen = True
+            db.add(
+                UserBadge(
+                    user_id=user_id,
+                    badge_slug=slug,
+                    evidence_json=evidence,
+                    earned_at=earned_at,
+                )
+            )
+            await db.flush()
+            return False
+        return await original_insert(
+            db,
+            user_id=user_id,
+            slug=slug,
+            evidence=evidence,
+            earned_at=earned_at,
+        )
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            inventory, changed = await badge_service.build_user_badge_inventory(db, user=user)
+            await db.commit()
+            return inventory, changed
+
+    run_db(_seed())
+    monkeypatch.setattr(badge_service, "_insert_badge", conflict_once)
+    inventory, changed = run_db(_exercise())
+
+    assert changed is False
+    assert conflict_seen is True
+    badges = {badge.slug: badge for badge in inventory.badges}
+    assert badges["xp_100"].earned is True
+    assert badges["xp_100"].evidence == {"total_xp": 100, "threshold": 100}
 
 
 def test_season_leaderboard_uses_signed_xp_window_and_search(

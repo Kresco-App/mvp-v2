@@ -143,6 +143,23 @@ class XPSeasonLeaderboardOut(BaseModel):
     entries: list[XPSeasonLeaderboardEntryOut]
 
 
+class UserBadgeOut(BaseModel):
+    slug: str
+    title: str
+    description: str
+    category: str
+    rarity: str
+    earned: bool
+    earned_at: Optional[datetime] = None
+    evidence: dict = Field(default_factory=dict)
+
+
+class UserBadgeInventoryOut(BaseModel):
+    badges: list[UserBadgeOut]
+    earned_count: int
+    total_count: int
+
+
 class DailyQuestOut(BaseModel):
     id: int
     quest_type: str
