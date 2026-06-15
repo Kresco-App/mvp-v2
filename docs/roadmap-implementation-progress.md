@@ -460,14 +460,64 @@ Verification plan:
 - Run targeted payment tests and startup/security checks touched by payment
   settings.
 
+### Slice 9: CMI Signed Callback Processing
+
+Status: implemented.
+
+Reason for this slice:
+
+- CMI initiation is useful only if the provider can call back into a verified,
+  idempotent payment state machine.
+- The app must not grant access from browser redirects or unsigned payloads.
+- `TranType=PreAuth` requires returning the CMI post-authorization response only
+  after local verification succeeds.
+
+Planned backend scope:
+
+- Add unauthenticated `POST /api/payments/cmi/callback` for provider form-post
+  callbacks. Status: implemented.
+- Exempt the CMI callback path from cookie CSRF checks while still requiring a
+  valid CMI hash. Status: implemented.
+- Verify CMI callback hash, client id, order/reference, amount, currency,
+  provider success fields, and idempotent provider event id before granting
+  access. Status: implemented.
+- Mark verified approved callbacks as `paid`, append provider event and ledger
+  entries, clear the open request key, and update the current `is_pro`
+  projection. Status: implemented.
+- Mark verified declined callbacks as `failed`, verified amount/currency/client
+  mismatches as `mismatch`, and invalid hashes as failed provider events without
+  granting access. Status: implemented.
+
+Decisions:
+
+- Decision: return `ACTION=POSTAUTH` only after a valid approved CMI callback
+  matches a pending local transaction; otherwise return `FAILURE`.
+- Decision: use `TransId`, then other provider references, as the CMI event
+  idempotency key; invalid-hash callbacks use a separate payload digest so they
+  cannot poison a later valid retry with the same provider transaction id.
+- Decision: keep the callback route backend-only for now. Student success/fail
+  pages remain a later minimal UI pass after the callback contract is stable.
+- Decision: support the current ver3 sorted SHA-512 callback hash and the
+  hash-params variant only when reconstructed from posted fields. Do not accept
+  detached `HASHPARAMSVAL` signatures until a contracted CMI sandbox fixture
+  proves the exact binding semantics.
+- Decision: invalid-hash callbacks get a separate payload-digest event id so
+  they cannot consume the real provider transaction id before a valid retry.
+- Decision: once a CMI transaction is `paid`, later valid declined or mismatch
+  callbacks are recorded as ignored events and cannot downgrade the payment.
+
+Verification plan:
+
+- Add tests for approved callback, duplicate replay, invalid hash, declined
+  payment, amount mismatch, unknown order, paid-state downgrade prevention,
+  invalid-hash replay, callback hash fixture, and CSRF exemption.
+- Run payment, CSRF, startup/security, and secret-hygiene suites.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. CMI signed callback completion: provider-event idempotency, callback hash
-   verification, amount/currency/reference matching, mismatch handling, and
-   entitlement grant only after verified success.
-2. Payment gateway completion: virement proof and
+1. Payment gateway completion: virement proof and
    reconciliation workflow, CashPlus/AshPlus cash-agency handling, and removal
    of Stripe from the launch checkout path.
 

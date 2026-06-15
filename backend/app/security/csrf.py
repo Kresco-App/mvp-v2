@@ -32,6 +32,7 @@ UNAUTHENTICATED_AUTH_PATHS = {
     "/api/client-errors",
 }
 SIGNED_WEBHOOK_PATHS = {
+    "/api/payments/cmi/callback",
     "/api/payments/webhook",
 }
 

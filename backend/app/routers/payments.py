@@ -1,5 +1,6 @@
 import stripe
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -20,6 +21,7 @@ from app.services.payment_gateway import (
     approve_manual_payment_transaction,
     create_payment_request as create_provider_payment_request,
     list_manual_payment_transactions,
+    process_cmi_callback,
     reject_manual_payment_transaction,
 )
 from app.services.payment_lifecycle import (
@@ -148,6 +150,21 @@ async def verify_session_status(
 ):
     del request, session_id
     return VerifyOut(is_pro=bool(user.is_pro))
+
+
+@router.post("/cmi/callback", response_class=PlainTextResponse)
+async def cmi_callback(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    form = await request.form()
+    result = await process_cmi_callback(
+        db,
+        settings=settings,
+        payload={key: str(value) for key, value in form.multi_items()},
+    )
+    return PlainTextResponse(result)
 
 
 @router.post("/webhook")

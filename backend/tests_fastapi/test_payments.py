@@ -16,6 +16,7 @@ from app.models.payments import (
     PAYMENT_RAIL_CMI,
     PAYMENT_STATUS_EXPIRED,
     PAYMENT_STATUS_FAILED,
+    PAYMENT_STATUS_MISMATCH,
     PAYMENT_STATUS_PAID,
     PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
     PAYMENT_STATUS_PENDING_PROVIDER,
@@ -370,6 +371,27 @@ def _restore_settings(test_settings, original: dict[str, str]) -> None:
         setattr(test_settings, key, value)
 
 
+def _cmi_callback_payload(reference_code: str, **overrides) -> dict[str, str]:
+    payload = {
+        "clientid": "cmi-client",
+        "oid": reference_code,
+        "amount": "99.00",
+        "currency": "504",
+        "ProcReturnCode": "00",
+        "Response": "Approved",
+        "mdStatus": "1",
+        "TransId": f"txn-{reference_code}",
+        "AuthCode": "auth-123",
+        "hashAlgorithm": "ver3",
+        **{key: str(value) for key, value in overrides.items()},
+    }
+    payload["HASH"] = payment_gateway._cmi_callback_hash_sorted(
+        payload,
+        store_key="super-secret-store-key",
+    )
+    return payload
+
+
 def test_cmi_form_hash_matches_ver3_fixture(test_settings, monkeypatch):
     original = _set_cmi_settings(test_settings)
     monkeypatch.setattr(payment_gateway.secrets, "token_urlsafe", lambda _size: "fixed-rnd")
@@ -403,6 +425,57 @@ def test_cmi_form_hash_matches_ver3_fixture(test_settings, monkeypatch):
         "TranType": "PreAuth",
         "hash": "/Qss9I+dh17bsR/lbaMSWgrcLfPGCWv3bf56NCFx535YuUkGPJA0jmk83ZAlMGsuROg2DTu1XhFOklKZwkp0RQ==",
     }
+
+
+def test_cmi_callback_hash_matches_ver3_fixture():
+    payload = {
+        "clientid": "cmi-client",
+        "oid": "KRESCO-CMI-123-CALLBACK",
+        "amount": "99.00",
+        "currency": "504",
+        "ProcReturnCode": "00",
+        "Response": "Approved",
+        "mdStatus": "1",
+        "TransId": "cmi-fixture-1",
+        "AuthCode": "auth-123",
+        "hashAlgorithm": "ver3",
+    }
+
+    assert payment_gateway._cmi_callback_hash_sorted(
+        payload,
+        store_key="super-secret-store-key",
+    ) == "qTHX0sOSkacG6H4SJGzIJRxV8b5vQO1r8sB5GT7miNjhKHNViW6Kz17p5whMjrBe/dJwdSNQt1qRufr38HQpIg=="
+
+
+def test_cmi_hashparams_variant_requires_payment_binding_fields():
+    payload = {
+        "HASHPARAMS": "clientid:oid:ProcReturnCode:Response:mdStatus:",
+        "clientid": "cmi-client",
+        "oid": "KRESCO-CMI-123-CALLBACK",
+        "amount": "99.00",
+        "currency": "504",
+        "ProcReturnCode": "00",
+        "Response": "Approved",
+        "mdStatus": "1",
+    }
+
+    assert payment_gateway._cmi_hash_from_hashparams(payload, store_key="super-secret-store-key") == ""
+
+    payload["HASHPARAMS"] = "clientid:oid:amount:currency:ProcReturnCode:Response:mdStatus:"
+    assert payment_gateway._cmi_hash_from_hashparams(payload, store_key="super-secret-store-key")
+
+
+def test_cmi_event_id_does_not_use_auth_code_as_global_identifier():
+    payload = {
+        "oid": "KRESCO-CMI-123-CALLBACK",
+        "ProcReturnCode": "00",
+        "Response": "Approved",
+        "AuthCode": "auth-123",
+        "rnd": "rnd-123",
+    }
+
+    assert payment_gateway._cmi_callback_event_id(payload).startswith("cmi:")
+    assert payment_gateway._cmi_callback_event_id(payload) != "auth-123"
 
 
 def test_create_checkout_session_persists_new_customer_id(app_client, auth_token, monkeypatch, run_db):
@@ -547,6 +620,51 @@ def test_cookie_verify_session_requires_and_accepts_csrf_token(app_client, auth_
     assert accepted.status_code == 200
     assert accepted.json()["is_pro"] is True
     assert calls == ["cs_verify_csrf"]
+
+
+def test_cookie_cmi_callback_is_csrf_exempt(app_client, auth_token, test_settings):
+    token, user_id = auth_token(email="cmi-callback-csrf@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        _install_cookie_session(app_client, test_settings, token, user_id, with_csrf=False)
+        response = app_client.post(
+            "/api/payments/cmi/callback",
+            data=_cmi_callback_payload(create_response.json()["reference_code"], TransId="cmi-csrf-ok-1"),
+        )
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert response.status_code == 200
+    assert response.text == "ACTION=POSTAUTH"
+
+
+def test_cookie_cmi_callback_rejects_untrusted_origin(app_client, auth_token, test_settings):
+    token, user_id = auth_token(email="cmi-callback-csrf-origin@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        _install_cookie_session(app_client, test_settings, token, user_id, with_csrf=False)
+        response = app_client.post(
+            "/api/payments/cmi/callback",
+            data=_cmi_callback_payload(create_response.json()["reference_code"], TransId="cmi-csrf-bad-origin-1"),
+            headers={"Origin": "https://attacker.example"},
+        )
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "CSRF origin is not trusted"
 
 
 def test_create_bank_transfer_payment_request_is_pending_and_does_not_grant_access(app_client, auth_token, run_db):
@@ -763,6 +881,358 @@ def test_create_cmi_payment_request_rejects_local_callback_url(
     assert "CMI_CALLBACK_URL must be publicly reachable" in response.text
     assert run_db(_get_user(user_id)).is_pro is False
     assert run_db(_payment_transactions_for_user(user_id)) == []
+
+
+def test_cmi_callback_approved_marks_paid_and_grants_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-approved@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-approved-1")
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert create_response.status_code == 200
+    assert callback_response.status_code == 200
+    assert callback_response.text == "ACTION=POSTAUTH"
+    assert run_db(_get_user(user_id)).is_pro is True
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PAID
+    assert transaction.open_request_key is None
+    assert transaction.confirmed_at is not None
+    assert transaction.provider_reference == "cmi-approved-1"
+    events = run_db(_payment_provider_events_for_transaction(transaction.id))
+    assert len(events) == 1
+    assert events[0].event_type == "cmi.callback.approved"
+    assert events[0].event_id == "cmi-approved-1"
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction.id))
+    assert len(ledger_entries) == 1
+    assert ledger_entries[0].entry_type == "payment_confirmed"
+    assert ledger_entries[0].amount_centimes == 9900
+
+
+def test_cmi_callback_duplicate_is_idempotent(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-duplicate@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-duplicate-1")
+        first = app_client.post("/api/payments/cmi/callback", data=callback)
+        second = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.text == "ACTION=POSTAUTH"
+    assert second.text == "ACTION=POSTAUTH"
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PAID
+    assert len(run_db(_payment_provider_events_for_transaction(transaction.id))) == 1
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 1
+
+
+def test_cmi_callback_later_decline_cannot_downgrade_paid_transaction(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-no-downgrade@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        approved = _cmi_callback_payload(reference_code, TransId="cmi-no-downgrade-approved")
+        decline = _cmi_callback_payload(
+            reference_code,
+            TransId="cmi-no-downgrade-declined",
+            ProcReturnCode="05",
+            Response="Declined",
+            ErrMsg="Late decline",
+        )
+        approved_response = app_client.post("/api/payments/cmi/callback", data=approved)
+        decline_response = app_client.post("/api/payments/cmi/callback", data=decline)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert approved_response.status_code == 200
+    assert approved_response.text == "ACTION=POSTAUTH"
+    assert decline_response.status_code == 200
+    assert decline_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is True
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PAID
+    assert transaction.provider_reference == "cmi-no-downgrade-approved"
+    events = run_db(_payment_provider_events_for_transaction(transaction.id))
+    assert len(events) == 2
+    assert events[0].status == "processed"
+    assert events[1].status == "ignored"
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 1
+
+
+def test_cmi_callback_later_approved_event_does_not_postauth_paid_transaction(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-no-second-postauth@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        approved = _cmi_callback_payload(reference_code, TransId="cmi-second-postauth-approved")
+        later_approved = _cmi_callback_payload(reference_code, TransId="cmi-second-postauth-new-event")
+        approved_response = app_client.post("/api/payments/cmi/callback", data=approved)
+        later_response = app_client.post("/api/payments/cmi/callback", data=later_approved)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert approved_response.status_code == 200
+    assert approved_response.text == "ACTION=POSTAUTH"
+    assert later_response.status_code == 200
+    assert later_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is True
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PAID
+    events = run_db(_payment_provider_events_for_transaction(transaction.id))
+    assert len(events) == 2
+    assert events[0].event_id == "cmi-second-postauth-approved"
+    assert events[0].status == "processed"
+    assert events[1].event_id == "cmi-second-postauth-new-event"
+    assert events[1].status == "ignored"
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 1
+
+
+def test_cmi_callback_invalid_hash_does_not_mutate_pending_transaction(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-invalid-hash@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-invalid-hash-1")
+        callback["HASH"] = "tampered"
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PENDING_PROVIDER
+    assert transaction.open_request_key == f"cmi:{user_id}:pro"
+    events = run_db(_payment_provider_events_for_transaction(transaction.id))
+    assert len(events) == 1
+    assert events[0].event_type == "cmi.callback.invalid"
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 0
+
+
+def test_cmi_callback_invalid_hash_replay_is_idempotent(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-invalid-replay@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-invalid-replay-1")
+        callback["HASH"] = "tampered"
+        first = app_client.post("/api/payments/cmi/callback", data=callback)
+        second = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.text == "FAILURE"
+    assert second.text == "FAILURE"
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PENDING_PROVIDER
+    assert len(run_db(_payment_provider_events_for_transaction(transaction.id))) == 1
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 0
+
+
+def test_cmi_callback_declined_marks_failed_without_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-declined@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(
+            reference_code,
+            TransId="cmi-declined-1",
+            ProcReturnCode="05",
+            Response="Declined",
+            ErrMsg="Do not honor",
+        )
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_FAILED
+    assert transaction.open_request_key is None
+    events = run_db(_payment_provider_events_for_transaction(transaction.id))
+    assert len(events) == 1
+    assert events[0].event_type == "cmi.callback.failed"
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction.id))
+    assert len(ledger_entries) == 1
+    assert ledger_entries[0].entry_type == "payment_failed"
+
+
+def test_cmi_callback_missing_success_fields_fails_without_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-missing-success@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-missing-success-1")
+        callback.pop("Response")
+        callback.pop("mdStatus")
+        callback["HASH"] = payment_gateway._cmi_callback_hash_sorted(
+            callback,
+            store_key="super-secret-store-key",
+        )
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_FAILED
+    assert transaction.open_request_key is None
+
+
+def test_cmi_callback_amount_mismatch_marks_mismatch_without_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-mismatch@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(reference_code, TransId="cmi-mismatch-1", amount="1.00")
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_MISMATCH
+    assert transaction.open_request_key is None
+    events = run_db(_payment_provider_events_for_transaction(transaction.id))
+    assert len(events) == 1
+    assert events[0].status == "failed"
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction.id))
+    assert len(ledger_entries) == 1
+    assert ledger_entries[0].entry_type == "payment_mismatch"
+
+
+def test_cmi_callback_unknown_order_is_ignored_without_access(
+    app_client,
+    run_db,
+    test_settings,
+):
+    user_id = run_db(_seed_user("cmi-callback-unknown@example.com"))
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        callback = _cmi_callback_payload("KRESCO-CMI-999-MISSING", TransId="cmi-unknown-1")
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert run_db(_get_user(user_id)).is_pro is False
 
 
 def test_create_payment_request_rejects_unknown_method(app_client, auth_token):

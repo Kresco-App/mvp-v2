@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import hashlib
+import hmac
+import html
 import ipaddress
+import re
 import secrets
 from urllib.parse import urlparse
 from urllib.parse import urljoin
@@ -24,6 +28,7 @@ from app.models.payments import (
     PAYMENT_RAIL_CMI,
     PAYMENT_STATUS_EXPIRED,
     PAYMENT_STATUS_FAILED,
+    PAYMENT_STATUS_MISMATCH,
     PAYMENT_STATUS_PAID,
     PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
     PAYMENT_STATUS_PENDING_PROVIDER,
@@ -46,6 +51,11 @@ CMI_TRAN_TYPE = "PreAuth"
 CMI_STORE_TYPE = "3D_PAY_HOSTING"
 CMI_HASH_ALGORITHM = "ver3"
 CMI_CALLBACK_RESPONSE = "true"
+CMI_CALLBACK_EVENT_APPROVED = "cmi.callback.approved"
+CMI_CALLBACK_EVENT_FAILED = "cmi.callback.failed"
+CMI_CALLBACK_EVENT_INVALID = "cmi.callback.invalid"
+CMI_POSTAUTH_RESPONSE = "ACTION=POSTAUTH"
+CMI_FAILURE_RESPONSE = "FAILURE"
 
 
 def amount_for_plan(plan: str) -> int:
@@ -149,6 +159,118 @@ async def create_pending_cmi_payment_request(
         raise
     await db.refresh(transaction)
     return payment_request_out(transaction)
+
+
+async def process_cmi_callback(
+    db: AsyncSession,
+    *,
+    settings: Settings,
+    payload: dict[str, str],
+) -> str:
+    _ensure_cmi_configured(settings)
+    normalized_payload = {str(key): str(value) for key, value in payload.items()}
+    now = datetime.now(timezone.utc)
+    reference_code = _payload_value(normalized_payload, "oid", "ReturnOid", "orderid")
+    event_id = _cmi_callback_event_id(normalized_payload)
+
+    transaction = await _load_cmi_transaction_for_update(db, reference_code=reference_code)
+    if not _cmi_callback_hash_valid(normalized_payload, store_key=settings.cmi_store_key):
+        invalid_event_id = _cmi_invalid_callback_event_id(normalized_payload)
+        existing_invalid_event = await _load_provider_event(
+            db,
+            provider=PAYMENT_PROVIDER_CMI,
+            event_id=invalid_event_id,
+        )
+        if existing_invalid_event is not None:
+            return CMI_FAILURE_RESPONSE
+        db.add(
+            PaymentProviderEvent(
+                transaction_id=int(transaction.id) if transaction is not None else None,
+                provider=PAYMENT_PROVIDER_CMI,
+                event_id=invalid_event_id,
+                event_type=CMI_CALLBACK_EVENT_INVALID,
+                status="failed",
+                payload_json=_redacted_cmi_payload(normalized_payload),
+                processed_at=now,
+            )
+        )
+        await db.commit()
+        return CMI_FAILURE_RESPONSE
+
+    matches_transaction = (
+        transaction is not None and _cmi_callback_matches_transaction(normalized_payload, transaction, settings=settings)
+    )
+    callback_success = _cmi_callback_is_success(normalized_payload)
+    existing_event = await _load_provider_event(db, provider=PAYMENT_PROVIDER_CMI, event_id=event_id)
+    if existing_event is not None:
+        if transaction is not None and transaction.status == PAYMENT_STATUS_PAID and matches_transaction and callback_success:
+            return CMI_POSTAUTH_RESPONSE
+        return CMI_FAILURE_RESPONSE
+
+    if transaction is None:
+        db.add(
+            PaymentProviderEvent(
+                transaction_id=None,
+                provider=PAYMENT_PROVIDER_CMI,
+                event_id=event_id,
+                event_type=CMI_CALLBACK_EVENT_FAILED,
+                status="ignored",
+                payload_json=_redacted_cmi_payload(normalized_payload),
+                processed_at=now,
+            )
+        )
+        await db.commit()
+        return CMI_FAILURE_RESPONSE
+
+    if transaction.status == PAYMENT_STATUS_PAID:
+        await _record_cmi_ignored_event(
+            db,
+            transaction=transaction,
+            event_id=event_id,
+            payload=normalized_payload,
+            now=now,
+            event_type=CMI_CALLBACK_EVENT_APPROVED if callback_success else CMI_CALLBACK_EVENT_FAILED,
+        )
+        return CMI_FAILURE_RESPONSE
+    if transaction.status != PAYMENT_STATUS_PENDING_PROVIDER:
+        await _record_cmi_ignored_event(
+            db,
+            transaction=transaction,
+            event_id=event_id,
+            payload=normalized_payload,
+            now=now,
+            event_type=CMI_CALLBACK_EVENT_FAILED,
+        )
+        return CMI_FAILURE_RESPONSE
+
+    if not matches_transaction:
+        await _mark_cmi_transaction_mismatch(
+            db,
+            transaction=transaction,
+            event_id=event_id,
+            payload=normalized_payload,
+            now=now,
+        )
+        return CMI_FAILURE_RESPONSE
+
+    if not callback_success:
+        await _mark_cmi_transaction_failed(
+            db,
+            transaction=transaction,
+            event_id=event_id,
+            payload=normalized_payload,
+            now=now,
+        )
+        return CMI_FAILURE_RESPONSE
+
+    await _mark_cmi_transaction_paid(
+        db,
+        transaction=transaction,
+        event_id=event_id,
+        payload=normalized_payload,
+        now=now,
+    )
+    return CMI_POSTAUTH_RESPONSE
 
 
 async def create_pending_manual_payment_request(
@@ -660,3 +782,320 @@ def _cmi_payment_instructions(
         "expires_at": expires_at.isoformat(),
         "unlock_policy": "Access is unlocked only after CMI confirms the payment through a signed callback.",
     }
+
+
+async def _load_cmi_transaction_for_update(
+    db: AsyncSession,
+    *,
+    reference_code: str,
+) -> PaymentTransaction | None:
+    if not reference_code:
+        return None
+    return await db.scalar(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.provider == PAYMENT_PROVIDER_CMI,
+            PaymentTransaction.rail == PAYMENT_RAIL_CMI,
+            PaymentTransaction.reference_code == reference_code,
+        )
+        .with_for_update()
+    )
+
+
+async def _load_provider_event(
+    db: AsyncSession,
+    *,
+    provider: str,
+    event_id: str,
+) -> PaymentProviderEvent | None:
+    return await db.scalar(
+        select(PaymentProviderEvent).where(
+            PaymentProviderEvent.provider == provider,
+            PaymentProviderEvent.event_id == event_id,
+        )
+    )
+
+
+async def _mark_cmi_transaction_paid(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    event_id: str,
+    payload: dict[str, str],
+    now: datetime,
+) -> None:
+    transaction.status = PAYMENT_STATUS_PAID
+    transaction.confirmed_at = now
+    transaction.open_request_key = None
+    transaction.provider_reference = _cmi_provider_reference(payload)
+    transaction.metadata_json = {
+        **(transaction.metadata_json or {}),
+        "confirmed_by_provider": PAYMENT_PROVIDER_CMI,
+        "confirmed_at": now.isoformat(),
+    }
+    user = await db.get(User, int(transaction.user_id))
+    if user is None:
+        raise HTTPException(status_code=404, detail="Payment user not found")
+    user.is_pro = True
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=PAYMENT_PROVIDER_CMI,
+            event_id=event_id,
+            event_type=CMI_CALLBACK_EVENT_APPROVED,
+            status="processed",
+            payload_json=_redacted_cmi_payload(payload),
+            processed_at=now,
+        )
+    )
+    db.add(
+        FinanceLedgerEntry(
+            transaction_id=int(transaction.id),
+            user_id=int(transaction.user_id),
+            entry_type="payment_confirmed",
+            amount_centimes=int(transaction.amount_centimes),
+            currency=transaction.currency,
+            reason="CMI callback verified",
+            metadata_json={"rail": PAYMENT_RAIL_CMI, "provider_reference": transaction.provider_reference},
+        )
+    )
+    await db.commit()
+
+
+async def _mark_cmi_transaction_failed(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    event_id: str,
+    payload: dict[str, str],
+    now: datetime,
+) -> None:
+    transaction.status = PAYMENT_STATUS_FAILED
+    transaction.open_request_key = None
+    transaction.provider_reference = _cmi_provider_reference(payload)
+    transaction.metadata_json = {
+        **(transaction.metadata_json or {}),
+        "failed_by_provider": PAYMENT_PROVIDER_CMI,
+        "failed_at": now.isoformat(),
+        "failure_reason": _payload_value(payload, "ErrMsg", "mdErrorMsg", "Response") or "CMI callback failed",
+    }
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=PAYMENT_PROVIDER_CMI,
+            event_id=event_id,
+            event_type=CMI_CALLBACK_EVENT_FAILED,
+            status="processed",
+            payload_json=_redacted_cmi_payload(payload),
+            processed_at=now,
+        )
+    )
+    db.add(
+        FinanceLedgerEntry(
+            transaction_id=int(transaction.id),
+            user_id=int(transaction.user_id),
+            entry_type="payment_failed",
+            amount_centimes=0,
+            currency=transaction.currency,
+            reason="CMI callback failed",
+            metadata_json={"rail": PAYMENT_RAIL_CMI, "provider_reference": transaction.provider_reference},
+        )
+    )
+    await db.commit()
+
+
+async def _mark_cmi_transaction_mismatch(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    event_id: str,
+    payload: dict[str, str],
+    now: datetime,
+    reason: str = "CMI callback did not match the pending transaction",
+) -> None:
+    transaction.status = PAYMENT_STATUS_MISMATCH
+    transaction.open_request_key = None
+    transaction.provider_reference = _cmi_provider_reference(payload)
+    transaction.metadata_json = {
+        **(transaction.metadata_json or {}),
+        "mismatch_by_provider": PAYMENT_PROVIDER_CMI,
+        "mismatch_at": now.isoformat(),
+        "mismatch_reason": reason,
+    }
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=PAYMENT_PROVIDER_CMI,
+            event_id=event_id,
+            event_type=CMI_CALLBACK_EVENT_FAILED,
+            status="failed",
+            payload_json=_redacted_cmi_payload(payload),
+            processed_at=now,
+        )
+    )
+    db.add(
+        FinanceLedgerEntry(
+            transaction_id=int(transaction.id),
+            user_id=int(transaction.user_id),
+            entry_type="payment_mismatch",
+            amount_centimes=0,
+            currency=transaction.currency,
+            reason=reason,
+            metadata_json={"rail": PAYMENT_RAIL_CMI, "provider_reference": transaction.provider_reference},
+        )
+    )
+    await db.commit()
+
+
+async def _record_cmi_ignored_event(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    event_id: str,
+    payload: dict[str, str],
+    now: datetime,
+    event_type: str,
+) -> None:
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=PAYMENT_PROVIDER_CMI,
+            event_id=event_id,
+            event_type=event_type,
+            status="ignored",
+            payload_json=_redacted_cmi_payload(payload),
+            processed_at=now,
+        )
+    )
+    await db.commit()
+
+
+def _cmi_callback_hash_valid(payload: dict[str, str], *, store_key: str) -> bool:
+    actual_hash = _payload_value(payload, "HASH", "hash")
+    if not actual_hash:
+        return False
+    candidates = {
+        _cmi_callback_hash_sorted(payload, store_key=store_key),
+        _cmi_hash_from_hashparams(payload, store_key=store_key),
+    }
+    return any(candidate and hmac.compare_digest(actual_hash, candidate) for candidate in candidates)
+
+
+def _cmi_hash_from_hashparams(payload: dict[str, str], *, store_key: str) -> str:
+    hashparams = _payload_value(payload, "HASHPARAMS")
+    if not hashparams:
+        return ""
+    signed_fields = {field.lower() for field in hashparams.split(":") if field}
+    required_fields = {"clientid", "oid", "amount", "currency", "procreturncode", "response", "mdstatus"}
+    if not required_fields.issubset(signed_fields):
+        return ""
+    values = [
+        _cmi_escape(_normalized_callback_value(_payload_value(payload, name)))
+        for name in hashparams.split(":")
+        if name
+    ]
+    values.append(_cmi_escape(store_key.strip()))
+    digest = hashlib.sha512("|".join(values).encode("utf-8")).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _cmi_callback_hash_sorted(payload: dict[str, str], *, store_key: str) -> str:
+    escaped_values = []
+    for key in sorted(payload, key=str.lower):
+        lowered = key.lower()
+        if lowered in {"hash", "encoding"}:
+            continue
+        escaped_values.append(_cmi_escape(_normalized_callback_value(payload[key])))
+    escaped_values.append(_cmi_escape(store_key.strip()))
+    digest = hashlib.sha512("|".join(escaped_values).encode("utf-8")).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _cmi_callback_matches_transaction(
+    payload: dict[str, str],
+    transaction: PaymentTransaction,
+    *,
+    settings: Settings,
+) -> bool:
+    client_id = _payload_value(payload, "clientid")
+    if client_id != settings.cmi_client_id.strip():
+        return False
+    callback_amount = _amount_centimes_from_mad(_payload_value(payload, "amount"))
+    if callback_amount is None or callback_amount != int(transaction.amount_centimes):
+        return False
+    currency = _payload_value(payload, "currency")
+    if currency not in {CMI_CURRENCY_CODE_MAD, "MAD"}:
+        return False
+    return True
+
+
+def _cmi_callback_is_success(payload: dict[str, str]) -> bool:
+    proc_return_code = _payload_value(payload, "ProcReturnCode")
+    response = _payload_value(payload, "Response")
+    md_status = _payload_value(payload, "mdStatus")
+    if proc_return_code != "00":
+        return False
+    if response.lower() != "approved":
+        return False
+    if md_status not in {"1", "2", "3", "4"}:
+        return False
+    return True
+
+
+def _cmi_callback_event_id(payload: dict[str, str]) -> str:
+    provider_reference = _payload_value(payload, "TransId", "transid", "HostRefNum")
+    if provider_reference:
+        return provider_reference
+    fallback = "|".join(
+        [
+            _payload_value(payload, "oid", "ReturnOid", "OrderId"),
+            _payload_value(payload, "ProcReturnCode"),
+            _payload_value(payload, "Response"),
+            _payload_value(payload, "AuthCode"),
+            _payload_value(payload, "rnd"),
+        ]
+    )
+    return f"cmi:{hashlib.sha256(fallback.encode('utf-8')).hexdigest()}"
+
+
+def _cmi_invalid_callback_event_id(payload: dict[str, str]) -> str:
+    canonical = "|".join(f"{key}={payload[key]}" for key in sorted(payload, key=str.lower))
+    return f"cmi-invalid:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def _cmi_provider_reference(payload: dict[str, str]) -> str:
+    return _payload_value(payload, "TransId", "transid", "HostRefNum", "AuthCode", "xid")
+
+
+def _payload_value(payload: dict[str, str], *names: str) -> str:
+    requested = {name.lower() for name in names if name}
+    for key, value in payload.items():
+        if key.lower() in requested:
+            return _normalized_callback_value(value)
+    return ""
+
+
+def _normalized_callback_value(value: object) -> str:
+    return re.sub(
+        r"document(.)",
+        "document.",
+        html.unescape(str(value or "").removesuffix("\n").strip()),
+        flags=re.IGNORECASE,
+    )
+
+
+def _amount_centimes_from_mad(value: str) -> int | None:
+    try:
+        amount = Decimal(value.replace(",", "."))
+    except (InvalidOperation, AttributeError):
+        return None
+    return int((amount * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _redacted_cmi_payload(payload: dict[str, str]) -> dict[str, str]:
+    sensitive = {"cvv", "cvc", "storekey", "store_key", "cardnumber", "pan"}
+    redacted = {}
+    for key, value in payload.items():
+        lowered = key.lower()
+        redacted[key] = "[redacted]" if any(token in lowered for token in sensitive) else value
+    return redacted
