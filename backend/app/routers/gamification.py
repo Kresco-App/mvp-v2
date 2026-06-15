@@ -111,6 +111,7 @@ async def get_concept_mastery(
     subject_id: int | None = Query(default=None, ge=1),
     topic_id: int | None = Query(default=None, ge=1),
     weak_only: bool = Query(default=False),
+    due_only: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -122,6 +123,7 @@ async def get_concept_mastery(
         subject_id=subject_id,
         topic_id=topic_id,
         weak_only=weak_only,
+        due_only=due_only,
         limit=limit,
         offset=offset,
     )

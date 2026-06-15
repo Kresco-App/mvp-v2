@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -6,7 +7,8 @@ from app.database import get_session_factory
 from app.models.courses import Subject, Topic
 from app.models.gamification import QuestionAttempt, UserConceptMastery
 from app.models.quizzes import Question, QuestionSet
-from app.services.concept_mastery import update_concept_mastery_from_question_attempts
+from app.models.users import User
+from app.services.concept_mastery import list_concept_mastery_entries, update_concept_mastery_from_question_attempts
 from app.services.quiz_attempt_submission import persist_quiz_submission
 
 
@@ -186,6 +188,8 @@ def test_quiz_attempts_update_concept_mastery_without_duplicate_counting(app_cli
             assert row.confidence == 80
             assert row.status == "developing"
             assert row.last_result == "correct"
+            assert row.review_interval_days == 4
+            assert row.next_review_at is not None
             assert row.last_question_attempt_id is not None
             assert row.last_quiz_attempt_id is not None
 
@@ -219,12 +223,14 @@ def test_concept_mastery_endpoint_scopes_filters_and_requires_auth(app_client, a
                     context_key=f"subject:{subject.id}:topic:{weak_topic.id}",
                     concept_slug="weak-waves",
                     attempts_count=2,
-                    correct_count=0,
-                    incorrect_count=2,
-                    mastery_score=0,
+                    correct_count=1,
+                    incorrect_count=1,
+                    mastery_score=50,
                     confidence=40,
                     status="weak",
                     last_result="incorrect",
+                    review_interval_days=1,
+                    next_review_at=datetime.now(timezone.utc) - timedelta(days=2),
                 ),
                 UserConceptMastery(
                     user_id=user_id,
@@ -239,6 +245,8 @@ def test_concept_mastery_endpoint_scopes_filters_and_requires_auth(app_client, a
                     confidence=100,
                     status="mastered",
                     last_result="correct",
+                    review_interval_days=14,
+                    next_review_at=datetime.now(timezone.utc) + timedelta(days=10),
                 ),
                 UserConceptMastery(
                     user_id=other_user_id,
@@ -253,6 +261,8 @@ def test_concept_mastery_endpoint_scopes_filters_and_requires_auth(app_client, a
                     confidence=20,
                     status="weak",
                     last_result="incorrect",
+                    review_interval_days=1,
+                    next_review_at=datetime.now(timezone.utc) - timedelta(days=1),
                 ),
             ])
             await db.commit()
@@ -269,6 +279,10 @@ def test_concept_mastery_endpoint_scopes_filters_and_requires_auth(app_client, a
         f"/api/progress/concept-mastery?topic_id={mastered_topic_id}",
         headers={"Authorization": f"Bearer {token}"},
     )
+    due = app_client.get(
+        "/api/progress/concept-mastery?due_only=true",
+        headers={"Authorization": f"Bearer {token}"},
+    )
 
     assert unauthenticated.status_code == 401
     assert weak.status_code == 200
@@ -282,6 +296,67 @@ def test_concept_mastery_endpoint_scopes_filters_and_requires_auth(app_client, a
     assert topic_filtered.status_code == 200
     assert topic_filtered.json()["total"] == 1
     assert topic_filtered.json()["items"][0]["concept_slug"] == "mastered-force"
+
+    assert due.status_code == 200
+    due_payload = due.json()
+    assert due_payload["total"] == 1
+    assert due_payload["items"][0]["concept_slug"] == "weak-waves"
+    assert due_payload["items"][0]["review_due"] is True
+    assert due_payload["items"][0]["days_overdue"] >= 1
+    assert due_payload["items"][0]["effective_mastery_score"] < due_payload["items"][0]["mastery_score"]
+
+
+def test_concept_mastery_read_model_filters_due_and_decays_effective_score(app_client, auth_token, run_db):
+    del app_client
+    _token, user_id = auth_token(email="concept-mastery-due@example.com", is_pro=True)
+    as_of = datetime(2032, 5, 20, tzinfo=timezone.utc)
+
+    async def _exercise():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = await db.get(User, user_id)
+            assert user is not None
+            db.add_all([
+                UserConceptMastery(
+                    user_id=user_id,
+                    context_key="global",
+                    concept_slug="overdue-concept",
+                    attempts_count=5,
+                    correct_count=4,
+                    incorrect_count=1,
+                    mastery_score=80,
+                    confidence=100,
+                    status="developing",
+                    last_result="correct",
+                    review_interval_days=4,
+                    next_review_at=as_of - timedelta(days=3),
+                ),
+                UserConceptMastery(
+                    user_id=user_id,
+                    context_key="global",
+                    concept_slug="future-concept",
+                    attempts_count=5,
+                    correct_count=5,
+                    incorrect_count=0,
+                    mastery_score=100,
+                    confidence=100,
+                    status="mastered",
+                    last_result="correct",
+                    review_interval_days=14,
+                    next_review_at=as_of + timedelta(days=5),
+                ),
+            ])
+            await db.flush()
+            result = await list_concept_mastery_entries(db, user=user, due_only=True, as_of=as_of)
+            return result.model_dump()
+
+    payload = run_db(_exercise())
+    assert payload["total"] == 1
+    item = payload["items"][0]
+    assert item["concept_slug"] == "overdue-concept"
+    assert item["review_due"] is True
+    assert item["days_overdue"] == 3
+    assert item["effective_mastery_score"] == 74
 
 
 def test_concept_mastery_conflict_upsert_rounds_mastery_threshold(app_client, auth_token, run_db):
@@ -349,21 +424,46 @@ def test_concept_mastery_conflict_upsert_rounds_mastery_threshold(app_client, au
                 )
             )
             assert row is not None
-            return row.attempts_count, row.correct_count, row.mastery_score, row.status
+            assert row.next_review_at is not None
+            assert row.last_practiced_at is not None
+            next_review_at = row.next_review_at
+            last_practiced_at = row.last_practiced_at
+            if next_review_at.tzinfo is None:
+                next_review_at = next_review_at.replace(tzinfo=timezone.utc)
+            if last_practiced_at.tzinfo is None:
+                last_practiced_at = last_practiced_at.replace(tzinfo=timezone.utc)
+            return (
+                row.attempts_count,
+                row.correct_count,
+                row.mastery_score,
+                row.status,
+                row.review_interval_days,
+                (next_review_at - last_practiced_at).days,
+            )
 
-    assert run_db(_exercise()) == (13, 11, 85, "mastered")
+    assert run_db(_exercise()) == (13, 11, 85, "mastered", 14, 14)
 
 
 def test_concept_mastery_migration_and_model_are_declared():
     migration = (
         BACKEND_ROOT / "alembic" / "versions" / "0073_user_concept_mastery.py"
     ).read_text(encoding="utf-8")
+    schedule_migration = (
+        BACKEND_ROOT / "alembic" / "versions" / "0074_concept_mastery_review_schedule.py"
+    ).read_text(encoding="utf-8")
 
     assert "user_concept_mastery" in migration
     assert "uq_user_concept_mastery_user_context_concept" in migration
     assert "ck_user_concept_mastery_status" in migration
     assert "ix_user_concept_mastery_user_status_score" in migration
+    assert "review_interval_days" in schedule_migration
+    assert "next_review_at" in schedule_migration
+    assert "ix_user_concept_mastery_user_next_review" in schedule_migration
     assert UserConceptMastery.__tablename__ == "user_concept_mastery"
+    assert "review_interval_days" in UserConceptMastery.__table__.columns
+    assert "next_review_at" in UserConceptMastery.__table__.columns
+    index_names = {index.name for index in UserConceptMastery.__table__.indexes}
+    assert "ix_user_concept_mastery_user_next_review" in index_names
     constraint_names = {constraint.name for constraint in UserConceptMastery.__table__.constraints}
     assert "uq_user_concept_mastery_user_context_concept" in constraint_names
     assert "ck_user_concept_mastery_status" in constraint_names

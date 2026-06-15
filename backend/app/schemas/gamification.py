@@ -177,6 +177,11 @@ class ConceptMasteryEntryOut(BaseModel):
     last_source: str
     last_question_attempt_id: Optional[int] = None
     last_quiz_attempt_id: Optional[int] = None
+    review_interval_days: int
+    next_review_at: Optional[datetime] = None
+    review_due: bool
+    days_overdue: int
+    effective_mastery_score: int
     last_practiced_at: Optional[datetime] = None
     last_correct_at: Optional[datetime] = None
     last_incorrect_at: Optional[datetime] = None

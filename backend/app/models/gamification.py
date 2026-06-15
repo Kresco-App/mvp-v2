@@ -101,6 +101,7 @@ class UserConceptMastery(Base):
         Index("ix_user_concept_mastery_user_status_score", "user_id", "status", "mastery_score"),
         Index("ix_user_concept_mastery_user_subject_status", "user_id", "subject_id", "status"),
         Index("ix_user_concept_mastery_user_topic_status", "user_id", "topic_id", "status"),
+        Index("ix_user_concept_mastery_user_next_review", "user_id", "next_review_at"),
         Index("ix_user_concept_mastery_user_updated", "user_id", "updated_at"),
         Index("ix_user_concept_mastery_concept", "concept_slug"),
     )
@@ -125,6 +126,8 @@ class UserConceptMastery(Base):
     last_quiz_attempt_id: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("quiz_attempts.id", ondelete="SET NULL"), nullable=True
     )
+    review_interval_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    next_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_practiced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_correct_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_incorrect_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

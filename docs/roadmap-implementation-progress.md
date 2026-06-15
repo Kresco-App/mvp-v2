@@ -3270,6 +3270,63 @@ Verification completed:
   `85` and `mastered`.
 - Re-review found no blocking issues.
 
+### Slice 57: Concept Mastery Review Scheduling
+
+Status: implemented.
+
+Reason for this slice:
+
+- Slice 56 created concept mastery and weak-topic detection, but the roadmap
+  also calls for decay and spaced repetition.
+- The student UI can later surface due concepts or revision prompts, but the
+  backend needs stable scheduling fields and read filters first.
+
+Implemented scope:
+
+- Added `review_interval_days` and `next_review_at` to
+  `user_concept_mastery`. Status: implemented.
+- Added due-review filtering to `GET /api/progress/concept-mastery` via
+  `due_only=true`. Status: implemented.
+- Added read-model fields for `review_due`, `days_overdue`, and
+  `effective_mastery_score`. Status: implemented.
+- Updated quiz-backed mastery writes to refresh review interval and next review
+  date after every affected concept update. Status: implemented.
+
+Decisions:
+
+- Decision: v1 scheduling is deterministic and status-based: weak/mixed or
+  incorrect concepts are due in 1 day, developing concepts in 4 days, and
+  mastered concepts in 14 days.
+- Decision: decay is read-only for v1. `effective_mastery_score` subtracts 2
+  points per overdue day, but the stored aggregate score is not mutated by a
+  background job yet.
+- Decision: no unified revision queue is introduced. The due filter is a
+  backend read model that UI can use inside progress or bank-local revision
+  surfaces.
+
+Verification plan:
+
+- Add migration/model declaration checks for scheduling fields and due-review
+  index. Status: implemented.
+- Add route coverage for `due_only=true`, due flags, overdue days, and decayed
+  effective score. Status: implemented.
+- Add service-level read-model coverage using a fixed clock so decay math is
+  deterministic. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_concept_mastery.py tests_fastapi/test_migrations.py -q`
+  passed with 7 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0074 (head)`.
+- Independent review found stale identity-map schedule refresh could persist
+  the wrong `next_review_at` after conflict upsert, the migration left existing
+  mastery rows unscheduled, and the due-review index was missing from ORM
+  metadata. Fixed by forcing refreshed rows to populate from the database,
+  backfilling existing schedules during migration, declaring the ORM index, and
+  adding schedule assertions for the mastered-threshold conflict path.
+- Re-review found no blocking issues.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
