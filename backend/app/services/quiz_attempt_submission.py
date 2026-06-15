@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import case, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
@@ -209,21 +209,41 @@ async def _award_quiz_xp(
     passed: bool,
 ) -> int:
     xp_awards: list[XPAward] = []
+    correct_question_ids = [
+        question_attempt["question_id"]
+        for question_attempt in inserted_question_attempts
+        if question_attempt["is_correct"]
+    ]
+    prior_correctness = await _prior_question_correctness(
+        db,
+        user_id=user_id,
+        quiz_attempt_id=attempt.id,
+        question_ids=correct_question_ids,
+    )
     for question_attempt in inserted_question_attempts:
         if not question_attempt["is_correct"]:
             continue
+        question_id = question_attempt["question_id"]
+        prior = prior_correctness.get(question_id, {"correct": False, "incorrect": False})
+        if prior["correct"]:
+            continue
+        reason = "quiz_retry_correct" if prior["incorrect"] else "quiz_correct"
         xp_awards.append(XPAward(
-            reason="quiz_correct",
-            description=f"Question {question_attempt['question_id']} first correct",
+            reason=reason,
+            description=(
+                f"Question {question_id} retry correct"
+                if reason == "quiz_retry_correct"
+                else f"Question {question_id} first correct"
+            ),
             subject_id=question_attempt["subject_id"],
             topic_id=question_attempt["topic_id"],
             topic_section_id=question_attempt["topic_section_id"],
             topic_item_id=question_attempt["topic_item_id"],
             question_set_id=question_set.id,
-            question_id=question_attempt["question_id"],
+            question_id=question_id,
             quiz_attempt_id=attempt.id,
             question_attempt_id=question_attempt["id"],
-            idempotency_key=f"quiz_correct:user:{user_id}:question:{question_attempt['question_id']}",
+            idempotency_key=f"{reason}:user:{user_id}:question:{question_id}",
         ))
 
     if passed:
@@ -255,6 +275,34 @@ async def _award_quiz_xp(
             idempotency_key=quiz_perfect_idempotency_key(user_id, question_set.id),
         ))
     return await award_xp_bulk(user_id, xp_awards, db)
+
+
+async def _prior_question_correctness(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    quiz_attempt_id: int,
+    question_ids: list[int],
+) -> dict[int, dict[str, bool]]:
+    if not question_ids:
+        return {}
+    result = await db.execute(
+        select(
+            QuestionAttempt.question_id,
+            func.max(case((QuestionAttempt.is_correct.is_(True), 1), else_=0)).label("has_correct"),
+            func.max(case((QuestionAttempt.is_correct.is_(False), 1), else_=0)).label("has_incorrect"),
+        )
+        .where(
+            QuestionAttempt.user_id == user_id,
+            QuestionAttempt.question_id.in_(question_ids),
+            QuestionAttempt.quiz_attempt_id != quiz_attempt_id,
+        )
+        .group_by(QuestionAttempt.question_id)
+    )
+    return {
+        int(question_id): {"correct": bool(has_correct), "incorrect": bool(has_incorrect)}
+        for question_id, has_correct, has_incorrect in result.all()
+    }
 
 
 async def _apply_pass_stats_if_first_pass(

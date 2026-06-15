@@ -1481,6 +1481,53 @@ Verification plan:
   guard. The predicate now requires exact score `100` and inserted attempts to
   match the question snapshot count. Status: implemented.
 
+### Slice 28: Retry-Correct Quiz XP
+
+Status: implemented.
+
+Reason for this slice:
+
+- `quiz_retry_correct` existed in the XP reward table and daily cap mapping but
+  was not wired.
+- The XP economy should distinguish a question answered correctly the first
+  time from a question corrected after a prior mistake.
+
+Planned backend scope:
+
+- Classify each newly correct quiz question attempt as either first-correct or
+  retry-correct by checking prior attempts for that `(user, question)`. Status:
+  implemented.
+- Award `quiz_retry_correct` instead of `quiz_correct` when the student has a
+  prior incorrect attempt and no prior correct attempt for that question.
+  Status: implemented.
+- Keep retry-correct rewards in the existing `quiz_correct` daily cap category.
+  Status: implemented.
+- Avoid UI changes in this slice. Status: implemented.
+
+Decisions:
+
+- Decision: retry-correct is a replacement for first-correct XP on that
+  question, not an additional bonus layered on top of `quiz_correct`.
+- Decision: once a question has any prior correct attempt for that student, no
+  later correct attempt awards either `quiz_correct` or `quiz_retry_correct`.
+- Decision: the classifier uses persisted `QuestionAttempt` history and
+  excludes the current quiz attempt, keeping the decision backend-owned.
+
+Verification plan:
+
+- Update focused XP tests so wrong-then-perfect awards
+  `quiz_retry_correct` + `quiz_pass` + `quiz_perfect`, not `quiz_correct`.
+  Status: implemented.
+- Keep Topic Workspace perfect-first-try coverage expecting full
+  `quiz_correct` rewards when there is no prior mistake. Status: implemented.
+- Run focused quiz perfect, quiz history, mistake notebook, Topic Workspace
+  quiz, XP service tests, and compile checks. Status: implemented.
+- Run strong review before committing. Status: implemented.
+- Strong review found the retry classifier should not materialize all
+  historical attempts for heavily retried questions. The classifier now uses a
+  grouped aggregate query that returns at most one row per question. Status:
+  implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
