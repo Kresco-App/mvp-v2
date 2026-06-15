@@ -67,3 +67,33 @@ class PaymentRequestOut(BaseModel):
     instructions: dict[str, Any]
     created_at: datetime
     expires_at: datetime | None = None
+
+
+class ManualPaymentTransactionOut(BaseModel):
+    id: int
+    user_id: int
+    provider: str
+    payment_method: str
+    status: str
+    plan: str
+    amount_centimes: int
+    currency: str
+    reference_code: str
+    provider_reference: str | None = None
+    instructions: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime | None = None
+    confirmed_at: datetime | None = None
+
+
+class ManualPaymentReviewIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=255)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 3:
+            raise ValueError("reason is required")
+        return normalized

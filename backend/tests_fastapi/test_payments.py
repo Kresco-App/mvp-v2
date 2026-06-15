@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,9 @@ from app.database import get_session_factory
 from app.models.payments import (
     PAYMENT_RAIL_BANK_TRANSFER,
     PAYMENT_RAIL_CASHPLUS,
+    PAYMENT_STATUS_EXPIRED,
+    PAYMENT_STATUS_FAILED,
+    PAYMENT_STATUS_PAID,
     PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
     FinanceLedgerEntry,
     PaymentProviderEvent,
@@ -214,6 +218,23 @@ async def _seed_user(email: str, *, is_pro: bool = False, stripe_customer_id: st
         return user.id
 
 
+async def _seed_staff_user(email: str) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        user = User(
+            email=email,
+            full_name="Finance Staff",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=True,
+            password="!",
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        return user.id
+
+
 async def _get_user(user_id: int) -> User:
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -274,6 +295,36 @@ async def _payment_transactions_for_user(user_id: int) -> list[PaymentTransactio
     session_factory = get_session_factory()
     async with session_factory() as db:
         result = await db.execute(select(PaymentTransaction).where(PaymentTransaction.user_id == user_id))
+        return list(result.scalars().all())
+
+
+async def _set_payment_transaction_expired(transaction_id: int) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        transaction = await db.get(PaymentTransaction, transaction_id)
+        transaction.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+        await db.commit()
+
+
+async def _payment_provider_events_for_transaction(transaction_id: int) -> list[PaymentProviderEvent]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(PaymentProviderEvent)
+            .where(PaymentProviderEvent.transaction_id == transaction_id)
+            .order_by(PaymentProviderEvent.id)
+        )
+        return list(result.scalars().all())
+
+
+async def _finance_ledger_entries_for_transaction(transaction_id: int) -> list[FinanceLedgerEntry]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(FinanceLedgerEntry)
+            .where(FinanceLedgerEntry.transaction_id == transaction_id)
+            .order_by(FinanceLedgerEntry.id)
+        )
         return list(result.scalars().all())
 
 
@@ -544,6 +595,290 @@ def test_create_payment_request_rejects_unknown_plan(app_client, auth_token, run
     assert response.status_code == 400
     assert "Invalid payment plan" in response.text
     assert run_db(_payment_transactions_for_user(user_id)) == []
+
+
+def test_manual_payment_review_requires_verified_staff(app_client, auth_token, run_db, test_settings):
+    student_token, _user_id = auth_token(email="manual-review-student@example.com")
+    staff_id = run_db(_seed_staff_user("manual-review-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    student_response = app_client.get(
+        "/api/payments/manual-payment-requests",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    staff_response = app_client.get(
+        "/api/payments/manual-payment-requests",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert student_response.status_code == 403
+    assert student_response.json()["detail"] == "Staff access required"
+    assert staff_response.status_code == 200
+    assert isinstance(staff_response.json(), list)
+
+
+def test_staff_can_list_pending_manual_payment_requests(app_client, auth_token, run_db, test_settings):
+    student_token, user_id = auth_token(email="manual-list-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    staff_id = run_db(_seed_staff_user("manual-list-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    list_response = app_client.get(
+        "/api/payments/manual-payment-requests",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert create_response.status_code == 200
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    transaction = next(item for item in payload if item["id"] == create_response.json()["id"])
+    assert transaction["user_id"] == user_id
+    assert transaction["status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert transaction["payment_method"] == PAYMENT_RAIL_BANK_TRANSFER
+
+
+def test_staff_approve_manual_payment_grants_access_and_records_audit(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="manual-approve-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("manual-approve-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "CashPlus receipt verified"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    second_approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "CashPlus receipt verified"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert create_response.status_code == 200
+    assert approve_response.status_code == 200
+    payload = approve_response.json()
+    assert payload["status"] == PAYMENT_STATUS_PAID
+    assert payload["confirmed_at"] is not None
+    assert second_approve_response.status_code == 200
+    assert second_approve_response.json()["status"] == PAYMENT_STATUS_PAID
+
+    user = run_db(_get_user(user_id))
+    assert user.is_pro is True
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PAID
+    assert transaction.open_request_key is None
+    assert transaction.metadata_json["confirmed_by_user_id"] == staff_id
+    assert transaction.metadata_json["confirmation_reason"] == "CashPlus receipt verified"
+
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_type == "manual.approved"
+    assert events[0].payload_json == {"actor_user_id": staff_id, "reason": "CashPlus receipt verified"}
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert len(ledger_entries) == 1
+    assert ledger_entries[0].entry_type == "payment_confirmed"
+    assert ledger_entries[0].amount_centimes == 9900
+    assert ledger_entries[0].metadata_json == {"actor_user_id": staff_id, "rail": PAYMENT_RAIL_CASHPLUS}
+
+
+def test_staff_cannot_approve_own_manual_payment_request(app_client, run_db, test_settings):
+    staff_id = run_db(_seed_staff_user("manual-self-approve-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    headers = {"Authorization": f"Bearer {staff_token}"}
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers=headers,
+    )
+    transaction_id = create_response.json()["id"]
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Self approval attempt"},
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert approve_response.status_code == 403
+    assert approve_response.json()["detail"] == "Staff cannot approve their own manual payment"
+    assert run_db(_get_user(staff_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(staff_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 0
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+
+
+def test_staff_cannot_approve_expired_manual_payment_request(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="manual-expired-approve-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    run_db(_set_payment_transaction_expired(transaction_id))
+    staff_id = run_db(_seed_staff_user("manual-expired-approve-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Late finance approval attempt"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    retry_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+
+    assert create_response.status_code == 200
+    assert approve_response.status_code == 409
+    assert approve_response.json()["detail"] == "Manual payment request is expired"
+    assert retry_response.status_code == 200
+    assert retry_response.json()["id"] != transaction_id
+    assert run_db(_get_user(user_id)).is_pro is False
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    expired_transaction = next(transaction for transaction in transactions if transaction.id == transaction_id)
+    assert expired_transaction.status == PAYMENT_STATUS_EXPIRED
+    assert expired_transaction.open_request_key is None
+    assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 0
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+
+
+def test_staff_reject_manual_payment_keeps_access_locked_and_allows_retry(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="manual-reject-student@example.com")
+    headers = {"Authorization": f"Bearer {student_token}"}
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers=headers,
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("manual-reject-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    reject_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/reject",
+        json={"reason": "Reference not found"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    retry_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers=headers,
+    )
+
+    assert create_response.status_code == 200
+    assert reject_response.status_code == 200
+    assert reject_response.json()["status"] == PAYMENT_STATUS_FAILED
+    assert retry_response.status_code == 200
+    assert retry_response.json()["id"] != transaction_id
+
+    user = run_db(_get_user(user_id))
+    assert user.is_pro is False
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    failed_transaction = next(transaction for transaction in transactions if transaction.id == transaction_id)
+    assert failed_transaction.status == PAYMENT_STATUS_FAILED
+    assert failed_transaction.open_request_key is None
+    assert failed_transaction.metadata_json["rejected_by_user_id"] == staff_id
+    assert failed_transaction.metadata_json["rejection_reason"] == "Reference not found"
+
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_type == "manual.rejected"
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert len(ledger_entries) == 1
+    assert ledger_entries[0].entry_type == "payment_rejected"
+    assert ledger_entries[0].amount_centimes == 0
+
+
+def test_create_payment_request_releases_expired_open_request_for_retry(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="manual-expired-retry-student@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    body = {"payment_method": "cashplus", "plan": "pro"}
+    first_response = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+    transaction_id = first_response.json()["id"]
+    run_db(_set_payment_transaction_expired(transaction_id))
+
+    retry_response = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+
+    assert first_response.status_code == 200
+    assert retry_response.status_code == 200
+    assert retry_response.json()["id"] != transaction_id
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    expired_transaction = next(transaction for transaction in transactions if transaction.id == transaction_id)
+    open_transaction = next(transaction for transaction in transactions if transaction.id == retry_response.json()["id"])
+    assert expired_transaction.status == PAYMENT_STATUS_EXPIRED
+    assert expired_transaction.open_request_key is None
+    assert open_transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert open_transaction.open_request_key == f"manual:{user_id}:cashplus:pro"
+
+
+def test_staff_cannot_reject_paid_manual_payment(app_client, auth_token, run_db, test_settings):
+    student_token, _user_id = auth_token(email="manual-paid-reject-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("manual-paid-reject-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    approve_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/approve",
+        json={"reason": "Bank transfer verified"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    reject_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/reject",
+        json={"reason": "Late mismatch"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert create_response.status_code == 200
+    assert approve_response.status_code == 200
+    assert reject_response.status_code == 409
+    assert reject_response.json()["detail"] == "Manual payment is not pending review"
+    assert len(run_db(_payment_provider_events_for_transaction(transaction_id))) == 1
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 1
+
+
+def test_manual_payment_list_rejects_invalid_status_filter(app_client, run_db, test_settings):
+    staff_id = run_db(_seed_staff_user("manual-invalid-filter-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.get(
+        "/api/payments/manual-payment-requests?status=cancelled",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported manual payment status filter"
 
 
 def test_get_verify_session_is_non_mutating_compatibility_status(app_client, auth_token, monkeypatch, run_db):

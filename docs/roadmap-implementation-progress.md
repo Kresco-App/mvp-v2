@@ -25,7 +25,7 @@ specification and this file stays an execution log.
 
 ### Slice 1: Payment Gateway Foundation
 
-Status: in progress.
+Status: committed in `ad68deb8`.
 
 Reason for starting here:
 
@@ -95,17 +95,65 @@ Review notes addressed:
 - Added DB check constraints for provider, rail, status, and currency fields.
 - Added retry coverage for unpaid Stripe verification becoming paid later.
 
+### Slice 2: Finance Review Bridge
+
+Status: in progress.
+
+Reason for this slice:
+
+- Manual payment requests are only useful if staff can review them without
+  touching the database directly.
+- Approval must be the first point where access is granted for virement and
+  CashPlus.
+- Rejection must preserve audit history while allowing the student to create a
+  clean replacement request.
+
+Planned backend scope:
+
+- Add staff-only list endpoint for manual payment transactions. Status:
+  implemented.
+- Add staff-only approve/reject endpoints. Status: implemented.
+- On approval, mark the transaction paid, clear the open request key, write a
+  provider-event row, write a finance-ledger row, and grant the current `is_pro`
+  projection. Status: implemented.
+- On rejection, mark the transaction failed, clear the open request key, write a
+  provider-event row, write a finance-ledger row, and keep access locked.
+  Status: implemented.
+
+Decisions:
+
+- Decision: use the existing `is_staff` plus verified-email guard for this
+  bridge. Proper finance RBAC stays a later backoffice/security slice.
+- Decision: use current `User.is_pro` as the entitlement projection for manual
+  approval until the fuller entitlement model lands.
+- Decision: keep the bridge backend-only for now. Dedicated admin UI comes
+  after the core models and workflow contracts are stable.
+
+Verification plan:
+
+- Add route tests for non-staff denial and staff list access.
+- Add approval tests for status, entitlement grant, idempotent repeat approval,
+  provider-event audit, and ledger entry.
+- Add rejection tests for no entitlement grant, retry creation, provider-event
+  audit, and ledger entry.
+
+Review notes addressed:
+
+- Blocked staff self-approval of their own manual payment request.
+- Blocked approval of expired manual payment requests.
+- Expired pending manual requests now release their open request key so students
+  can create a replacement request cleanly.
+- Added an invalid status-filter regression test for the finance list endpoint.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Finance review bridge for pending manual payments: list, approve/reject,
-   append ledger/provider event, and grant entitlement only after approval.
-2. Exercise Bank data model and API skeleton.
-3. Exercise reveal/self-grade state and XP guardrails.
-4. Exam Bank part capsule model/API skeleton.
-5. Quiz snapshot/version integrity.
-6. XP economy caps and auditability.
+1. Exercise Bank data model and API skeleton.
+2. Exercise reveal/self-grade state and XP guardrails.
+3. Exam Bank part capsule model/API skeleton.
+4. Quiz snapshot/version integrity.
+5. XP economy caps and auditability.
 
 ## Open Risks
 

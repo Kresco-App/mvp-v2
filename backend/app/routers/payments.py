@@ -3,11 +3,25 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_current_staff_user, get_current_user, get_db
 from app.models.users import User
 from app.rate_limit import limiter
-from app.schemas.payments import CheckoutCreateIn, CheckoutOut, PaymentRequestCreateIn, PaymentRequestOut, VerifyIn, VerifyOut
-from app.services.payment_gateway import create_pending_manual_payment_request
+from app.schemas.payments import (
+    CheckoutCreateIn,
+    CheckoutOut,
+    ManualPaymentReviewIn,
+    ManualPaymentTransactionOut,
+    PaymentRequestCreateIn,
+    PaymentRequestOut,
+    VerifyIn,
+    VerifyOut,
+)
+from app.services.payment_gateway import (
+    approve_manual_payment_transaction,
+    create_pending_manual_payment_request,
+    list_manual_payment_transactions,
+    reject_manual_payment_transaction,
+)
 from app.services.payment_lifecycle import (
     create_checkout_state,
     process_stripe_webhook_event,
@@ -55,6 +69,52 @@ async def create_payment_request(
         user=user,
         payment_method=payment_request.payment_method,
         plan=payment_request.plan,
+    )
+
+
+@router.get("/manual-payment-requests", response_model=list[ManualPaymentTransactionOut])
+async def list_manual_payment_requests(
+    status: str = "pending_manual_review",
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await list_manual_payment_transactions(db, status=status, limit=limit)
+
+
+@router.post("/manual-payment-requests/{transaction_id}/approve", response_model=ManualPaymentTransactionOut)
+@limiter.limit("20/minute")
+async def approve_manual_payment_request(
+    request: Request,
+    transaction_id: int,
+    review: ManualPaymentReviewIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(get_current_staff_user),
+):
+    del request
+    return await approve_manual_payment_transaction(
+        db,
+        transaction_id=transaction_id,
+        actor=staff,
+        reason=review.reason,
+    )
+
+
+@router.post("/manual-payment-requests/{transaction_id}/reject", response_model=ManualPaymentTransactionOut)
+@limiter.limit("20/minute")
+async def reject_manual_payment_request(
+    request: Request,
+    transaction_id: int,
+    review: ManualPaymentReviewIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(get_current_staff_user),
+):
+    del request
+    return await reject_manual_payment_transaction(
+        db,
+        transaction_id=transaction_id,
+        actor=staff,
+        reason=review.reason,
     )
 
 
