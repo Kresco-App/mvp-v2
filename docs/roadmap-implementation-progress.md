@@ -747,6 +747,59 @@ Verification plan:
   implemented; initial CSP finding was fixed and follow-up review found no new
   high/medium issues.
 
+### Slice 14: CMI Return Pages
+
+Status: implemented.
+
+Reason for this slice:
+
+- Backend CMI settings point to `/payment/cmi/ok` and `/payment/cmi/fail`, but
+  the frontend did not yet own those return routes.
+- The return pages should not trust browser query params or provider redirects
+  to grant access; only the signed backend callback and profile projection
+  should determine whether access is active.
+
+Planned frontend scope:
+
+- Add minimal authenticated CMI OK and fail pages. Status: implemented.
+- On OK, refresh the current profile and show active access only if `is_pro` is
+  already projected by the backend. Status: implemented.
+- If the OK page arrives before projection, show a pending confirmation state
+  instead of granting access. Status: implemented.
+- On fail, show a retry/pricing path without calling profile refresh. Status:
+  implemented.
+- Protect `/payment/cmi/*` at the proxy auth boundary, matching the existing
+  `/payment-success` behavior. Status: implemented.
+
+Decisions:
+
+- Decision: do not parse or trust CMI return query parameters in the frontend.
+  The frontend display follows `/profile/me`; the backend signed callback
+  remains the only source of payment truth.
+- Decision: keep the pages under `/payment/cmi/ok` and `/payment/cmi/fail`
+  because those are the backend CMI setting paths already used in tests.
+- Decision: use a shared small return-status component instead of duplicating
+  page state logic between OK and fail routes.
+- Decision: do not wrap the CMI return component in client `AuthGuard`; proxy
+  auth protection plus one explicit profile refresh avoids racing two
+  independent `/profile/me` reads.
+- Decision: the pending-state `Actualiser` action reruns the profile check
+  directly instead of relying on `router.refresh()`.
+
+Verification plan:
+
+- Add jsdom tests for confirmed active access, pending confirmation, and failed
+  CMI return behavior. Status: implemented.
+- Add tests for proxy protection and pending-state refresh. Status:
+  implemented.
+- Run targeted CMI return-page tests, TypeScript checks, and lint. Status:
+  implemented.
+- Browser smoke note: routes are authenticated and profile-dependent, so this
+  slice is verified through focused component/page tests instead of a standalone
+  unauthenticated browser screenshot.
+- Strong review found proxy-auth, duplicate profile-refresh, and refresh-action
+  issues; all were fixed, and follow-up review found no new high/medium issues.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

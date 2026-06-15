@@ -16,6 +16,7 @@ const protectedRoutePrefixes = [
   '/home',
   '/live',
   '/onboarding',
+  '/payment/cmi',
   '/payment-success',
   '/pricing',
   '/profile',

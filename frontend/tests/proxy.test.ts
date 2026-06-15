@@ -155,6 +155,18 @@ describe('Next proxy auth boundary', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('x-middleware-next')).toBe('1')
   })
+  it('protects CMI return routes at the proxy boundary', () => {
+    const unauthenticated = proxy(makeRequest('/payment/cmi/ok'))
+    const authenticated = proxy(makeRequest('/payment/cmi/fail', {
+      [KRESCO_TOKEN_COOKIE]: validToken(),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }))
+
+    expect(unauthenticated.status).toBe(307)
+    expect(unauthenticated.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(authenticated.status).toBe(200)
+    expect(authenticated.headers.get('x-middleware-next')).toBe('1')
+  })
 
   it('emits a blocking CSP on allowed page responses', () => {
     const response = proxy(makeRequest('/topics/42', {
