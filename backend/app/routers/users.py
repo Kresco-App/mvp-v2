@@ -47,6 +47,7 @@ from app.services.user_profile import (
     upload_profile_media_state,
     user_out as profile_user_out,
 )
+from app.services.xp import award_daily_login_xp
 
 router = APIRouter(tags=["Auth & Users"])
 
@@ -131,6 +132,20 @@ def _user_out(user: User, settings: Settings) -> UserOut:
     return profile_user_out(user, settings, media_url_fn=media_url)
 
 
+async def _auth_session_out(
+    db: AsyncSession,
+    *,
+    response: Response,
+    user: User,
+    settings: Settings,
+) -> AuthSessionOut:
+    token = create_token(user, settings)
+    csrf_token = _set_auth_cookies(response, token, user, settings)
+    await award_daily_login_xp(db, user_id=user.id)
+    await db.commit()
+    return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
+
+
 @router.post("/google-login", response_model=AuthSessionOut)
 @limiter.limit(AUTH_LOGIN_RATE_LIMIT)
 async def google_login(
@@ -153,9 +168,7 @@ async def google_login(
         require_professor_active_offering_fn=require_professor_active_offering,
     )
 
-    token = create_token(user, settings)
-    csrf_token = _set_auth_cookies(response, token, user, settings)
-    return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
+    return await _auth_session_out(db, response=response, user=user, settings=settings)
 
 
 @router.post("/auth/signup", response_model=SignupPendingOut, status_code=202)
@@ -210,9 +223,7 @@ async def verify_email(
 ):
     del request
     user = await verify_email_account(db, token=body.token, settings=settings)
-    token = create_token(user, settings)
-    csrf_token = _set_auth_cookies(response, token, user, settings)
-    return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
+    return await _auth_session_out(db, response=response, user=user, settings=settings)
 
 
 @router.post("/auth/resend-verification", response_model=MessageOut)
@@ -253,9 +264,7 @@ async def login(
         password=body.password,
         require_professor_active_offering_fn=require_professor_active_offering,
     )
-    token = create_token(user, settings)
-    csrf_token = _set_auth_cookies(response, token, user, settings)
-    return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
+    return await _auth_session_out(db, response=response, user=user, settings=settings)
 
 
 @router.post("/auth/logout", response_model=MessageOut)

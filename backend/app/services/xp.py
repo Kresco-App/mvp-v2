@@ -269,6 +269,38 @@ async def award_xp_bulk(
     return total_amount
 
 
+async def award_daily_login_xp(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    active_date: Optional[date] = None,
+) -> int:
+    login_date = active_date or _current_utc_date()
+    xp_record = await db.scalar(select(UserXP).where(UserXP.user_id == user_id).with_for_update())
+    previous_active_date = xp_record.last_active_date if xp_record is not None else None
+    awards = [
+        XPAward(
+            reason="daily_login",
+            description=f"Daily login {login_date.isoformat()}",
+            idempotency_key=f"daily_login:user:{user_id}:date:{login_date.isoformat()}",
+        )
+    ]
+    if previous_active_date == login_date - timedelta(days=1):
+        awards.append(
+            XPAward(
+                reason="streak_bonus",
+                description=f"Streak continued {login_date.isoformat()}",
+                idempotency_key=f"streak_bonus:user:{user_id}:date:{login_date.isoformat()}",
+            )
+        )
+    amount = await award_xp_bulk(user_id, awards, db, active_date=login_date)
+    if amount == 0 and previous_active_date != login_date and (
+        previous_active_date is None or previous_active_date < login_date
+    ):
+        await _increment_user_xp_total(db, user_id, 0, active_date=login_date)
+    return amount
+
+
 async def _remove_existing_xp_transaction_rows(
     db: AsyncSession,
     *,

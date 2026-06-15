@@ -1528,6 +1528,63 @@ Verification plan:
   grouped aggregate query that returns at most one row per question. Status:
   implemented.
 
+### Slice 29: Daily Login and Streak XP
+
+Status: implemented.
+
+Reason for this slice:
+
+- `daily_login` and `streak_bonus` existed in the XP reward table and daily cap
+  mapping but were not wired.
+- `UserXP` already stores `last_active_date` and `streak_days`, so the simplest
+  implementation is to award login/streak XP at successful auth session
+  creation and let the existing XP total/streak machinery update the projection.
+
+Planned backend scope:
+
+- Add an idempotent `award_daily_login_xp` service. Status: implemented.
+- Award `daily_login` once per user per UTC date. Status: implemented.
+- Award `streak_bonus` when the prior active date was exactly yesterday.
+  Status: implemented.
+- Wire successful password login, Google login, and email verification session
+  creation through the shared daily-login award helper. Status: implemented.
+- Avoid UI changes in this slice. Status: implemented.
+
+Decisions:
+
+- Decision: daily login XP is backend-owned and attached to successful auth
+  session creation, not a frontend-triggered claim.
+- Decision: daily login and streak bonus use date-scoped XP idempotency keys so
+  repeated same-day logins cannot farm XP.
+- Decision: the streak bonus is awarded only for consecutive-day continuation,
+  not the first login day and not after missed days.
+- Decision: this slice uses UTC dates, matching the existing XP daily cap and
+  daily quest date behavior.
+- Decision: when the daily quest cap reduces login XP to zero, the service still
+  touches `UserXP.last_active_date` and `streak_days` for the login day so
+  capped XP policy does not break activity history.
+
+Verification plan:
+
+- Add service tests for same-day idempotency, next-day streak bonus, XP totals,
+  and streak projection updates. Status: implemented.
+- Add cap-exhaustion coverage proving a zero-XP login still advances activity
+  history without duplicating transactions. Status: implemented.
+- Add route-level password login coverage proving repeated same-day logins
+  award daily login XP only once. Status: implemented.
+- Add route-level Google login and email verification coverage for the shared
+  session helper. Status: implemented.
+- Run focused daily-login, XP service, auth tests, and compile checks. Status:
+  implemented.
+- Run strong review before committing. Status: implemented.
+
+Review notes addressed:
+
+- Moved auth token/cookie creation before the daily-login XP commit so a token
+  or cookie failure cannot burn the date-scoped login idempotency key.
+- Repaired the capped-login edge case where inserted zero-amount transactions
+  could otherwise skip the `UserXP` activity projection update.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
