@@ -2962,6 +2962,62 @@ Verification completed:
   migration downgrade needed an explicit negative-row guard. All were fixed
   before commit and covered by regression tests.
 
+### Slice 52: Admin XP Audit Read Model
+
+Status: implemented.
+
+Reason for this slice:
+
+- The XP roadmap calls for an audit dashboard that explains why a user has a
+  given XP total and which awards/reversals created it.
+- Slice 51 added signed admin adjustment rows, so admins now need a safe read
+  endpoint to reconcile cached `UserXP.total_xp` against the XP ledger.
+- This stays backend-first and UI-light while giving the later admin UI a
+  stable contract.
+
+Implemented scope:
+
+- Added `GET /api/admin/xp-audit?user_id=...`, gated by `audit:read`. Status:
+  implemented.
+- Added a read service that returns stored XP total, signed transaction sum,
+  delta, mismatch flag, transaction count, adjustment count/sum, capped amount,
+  reason breakdowns, and bounded recent transaction rows. Status:
+  implemented.
+- Added schema types for the admin audit read model, reason breakdowns, and
+  admin transaction rows with transaction IDs/idempotency keys for support
+  traceability. Status: implemented.
+- Kept the response focused on XP ledger data and out of user profile details.
+  Status: implemented.
+
+Decisions:
+
+- Decision: use `audit:read`, not `xp:adjust`, because this endpoint explains
+  history but does not mutate XP.
+- Decision: compare `UserXP.total_xp` to the signed sum of `xp_transactions`
+  and return `has_total_mismatch` rather than silently trusting either source.
+- Decision: use an admin-specific transaction row shape instead of the
+  student-facing XP history shape so audit users can trace transaction IDs and
+  idempotency keys without adding those fields to student history.
+
+Verification plan:
+
+- Add permission tests proving students and plain staff cannot read another
+  user's XP audit. Status: implemented.
+- Add audit math tests covering capped awards, signed adjustments, reason
+  breakdowns, bounded transaction rows, and a forced stored-total mismatch.
+  Status: implemented.
+- Ran focused XP/admin tests, data-integrity tests, compile check, and strong
+  review before committing. Status: completed.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_xp_service.py tests_fastapi/test_admin_overview.py tests_fastapi/test_data_integrity_audit.py -q`
+  passed with 50 tests.
+- `python -m compileall app` passed.
+- Independent review found one reconciliation risk: separate summary reads could
+  report a false mismatch under concurrent XP writes. Fixed by loading stored
+  total and ledger aggregates in one SQL statement.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

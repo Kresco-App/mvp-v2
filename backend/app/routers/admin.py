@@ -6,14 +6,16 @@ from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.admin import AdminOverviewOut
 from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionOut, UserPermissionRevokeIn
-from app.schemas.gamification import XPAdjustmentCreateIn, XPAdjustmentOut
+from app.schemas.gamification import XPAdjustmentCreateIn, XPAdjustmentOut, XPAdminAuditOut
 from app.services.admin_permissions import grant_user_permission, list_user_permissions, revoke_user_permission
 from app.services.admin_overview import build_admin_overview
 from app.services.xp_adjustments import create_xp_adjustment
+from app.services.xp_audit import build_admin_xp_audit
 
 router = APIRouter(tags=["Admin"])
 require_roles_manage = require_staff_permission("roles:manage")
 require_xp_adjust = require_staff_permission("xp:adjust")
+require_audit_read = require_staff_permission("audit:read")
 
 
 @router.get("/overview", response_model=AdminOverviewOut)
@@ -97,3 +99,13 @@ async def create_admin_xp_adjustment(
         request_path=request_path,
         client_host=client_host,
     )
+
+
+@router.get("/xp-audit", response_model=XPAdminAuditOut)
+async def get_admin_xp_audit(
+    user_id: int,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_audit_read),
+):
+    return await build_admin_xp_audit(db, user_id=user_id, limit=limit)

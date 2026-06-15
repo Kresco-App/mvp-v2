@@ -72,6 +72,49 @@ class XPAdjustmentOut(BaseModel):
     created_at: datetime
 
 
+class XPReasonBreakdownOut(BaseModel):
+    reason: str
+    count: int
+    amount: int
+    requested_amount: int
+
+
+class XPAdminTransactionOut(BaseModel):
+    transaction_id: int
+    user_id: int
+    amount: int
+    requested_amount: int = 0
+    reason: str
+    description: str
+    subject_id: Optional[int] = None
+    topic_id: Optional[int] = None
+    topic_section_id: Optional[int] = None
+    topic_item_id: Optional[int] = None
+    question_set_id: Optional[int] = None
+    question_id: Optional[int] = None
+    quiz_attempt_id: Optional[int] = None
+    question_attempt_id: Optional[int] = None
+    idempotency_key: Optional[str] = None
+    daily_cap_category: Optional[str] = None
+    daily_cap_date: Optional[date] = None
+    cap_applied: bool = False
+    created_at: datetime
+
+
+class XPAdminAuditOut(BaseModel):
+    user_id: int
+    stored_total_xp: int
+    transaction_sum_xp: int
+    delta_xp: int
+    transaction_count: int
+    adjustment_count: int
+    adjustment_sum_xp: int
+    capped_amount_xp: int
+    has_total_mismatch: bool
+    reason_breakdown: list[XPReasonBreakdownOut]
+    transactions: list[XPAdminTransactionOut]
+
+
 class LeaderboardEntryOut(BaseModel):
     rank: int
     user_id: int

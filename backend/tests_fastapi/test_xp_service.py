@@ -62,6 +62,17 @@ async def _xp_transactions_for_user(user_id: int) -> list[XPTransaction]:
         return list(result.scalars().all())
 
 
+async def _force_user_xp_total(user_id: int, total_xp: int) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        xp = await db.scalar(select(UserXP).where(UserXP.user_id == user_id))
+        if xp is None:
+            db.add(UserXP(user_id=user_id, total_xp=total_xp, streak_days=0))
+        else:
+            xp.total_xp = total_xp
+        await db.commit()
+
+
 async def _xp_adjustment_audits(user_id: int | None = None) -> list[AdminAuditLog]:
     session_factory = get_session_factory()
     async with session_factory() as db:
@@ -776,6 +787,132 @@ def test_admin_xp_adjustment_rejects_idempotency_collisions(
         (30, "admin_adjustment"),
     ]
     assert len(run_db(_xp_adjustment_audits(target_user_id))) == 1
+
+
+def test_admin_xp_audit_requires_audit_read_permission(app_client, auth_token, run_db, test_settings):
+    student_token, target_user_id = auth_token(email="xp-audit-permission-student@example.com")
+    plain_staff_id = run_db(_seed_xp_staff("xp-audit-plain-staff@example.com"))
+    plain_staff_token = create_token(plain_staff_id, test_settings)
+
+    student_response = app_client.get(
+        f"/api/admin/xp-audit?user_id={target_user_id}",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    plain_staff_response = app_client.get(
+        f"/api/admin/xp-audit?user_id={target_user_id}",
+        headers={"Authorization": f"Bearer {plain_staff_token}"},
+    )
+
+    assert student_response.status_code == 403
+    assert student_response.json()["detail"] == "Staff access required"
+    assert plain_staff_response.status_code == 403
+    assert plain_staff_response.json()["detail"] == "Permission required: audit:read"
+
+
+def test_admin_xp_audit_explains_totals_adjustments_caps_and_mismatches(
+    app_client,
+    auth_token,
+    monkeypatch,
+    run_db,
+    test_settings,
+):
+    _student_token, target_user_id = auth_token(email="xp-audit-target@example.com")
+    staff_id = run_db(_seed_xp_staff("xp-audit-staff@example.com"))
+    run_db(_grant_xp_permission(staff_id, "audit:read"))
+    run_db(_grant_xp_permission(staff_id, "xp:adjust"))
+    headers = {"Authorization": f"Bearer {create_token(staff_id, test_settings)}"}
+    active_date = date(2032, 1, 3)
+    monkeypatch.setitem(XP_DAILY_CAPS, "quiz_correct", 6)
+
+    async def _seed_xp_activity():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            await award_xp(
+                target_user_id,
+                "quiz_correct",
+                "First capped question",
+                db,
+                active_date=active_date,
+                idempotency_key=f"xp-audit:user:{target_user_id}:q1",
+            )
+            await award_xp(
+                target_user_id,
+                "quiz_correct",
+                "Second capped question",
+                db,
+                active_date=active_date,
+                idempotency_key=f"xp-audit:user:{target_user_id}:q2",
+            )
+            await db.commit()
+
+    run_db(_seed_xp_activity())
+    adjustment_response = app_client.post(
+        "/api/admin/xp-adjustments",
+        json={
+            "user_id": target_user_id,
+            "amount": -2,
+            "reason": "Remove duplicate XP",
+            "idempotency_key": f"xp-audit:user:{target_user_id}:adjustment",
+        },
+        headers=headers,
+    )
+    audit_response = app_client.get(
+        f"/api/admin/xp-audit?user_id={target_user_id}&limit=10",
+        headers=headers,
+    )
+    run_db(_force_user_xp_total(target_user_id, 999))
+    mismatch_response = app_client.get(
+        f"/api/admin/xp-audit?user_id={target_user_id}&limit=2",
+        headers=headers,
+    )
+
+    assert adjustment_response.status_code == 200
+    assert audit_response.status_code == 200
+    payload = audit_response.json()
+    assert payload["user_id"] == target_user_id
+    assert payload["stored_total_xp"] == 4
+    assert payload["transaction_sum_xp"] == 4
+    assert payload["delta_xp"] == 0
+    assert payload["has_total_mismatch"] is False
+    assert payload["transaction_count"] == 3
+    assert payload["adjustment_count"] == 1
+    assert payload["adjustment_sum_xp"] == -2
+    assert payload["capped_amount_xp"] == 4
+    breakdown = {item["reason"]: item for item in payload["reason_breakdown"]}
+    assert breakdown["quiz_correct"] == {
+        "reason": "quiz_correct",
+        "count": 2,
+        "amount": 6,
+        "requested_amount": 10,
+    }
+    assert breakdown["admin_adjustment"] == {
+        "reason": "admin_adjustment",
+        "count": 1,
+        "amount": -2,
+        "requested_amount": -2,
+    }
+    assert [row["reason"] for row in payload["transactions"]] == [
+        "admin_adjustment",
+        "quiz_correct",
+        "quiz_correct",
+    ]
+    assert all(row["user_id"] == target_user_id for row in payload["transactions"])
+    assert all(isinstance(row["transaction_id"], int) for row in payload["transactions"])
+    assert payload["transactions"][0]["amount"] == -2
+    assert (
+        payload["transactions"][0]["idempotency_key"]
+        == f"xp-audit:user:{target_user_id}:adjustment"
+    )
+    assert payload["transactions"][1]["daily_cap_category"] == "quiz_correct"
+    assert payload["transactions"][1]["daily_cap_date"] == active_date.isoformat()
+
+    assert mismatch_response.status_code == 200
+    mismatch = mismatch_response.json()
+    assert mismatch["stored_total_xp"] == 999
+    assert mismatch["transaction_sum_xp"] == 4
+    assert mismatch["delta_xp"] == 995
+    assert mismatch["has_total_mismatch"] is True
+    assert len(mismatch["transactions"]) == 2
 
 
 def test_generate_daily_quests_does_not_rollback_caller_transaction_on_flush_error(app_client, monkeypatch, run_db):

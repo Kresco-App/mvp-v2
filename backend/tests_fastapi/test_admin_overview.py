@@ -706,12 +706,14 @@ def test_admin_overview_router_stays_thin():
         "grant_permission",
         "revoke_permission",
         "create_admin_xp_adjustment",
+        "get_admin_xp_audit",
     ]
     assert "build_admin_overview" in router_source
     assert "list_user_permissions" in router_source
     assert "grant_user_permission" in router_source
     assert "revoke_user_permission" in router_source
     assert "create_xp_adjustment" in router_source
+    assert "build_admin_xp_audit" in router_source
     assert "_ops_readiness" not in router_source
     assert "_gather_reads" not in router_source
     assert "select(" not in router_source
