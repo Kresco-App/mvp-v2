@@ -1,5 +1,13 @@
 # Stripe Integration
 
+## Deprecation Direction
+
+Stripe is current-state documentation only. It is not the target launch payment
+gateway. The roadmap direction is to remove Stripe from active checkout and
+replace it with a provider-neutral payment gateway supporting CMI, virement
+bancaire, CashPlus, and AshPlus/cash-agency handling. Do not add new payment
+features to Stripe except short compatibility work required during migration.
+
 ## Current Implementation
 
 Stripe is implemented in the FastAPI backend:
