@@ -33,7 +33,7 @@ SECRET_PLACEHOLDERS = {
     "STRIPE_WEBHOOK_SECRET": "stripe-webhook",
     "CMI_CLIENT_ID": "cmi-client",
     "CMI_STORE_KEY": "cmi-store-key",
-    "CMI_PAYMENT_URL": "https://cmi.example.com/payment",
+    "CMI_PAYMENT_URL": "https://test.cmi.co.ma/payment",
     "CMI_OK_URL": "https://app.example.com/payment/cmi/ok",
     "CMI_FAIL_URL": "https://app.example.com/payment/cmi/fail",
     "CMI_CALLBACK_URL": "https://api.example.com/api/payments/cmi/callback",
@@ -272,6 +272,12 @@ def test_production_settings_reject_missing_integration_config():
         stripe_pk="",
         stripe_product_id="",
         stripe_webhook_secret="",
+        cmi_client_id="",
+        cmi_store_key="",
+        cmi_payment_url="",
+        cmi_ok_url="",
+        cmi_fail_url="",
+        cmi_callback_url="",
         resend_api_key="",
         ably_api_key="",
         cors_allowed_origins="https://app.example.com",
@@ -285,9 +291,52 @@ def test_production_settings_reject_missing_integration_config():
     assert any("GOOGLE_CLIENT_ID" in error for error in errors)
     assert any("VDOCIPHER_API_SECRET" in error for error in errors)
     assert any("VDOCIPHER_API_BASE_URL" in error for error in errors)
-    assert any("STRIPE_SK" in error for error in errors)
+    assert not any("STRIPE_SK" in error for error in errors)
+    assert any("CMI_CLIENT_ID" in error for error in errors)
+    assert any("CMI_STORE_KEY" in error for error in errors)
+    assert any("CMI_PAYMENT_URL" in error for error in errors)
+    assert any("CMI_OK_URL" in error for error in errors)
+    assert any("CMI_FAIL_URL" in error for error in errors)
+    assert any("CMI_CALLBACK_URL" in error for error in errors)
     assert any("ABLY_API_KEY" in error for error in errors)
     assert any("REALTIME_OUTBOX_SECRET" in error for error in errors)
+
+
+def test_production_settings_require_stripe_credentials_only_when_legacy_checkout_enabled():
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        google_client_id="google-client",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://video.example.com/api",
+        vdocipher_live_create_url="https://video.example.com/live",
+        stripe_sk="",
+        stripe_product_id="",
+        stripe_webhook_secret="",
+        legacy_stripe_checkout_enabled=True,
+        cmi_client_id="cmi-client",
+        cmi_store_key="cmi-store-key",
+        cmi_payment_url="https://test.cmi.co.ma/payment",
+        cmi_ok_url="https://app.example.com/payment/cmi/ok",
+        cmi_fail_url="https://app.example.com/payment/cmi/fail",
+        cmi_callback_url="https://api.example.com/api/payments/cmi/callback",
+        resend_api_key="resend-key",
+        ably_api_key="ably:key",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert any("STRIPE_SK" in error for error in errors)
+    assert any("STRIPE_PRODUCT_ID" in error for error in errors)
+    assert any("STRIPE_WEBHOOK_SECRET" in error for error in errors)
+    assert all("LEGACY_STRIPE_CHECKOUT_ENABLED" in error for error in errors if "STRIPE_" in error)
 
 
 def test_production_settings_require_shared_rate_limit_storage():
@@ -467,7 +516,7 @@ def test_production_settings_require_rds_proxy_connection_strategy():
     assert any("DATABASE_CONNECTION_STRATEGY" in error for error in errors)
 
 
-def test_production_settings_do_not_require_stripe_publishable_key_for_hosted_checkout():
+def test_production_settings_do_not_require_stripe_for_non_stripe_launch():
     settings = Settings(
         environment="production",
         release_sha="0123456789abcdef0123456789abcdef01234567",
@@ -477,10 +526,17 @@ def test_production_settings_do_not_require_stripe_publishable_key_for_hosted_ch
         vdocipher_api_secret="vdocipher-secret",
         vdocipher_api_base_url="https://video.example.com/api",
         vdocipher_live_create_url="https://video.example.com/live",
-        stripe_sk="stripe-secret",
+        stripe_sk="",
         stripe_pk="",
-        stripe_product_id="stripe-product",
-        stripe_webhook_secret="stripe-webhook",
+        stripe_product_id="",
+        stripe_webhook_secret="",
+        legacy_stripe_checkout_enabled=False,
+        cmi_client_id="cmi-client",
+        cmi_store_key="cmi-store-key",
+        cmi_payment_url="https://test.cmi.co.ma/payment",
+        cmi_ok_url="https://app.example.com/payment/cmi/ok",
+        cmi_fail_url="https://app.example.com/payment/cmi/fail",
+        cmi_callback_url="https://api.example.com/api/payments/cmi/callback",
         resend_api_key="resend-key",
         ably_api_key="ably:key",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
@@ -491,6 +547,42 @@ def test_production_settings_do_not_require_stripe_publishable_key_for_hosted_ch
     )
 
     assert settings.production_config_errors() == []
+
+
+def test_production_settings_reject_invalid_cmi_launch_urls():
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        google_client_id="google-client",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://video.example.com/api",
+        vdocipher_live_create_url="https://video.example.com/live",
+        stripe_sk="",
+        stripe_pk="",
+        stripe_product_id="",
+        stripe_webhook_secret="",
+        cmi_client_id="cmi-client",
+        cmi_store_key="cmi-store-key",
+        cmi_payment_url="https://cmi.example.com/payment",
+        cmi_ok_url="http://app.example.com/payment/cmi/ok",
+        cmi_fail_url="https://127.0.0.1/payment/cmi/fail",
+        cmi_callback_url="https://api.example.com/api/payments/cmi/callback",
+        resend_api_key="resend-key",
+        ably_api_key="ably:key",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "CMI_PAYMENT_URL must use a CMI gateway host" in errors
+    assert "CMI_OK_URL must be an HTTPS URL" in errors
+    assert "CMI_FAIL_URL must be publicly reachable" in errors
 
 
 def test_production_settings_reject_fake_stripe_checkout():
@@ -635,6 +727,12 @@ def test_zappa_environments_match_startup_validation(monkeypatch):
             "STRIPE_SK",
             "STRIPE_PRODUCT_ID",
             "STRIPE_WEBHOOK_SECRET",
+            "CMI_CLIENT_ID",
+            "CMI_STORE_KEY",
+            "CMI_PAYMENT_URL",
+            "CMI_OK_URL",
+            "CMI_FAIL_URL",
+            "CMI_CALLBACK_URL",
             "RESEND_API_KEY",
             "ABLY_API_KEY",
             "KRESCO_RATE_LIMIT_STORAGE_URI",
@@ -810,6 +908,12 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
         "STRIPE_SK",
         "STRIPE_PRODUCT_ID",
         "STRIPE_WEBHOOK_SECRET",
+        "CMI_CLIENT_ID",
+        "CMI_STORE_KEY",
+        "CMI_PAYMENT_URL",
+        "CMI_OK_URL",
+        "CMI_FAIL_URL",
+        "CMI_CALLBACK_URL",
         "RESEND_API_KEY",
         "ABLY_API_KEY",
         "KRESCO_RATE_LIMIT_STORAGE_URI",

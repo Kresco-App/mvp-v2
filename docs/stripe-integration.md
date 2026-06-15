@@ -8,6 +8,11 @@ replace it with a provider-neutral payment gateway supporting CMI, virement
 bancaire, CashPlus, and AshPlus/cash-agency handling. Do not add new payment
 features to Stripe except short compatibility work required during migration.
 
+Active Stripe checkout is disabled by default. `POST
+/api/payments/create-checkout-session` returns `410` unless
+`LEGACY_STRIPE_CHECKOUT_ENABLED=true` is configured explicitly. Keep that flag
+off for the non-Stripe launch path.
+
 ## Current Implementation
 
 Stripe is implemented in the FastAPI backend:
@@ -32,9 +37,11 @@ Current plans:
 
 ## Required Environment
 
-Set these in the backend environment:
+Set these in the backend environment only when legacy Stripe checkout is
+explicitly enabled:
 
 ```text
+LEGACY_STRIPE_CHECKOUT_ENABLED=true
 STRIPE_SK=
 STRIPE_PRODUCT_ID=
 STRIPE_WEBHOOK_SECRET=

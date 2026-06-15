@@ -74,7 +74,7 @@ User browser
   -> AWS Lambda FastAPI backend via Zappa
   -> RDS PostgreSQL through RDS Proxy
   -> S3 private media bucket
-  -> Ably, VdoCipher, Stripe, Resend, Google OAuth
+  -> Ably, VdoCipher, CMI, Resend, Google OAuth
 ```
 
 The frontend deploys to Vercel. The backend deploys to AWS Lambda. The backend loads runtime secrets from AWS Secrets Manager using `KRESCO_RUNTIME_SECRET_ID`.
@@ -86,8 +86,8 @@ Create and maintain exactly these logical environments:
 | Environment | Purpose | Real Users | Real Money | Separate Secrets |
 | --- | --- | --- | --- | --- |
 | `local` | Developer machines only | No | No | Local fake/test values |
-| `staging` | Production rehearsal | No | Stripe test mode only | Yes |
-| `production` | Real users | Yes | Stripe live mode | Yes |
+| `staging` | Production rehearsal | No | CMI test/sandbox rail only | Yes |
+| `production` | Real users | Yes | CMI live rail | Yes |
 
 Rules:
 
@@ -314,9 +314,12 @@ Each secret must contain this JSON object shape. Values below are placeholders o
   "VDOCIPHER_API_SECRET": "",
   "VDOCIPHER_API_BASE_URL": "https://dev.vdocipher.com/api",
   "VDOCIPHER_LIVE_CREATE_URL": "",
-  "STRIPE_SK": "",
-  "STRIPE_PRODUCT_ID": "",
-  "STRIPE_WEBHOOK_SECRET": "",
+  "CMI_CLIENT_ID": "",
+  "CMI_STORE_KEY": "",
+  "CMI_PAYMENT_URL": "https://test.cmi.co.ma/payment",
+  "CMI_OK_URL": "https://<frontend-origin>/payment/cmi/ok",
+  "CMI_FAIL_URL": "https://<frontend-origin>/payment/cmi/fail",
+  "CMI_CALLBACK_URL": "https://<backend-origin>/api/payments/cmi/callback",
   "RESEND_API_KEY": "",
   "ABLY_API_KEY": "",
   "REALTIME_OUTBOX_SECRET": "",
@@ -329,8 +332,8 @@ Notes:
 1. `DATABASE_URL` here should match the GitHub Environment `DATABASE_URL` secret for the same environment.
 2. `REALTIME_OUTBOX_SECRET` here should match the GitHub Environment `REALTIME_OUTBOX_SECRET` secret for the same environment.
 3. `JWT_SECRET_KEY` must be non-default and at least 32 characters.
-4. `STRIPE_SK` must be test-mode for staging and live-mode for production.
-5. `STRIPE_WEBHOOK_SECRET` must come from the exact webhook endpoint for that environment.
+4. CMI settings are required for the non-Stripe launch checkout path. `CMI_PAYMENT_URL` must use `cmi.co.ma` or a subdomain, and all CMI URLs must be public HTTPS URLs.
+5. Stripe secrets are legacy compatibility only. Add `LEGACY_STRIPE_CHECKOUT_ENABLED=true`, `STRIPE_SK`, `STRIPE_PRODUCT_ID`, and `STRIPE_WEBHOOK_SECRET` only if Stripe checkout is explicitly pulled back into scope.
 
 Generate random internal secrets locally with:
 
@@ -418,28 +421,36 @@ Vercel: NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
 The current repo uses the client ID only. Do not invent a Google client secret unless code is added for it.
 
-### 7.3 Stripe
+### 7.3 CMI And Legacy Stripe
 
-Stripe billing is intentionally deferred for the current non-Stripe launch gate. Keep Stripe secrets redacted and stage-specific, and keep diagnostics reporting enabled, but do not count Stripe configuration or provider reachability in the non-Stripe launch score until billing is explicitly pulled back into scope.
+CMI is the required launch card checkout rail. Stripe billing is intentionally
+deferred and legacy-only for the current non-Stripe launch gate. Keep any
+legacy Stripe secrets redacted and stage-specific, but do not count Stripe
+configuration or provider reachability in the non-Stripe launch score until
+billing is explicitly pulled back into scope.
 
-Create separate Stripe setup:
+Create separate CMI setup:
 
 ```text
-staging: Stripe sandbox/test mode
-production: Stripe live mode
+staging: CMI test/sandbox credentials and gateway URL
+production: CMI live credentials and gateway URL
 ```
 
 For each environment:
 
-1. Create the Pro product.
-2. Save the product ID as `STRIPE_PRODUCT_ID`.
-3. Create or choose the secret API key as `STRIPE_SK`.
-4. Create a webhook endpoint:
-   - staging endpoint: `https://<staging-backend-origin>/api/payments/webhook`
-   - production endpoint: `https://<production-backend-origin>/api/payments/webhook`
-5. Copy the endpoint signing secret as `STRIPE_WEBHOOK_SECRET`.
+1. Save the merchant/client ID as `CMI_CLIENT_ID`.
+2. Save the store key as `CMI_STORE_KEY`.
+3. Set `CMI_PAYMENT_URL` to the CMI gateway host (`cmi.co.ma` or a subdomain).
+4. Set `CMI_OK_URL` and `CMI_FAIL_URL` to public frontend HTTPS return pages.
+5. Set `CMI_CALLBACK_URL` to the backend callback endpoint:
+   - staging endpoint: `https://<staging-backend-origin>/api/payments/cmi/callback`
+   - production endpoint: `https://<production-backend-origin>/api/payments/cmi/callback`
 
-Current billing model is one-time hosted Checkout. `STRIPE_PK` / publishable key is accepted by backend config but not required for the current server-created Checkout flow.
+Legacy Stripe checkout remains disabled by default. If Stripe checkout is
+explicitly pulled back into scope, set `LEGACY_STRIPE_CHECKOUT_ENABLED=true`
+and then provision `STRIPE_SK`, `STRIPE_PRODUCT_ID`, and
+`STRIPE_WEBHOOK_SECRET` for the legacy `/api/payments/create-checkout-session`
+and `/api/payments/webhook` compatibility paths.
 
 When Stripe is brought back into scope, run staging runtime verification with:
 
@@ -577,7 +588,7 @@ Create staging/test credentials:
 
 ```text
 Google OAuth staging web client
-Stripe sandbox key, product, webhook
+CMI staging credentials and callback URLs
 Resend staging API key
 Ably staging app/key
 VdoCipher staging/dev API key and live create URL
@@ -656,7 +667,7 @@ Record evidence for:
 6. Media upload writes to S3 and direct anonymous object read fails.
 7. VdoCipher OTP/embed works for real content.
 8. Resend email path works.
-9. Stripe sandbox Checkout and webhook entitlement work if Stripe has been pulled back into the launch scope; otherwise record payment diagnostics as deferred.
+9. CMI staging payment request and signed callback flow work; record Stripe diagnostics as deferred unless Stripe has been pulled back into scope.
 10. Ably realtime event and outbox drain work.
 11. Scheduled realtime outbox worker fires.
 12. 50-student or agreed load test is run against staging.
@@ -676,7 +687,8 @@ Production S3 bucket/prefix
 Production Secrets Manager secret kresco/production/runtime
 Production CloudWatch alarms
 Production Google OAuth client
-Production Stripe live product/key/webhook
+Production CMI live credentials and callback URLs
+Production Stripe live product/key/webhook only if legacy Stripe checkout is explicitly re-enabled
 Production Resend key/domain
 Production Ably app/key
 Production VdoCipher key/live URL

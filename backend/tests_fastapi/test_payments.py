@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import inspect
 from pathlib import Path
@@ -39,6 +40,16 @@ from app.services import payment_gateway, payment_lifecycle
 from app.services.stripe_service import CheckoutSessionCreation
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+@contextmanager
+def _legacy_stripe_checkout_enabled(settings):
+    previous = settings.legacy_stripe_checkout_enabled
+    settings.legacy_stripe_checkout_enabled = True
+    try:
+        yield
+    finally:
+        settings.legacy_stripe_checkout_enabled = previous
 
 
 def test_payment_lifecycle_stays_out_of_router():
@@ -618,7 +629,25 @@ def test_cmi_event_id_does_not_use_auth_code_as_global_identifier():
     assert payment_gateway._cmi_callback_event_id(payload) != "auth-123"
 
 
-def test_create_checkout_session_persists_new_customer_id(app_client, auth_token, monkeypatch, run_db):
+def test_create_checkout_session_is_disabled_by_default(app_client, auth_token, monkeypatch):
+    import app.routers.payments as payments_router
+
+    token, _user_id = auth_token(email="checkout-router-disabled@example.com")
+
+    async def unexpected_create_checkout_session(*args, **kwargs):
+        raise AssertionError("Legacy Stripe checkout should not run when disabled")
+
+    monkeypatch.setattr(payments_router, "create_checkout_session", unexpected_create_checkout_session)
+    response = app_client.post(
+        "/api/payments/create-checkout-session?plan=pro",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == "Legacy Stripe checkout is disabled"
+
+
+def test_create_checkout_session_persists_new_customer_id(app_client, auth_token, test_settings, monkeypatch, run_db):
     import app.routers.payments as payments_router
 
     token, user_id = auth_token(email="checkout-router-new@example.com")
@@ -635,10 +664,11 @@ def test_create_checkout_session_persists_new_customer_id(app_client, auth_token
         )
 
     monkeypatch.setattr(payments_router, "create_checkout_session", fake_create_checkout_session)
-    response = app_client.post(
-        "/api/payments/create-checkout-session?plan=pro",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _legacy_stripe_checkout_enabled(test_settings):
+        response = app_client.post(
+            "/api/payments/create-checkout-session?plan=pro",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 200
     assert response.json() == {"checkout_url": "https://checkout.example/router-created"}
@@ -651,7 +681,7 @@ def test_create_checkout_session_persists_new_customer_id(app_client, auth_token
     assert run_db(_get_user(user_id)).stripe_customer_id == "cus_router_created"
 
 
-def test_create_checkout_session_accepts_return_paths_in_body(app_client, auth_token, monkeypatch):
+def test_create_checkout_session_accepts_return_paths_in_body(app_client, auth_token, test_settings, monkeypatch):
     import app.routers.payments as payments_router
 
     token, user_id = auth_token(email="checkout-router-return-paths@example.com")
@@ -663,15 +693,16 @@ def test_create_checkout_session_accepts_return_paths_in_body(app_client, auth_t
         return CheckoutSessionCreation(checkout_url="https://checkout.example/return-paths")
 
     monkeypatch.setattr(payments_router, "create_checkout_session", fake_create_checkout_session)
-    response = app_client.post(
-        "/api/payments/create-checkout-session",
-        json={
-            "plan": "pro",
-            "success_path": "/payment-success?return_to=/topics/42",
-            "cancel_path": "/topics/42",
-        },
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _legacy_stripe_checkout_enabled(test_settings):
+        response = app_client.post(
+            "/api/payments/create-checkout-session",
+            json={
+                "plan": "pro",
+                "success_path": "/payment-success?return_to=/topics/42",
+                "cancel_path": "/topics/42",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 200
     assert response.json() == {"checkout_url": "https://checkout.example/return-paths"}
@@ -707,10 +738,11 @@ def test_cookie_checkout_session_requires_and_accepts_csrf_token(app_client, aut
     assert calls == []
 
     csrf_token = _install_cookie_session(app_client, test_settings, token, user_id, with_csrf=True)
-    accepted = app_client.post(
-        "/api/payments/create-checkout-session?plan=pro",
-        headers={"Origin": "http://localhost:3000", CSRF_HEADER_NAME: csrf_token},
-    )
+    with _legacy_stripe_checkout_enabled(test_settings):
+        accepted = app_client.post(
+            "/api/payments/create-checkout-session?plan=pro",
+            headers={"Origin": "http://localhost:3000", CSRF_HEADER_NAME: csrf_token},
+        )
 
     assert accepted.status_code == 200
     assert accepted.json() == {"checkout_url": "https://checkout.example/csrf"}
@@ -2884,10 +2916,11 @@ def test_create_checkout_session_reuses_existing_customer_id(app_client, test_se
         )
 
     monkeypatch.setattr(payments_router, "create_checkout_session", fake_create_checkout_session)
-    response = app_client.post(
-        "/api/payments/create-checkout-session",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _legacy_stripe_checkout_enabled(test_settings):
+        response = app_client.post(
+            "/api/payments/create-checkout-session",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 200
     assert response.json() == {"checkout_url": "https://checkout.example/router-existing"}
@@ -2900,13 +2933,14 @@ def test_create_checkout_session_reuses_existing_customer_id(app_client, test_se
     assert run_db(_get_user(user_id)).stripe_customer_id == "cus_existing"
 
 
-def test_create_checkout_session_rejects_unknown_plan(app_client, auth_token):
+def test_create_checkout_session_rejects_unknown_plan(app_client, auth_token, test_settings):
     token, _ = auth_token(email="checkout-router-plan@example.com")
 
-    response = app_client.post(
-        "/api/payments/create-checkout-session?plan=yearly",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with _legacy_stripe_checkout_enabled(test_settings):
+        response = app_client.post(
+            "/api/payments/create-checkout-session?plan=yearly",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert response.status_code == 400
     assert "Invalid plan" in response.text
@@ -2920,10 +2954,11 @@ def test_create_checkout_session_returns_unavailable_when_config_missing(app_cli
     try:
         test_settings.stripe_sk = ""
         test_settings.stripe_product_id = ""
-        response = app_client.post(
-            "/api/payments/create-checkout-session",
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        with _legacy_stripe_checkout_enabled(test_settings):
+            response = app_client.post(
+                "/api/payments/create-checkout-session",
+                headers={"Authorization": f"Bearer {token}"},
+            )
     finally:
         test_settings.stripe_sk = original_sk
         test_settings.stripe_product_id = original_product

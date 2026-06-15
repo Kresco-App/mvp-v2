@@ -2233,6 +2233,80 @@ Verification completed:
 - `python -m compileall app` passed.
 - Strong review found no blocking finance boundary issues.
 
+### Slice 41: Stripe Checkout Launch Opt-Out
+
+Status: implemented.
+
+Reason for this slice:
+
+- The roadmap says Stripe is no longer the target launch payment gateway, but
+  the legacy checkout endpoint was still active whenever Stripe config existed.
+- CMI, virement, CashPlus, and AshPlus are now the launch rails, so Stripe
+  checkout should fail closed unless deliberately enabled for compatibility.
+
+Implemented scope:
+
+- Added `LEGACY_STRIPE_CHECKOUT_ENABLED`, defaulting to disabled. Status:
+  implemented.
+- Made `POST /api/payments/create-checkout-session` return `410` before Stripe
+  checkout logic unless the legacy flag is enabled. Status: implemented.
+- Removed Stripe credentials from mandatory production config for the
+  non-Stripe launch path. Status: implemented.
+- Required CMI credentials and CMI URL validity in production, matching the
+  frontend's default launch payment method. Status: implemented.
+- Kept Stripe verify/webhook compatibility code intact for old sessions and
+  defensive revocation handling. Status: implemented.
+- Updated the Zappa renderer's runtime-secret validation map so CMI credentials
+  are validated as runtime-secret-backed launch config. Status: implemented.
+- Updated production setup and manual operations docs so runtime secret examples
+  include mandatory CMI settings and treat Stripe secrets as legacy-only.
+  Status: implemented.
+- Updated Stripe docs to state that checkout is opt-in legacy behavior. Status:
+  implemented.
+
+Decisions:
+
+- Decision: do not delete Stripe service/webhook code in this slice. Old
+  sessions, webhook compatibility, and tests still need a controlled migration
+  window.
+- Decision: use an explicit opt-in flag instead of relying on missing Stripe
+  secrets. This prevents accidental launch exposure in environments that still
+  carry legacy Stripe credentials.
+- Decision: return `410 Gone` for disabled checkout because the endpoint exists
+  but is intentionally removed from the launch product surface.
+- Decision: production must always configure the CMI launch path because the
+  visible pricing UI defaults to CMI. The legacy Stripe flag only enables the
+  old Stripe checkout route as an additional compatibility path.
+
+Verification plan:
+
+- Add backend tests for disabled-by-default checkout, opt-in legacy checkout,
+  production config without Stripe secrets, and mandatory CMI config for the
+  non-Stripe launch path. Status: implemented.
+- Run focused payment and startup security tests. Status: implemented.
+- Run backend compile check. Status: implemented.
+- Run a strong diff review before committing. Status: pending.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py tests_fastapi/test_startup_security.py -q`
+  passed: 126 tests.
+- `python -m compileall app scripts/render_zappa_settings.py` passed.
+- Initial strong review found that production could validate with no active
+  launch checkout rail. Addressed by requiring CMI config for production and by
+  adding CMI to deploy renderer validation.
+- Follow-up strong review found production CMI URL validation weaker than
+  runtime checkout validation and legacy Stripe opt-in bypassing CMI
+  requirements. Addressed by requiring valid CMI config in production
+  regardless of legacy Stripe compatibility.
+- Follow-up doc review found production setup docs still listing Stripe secrets
+  as required and omitting mandatory CMI runtime secrets. Addressed in
+  `docs/production-pipeline-setup-guide.md` and `docs/manual-operations.md`.
+- Final doc review found remaining production-guide sections describing Stripe
+  as the normal staging/production money rail. Addressed by making CMI the
+  required provider setup and moving Stripe setup to a legacy-only conditional
+  path.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

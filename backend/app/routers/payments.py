@@ -1,5 +1,5 @@
 import stripe
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +47,7 @@ from app.services.payment_lifecycle import (
 from app.services.stripe_service import create_checkout_session, customer_id_for_charge, verify_checkout_session
 
 router = APIRouter(tags=["Payments"])
+LEGACY_STRIPE_CHECKOUT_DISABLED_DETAIL = "Legacy Stripe checkout is disabled"
 
 
 @router.post("/create-checkout-session", response_model=CheckoutOut)
@@ -60,6 +61,8 @@ async def create_checkout(
     settings: Settings = Depends(get_settings),
 ):
     del request
+    if not settings.legacy_stripe_checkout_enabled:
+        raise HTTPException(status_code=410, detail=LEGACY_STRIPE_CHECKOUT_DISABLED_DETAIL)
     return await create_checkout_state(
         db,
         user=user,

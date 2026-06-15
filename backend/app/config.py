@@ -19,11 +19,16 @@ REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("vdocipher_api_secret", "VDOCIPHER_API_SECRET"),
     ("vdocipher_api_base_url", "VDOCIPHER_API_BASE_URL"),
     ("vdocipher_live_create_url", "VDOCIPHER_LIVE_CREATE_URL"),
-    ("stripe_sk", "STRIPE_SK"),
-    ("stripe_product_id", "STRIPE_PRODUCT_ID"),
-    ("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
     ("resend_api_key", "RESEND_API_KEY"),
     ("ably_api_key", "ABLY_API_KEY"),
+)
+CMI_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
+    ("cmi_client_id", "CMI_CLIENT_ID"),
+    ("cmi_store_key", "CMI_STORE_KEY"),
+    ("cmi_payment_url", "CMI_PAYMENT_URL"),
+    ("cmi_ok_url", "CMI_OK_URL"),
+    ("cmi_fail_url", "CMI_FAIL_URL"),
+    ("cmi_callback_url", "CMI_CALLBACK_URL"),
 )
 MEDIA_STORAGE_LOCAL = "local"
 MEDIA_STORAGE_S3 = "s3"
@@ -63,6 +68,7 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "STRIPE_PRODUCT_ID": "stripe_product_id",
     "STRIPE_WEBHOOK_SECRET": "stripe_webhook_secret",
     "FAKE_STRIPE_CHECKOUT": "fake_stripe_checkout",
+    "LEGACY_STRIPE_CHECKOUT_ENABLED": "legacy_stripe_checkout_enabled",
     "CMI_CLIENT_ID": "cmi_client_id",
     "CMI_STORE_KEY": "cmi_store_key",
     "CMI_PAYMENT_URL": "cmi_payment_url",
@@ -170,6 +176,10 @@ class Settings(BaseSettings):
     fake_stripe_checkout: bool = Field(
         default=False,
         validation_alias=AliasChoices("fake_stripe_checkout", "FAKE_STRIPE_CHECKOUT"),
+    )
+    legacy_stripe_checkout_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("legacy_stripe_checkout_enabled", "LEGACY_STRIPE_CHECKOUT_ENABLED"),
     )
     cmi_client_id: str = Field(default="", validation_alias=AliasChoices("cmi_client_id", "CMI_CLIENT_ID"))
     cmi_store_key: str = Field(default="", validation_alias=AliasChoices("cmi_store_key", "CMI_STORE_KEY"))
@@ -285,6 +295,19 @@ class Settings(BaseSettings):
 
         if self.fake_stripe_checkout:
             errors.append("FAKE_STRIPE_CHECKOUT must be disabled in production environments.")
+        if self.legacy_stripe_checkout_enabled:
+            for field_name, env_name in (
+                ("stripe_sk", "STRIPE_SK"),
+                ("stripe_product_id", "STRIPE_PRODUCT_ID"),
+                ("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
+            ):
+                if not str(getattr(self, field_name, "")).strip():
+                    errors.append(f"{env_name} must be configured when LEGACY_STRIPE_CHECKOUT_ENABLED is true.")
+
+        for field_name, env_name in CMI_PRODUCTION_FIELDS:
+            if not str(getattr(self, field_name, "")).strip():
+                errors.append(f"{env_name} must be configured for the launch CMI checkout path.")
+        errors.extend(_cmi_production_url_errors(self))
 
         storage_backend = self.media_storage_backend.strip().lower()
         if storage_backend != MEDIA_STORAGE_S3:
@@ -431,6 +454,44 @@ def _is_local_origin(value: str) -> bool:
         or normalized.startswith("http://[::1]")
         or normalized.startswith("https://[::1]")
     )
+
+
+def _cmi_production_url_errors(settings: Settings) -> list[str]:
+    checks = (
+        ("CMI_PAYMENT_URL", settings.cmi_payment_url, True),
+        ("CMI_OK_URL", settings.cmi_ok_url, False),
+        ("CMI_FAIL_URL", settings.cmi_fail_url, False),
+        ("CMI_CALLBACK_URL", settings.cmi_callback_url, False),
+    )
+    errors: list[str] = []
+    for name, value, require_cmi_host in checks:
+        normalized = value.strip()
+        if not normalized:
+            continue
+        errors.extend(_public_https_url_errors(normalized, name=name, require_cmi_host=require_cmi_host))
+    return errors
+
+
+def _public_https_url_errors(value: str, *, name: str, require_cmi_host: bool = False) -> list[str]:
+    import ipaddress
+    from urllib.parse import urlparse
+
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not hostname:
+        return [f"{name} must be an HTTPS URL"]
+    if hostname == "localhost" or hostname.endswith(".localhost") or "." not in hostname:
+        return [f"{name} must be publicly reachable"]
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved:
+            return [f"{name} must be publicly reachable"]
+    if require_cmi_host and not (hostname == "cmi.co.ma" or hostname.endswith(".cmi.co.ma")):
+        return ["CMI_PAYMENT_URL must use a CMI gateway host"]
+    return []
 
 
 def _is_permissive_origin(value: str) -> bool:
