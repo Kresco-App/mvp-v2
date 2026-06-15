@@ -97,7 +97,7 @@ Review notes addressed:
 
 ### Slice 2: Finance Review Bridge
 
-Status: in progress.
+Status: committed in `61f03515`.
 
 Reason for this slice:
 
@@ -145,15 +145,65 @@ Review notes addressed:
   can create a replacement request cleanly.
 - Added an invalid status-filter regression test for the finance list endpoint.
 
+### Slice 3: Exercise Bank Backend Skeleton
+
+Status: in progress.
+
+Reason for this slice:
+
+- Exercise Bank is a separate workspace from Topic Workspace and quiz sets.
+- Exercises need rich statement/solution bodies, optional images/diagrams, topic
+  filtering, difficulty filtering, and student self-grade state.
+- The backend contract should exist before UI cards/detail pages are wired.
+
+Planned backend scope:
+
+- Add first-class Exercise Bank tables separate from quizzes and TopicItem.
+  Status: implemented.
+- Add asset metadata for images, diagrams, graphs, and attachments. Status:
+  implemented.
+- Add current self-grade/progress storage with history JSON for later reveal and
+  XP slices. Status: implemented as storage only.
+- Add read-only list/detail API under `/api/exercises`. Status: implemented.
+- Apply subject-level access and redact locked exercise detail bodies. Status:
+  implemented.
+
+Decisions:
+
+- Decision: Exercise Bank exercises are not sourced from TopicItem curated
+  exercises. They are separate records linked only to subject/topic for access
+  and filtering.
+- Decision: this slice stores self-grade state but does not yet implement reveal
+  mutation, grade mutation, or XP awards.
+- Decision: locked detail responses can return metadata/access state, but redact
+  statement, solution, video URL, and assets.
+
+Verification plan:
+
+- Add model/migration declaration tests.
+- Add list/filter tests for published exercises, difficulty, saved, and current
+  self-grade.
+- Add unlocked detail tests for statement, solution, video, assets, and
+  self-grade history.
+- Add locked detail tests for subject-access redaction.
+
+Review notes addressed:
+
+- Enforced Exercise Bank subject locks even for fresh users with no entitlement
+  rows.
+- Hidden exercises under unpublished subjects or unpublished topics.
+- Redacted locked detail metadata in addition to bodies, video URLs, and assets.
+- Fixed `saved=false` filtering to include untouched exercises with no progress
+  row.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Exercise Bank data model and API skeleton.
-2. Exercise reveal/self-grade state and XP guardrails.
-3. Exam Bank part capsule model/API skeleton.
-4. Quiz snapshot/version integrity.
-5. XP economy caps and auditability.
+1. Exercise reveal/self-grade state and XP guardrails.
+2. Exam Bank part capsule model/API skeleton.
+3. Quiz snapshot/version integrity.
+4. XP economy caps and auditability.
 
 ## Open Risks
 

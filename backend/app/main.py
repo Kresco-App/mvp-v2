@@ -21,9 +21,9 @@ from app.admin.auth import StaffAdminAuth
 from app.admin.views import register_admin_views
 from app.config import Settings, get_settings, validate_production_settings
 from app.database import init_engine, reset_engine
-from app.rate_limit import limiter
+from app.rate_limit import configure_rate_limit_storage, limiter
 from app.routers import admin as admin_api
-from app.routers import calendar, courses, gamification, interactions, internal, notifications, payments, professor, quizzes, realtime, telemetry, users
+from app.routers import calendar, courses, exercises, gamification, interactions, internal, notifications, payments, professor, quizzes, realtime, telemetry, users
 from app.security.csrf import csrf_failure_reason
 from app.services.media_storage import warm_media_storage_client
 from app.services.telemetry import emit_readiness_error_metric, emit_request_metric, emit_unhandled_exception_metric
@@ -177,6 +177,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings = get_settings()
 
     validate_production_settings(settings)
+    configure_rate_limit_storage(settings.rate_limit_storage_uri)
 
     # The API Gateway stage prefix (e.g. /production) is stripped before requests
     # reach FastAPI (see StripApiGatewayStagePrefix in app_handler.py), so root_path
@@ -235,6 +236,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users.router, prefix="/api")
     app.include_router(calendar.router, prefix="/api/calendar")
     app.include_router(courses.router, prefix="/api/courses")
+    app.include_router(exercises.router, prefix="/api/exercises")
     app.include_router(quizzes.router, prefix="/api/quizzes")
     app.include_router(gamification.router, prefix="/api/progress")
     app.include_router(interactions.router, prefix="/api/interactions")
