@@ -226,6 +226,22 @@ class PaymentReconciliationImportSummaryOut(BaseModel):
     created_at: datetime
 
 
+class PaymentReconciliationRowOut(BaseModel):
+    id: int
+    import_id: int
+    row_number: int
+    provider: str
+    payment_method: str
+    status: str
+    reference_code: str
+    amount_centimes: int
+    currency: str
+    provider_reference: str
+    matched_transaction_id: int | None = None
+    failure_reason: str | None = None
+    created_at: datetime
+
+
 class PaymentProviderEventOut(BaseModel):
     id: int
     transaction_id: int | None = None

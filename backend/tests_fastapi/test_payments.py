@@ -2115,6 +2115,7 @@ def test_finance_audit_endpoints_require_finance_read_permission(app_client, aut
         ("/api/payments/finance/provider-events", list),
         ("/api/payments/finance/payment-monitoring-summary", dict),
         ("/api/payments/manual-payment-reconciliation-imports", list),
+        ("/api/payments/finance/reconciliation-rows", list),
         ("/api/payments/finance/exports", list),
         ("/api/payments/finance/manual-access-grants", list),
         ("/api/payments/finance/refund-requests", list),
@@ -3796,6 +3797,118 @@ def test_staff_imports_manual_payment_reconciliation_batch_with_audited_rows(
     assert second_transaction.status == PAYMENT_STATUS_MISMATCH
     assert len(run_db(_finance_ledger_entries_for_transaction(first_transaction_id))) == 1
     assert len(run_db(_finance_ledger_entries_for_transaction(second_transaction_id))) == 1
+
+
+def test_finance_staff_can_filter_reconciliation_row_queue_without_raw_rows(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    first_token, _first_user_id = auth_token(email="manual-row-queue-match@example.com")
+    second_token, _second_user_id = auth_token(email="manual-row-queue-mismatch@example.com")
+    first_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+    second_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {second_token}"},
+    )
+    review_staff_id = run_db(_seed_staff_user("manual-row-queue-reviewer@example.com"))
+    run_db(_grant_user_permission(review_staff_id, "finance:payment_review"))
+    finance_staff_id = run_db(_seed_staff_user("manual-row-queue-reader@example.com"))
+    run_db(_grant_user_permission(finance_staff_id, "finance:read"))
+
+    import_response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "cashplus",
+            "source_name": "cashplus-row-queue.json",
+            "rows": [
+                {
+                    "reference_code": first_create.json()["reference_code"],
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-ROW-QUEUE-MATCH",
+                    "reason": "CashPlus queue row matched",
+                    "raw_row": {"private": "do not expose"},
+                },
+                {
+                    "reference_code": second_create.json()["reference_code"],
+                    "amount_centimes": 1200,
+                    "provider_reference": "CASHPLUS-ROW-QUEUE-MISMATCH",
+                    "reason": "CashPlus queue row mismatch",
+                    "raw_row": {"payer_name": "Hidden Parent"},
+                },
+                {
+                    "reference_code": "KRESCO-CASH-404-MISSING",
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-ROW-QUEUE-UNMATCHED",
+                    "reason": "CashPlus queue row unmatched",
+                    "raw_row": {"line": 3},
+                },
+            ],
+        },
+        headers={"Authorization": f"Bearer {create_token(review_staff_id, test_settings)}"},
+    )
+    mismatch_response = app_client.get(
+        (
+            "/api/payments/finance/reconciliation-rows"
+            f"?status=mismatch&provider=cashplus&payment_method=cashplus"
+            f"&import_id={import_response.json()['id']}&transaction_id={second_create.json()['id']}"
+        ),
+        headers={"Authorization": f"Bearer {create_token(finance_staff_id, test_settings)}"},
+    )
+    default_queue_response = app_client.get(
+        f"/api/payments/finance/reconciliation-rows?import_id={import_response.json()['id']}",
+        headers={"Authorization": f"Bearer {create_token(finance_staff_id, test_settings)}"},
+    )
+    all_rows_response = app_client.get(
+        f"/api/payments/finance/reconciliation-rows?status=all&import_id={import_response.json()['id']}",
+        headers={"Authorization": f"Bearer {create_token(finance_staff_id, test_settings)}"},
+    )
+    invalid_status_response = app_client.get(
+        "/api/payments/finance/reconciliation-rows?status=paid",
+        headers={"Authorization": f"Bearer {create_token(finance_staff_id, test_settings)}"},
+    )
+    invalid_provider_response = app_client.get(
+        "/api/payments/finance/reconciliation-rows?provider=stripe",
+        headers={"Authorization": f"Bearer {create_token(finance_staff_id, test_settings)}"},
+    )
+    invalid_method_response = app_client.get(
+        "/api/payments/finance/reconciliation-rows?payment_method=cmi",
+        headers={"Authorization": f"Bearer {create_token(finance_staff_id, test_settings)}"},
+    )
+
+    assert first_create.status_code == 200
+    assert second_create.status_code == 200
+    assert import_response.status_code == 200
+    assert mismatch_response.status_code == 200
+    rows = mismatch_response.json()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "mismatch"
+    assert rows[0]["import_id"] == import_response.json()["id"]
+    assert rows[0]["payment_method"] == PAYMENT_RAIL_CASHPLUS
+    assert rows[0]["reference_code"] == second_create.json()["reference_code"]
+    assert rows[0]["amount_centimes"] == 1200
+    assert rows[0]["provider_reference"] == "CASHPLUS-ROW-QUEUE-MISMATCH"
+    assert rows[0]["matched_transaction_id"] == second_create.json()["id"]
+    assert rows[0]["failure_reason"] == "Reconciliation row did not match the pending payment amount"
+    assert "raw_row" not in rows[0]
+    assert "private" not in str(rows)
+    assert "Hidden Parent" not in str(rows)
+    assert default_queue_response.status_code == 200
+    assert [row["status"] for row in default_queue_response.json()] == ["unmatched", "mismatch"]
+    assert all_rows_response.status_code == 200
+    assert [row["status"] for row in all_rows_response.json()] == ["unmatched", "mismatch", "matched"]
+    assert invalid_status_response.status_code == 400
+    assert "status must be one of" in invalid_status_response.json()["detail"]
+    assert invalid_provider_response.status_code == 400
+    assert "provider must be one of" in invalid_provider_response.json()["detail"]
+    assert invalid_method_response.status_code == 400
+    assert "payment_method must be one of" in invalid_method_response.json()["detail"]
 
 
 def test_import_consumes_new_provider_reference_aimed_at_paid_transaction(

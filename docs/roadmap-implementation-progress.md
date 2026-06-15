@@ -426,7 +426,7 @@ Review notes addressed:
 
 ### Slice 8: CMI Payment Initiation
 
-Status: implemented.
+Status: committed.
 
 Reason for this slice:
 
@@ -2822,6 +2822,72 @@ Verification completed:
   correctness issues. The problem indicator sorter was hardened against mixed
   timezone-aware and naive datetimes before commit, and reconciliation problem
   labels were changed to import IDs rather than uploaded filenames.
+
+### Slice 50: Finance Reconciliation Row Queue
+
+Status: implemented.
+
+Reason for this slice:
+
+- The finance roadmap calls for reconciliation imports, mismatch handling,
+  accountant matching, and a finance backoffice surface for payment problems.
+- Reconciliation imports already persist row-level outcomes, but after the
+  immediate import response there was no finance read endpoint for mismatch,
+  unmatched, duplicate, or error rows.
+- A backend-first row queue lets the later finance UI show actionable payment
+  report problems without changing the student payment flow.
+
+Implemented scope:
+
+- Added a read-only `GET /api/payments/finance/reconciliation-rows` endpoint
+  gated by `finance:read`. Status: implemented.
+- Added filters for row `status`, `provider`, `payment_method`, `import_id`,
+  matched `transaction_id`, and bounded `limit`. Status: implemented.
+- Defaulted the queue to problem rows (`mismatch`, `unmatched`, `duplicate`,
+  `error`) while allowing explicit `status=all` for finance audit review.
+  Status: implemented.
+- Returned persisted row fields needed for finance review: import id, row
+  number, provider, rail, status, app reference, provider reference, amount,
+  matched transaction id, failure reason, and created time. Status:
+  implemented.
+- Kept raw imported row JSON, proof URLs, metadata, and user profile data out
+  of the queue response. Status: implemented.
+
+Decisions:
+
+- Decision: this is a read queue only. Fixing a mismatch remains a later
+  finance workflow because correction rules affect money/access state.
+- Decision: the default view is problem-only. Successful matched rows are
+  available only through explicit filters because they are audit history, not
+  queue work.
+- Decision: expose provider/app references in the finance queue because they
+  are required to reconcile bank/cash-agency reports, but do not expose raw
+  imported row payloads.
+- Decision: keep the endpoint under `/api/payments/finance` rather than adding
+  the future `/backoffice/finance` route group. The current finance API already
+  owns these payment audit surfaces.
+
+Verification plan:
+
+- Extend finance read-permission tests to cover the row queue. Status:
+  implemented.
+- Add a focused queue test proving default problem-only behavior,
+  `status=all`, status/provider/method/import/transaction filters,
+  validation, and raw-row exclusion. Status: implemented.
+- Run focused payment tests, compile check, broader payment/migration tests,
+  and strong review before committing. Status: completed.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -k "reconciliation_row_queue or finance_audit_endpoints_require_finance_read_permission" -q`
+  passed: 2 tests selected.
+- `python -m pytest tests_fastapi/test_payments.py tests_fastapi/test_migrations.py -q`
+  passed: 113 tests.
+- `python -m compileall app` passed.
+- Independent review found the first draft returned matched rows by default.
+  Fixed before commit by defaulting to problem rows only and requiring
+  explicit `status=all` for full audit history. Re-review found no blocking
+  issues.
 
 ## Open Risks
 

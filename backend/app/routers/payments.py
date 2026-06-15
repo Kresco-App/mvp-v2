@@ -27,6 +27,7 @@ from app.schemas.payments import (
     PaymentReconciliationImportIn,
     PaymentReconciliationImportOut,
     PaymentReconciliationImportSummaryOut,
+    PaymentReconciliationRowOut,
     RefundRequestCreateIn,
     RefundRequestOut,
     RefundRequestReviewIn,
@@ -34,6 +35,7 @@ from app.schemas.payments import (
     VerifyOut,
 )
 from app.services.payment_monitoring import build_finance_payment_monitoring_summary
+from app.services.payment_reconciliation_rows import list_payment_reconciliation_rows
 from app.services.payment_gateway import (
     approve_manual_payment_transaction,
     create_payment_request as create_provider_payment_request,
@@ -169,6 +171,28 @@ async def list_manual_payment_reconciliation_imports(
     _staff: User = Depends(require_finance_read),
 ):
     return await list_payment_reconciliation_imports(db, limit=limit)
+
+
+@router.get("/finance/reconciliation-rows", response_model=list[PaymentReconciliationRowOut])
+async def list_finance_reconciliation_rows(
+    status: str | None = None,
+    provider: str | None = None,
+    payment_method: str | None = None,
+    import_id: int | None = None,
+    transaction_id: int | None = None,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_finance_read),
+):
+    return await list_payment_reconciliation_rows(
+        db,
+        status=status,
+        provider=provider,
+        payment_method=payment_method,
+        import_id=import_id,
+        transaction_id=transaction_id,
+        limit=limit,
+    )
 
 
 @router.get("/finance/exports", response_model=list[FinanceExportSummaryOut])
