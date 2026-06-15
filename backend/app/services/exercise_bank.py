@@ -1,10 +1,15 @@
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
 from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, with_loader_criteria
 
 from app.models.courses import Subject, Topic
 from app.models.exercises import (
     EXERCISE_SELF_GRADE_NOT_STARTED,
+    EXERCISE_SELF_GRADE_MASTERED,
     EXERCISE_STATUS_PUBLISHED,
     Exercise,
     UserExerciseProgress,
@@ -13,8 +18,10 @@ from app.models.users import User
 from app.schemas.exercises import ExerciseAssetOut, ExerciseBankListOut, ExerciseDetailOut, ExerciseListItemOut
 from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.course_access import apply_access_decision
+from app.services.xp import award_xp
 
 MAX_EXERCISE_BANK_LIMIT = 100
+EXERCISE_MASTERY_XP = 5
 
 
 async def list_exercise_bank_items(
@@ -131,6 +138,63 @@ async def get_exercise_detail(
     )
 
 
+async def reveal_exercise_solution(
+    db: AsyncSession,
+    user: User,
+    *,
+    exercise_id: int,
+) -> ExerciseDetailOut:
+    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
+    progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
+    now = datetime.now(timezone.utc)
+    progress.reveal_count = int(progress.reveal_count or 0) + 1
+    progress.last_revealed_at = now
+    if progress.first_revealed_at is None:
+        progress.first_revealed_at = now
+    await db.commit()
+    await db.refresh(progress)
+    return exercise_detail_out(exercise, access=access, progress=progress)
+
+
+async def update_exercise_self_grade(
+    db: AsyncSession,
+    user: User,
+    *,
+    exercise_id: int,
+    self_grade: str,
+) -> tuple[ExerciseDetailOut, int]:
+    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
+    progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
+    if int(progress.reveal_count or 0) <= 0:
+        raise HTTPException(status_code=409, detail="Exercise correction must be revealed before self-grading")
+    normalized_grade = self_grade.strip().lower()
+    now = datetime.now(timezone.utc)
+    history = list(progress.self_grade_history_json or [])
+    previous_grade = progress.current_self_grade or EXERCISE_SELF_GRADE_NOT_STARTED
+    history.append({
+        "self_grade": normalized_grade,
+        "previous_self_grade": previous_grade,
+        "graded_at": now.isoformat(),
+    })
+    progress.current_self_grade = normalized_grade
+    progress.self_grade_history_json = history
+    xp_awarded = 0
+    if normalized_grade == EXERCISE_SELF_GRADE_MASTERED:
+        xp_awarded = await award_xp(
+            int(user.id),
+            "exercise_mastered",
+            f"Exercise {exercise.id} mastered",
+            db,
+            subject_id=int(exercise.subject_id),
+            topic_id=int(exercise.topic_id) if exercise.topic_id is not None else None,
+            idempotency_key=f"exercise-mastered:user:{user.id}:exercise:{exercise.id}",
+            amount_override=EXERCISE_MASTERY_XP,
+        )
+    await db.commit()
+    await db.refresh(progress)
+    return exercise_detail_out(exercise, access=access, progress=progress), xp_awarded
+
+
 def exercise_list_item_out(
     exercise: Exercise,
     *,
@@ -224,6 +288,70 @@ def _progress_join(*, user_id: int):
         UserExerciseProgress.exercise_id == Exercise.id,
         UserExerciseProgress.user_id == user_id,
     )
+
+
+async def _load_accessible_exercise_for_mutation(
+    db: AsyncSession,
+    user: User,
+    *,
+    exercise_id: int,
+) -> tuple[Exercise, AccessDecision]:
+    exercise = await db.scalar(
+        select(Exercise)
+        .join(Subject, Subject.id == Exercise.subject_id)
+        .outerjoin(Topic, Topic.id == Exercise.topic_id)
+        .options(selectinload(Exercise.assets), selectinload(Exercise.progress_records))
+        .where(
+            Exercise.id == exercise_id,
+            Exercise.status == EXERCISE_STATUS_PUBLISHED,
+            Subject.is_published == True,  # noqa: E712
+            or_(Exercise.topic_id.is_(None), Topic.status == "published"),
+        )
+        .with_for_update()
+    )
+    if exercise is None:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    access_context = await build_access_context(db, user)
+    access = _exercise_access(access_context, exercise)
+    if not access.can_access:
+        raise HTTPException(status_code=403, detail=access.locked_reason)
+    return exercise, access
+
+
+async def _get_or_create_progress(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    exercise_id: int,
+) -> UserExerciseProgress:
+    progress = await db.scalar(
+        select(UserExerciseProgress)
+        .where(
+            UserExerciseProgress.user_id == user_id,
+            UserExerciseProgress.exercise_id == exercise_id,
+        )
+        .with_for_update()
+    )
+    if progress is not None:
+        return progress
+
+    progress = UserExerciseProgress(user_id=user_id, exercise_id=exercise_id)
+    try:
+        async with db.begin_nested():
+            db.add(progress)
+            await db.flush()
+    except IntegrityError:
+        progress = await db.scalar(
+            select(UserExerciseProgress)
+            .where(
+                UserExerciseProgress.user_id == user_id,
+                UserExerciseProgress.exercise_id == exercise_id,
+            )
+            .with_for_update()
+        )
+        if progress is None:
+            raise
+    return progress
 
 
 def _exercise_access(access_context: AccessContext, exercise: Exercise) -> AccessDecision:

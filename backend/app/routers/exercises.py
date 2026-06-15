@@ -1,10 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
-from app.schemas.exercises import ExerciseBankListOut, ExerciseDetailOut
-from app.services.exercise_bank import get_exercise_detail, list_exercise_bank_items
+from app.rate_limit import limiter
+from app.schemas.exercises import ExerciseBankListOut, ExerciseDetailOut, ExerciseProgressMutationOut, ExerciseSelfGradeIn
+from app.services.exercise_bank import (
+    get_exercise_detail,
+    list_exercise_bank_items,
+    reveal_exercise_solution,
+    update_exercise_self_grade,
+)
 
 router = APIRouter(tags=["Exercise Bank"])
 
@@ -46,3 +52,35 @@ async def get_exercise(
     if exercise is None:
         raise HTTPException(status_code=404, detail="Exercise not found")
     return exercise
+
+
+@router.post("/{exercise_id}/reveal", response_model=ExerciseProgressMutationOut)
+@limiter.limit("30/minute")
+async def reveal_exercise(
+    request: Request,
+    exercise_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    exercise = await reveal_exercise_solution(db, user, exercise_id=exercise_id)
+    return ExerciseProgressMutationOut(exercise=exercise, xp_awarded=0)
+
+
+@router.post("/{exercise_id}/self-grade", response_model=ExerciseProgressMutationOut)
+@limiter.limit("30/minute")
+async def self_grade_exercise(
+    request: Request,
+    exercise_id: int,
+    body: ExerciseSelfGradeIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    exercise, xp_awarded = await update_exercise_self_grade(
+        db,
+        user,
+        exercise_id=exercise_id,
+        self_grade=body.self_grade,
+    )
+    return ExerciseProgressMutationOut(exercise=exercise, xp_awarded=xp_awarded)

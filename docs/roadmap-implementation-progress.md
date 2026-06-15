@@ -147,7 +147,7 @@ Review notes addressed:
 
 ### Slice 3: Exercise Bank Backend Skeleton
 
-Status: in progress.
+Status: committed in `3169961c`.
 
 Reason for this slice:
 
@@ -196,14 +196,54 @@ Review notes addressed:
 - Fixed `saved=false` filtering to include untouched exercises with no progress
   row.
 
+### Slice 4: Exercise Reveal, Self-Grade, and XP Guardrails
+
+Status: in progress.
+
+Reason for this slice:
+
+- Students need to reveal corrections, self-grade, and later filter by their
+  current grade/history.
+- Reveal delay is a frontend concern, but backend must persist reveal state.
+- XP must be small, capped, and idempotent so self-grading cannot be farmed.
+
+Planned backend scope:
+
+- Add reveal mutation for accessible exercises. Status: implemented.
+- Add self-grade mutation for `again`, `partial`, and `mastered`. Status:
+  implemented.
+- Append grade history and maintain current self-grade. Status: implemented.
+- Award small one-time XP for first `mastered` grade per user/exercise. Status:
+  implemented.
+
+Decisions:
+
+- Decision: reveal has no backend timer and grants no XP.
+- Decision: self-grade history is student-reported; it is not correctness
+  validation.
+- Decision: only `mastered` gives XP, and only once per user/exercise through a
+  user-scoped XP idempotency key.
+
+Verification plan:
+
+- Add reveal tests for count/timestamps and zero XP.
+- Add locked mutation tests.
+- Add self-grade tests for history and filterability.
+- Add one-time mastery XP tests.
+- Add invalid self-grade validation tests.
+
+Review notes addressed:
+
+- Self-grade mutations now require the correction to be revealed first.
+- Direct `mastered` submissions before reveal do not grant XP.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Exercise reveal/self-grade state and XP guardrails.
-2. Exam Bank part capsule model/API skeleton.
-3. Quiz snapshot/version integrity.
-4. XP economy caps and auditability.
+1. Exam Bank part capsule model/API skeleton.
+2. Quiz snapshot/version integrity.
+3. XP economy caps and auditability.
 
 ## Open Risks
 

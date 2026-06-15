@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from sqlalchemy import func, select
+
 from app.database import get_session_factory
 from app.models.courses import Subject, Topic
 from app.models.exercises import (
@@ -9,6 +11,7 @@ from app.models.exercises import (
     ExerciseAsset,
     UserExerciseProgress,
 )
+from app.models.gamification import UserXP, XPTransaction
 from app.models.users import UserSubjectEntitlement
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -195,6 +198,156 @@ def test_exercise_bank_hides_unpublished_subject_and_topic_content(app_client, a
     assert draft_topic_list.status_code == 200
     assert draft_topic_list.json()["items"] == []
     assert draft_topic_detail.status_code == 404
+
+
+def test_exercise_reveal_records_progress_without_xp(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-reveal@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = app_client.post(f"/api/exercises/{seeded['second_exercise_id']}/reveal", headers=headers)
+    second = app_client.post(f"/api/exercises/{seeded['second_exercise_id']}/reveal", headers=headers)
+
+    assert first.status_code == 200
+    assert first.json()["xp_awarded"] == 0
+    assert first.json()["exercise"]["reveal_count"] == 1
+    assert first.json()["exercise"]["first_revealed_at"] is not None
+    assert first.json()["exercise"]["last_revealed_at"] is not None
+    assert first.json()["exercise"]["solution_body"] == "$x=-1$ or $x=1$."
+    assert second.status_code == 200
+    assert second.json()["exercise"]["reveal_count"] == 2
+    assert run_db(_user_xp_total(user_id)) == 0
+
+
+def test_exercise_mutations_require_subject_access(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-mutation-locked@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    reveal = app_client.post(f"/api/exercises/{seeded['exercise_id']}/reveal", headers=headers)
+    grade = app_client.post(
+        f"/api/exercises/{seeded['exercise_id']}/self-grade",
+        json={"self_grade": "mastered"},
+        headers=headers,
+    )
+
+    assert reveal.status_code == 403
+    assert reveal.json()["detail"] == "subject_access_required"
+    assert grade.status_code == 403
+    assert grade.json()["detail"] == "subject_access_required"
+    assert run_db(_user_xp_total(user_id)) == 0
+
+
+def test_exercise_self_grade_updates_history_and_filter(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-grade-partial@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    reveal = app_client.post(f"/api/exercises/{seeded['second_exercise_id']}/reveal", headers=headers)
+    response = app_client.post(
+        f"/api/exercises/{seeded['second_exercise_id']}/self-grade",
+        json={"self_grade": "partial"},
+        headers=headers,
+    )
+    filtered = app_client.get(
+        f"/api/exercises/subjects/{seeded['subject_id']}?self_grade=partial",
+        headers=headers,
+    )
+
+    assert reveal.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["xp_awarded"] == 0
+    assert payload["exercise"]["self_grade"] == "partial"
+    assert payload["exercise"]["self_grade_history"][-1]["self_grade"] == "partial"
+    assert payload["exercise"]["self_grade_history"][-1]["previous_self_grade"] == "not_started"
+    assert filtered.status_code == 200
+    assert {item["id"] for item in filtered.json()["items"]} == {
+        seeded["exercise_id"],
+        seeded["second_exercise_id"],
+    }
+
+
+def test_exercise_mastered_awards_one_time_xp(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-mastered-xp@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    reveal = app_client.post(f"/api/exercises/{seeded['second_exercise_id']}/reveal", headers=headers)
+    first = app_client.post(
+        f"/api/exercises/{seeded['second_exercise_id']}/self-grade",
+        json={"self_grade": "mastered"},
+        headers=headers,
+    )
+    second = app_client.post(
+        f"/api/exercises/{seeded['second_exercise_id']}/self-grade",
+        json={"self_grade": "mastered"},
+        headers=headers,
+    )
+
+    assert reveal.status_code == 200
+    assert first.status_code == 200
+    assert first.json()["xp_awarded"] == 5
+    assert first.json()["exercise"]["self_grade"] == "mastered"
+    assert second.status_code == 200
+    assert second.json()["xp_awarded"] == 0
+    assert second.json()["exercise"]["self_grade"] == "mastered"
+    assert run_db(_user_xp_total(user_id)) == 5
+    assert run_db(_exercise_mastered_xp_count(user_id, seeded["second_exercise_id"])) == 1
+
+
+def test_exercise_self_grade_requires_reveal_first(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-grade-before-reveal@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+
+    response = app_client.post(
+        f"/api/exercises/{seeded['second_exercise_id']}/self-grade",
+        json={"self_grade": "mastered"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Exercise correction must be revealed before self-grading"
+    assert run_db(_user_xp_total(user_id)) == 0
+    assert run_db(_exercise_mastered_xp_count(user_id, seeded["second_exercise_id"])) == 0
+
+
+def test_exercise_self_grade_rejects_unknown_grade(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exercise-grade-invalid@example.com")
+    seeded = run_db(_seed_exercise_bank_fixture(user_id=user_id, include_subject_entitlement=True))
+
+    response = app_client.post(
+        f"/api/exercises/{seeded['exercise_id']}/self-grade",
+        json={"self_grade": "perfect"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 422
+    assert "self_grade must be one of" in response.text
+
+
+async def _user_xp_total(user_id: int) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        total = await db.scalar(select(UserXP.total_xp).where(UserXP.user_id == user_id))
+        return int(total or 0)
+
+
+async def _exercise_mastered_xp_count(user_id: int, exercise_id: int) -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        return int(
+            await db.scalar(
+                select(func.count())
+                .select_from(XPTransaction)
+                .where(
+                    XPTransaction.user_id == user_id,
+                    XPTransaction.reason == "exercise_mastered",
+                    XPTransaction.idempotency_key == f"exercise-mastered:user:{user_id}:exercise:{exercise_id}",
+                )
+            )
+            or 0
+        )
 
 
 async def _seed_exercise_bank_fixture(

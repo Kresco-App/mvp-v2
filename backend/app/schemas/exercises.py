@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.courses import AccessGuardedMixin
 
@@ -59,3 +59,20 @@ class ExerciseBankListOut(BaseModel):
     topic_id: int | None = None
     items: list[ExerciseListItemOut]
     total: int
+
+
+class ExerciseSelfGradeIn(BaseModel):
+    self_grade: str = Field(min_length=3, max_length=30)
+
+    @field_validator("self_grade")
+    @classmethod
+    def validate_self_grade(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"again", "partial", "mastered"}:
+            raise ValueError("self_grade must be one of: again, partial, mastered")
+        return normalized
+
+
+class ExerciseProgressMutationOut(BaseModel):
+    exercise: ExerciseDetailOut
+    xp_awarded: int = 0
