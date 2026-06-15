@@ -11,10 +11,12 @@ PAYMENT_PROVIDER_STRIPE = "stripe"
 PAYMENT_PROVIDER_CMI = "cmi"
 PAYMENT_PROVIDER_BANK_TRANSFER = "bank_transfer"
 PAYMENT_PROVIDER_CASHPLUS = "cashplus"
+PAYMENT_PROVIDER_ASHPLUS = "ashplus"
 
 PAYMENT_RAIL_CMI = "cmi"
 PAYMENT_RAIL_BANK_TRANSFER = "bank_transfer"
 PAYMENT_RAIL_CASHPLUS = "cashplus"
+PAYMENT_RAIL_ASHPLUS = "ashplus"
 
 PAYMENT_STATUS_DRAFT = "draft"
 PAYMENT_STATUS_PENDING_PROVIDER = "pending_provider"
@@ -64,11 +66,11 @@ class PaymentTransaction(Base):
         UniqueConstraint("reference_code", name="uq_payment_transactions_reference_code"),
         UniqueConstraint("open_request_key", name="uq_payment_transactions_open_request_key"),
         CheckConstraint(
-            "provider IN ('stripe', 'cmi', 'bank_transfer', 'cashplus')",
+            "provider IN ('stripe', 'cmi', 'bank_transfer', 'cashplus', 'ashplus')",
             name="ck_payment_transactions_provider",
         ),
         CheckConstraint(
-            "rail IN ('cmi', 'bank_transfer', 'cashplus')",
+            "rail IN ('cmi', 'bank_transfer', 'cashplus', 'ashplus')",
             name="ck_payment_transactions_rail",
         ),
         CheckConstraint(
@@ -112,7 +114,7 @@ class PaymentProviderEvent(Base):
     __table_args__ = (
         UniqueConstraint("provider", "event_id", name="uq_payment_provider_events_provider_event"),
         CheckConstraint(
-            "provider IN ('stripe', 'cmi', 'bank_transfer', 'cashplus')",
+            "provider IN ('stripe', 'cmi', 'bank_transfer', 'cashplus', 'ashplus')",
             name="ck_payment_provider_events_provider",
         ),
         CheckConstraint(
@@ -143,7 +145,7 @@ class PaymentTransactionProof(Base):
     __table_args__ = (
         UniqueConstraint("transaction_id", "proof_digest", name="uq_payment_transaction_proofs_transaction_digest"),
         CheckConstraint(
-            "rail IN ('bank_transfer', 'cashplus')",
+            "rail IN ('bank_transfer', 'cashplus', 'ashplus')",
             name="ck_payment_transaction_proofs_rail",
         ),
         CheckConstraint(

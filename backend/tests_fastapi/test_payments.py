@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session_factory
 from app.models.payments import (
+    PAYMENT_PROVIDER_ASHPLUS,
     PAYMENT_PROVIDER_CMI,
+    PAYMENT_RAIL_ASHPLUS,
     PAYMENT_RAIL_BANK_TRANSFER,
     PAYMENT_RAIL_CASHPLUS,
     PAYMENT_RAIL_CMI,
@@ -180,6 +182,16 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert 'down_revision: Union[str, None] = "0058"' in proof_migration_text
     assert "payment_transaction_proofs" in proof_migration_text
     assert "uq_payment_transaction_proofs_transaction_digest" in proof_migration_text
+
+    ashplus_migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0060_add_ashplus_payment_rail.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0059"' in ashplus_migration_text
+    assert "'ashplus'" in ashplus_migration_text
+    assert "get_check_constraints" in ashplus_migration_text
+    assert "ck_payment_transactions_provider" in ashplus_migration_text
+    assert "ck_payment_transactions_rail" in ashplus_migration_text
+    assert "ck_payment_transaction_proofs_rail" in ashplus_migration_text
 
 
 def test_webhook_requires_secret(app_client):
@@ -753,6 +765,30 @@ def test_create_cashplus_payment_request_is_pending_and_does_not_grant_access(ap
     transactions = run_db(_payment_transactions_for_user(user_id))
     assert len(transactions) == 1
     assert transactions[0].rail == PAYMENT_RAIL_CASHPLUS
+    assert transactions[0].status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+
+
+def test_create_ashplus_payment_request_is_pending_and_does_not_grant_access(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="ashplus-request@example.com")
+
+    response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "ashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["payment_method"] == PAYMENT_RAIL_ASHPLUS
+    assert payload["status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert payload["reference_code"].startswith(f"KRESCO-ASH-{user_id}-")
+    assert payload["instructions"]["title"] == "AshPlus"
+
+    assert run_db(_get_user(user_id)).is_pro is False
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    assert len(transactions) == 1
+    assert transactions[0].provider == PAYMENT_PROVIDER_ASHPLUS
+    assert transactions[0].rail == PAYMENT_RAIL_ASHPLUS
     assert transactions[0].status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
 
 
@@ -1647,6 +1683,62 @@ def test_staff_reconciles_manual_payment_by_reference_once(
     assert ledger_entries[0].amount_centimes == 9900
 
 
+def test_ashplus_proof_and_reconciliation_use_manual_cash_agency_workflow(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="ashplus-workflow-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "ashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    reference_code = create_response.json()["reference_code"]
+    proof_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/proof",
+        json={"proof_kind": "ashplus_receipt", "provider_reference": "ASHPLUS-RECEIPT-001"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert proof_response.status_code == 200
+    assert proof_response.json()["status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert run_db(_get_user(user_id)).is_pro is False
+
+    staff_id = run_db(_seed_staff_user("ashplus-workflow-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    reconcile_response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json={
+            "payment_method": "ashplus",
+            "reference_code": reference_code,
+            "amount_centimes": 9900,
+            "provider_reference": "ASHPLUS-RECEIPT-001",
+            "reason": "AshPlus receipt matched",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert reconcile_response.status_code == 200
+    assert reconcile_response.json()["status"] == PAYMENT_STATUS_PAID
+    assert reconcile_response.json()["provider"] == PAYMENT_PROVIDER_ASHPLUS
+    assert reconcile_response.json()["payment_method"] == PAYMENT_RAIL_ASHPLUS
+    assert run_db(_get_user(user_id)).is_pro is True
+
+    proofs = run_db(_payment_proofs_for_transaction(transaction_id))
+    assert len(proofs) == 1
+    assert proofs[0].rail == PAYMENT_RAIL_ASHPLUS
+    assert proofs[0].provider_reference == "ASHPLUS-RECEIPT-001"
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert [event.event_type for event in events] == ["manual.proof_submitted", "manual.reconciled"]
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert len(ledger_entries) == 1
+    assert ledger_entries[0].entry_type == "payment_confirmed"
+    assert ledger_entries[0].metadata_json["rail"] == PAYMENT_RAIL_ASHPLUS
+
+
 def test_staff_reconciliation_amount_mismatch_stays_locked_and_filterable(
     app_client,
     auth_token,
@@ -1746,8 +1838,8 @@ def test_staff_reconciliation_external_reference_cannot_unlock_two_transactions(
     assert first_response.status_code == 200
     assert first_response.json()["id"] == first_transaction_id
     assert first_response.json()["status"] == PAYMENT_STATUS_PAID
-    assert second_response.status_code == 200
-    assert second_response.json()["id"] == first_transaction_id
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == "Provider reference is already reconciled to another manual payment"
     assert run_db(_get_user(first_user_id)).is_pro is True
     assert run_db(_get_user(second_user_id)).is_pro is False
 

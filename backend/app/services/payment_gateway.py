@@ -20,9 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.models.payments import (
     FinanceLedgerEntry,
+    PAYMENT_PROVIDER_ASHPLUS,
     PAYMENT_PROVIDER_BANK_TRANSFER,
     PAYMENT_PROVIDER_CASHPLUS,
     PAYMENT_PROVIDER_CMI,
+    PAYMENT_RAIL_ASHPLUS,
     PAYMENT_RAIL_BANK_TRANSFER,
     PAYMENT_RAIL_CASHPLUS,
     PAYMENT_RAIL_CMI,
@@ -47,7 +49,7 @@ from app.schemas.payments import (
 PAYMENT_PLAN_PRICES_CENTIMES = {
     "pro": 9900,
 }
-MANUAL_PAYMENT_RAILS = {PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS}
+MANUAL_PAYMENT_RAILS = {PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS, PAYMENT_RAIL_ASHPLUS}
 MANUAL_PAYMENT_EXPIRY_DAYS = 7
 MANUAL_PAYMENT_EVENT_APPROVED = "manual.approved"
 MANUAL_PAYMENT_EVENT_REJECTED = "manual.rejected"
@@ -81,6 +83,8 @@ def provider_for_rail(payment_method: str) -> str:
         return PAYMENT_PROVIDER_BANK_TRANSFER
     if payment_method == PAYMENT_RAIL_CASHPLUS:
         return PAYMENT_PROVIDER_CASHPLUS
+    if payment_method == PAYMENT_RAIL_ASHPLUS:
+        return PAYMENT_PROVIDER_ASHPLUS
     if payment_method == PAYMENT_RAIL_CMI:
         return PAYMENT_PROVIDER_CMI
     raise HTTPException(status_code=400, detail="Unsupported payment method")
@@ -469,6 +473,11 @@ async def reconcile_manual_payment_transaction(
     if existing_event is not None and existing_event.transaction_id is not None:
         existing_transaction = await db.get(PaymentTransaction, int(existing_event.transaction_id))
         if existing_transaction is not None:
+            if not _manual_reconciliation_matches_transaction(existing_transaction, reconciliation):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Provider reference is already reconciled to another manual payment",
+                )
             return manual_payment_transaction_out(existing_transaction)
     if existing_event is not None:
         raise HTTPException(status_code=409, detail="Reconciliation row was already recorded as unmatched")
@@ -659,6 +668,8 @@ def _reference_code(payment_method: str, user_id: int) -> str:
         prefix = "VIR"
     elif payment_method == PAYMENT_RAIL_CMI:
         prefix = "CMI"
+    elif payment_method == PAYMENT_RAIL_ASHPLUS:
+        prefix = "ASH"
     else:
         prefix = "CASH"
     token = secrets.token_urlsafe(6).replace("-", "").replace("_", "").upper()[:8]
@@ -856,6 +867,16 @@ def _manual_payment_instructions(
                 "Wait for finance confirmation before access is unlocked.",
             ],
         }
+    if payment_method == PAYMENT_RAIL_ASHPLUS:
+        return {
+            **common,
+            "title": "AshPlus",
+            "steps": [
+                "Use the reference code when paying through AshPlus.",
+                "Keep the receipt until the payment is confirmed.",
+                "Wait for finance confirmation before access is unlocked.",
+            ],
+        }
     return {
         **common,
         "title": "CashPlus",
@@ -894,6 +915,17 @@ def _manual_reconciliation_event_id(*, provider_reference: str, reference_code: 
     del reference_code
     canonical = provider_reference.strip()
     return f"manual-reconciliation:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def _manual_reconciliation_matches_transaction(
+    transaction: PaymentTransaction,
+    reconciliation: ManualPaymentReconciliationIn,
+) -> bool:
+    return (
+        transaction.reference_code == reconciliation.reference_code
+        and transaction.rail == reconciliation.payment_method
+        and int(transaction.amount_centimes) == int(reconciliation.amount_centimes)
+    )
 
 
 def _manual_reconciliation_payload(

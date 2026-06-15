@@ -573,13 +573,57 @@ Verification plan:
 - Run payment, schema-limit, CSRF, startup/security, secret-hygiene, and compile
   checks.
 
+### Slice 11: AshPlus Cash-Agency Rail
+
+Status: implemented.
+
+Reason for this slice:
+
+- The launch payment gateway plan includes AshPlus or equivalent cash-agency
+  handling in addition to CashPlus.
+- AshPlus should not become a one-off payment system; it needs the same pending,
+  proof, reconciliation, ledger, and entitlement guardrails as CashPlus.
+- Finance still needs to distinguish provider reports by rail, so a first-class
+  `ashplus` rail/provider is cleaner than silently aliasing it to `cashplus`.
+
+Planned backend scope:
+
+- Add `ashplus` provider and rail constants. Status: implemented.
+- Widen payment transaction, provider event, and payment proof constraints to
+  accept `ashplus`. Status: implemented.
+- Accept `payment_method=ashplus` through the existing payment request API.
+  Status: implemented.
+- Reuse the manual proof and reconciliation workflow for AshPlus. Status:
+  implemented.
+- Keep access locked until finance reconciliation or manual approval. Status:
+  implemented.
+
+Decisions:
+
+- Decision: AshPlus is a separate rail/provider from CashPlus for filtering,
+  reconciliation reports, and future provider-specific fields, but it shares
+  the exact same manual cash-agency state machine.
+- Decision: AshPlus references use `KRESCO-ASH-*` so support/finance can
+  distinguish them from `KRESCO-CASH-*` CashPlus references at a glance.
+- Decision: no AshPlus-specific callback endpoint exists until a signed
+  provider contract proves one is available and safe.
+
+Verification plan:
+
+- Add model/migration declaration coverage for the widened constraints.
+- Add AshPlus request tests proving pending state, provider/rail values,
+  reference prefix, and no access grant on request creation.
+- Add AshPlus proof plus reconciliation tests proving proof alone does not
+  unlock access, reconciliation does, and ledger/provider events use the
+  AshPlus rail.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Payment gateway completion: bulk bank/CashPlus reconciliation imports,
-   AshPlus/cash-agency alias handling if needed, minimal payment UI states, and
-   removal of Stripe from the launch checkout path.
+1. Payment gateway completion: bulk bank/CashPlus/AshPlus reconciliation
+   imports, minimal payment UI states, and removal of Stripe from the launch
+   checkout path.
 
 ## Open Risks
 
