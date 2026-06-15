@@ -299,7 +299,7 @@ Review notes addressed:
 
 ### Slice 6: Quiz Snapshot and Version Integrity
 
-Status: committed in `0d1588e4`.
+Status: committed in `05b66fc8`.
 
 Reason for this slice:
 
