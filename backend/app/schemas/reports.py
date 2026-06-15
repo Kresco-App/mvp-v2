@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field, field_validator
 from app.models.reports import REPORT_PRIORITIES, REPORT_REASONS, REPORT_STATUSES, REPORT_TARGET_TYPES
 from app.schemas.limits import JsonBounds, LongText, MediumText, ShortText, StrictInputModel, validate_bounded_json_object
 
+COMMENT_MODERATION_ACTIONS = {"delete", "hide", "no_action", "restore"}
+
 REPORT_METADATA_BOUNDS = JsonBounds(
     max_container_depth=2,
     max_dict_items=40,
@@ -71,6 +73,19 @@ class ReportUpdateIn(StrictInputModel):
         return _normalize_choice(value, allowed=REPORT_PRIORITIES, field_name="priority")
 
 
+class CommentModerationActionIn(StrictInputModel):
+    action: ShortText
+    note: MediumText = ""
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in COMMENT_MODERATION_ACTIONS:
+            raise ValueError("Unsupported comment moderation action")
+        return normalized
+
+
 class ReportOut(BaseModel):
     id: int
     reporter_user_id: int
@@ -87,6 +102,7 @@ class ReportOut(BaseModel):
     metadata_json: dict[str, Any]
     assigned_to_user_id: int | None = None
     reviewed_by_user_id: int | None = None
+    resolution_action: str = ""
     resolution_note: str
     resolved_at: datetime | None = None
     created_at: datetime
@@ -100,3 +116,10 @@ class ReportListOut(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class CommentModerationActionOut(BaseModel):
+    report: ReportOut
+    comment_id: int
+    comment_status: str
+    action: str

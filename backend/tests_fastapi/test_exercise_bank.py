@@ -67,12 +67,26 @@ def test_exercise_comments_model_and_migration_are_declared():
 
     assert columns["topic_item_id"].nullable is True
     assert columns["exercise_id"].nullable is True
+    assert columns["status"].nullable is False
+    assert columns["moderated_by_user_id"].nullable is True
+    assert columns["moderated_at"].nullable is True
+    assert columns["moderation_reason"].nullable is False
     assert "ck_comments_exactly_one_target" in constraints
+    assert "ck_comments_status" in constraints
     assert indexes["ix_comments_exercise_created"] == ("exercise_id", "created_at")
+    assert indexes["ix_comments_status_created"] == ("status", "created_at")
     assert 'down_revision: Union[str, None] = "0064"' in migration_text
     assert "exercise_id" in migration_text
     assert "ck_comments_exactly_one_target" in migration_text
     assert "ix_comments_exercise_created" in migration_text
+
+    moderation_migration_text = (BACKEND_ROOT / "alembic" / "versions" / "0076_comment_moderation_state.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'down_revision: Union[str, None] = "0075"' in moderation_migration_text
+    assert "moderated_by_user_id" in moderation_migration_text
+    assert "ck_comments_status" in moderation_migration_text
+    assert "ix_comments_status_created" in moderation_migration_text
 
 
 def test_exercise_bank_lists_published_subject_exercises_with_progress(app_client, auth_token, run_db):

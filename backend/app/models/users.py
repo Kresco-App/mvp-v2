@@ -57,7 +57,7 @@ class User(Base):
     stats: Mapped[Optional["UserStats"]] = relationship("UserStats", back_populates="user", uselist=False)
     xp_transactions: Mapped[list["XPTransaction"]] = relationship("XPTransaction", back_populates="user")
     daily_quests: Mapped[list["DailyQuest"]] = relationship("DailyQuest", back_populates="user")
-    comments: Mapped[list["Comment"]] = relationship("Comment", back_populates="user")
+    comments: Mapped[list["Comment"]] = relationship("Comment", back_populates="user", foreign_keys="Comment.user_id")
     notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="user")
     subject_entitlements: Mapped[list["UserSubjectEntitlement"]] = relationship("UserSubjectEntitlement", back_populates="user")
 

@@ -19,6 +19,7 @@ class CommentOut(BaseModel):
     topic_item_id: int | None = None
     exercise_id: int | None = None
     body: LongText
+    status: str = "visible"
     author: CommentAuthorOut
     parent_id: Optional[int] = None
     reply_count: int = 0

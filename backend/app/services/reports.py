@@ -12,7 +12,7 @@ from app.models.courses import TopicItem
 from app.models.interactions import Comment
 from app.models.reports import ContentReport, REPORT_PRIORITIES, REPORT_REASONS, REPORT_STATUSES, REPORT_TARGET_TYPES
 from app.models.users import User
-from app.schemas.reports import ReportCreateIn, ReportListOut, ReportOut, ReportUpdateIn
+from app.schemas.reports import CommentModerationActionIn, CommentModerationActionOut, ReportCreateIn, ReportListOut, ReportOut, ReportUpdateIn
 from app.services.interaction_mutations import require_comments_enabled_for_topic_item, require_exercise_comments_access
 
 REPORT_CREATE_TARGET_TYPES = {"comment", "exercise"}
@@ -143,6 +143,8 @@ async def update_admin_content_report(
         else:
             report.reviewed_by_user_id = None
             report.resolved_at = None
+            report.resolution_action = ""
+            report.resolution_note = ""
     if body.priority is not None:
         report.priority = _normalize_choice(body.priority, allowed=REPORT_PRIORITIES, field_name="priority")
     if "assigned_to_user_id" in body.model_fields_set:
@@ -156,6 +158,7 @@ async def update_admin_content_report(
             "priority": report.priority,
             "assigned_to_user_id": report.assigned_to_user_id,
             "reviewed_by_user_id": report.reviewed_by_user_id,
+            "resolution_action": report.resolution_action,
             "resolution_note": report.resolution_note,
         }
     )
@@ -175,6 +178,85 @@ async def update_admin_content_report(
     await db.commit()
     await db.refresh(report)
     return report_out(report)
+
+
+async def apply_reported_comment_moderation_action(
+    db: AsyncSession,
+    *,
+    actor: User,
+    report_id: int,
+    body: CommentModerationActionIn,
+    request_path: str = "",
+    client_host: str = "",
+) -> CommentModerationActionOut:
+    actor_id = int(actor.id)
+    report = await db.get(ContentReport, int(report_id))
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.target_type != "comment":
+        raise HTTPException(status_code=400, detail="Report target is not a comment")
+    if report.status not in {"open", "in_review"}:
+        raise HTTPException(status_code=409, detail="Report is already closed")
+
+    comment_id = _parse_numeric_target_id(report.target_id)
+    comment = await db.get(Comment, comment_id)
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    action = body.action.strip().lower()
+    note = body.note.strip()
+    previous_comment_status = comment.status
+    next_status = {
+        "hide": "hidden",
+        "delete": "deleted",
+        "restore": "visible",
+        "no_action": comment.status,
+    }[action]
+    if action != "no_action":
+        comment.status = next_status
+        comment.moderated_by_user_id = actor_id
+        comment.moderated_at = datetime.now(timezone.utc)
+        comment.moderation_reason = note
+
+    now = datetime.now(timezone.utc)
+    previous_report_status = report.status
+    report.status = "dismissed" if action == "no_action" else "resolved"
+    report.reviewed_by_user_id = actor_id
+    report.resolved_at = now
+    report.resolution_action = action
+    report.resolution_note = note
+    await db.flush()
+    db.add(
+        AdminAuditLog(
+            action="comment_moderation",
+            model_name="Comment",
+            object_pk=str(comment.id),
+            object_repr=f"report:{report.id}:{action}"[:500],
+            changed_data={
+                "actor_user_id": actor_id,
+                "report_id": int(report.id),
+                "comment_id": int(comment.id),
+                "moderation_action": action,
+                "previous_comment_status": previous_comment_status,
+                "comment_status": comment.status,
+                "previous_report_status": previous_report_status,
+                "report_status": report.status,
+                "resolution_note": note,
+            },
+            request_path=request_path,
+            client_host=client_host,
+            note=f"admin_user_id={actor_id}",
+        )
+    )
+    await db.commit()
+    await db.refresh(report)
+    await db.refresh(comment)
+    return CommentModerationActionOut(
+        report=report_out(report),
+        comment_id=int(comment.id),
+        comment_status=comment.status,
+        action=action,
+    )
 
 
 async def _load_report_by_idempotency_key(
@@ -229,6 +311,8 @@ async def _validated_report_target_context(
             )
         )
         if comment is None:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        if comment.status != "visible":
             raise HTTPException(status_code=404, detail="Comment not found")
         if comment.exercise_id is not None:
             exercise = await require_exercise_comments_access(db, user, int(comment.exercise_id))
@@ -304,6 +388,7 @@ def report_out(report: ContentReport) -> ReportOut:
         metadata_json=report.metadata_json or {},
         assigned_to_user_id=int(report.assigned_to_user_id) if report.assigned_to_user_id is not None else None,
         reviewed_by_user_id=int(report.reviewed_by_user_id) if report.reviewed_by_user_id is not None else None,
+        resolution_action=report.resolution_action,
         resolution_note=report.resolution_note,
         resolved_at=report.resolved_at,
         created_at=report.created_at,

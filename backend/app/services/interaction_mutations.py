@@ -74,6 +74,7 @@ async def comment_out(comment: Comment, settings: Settings, *, reply_count: int 
         topic_item_id=comment.topic_item_id,
         exercise_id=comment.exercise_id,
         body=comment.body,
+        status=comment.status,
         author=CommentAuthorOut(
             id=comment.user.id,
             full_name=comment.user.full_name,
@@ -123,7 +124,11 @@ async def list_topic_item_comments(
 
     reply_counts = (
         select(Comment.parent_id.label("parent_id"), func.count(Comment.id).label("reply_count"))
-        .where(Comment.topic_item_id == topic_item_id, Comment.parent_id.is_not(None))
+        .where(
+            Comment.topic_item_id == topic_item_id,
+            Comment.parent_id.is_not(None),
+            Comment.status == "visible",
+        )
         .group_by(Comment.parent_id)
         .subquery()
     )
@@ -134,6 +139,7 @@ async def list_topic_item_comments(
         .where(
             Comment.topic_item_id == topic_item_id,
             Comment.parent_id == None,  # noqa: E711
+            Comment.status == "visible",
         )
         .order_by(Comment.created_at, Comment.id)
         .offset(offset)
@@ -166,7 +172,11 @@ async def list_exercise_comments(
 
     reply_counts = (
         select(Comment.parent_id.label("parent_id"), func.count(Comment.id).label("reply_count"))
-        .where(Comment.exercise_id == exercise_id, Comment.parent_id.is_not(None))
+        .where(
+            Comment.exercise_id == exercise_id,
+            Comment.parent_id.is_not(None),
+            Comment.status == "visible",
+        )
         .group_by(Comment.parent_id)
         .subquery()
     )
@@ -177,6 +187,7 @@ async def list_exercise_comments(
         .where(
             Comment.exercise_id == exercise_id,
             Comment.parent_id == None,  # noqa: E711
+            Comment.status == "visible",
         )
         .order_by(Comment.created_at, Comment.id)
         .offset(offset)
@@ -253,7 +264,7 @@ async def create_topic_item_comment(
 
     if body.parent_id is not None:
         parent = await db.get(Comment, body.parent_id)
-        if parent is None:
+        if parent is None or parent.status != "visible":
             raise HTTPException(status_code=404, detail="Parent comment not found")
         if comment_parent_mismatch(parent, body.topic_item_id):
             raise HTTPException(status_code=400, detail="Parent comment belongs to a different item")
@@ -282,7 +293,7 @@ async def create_exercise_comment(
 
     if body.parent_id is not None:
         parent = await db.get(Comment, body.parent_id)
-        if parent is None:
+        if parent is None or parent.status != "visible":
             raise HTTPException(status_code=404, detail="Parent comment not found")
         if exercise_comment_parent_mismatch(parent, body.exercise_id):
             raise HTTPException(status_code=400, detail="Parent comment belongs to a different exercise")
@@ -501,6 +512,7 @@ async def require_owned_comment(
         select(Comment).where(
             Comment.id == comment_id,
             Comment.user_id == user.id,
+            Comment.status == "visible",
         )
     )
     if comment is None:

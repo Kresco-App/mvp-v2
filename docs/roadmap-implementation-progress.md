@@ -3390,6 +3390,62 @@ Verification completed:
 - `python -m compileall app` passed.
 - `python -m alembic heads` reported `0075 (head)`.
 
+### Slice 59: Reported Comment Moderation Actions
+
+Status: implemented.
+
+Reason for this slice:
+
+- Slice 58 added report intake and a staff queue, but staff still could not
+  take the first moderation actions requested by the roadmap.
+- Comments are the smallest target with an existing public surface and clear
+  visibility rules, so they are the first target-specific moderation action
+  implementation.
+
+Implemented scope:
+
+- Added soft moderation state to comments: `visible`, `hidden`, and `deleted`.
+  Status: implemented.
+- Public topic-item and exercise comment lists now return only visible comments
+  and count only visible replies. Status: implemented.
+- Added `POST /api/admin/reports/{report_id}/comment-moderation` for
+  `hide`, `delete`, `restore`, and `no_action` staff actions on comment
+  reports. Status: implemented.
+- Staff moderation actions resolve the report, store a resolution action/note,
+  and write an admin audit log for the comment mutation. Status: implemented.
+
+Decisions:
+
+- Decision: staff `delete` is soft-delete (`comments.status='deleted'`) so
+  auditability and report links are preserved.
+- Decision: a report-scoped moderation action is single-use. Closed reports
+  cannot keep mutating the same comment; staff must reopen or create a new
+  report-backed workflow later if undo history is needed.
+- Decision: `no_action` dismisses the report and leaves the comment unchanged.
+- Decision: existing owner comment delete remains a hard delete for v1 because
+  changing that student-facing contract is a separate behavior change.
+- Decision: comment moderation uses the existing `support:reports` permission
+  rather than introducing a second permission before role bundles exist.
+- Decision: reported-comment moderation is a report-scoped action. Staff act
+  through a report ID, not directly on arbitrary comments in this slice.
+
+Verification plan:
+
+- Add migration/model declaration coverage for moderation fields and indexes.
+  Status: implemented.
+- Add route coverage for permission denial, hide, restore, soft delete,
+  public-list visibility, report resolution fields, and audit logging.
+  Status: implemented.
+- Add interaction-list coverage proving hidden replies do not count.
+  Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_content_reports.py tests_fastapi/test_course_interactions.py tests_fastapi/test_exercise_bank.py tests_fastapi/test_admin_overview.py tests_fastapi/test_migrations.py -q`
+  passed with 60 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0076 (head)`.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.users import User
 
 ALLOWED_TARGET_TYPES = {"topic", "topic_item", "resource", "question_set", "question", "exam_problem", "tab_content"}
+COMMENT_STATUSES = {"visible", "hidden", "deleted"}
 
 
 class Comment(Base):
@@ -24,6 +25,8 @@ class Comment(Base):
         ),
         Index("ix_comments_topic_item_created", "topic_item_id", "created_at"),
         Index("ix_comments_exercise_created", "exercise_id", "created_at"),
+        Index("ix_comments_status_created", "status", "created_at"),
+        CheckConstraint("status IN ('visible', 'hidden', 'deleted')", name="ck_comments_status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -31,6 +34,14 @@ class Comment(Base):
     topic_item_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"), nullable=True, index=True)
     exercise_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True)
     body: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="visible", server_default="visible")
+    moderated_by_user_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    moderated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    moderation_reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     parent_id: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("comments.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -39,7 +50,7 @@ class Comment(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    user: Mapped["User"] = relationship("User", back_populates="comments")
+    user: Mapped["User"] = relationship("User", back_populates="comments", foreign_keys=[user_id])
     topic_item: Mapped["TopicItem"] = relationship("TopicItem")
     exercise: Mapped[Optional["Exercise"]] = relationship("Exercise")
     replies: Mapped[list["Comment"]] = relationship(

@@ -709,6 +709,7 @@ def test_admin_overview_router_stays_thin():
         "get_admin_xp_audit",
         "list_reports",
         "update_report",
+        "moderate_reported_comment",
     ]
     assert "build_admin_overview" in router_source
     assert "list_user_permissions" in router_source
@@ -718,6 +719,7 @@ def test_admin_overview_router_stays_thin():
     assert "build_admin_xp_audit" in router_source
     assert "list_admin_content_reports" in router_source
     assert "update_admin_content_report" in router_source
+    assert "apply_reported_comment_moderation_action" in router_source
     assert "_ops_readiness" not in router_source
     assert "_gather_reads" not in router_source
     assert "select(" not in router_source

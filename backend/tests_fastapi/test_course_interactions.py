@@ -799,6 +799,21 @@ def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, au
     assert listing.status_code == 200
     assert listing.json()[0]["reply_count"] == 1
 
+    async def _hide_reply():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            stored_reply = await db.get(Comment, reply.json()["id"])
+            stored_reply.status = "hidden"
+            await db.commit()
+
+    run_db(_hide_reply())
+    listing_after_hidden_reply = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}",
+        headers=headers,
+    )
+    assert listing_after_hidden_reply.status_code == 200
+    assert listing_after_hidden_reply.json()[0]["reply_count"] == 0
+
     async def _seed_other_item():
         session_factory = get_session_factory()
         async with session_factory() as db:
