@@ -125,6 +125,24 @@ class LeaderboardEntryOut(BaseModel):
     is_current_user: bool
 
 
+class XPSeasonLeaderboardEntryOut(BaseModel):
+    rank: int
+    user_id: int
+    full_name: str
+    avatar_url: str
+    season_xp: int
+    total_xp: int
+    level: int
+    is_current_user: bool
+
+
+class XPSeasonLeaderboardOut(BaseModel):
+    season: str
+    starts_at: datetime
+    ends_at: datetime
+    entries: list[XPSeasonLeaderboardEntryOut]
+
+
 class DailyQuestOut(BaseModel):
     id: int
     quest_type: str

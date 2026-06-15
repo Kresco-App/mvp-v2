@@ -3018,6 +3018,68 @@ Verification completed:
   report a false mismatch under concurrent XP writes. Fixed by loading stored
   total and ledger aggregates in one SQL statement.
 
+### Slice 53: XP Seasonal Leaderboard Read Model
+
+Status: implemented.
+
+Reason for this slice:
+
+- The XP roadmap calls for weekly, monthly, and semester leaderboards instead
+  of only all-time ranking.
+- The current all-time leaderboard is a projection table, but seasonal ranking
+  is naturally bounded by `xp_transactions.created_at` and should reflect caps
+  and signed adjustment rows.
+- This is backend-first and UI-light: tomorrow's UI pass can add tabs or cards
+  without changing the contract.
+
+Implemented scope:
+
+- Added `GET /api/progress/leaderboard/seasons?season=weekly|monthly|semester`.
+  Status: implemented.
+- Added season metadata (`season`, `starts_at`, `ends_at`) plus ranked entries
+  with `season_xp`, all-time `total_xp`, level, avatar URL, and
+  `is_current_user`. Status: implemented.
+- Added search, bounded limit, and bounded offset support. Status: implemented.
+- Added `ix_xp_transactions_created_user` on `(created_at, user_id)` for
+  season-window scans. Status: implemented.
+
+Decisions:
+
+- Decision: compute seasonal leaderboards on demand from signed
+  `XPTransaction.amount` rows rather than adding another projection table now.
+  This keeps capped awards and admin reversals visible in season totals.
+- Decision: keep the all-time `/leaderboard` endpoint and projection refresh
+  untouched. Seasonal ranking is additive and does not refresh
+  `LeaderboardRank`.
+- Decision: use UTC calendar windows: weekly starts Monday 00:00 UTC, monthly
+  starts on the first day of the UTC month, and semester means Jan-Jun or
+  Jul-Dec.
+- Decision: rank only active users with positive net season XP. Negative
+  corrections reduce a user's season total but do not create negative-ranked
+  leaderboard rows.
+
+Verification plan:
+
+- Add route tests for in-window vs out-of-window XP, signed adjustment sums,
+  inactive-user exclusion, ties, pagination, search, and invalid season values.
+  Status: implemented.
+- Add season-window tests for semester boundaries. Status: implemented.
+- Add read-path tests proving seasonal leaderboard does not use or refresh the
+  all-time projection. Status: implemented.
+- Run focused gamification/migration tests, compile check, adjacent XP tests,
+  and strong review before committing. Status: completed.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_gamification_routes.py tests_fastapi/test_xp_service.py tests_fastapi/test_migrations.py tests_fastapi/test_data_integrity_audit.py -q`
+  passed with 47 tests.
+- `python -m compileall app` passed.
+- `python -m alembic heads` reported `0071 (head)`.
+- Independent review found searched seasonal rows were initially re-ranked
+  inside the filtered result set. Fixed by ranking the full season in a
+  subquery before search/pagination, and added a regression for absolute rank
+  preservation under search. Re-review found no blocking issues.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

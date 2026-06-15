@@ -1,5 +1,5 @@
 import inspect
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +66,177 @@ def test_xp_history_leaderboard_and_quests_are_bounded(app_client, auth_token, q
     assert xp_queries.count <= 3
     assert leaderboard_queries.count <= 9
     assert quest_queries.count <= 8
+
+
+def test_season_leaderboard_uses_signed_xp_window_and_search(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, current_user_id = auth_token(email="season-current@example.com", is_pro=True)
+    now = datetime.now(timezone.utc)
+    week_start, _week_end = gamification_read_models.xp_season_window("weekly", as_of=now)
+    current_window_time = now - timedelta(minutes=5)
+    if current_window_time < week_start:
+        current_window_time = week_start + timedelta(minutes=5)
+    outside_window_time = week_start - timedelta(seconds=1)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            current = await db.get(User, current_user_id)
+            current.full_name = "Season Current"
+            db.add(UserXP(user_id=current_user_id, total_xp=300, streak_days=2))
+
+            leader = User(
+                email="season-leader@example.com",
+                full_name="Season Leader",
+                is_active=True,
+                is_email_verified=True,
+                password="!",
+            )
+            tied = User(
+                email="season-tied@example.com",
+                full_name="Season Tied",
+                is_active=True,
+                is_email_verified=True,
+                password="!",
+            )
+            inactive = User(
+                email="season-inactive@example.com",
+                full_name="Season Inactive",
+                is_active=False,
+                is_email_verified=True,
+                password="!",
+            )
+            other_leader = User(
+                email="season-other-leader@example.com",
+                full_name="Other Leader",
+                is_active=True,
+                is_email_verified=True,
+                password="!",
+            )
+            db.add_all([leader, tied, inactive, other_leader])
+            await db.flush()
+            db.add_all([
+                UserXP(user_id=leader.id, total_xp=900, streak_days=0),
+                UserXP(user_id=tied.id, total_xp=100, streak_days=0),
+                UserXP(user_id=inactive.id, total_xp=999, streak_days=0),
+                UserXP(user_id=other_leader.id, total_xp=1200, streak_days=0),
+                XPTransaction(
+                    user_id=current_user_id,
+                    amount=900,
+                    reason="quiz_pass",
+                    description="current week pass",
+                    created_at=current_window_time,
+                ),
+                XPTransaction(
+                    user_id=current_user_id,
+                    amount=-100,
+                    reason="admin_adjustment",
+                    description="current week correction",
+                    created_at=current_window_time,
+                ),
+                XPTransaction(
+                    user_id=current_user_id,
+                    amount=500,
+                    reason="old",
+                    description="outside weekly window",
+                    created_at=outside_window_time,
+                ),
+                XPTransaction(
+                    user_id=leader.id,
+                    amount=900,
+                    reason="quiz_pass",
+                    description="leader week pass",
+                    created_at=current_window_time,
+                ),
+                XPTransaction(
+                    user_id=tied.id,
+                    amount=800,
+                    reason="quiz_pass",
+                    description="tie week pass",
+                    created_at=current_window_time,
+                ),
+                XPTransaction(
+                    user_id=inactive.id,
+                    amount=9999,
+                    reason="quiz_pass",
+                    description="inactive week pass",
+                    created_at=current_window_time,
+                ),
+                XPTransaction(
+                    user_id=other_leader.id,
+                    amount=1000,
+                    reason="quiz_pass",
+                    description="non-matching top user",
+                    created_at=current_window_time,
+                ),
+            ])
+            await db.commit()
+            return leader.id, tied.id, inactive.id
+
+    leader_id, tied_id, inactive_id = run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = app_client.get(
+        "/api/progress/leaderboard/seasons?season=weekly&limit=10&search=Season",
+        headers=headers,
+    )
+    paged_response = app_client.get(
+        "/api/progress/leaderboard/seasons?season=weekly&limit=1&offset=1&search=Season",
+        headers=headers,
+    )
+    search_response = app_client.get(
+        "/api/progress/leaderboard/seasons?season=weekly&search=Current",
+        headers=headers,
+    )
+    invalid_response = app_client.get(
+        "/api/progress/leaderboard/seasons?season=yearly",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["season"] == "weekly"
+    assert payload["starts_at"] == week_start.isoformat().replace("+00:00", "Z")
+    entries_by_id = {entry["user_id"]: entry for entry in payload["entries"]}
+    assert list(entries_by_id) == [leader_id, current_user_id, tied_id]
+    assert inactive_id not in entries_by_id
+    assert entries_by_id[leader_id]["rank"] == 2
+    assert entries_by_id[leader_id]["season_xp"] == 900
+    assert entries_by_id[current_user_id]["rank"] == 3
+    assert entries_by_id[current_user_id]["season_xp"] == 800
+    assert entries_by_id[current_user_id]["total_xp"] == 300
+    assert entries_by_id[current_user_id]["is_current_user"] is True
+    assert entries_by_id[tied_id]["rank"] == 3
+
+    assert paged_response.status_code == 200
+    paged_entries = paged_response.json()["entries"]
+    assert len(paged_entries) == 1
+    assert paged_entries[0]["user_id"] == current_user_id
+    assert paged_entries[0]["rank"] == 3
+
+    assert search_response.status_code == 200
+    search_entries = search_response.json()["entries"]
+    assert [entry["user_id"] for entry in search_entries] == [current_user_id]
+    assert search_entries[0]["rank"] == 3
+    assert invalid_response.status_code == 422
+
+
+def test_xp_season_window_boundaries_are_utc_semesters():
+    first_half = datetime(2032, 4, 10, 12, 30, tzinfo=timezone.utc)
+    second_half = datetime(2032, 9, 10, 12, 30, tzinfo=timezone.utc)
+
+    assert gamification_read_models.xp_season_window("semester", as_of=first_half) == (
+        datetime(2032, 1, 1, tzinfo=timezone.utc),
+        datetime(2032, 7, 1, tzinfo=timezone.utc),
+    )
+    assert gamification_read_models.xp_season_window("semester", as_of=second_half) == (
+        datetime(2032, 7, 1, tzinfo=timezone.utc),
+        datetime(2033, 1, 1, tzinfo=timezone.utc),
+    )
 
 
 def test_daily_quest_claim_is_single_use(app_client, auth_token, run_db):
@@ -173,6 +344,14 @@ def test_daily_quest_get_paths_skip_commit_when_quests_already_exist(
 def test_leaderboard_read_path_does_not_refresh_projection():
     source = inspect.getsource(gamification_read_models.list_leaderboard_entries)
 
+    assert "refresh_leaderboard_projection_if_stale" not in source
+    assert "await db.commit()" not in source
+
+
+def test_season_leaderboard_read_path_does_not_refresh_projection():
+    source = inspect.getsource(gamification_read_models.build_season_leaderboard)
+
+    assert "LeaderboardRank" not in source
     assert "refresh_leaderboard_projection_if_stale" not in source
     assert "await db.commit()" not in source
 

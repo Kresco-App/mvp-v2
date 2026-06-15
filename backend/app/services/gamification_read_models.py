@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,8 @@ from app.schemas.gamification import (
     SidebarSummaryOut,
     UserStatsOut,
     XPOut,
+    XPSeasonLeaderboardEntryOut,
+    XPSeasonLeaderboardOut,
     XPTransactionOut,
 )
 
@@ -107,6 +110,137 @@ async def list_leaderboard_entries(
             is_current_user=row_user.id == user.id,
         ))
     return out
+
+
+XPSeason = Literal["weekly", "monthly", "semester"]
+
+
+async def build_season_leaderboard(
+    db: AsyncSession,
+    *,
+    user: User,
+    settings: Settings,
+    season: XPSeason = "weekly",
+    limit: int = 50,
+    offset: int = 0,
+    search: str = "",
+    as_of: datetime | None = None,
+) -> XPSeasonLeaderboardOut:
+    starts_at, ends_at = xp_season_window(season, as_of=as_of)
+    limit = max(1, min(limit, 100))
+    offset = max(0, min(offset, 1000))
+    search = normalize_substring_search(search)
+
+    season_xp = func.coalesce(func.sum(XPTransaction.amount), 0)
+    season_totals = (
+        select(
+            User.id.label("user_id"),
+            User.full_name.label("full_name"),
+            User.avatar_url.label("avatar_url"),
+            func.coalesce(UserXP.total_xp, 0).label("total_xp"),
+            season_xp.label("season_xp"),
+        )
+        .join(User, XPTransaction.user_id == User.id)
+        .outerjoin(UserXP, UserXP.user_id == User.id)
+        .where(
+            XPTransaction.created_at >= starts_at,
+            XPTransaction.created_at < ends_at,
+            User.is_active == True,  # noqa: E712
+        )
+        .group_by(User.id, UserXP.total_xp)
+        .having(season_xp > 0)
+        .subquery()
+    )
+
+    ranked = (
+        select(
+            season_totals,
+            func.rank()
+            .over(order_by=season_totals.c.season_xp.desc())
+            .label("rank"),
+        )
+        .subquery()
+    )
+    stmt = select(ranked)
+    if search:
+        stmt = stmt.where(
+            ranked.c.full_name.ilike(
+                substring_search_pattern(search),
+                escape=LIKE_ESCAPE,
+            )
+        )
+    stmt = stmt.order_by(ranked.c.rank, ranked.c.user_id).offset(offset).limit(limit)
+    rows = (await db.execute(stmt)).all()
+
+    entries: list[XPSeasonLeaderboardEntryOut] = []
+    for row in rows:
+        season_xp_int = int(row.season_xp or 0)
+        total_xp_int = int(row.total_xp or 0)
+        level_data = calculate_level(total_xp_int)
+        entries.append(
+            XPSeasonLeaderboardEntryOut(
+                rank=int(row.rank),
+                user_id=int(row.user_id),
+                full_name=row.full_name,
+                avatar_url=await async_media_url(row.avatar_url, settings),
+                season_xp=season_xp_int,
+                total_xp=total_xp_int,
+                level=level_data["level"],
+                is_current_user=row.user_id == user.id,
+            )
+        )
+
+    return XPSeasonLeaderboardOut(
+        season=season,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        entries=entries,
+    )
+
+
+def xp_season_window(
+    season: XPSeason,
+    *,
+    as_of: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    current = _as_utc(as_of or datetime.now(timezone.utc))
+    if season == "weekly":
+        start = (current - timedelta(days=current.weekday())).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        return start, start + timedelta(days=7)
+    if season == "monthly":
+        start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if start.month == 12:
+            end = start.replace(year=start.year + 1, month=1)
+        else:
+            end = start.replace(month=start.month + 1)
+        return start, end
+    if season == "semester":
+        first_month = 1 if current.month <= 6 else 7
+        start = current.replace(
+            month=first_month,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        if first_month == 1:
+            end = start.replace(month=7)
+        else:
+            end = start.replace(year=start.year + 1, month=1)
+        return start, end
+    raise ValueError(f"Unsupported XP season: {season}")
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 async def refresh_leaderboard_projection_if_stale(db: AsyncSession) -> bool:

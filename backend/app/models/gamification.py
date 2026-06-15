@@ -85,6 +85,7 @@ class XPTransaction(Base):
     __tablename__ = "xp_transactions"
     __table_args__ = (
         Index("ix_xp_transactions_user_created", "user_id", "created_at"),
+        Index("ix_xp_transactions_created_user", "created_at", "user_id"),
         Index("ix_xp_transactions_reason", "reason"),
         Index("ix_xp_transactions_user_idempotency", "user_id", "idempotency_key", unique=True),
         Index("ix_xp_transactions_context", "subject_id", "topic_id", "topic_section_id"),

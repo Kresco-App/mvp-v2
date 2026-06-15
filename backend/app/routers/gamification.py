@@ -8,10 +8,12 @@ from app.rate_limit import limiter
 from app.schemas.gamification import (
     DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
     LeaderboardEntryOut, MistakeNotebookListOut, SidebarSummaryOut,
+    XPSeasonLeaderboardOut,
 )
 from app.services.daily_quests import ensure_daily_quests_for_user, claim_daily_quest_reward
 from app.services.gamification_read_models import (
     build_sidebar_summary,
+    build_season_leaderboard,
     build_xp_summary,
     build_user_stats,
     list_daily_quest_entries,
@@ -54,6 +56,27 @@ async def get_leaderboard(
         db,
         user=user,
         settings=settings,
+        limit=limit,
+        offset=offset,
+        search=search,
+    )
+
+
+@router.get("/leaderboard/seasons", response_model=XPSeasonLeaderboardOut)
+async def get_season_leaderboard(
+    season: str = Query(default="weekly", pattern="^(weekly|monthly|semester)$"),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1000),
+    search: str = Query(default="", max_length=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+):
+    return await build_season_leaderboard(
+        db,
+        user=user,
+        settings=settings,
+        season=season,
         limit=limit,
         offset=offset,
         search=search,
