@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { BookOpen, CalendarDays, CheckCircle2, ChevronLeft, FileText, Lock, Play, Search, Star, Trophy, Video } from 'lucide-react'
 import { apiDataErrorMessage } from '@/lib/apiData'
-import { recordExamProblemProgress, useExamBankData, useExamProblemDetail, type Exam, type ExamProblem, type ExamProblemDetail, type ExamProblemPart } from '@/lib/courseDiscoveryData'
+import { recordExamProblemProgress, useExamBankData, useExamProblemDetail, type Exam, type ExamBankFilters, type ExamProblem, type ExamProblemDetail, type ExamProblemPart } from '@/lib/courseDiscoveryData'
 import { SkeletonBlock } from '@/components/figma'
 
 const skeletonAnimationDelayClasses = ['[animation-delay:0ms]', '[animation-delay:60ms]', '[animation-delay:120ms]'] as const
@@ -18,6 +18,18 @@ type VisibleExam = Exam & {
 const EXAM_SEARCH_DEBOUNCE_MS = 280
 const MAX_EXAMS_RENDERED = 30
 const MAX_PROBLEMS_PER_EXAM = 12
+const progressFilterOptions: { value: NonNullable<ExamBankFilters['progressStatus']>; label: string }[] = [
+  { value: '', label: 'All progress' },
+  { value: 'not_started', label: 'Not started' },
+  { value: 'opened', label: 'Opened' },
+  { value: 'completed', label: 'Completed' },
+]
+type SavedFilter = 'all' | 'saved' | 'unsaved'
+const savedFilterOptions: { value: SavedFilter; label: string }[] = [
+  { value: 'all', label: 'All saved' },
+  { value: 'saved', label: 'Saved' },
+  { value: 'unsaved', label: 'Unsaved' },
+]
 
 export default function ExamBankPage() {
   const pathname = usePathname()
@@ -25,8 +37,12 @@ export default function ExamBankPage() {
   const searchParams = useSearchParams()
   const searchKey = searchParams.toString()
   const routeQuery = searchParams.get('q')?.trim() || ''
+  const routeProgressFilter = validProgressFilter(searchParams.get('progress_status'))
+  const routeSavedFilter = validSavedFilter(searchParams.get('saved'))
   const routeProblemId = numberParam(searchParams.get('problem'))
   const [queryInput, setQueryInput] = useState(routeQuery)
+  const [progressFilter, setProgressFilter] = useState<NonNullable<ExamBankFilters['progressStatus']>>(routeProgressFilter)
+  const [savedFilter, setSavedFilter] = useState<SavedFilter>(routeSavedFilter)
   const [selectedProblemId, setSelectedProblemId] = useState<number | null>(routeProblemId)
   const routeProblemVersionRef = useRef<number | null>(routeProblemId)
   const [detailRequestVersion, setDetailRequestVersion] = useState(routeProblemId ? 1 : 0)
@@ -38,8 +54,20 @@ export default function ExamBankPage() {
     setQueryInput((current) => (current === routeQuery ? current : routeQuery))
   }, [routeQuery])
 
+  useEffect(() => {
+    setProgressFilter((current) => (current === routeProgressFilter ? current : routeProgressFilter))
+  }, [routeProgressFilter])
+
+  useEffect(() => {
+    setSavedFilter((current) => (current === routeSavedFilter ? current : routeSavedFilter))
+  }, [routeSavedFilter])
+
   const query = useDebouncedValue(queryInput, EXAM_SEARCH_DEBOUNCE_MS)
-  const { exams, loading, error } = useExamBankData(query)
+  const examFilters = useMemo<ExamBankFilters>(() => ({
+    progressStatus: progressFilter,
+    saved: savedFilter === 'saved' ? true : savedFilter === 'unsaved' ? false : undefined,
+  }), [progressFilter, savedFilter])
+  const { exams, loading, error, retry: retryExamList } = useExamBankData(query, examFilters)
   const detail = useExamProblemDetail(selectedProblemId, detailRequestVersion)
 
   useEffect(() => {
@@ -70,6 +98,18 @@ export default function ExamBankPage() {
     } else {
       params.delete('q')
     }
+    if (progressFilter) {
+      params.set('progress_status', progressFilter)
+    } else {
+      params.delete('progress_status')
+    }
+    if (savedFilter === 'saved') {
+      params.set('saved', 'true')
+    } else if (savedFilter === 'unsaved') {
+      params.set('saved', 'false')
+    } else {
+      params.delete('saved')
+    }
 
     const nextSearchKey = params.toString()
     const nextUrl = nextSearchKey ? `${pathname}?${nextSearchKey}` : pathname
@@ -78,7 +118,7 @@ export default function ExamBankPage() {
     if (nextUrl !== currentUrl) {
       router.replace(nextUrl, { scroll: false })
     }
-  }, [pathname, query, router, searchKey])
+  }, [pathname, progressFilter, query, router, savedFilter, searchKey])
 
   const visibleExams = useMemo<VisibleExam[]>(() => {
     return exams.slice(0, MAX_EXAMS_RENDERED).map((exam) => ({
@@ -103,13 +143,14 @@ export default function ExamBankPage() {
         progress_status: progress.status,
         saved: progress.saved,
       }, { revalidate: false })
+      if (!options.silent || body.status === 'opened' || progressFilter) void retryExamList()
       if (!options.silent) toast.success('Progress saved')
     } catch (progressError) {
       if (!options.silent) toast.error(apiDataErrorMessage(progressError, 'Could not save exam progress.'))
     } finally {
       setProgressMutating(false)
     }
-  }, [detail])
+  }, [detail, progressFilter, retryExamList])
 
   useEffect(() => {
     const problem = detail.problem
@@ -159,6 +200,37 @@ export default function ExamBankPage() {
           </div>
         )}
       </header>
+
+      {!selectedProblemId && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-[18px] border border-[#e4e4e7] bg-white p-3">
+          <label className="inline-flex items-center gap-2 text-xs font-black text-[#71717b]">
+            <FileText size={14} />
+            <select
+              aria-label="Filter exam bank by progress"
+              value={progressFilter}
+              onChange={(event) => setProgressFilter(validProgressFilter(event.target.value))}
+              className="h-10 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
+            >
+              {progressFilterOptions.map((option) => (
+                <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs font-black text-[#71717b]">
+            <Star size={14} fill={savedFilter === 'saved' ? 'currentColor' : 'none'} />
+            <select
+              aria-label="Filter exam bank by saved state"
+              value={savedFilter}
+              onChange={(event) => setSavedFilter(validSavedFilter(event.target.value))}
+              className="h-10 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
+            >
+              {savedFilterOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
       {selectedProblemId ? (
         <ExamProblemDetailView
@@ -241,6 +313,15 @@ export default function ExamBankPage() {
                       <span className="rounded-xl bg-[#fff7df] px-3 py-1 text-[11px] font-black text-[#b76b00]">{problem.difficulty}</span>
                     </div>
                     <div className="mb-5 flex flex-wrap gap-2">
+                      <span className="inline-flex h-8 items-center rounded-[12px] bg-white px-3 text-[11px] font-black text-[#71717b] shadow-sm">
+                        {problem.progress_status === 'completed' ? 'Completed' : problem.progress_status === 'opened' ? 'Opened' : 'Not started'}
+                      </span>
+                      {problem.saved && (
+                        <span className="inline-flex h-8 items-center gap-1 rounded-[12px] bg-[#fff7df] px-3 text-[11px] font-black text-[#b76b00] shadow-sm">
+                          <Star size={12} fill="currentColor" />
+                          Saved
+                        </span>
+                      )}
                       {problem.concept_slugs.slice(0, 5).map((concept) => (
                         <span key={concept} className="rounded-xl bg-white px-3 py-1.5 text-[11px] font-black text-[#71717b] shadow-sm">{concept}</span>
                       ))}
@@ -484,4 +565,15 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 function numberParam(value: string | null) {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function validProgressFilter(value: string | null): NonNullable<ExamBankFilters['progressStatus']> {
+  if (value === 'not_started' || value === 'opened' || value === 'completed') return value
+  return ''
+}
+
+function validSavedFilter(value: string | null): SavedFilter {
+  if (value === 'true') return 'saved'
+  if (value === 'false') return 'unsaved'
+  return 'all'
 }

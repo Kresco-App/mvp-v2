@@ -6,7 +6,12 @@ from app.database import get_session_factory
 from app.models.courses import Exam, ExamProblem, Resource, Subject, Topic
 from app.models.users import User
 from app.models.exam_bank import ExamProblemPart
-from app.models.exam_progress import EXAM_PROBLEM_PROGRESS_COMPLETED, EXAM_PROBLEM_PROGRESS_OPENED, UserExamProblemProgress
+from app.models.exam_progress import (
+    EXAM_PROBLEM_PROGRESS_COMPLETED,
+    EXAM_PROBLEM_PROGRESS_NOT_STARTED,
+    EXAM_PROBLEM_PROGRESS_OPENED,
+    UserExamProblemProgress,
+)
 from app.models.users import UserSubjectEntitlement
 from app.schemas.exam_bank import ExamProblemProgressIn
 from app.services.exam_bank import record_exam_problem_progress
@@ -257,6 +262,90 @@ def test_exam_problem_progress_records_opened_completed_and_saved(app_client, au
     assert reopened.json()["status"] == "completed"
 
 
+def test_exam_bank_filters_by_progress_and_saved(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="exam-progress-filters@example.com")
+    untouched = run_db(
+        _seed_exam_parts_fixture(
+            user_id=user_id,
+            include_subject_entitlement=True,
+            slug_suffix="progress-filter-untouched",
+        )
+    )
+    saved = run_db(
+        _seed_exam_parts_fixture(
+            user_id=user_id,
+            include_subject_entitlement=True,
+            slug_suffix="progress-filter-saved",
+        )
+    )
+    completed = run_db(
+        _seed_exam_parts_fixture(
+            user_id=user_id,
+            include_subject_entitlement=True,
+            slug_suffix="progress-filter-completed",
+        )
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    saved_response = app_client.post(
+        f"/api/exam-bank/problems/{saved['problem_id']}/progress",
+        json={"status": EXAM_PROBLEM_PROGRESS_OPENED, "saved": True},
+        headers=headers,
+    )
+    completed_response = app_client.post(
+        f"/api/exam-bank/problems/{completed['problem_id']}/progress",
+        json={"status": EXAM_PROBLEM_PROGRESS_COMPLETED},
+        headers=headers,
+    )
+    assert saved_response.status_code == 200
+    assert completed_response.status_code == 200
+
+    completed_filter = app_client.get(
+        f"/api/exam-bank?subject_id={completed['subject_id']}&progress_status=completed",
+        headers=headers,
+    )
+    saved_filter = app_client.get(f"/api/exam-bank?subject_id={saved['subject_id']}&saved=true", headers=headers)
+    not_started_filter = app_client.get(
+        f"/api/exam-bank?subject_id={untouched['subject_id']}&progress_status=not_started",
+        headers=headers,
+    )
+    opened_saved_filter = app_client.get(
+        f"/api/exam-bank?subject_id={saved['subject_id']}&progress_status=opened&saved=true",
+        headers=headers,
+    )
+    impossible_saved_filter = app_client.get(
+        f"/api/exam-bank?subject_id={untouched['subject_id']}&progress_status=not_started&saved=true",
+        headers=headers,
+    )
+    unsaved_filter = app_client.get(f"/api/exam-bank?subject_id={untouched['subject_id']}&saved=false", headers=headers)
+    saved_false_filter = app_client.get(f"/api/exam-bank?subject_id={saved['subject_id']}&saved=false", headers=headers)
+    invalid_filter = app_client.get("/api/exam-bank?progress_status=bogus", headers=headers)
+
+    assert completed_filter.status_code == 200
+    assert _listed_problem_ids(completed_filter.json()) == [completed["problem_id"]]
+
+    assert saved_filter.status_code == 200
+    assert _listed_problem_ids(saved_filter.json()) == [saved["problem_id"]]
+
+    assert not_started_filter.status_code == 200
+    assert _listed_problem_ids(not_started_filter.json()) == [untouched["problem_id"]]
+    assert not_started_filter.json()["items"][0]["problems"][0]["progress_status"] == EXAM_PROBLEM_PROGRESS_NOT_STARTED
+
+    assert opened_saved_filter.status_code == 200
+    assert _listed_problem_ids(opened_saved_filter.json()) == [saved["problem_id"]]
+
+    assert impossible_saved_filter.status_code == 200
+    assert _listed_problem_ids(impossible_saved_filter.json()) == []
+
+    assert unsaved_filter.status_code == 200
+    assert _listed_problem_ids(unsaved_filter.json()) == [untouched["problem_id"]]
+
+    assert saved_false_filter.status_code == 200
+    assert _listed_problem_ids(saved_false_filter.json()) == []
+
+    assert invalid_filter.status_code == 422
+
+
 def test_exam_problem_progress_requires_subject_access(app_client, auth_token, run_db):
     token, user_id = auth_token(email="exam-progress-locked@example.com")
     seeded = run_db(_seed_exam_parts_fixture(user_id=user_id))
@@ -386,6 +475,14 @@ async def _seed_exam_parts_fixture(
             "part_1_id": int(part_1.id),
             "part_2_id": int(part_2.id),
         }
+
+
+def _listed_problem_ids(payload: dict) -> list[int]:
+    return [
+        int(problem["id"])
+        for item in payload["items"]
+        for problem in item["problems"]
+    ]
 
 
 async def _stale_opened_request_after_completed(*, user_id: int, problem_id: int) -> str:

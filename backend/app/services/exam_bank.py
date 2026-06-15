@@ -39,12 +39,31 @@ async def list_exam_bank(
     topic_id: int | None = None,
     year: int | None = None,
     q: str = "",
+    progress_status: str | None = None,
+    saved: bool | None = None,
 ) -> ExamBankListOut:
     access_context = await build_access_context(db, user)
-    exams = await _load_exams(db, subject_id=subject_id, topic_id=topic_id, year=year, q=q)
-    problem_map = await _load_problems_by_exam(db, [int(exam.id) for exam in exams], topic_id=topic_id)
+    user_id = int(user.id)
+    exams = await _load_exams(
+        db,
+        user_id=user_id,
+        subject_id=subject_id,
+        topic_id=topic_id,
+        year=year,
+        q=q,
+        progress_status=progress_status,
+        saved=saved,
+    )
+    problem_map = await _load_problems_by_exam(
+        db,
+        [int(exam.id) for exam in exams],
+        user_id=user_id,
+        topic_id=topic_id,
+        progress_status=progress_status,
+        saved=saved,
+    )
     problem_ids = [int(problem.id) for problems in problem_map.values() for problem in problems]
-    progress_map = await _load_problem_progress(db, user_id=int(user.id), problem_ids=problem_ids)
+    progress_map = await _load_problem_progress(db, user_id=user_id, problem_ids=problem_ids)
     problem_topic_matched_ids = {
         int(problem.id)
         for problems in problem_map.values()
@@ -330,10 +349,13 @@ def _problem_progress_out(progress: UserExamProblemProgress) -> ExamProblemProgr
 async def _load_exams(
     db: AsyncSession,
     *,
+    user_id: int,
     subject_id: int | None,
     topic_id: int | None,
     year: int | None,
     q: str,
+    progress_status: str | None,
+    saved: bool | None,
 ) -> list[Exam]:
     stmt = (
         select(Exam)
@@ -349,8 +371,15 @@ async def _load_exams(
         stmt = stmt.where(Exam.year == year)
     if q:
         stmt = stmt.where(Exam.title.ilike(substring_search_pattern(q), escape=LIKE_ESCAPE))
-    if topic_id is not None:
-        stmt = stmt.where(Exam.id.in_(_exam_ids_for_published_topic_match(topic_id)))
+    if topic_id is not None or progress_status is not None or saved is not None:
+        stmt = stmt.where(
+            _published_problem_match_exists(
+                user_id=user_id,
+                topic_id=topic_id,
+                progress_status=progress_status,
+                saved=saved,
+            )
+        )
     return list((await db.execute(stmt)).scalars().unique().all())
 
 
@@ -358,7 +387,10 @@ async def _load_problems_by_exam(
     db: AsyncSession,
     exam_ids: list[int],
     *,
+    user_id: int,
     topic_id: int | None = None,
+    progress_status: str | None = None,
+    saved: bool | None = None,
 ) -> dict[int, list[ExamProblem]]:
     if not exam_ids:
         return {}
@@ -373,6 +405,14 @@ async def _load_problems_by_exam(
         )
         .order_by(ExamProblem.exam_id, ExamProblem.order, ExamProblem.id)
     )
+    if progress_status is not None or saved is not None:
+        stmt = stmt.outerjoin(
+            UserExamProblemProgress,
+            and_(
+                UserExamProblemProgress.exam_problem_id == ExamProblem.id,
+                UserExamProblemProgress.user_id == user_id,
+            ),
+        ).where(*_problem_progress_filter_conditions(progress_status=progress_status, saved=saved))
     if topic_id is not None:
         stmt = stmt.where(
             or_(
@@ -421,19 +461,68 @@ async def _load_parts_by_problem(
     return parts
 
 
-def _exam_ids_for_published_topic_match(topic_id: int):
+def _published_problem_match_exists(
+    *,
+    user_id: int,
+    topic_id: int | None,
+    progress_status: str | None,
+    saved: bool | None,
+):
     problem_topic = aliased(Topic)
-    return (
-        select(ExamProblem.exam_id)
+    stmt = (
+        select(ExamProblem.id)
         .outerjoin(problem_topic, problem_topic.id == ExamProblem.topic_id)
+        .outerjoin(
+            UserExamProblemProgress,
+            and_(
+                UserExamProblemProgress.exam_problem_id == ExamProblem.id,
+                UserExamProblemProgress.user_id == user_id,
+            ),
+        )
         .where(
+            ExamProblem.exam_id == Exam.id,
             ExamProblem.status == "published",
+            or_(ExamProblem.topic_id.is_(None), problem_topic.status == "published"),
+        )
+    )
+    if topic_id is not None:
+        stmt = stmt.where(
             or_(
                 and_(ExamProblem.topic_id == topic_id, problem_topic.status == "published"),
                 _published_part_topic_exists(topic_id),
-            ),
+            )
         )
-    )
+    conditions = _problem_progress_filter_conditions(progress_status=progress_status, saved=saved)
+    if conditions:
+        stmt = stmt.where(*conditions)
+    return stmt.exists()
+
+
+def _problem_progress_filter_conditions(
+    *,
+    progress_status: str | None,
+    saved: bool | None,
+) -> list:
+    conditions = []
+    if progress_status == EXAM_PROBLEM_PROGRESS_NOT_STARTED:
+        conditions.append(
+            or_(
+                UserExamProblemProgress.id.is_(None),
+                UserExamProblemProgress.status == EXAM_PROBLEM_PROGRESS_NOT_STARTED,
+            )
+        )
+    elif progress_status is not None:
+        conditions.append(UserExamProblemProgress.status == progress_status)
+    if saved is True:
+        conditions.append(UserExamProblemProgress.saved == True)  # noqa: E712
+    elif saved is False:
+        conditions.append(
+            or_(
+                UserExamProblemProgress.id.is_(None),
+                UserExamProblemProgress.saved == False,  # noqa: E712
+            )
+        )
+    return conditions
 
 
 def _published_part_topic_exists(topic_id: int):

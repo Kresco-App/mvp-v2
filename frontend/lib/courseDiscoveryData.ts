@@ -69,6 +69,18 @@ export type Exam = AccessGuarded & {
   problems: ExamProblem[]
 }
 
+export type ExamBankFilters = {
+  progressStatus?: 'not_started' | 'opened' | 'completed' | ''
+  saved?: boolean
+}
+
+export type ExamBankListResponse = {
+  subject_id?: number | null
+  topic_id?: number | null
+  items: Exam[]
+  total: number
+}
+
 export type AdminSubject = {
   id: number
   title: string
@@ -80,12 +92,15 @@ export type AdminSubject = {
 export const COURSE_TOPICS_KEY = '/courses/topics'
 export const ADMIN_SUBJECTS_KEY = '/courses/subjects'
 
-export function examBankSWRKey(query: string) {
+export function examBankSWRKey(query: string, filters: ExamBankFilters = {}) {
   const params = new URLSearchParams()
   const trimmedQuery = query.trim()
   if (trimmedQuery) params.set('q', trimmedQuery)
+  if (filters.progressStatus) params.set('progress_status', filters.progressStatus)
+  if (filters.saved === true) params.set('saved', 'true')
+  if (filters.saved === false) params.set('saved', 'false')
   const queryString = params.toString()
-  return `/courses/exam-bank${queryString ? `?${queryString}` : ''}`
+  return `/exam-bank${queryString ? `?${queryString}` : ''}`
 }
 
 export function useCourseTopicsData() {
@@ -101,11 +116,11 @@ export function useCourseTopicsData() {
   }
 }
 
-export function useExamBankData(searchQuery: string) {
-  const query = useSWR<Exam[]>(examBankSWRKey(searchQuery), apiSWRFetcher, {
+export function useExamBankData(searchQuery: string, filters: ExamBankFilters = {}) {
+  const query = useSWR<ExamBankListResponse | Exam[]>(examBankSWRKey(searchQuery, filters), apiSWRFetcher, {
     keepPreviousData: true,
   })
-  const exams = Array.isArray(query.data) ? query.data : []
+  const exams = Array.isArray(query.data) ? query.data : Array.isArray(query.data?.items) ? query.data.items : []
 
   return {
     exams,

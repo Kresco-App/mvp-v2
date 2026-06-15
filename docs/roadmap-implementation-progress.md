@@ -1158,6 +1158,67 @@ Verification plan:
   mutation now uses an atomic conditional update and has stale-session coverage.
   Follow-up review found no findings. Status: implemented.
 
+### Slice 22: Exam Bank Revision Filters
+
+Status: implemented.
+
+Reason for this slice:
+
+- Exam Bank progress and saved state existed, but the student browsing surface
+  still could not filter by those fields.
+- The revision workflow needs saved/completed/not-started filtering inside each
+  bank before a unified revision queue is introduced.
+- The student list was still using the legacy `/courses/exam-bank` list route,
+  which did not expose the dedicated part-capable Exam Bank response contract.
+
+Planned backend scope:
+
+- Add `progress_status` and `saved` filters to `GET /api/exam-bank`. Status:
+  implemented.
+- Apply filters at problem level and drop exam groups with no matching
+  problems. Status: implemented.
+- Keep `not_started` and `saved=false` inclusive of untouched problems with no
+  progress row. Status: implemented.
+- Reject invalid progress filter values at the route boundary. Status:
+  implemented.
+
+Planned frontend scope:
+
+- Move the Exam Bank list hook from the legacy `/courses/exam-bank` route to
+  the dedicated `/exam-bank` list contract. Status: implemented.
+- Add minimal URL-backed filters for progress and saved-only state. Status:
+  implemented.
+- Show current progress and saved badges on problem cards. Status:
+  implemented.
+
+Decisions:
+
+- Decision: the student Exam Bank browse UI should use the dedicated
+  `/exam-bank` API now that detail, parts, progress, and filters live there.
+- Decision: keep the revision queue as bank-local filters for now, matching the
+  product decision to defer a unified queue.
+- Decision: treat untouched progress rows as `not_started` and unsaved, so
+  filters work before a student has opened every problem.
+- Decision: keep the filter UI deliberately compact because a dedicated UI pass
+  is planned later.
+
+Verification plan:
+
+- Add backend tests for completed, saved, not-started, saved=false, and invalid
+  progress filters. Status: implemented.
+- Add frontend tests for the new list response shape, progress filter URL/API
+  sync, saved-only URL/API sync, and existing detail/progress behavior. Status:
+  implemented.
+- Run focused backend Exam Bank tests. Status: implemented.
+- Run focused frontend Exam Bank tests and TypeScript checks. Status:
+  implemented.
+- Run lint and strong review before committing this slice. Status:
+  implemented.
+- Strong review found missing `saved=false` URL/API support in the student UI
+  and stale not-started list cache after auto-open. Both were fixed with a
+  tri-state saved filter, `saved=false` SWR keys, and list revalidation after
+  opened progress writes. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

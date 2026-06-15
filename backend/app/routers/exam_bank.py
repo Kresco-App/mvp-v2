@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +17,8 @@ async def list_exam_bank_items(
     topic_id: int | None = None,
     year: int | None = None,
     q: str = "",
+    progress_status: Literal["not_started", "opened", "completed"] | None = None,
+    saved: bool | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -25,6 +29,8 @@ async def list_exam_bank_items(
         topic_id=topic_id,
         year=year,
         q=q,
+        progress_status=progress_status,
+        saved=saved,
     )
 
 

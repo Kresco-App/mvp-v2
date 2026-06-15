@@ -49,8 +49,11 @@ beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
   searchParams.delete('q')
+  searchParams.delete('progress_status')
+  searchParams.delete('saved')
+  searchParams.delete('problem')
   searchParams.set('q', 'waves')
-  mocks.apiGet.mockResolvedValue([examResult()])
+  mocks.apiGet.mockResolvedValue(examListResponse())
   mocks.apiPost.mockImplementation(async (_url: string, body?: { status?: string; saved?: boolean }) => ({
     exam_problem_id: 11,
     status: body?.status ?? 'opened',
@@ -82,7 +85,7 @@ describe('exam bank page', () => {
 
     const input = container.querySelector('input[aria-label="Search exam bank"]') as HTMLInputElement | null
     expect(input?.value).toBe('waves')
-    expect(mocks.apiGet).toHaveBeenCalledWith('/courses/exam-bank?q=waves')
+    expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank?q=waves')
 
     await act(async () => {
       setInputValue(input!, 'limits')
@@ -92,12 +95,63 @@ describe('exam bank page', () => {
     })
 
     expect(mocks.routerReplace).toHaveBeenCalledWith('/exam-bank?q=limits', { scroll: false })
-    expect(mocks.apiGet).toHaveBeenLastCalledWith('/courses/exam-bank?q=limits')
+    expect(mocks.apiGet).toHaveBeenLastCalledWith('/exam-bank?q=limits')
+  })
+
+  it('syncs the progress filter to the router and Exam Bank API', async () => {
+    const { container } = renderExamBankPage()
+
+    await act(async () => {
+      await flushPromises()
+    })
+
+    const progressSelect = container.querySelector('select[aria-label="Filter exam bank by progress"]') as HTMLSelectElement | null
+    expect(progressSelect?.value).toBe('')
+
+    await act(async () => {
+      setSelectValue(progressSelect!, 'completed')
+      progressSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+      await flushPromises()
+    })
+
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith('/exam-bank?q=waves&progress_status=completed', { scroll: false })
+      expect(mocks.apiGet).toHaveBeenLastCalledWith('/exam-bank?q=waves&progress_status=completed')
+    })
+
+    const savedSelect = container.querySelector('select[aria-label="Filter exam bank by saved state"]') as HTMLSelectElement | null
+    expect(savedSelect?.value).toBe('all')
+  })
+
+  it('hydrates saved filters from the URL and requests the matching Exam Bank API key', async () => {
+    searchParams.set('saved', 'false')
+    const first = renderExamBankPage()
+
+    await waitFor(() => {
+      const savedSelect = first.container.querySelector('select[aria-label="Filter exam bank by saved state"]') as HTMLSelectElement | null
+      expect(savedSelect?.value).toBe('unsaved')
+      expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank?q=waves&saved=false')
+    })
+
+    act(() => {
+      mountedRoot?.root.unmount()
+    })
+    first.container.remove()
+    mountedRoot = null
+    vi.clearAllMocks()
+    searchParams.set('saved', 'true')
+    const second = renderExamBankPage()
+
+    await waitFor(() => {
+      const savedSelect = second.container.querySelector('select[aria-label="Filter exam bank by saved state"]') as HTMLSelectElement | null
+      expect(savedSelect?.value).toBe('saved')
+      expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank?q=waves&saved=true')
+    })
   })
 
   it('opens a problem detail view with part enonce and correction data', async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/courses/exam-bank?q=waves') return [examResult()]
+      if (url === '/exam-bank?q=waves') return examListResponse()
       if (url === '/exam-bank/problems/11') return examProblemDetail()
       throw new Error(`unexpected GET ${url}`)
     })
@@ -141,7 +195,7 @@ describe('exam bank page', () => {
   it('hides cached unlocked detail while the same problem detail revalidates', async () => {
     let detailCalls = 0
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/courses/exam-bank?q=waves') return [examResult()]
+      if (url === '/exam-bank?q=waves') return examListResponse()
       if (url === '/exam-bank/problems/11') {
         detailCalls += 1
         if (detailCalls === 1) return examProblemDetail({ statement: 'Unlocked cached statement.' })
@@ -163,6 +217,29 @@ describe('exam bank page', () => {
 
     expect(container.textContent).not.toContain('Unlocked cached statement.')
     expect(detailCalls).toBe(2)
+  })
+
+  it('revalidates the list after auto-opening a problem from a not-started filter', async () => {
+    searchParams.set('progress_status', 'not_started')
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/exam-bank?q=waves&progress_status=not_started') return examListResponse()
+      if (url === '/exam-bank/problems/11') return examProblemDetail()
+      throw new Error(`unexpected GET ${url}`)
+    })
+    const { container } = renderExamBankPage()
+
+    await act(async () => {
+      await flushPromises()
+    })
+    await clickButton(container, 'Open problem')
+    await waitFor(() => {
+      expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { status: 'opened' })
+    })
+
+    expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank?q=waves&progress_status=not_started')
+    await waitFor(() => {
+      expect(mocks.apiGet.mock.calls.filter(([url]) => url === '/exam-bank?q=waves&progress_status=not_started')).toHaveLength(2)
+    })
   })
 })
 
@@ -188,6 +265,12 @@ function renderExamBankPage() {
 function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
   setter?.call(input, value)
+}
+
+function setSelectValue(input: HTMLSelectElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
+  if (setter) setter.call(input, value)
+  else input.value = value
 }
 
 async function flushPromises() {
@@ -218,6 +301,15 @@ async function waitFor(assertion: () => void) {
     }
   }
   throw lastError
+}
+
+function examListResponse() {
+  return {
+    subject_id: null,
+    topic_id: null,
+    items: [examResult()],
+    total: 1,
+  }
 }
 
 function examResult() {
