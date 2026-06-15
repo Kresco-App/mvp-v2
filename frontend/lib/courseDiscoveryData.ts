@@ -28,6 +28,33 @@ export type ExamProblem = AccessGuarded & {
   video_resource?: { id: number; title: string; provider: string; provider_resource_id: string } | null
 }
 
+export type ExamProblemPart = AccessGuarded & {
+  id: number
+  exam_problem_id: number
+  topic_id?: number | null
+  video_resource_id?: number | null
+  part_label: string
+  title: string
+  statement_body: string
+  written_solution_body: string
+  written_solution_url: string
+  correction_video_url: string
+  order: number
+  difficulty: string
+  concept_slugs: string[]
+  metadata_json: Record<string, unknown>
+  video_resource?: { id: number; title: string; provider: string; provider_resource_id: string; url?: string } | null
+}
+
+export type ExamProblemDetail = ExamProblem & {
+  exam_title: string
+  subject_title: string
+  year: number
+  session: string
+  created_at?: string | null
+  parts: ExamProblemPart[]
+}
+
 export type Exam = AccessGuarded & {
   id: number
   subject_id: number
@@ -82,6 +109,19 @@ export function useExamBankData(searchQuery: string) {
     loading: query.isLoading || query.isValidating,
     error: query.error ?? null,
     isValidating: query.isValidating,
+    retry: query.mutate,
+  }
+}
+
+export function useExamProblemDetail(problemId: number | null, requestVersion = 0) {
+  const key = problemId ? [`/exam-bank/problems/${problemId}`, requestVersion] as const : null
+  const query = useSWR<ExamProblemDetail>(key, ([url]) => apiSWRFetcher(url))
+  const problem = !query.isValidating && query.data?.id === problemId ? query.data : null
+
+  return {
+    problem,
+    loading: query.isLoading || query.isValidating,
+    error: query.error ?? null,
     retry: query.mutate,
   }
 }

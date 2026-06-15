@@ -1044,6 +1044,61 @@ Verification plan:
   Follow-up review found no findings and confirmed the staged scope. Status:
   implemented.
 
+### Slice 20: Exam Bank Problem Detail View
+
+Status: implemented.
+
+Reason for this slice:
+
+- The Exam Bank backend already exposes `/api/exam-bank/problems/{problem_id}`
+  with problem-level metadata and part capsules.
+- The student Exam Bank page only listed grouped problem cards, so students
+  could not open the enonce/correction capsule view that matches the exam
+  problem model.
+
+Planned frontend scope:
+
+- Add an Exam Bank problem detail hook using the existing detail endpoint.
+  Status: implemented.
+- Add URL-driven detail state with `problem=<id>` so students can open a
+  problem and return to the filtered exam list. Status: implemented.
+- Render problem statement and written correction in a full-page detail view.
+  Status: implemented.
+- Render part capsules with video correction above the enonce and written
+  correction below, matching the product decision for exam problems. Status:
+  implemented.
+- Keep locked problem details redacted and send the unlock CTA to pricing.
+  Status: implemented.
+
+Decisions:
+
+- Decision: reuse the existing `ExamBankProblemDetailOut` contract instead of
+  adding a new frontend-specific endpoint.
+- Decision: keep activity/progress tracking out of this slice because no
+  backend exam-problem progress contract exists yet.
+- Decision: keep rendering as text-preserving blocks for now; final LaTeX/media
+  polish belongs to the later UI pass.
+- Decision: use a fresh detail cache key on each problem open and hide detail
+  during revalidation because exam problem bodies are access-sensitive.
+- Decision: track the detail request version separately from the URL state so a
+  local open fetches once, while back/deep-link route changes still force a
+  fresh detail request.
+
+Verification plan:
+
+- Add a page test proving a listed problem opens the detail endpoint and renders
+  a part enonce, written correction, and video correction link. Status:
+  implemented.
+- Add regression coverage for resource-only video corrections, locked
+  part-level redaction, and cached unlocked detail suppression while a fresh
+  detail request is pending. Status: implemented.
+- Run the focused Exam Bank page test. Status: implemented.
+- Run TypeScript checks and lint. Status: implemented.
+- Strong review found resource-video, part-lock, and access-sensitive cache
+  issues before commit; all were fixed and covered by tests. Follow-up review
+  found one duplicate-fetch issue, which was fixed with route-version tracking.
+  Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
