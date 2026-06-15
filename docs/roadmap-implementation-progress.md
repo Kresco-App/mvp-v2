@@ -1323,6 +1323,66 @@ Verification plan:
   preserved across same-exercise refreshes, while clean drafts still sync from
   refreshed server notes. Status: implemented.
 
+### Slice 25: Quiz Mistake Notebook Foundation
+
+Status: implemented.
+
+Reason for this slice:
+
+- The quiz roadmap needs a revision queue for questions students previously
+  missed, but the UI can stay minimal until the final design pass.
+- `QuestionAttempt` already records the submitted answer, expected answer,
+  correctness, grading payload, and subject/topic context, so the simplest
+  correct model is a projection from official quiz submissions rather than a
+  separate student-entered mistake system.
+
+Planned backend scope:
+
+- Add `mistake_notebook_entries`, one entry per `(user, question)`. Status:
+  implemented.
+- Create/update entries from freshly inserted quiz `QuestionAttempt` rows.
+  Status: implemented.
+- Keep duplicate quiz submissions from mutating mistake counts. Status:
+  implemented.
+- Add a student-scoped read API with status, subject, topic, limit, and offset
+  filters. Status: implemented.
+- Avoid XP awards and review-completion writes in this foundation slice.
+  Status: implemented.
+
+Decisions:
+
+- Decision: notebook entries are derived only from submitted quiz attempts, not
+  manually recorded by students.
+- Decision: an incorrect attempt opens/reopens the entry and increments
+  `mistake_count`; a later correct attempt marks an existing entry `corrected`
+  and increments `corrected_count`.
+- Decision: do not create entries for questions a student gets correct on the
+  first attempt.
+- Decision: use one projection row per `(user, question)` so future revision
+  filters can work without scanning all historical attempts.
+- Decision: expose only a read API in this slice. Review actions, XP rewards,
+  and notebook UI are separate slices.
+- Decision: the student-facing notebook API exposes the student's last answer
+  and question metadata, but not `correct_answer_json` or raw grading payloads.
+  Those fields stay internal to avoid leaking answer keys before a deliberate
+  correction/review flow exists.
+- Decision: `corrected_count` counts transitions from `open` to `corrected`,
+  not every later correct submission while the entry is already corrected.
+
+Verification plan:
+
+- Add focused tests for quiz-derived open/corrected transitions, duplicate
+  submission idempotency, student scoping, migration declarations, and model
+  constraints. Status: implemented.
+- Run focused mistake notebook tests and compile checks. Status: implemented.
+- Run adjacent quiz/gamification tests and strong review before committing.
+  Status: implemented.
+- Strong review found answer-key exposure risk, repeated-correct count
+  inflation, stale context on correction, and unrelated dirty-scope risk. The
+  API no longer returns correct answers or raw grading payloads; correction
+  counts only transition from open to corrected; correction refreshes context;
+  staging will be scoped hunks only. Status: implemented.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the

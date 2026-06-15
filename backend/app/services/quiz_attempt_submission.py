@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.gamification import QuestionAttempt, QuizAttempt, XPTransaction
 from app.models.quizzes import QuestionSet
 from app.services.gamification_stats import apply_quiz_pass_stats_delta
+from app.services.mistake_notebook import update_mistake_notebook_from_question_attempts
 from app.services.quiz_grading import tab_quiz_submission_hash
 from app.services.quiz_snapshots import (
     QUIZ_SNAPSHOT_SCHEMA_VERSION,
@@ -115,6 +116,13 @@ async def persist_quiz_submission(
     await db.flush()
 
     inserted_question_attempts = await _insert_question_attempts(db, attempt.id, question_attempt_rows)
+    await update_mistake_notebook_from_question_attempts(
+        db,
+        user_id=user_id,
+        question_set=question_set,
+        quiz_attempt_id=attempt.id,
+        question_attempts=inserted_question_attempts,
+    )
     xp_earned = await _award_quiz_xp(
         db,
         user_id=user_id,
@@ -174,7 +182,13 @@ async def _insert_question_attempts(
             QuestionAttempt.topic_id,
             QuestionAttempt.topic_section_id,
             QuestionAttempt.topic_item_id,
+            QuestionAttempt.tab_content_id,
+            QuestionAttempt.selected_answer_json,
+            QuestionAttempt.correct_answer_json,
             QuestionAttempt.is_correct,
+            QuestionAttempt.score_awarded,
+            QuestionAttempt.max_score,
+            QuestionAttempt.grading_json,
         ),
         question_attempt_payloads,
     )

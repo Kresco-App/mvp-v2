@@ -94,6 +94,36 @@ class SidebarSummaryOut(BaseModel):
     leaderboard_entries: list[LeaderboardEntryOut]
 
 
+class MistakeNotebookEntryOut(BaseModel):
+    id: int
+    question_id: int
+    question_set_id: Optional[int] = None
+    subject_id: Optional[int] = None
+    topic_id: Optional[int] = None
+    topic_section_id: Optional[int] = None
+    topic_item_id: Optional[int] = None
+    tab_content_id: Optional[int] = None
+    status: str
+    mistake_count: int
+    corrected_count: int
+    last_answer_json: dict = Field(default_factory=dict)
+    last_mistake_at: Optional[datetime] = None
+    last_correct_at: Optional[datetime] = None
+    updated_at: datetime
+    question_title: str = ""
+    question_prompt: str = ""
+    question_type: str = ""
+    question_difficulty: str = ""
+    question_concept_slugs: list[str] = Field(default_factory=list)
+
+
+class MistakeNotebookListOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[MistakeNotebookEntryOut]
+
+
 class UserStatsOut(BaseModel):
     total_watch_minutes: int
     quizzes_passed: int

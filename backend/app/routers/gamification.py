@@ -7,7 +7,7 @@ from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.gamification import (
     DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
-    LeaderboardEntryOut, SidebarSummaryOut,
+    LeaderboardEntryOut, MistakeNotebookListOut, SidebarSummaryOut,
 )
 from app.services.gamification_read_models import (
     build_sidebar_summary,
@@ -18,6 +18,7 @@ from app.services.gamification_read_models import (
     list_leaderboard_entries,
     list_xp_transactions,
 )
+from app.services.mistake_notebook import list_mistake_notebook_entries
 
 router = APIRouter(tags=["Progress & Gamification"])
 
@@ -75,6 +76,26 @@ async def get_sidebar_summary(
 ):
     return await build_sidebar_summary(db, user=user, settings=settings)
 
+
+@router.get("/mistakes", response_model=MistakeNotebookListOut)
+async def get_mistake_notebook(
+    status: str | None = Query(default=None, pattern="^(open|corrected)$"),
+    subject_id: int | None = Query(default=None, ge=1),
+    topic_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await list_mistake_notebook_entries(
+        db,
+        user=user,
+        status=status,
+        subject_id=subject_id,
+        topic_id=topic_id,
+        limit=limit,
+        offset=offset,
+    )
 
 @router.post("/daily-quests/{quest_id}/claim")
 @limiter.limit("10/minute")
