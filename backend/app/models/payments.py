@@ -178,6 +178,88 @@ class PaymentTransactionProof(Base):
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PaymentReconciliationImport(Base):
+    __tablename__ = "payment_reconciliation_imports"
+    __table_args__ = (
+        CheckConstraint(
+            "provider IN ('bank_transfer', 'cashplus', 'ashplus')",
+            name="ck_payment_reconciliation_imports_provider",
+        ),
+        CheckConstraint(
+            "rail IN ('bank_transfer', 'cashplus', 'ashplus')",
+            name="ck_payment_reconciliation_imports_rail",
+        ),
+        CheckConstraint(
+            "status IN ('processed', 'failed')",
+            name="ck_payment_reconciliation_imports_status",
+        ),
+        Index("ix_payment_reconciliation_imports_provider_created", "provider", "created_at"),
+        Index("ix_payment_reconciliation_imports_actor_created", "created_by_user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    rail: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_name: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="processed", server_default="processed")
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    matched_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    mismatch_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    unmatched_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    duplicate_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_by_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PaymentReconciliationRow(Base):
+    __tablename__ = "payment_reconciliation_rows"
+    __table_args__ = (
+        UniqueConstraint("import_id", "row_number", name="uq_payment_reconciliation_rows_import_row"),
+        CheckConstraint(
+            "provider IN ('bank_transfer', 'cashplus', 'ashplus')",
+            name="ck_payment_reconciliation_rows_provider",
+        ),
+        CheckConstraint(
+            "rail IN ('bank_transfer', 'cashplus', 'ashplus')",
+            name="ck_payment_reconciliation_rows_rail",
+        ),
+        CheckConstraint(
+            "status IN ('matched', 'mismatch', 'unmatched', 'duplicate', 'error')",
+            name="ck_payment_reconciliation_rows_status",
+        ),
+        Index("ix_payment_reconciliation_rows_import", "import_id"),
+        Index("ix_payment_reconciliation_rows_provider_reference", "provider", "provider_reference"),
+        Index("ix_payment_reconciliation_rows_status", "status"),
+        Index("ix_payment_reconciliation_rows_transaction", "matched_transaction_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("payment_reconciliation_imports.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    rail: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    reference_code: Mapped[str] = mapped_column(String(80), nullable=False)
+    amount_centimes: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="MAD", server_default="MAD")
+    provider_reference: Mapped[str] = mapped_column(String(160), nullable=False)
+    row_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    matched_transaction_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("payment_transactions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    failure_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    raw_row_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class FinanceLedgerEntry(Base):
     __tablename__ = "finance_ledger_entries"
     __table_args__ = (

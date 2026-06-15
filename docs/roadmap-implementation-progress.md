@@ -621,9 +621,67 @@ Verification plan:
 
 These may change after subagent reconnaissance.
 
-1. Payment gateway completion: bulk bank/CashPlus/AshPlus reconciliation
-   imports, minimal payment UI states, and removal of Stripe from the launch
-   checkout path.
+### Slice 12: Manual Payment Reconciliation Imports
+
+Status: implemented.
+
+Reason for this slice:
+
+- Row-level reconciliation is not enough for finance operations; staff need to
+  import normalized bank/CashPlus/AshPlus report rows in batches.
+- Importing must still use the same duplicate-safe payment state machine as
+  manual reconciliation.
+- CSV/file parsing can remain UI/backoffice work later; the backend needs a
+  stable JSON contract and durable import/row audit trail now.
+
+Planned backend scope:
+
+- Add reconciliation import and imported row audit tables. Status: implemented.
+- Add a staff-only JSON import endpoint for normalized manual payment rows.
+  Status: implemented.
+- Process each row through the existing manual reconciliation state machine.
+  Status: implemented.
+- Persist row-level status as `matched`, `mismatch`, `unmatched`, `duplicate`,
+  or `error`. Status: implemented.
+- Keep duplicates from inflating matched counts or writing extra ledger rows.
+  Status: implemented.
+
+Decisions:
+
+- Decision: v1 import accepts normalized JSON rows instead of raw CSV upload.
+  This avoids locking the backend to an unknown bank/CashPlus/AshPlus file
+  format while still giving finance a durable contract.
+- Decision: import rows are immutable audit rows. Payment side effects still go
+  through the existing reconciliation service so amount checks, external
+  provider-reference idempotency, ledger entries, and entitlement projection
+  stay centralized.
+- Decision: an already-processed provider reference is reported as an import
+  row `duplicate`, not as another `matched` row.
+- Decision: imported rows are first inserted as `error` audit placeholders
+  before payment side effects. If row processing fails unexpectedly, the import
+  keeps a durable error row instead of silently committing money/access changes
+  without row audit.
+- Decision: a new provider reference pointed at a terminal paid/failed/mismatch
+  manual transaction is consumed as a duplicate provider event and rejected, so
+  it cannot later be reused to unlock another pending payment.
+
+Verification plan:
+
+- Add model/migration declaration tests for import and row tables.
+- Add batch import tests covering matched, mismatch, unmatched, and duplicate
+  rows in one import.
+- Add regression tests for terminal-transaction duplicate provider references
+  and unexpected row-processing failures.
+- Add student-denial tests for the staff-only import endpoint.
+- Run payment, migration, schema-limit, CSRF, startup/security,
+  secret-hygiene, compile, and diff checks.
+
+## Next Candidate Slices
+
+These may change after subagent reconnaissance.
+
+1. Payment gateway completion: minimal payment UI states and removal of Stripe
+   from the launch checkout path.
 
 ## Open Risks
 

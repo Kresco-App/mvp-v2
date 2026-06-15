@@ -35,6 +35,8 @@ from app.models.payments import (
     PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
     PAYMENT_STATUS_PENDING_PROVIDER,
     PaymentProviderEvent,
+    PaymentReconciliationImport,
+    PaymentReconciliationRow,
     PaymentTransaction,
     PaymentTransactionProof,
 )
@@ -43,6 +45,10 @@ from app.schemas.payments import (
     ManualPaymentProofIn,
     ManualPaymentReconciliationIn,
     ManualPaymentTransactionOut,
+    PaymentReconciliationImportIn,
+    PaymentReconciliationImportOut,
+    PaymentReconciliationImportRowIn,
+    PaymentReconciliationImportRowOut,
     PaymentRequestOut,
 )
 
@@ -57,6 +63,7 @@ MANUAL_PAYMENT_EVENT_PROOF_SUBMITTED = "manual.proof_submitted"
 MANUAL_PAYMENT_EVENT_RECONCILED = "manual.reconciled"
 MANUAL_PAYMENT_EVENT_RECONCILIATION_MISMATCH = "manual.reconciliation_mismatch"
 MANUAL_PAYMENT_EVENT_RECONCILIATION_UNMATCHED = "manual.reconciliation_unmatched"
+MANUAL_PAYMENT_EVENT_RECONCILIATION_DUPLICATE = "manual.reconciliation_duplicate"
 CMI_PAYMENT_EXPIRY_MINUTES = 30
 CMI_CURRENCY_CODE_MAD = "504"
 CMI_TRAN_TYPE = "PreAuth"
@@ -506,8 +513,31 @@ async def reconcile_manual_payment_transaction(
     if int(actor.id) == int(transaction.user_id):
         raise HTTPException(status_code=403, detail="Staff cannot reconcile their own manual payment")
     if transaction.status == PAYMENT_STATUS_PAID:
-        return manual_payment_transaction_out(transaction)
+        if (
+            transaction.provider_reference == reconciliation.provider_reference
+            and _manual_reconciliation_matches_transaction(transaction, reconciliation)
+        ):
+            return manual_payment_transaction_out(transaction)
+        await _record_manual_reconciliation_duplicate_event(
+            db,
+            transaction=transaction,
+            actor=actor,
+            reconciliation=reconciliation,
+            event_id=event_id,
+            now=now,
+            reason="Manual payment is already paid",
+        )
+        raise HTTPException(status_code=409, detail="Manual payment is already paid")
     if transaction.status != PAYMENT_STATUS_PENDING_MANUAL_REVIEW:
+        await _record_manual_reconciliation_duplicate_event(
+            db,
+            transaction=transaction,
+            actor=actor,
+            reconciliation=reconciliation,
+            event_id=event_id,
+            now=now,
+            reason="Manual payment is not pending review",
+        )
         raise HTTPException(status_code=409, detail="Manual payment is not pending review")
     if _manual_transaction_is_expired(transaction, now=now):
         await _expire_manual_transaction(db, transaction=transaction, now=now)
@@ -533,6 +563,71 @@ async def reconcile_manual_payment_transaction(
         now=now,
     )
     return manual_payment_transaction_out(transaction)
+
+
+async def import_manual_payment_reconciliation(
+    db: AsyncSession,
+    *,
+    actor: User,
+    reconciliation_import: PaymentReconciliationImportIn,
+) -> PaymentReconciliationImportOut:
+    payment_method = reconciliation_import.payment_method
+    provider = provider_for_rail(payment_method)
+    import_record = PaymentReconciliationImport(
+        provider=provider,
+        rail=payment_method,
+        source_name=reconciliation_import.source_name,
+        status="failed",
+        row_count=len(reconciliation_import.rows),
+        created_by_user_id=int(actor.id),
+        metadata_json={"source": "manual_json_import"},
+    )
+    db.add(import_record)
+    await db.commit()
+    await db.refresh(import_record)
+
+    rows_out: list[PaymentReconciliationImportRowOut] = []
+    counts = {"matched": 0, "mismatch": 0, "unmatched": 0, "duplicate": 0, "error": 0}
+    try:
+        for row_number, row in enumerate(reconciliation_import.rows, start=1):
+            row_out = await _process_reconciliation_import_row(
+                db,
+                actor=actor,
+                import_id=int(import_record.id),
+                provider=provider,
+                payment_method=payment_method,
+                row_number=row_number,
+                row=row,
+            )
+            counts[row_out.status] = counts.get(row_out.status, 0) + 1
+            rows_out.append(row_out)
+        import_record.status = "processed"
+        _apply_reconciliation_import_counts(import_record, counts)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        import_record = await db.get(PaymentReconciliationImport, int(import_record.id))
+        if import_record is not None:
+            import_record.status = "failed"
+            _apply_reconciliation_import_counts(import_record, counts)
+            await db.commit()
+        raise
+    await db.refresh(import_record)
+    return PaymentReconciliationImportOut(
+        id=int(import_record.id),
+        provider=import_record.provider,
+        payment_method=import_record.rail,
+        source_name=import_record.source_name,
+        status=import_record.status,
+        row_count=int(import_record.row_count),
+        matched_count=int(import_record.matched_count),
+        mismatch_count=int(import_record.mismatch_count),
+        unmatched_count=int(import_record.unmatched_count),
+        duplicate_count=int(import_record.duplicate_count),
+        error_count=int(import_record.error_count),
+        rows=rows_out,
+        created_at=import_record.created_at,
+    )
 
 
 async def approve_manual_payment_transaction(
@@ -928,6 +1023,179 @@ def _manual_reconciliation_matches_transaction(
     )
 
 
+def _apply_reconciliation_import_counts(
+    import_record: PaymentReconciliationImport,
+    counts: dict[str, int],
+) -> None:
+    import_record.matched_count = counts["matched"]
+    import_record.mismatch_count = counts["mismatch"]
+    import_record.unmatched_count = counts["unmatched"]
+    import_record.duplicate_count = counts["duplicate"]
+    import_record.error_count = counts["error"]
+
+
+async def _process_reconciliation_import_row(
+    db: AsyncSession,
+    *,
+    actor: User,
+    import_id: int,
+    provider: str,
+    payment_method: str,
+    row_number: int,
+    row: PaymentReconciliationImportRowIn,
+) -> PaymentReconciliationImportRowOut:
+    reconciliation = ManualPaymentReconciliationIn(
+        payment_method=payment_method,
+        reference_code=row.reference_code,
+        amount_centimes=row.amount_centimes,
+        provider_reference=row.provider_reference,
+        reason=row.reason,
+        collected_at=row.collected_at,
+    )
+    event_id = _manual_reconciliation_event_id(
+        provider_reference=row.provider_reference,
+        reference_code=row.reference_code,
+    )
+    row_record = await _create_reconciliation_import_row_placeholder(
+        db,
+        import_id=import_id,
+        provider=provider,
+        payment_method=payment_method,
+        row_number=row_number,
+        row=row,
+    )
+    existing_event = await _load_provider_event(db, provider=provider, event_id=event_id)
+    if existing_event is not None:
+        matched_transaction_id = int(existing_event.transaction_id) if existing_event.transaction_id is not None else None
+        failure_reason = "Provider reference was already imported"
+        if matched_transaction_id is not None:
+            existing_transaction = await db.get(PaymentTransaction, matched_transaction_id)
+            if existing_transaction is not None and not _manual_reconciliation_matches_transaction(
+                existing_transaction,
+                reconciliation,
+            ):
+                failure_reason = "Provider reference is already reconciled to another manual payment"
+        return await _finalize_reconciliation_import_row(
+            db,
+            row_record=row_record,
+            row=row,
+            status="duplicate",
+            matched_transaction_id=matched_transaction_id,
+            failure_reason=failure_reason,
+        )
+
+    try:
+        result = await reconcile_manual_payment_transaction(db, actor=actor, reconciliation=reconciliation)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            status = "unmatched"
+        elif exc.status_code == 409:
+            status = "duplicate"
+        else:
+            status = "error"
+        return await _finalize_reconciliation_import_row(
+            db,
+            row_record=row_record,
+            row=row,
+            status=status,
+            matched_transaction_id=None,
+            failure_reason=_truncate_reason(str(exc.detail)),
+        )
+    except Exception as exc:
+        await db.rollback()
+        return await _finalize_reconciliation_import_row(
+            db,
+            row_record=row_record,
+            row=row,
+            status="error",
+            matched_transaction_id=None,
+            failure_reason=_truncate_reason(str(exc)),
+        )
+
+    status = "matched" if result.status == PAYMENT_STATUS_PAID else "mismatch"
+    failure_reason = None if status == "matched" else "Reconciliation row did not match the pending payment amount"
+    return await _finalize_reconciliation_import_row(
+        db,
+        row_record=row_record,
+        row=row,
+        status=status,
+        matched_transaction_id=result.id,
+        failure_reason=failure_reason,
+    )
+
+
+async def _create_reconciliation_import_row_placeholder(
+    db: AsyncSession,
+    *,
+    import_id: int,
+    provider: str,
+    payment_method: str,
+    row_number: int,
+    row: PaymentReconciliationImportRowIn,
+) -> PaymentReconciliationRow:
+    row_record = PaymentReconciliationRow(
+        import_id=import_id,
+        row_number=row_number,
+        provider=provider,
+        rail=payment_method,
+        status="error",
+        reference_code=row.reference_code,
+        amount_centimes=int(row.amount_centimes),
+        currency="MAD",
+        provider_reference=row.provider_reference,
+        row_digest=_manual_reconciliation_row_digest(provider=provider, row=row),
+        matched_transaction_id=None,
+        failure_reason="Processing interrupted before final outcome",
+        raw_row_json=row.raw_row or {},
+    )
+    db.add(row_record)
+    await db.commit()
+    await db.refresh(row_record)
+    return row_record
+
+
+async def _finalize_reconciliation_import_row(
+    db: AsyncSession,
+    *,
+    row_record: PaymentReconciliationRow,
+    row: PaymentReconciliationImportRowIn,
+    status: str,
+    matched_transaction_id: int | None,
+    failure_reason: str | None,
+) -> PaymentReconciliationImportRowOut:
+    row_record.status = status
+    row_record.matched_transaction_id = matched_transaction_id
+    row_record.failure_reason = _truncate_reason(failure_reason) if failure_reason else None
+    db.add(row_record)
+    await db.commit()
+    return PaymentReconciliationImportRowOut(
+        row_number=int(row_record.row_number),
+        status=status,
+        reference_code=row.reference_code,
+        amount_centimes=int(row.amount_centimes),
+        provider_reference=row.provider_reference,
+        matched_transaction_id=matched_transaction_id,
+        failure_reason=_truncate_reason(failure_reason) if failure_reason else None,
+    )
+
+
+def _manual_reconciliation_row_digest(*, provider: str, row: PaymentReconciliationImportRowIn) -> str:
+    canonical = "|".join(
+        [
+            provider,
+            row.reference_code,
+            str(int(row.amount_centimes)),
+            row.provider_reference,
+            row.collected_at.isoformat() if row.collected_at is not None else "",
+        ]
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _truncate_reason(value: str) -> str:
+    return value[:255]
+
+
 def _manual_reconciliation_payload(
     reconciliation: ManualPaymentReconciliationIn,
     *,
@@ -1049,6 +1317,34 @@ async def _mark_manual_transaction_mismatch(
     )
     await db.commit()
     await db.refresh(transaction)
+
+
+async def _record_manual_reconciliation_duplicate_event(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    actor: User,
+    reconciliation: ManualPaymentReconciliationIn,
+    event_id: str,
+    now: datetime,
+    reason: str,
+) -> None:
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=transaction.provider,
+            event_id=event_id,
+            event_type=MANUAL_PAYMENT_EVENT_RECONCILIATION_DUPLICATE,
+            status="ignored",
+            payload_json={
+                **_manual_reconciliation_payload(reconciliation, actor=actor),
+                "failure_reason": reason,
+                "transaction_status": transaction.status,
+            },
+            processed_at=now,
+        )
+    )
+    await db.commit()
 
 
 def _ensure_cmi_configured(settings: Settings) -> None:

@@ -142,3 +142,69 @@ class ManualPaymentReconciliationIn(BaseModel):
         if not normalized:
             raise ValueError("value is required")
         return normalized
+
+
+class PaymentReconciliationImportRowIn(BaseModel):
+    reference_code: str = Field(min_length=3, max_length=80)
+    amount_centimes: int = Field(gt=0)
+    provider_reference: str = Field(min_length=3, max_length=160)
+    reason: str = Field(default="Reconciliation import row matched", min_length=3, max_length=255)
+    collected_at: datetime | None = None
+    raw_row: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("reference_code", "provider_reference", "reason")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value is required")
+        return normalized
+
+
+class PaymentReconciliationImportIn(BaseModel):
+    payment_method: str = Field(min_length=1, max_length=40)
+    source_name: str | None = Field(default=None, max_length=160)
+    rows: list[PaymentReconciliationImportRowIn] = Field(min_length=1, max_length=500)
+
+    @field_validator("payment_method")
+    @classmethod
+    def normalize_payment_method(cls, value: str) -> str:
+        normalized = value.strip().lower().replace("-", "_")
+        if normalized not in MANUAL_PAYMENT_RAILS:
+            supported = ", ".join(sorted(MANUAL_PAYMENT_RAILS))
+            raise ValueError(f"payment_method must be one of: {supported}")
+        return normalized
+
+    @field_validator("source_name")
+    @classmethod
+    def normalize_source_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class PaymentReconciliationImportRowOut(BaseModel):
+    row_number: int
+    status: str
+    reference_code: str
+    amount_centimes: int
+    provider_reference: str
+    matched_transaction_id: int | None = None
+    failure_reason: str | None = None
+
+
+class PaymentReconciliationImportOut(BaseModel):
+    id: int
+    provider: str
+    payment_method: str
+    source_name: str | None = None
+    status: str
+    row_count: int
+    matched_count: int
+    mismatch_count: int
+    unmatched_count: int
+    duplicate_count: int
+    error_count: int
+    rows: list[PaymentReconciliationImportRowOut]
+    created_at: datetime

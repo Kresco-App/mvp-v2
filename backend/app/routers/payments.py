@@ -16,12 +16,15 @@ from app.schemas.payments import (
     ManualPaymentTransactionOut,
     PaymentRequestCreateIn,
     PaymentRequestOut,
+    PaymentReconciliationImportIn,
+    PaymentReconciliationImportOut,
     VerifyIn,
     VerifyOut,
 )
 from app.services.payment_gateway import (
     approve_manual_payment_transaction,
     create_payment_request as create_provider_payment_request,
+    import_manual_payment_reconciliation,
     list_manual_payment_transactions,
     process_cmi_callback,
     reconcile_manual_payment_transaction,
@@ -103,6 +106,22 @@ async def reconcile_manual_payment_request(
         db,
         actor=staff,
         reconciliation=reconciliation,
+    )
+
+
+@router.post("/manual-payment-reconciliation-imports", response_model=PaymentReconciliationImportOut)
+@limiter.limit("5/minute")
+async def import_manual_payment_reconciliation_request(
+    request: Request,
+    reconciliation_import: PaymentReconciliationImportIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(get_current_staff_user),
+):
+    del request
+    return await import_manual_payment_reconciliation(
+        db,
+        actor=staff,
+        reconciliation_import=reconciliation_import,
     )
 
 

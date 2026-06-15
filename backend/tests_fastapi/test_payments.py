@@ -24,6 +24,8 @@ from app.models.payments import (
     PAYMENT_STATUS_PENDING_PROVIDER,
     FinanceLedgerEntry,
     PaymentProviderEvent,
+    PaymentReconciliationImport,
+    PaymentReconciliationRow,
     PaymentTransaction,
     PaymentTransactionProof,
     PaymentVerificationAttempt,
@@ -166,6 +168,44 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert proof_indexes["ix_payment_transaction_proofs_user_created"] == ("user_id", "created_at")
     assert proof_indexes["ix_payment_transaction_proofs_rail_status"] == ("rail", "status")
 
+    reconciliation_import_columns = PaymentReconciliationImport.__table__.columns
+    reconciliation_import_indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in PaymentReconciliationImport.__table__.indexes
+    }
+    reconciliation_import_constraints = {
+        constraint.name for constraint in PaymentReconciliationImport.__table__.constraints
+    }
+    assert reconciliation_import_columns["provider"].nullable is False
+    assert reconciliation_import_columns["rail"].nullable is False
+    assert reconciliation_import_columns["row_count"].server_default.arg == "0"
+    assert "ck_payment_reconciliation_imports_provider" in reconciliation_import_constraints
+    assert "ck_payment_reconciliation_imports_rail" in reconciliation_import_constraints
+    assert "ck_payment_reconciliation_imports_status" in reconciliation_import_constraints
+    assert reconciliation_import_indexes["ix_payment_reconciliation_imports_provider_created"] == (
+        "provider",
+        "created_at",
+    )
+
+    reconciliation_row_columns = PaymentReconciliationRow.__table__.columns
+    reconciliation_row_indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in PaymentReconciliationRow.__table__.indexes
+    }
+    reconciliation_row_constraints = {constraint.name for constraint in PaymentReconciliationRow.__table__.constraints}
+    assert reconciliation_row_columns["import_id"].nullable is False
+    assert reconciliation_row_columns["row_number"].nullable is False
+    assert reconciliation_row_columns["row_digest"].nullable is False
+    assert "uq_payment_reconciliation_rows_import_row" in reconciliation_row_constraints
+    assert "ck_payment_reconciliation_rows_provider" in reconciliation_row_constraints
+    assert "ck_payment_reconciliation_rows_rail" in reconciliation_row_constraints
+    assert "ck_payment_reconciliation_rows_status" in reconciliation_row_constraints
+    assert reconciliation_row_indexes["ix_payment_reconciliation_rows_import"] == ("import_id",)
+    assert reconciliation_row_indexes["ix_payment_reconciliation_rows_provider_reference"] == (
+        "provider",
+        "provider_reference",
+    )
+
     migration_text = (
         BACKEND_ROOT / "alembic" / "versions" / "0054_provider_neutral_payment_tables.py"
     ).read_text(encoding="utf-8")
@@ -192,6 +232,14 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert "ck_payment_transactions_provider" in ashplus_migration_text
     assert "ck_payment_transactions_rail" in ashplus_migration_text
     assert "ck_payment_transaction_proofs_rail" in ashplus_migration_text
+
+    reconciliation_migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0061_payment_reconciliation_imports.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0060"' in reconciliation_migration_text
+    assert "payment_reconciliation_imports" in reconciliation_migration_text
+    assert "payment_reconciliation_rows" in reconciliation_migration_text
+    assert "uq_payment_reconciliation_rows_import_row" in reconciliation_migration_text
 
 
 def test_webhook_requires_secret(app_client):
@@ -376,6 +424,23 @@ async def _payment_proofs_for_transaction(transaction_id: int) -> list[PaymentTr
             select(PaymentTransactionProof)
             .where(PaymentTransactionProof.transaction_id == transaction_id)
             .order_by(PaymentTransactionProof.id)
+        )
+        return list(result.scalars().all())
+
+
+async def _reconciliation_import(import_id: int) -> PaymentReconciliationImport | None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        return await db.get(PaymentReconciliationImport, import_id)
+
+
+async def _reconciliation_rows(import_id: int) -> list[PaymentReconciliationRow]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(PaymentReconciliationRow)
+            .where(PaymentReconciliationRow.import_id == import_id)
+            .order_by(PaymentReconciliationRow.row_number)
         )
         return list(result.scalars().all())
 
@@ -1850,6 +1915,238 @@ def test_staff_reconciliation_external_reference_cannot_unlock_two_transactions(
     assert len(run_db(_finance_ledger_entries_for_transaction(first_transaction_id))) == 1
     assert len(run_db(_payment_provider_events_for_transaction(second_transaction_id))) == 0
     assert len(run_db(_finance_ledger_entries_for_transaction(second_transaction_id))) == 0
+
+
+def test_staff_imports_manual_payment_reconciliation_batch_with_audited_rows(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    first_token, first_user_id = auth_token(email="manual-import-match@example.com")
+    second_token, second_user_id = auth_token(email="manual-import-mismatch@example.com")
+    first_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+    second_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {second_token}"},
+    )
+    first_transaction_id = first_create.json()["id"]
+    second_transaction_id = second_create.json()["id"]
+    staff_id = run_db(_seed_staff_user("manual-import-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "cashplus",
+            "source_name": "cashplus-week-24.json",
+            "rows": [
+                {
+                    "reference_code": first_create.json()["reference_code"],
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-IMPORT-MATCH",
+                    "reason": "CashPlus import row matched",
+                    "raw_row": {"line": 1},
+                },
+                {
+                    "reference_code": second_create.json()["reference_code"],
+                    "amount_centimes": 1200,
+                    "provider_reference": "CASHPLUS-IMPORT-MISMATCH",
+                    "reason": "CashPlus import row amount mismatch",
+                    "raw_row": {"line": 2},
+                },
+                {
+                    "reference_code": "KRESCO-CASH-999-MISSING",
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-IMPORT-UNMATCHED",
+                    "reason": "CashPlus import row missing app reference",
+                    "raw_row": {"line": 3},
+                },
+                {
+                    "reference_code": first_create.json()["reference_code"],
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-IMPORT-MATCH",
+                    "reason": "Duplicate row from same provider report",
+                    "raw_row": {"line": 4},
+                },
+            ],
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["payment_method"] == PAYMENT_RAIL_CASHPLUS
+    assert payload["source_name"] == "cashplus-week-24.json"
+    assert payload["row_count"] == 4
+    assert payload["matched_count"] == 1
+    assert payload["mismatch_count"] == 1
+    assert payload["unmatched_count"] == 1
+    assert payload["duplicate_count"] == 1
+    assert payload["error_count"] == 0
+    assert [row["status"] for row in payload["rows"]] == ["matched", "mismatch", "unmatched", "duplicate"]
+    assert payload["rows"][0]["matched_transaction_id"] == first_transaction_id
+    assert payload["rows"][1]["matched_transaction_id"] == second_transaction_id
+    assert payload["rows"][2]["matched_transaction_id"] is None
+    assert payload["rows"][3]["matched_transaction_id"] == first_transaction_id
+
+    import_record = run_db(_reconciliation_import(payload["id"]))
+    assert import_record.row_count == 4
+    assert import_record.matched_count == 1
+    assert import_record.mismatch_count == 1
+    rows = run_db(_reconciliation_rows(payload["id"]))
+    assert [row.status for row in rows] == ["matched", "mismatch", "unmatched", "duplicate"]
+    assert rows[0].raw_row_json == {"line": 1}
+    assert run_db(_get_user(first_user_id)).is_pro is True
+    assert run_db(_get_user(second_user_id)).is_pro is False
+    first_transaction = run_db(_payment_transactions_for_user(first_user_id))[0]
+    second_transaction = run_db(_payment_transactions_for_user(second_user_id))[0]
+    assert first_transaction.status == PAYMENT_STATUS_PAID
+    assert second_transaction.status == PAYMENT_STATUS_MISMATCH
+    assert len(run_db(_finance_ledger_entries_for_transaction(first_transaction_id))) == 1
+    assert len(run_db(_finance_ledger_entries_for_transaction(second_transaction_id))) == 1
+
+
+def test_import_consumes_new_provider_reference_aimed_at_paid_transaction(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    first_token, first_user_id = auth_token(email="manual-import-paid-first@example.com")
+    second_token, second_user_id = auth_token(email="manual-import-paid-second@example.com")
+    first_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+    second_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {second_token}"},
+    )
+    staff_id = run_db(_seed_staff_user("manual-import-paid-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    first_reconcile = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json={
+            "payment_method": "cashplus",
+            "reference_code": first_create.json()["reference_code"],
+            "amount_centimes": 9900,
+            "provider_reference": "CASHPLUS-PAID-ORIGINAL",
+            "reason": "Initial report row matched",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    import_response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "cashplus",
+            "rows": [
+                {
+                    "reference_code": first_create.json()["reference_code"],
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-PAID-NEW-REF",
+                    "reason": "New external reference pointed at already-paid transaction",
+                },
+                {
+                    "reference_code": second_create.json()["reference_code"],
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-PAID-NEW-REF",
+                    "reason": "Same external reference attempted on another pending transaction",
+                },
+            ],
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert first_reconcile.status_code == 200
+    assert import_response.status_code == 200
+    payload = import_response.json()
+    assert payload["matched_count"] == 0
+    assert payload["duplicate_count"] == 2
+    assert [row["status"] for row in payload["rows"]] == ["duplicate", "duplicate"]
+    assert run_db(_get_user(first_user_id)).is_pro is True
+    assert run_db(_get_user(second_user_id)).is_pro is False
+    second_transaction = run_db(_payment_transactions_for_user(second_user_id))[0]
+    assert second_transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    first_events = run_db(_payment_provider_events_for_transaction(first_create.json()["id"]))
+    assert [event.event_type for event in first_events] == ["manual.reconciled", "manual.reconciliation_duplicate"]
+    assert len(run_db(_finance_ledger_entries_for_transaction(second_create.json()["id"]))) == 0
+
+
+def test_import_records_error_row_when_row_processing_raises(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+    monkeypatch,
+):
+    staff_id = run_db(_seed_staff_user("manual-import-error-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    async def fail_reconcile(*args, **kwargs):
+        raise RuntimeError("synthetic row failure")
+
+    monkeypatch.setattr(payment_gateway, "reconcile_manual_payment_transaction", fail_reconcile)
+    response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "cashplus",
+            "source_name": "broken-import.json",
+            "rows": [
+                {
+                    "reference_code": "KRESCO-CASH-1-BROKEN",
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-BROKEN-ROW",
+                    "reason": "Synthetic failure",
+                }
+            ],
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "processed"
+    assert payload["row_count"] == 1
+    assert payload["error_count"] == 1
+    assert payload["rows"][0]["status"] == "error"
+    assert payload["rows"][0]["failure_reason"] == "synthetic row failure"
+    rows = run_db(_reconciliation_rows(payload["id"]))
+    assert len(rows) == 1
+    assert rows[0].status == "error"
+    assert rows[0].failure_reason == "synthetic row failure"
+
+
+def test_student_cannot_import_manual_payment_reconciliation_batch(
+    app_client,
+    auth_token,
+):
+    student_token, _user_id = auth_token(email="manual-import-denied@example.com")
+
+    response = app_client.post(
+        "/api/payments/manual-payment-reconciliation-imports",
+        json={
+            "payment_method": "cashplus",
+            "rows": [
+                {
+                    "reference_code": "KRESCO-CASH-1-ABC",
+                    "amount_centimes": 9900,
+                    "provider_reference": "CASHPLUS-DENIED-1",
+                }
+            ],
+        },
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+
+    assert response.status_code == 403
 
 
 def test_create_payment_request_releases_expired_open_request_for_retry(app_client, auth_token, run_db):
