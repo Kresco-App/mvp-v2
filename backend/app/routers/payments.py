@@ -27,6 +27,7 @@ from app.schemas.payments import (
 from app.services.payment_gateway import (
     approve_manual_payment_transaction,
     create_payment_request as create_provider_payment_request,
+    get_current_payment_request as get_current_provider_payment_request,
     import_manual_payment_reconciliation,
     list_finance_ledger_entries,
     list_manual_payment_transactions,
@@ -87,6 +88,14 @@ async def create_payment_request(
         plan=payment_request.plan,
         settings=settings,
     )
+
+
+@router.get("/payment-requests/current", response_model=PaymentRequestOut | None)
+async def get_current_payment_request(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await get_current_provider_payment_request(db, user=user, plan="pro")
 
 
 @router.get("/manual-payment-requests", response_model=list[ManualPaymentTransactionOut])

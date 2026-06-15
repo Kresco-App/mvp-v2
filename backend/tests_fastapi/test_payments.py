@@ -857,6 +857,45 @@ def test_create_ashplus_payment_request_is_pending_and_does_not_grant_access(app
     assert transactions[0].status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
 
 
+def test_current_payment_request_recovers_student_pending_manual_request(app_client, auth_token):
+    token, _user_id = auth_token(email="current-payment-pending@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers=headers,
+    )
+
+    current_response = app_client.get("/api/payments/payment-requests/current", headers=headers)
+
+    assert create_response.status_code == 200
+    assert current_response.status_code == 200
+    payload = current_response.json()
+    assert payload["id"] == create_response.json()["id"]
+    assert payload["payment_method"] == PAYMENT_RAIL_CASHPLUS
+    assert payload["status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert payload["reference_code"] == create_response.json()["reference_code"]
+
+
+def test_current_payment_request_is_scoped_to_authenticated_student(app_client, auth_token):
+    owner_token, _owner_id = auth_token(email="current-payment-owner@example.com")
+    other_token, _other_id = auth_token(email="current-payment-other@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+
+    other_response = app_client.get(
+        "/api/payments/payment-requests/current",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+
+    assert create_response.status_code == 200
+    assert other_response.status_code == 200
+    assert other_response.json() is None
+
+
 def test_create_payment_request_reuses_existing_open_manual_request(app_client, auth_token, run_db):
     token, user_id = auth_token(email="manual-payment-idempotent@example.com")
     headers = {"Authorization": f"Bearer {token}"}
@@ -1611,6 +1650,12 @@ def test_staff_approve_manual_payment_grants_access_and_records_audit(
     assert ledger_entries[0].entry_type == "payment_confirmed"
     assert ledger_entries[0].amount_centimes == 9900
     assert ledger_entries[0].metadata_json == {"actor_user_id": staff_id, "rail": PAYMENT_RAIL_CASHPLUS}
+    current_response = app_client.get(
+        "/api/payments/payment-requests/current",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert current_response.status_code == 200
+    assert current_response.json() is None
 
 
 def test_staff_cannot_approve_own_manual_payment_request(app_client, run_db, test_settings):
@@ -1732,6 +1777,80 @@ def test_staff_reject_manual_payment_keeps_access_locked_and_allows_retry(
     assert len(ledger_entries) == 1
     assert ledger_entries[0].entry_type == "payment_rejected"
     assert ledger_entries[0].amount_centimes == 0
+
+
+def test_current_payment_request_exposes_latest_failed_request_without_granting_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="current-payment-failed@example.com")
+    headers = {"Authorization": f"Bearer {student_token}"}
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers=headers,
+    )
+    transaction_id = create_response.json()["id"]
+    staff_id = run_db(_seed_staff_user("current-payment-failed-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    reject_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/reject",
+        json={"reason": "Reference not found"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    current_response = app_client.get("/api/payments/payment-requests/current", headers=headers)
+
+    assert create_response.status_code == 200
+    assert reject_response.status_code == 200
+    assert current_response.status_code == 200
+    payload = current_response.json()
+    assert payload["id"] == transaction_id
+    assert payload["status"] == PAYMENT_STATUS_FAILED
+    assert payload["payment_method"] == PAYMENT_RAIL_BANK_TRANSFER
+    assert payload["instructions"] == {}
+    assert run_db(_get_user(user_id)).is_pro is False
+
+
+def test_current_payment_request_strips_closed_cmi_form_fields(
+    app_client,
+    auth_token,
+    test_settings,
+):
+    student_token, _user_id = auth_token(email="current-cmi-failed-safe@example.com")
+    headers = {"Authorization": f"Bearer {student_token}"}
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers=headers,
+        )
+        callback_response = app_client.post(
+            "/api/payments/cmi/callback",
+            data=_cmi_callback_payload(
+                create_response.json()["reference_code"],
+                ProcReturnCode="05",
+                Response="Declined",
+                TransId="current-cmi-failed-safe-1",
+            ),
+        )
+        current_response = app_client.get("/api/payments/payment-requests/current", headers=headers)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert create_response.status_code == 200
+    assert create_response.json()["instructions"]["form_fields"]["hash"]
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    assert current_response.status_code == 200
+    payload = current_response.json()
+    assert payload["status"] == PAYMENT_STATUS_FAILED
+    assert payload["payment_method"] == PAYMENT_RAIL_CMI
+    assert payload["instructions"] == {}
 
 
 def test_student_submits_manual_payment_proof_without_unlocking_access(

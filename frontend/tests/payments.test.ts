@@ -7,6 +7,7 @@ import {
   PRO_CHECKOUT_PLAN,
   createProPaymentRequest,
   createProCheckoutSession,
+  getCurrentProPaymentRequest,
   getPaymentErrorMessage,
   submitProviderPaymentForm,
   verifyCheckoutSession,
@@ -114,6 +115,42 @@ describe('Pro checkout creation', () => {
 })
 
 describe('provider-neutral payment requests', () => {
+  it('loads the current Pro payment request through the student endpoint', async () => {
+    const apiClient = {
+      get: vi.fn().mockResolvedValue({
+        data: {
+          id: 24,
+          payment_method: 'bank_transfer',
+          status: 'failed',
+          plan: 'pro',
+          amount_centimes: 9900,
+          currency: 'MAD',
+          reference_code: 'KRESCO-VIR-24',
+          instructions: { title: 'Virement bancaire' },
+          created_at: '2026-06-15T00:00:00Z',
+          expires_at: null,
+        },
+      }),
+    }
+
+    await expect(getCurrentProPaymentRequest(apiClient)).resolves.toEqual(expect.objectContaining({
+      id: 24,
+      payment_method: 'bank_transfer',
+      status: 'failed',
+      reference_code: 'KRESCO-VIR-24',
+    }))
+    expect(apiClient.get).toHaveBeenCalledWith('/payments/payment-requests/current')
+  })
+
+  it('treats missing or unavailable current payment status as no recovered request', async () => {
+    await expect(getCurrentProPaymentRequest({
+      get: vi.fn().mockResolvedValue({ data: null }),
+    })).resolves.toBeNull()
+    await expect(getCurrentProPaymentRequest({
+      get: vi.fn().mockRejectedValue(new Error('network')),
+    })).resolves.toBeNull()
+  })
+
   it('creates CMI payment requests and returns provider form metadata', async () => {
     const apiClient = {
       post: vi.fn().mockResolvedValue({

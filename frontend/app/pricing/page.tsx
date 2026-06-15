@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { CheckCircle2, Crown, Zap, BookOpen, Award, ArrowLeft, CreditCard, Landmark, Store, Receipt } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
@@ -11,6 +11,7 @@ import { submitManualPaymentProof } from '@/lib/manualPayments'
 import {
   DEFAULT_PAYMENT_METHOD,
   createProPaymentRequest,
+  getCurrentProPaymentRequest,
   submitProviderPaymentForm,
   type PaymentMethod,
   type PaymentRequest,
@@ -44,14 +45,65 @@ export default function PricingPage() {
   const [isSubmittingProof, setIsSubmittingProof] = useState(false)
   const [proofSubmitted, setProofSubmitted] = useState(false)
   const paymentRequestSeq = useRef(0)
+  const userPaymentIdentity = user?.id ?? user?.email ?? null
 
-  function clearProofForm() {
+  const clearProofForm = useCallback(() => {
     setProofReference('')
     setProofPayerName('')
     setProofUrl('')
     setProofNotes('')
     setProofSubmitted(false)
-  }
+  }, [])
+
+  useEffect(() => {
+    paymentRequestSeq.current += 1
+    setPendingRequest(null)
+    setPaymentSupport(null)
+    clearProofForm()
+
+    if (!userPaymentIdentity) return
+    if (user?.is_pro) {
+      return
+    }
+
+    let isActive = true
+    const requestId = paymentRequestSeq.current + 1
+    paymentRequestSeq.current = requestId
+
+    async function loadCurrentPaymentRequest() {
+      const currentRequest = await getCurrentProPaymentRequest(apiJsonClient)
+      if (!isActive || requestId !== paymentRequestSeq.current) return
+      if (!currentRequest) {
+        setPendingRequest(null)
+        setPaymentSupport(null)
+        clearProofForm()
+        return
+      }
+
+      setSelectedPaymentMethod(currentRequest.payment_method)
+      clearProofForm()
+
+      if (currentRequest.status === 'pending_manual_review') {
+        setPendingRequest(currentRequest)
+        setPaymentSupport(null)
+        return
+      }
+
+      if (currentRequest.status !== 'paid') {
+        setPendingRequest(null)
+        setPaymentSupport({
+          method: currentRequest.payment_method,
+          message: paymentStatusMessage(currentRequest),
+        })
+      }
+    }
+
+    void loadCurrentPaymentRequest()
+
+    return () => {
+      isActive = false
+    }
+  }, [clearProofForm, user?.is_pro, userPaymentIdentity])
 
   async function handlePaymentRequest() {
     if (isCreatingPayment) return
@@ -384,4 +436,12 @@ export default function PricingPage() {
 
 function paymentMethodLabel(method: PaymentMethod) {
   return pricingCopy.paymentMethods.find((item) => item.value === method)?.label ?? method
+}
+
+function paymentStatusMessage(request: PaymentRequest) {
+  if (request.status === 'pending_provider') return pricingCopy.paymentStatusPendingProvider
+  if (request.status === 'failed') return pricingCopy.paymentStatusFailed
+  if (request.status === 'mismatch') return pricingCopy.paymentStatusMismatch
+  if (request.status === 'expired') return pricingCopy.paymentStatusExpired
+  return pricingCopy.paymentStatusNeedsReview
 }

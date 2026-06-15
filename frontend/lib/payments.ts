@@ -126,6 +126,17 @@ export async function createProPaymentRequest(
   }
 }
 
+export async function getCurrentProPaymentRequest(
+  apiClient: Pick<PaymentApiClient, 'get'>,
+): Promise<PaymentRequest | null> {
+  try {
+    const { data } = await apiClient.get<PaymentRequest | null>('/payments/payment-requests/current')
+    return data ?? null
+  } catch {
+    return null
+  }
+}
+
 export function submitProviderPaymentForm(actionUrl: string, formFields: Record<string, string>) {
   const form = document.createElement('form')
   form.method = 'POST'

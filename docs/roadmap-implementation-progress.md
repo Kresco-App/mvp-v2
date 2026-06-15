@@ -2055,6 +2055,72 @@ Review notes addressed:
 - Fixed support-panel contrast after browser smoke showed pale text on the
   actual pricing surface.
 
+### Slice 38: Student Payment State Recovery
+
+Status: implemented.
+
+Reason for this slice:
+
+- The pricing page showed pending/support states only inside the current browser
+  session. Reloading the page lost a pending manual payment or a failed provider
+  state even though the backend had the transaction.
+- The payment roadmap requires visible pending/failed states before broader
+  testing, without granting access until finance/provider confirmation.
+
+Implemented scope:
+
+- Added a student-authenticated current payment endpoint for the signed-in
+  user's latest Pro payment rail state. Status: implemented.
+- Restored pending manual payment instructions and proof upload after a pricing
+  page reload. Status: implemented.
+- Restored failed, expired, mismatched, and provider-pending states as a
+  persistent support panel. Status: implemented.
+- Expired stale pending requests during recovery so open payment keys do not
+  remain active forever. Status: implemented.
+
+Decisions:
+
+- Decision: return the existing `PaymentRequestOut` shape for student recovery,
+  but only for the authenticated owner.
+- Decision: keep closed states visible to students because the launch payment
+  UX needs actionable failed/expired feedback.
+- Decision: strip `instructions` from closed recovered states so failed or
+  expired CMI attempts cannot expose stale signed form-post fields.
+- Decision: do not auto-submit or redirect recovered CMI requests from page
+  load. The page surfaces the provider-pending state and lets the student retry
+  intentionally.
+
+Verification plan:
+
+- Add backend tests for pending recovery, cross-user isolation, paid suppression,
+  failed-state visibility, and closed CMI instruction stripping. Status:
+  implemented.
+- Add frontend client tests for the current payment endpoint. Status:
+  implemented.
+- Add pricing page tests for recovered pending manual requests and recovered
+  failed support state. Status: implemented.
+- Run focused payment/pricing tests, TypeScript, lint, CSP audit, browser smoke,
+  and strong review before committing. Status: implemented.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_payments.py -q` passed: 88 tests.
+- `npm test -- tests/pricingPagePayments.test.tsx tests/payments.test.ts tests/manualPayments.test.ts tests/cmiReturnPages.test.tsx`
+  passed: 34 tests.
+- `npm run typecheck` passed.
+- `npm run lint` passed.
+- `npm run audit:csp-styles` passed with zero inline style debt.
+- Playwright smoke opened `/pricing` with mocked profile and current payment
+  APIs, verified the recovered failed-payment support panel, and refreshed
+  `frontend/artifacts/pricing-current-payment-recovery-smoke.png`.
+
+Review notes addressed:
+
+- Closed recovered payment states now strip `instructions` so failed/expired
+  CMI attempts cannot expose stale signed form-post fields.
+- Recovery state is keyed by user identity and cleared on empty recovery
+  responses so payment references cannot leak across non-Pro account switches.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice

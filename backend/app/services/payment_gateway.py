@@ -119,6 +119,57 @@ async def create_payment_request(
     )
 
 
+async def get_current_payment_request(
+    db: AsyncSession,
+    *,
+    user: User,
+    plan: str = "pro",
+) -> PaymentRequestOut | None:
+    normalized_plan = plan.strip().lower()
+    amount_for_plan(normalized_plan)
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.user_id == int(user.id),
+            PaymentTransaction.plan == normalized_plan,
+            PaymentTransaction.rail.in_(
+                [
+                    PAYMENT_RAIL_ASHPLUS,
+                    PAYMENT_RAIL_BANK_TRANSFER,
+                    PAYMENT_RAIL_CASHPLUS,
+                    PAYMENT_RAIL_CMI,
+                ]
+            ),
+            PaymentTransaction.status.in_(
+                [
+                    PAYMENT_STATUS_PENDING_PROVIDER,
+                    PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
+                    PAYMENT_STATUS_PAID,
+                    PAYMENT_STATUS_FAILED,
+                    PAYMENT_STATUS_EXPIRED,
+                    PAYMENT_STATUS_MISMATCH,
+                ]
+            ),
+        )
+        .order_by(PaymentTransaction.created_at.desc(), PaymentTransaction.id.desc())
+        .limit(1)
+    )
+    transaction = result.scalar_one_or_none()
+    if transaction is None or transaction.status == PAYMENT_STATUS_PAID:
+        return None
+
+    if transaction.status in {PAYMENT_STATUS_PENDING_MANUAL_REVIEW, PAYMENT_STATUS_PENDING_PROVIDER}:
+        if _manual_transaction_is_expired(transaction, now=now):
+            if transaction.rail == PAYMENT_RAIL_CMI:
+                await _expire_cmi_transaction(db, transaction=transaction, now=now)
+            else:
+                await _expire_manual_transaction(db, transaction=transaction, now=now)
+            await db.refresh(transaction)
+
+    return current_payment_request_out(transaction)
+
+
 async def create_pending_cmi_payment_request(
     db: AsyncSession,
     *,
@@ -368,6 +419,13 @@ def payment_request_out(transaction: PaymentTransaction) -> PaymentRequestOut:
         created_at=transaction.created_at,
         expires_at=transaction.expires_at,
     )
+
+
+def current_payment_request_out(transaction: PaymentTransaction) -> PaymentRequestOut:
+    request = payment_request_out(transaction)
+    if transaction.status in {PAYMENT_STATUS_PENDING_MANUAL_REVIEW, PAYMENT_STATUS_PENDING_PROVIDER}:
+        return request
+    return request.model_copy(update={"instructions": {}})
 
 
 async def list_manual_payment_transactions(
@@ -942,6 +1000,15 @@ async def _release_expired_open_cmi_request(
     )
     if transaction is None:
         return
+    await _expire_cmi_transaction(db, transaction=transaction, now=now)
+
+
+async def _expire_manual_transaction(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    now: datetime,
+) -> None:
     transaction.status = PAYMENT_STATUS_EXPIRED
     transaction.open_request_key = None
     transaction.metadata_json = {
@@ -951,7 +1018,7 @@ async def _release_expired_open_cmi_request(
     await db.commit()
 
 
-async def _expire_manual_transaction(
+async def _expire_cmi_transaction(
     db: AsyncSession,
     *,
     transaction: PaymentTransaction,

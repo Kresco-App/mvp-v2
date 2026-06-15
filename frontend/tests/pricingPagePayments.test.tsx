@@ -9,6 +9,7 @@ import { useAuthStore } from '@/lib/store'
 
 const mocks = vi.hoisted(() => ({
   createProPaymentRequest: vi.fn(),
+  getCurrentProPaymentRequest: vi.fn(),
   submitManualPaymentProof: vi.fn(),
   submitProviderPaymentForm: vi.fn(),
   toastError: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('@/lib/payments', async (importOriginal) => {
   return {
     ...actual,
     createProPaymentRequest: mocks.createProPaymentRequest,
+    getCurrentProPaymentRequest: mocks.getCurrentProPaymentRequest,
     submitProviderPaymentForm: mocks.submitProviderPaymentForm,
   }
 })
@@ -66,6 +68,7 @@ beforeEach(() => {
     token: 'cookie-session',
     isHydrated: true,
   })
+  mocks.getCurrentProPaymentRequest.mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -79,6 +82,136 @@ afterEach(() => {
 })
 
 describe('pricing payment request flow', () => {
+  it('recovers an existing pending manual payment request on page load', async () => {
+    mocks.getCurrentProPaymentRequest.mockResolvedValue({
+      id: 8,
+      payment_method: 'cashplus',
+      status: 'pending_manual_review',
+      plan: 'pro',
+      amount_centimes: 9900,
+      currency: 'MAD',
+      reference_code: 'KRESCO-CASH-existing',
+      instructions: {
+        title: 'CashPlus',
+        steps: ['Use the recovered reference code.'],
+      },
+      created_at: '2026-06-15T00:00:00Z',
+      expires_at: null,
+    })
+
+    const { container } = renderPricingPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-existing')
+      expect(container.textContent).toContain('Use the recovered reference code.')
+    })
+    expect(mocks.getCurrentProPaymentRequest).toHaveBeenCalledWith(expect.any(Object))
+    expect(mocks.createProPaymentRequest).not.toHaveBeenCalled()
+    const cashPlusButton = Array.from(container.querySelectorAll('button')).find((candidate) =>
+      candidate.textContent?.includes('CashPlus'),
+    )
+    expect(cashPlusButton?.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('recovers a failed current payment as a persistent support state', async () => {
+    mocks.getCurrentProPaymentRequest.mockResolvedValue({
+      id: 9,
+      payment_method: 'bank_transfer',
+      status: 'failed',
+      plan: 'pro',
+      amount_centimes: 9900,
+      currency: 'MAD',
+      reference_code: 'KRESCO-VIR-failed',
+      instructions: {
+        title: 'Virement bancaire',
+      },
+      created_at: '2026-06-15T00:00:00Z',
+      expires_at: null,
+    })
+
+    const { container } = renderPricingPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Paiement non lance')
+      expect(container.textContent).toContain('La derniere tentative de paiement a echoue.')
+      expect(container.textContent).toContain('Methode: Virement')
+    })
+    expect(container.textContent).not.toContain('KRESCO-VIR-failed')
+    expect(mocks.createProPaymentRequest).not.toHaveBeenCalled()
+  })
+
+  it('clears recovered payment state when the verified profile becomes Pro', async () => {
+    mocks.getCurrentProPaymentRequest.mockResolvedValue({
+      id: 10,
+      payment_method: 'bank_transfer',
+      status: 'failed',
+      plan: 'pro',
+      amount_centimes: 9900,
+      currency: 'MAD',
+      reference_code: 'KRESCO-VIR-pro',
+      instructions: {},
+      created_at: '2026-06-15T00:00:00Z',
+      expires_at: null,
+    })
+
+    const { container } = renderPricingPage()
+    await waitFor(() => {
+      expect(container.textContent).toContain('La derniere tentative de paiement a echoue.')
+    })
+
+    await act(async () => {
+      useAuthStore.setState((state) => ({
+        user: state.user ? { ...state.user, is_pro: true } : state.user,
+      }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Vous etes Pro !')
+      expect(container.textContent).not.toContain('La derniere tentative de paiement a echoue.')
+      expect(container.textContent).not.toContain('Paiement non lance')
+    })
+  })
+
+  it('does not leak recovered payment state across non-Pro account changes', async () => {
+    mocks.getCurrentProPaymentRequest
+      .mockResolvedValueOnce({
+        id: 11,
+        payment_method: 'cashplus',
+        status: 'pending_manual_review',
+        plan: 'pro',
+        amount_centimes: 9900,
+        currency: 'MAD',
+        reference_code: 'KRESCO-CASH-user-a',
+        instructions: {
+          title: 'CashPlus',
+          steps: ['User A payment instructions.'],
+        },
+        created_at: '2026-06-15T00:00:00Z',
+        expires_at: null,
+      })
+      .mockResolvedValueOnce(null)
+
+    const { container } = renderPricingPage()
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-user-a')
+    })
+
+    await act(async () => {
+      useAuthStore.setState((state) => ({
+        user: state.user ? { ...state.user, id: 2, email: 'other@example.com', is_pro: false } : state.user,
+      }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    await waitFor(() => {
+      expect(mocks.getCurrentProPaymentRequest).toHaveBeenCalledTimes(2)
+      expect(container.textContent).not.toContain('KRESCO-CASH-user-a')
+      expect(container.textContent).not.toContain('User A payment instructions.')
+      expect(container.textContent).not.toContain('Paiement non lance')
+    })
+  })
+
   it('uses the provider-neutral CMI request path from the launch pricing CTA', async () => {
     mocks.createProPaymentRequest.mockResolvedValue({
       status: 'provider_redirect',
