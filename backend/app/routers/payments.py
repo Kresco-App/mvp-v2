@@ -18,7 +18,7 @@ from app.schemas.payments import (
 )
 from app.services.payment_gateway import (
     approve_manual_payment_transaction,
-    create_pending_manual_payment_request,
+    create_payment_request as create_provider_payment_request,
     list_manual_payment_transactions,
     reject_manual_payment_transaction,
 )
@@ -62,13 +62,15 @@ async def create_payment_request(
     payment_request: PaymentRequestCreateIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ):
     del request
-    return await create_pending_manual_payment_request(
+    return await create_provider_payment_request(
         db,
         user=user,
         payment_method=payment_request.payment_method,
         plan=payment_request.plan,
+        settings=settings,
     )
 
 

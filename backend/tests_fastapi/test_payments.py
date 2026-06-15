@@ -10,12 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session_factory
 from app.models.payments import (
+    PAYMENT_PROVIDER_CMI,
     PAYMENT_RAIL_BANK_TRANSFER,
     PAYMENT_RAIL_CASHPLUS,
+    PAYMENT_RAIL_CMI,
     PAYMENT_STATUS_EXPIRED,
     PAYMENT_STATUS_FAILED,
     PAYMENT_STATUS_PAID,
     PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
+    PAYMENT_STATUS_PENDING_PROVIDER,
     FinanceLedgerEntry,
     PaymentProviderEvent,
     PaymentTransaction,
@@ -25,7 +28,7 @@ from app.models.payments import (
 from app.models.users import User
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 from app.services.auth import AUTH_COOKIE_NAME, create_token
-from app.services import payment_lifecycle
+from app.services import payment_gateway, payment_lifecycle
 from app.services.stripe_service import CheckoutSessionCreation
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -339,6 +342,69 @@ def _install_cookie_session(app_client, test_settings, token: str, user_id: int,
     return csrf_token
 
 
+def _set_cmi_settings(test_settings, **overrides):
+    original = {
+        "cmi_client_id": test_settings.cmi_client_id,
+        "cmi_store_key": test_settings.cmi_store_key,
+        "cmi_payment_url": test_settings.cmi_payment_url,
+        "cmi_ok_url": test_settings.cmi_ok_url,
+        "cmi_fail_url": test_settings.cmi_fail_url,
+        "cmi_callback_url": test_settings.cmi_callback_url,
+    }
+    values = {
+        "cmi_client_id": "cmi-client",
+        "cmi_store_key": "super-secret-store-key",
+        "cmi_payment_url": "https://testpayment.cmi.co.ma/fim/est3Dgate",
+        "cmi_ok_url": "https://app.example.com/payment/cmi/ok",
+        "cmi_fail_url": "https://app.example.com/payment/cmi/fail",
+        "cmi_callback_url": "https://api.example.com/api/payments/cmi/callback",
+        **overrides,
+    }
+    for key, value in values.items():
+        setattr(test_settings, key, value)
+    return original
+
+
+def _restore_settings(test_settings, original: dict[str, str]) -> None:
+    for key, value in original.items():
+        setattr(test_settings, key, value)
+
+
+def test_cmi_form_hash_matches_ver3_fixture(test_settings, monkeypatch):
+    original = _set_cmi_settings(test_settings)
+    monkeypatch.setattr(payment_gateway.secrets, "token_urlsafe", lambda _size: "fixed-rnd")
+    try:
+        form_fields = payment_gateway._cmi_form_fields(
+            settings=test_settings,
+            user=SimpleNamespace(email="cmi-configured@example.com", full_name="Student"),
+            reference_code="KRESCO-CMI-123-FIXEDREF",
+            amount_centimes=9900,
+        )
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert form_fields == {
+        "amount": "99.00",
+        "BillToName": "Student",
+        "callbackUrl": "https://api.example.com/api/payments/cmi/callback",
+        "CallbackResponse": "true",
+        "clientid": "cmi-client",
+        "currency": "504",
+        "email": "cmi-configured@example.com",
+        "encoding": "UTF-8",
+        "failUrl": "https://app.example.com/payment/cmi/fail",
+        "hashAlgorithm": "ver3",
+        "lang": "fr",
+        "oid": "KRESCO-CMI-123-FIXEDREF",
+        "okUrl": "https://app.example.com/payment/cmi/ok",
+        "rnd": "fixed-rnd",
+        "shopurl": "http://localhost:3000/pricing",
+        "storetype": "3D_PAY_HOSTING",
+        "TranType": "PreAuth",
+        "hash": "/Qss9I+dh17bsR/lbaMSWgrcLfPGCWv3bf56NCFx535YuUkGPJA0jmk83ZAlMGsuROg2DTu1XhFOklKZwkp0RQ==",
+    }
+
+
 def test_create_checkout_session_persists_new_customer_id(app_client, auth_token, monkeypatch, run_db):
     import app.routers.payments as payments_router
 
@@ -555,7 +621,7 @@ def test_create_payment_request_reuses_existing_open_manual_request(app_client, 
     assert run_db(_get_user(user_id)).is_pro is False
 
 
-def test_create_payment_request_rejects_cmi_until_adapter_is_configured(app_client, auth_token, run_db):
+def test_create_payment_request_rejects_cmi_when_config_missing(app_client, auth_token, run_db):
     token, user_id = auth_token(email="cmi-not-configured@example.com")
 
     response = app_client.post(
@@ -566,6 +632,135 @@ def test_create_payment_request_rejects_cmi_until_adapter_is_configured(app_clie
 
     assert response.status_code == 503
     assert "CMI payments are not configured yet" in response.text
+    assert run_db(_get_user(user_id)).is_pro is False
+    assert run_db(_payment_transactions_for_user(user_id)) == []
+
+
+def test_create_cmi_payment_request_is_pending_provider_and_does_not_grant_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-configured@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["payment_method"] == PAYMENT_RAIL_CMI
+    assert payload["status"] == PAYMENT_STATUS_PENDING_PROVIDER
+    assert payload["plan"] == "pro"
+    assert payload["amount_centimes"] == 9900
+    assert payload["currency"] == "MAD"
+    assert payload["reference_code"].startswith(f"KRESCO-CMI-{user_id}-")
+    assert payload["instructions"]["action"] == "form_post"
+    assert payload["instructions"]["action_url"] == "https://testpayment.cmi.co.ma/fim/est3Dgate"
+    form_fields = payload["instructions"]["form_fields"]
+    assert form_fields["clientid"] == "cmi-client"
+    assert form_fields["email"] == "cmi-configured@example.com"
+    assert form_fields["oid"] == payload["reference_code"]
+    assert form_fields["amount"] == "99.00"
+    assert form_fields["currency"] == "504"
+    assert form_fields["hashAlgorithm"] == "ver3"
+    assert form_fields["CallbackResponse"] == "true"
+    assert form_fields["TranType"] == "PreAuth"
+    assert form_fields["hash"]
+    assert "super-secret-store-key" not in response.text
+
+    assert run_db(_get_user(user_id)).is_pro is False
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    assert len(transactions) == 1
+    transaction = transactions[0]
+    assert transaction.provider == PAYMENT_PROVIDER_CMI
+    assert transaction.rail == PAYMENT_RAIL_CMI
+    assert transaction.status == PAYMENT_STATUS_PENDING_PROVIDER
+    assert transaction.open_request_key == f"cmi:{user_id}:pro"
+    assert transaction.provider_payload_json["form_fields"]["hash"] == form_fields["hash"]
+    assert "super-secret-store-key" not in str(transaction.provider_payload_json)
+
+
+def test_create_cmi_payment_request_reuses_existing_open_provider_request(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-idempotent@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    body = {"payment_method": "cmi", "plan": "pro"}
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        first = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+        second = app_client.post("/api/payments/payment-requests", json=body, headers=headers)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["reference_code"] == first.json()["reference_code"]
+    assert second.json()["instructions"]["form_fields"]["hash"] == first.json()["instructions"]["form_fields"]["hash"]
+
+    transactions = run_db(_payment_transactions_for_user(user_id))
+    assert len(transactions) == 1
+    assert transactions[0].open_request_key == f"cmi:{user_id}:pro"
+    assert run_db(_get_user(user_id)).is_pro is False
+
+
+def test_create_cmi_payment_request_rejects_non_cmi_gateway_host(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-invalid-gateway@example.com")
+    original = _set_cmi_settings(test_settings, cmi_payment_url="https://payments.example.com/fim/est3Dgate")
+
+    try:
+        response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert response.status_code == 503
+    assert "CMI_PAYMENT_URL must use a CMI gateway host" in response.text
+    assert run_db(_get_user(user_id)).is_pro is False
+    assert run_db(_payment_transactions_for_user(user_id)) == []
+
+
+def test_create_cmi_payment_request_rejects_local_callback_url(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-local-callback@example.com")
+    original = _set_cmi_settings(test_settings, cmi_callback_url="https://localhost/api/payments/cmi/callback")
+
+    try:
+        response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert response.status_code == 503
+    assert "CMI_CALLBACK_URL must be publicly reachable" in response.text
     assert run_db(_get_user(user_id)).is_pro is False
     assert run_db(_payment_transactions_for_user(user_id)) == []
 

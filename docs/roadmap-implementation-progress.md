@@ -406,11 +406,68 @@ Review notes addressed:
 - Add cap-usage ledger drift checks comparing `xp_daily_cap_usage` against
   transaction sums and policy limits.
 
+### Slice 8: CMI Payment Initiation
+
+Status: implemented.
+
+Reason for this slice:
+
+- Stripe is not the launch checkout target, and the CMI card rail needs a real
+  provider-neutral initiation path before callback processing can be tested.
+- The existing payment request endpoint already accepts `cmi`, but previously
+  returned a configured-not-ready error.
+- CMI initiation can be added without granting access, which keeps the risky
+  provider-confirmation boundary isolated for the next payment slice.
+
+Planned backend scope:
+
+- Route `POST /api/payments/payment-requests` through a provider dispatcher.
+  Status: implemented.
+- Keep virement and CashPlus on the existing `pending_manual_review` manual
+  workflow. Status: preserved.
+- Add CMI `pending_provider` transaction creation with unique order/reference
+  codes, CMI form-post fields, and provider payload storage. Status:
+  implemented.
+- Require CMI client id, store key, payment URL, OK URL, fail URL, and callback
+  URL before creating a CMI transaction, and reject unsafe CMI URLs before
+  signing fields. Status: implemented.
+- Keep access locked until a later signed CMI callback confirms the paid state.
+  Status: implemented for initiation.
+
+Decisions:
+
+- Decision: CMI initiation returns signed form-post metadata under the existing
+  payment request response `instructions` payload instead of adding a separate
+  endpoint for v1.
+- Decision: CMI uses its own `pending_provider` open request key
+  `cmi:{user_id}:{plan}` so it cannot interfere with manual request reuse.
+- Decision: CMI initiation stores provider payload data, including form fields
+  and generated hash, but never stores or returns the CMI store key.
+- Decision: CMI initiation uses `TranType=PreAuth` plus
+  `CallbackResponse=true` so card authorization remains aligned with the future
+  callback-confirmation state machine.
+- Decision: CMI initiation rejects non-HTTPS, local/private, and non-CMI
+  payment gateway URLs before returning signed form data to a student.
+- Decision: callback signature validation, amount matching, duplicate provider
+  event handling, and entitlement grant remain a separate slice.
+
+Verification plan:
+
+- Add payment-route tests for missing CMI config, configured CMI initiation,
+  no access grant, provider payload storage, secret omission, and open request
+  reuse.
+- Add a deterministic CMI hash fixture test and unsafe URL rejection tests.
+- Run targeted payment tests and startup/security checks touched by payment
+  settings.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Payment gateway completion: CMI signed callback flow, virement proof and
+1. CMI signed callback completion: provider-event idempotency, callback hash
+   verification, amount/currency/reference matching, mismatch handling, and
+   entitlement grant only after verified success.
+2. Payment gateway completion: virement proof and
    reconciliation workflow, CashPlus/AshPlus cash-agency handling, and removal
    of Stripe from the launch checkout path.
 
