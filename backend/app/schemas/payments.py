@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.models.payments import PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS, PAYMENT_RAIL_CMI
 
 SUPPORTED_PAYMENT_RAILS = {PAYMENT_RAIL_CMI, PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS}
+MANUAL_PAYMENT_RAILS = {PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS}
 
 
 class CheckoutCreateIn(BaseModel):
@@ -85,6 +86,7 @@ class ManualPaymentTransactionOut(BaseModel):
     updated_at: datetime
     expires_at: datetime | None = None
     confirmed_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ManualPaymentReviewIn(BaseModel):
@@ -96,4 +98,47 @@ class ManualPaymentReviewIn(BaseModel):
         normalized = value.strip()
         if len(normalized) < 3:
             raise ValueError("reason is required")
+        return normalized
+
+
+class ManualPaymentProofIn(BaseModel):
+    proof_kind: str = Field(default="receipt", min_length=3, max_length=40)
+    provider_reference: str | None = Field(default=None, max_length=160)
+    proof_url: str | None = Field(default=None, max_length=2000)
+    payer_name: str | None = Field(default=None, max_length=160)
+    paid_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+    @field_validator("proof_kind", "provider_reference", "proof_url", "payer_name", "notes")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class ManualPaymentReconciliationIn(BaseModel):
+    payment_method: str = Field(min_length=1, max_length=40)
+    reference_code: str = Field(min_length=3, max_length=80)
+    amount_centimes: int = Field(gt=0)
+    provider_reference: str = Field(min_length=3, max_length=160)
+    reason: str = Field(min_length=3, max_length=255)
+    collected_at: datetime | None = None
+
+    @field_validator("payment_method")
+    @classmethod
+    def normalize_payment_method(cls, value: str) -> str:
+        normalized = value.strip().lower().replace("-", "_")
+        if normalized not in MANUAL_PAYMENT_RAILS:
+            supported = ", ".join(sorted(MANUAL_PAYMENT_RAILS))
+            raise ValueError(f"payment_method must be one of: {supported}")
+        return normalized
+
+    @field_validator("reference_code", "provider_reference", "reason")
+    @classmethod
+    def normalize_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value is required")
         return normalized

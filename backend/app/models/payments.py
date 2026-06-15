@@ -138,6 +138,44 @@ class PaymentProviderEvent(Base):
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PaymentTransactionProof(Base):
+    __tablename__ = "payment_transaction_proofs"
+    __table_args__ = (
+        UniqueConstraint("transaction_id", "proof_digest", name="uq_payment_transaction_proofs_transaction_digest"),
+        CheckConstraint(
+            "rail IN ('bank_transfer', 'cashplus')",
+            name="ck_payment_transaction_proofs_rail",
+        ),
+        CheckConstraint(
+            "status IN ('submitted', 'reviewed', 'rejected')",
+            name="ck_payment_transaction_proofs_status",
+        ),
+        Index("ix_payment_transaction_proofs_transaction", "transaction_id"),
+        Index("ix_payment_transaction_proofs_user_created", "user_id", "created_at"),
+        Index("ix_payment_transaction_proofs_rail_status", "rail", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    transaction_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("payment_transactions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    rail: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="submitted", server_default="submitted")
+    proof_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    proof_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_reference: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    proof_url: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
+    payer_name: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class FinanceLedgerEntry(Base):
     __tablename__ = "finance_ledger_entries"
     __table_args__ = (

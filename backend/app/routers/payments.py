@@ -10,6 +10,8 @@ from app.rate_limit import limiter
 from app.schemas.payments import (
     CheckoutCreateIn,
     CheckoutOut,
+    ManualPaymentProofIn,
+    ManualPaymentReconciliationIn,
     ManualPaymentReviewIn,
     ManualPaymentTransactionOut,
     PaymentRequestCreateIn,
@@ -22,7 +24,9 @@ from app.services.payment_gateway import (
     create_payment_request as create_provider_payment_request,
     list_manual_payment_transactions,
     process_cmi_callback,
+    reconcile_manual_payment_transaction,
     reject_manual_payment_transaction,
+    submit_manual_payment_proof,
 )
 from app.services.payment_lifecycle import (
     create_checkout_state,
@@ -84,6 +88,40 @@ async def list_manual_payment_requests(
     _staff: User = Depends(get_current_staff_user),
 ):
     return await list_manual_payment_transactions(db, status=status, limit=limit)
+
+
+@router.post("/manual-payment-requests/reconcile", response_model=ManualPaymentTransactionOut)
+@limiter.limit("20/minute")
+async def reconcile_manual_payment_request(
+    request: Request,
+    reconciliation: ManualPaymentReconciliationIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(get_current_staff_user),
+):
+    del request
+    return await reconcile_manual_payment_transaction(
+        db,
+        actor=staff,
+        reconciliation=reconciliation,
+    )
+
+
+@router.post("/manual-payment-requests/{transaction_id}/proof", response_model=ManualPaymentTransactionOut)
+@limiter.limit("10/minute")
+async def submit_manual_payment_request_proof(
+    request: Request,
+    transaction_id: int,
+    proof: ManualPaymentProofIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await submit_manual_payment_proof(
+        db,
+        transaction_id=transaction_id,
+        user=user,
+        proof=proof,
+    )
 
 
 @router.post("/manual-payment-requests/{transaction_id}/approve", response_model=ManualPaymentTransactionOut)

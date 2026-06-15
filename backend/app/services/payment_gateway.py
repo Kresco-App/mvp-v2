@@ -34,9 +34,15 @@ from app.models.payments import (
     PAYMENT_STATUS_PENDING_PROVIDER,
     PaymentProviderEvent,
     PaymentTransaction,
+    PaymentTransactionProof,
 )
 from app.models.users import User
-from app.schemas.payments import ManualPaymentTransactionOut, PaymentRequestOut
+from app.schemas.payments import (
+    ManualPaymentProofIn,
+    ManualPaymentReconciliationIn,
+    ManualPaymentTransactionOut,
+    PaymentRequestOut,
+)
 
 PAYMENT_PLAN_PRICES_CENTIMES = {
     "pro": 9900,
@@ -45,6 +51,10 @@ MANUAL_PAYMENT_RAILS = {PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS}
 MANUAL_PAYMENT_EXPIRY_DAYS = 7
 MANUAL_PAYMENT_EVENT_APPROVED = "manual.approved"
 MANUAL_PAYMENT_EVENT_REJECTED = "manual.rejected"
+MANUAL_PAYMENT_EVENT_PROOF_SUBMITTED = "manual.proof_submitted"
+MANUAL_PAYMENT_EVENT_RECONCILED = "manual.reconciled"
+MANUAL_PAYMENT_EVENT_RECONCILIATION_MISMATCH = "manual.reconciliation_mismatch"
+MANUAL_PAYMENT_EVENT_RECONCILIATION_UNMATCHED = "manual.reconciliation_unmatched"
 CMI_PAYMENT_EXPIRY_MINUTES = 30
 CMI_CURRENCY_CODE_MAD = "504"
 CMI_TRAN_TYPE = "PreAuth"
@@ -357,6 +367,7 @@ async def list_manual_payment_transactions(
         PAYMENT_STATUS_PENDING_MANUAL_REVIEW,
         PAYMENT_STATUS_PAID,
         PAYMENT_STATUS_FAILED,
+        PAYMENT_STATUS_MISMATCH,
     }:
         raise HTTPException(status_code=400, detail="Unsupported manual payment status filter")
 
@@ -370,6 +381,149 @@ async def list_manual_payment_transactions(
         .limit(max(1, min(int(limit), 200)))
     )
     return [manual_payment_transaction_out(transaction) for transaction in result.scalars().all()]
+
+
+async def submit_manual_payment_proof(
+    db: AsyncSession,
+    *,
+    transaction_id: int,
+    user: User,
+    proof: ManualPaymentProofIn,
+) -> ManualPaymentTransactionOut:
+    transaction = await _load_user_manual_transaction_for_update(
+        db,
+        transaction_id=transaction_id,
+        user_id=int(user.id),
+    )
+    if transaction.status != PAYMENT_STATUS_PENDING_MANUAL_REVIEW:
+        raise HTTPException(status_code=409, detail="Manual payment is not pending review")
+
+    now = datetime.now(timezone.utc)
+    if _manual_transaction_is_expired(transaction, now=now):
+        await _expire_manual_transaction(db, transaction=transaction, now=now)
+        raise HTTPException(status_code=409, detail="Manual payment request is expired")
+
+    proof_payload = _manual_proof_payload(proof)
+    proof_digest = _manual_proof_digest(proof_payload)
+    event_id = _manual_proof_event_id(transaction_id=int(transaction.id), proof_digest=proof_digest)
+    existing_event = await _load_provider_event(db, provider=transaction.provider, event_id=event_id)
+    if existing_event is not None:
+        return manual_payment_transaction_out(transaction)
+
+    metadata = dict(transaction.metadata_json or {})
+    proofs = list(metadata.get("proofs") or [])
+    proof_record = {
+        **proof_payload,
+        "submitted_by_user_id": int(user.id),
+        "submitted_at": now.isoformat(),
+        "proof_digest": proof_digest,
+    }
+    proofs.append(proof_record)
+    metadata["proofs"] = proofs
+    metadata["latest_proof_submitted_at"] = now.isoformat()
+    transaction.metadata_json = metadata
+    db.add(
+        PaymentTransactionProof(
+            transaction_id=int(transaction.id),
+            user_id=int(user.id),
+            rail=transaction.rail,
+            status="submitted",
+            proof_kind=proof_payload["proof_kind"],
+            proof_digest=proof_digest,
+            provider_reference=proof_payload.get("provider_reference"),
+            proof_url=proof_payload.get("proof_url"),
+            payer_name=proof_payload.get("payer_name"),
+            paid_at=proof.paid_at,
+            notes=proof_payload.get("notes"),
+            metadata_json={"submitted_by_user_id": int(user.id)},
+        )
+    )
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=transaction.provider,
+            event_id=event_id,
+            event_type=MANUAL_PAYMENT_EVENT_PROOF_SUBMITTED,
+            status="received",
+            payload_json=proof_record,
+        )
+    )
+    await db.commit()
+    await db.refresh(transaction)
+    return manual_payment_transaction_out(transaction)
+
+
+async def reconcile_manual_payment_transaction(
+    db: AsyncSession,
+    *,
+    actor: User,
+    reconciliation: ManualPaymentReconciliationIn,
+) -> ManualPaymentTransactionOut:
+    payment_method = reconciliation.payment_method
+    provider = provider_for_rail(payment_method)
+    event_id = _manual_reconciliation_event_id(
+        provider_reference=reconciliation.provider_reference,
+        reference_code=reconciliation.reference_code,
+    )
+    existing_event = await _load_provider_event(db, provider=provider, event_id=event_id)
+    if existing_event is not None and existing_event.transaction_id is not None:
+        existing_transaction = await db.get(PaymentTransaction, int(existing_event.transaction_id))
+        if existing_transaction is not None:
+            return manual_payment_transaction_out(existing_transaction)
+    if existing_event is not None:
+        raise HTTPException(status_code=409, detail="Reconciliation row was already recorded as unmatched")
+
+    transaction = await _load_manual_transaction_by_reference_for_update(
+        db,
+        payment_method=payment_method,
+        reference_code=reconciliation.reference_code,
+    )
+    now = datetime.now(timezone.utc)
+    if transaction is None:
+        db.add(
+            PaymentProviderEvent(
+                transaction_id=None,
+                provider=provider,
+                event_id=event_id,
+                event_type=MANUAL_PAYMENT_EVENT_RECONCILIATION_UNMATCHED,
+                status="failed",
+                payload_json=_manual_reconciliation_payload(reconciliation, actor=actor),
+                processed_at=now,
+            )
+        )
+        await db.commit()
+        raise HTTPException(status_code=404, detail="Manual payment reference was not found")
+
+    if int(actor.id) == int(transaction.user_id):
+        raise HTTPException(status_code=403, detail="Staff cannot reconcile their own manual payment")
+    if transaction.status == PAYMENT_STATUS_PAID:
+        return manual_payment_transaction_out(transaction)
+    if transaction.status != PAYMENT_STATUS_PENDING_MANUAL_REVIEW:
+        raise HTTPException(status_code=409, detail="Manual payment is not pending review")
+    if _manual_transaction_is_expired(transaction, now=now):
+        await _expire_manual_transaction(db, transaction=transaction, now=now)
+        raise HTTPException(status_code=409, detail="Manual payment request is expired")
+
+    if int(reconciliation.amount_centimes) != int(transaction.amount_centimes):
+        await _mark_manual_transaction_mismatch(
+            db,
+            transaction=transaction,
+            actor=actor,
+            reconciliation=reconciliation,
+            event_id=event_id,
+            now=now,
+        )
+        return manual_payment_transaction_out(transaction)
+
+    await _mark_manual_transaction_reconciled(
+        db,
+        transaction=transaction,
+        actor=actor,
+        reconciliation=reconciliation,
+        event_id=event_id,
+        now=now,
+    )
+    return manual_payment_transaction_out(transaction)
 
 
 async def approve_manual_payment_transaction(
@@ -496,6 +650,7 @@ def manual_payment_transaction_out(transaction: PaymentTransaction) -> ManualPay
         updated_at=transaction.updated_at,
         expires_at=transaction.expires_at,
         confirmed_at=transaction.confirmed_at,
+        metadata=transaction.metadata_json or {},
     )
 
 
@@ -640,6 +795,42 @@ async def _load_manual_transaction_for_update(
     return transaction
 
 
+async def _load_user_manual_transaction_for_update(
+    db: AsyncSession,
+    *,
+    transaction_id: int,
+    user_id: int,
+) -> PaymentTransaction:
+    transaction = await db.scalar(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.id == transaction_id,
+            PaymentTransaction.user_id == user_id,
+            PaymentTransaction.rail.in_(sorted(MANUAL_PAYMENT_RAILS)),
+        )
+        .with_for_update()
+    )
+    if transaction is None:
+        raise HTTPException(status_code=404, detail="Manual payment transaction not found")
+    return transaction
+
+
+async def _load_manual_transaction_by_reference_for_update(
+    db: AsyncSession,
+    *,
+    payment_method: str,
+    reference_code: str,
+) -> PaymentTransaction | None:
+    return await db.scalar(
+        select(PaymentTransaction)
+        .where(
+            PaymentTransaction.rail == payment_method,
+            PaymentTransaction.reference_code == reference_code,
+        )
+        .with_for_update()
+    )
+
+
 def _manual_payment_instructions(
     *,
     payment_method: str,
@@ -674,6 +865,158 @@ def _manual_payment_instructions(
             "Wait for finance confirmation before access is unlocked.",
         ],
     }
+
+
+def _manual_proof_payload(proof: ManualPaymentProofIn) -> dict[str, str | None]:
+    return {
+        "proof_kind": proof.proof_kind or "receipt",
+        "provider_reference": proof.provider_reference,
+        "proof_url": proof.proof_url,
+        "payer_name": proof.payer_name,
+        "paid_at": proof.paid_at.isoformat() if proof.paid_at is not None else None,
+        "notes": proof.notes,
+    }
+
+
+def _manual_proof_digest(proof_payload: dict[str, str | None]) -> str:
+    canonical = "|".join(
+        f"{key}={proof_payload.get(key) or ''}"
+        for key in ("proof_kind", "provider_reference", "proof_url", "payer_name", "paid_at", "notes")
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _manual_proof_event_id(*, transaction_id: int, proof_digest: str) -> str:
+    return f"manual-proof:{transaction_id}:{proof_digest}"
+
+
+def _manual_reconciliation_event_id(*, provider_reference: str, reference_code: str) -> str:
+    del reference_code
+    canonical = provider_reference.strip()
+    return f"manual-reconciliation:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def _manual_reconciliation_payload(
+    reconciliation: ManualPaymentReconciliationIn,
+    *,
+    actor: User,
+) -> dict[str, object]:
+    return {
+        "actor_user_id": int(actor.id),
+        "payment_method": reconciliation.payment_method,
+        "reference_code": reconciliation.reference_code,
+        "amount_centimes": int(reconciliation.amount_centimes),
+        "provider_reference": reconciliation.provider_reference,
+        "reason": reconciliation.reason,
+        "collected_at": reconciliation.collected_at.isoformat() if reconciliation.collected_at is not None else None,
+    }
+
+
+async def _mark_manual_transaction_reconciled(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    actor: User,
+    reconciliation: ManualPaymentReconciliationIn,
+    event_id: str,
+    now: datetime,
+) -> None:
+    transaction.status = PAYMENT_STATUS_PAID
+    transaction.confirmed_at = now
+    transaction.open_request_key = None
+    transaction.provider_reference = reconciliation.provider_reference
+    transaction.metadata_json = {
+        **(transaction.metadata_json or {}),
+        "reconciled_by_user_id": int(actor.id),
+        "reconciliation_reason": reconciliation.reason,
+        "reconciled_at": now.isoformat(),
+        "collected_at": reconciliation.collected_at.isoformat() if reconciliation.collected_at is not None else None,
+    }
+    user = await db.get(User, int(transaction.user_id))
+    if user is None:
+        raise HTTPException(status_code=404, detail="Payment user not found")
+    user.is_pro = True
+    payload = _manual_reconciliation_payload(reconciliation, actor=actor)
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=transaction.provider,
+            event_id=event_id,
+            event_type=MANUAL_PAYMENT_EVENT_RECONCILED,
+            status="processed",
+            payload_json=payload,
+            processed_at=now,
+        )
+    )
+    db.add(
+        FinanceLedgerEntry(
+            transaction_id=int(transaction.id),
+            user_id=int(transaction.user_id),
+            entry_type="payment_confirmed",
+            amount_centimes=int(transaction.amount_centimes),
+            currency=transaction.currency,
+            reason=reconciliation.reason,
+            metadata_json={
+                "actor_user_id": int(actor.id),
+                "rail": transaction.rail,
+                "provider_reference": reconciliation.provider_reference,
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(transaction)
+
+
+async def _mark_manual_transaction_mismatch(
+    db: AsyncSession,
+    *,
+    transaction: PaymentTransaction,
+    actor: User,
+    reconciliation: ManualPaymentReconciliationIn,
+    event_id: str,
+    now: datetime,
+) -> None:
+    transaction.status = PAYMENT_STATUS_MISMATCH
+    transaction.open_request_key = None
+    transaction.provider_reference = reconciliation.provider_reference
+    transaction.metadata_json = {
+        **(transaction.metadata_json or {}),
+        "mismatch_by_user_id": int(actor.id),
+        "mismatch_reason": "Reconciled amount did not match the pending transaction",
+        "expected_amount_centimes": int(transaction.amount_centimes),
+        "received_amount_centimes": int(reconciliation.amount_centimes),
+        "reconciled_at": now.isoformat(),
+    }
+    payload = _manual_reconciliation_payload(reconciliation, actor=actor)
+    db.add(
+        PaymentProviderEvent(
+            transaction_id=int(transaction.id),
+            provider=transaction.provider,
+            event_id=event_id,
+            event_type=MANUAL_PAYMENT_EVENT_RECONCILIATION_MISMATCH,
+            status="failed",
+            payload_json=payload,
+            processed_at=now,
+        )
+    )
+    db.add(
+        FinanceLedgerEntry(
+            transaction_id=int(transaction.id),
+            user_id=int(transaction.user_id),
+            entry_type="payment_mismatch",
+            amount_centimes=0,
+            currency=transaction.currency,
+            reason="Manual reconciliation amount mismatch",
+            metadata_json={
+                "actor_user_id": int(actor.id),
+                "rail": transaction.rail,
+                "provider_reference": reconciliation.provider_reference,
+                "received_amount_centimes": int(reconciliation.amount_centimes),
+            },
+        )
+    )
+    await db.commit()
+    await db.refresh(transaction)
 
 
 def _ensure_cmi_configured(settings: Settings) -> None:

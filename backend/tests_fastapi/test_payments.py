@@ -23,6 +23,7 @@ from app.models.payments import (
     FinanceLedgerEntry,
     PaymentProviderEvent,
     PaymentTransaction,
+    PaymentTransactionProof,
     PaymentVerificationAttempt,
     StripeWebhookEvent,
 )
@@ -146,6 +147,23 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert ledger_indexes["ix_finance_ledger_entries_user_created"] == ("user_id", "created_at")
     assert "ck_finance_ledger_entries_currency" in ledger_constraints
 
+    proof_columns = PaymentTransactionProof.__table__.columns
+    proof_indexes = {
+        index.name: tuple(column.name for column in index.columns)
+        for index in PaymentTransactionProof.__table__.indexes
+    }
+    proof_constraints = {constraint.name for constraint in PaymentTransactionProof.__table__.constraints}
+    assert proof_columns["transaction_id"].nullable is False
+    assert proof_columns["user_id"].nullable is False
+    assert proof_columns["status"].server_default.arg == "submitted"
+    assert proof_columns["proof_digest"].nullable is False
+    assert "uq_payment_transaction_proofs_transaction_digest" in proof_constraints
+    assert "ck_payment_transaction_proofs_rail" in proof_constraints
+    assert "ck_payment_transaction_proofs_status" in proof_constraints
+    assert proof_indexes["ix_payment_transaction_proofs_transaction"] == ("transaction_id",)
+    assert proof_indexes["ix_payment_transaction_proofs_user_created"] == ("user_id", "created_at")
+    assert proof_indexes["ix_payment_transaction_proofs_rail_status"] == ("rail", "status")
+
     migration_text = (
         BACKEND_ROOT / "alembic" / "versions" / "0054_provider_neutral_payment_tables.py"
     ).read_text(encoding="utf-8")
@@ -155,6 +173,13 @@ def test_provider_neutral_payment_models_and_migration_are_declared():
     assert "ck_payment_transactions_status" in migration_text
     assert "payment_provider_events" in migration_text
     assert "finance_ledger_entries" in migration_text
+
+    proof_migration_text = (
+        BACKEND_ROOT / "alembic" / "versions" / "0059_payment_transaction_proofs.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision: Union[str, None] = "0058"' in proof_migration_text
+    assert "payment_transaction_proofs" in proof_migration_text
+    assert "uq_payment_transaction_proofs_transaction_digest" in proof_migration_text
 
 
 def test_webhook_requires_secret(app_client):
@@ -328,6 +353,17 @@ async def _finance_ledger_entries_for_transaction(transaction_id: int) -> list[F
             select(FinanceLedgerEntry)
             .where(FinanceLedgerEntry.transaction_id == transaction_id)
             .order_by(FinanceLedgerEntry.id)
+        )
+        return list(result.scalars().all())
+
+
+async def _payment_proofs_for_transaction(transaction_id: int) -> list[PaymentTransactionProof]:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(
+            select(PaymentTransactionProof)
+            .where(PaymentTransactionProof.transaction_id == transaction_id)
+            .order_by(PaymentTransactionProof.id)
         )
         return list(result.scalars().all())
 
@@ -1479,6 +1515,249 @@ def test_staff_reject_manual_payment_keeps_access_locked_and_allows_retry(
     assert len(ledger_entries) == 1
     assert ledger_entries[0].entry_type == "payment_rejected"
     assert ledger_entries[0].amount_centimes == 0
+
+
+def test_student_submits_manual_payment_proof_without_unlocking_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="manual-proof-student@example.com")
+    headers = {"Authorization": f"Bearer {student_token}"}
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers=headers,
+    )
+    transaction_id = create_response.json()["id"]
+    proof_payload = {
+        "proof_kind": "bank_transfer_receipt",
+        "provider_reference": "VIR-RECEIPT-001",
+        "proof_url": "https://uploads.example.com/proofs/receipt-001.pdf",
+        "payer_name": "Student Parent",
+        "paid_at": "2026-06-15T12:30:00Z",
+        "notes": "Transfer sent from CIH",
+    }
+
+    first_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/proof",
+        json=proof_payload,
+        headers=headers,
+    )
+    duplicate_response = app_client.post(
+        f"/api/payments/manual-payment-requests/{transaction_id}/proof",
+        json=proof_payload,
+        headers=headers,
+    )
+
+    assert first_response.status_code == 200
+    assert duplicate_response.status_code == 200
+    assert first_response.json()["status"] == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert first_response.json()["metadata"]["proofs"][0]["provider_reference"] == "VIR-RECEIPT-001"
+    assert run_db(_get_user(user_id)).is_pro is False
+
+    proofs = run_db(_payment_proofs_for_transaction(transaction_id))
+    assert len(proofs) == 1
+    assert proofs[0].rail == PAYMENT_RAIL_BANK_TRANSFER
+    assert proofs[0].status == "submitted"
+    assert proofs[0].provider_reference == "VIR-RECEIPT-001"
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_type == "manual.proof_submitted"
+    assert events[0].status == "received"
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction_id))) == 0
+
+
+def test_student_cannot_submit_proof_for_another_users_manual_payment(
+    app_client,
+    auth_token,
+):
+    owner_token, _owner_id = auth_token(email="manual-proof-owner@example.com")
+    other_token, _other_id = auth_token(email="manual-proof-other@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+
+    response = app_client.post(
+        f"/api/payments/manual-payment-requests/{create_response.json()['id']}/proof",
+        json={"proof_kind": "cash_receipt", "provider_reference": "CASH-OTHER-001"},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Manual payment transaction not found"
+
+
+def test_staff_reconciles_manual_payment_by_reference_once(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="manual-reconcile-student@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    reference_code = create_response.json()["reference_code"]
+    staff_id = run_db(_seed_staff_user("manual-reconcile-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+    reconciliation_payload = {
+        "payment_method": "cashplus",
+        "reference_code": reference_code,
+        "amount_centimes": 9900,
+        "provider_reference": "CASHPLUS-REPORT-001",
+        "reason": "CashPlus report row matched",
+        "collected_at": "2026-06-15T13:00:00Z",
+    }
+
+    first_response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json=reconciliation_payload,
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    duplicate_response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json=reconciliation_payload,
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert first_response.status_code == 200
+    assert duplicate_response.status_code == 200
+    assert first_response.json()["status"] == PAYMENT_STATUS_PAID
+    assert first_response.json()["provider_reference"] == "CASHPLUS-REPORT-001"
+    assert run_db(_get_user(user_id)).is_pro is True
+
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PAID
+    assert transaction.open_request_key is None
+    assert transaction.metadata_json["reconciled_by_user_id"] == staff_id
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert len(events) == 1
+    assert events[0].event_type == "manual.reconciled"
+    assert events[0].status == "processed"
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert len(ledger_entries) == 1
+    assert ledger_entries[0].entry_type == "payment_confirmed"
+    assert ledger_entries[0].amount_centimes == 9900
+
+
+def test_staff_reconciliation_amount_mismatch_stays_locked_and_filterable(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    student_token, user_id = auth_token(email="manual-reconcile-mismatch@example.com")
+    create_response = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "bank_transfer", "plan": "pro"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    transaction_id = create_response.json()["id"]
+    reference_code = create_response.json()["reference_code"]
+    staff_id = run_db(_seed_staff_user("manual-reconcile-mismatch-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json={
+            "payment_method": "bank_transfer",
+            "reference_code": reference_code,
+            "amount_centimes": 1200,
+            "provider_reference": "BANK-STMT-LOW-AMOUNT",
+            "reason": "Bank statement row imported",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    list_response = app_client.get(
+        "/api/payments/manual-payment-requests?status=mismatch",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == PAYMENT_STATUS_MISMATCH
+    assert run_db(_get_user(user_id)).is_pro is False
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_MISMATCH
+    assert transaction.open_request_key is None
+    assert transaction.metadata_json["expected_amount_centimes"] == 9900
+    assert transaction.metadata_json["received_amount_centimes"] == 1200
+    events = run_db(_payment_provider_events_for_transaction(transaction_id))
+    assert events[0].event_type == "manual.reconciliation_mismatch"
+    assert events[0].status == "failed"
+    ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction_id))
+    assert ledger_entries[0].entry_type == "payment_mismatch"
+    assert list_response.status_code == 200
+    assert any(item["id"] == transaction_id for item in list_response.json())
+
+
+def test_staff_reconciliation_external_reference_cannot_unlock_two_transactions(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    first_token, first_user_id = auth_token(email="manual-reconcile-first@example.com")
+    second_token, second_user_id = auth_token(email="manual-reconcile-second@example.com")
+    first_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {first_token}"},
+    )
+    second_create = app_client.post(
+        "/api/payments/payment-requests",
+        json={"payment_method": "cashplus", "plan": "pro"},
+        headers={"Authorization": f"Bearer {second_token}"},
+    )
+    first_transaction_id = first_create.json()["id"]
+    second_transaction_id = second_create.json()["id"]
+    staff_id = run_db(_seed_staff_user("manual-reconcile-reused-reference-staff@example.com"))
+    staff_token = create_token(staff_id, test_settings)
+
+    first_response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json={
+            "payment_method": "cashplus",
+            "reference_code": first_create.json()["reference_code"],
+            "amount_centimes": 9900,
+            "provider_reference": "CASHPLUS-REUSED-EXT-REF",
+            "reason": "CashPlus report row matched",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    second_response = app_client.post(
+        "/api/payments/manual-payment-requests/reconcile",
+        json={
+            "payment_method": "cashplus",
+            "reference_code": second_create.json()["reference_code"],
+            "amount_centimes": 9900,
+            "provider_reference": "CASHPLUS-REUSED-EXT-REF",
+            "reason": "Same report row attempted against another user",
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+
+    assert first_response.status_code == 200
+    assert first_response.json()["id"] == first_transaction_id
+    assert first_response.json()["status"] == PAYMENT_STATUS_PAID
+    assert second_response.status_code == 200
+    assert second_response.json()["id"] == first_transaction_id
+    assert run_db(_get_user(first_user_id)).is_pro is True
+    assert run_db(_get_user(second_user_id)).is_pro is False
+
+    second_transaction = run_db(_payment_transactions_for_user(second_user_id))[0]
+    assert second_transaction.id == second_transaction_id
+    assert second_transaction.status == PAYMENT_STATUS_PENDING_MANUAL_REVIEW
+    assert len(run_db(_payment_provider_events_for_transaction(first_transaction_id))) == 1
+    assert len(run_db(_finance_ledger_entries_for_transaction(first_transaction_id))) == 1
+    assert len(run_db(_payment_provider_events_for_transaction(second_transaction_id))) == 0
+    assert len(run_db(_finance_ledger_entries_for_transaction(second_transaction_id))) == 0
 
 
 def test_create_payment_request_releases_expired_open_request_for_retry(app_client, auth_token, run_db):

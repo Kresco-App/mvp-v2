@@ -513,13 +513,73 @@ Verification plan:
   invalid-hash replay, callback hash fixture, and CSRF exemption.
 - Run payment, CSRF, startup/security, and secret-hygiene suites.
 
+### Slice 10: Manual Payment Proofs and Reconciliation
+
+Status: implemented.
+
+Reason for this slice:
+
+- Virement bancaire and CashPlus requests need student proof/receipt evidence
+  without granting access from a student-provided value.
+- Finance needs a duplicate-safe reference matching path before a full
+  statement/report import UI exists.
+- CashPlus and future AshPlus/cash-agency variants should share one manual
+  evidence and reconciliation workflow unless a provider contract supplies a
+  signed callback.
+
+Planned backend scope:
+
+- Add queryable payment-proof evidence records for manual payment transactions.
+  Status: implemented as `payment_transaction_proofs`.
+- Add student proof submission for own pending manual payment requests. Status:
+  implemented.
+- Keep proof submission as evidence only; do not grant access or write ledger
+  confirmation from proof alone. Status: implemented.
+- Add staff reconciliation by rail, app reference code, amount, and provider
+  reference. Status: implemented.
+- Mark exact reconciliations as `paid`, append provider event and ledger
+  entries, clear the open request key, and update the current `is_pro`
+  projection. Status: implemented.
+- Mark wrong-amount reconciliations as `mismatch`, append provider event and
+  ledger entries, and keep access locked. Status: implemented.
+
+Decisions:
+
+- Decision: use a first-class `payment_transaction_proofs` table instead of
+  storing proof evidence only inside `PaymentTransaction.metadata_json`.
+- Decision: proof submission records an immutable provider-event style
+  `manual.proof_submitted` event with status `received`, not a finance ledger
+  entry.
+- Decision: duplicate proof submissions are de-duplicated by a stable proof
+  digest per transaction.
+- Decision: staff reconciliation is row-level/manual for v1. Bulk
+  `reconciliation_imports` and imported row tables remain a later slice once
+  the CSV/report formats are known.
+- Decision: reconciliation idempotency consumes the external provider reference
+  for the rail, not the app reference code. Reusing the same CashPlus/bank
+  provider reference against another app transaction returns the existing
+  reconciled transaction and cannot unlock a second student.
+- Decision: `cashplus` remains the concrete cash-agency rail for now. AshPlus
+  should reuse this manual/cash reconciliation model unless its provider
+  contract gives us signed callbacks or a distinct required identifier scheme.
+
+Verification plan:
+
+- Add model and migration declaration tests for the proof table.
+- Add proof submission tests for ownership, duplicate evidence, no ledger, and
+  no access grant.
+- Add reconciliation tests for exact match, duplicate import idempotency,
+  amount mismatch, mismatch filtering, ledger events, and access projection.
+- Run payment, schema-limit, CSRF, startup/security, secret-hygiene, and compile
+  checks.
+
 ## Next Candidate Slices
 
 These may change after subagent reconnaissance.
 
-1. Payment gateway completion: virement proof and
-   reconciliation workflow, CashPlus/AshPlus cash-agency handling, and removal
-   of Stripe from the launch checkout path.
+1. Payment gateway completion: bulk bank/CashPlus reconciliation imports,
+   AshPlus/cash-agency alias handling if needed, minimal payment UI states, and
+   removal of Stripe from the launch checkout path.
 
 ## Open Risks
 
