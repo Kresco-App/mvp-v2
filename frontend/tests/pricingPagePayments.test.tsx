@@ -9,6 +9,7 @@ import { useAuthStore } from '@/lib/store'
 
 const mocks = vi.hoisted(() => ({
   createProPaymentRequest: vi.fn(),
+  submitManualPaymentProof: vi.fn(),
   submitProviderPaymentForm: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
@@ -26,6 +27,10 @@ vi.mock('@/lib/payments', async (importOriginal) => {
     submitProviderPaymentForm: mocks.submitProviderPaymentForm,
   }
 })
+
+vi.mock('@/lib/manualPayments', () => ({
+  submitManualPaymentProof: mocks.submitManualPaymentProof,
+}))
 
 vi.mock('sonner', () => ({
   toast: {
@@ -136,6 +141,145 @@ describe('pricing payment request flow', () => {
     expect(mocks.submitProviderPaymentForm).not.toHaveBeenCalled()
     expect(useAuthStore.getState().user?.is_pro).toBe(false)
   })
+
+  it('submits manual proof metadata from the pending payment panel without granting access', async () => {
+    mocks.createProPaymentRequest.mockResolvedValue({
+      status: 'pending_manual_review',
+      request: {
+        id: 2,
+        payment_method: 'cashplus',
+        status: 'pending_manual_review',
+        plan: 'pro',
+        amount_centimes: 9900,
+        currency: 'MAD',
+        reference_code: 'KRESCO-CASH-2',
+        instructions: {
+          title: 'CashPlus',
+          steps: ['Use the reference code when paying through CashPlus.'],
+        },
+        created_at: '2026-06-15T00:00:00Z',
+        expires_at: null,
+      },
+    })
+    mocks.submitManualPaymentProof.mockResolvedValue({
+      status: 'success',
+      transaction: {
+        id: 2,
+        payment_method: 'cashplus',
+        status: 'pending_manual_review',
+        reference_code: 'KRESCO-CASH-2',
+      },
+    })
+
+    const { container } = renderPricingPage()
+    await clickButton(container, 'CashPlus')
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-2')
+    })
+
+    fillInput(container, '#manual-proof-reference', ' CASH-RECEIPT-1 ')
+    fillInput(container, '#manual-proof-payer', 'Parent Name')
+    fillInput(container, '#manual-proof-url', 'https://uploads.example.com/receipt.pdf')
+    fillInput(container, '#manual-proof-notes', 'Agence Maarif')
+    await clickButton(container, 'Envoyer le justificatif')
+
+    expect(mocks.submitManualPaymentProof).toHaveBeenCalledWith(expect.any(Object), 2, {
+      proof_kind: 'cashplus_receipt',
+      provider_reference: ' CASH-RECEIPT-1 ',
+      proof_url: 'https://uploads.example.com/receipt.pdf',
+      payer_name: 'Parent Name',
+      notes: 'Agence Maarif',
+    })
+    await waitFor(() => {
+      expect(container.textContent).toContain('Justificatif recu')
+    })
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Justificatif envoye.')
+    expect(useAuthStore.getState().user?.is_pro).toBe(false)
+  })
+
+  it('rejects blank manual proof submissions in the pending payment panel', async () => {
+    mocks.createProPaymentRequest.mockResolvedValue({
+      status: 'pending_manual_review',
+      request: {
+        id: 2,
+        payment_method: 'cashplus',
+        status: 'pending_manual_review',
+        plan: 'pro',
+        amount_centimes: 9900,
+        currency: 'MAD',
+        reference_code: 'KRESCO-CASH-2',
+        instructions: {
+          title: 'CashPlus',
+          steps: ['Use the reference code when paying through CashPlus.'],
+        },
+        created_at: '2026-06-15T00:00:00Z',
+        expires_at: null,
+      },
+    })
+
+    const { container } = renderPricingPage()
+    await clickButton(container, 'CashPlus')
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-2')
+    })
+
+    await clickButton(container, 'Envoyer le justificatif')
+
+    expect(mocks.submitManualPaymentProof).not.toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalledWith('Ajoutez une reference ou un lien de justificatif.')
+    expect(useAuthStore.getState().user?.is_pro).toBe(false)
+  })
+
+  it('accepts URL-only manual proof submissions', async () => {
+    mocks.createProPaymentRequest.mockResolvedValue({
+      status: 'pending_manual_review',
+      request: {
+        id: 2,
+        payment_method: 'cashplus',
+        status: 'pending_manual_review',
+        plan: 'pro',
+        amount_centimes: 9900,
+        currency: 'MAD',
+        reference_code: 'KRESCO-CASH-2',
+        instructions: {
+          title: 'CashPlus',
+          steps: ['Use the reference code when paying through CashPlus.'],
+        },
+        created_at: '2026-06-15T00:00:00Z',
+        expires_at: null,
+      },
+    })
+    mocks.submitManualPaymentProof.mockResolvedValue({
+      status: 'success',
+      transaction: {
+        id: 2,
+        payment_method: 'cashplus',
+        status: 'pending_manual_review',
+        reference_code: 'KRESCO-CASH-2',
+      },
+    })
+
+    const { container } = renderPricingPage()
+    await clickButton(container, 'CashPlus')
+    await clickButton(container, "Acheter l'acces Pro - 99 MAD")
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-CASH-2')
+    })
+
+    fillInput(container, '#manual-proof-url', 'https://uploads.example.com/receipt.pdf')
+    await clickButton(container, 'Envoyer le justificatif')
+
+    expect(mocks.submitManualPaymentProof).toHaveBeenCalledWith(expect.any(Object), 2, {
+      proof_kind: 'cashplus_receipt',
+      provider_reference: '',
+      proof_url: 'https://uploads.example.com/receipt.pdf',
+      payer_name: '',
+      notes: '',
+    })
+    expect(useAuthStore.getState().user?.is_pro).toBe(false)
+  })
 })
 
 function renderPricingPage() {
@@ -159,6 +303,20 @@ async function clickButton(container: HTMLElement, name: string) {
   await act(async () => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+function fillInput(container: HTMLElement, selector: string, value: string) {
+  const field = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)
+  if (!field) throw new Error(`Field not found: ${selector}`)
+  const prototype = field instanceof HTMLTextAreaElement
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype
+  const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
+  act(() => {
+    valueSetter?.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+    field.dispatchEvent(new Event('change', { bubbles: true }))
   })
 }
 

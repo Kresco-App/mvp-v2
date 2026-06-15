@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { CheckCircle2, Crown, Zap, BookOpen, Award, ArrowLeft, CreditCard, Landmark, Store, Receipt } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 import { apiJsonClient } from '@/lib/apiClient'
 import { localizedCopy } from '@/lib/localization'
+import { submitManualPaymentProof } from '@/lib/manualPayments'
 import {
   DEFAULT_PAYMENT_METHOD,
   createProPaymentRequest,
@@ -29,9 +30,24 @@ export default function PricingPage() {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(DEFAULT_PAYMENT_METHOD)
   const [pendingRequest, setPendingRequest] = useState<PaymentRequest | null>(null)
   const [isCreatingPayment, setIsCreatingPayment] = useState(false)
+  const [proofReference, setProofReference] = useState('')
+  const [proofPayerName, setProofPayerName] = useState('')
+  const [proofUrl, setProofUrl] = useState('')
+  const [proofNotes, setProofNotes] = useState('')
+  const [isSubmittingProof, setIsSubmittingProof] = useState(false)
+  const [proofSubmitted, setProofSubmitted] = useState(false)
+
+  function clearProofForm() {
+    setProofReference('')
+    setProofPayerName('')
+    setProofUrl('')
+    setProofNotes('')
+    setProofSubmitted(false)
+  }
 
   async function handlePaymentRequest() {
     setIsCreatingPayment(true)
+    clearProofForm()
     const result = await createProPaymentRequest(apiJsonClient, selectedPaymentMethod)
     setIsCreatingPayment(false)
 
@@ -43,6 +59,34 @@ export default function PricingPage() {
     if (result.status === 'pending_manual_review') {
       setPendingRequest(result.request)
       toast.success(pricingCopy.pendingToast)
+      return
+    }
+
+    toast.error(result.message)
+  }
+
+  async function handleProofSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!pendingRequest || isSubmittingProof) return
+
+    if (!proofReference.trim() && !proofUrl.trim()) {
+      toast.error(pricingCopy.proofRequired)
+      return
+    }
+
+    setIsSubmittingProof(true)
+    const result = await submitManualPaymentProof(apiJsonClient, pendingRequest.id, {
+      proof_kind: `${pendingRequest.payment_method}_receipt`,
+      provider_reference: proofReference,
+      proof_url: proofUrl,
+      payer_name: proofPayerName,
+      notes: proofNotes,
+    })
+    setIsSubmittingProof(false)
+
+    if (result.status === 'success') {
+      setProofSubmitted(true)
+      toast.success(pricingCopy.proofSubmitted)
       return
     }
 
@@ -156,6 +200,7 @@ export default function PricingPage() {
                             onClick={() => {
                               setSelectedPaymentMethod(method.value)
                               setPendingRequest(null)
+                              clearProofForm()
                             }}
                             className={`rounded-xl border px-3 py-3 text-left transition-colors ${
                               isSelected
@@ -196,6 +241,66 @@ export default function PricingPage() {
                         ))}
                       </ul>
                     ) : null}
+                    <form onSubmit={handleProofSubmit} className="mt-4 space-y-3 text-left">
+                      <div>
+                        <label htmlFor="manual-proof-reference" className="block text-xs font-semibold text-amber-100">
+                          {pricingCopy.proofReference}
+                        </label>
+                        <input
+                          id="manual-proof-reference"
+                          value={proofReference}
+                          onChange={(event) => setProofReference(event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          placeholder={pricingCopy.proofReferencePlaceholder}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="manual-proof-payer" className="block text-xs font-semibold text-amber-100">
+                          {pricingCopy.proofPayerName}
+                        </label>
+                        <input
+                          id="manual-proof-payer"
+                          value={proofPayerName}
+                          onChange={(event) => setProofPayerName(event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          placeholder={pricingCopy.proofPayerNamePlaceholder}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="manual-proof-url" className="block text-xs font-semibold text-amber-100">
+                          {pricingCopy.proofUrl}
+                        </label>
+                        <input
+                          id="manual-proof-url"
+                          value={proofUrl}
+                          onChange={(event) => setProofUrl(event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          placeholder={pricingCopy.proofUrlPlaceholder}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="manual-proof-notes" className="block text-xs font-semibold text-amber-100">
+                          {pricingCopy.proofNotes}
+                        </label>
+                        <textarea
+                          id="manual-proof-notes"
+                          value={proofNotes}
+                          onChange={(event) => setProofNotes(event.target.value)}
+                          className="mt-1 min-h-20 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          placeholder={pricingCopy.proofNotesPlaceholder}
+                        />
+                      </div>
+                      {proofSubmitted ? (
+                        <p className="text-xs font-semibold text-emerald-300">{pricingCopy.proofSubmittedStatus}</p>
+                      ) : null}
+                      <button
+                        type="submit"
+                        disabled={isSubmittingProof || proofSubmitted}
+                        className="w-full rounded-xl bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-amber-300 disabled:bg-slate-700 disabled:text-slate-400"
+                      >
+                        {isSubmittingProof ? pricingCopy.proofSubmitting : pricingCopy.proofSubmit}
+                      </button>
+                    </form>
                   </div>
                 ) : null}
 

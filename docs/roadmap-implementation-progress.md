@@ -800,6 +800,57 @@ Verification plan:
 - Strong review found proxy-auth, duplicate profile-refresh, and refresh-action
   issues; all were fixed, and follow-up review found no new high/medium issues.
 
+### Slice 15: Manual Payment Proof Submission UI
+
+Status: implemented.
+
+Reason for this slice:
+
+- The backend already supports student proof submission for virement, CashPlus,
+  and AshPlus, but the pricing pending-payment panel only showed instructions.
+- Students need a minimal way to submit receipt/reference metadata while access
+  remains locked until finance/provider confirmation.
+
+Planned frontend scope:
+
+- Add a manual payment proof client for
+  `POST /payments/manual-payment-requests/{transaction_id}/proof`. Status:
+  implemented.
+- Add a compact proof form inside the existing manual pending-payment panel.
+  Status: implemented.
+- Require at least a receipt/reference or proof URL in the UI. Status:
+  implemented.
+- Keep proof submission as pending/manual review; do not mutate `is_pro`.
+  Status: implemented.
+
+Decisions:
+
+- Decision: v1 proof submission accepts receipt/reference text and optional
+  proof URL, payer name, and notes. It does not upload files because the backend
+  proof contract is JSON metadata, not multipart media.
+- Decision: proof kind is generated from the selected manual rail, e.g.
+  `cashplus_receipt`, so finance can filter proof context without student
+  choosing internal labels.
+- Decision: after proof submission, the student sees a submitted state, but
+  access remains controlled by finance approval or reconciliation.
+
+Verification plan:
+
+- Add helper tests for normalized proof payloads and backend error handling.
+  Status: implemented.
+- Add pricing-page tests proving proof submission calls the manual proof helper
+  and leaves `is_pro=false`, including blank-submit rejection and URL-only
+  proof acceptance. Status: implemented.
+- Extend the provider-neutral purchase e2e smoke to submit CashPlus proof and
+  assert the response remains `pending_manual_review`. Status: implemented.
+- Run targeted proof/pricing tests, TypeScript checks, and lint. Status:
+  implemented.
+- Strong review found no blocking issues. It requested URL-only and blank-proof
+  UI coverage; both tests were added. Status: implemented.
+- The targeted integration e2e build passed, but the Playwright web server did
+  not start because the existing backend e2e seed imports missing
+  `app.routers.users._hash_password`. Status: blocked by unrelated baseline.
+
 ## Open Risks
 
 - The worktree contains a large accepted baseline. New commits must keep the
