@@ -32,7 +32,10 @@ async def _permission_audits_for_permission(permission_id: int) -> list[AdminAud
     async with session_factory() as db:
         result = await db.execute(
             select(AdminAuditLog)
-            .where(AdminAuditLog.object_pk == str(permission_id))
+            .where(
+                AdminAuditLog.model_name == "UserPermission",
+                AdminAuditLog.object_pk == str(permission_id),
+            )
             .order_by(AdminAuditLog.id.asc())
         )
         return list(result.scalars().all())
@@ -233,13 +236,14 @@ def test_admin_permission_management_requires_roles_manage(app_client, run_db, t
             )
             await db.commit()
             return (
+                manager.id,
                 staff.id,
                 create_token(student.id, test_settings),
                 create_token(staff.id, test_settings),
                 create_token(manager.id, test_settings),
             )
 
-    staff_id, student_token, staff_token, manager_token = run_db(_seed())
+    manager_id, staff_id, student_token, staff_token, manager_token = run_db(_seed())
 
     student_response = app_client.get(
         "/api/admin/permissions",
@@ -250,7 +254,7 @@ def test_admin_permission_management_requires_roles_manage(app_client, run_db, t
         headers={"Authorization": f"Bearer {staff_token}"},
     )
     manager_response = app_client.get(
-        "/api/admin/permissions",
+        f"/api/admin/permissions?user_id={manager_id}",
         headers={"Authorization": f"Bearer {manager_token}"},
     )
     grant_response = app_client.post(

@@ -12,7 +12,7 @@ from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.config import Settings
 from app.security.csrf import AdminCSRFMiddleware
-from app.models.users import User
+from app.models.users import User, UserPermission
 from app.services.auth_account import authenticate_password_login
 from app.services.auth_users import get_user_by_email
 
@@ -67,6 +67,21 @@ async def _write_admin_auth_audit(
 
 async def _skip_professor_offering_check(_db, _user) -> None:
     return None
+
+
+async def _has_sqladmin_access(db, user: User) -> bool:
+    if user.is_superuser:
+        return True
+    result = await db.execute(
+        select(UserPermission.id)
+        .where(
+            UserPermission.user_id == int(user.id),
+            UserPermission.permission == "sqladmin:access",
+            UserPermission.status == "active",
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
 
 
 class StaffAdminAuth(AuthenticationBackend):
@@ -137,6 +152,16 @@ class StaffAdminAuth(AuthenticationBackend):
                     reason="invalid_credentials_or_staff_boundary",
                 )
                 return False
+            if not await _has_sqladmin_access(db, user):
+                await _write_admin_auth_audit(
+                    request,
+                    action="admin_login",
+                    user=user,
+                    email=email,
+                    success=False,
+                    reason="sqladmin_access_required",
+                )
+                return False
 
             user.last_login = datetime.now(timezone.utc)
             await db.commit()
@@ -200,5 +225,7 @@ class StaffAdminAuth(AuthenticationBackend):
             if user is None:
                 return None
             if (user.auth_token_version or 0) != session_token_version:
+                return None
+            if not await _has_sqladmin_access(db, user):
                 return None
             return user

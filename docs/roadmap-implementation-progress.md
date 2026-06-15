@@ -2625,6 +2625,60 @@ Verification completed:
   passed: 121 tests.
 - `python -m compileall app` passed.
 
+### Slice 47: SQLAdmin Access Boundary
+
+Status: committed.
+
+Reason for this slice:
+
+- The roadmap says SQLAdmin must be emergency/raw-table tooling, not daily
+  broad staff backoffice access.
+- Slice 46 added the `sqladmin:access` permission and grant/revoke API, so the
+  smallest next step is to enforce that permission at the existing `/admin`
+  boundary.
+- This closes the gap where any active verified staff user could reach
+  SQLAdmin without the narrower emergency permission.
+
+Implemented scope:
+
+- Changed SQLAdmin login to require active verified staff plus either
+  `is_superuser` or active `sqladmin:access`. Status: implemented.
+- Changed SQLAdmin session validation to re-check `sqladmin:access` on every
+  authenticated request, so revoking the permission invalidates the session.
+  Status: implemented.
+- Kept existing SQLAdmin CSRF, token-version, active-user, email verification,
+  and staff-status checks intact. Status: implemented.
+
+Decisions:
+
+- Decision: superusers remain implicit SQLAdmin users. This matches the
+  roadmap's super-admin emergency access requirement and the existing
+  `user_has_permission` superuser compatibility behavior.
+- Decision: ordinary staff should not receive SQLAdmin access by default.
+  Tests now seed `sqladmin:access` explicitly where SQLAdmin login is intended.
+- Decision: no SQLAdmin UI changes in this slice; the login form remains the
+  existing SQLAdmin surface.
+
+Verification plan:
+
+- Add tests proving plain staff cannot log into SQLAdmin, permitted staff can,
+  and superusers can. Status: implemented.
+- Add a test proving an existing SQLAdmin session is revoked after
+  `sqladmin:access` is revoked. Status: implemented.
+- Run focused SQLAdmin auth tests, compile check, broader impacted tests, and
+  strong review before committing. Status: pending.
+
+Verification completed:
+
+- `python -m pytest tests_fastapi/test_sqladmin_auth.py -q` passed: 18 tests.
+- `python -m pytest tests_fastapi/test_admin_overview.py tests_fastapi/test_sqladmin_auth.py -q`
+  passed: 33 tests.
+- `python -m pytest tests_fastapi/test_sqladmin_auth.py tests_fastapi/test_admin_overview.py tests_fastapi/test_payments.py tests_fastapi/test_migrations.py -q`
+  passed: 139 tests.
+- `python -m compileall app` passed.
+- Strong review found no blocking security or correctness issues. A stale
+  open-risk wording issue was corrected before commit.
+
 ## Open Risks
 
 - Existing payment code and tests are Stripe-oriented. The first gateway slice
@@ -2632,5 +2686,6 @@ Verification completed:
   inconsistently.
 - Refund provider execution remains intentionally deferred money-mutation work.
 - Permission checks are still per-user grants rather than role bundles. Role
-  bundles, role-management UI, SQLAdmin permission replacement, and richer
-  permission audit dashboards remain intentionally deferred.
+  bundles, role-management UI, SQLAdmin daily-use replacement with dedicated
+  backoffice screens, and richer permission audit dashboards remain
+  intentionally deferred.

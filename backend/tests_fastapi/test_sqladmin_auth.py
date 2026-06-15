@@ -10,7 +10,7 @@ from app.admin.views import LiveSessionAdmin, SENSITIVE_COLUMN_NAMES, UserAdmin
 from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.security.csrf import ADMIN_CSRF_COOKIE_NAME, ADMIN_CSRF_FIELD_NAME
-from app.models.users import User
+from app.models.users import User, UserPermission
 from app.security.passwords import hash_password
 
 
@@ -46,6 +46,16 @@ async def _seed_admin_auth_users(prefix: str) -> dict[str, int | str]:
             password=hash_password(STAFF_PASSWORD),
         )
         db.add_all([staff, student])
+        await db.flush()
+        db.add(
+            UserPermission(
+                user_id=staff.id,
+                permission="sqladmin:access",
+                status="active",
+                reason="seed sqladmin auth test",
+                granted_by_user_id=staff.id,
+            )
+        )
         await db.commit()
         await db.refresh(staff)
         await db.refresh(student)
@@ -111,6 +121,69 @@ def test_sqladmin_login_delegates_password_authentication_to_account_service():
     assert "verify_password(" not in source
     assert "verify_password_async(" not in source
     assert "is_unusable_password(" not in source
+
+
+def test_sqladmin_login_requires_superuser_or_sqladmin_access(app_client, run_db):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            plain_staff = User(
+                email="sqladmin-boundary-plain@example.com",
+                full_name="Plain Staff",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+                password=hash_password(STAFF_PASSWORD),
+            )
+            permitted_staff = User(
+                email="sqladmin-boundary-permitted@example.com",
+                full_name="Permitted Staff",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+                password=hash_password(STAFF_PASSWORD),
+            )
+            superuser = User(
+                email="sqladmin-boundary-superuser@example.com",
+                full_name="Super Admin",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+                is_superuser=True,
+                password=hash_password(STAFF_PASSWORD),
+            )
+            db.add_all([plain_staff, permitted_staff, superuser])
+            await db.flush()
+            db.add(
+                UserPermission(
+                    user_id=permitted_staff.id,
+                    permission="sqladmin:access",
+                    status="active",
+                    reason="sqladmin boundary",
+                    granted_by_user_id=superuser.id,
+                )
+            )
+            await db.commit()
+            return {
+                "plain_email": plain_staff.email,
+                "permitted_email": permitted_staff.email,
+                "superuser_email": superuser.email,
+            }
+
+    users = run_db(_seed())
+
+    plain_response = _admin_login(app_client, str(users["plain_email"]))
+    assert plain_response.status_code == 400
+    failed_audit = run_db(_latest_admin_audit("admin_login", str(users["plain_email"])))
+    assert failed_audit is not None
+    assert failed_audit.changed_data["reason"] == "sqladmin_access_required"
+
+    permitted_response = _admin_login(app_client, str(users["permitted_email"]))
+    assert permitted_response.status_code == 302
+    app_client.cookies.clear()
+
+    superuser_response = _admin_login(app_client, str(users["superuser_email"]))
+    assert superuser_response.status_code == 302
 
 
 def test_sqladmin_hides_sensitive_columns_from_read_and_export_surfaces():
@@ -186,6 +259,33 @@ def test_sqladmin_session_revokes_when_staff_status_changes(app_client, run_db):
             await db.commit()
 
     run_db(_revoke_staff())
+
+    response = app_client.get("/admin/", follow_redirects=False)
+    assert response.status_code == 302
+    assert "/admin/login" in response.headers["location"]
+
+
+def test_sqladmin_session_revokes_when_sqladmin_permission_changes(app_client, run_db):
+    users = run_db(_seed_admin_auth_users("sqladmin-permission-revoke"))
+
+    login = _admin_login(app_client, str(users["staff_email"]))
+    assert login.status_code == 302
+    assert app_client.get("/admin/").status_code == 200
+
+    async def _revoke_permission():
+        session_factory = get_session_factory()
+        async with session_factory() as db:  # type: AsyncSession
+            result = await db.execute(
+                select(UserPermission).where(
+                    UserPermission.user_id == int(users["staff_id"]),
+                    UserPermission.permission == "sqladmin:access",
+                )
+            )
+            permission = result.scalar_one()
+            permission.status = "revoked"
+            await db.commit()
+
+    run_db(_revoke_permission())
 
     response = app_client.get("/admin/", follow_redirects=False)
     assert response.status_code == 302
