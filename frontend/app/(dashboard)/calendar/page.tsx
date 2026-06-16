@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { getJson } from '@/lib/apiClient'
 import { useNotificationChannelsSubscription } from '@/hooks/useNotificationChannelsSubscription'
@@ -65,7 +65,8 @@ export default function CalendarPage() {
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index)), [selectedWeekStart])
   const weekEvents = useMemo(() => eventsForWeek(events, selectedWeekStart), [events, selectedWeekStart])
   const calendarTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', [])
-  const firstName = user?.full_name?.split(' ')?.[0] || 'Student'
+  const weekRangeLabel = useMemo(() => formatWeekRange(weekDays), [weekDays])
+  const weekSummary = weekEvents.length === 1 ? '1 scheduled item' : `${weekEvents.length} scheduled items`
 
   useEffect(() => {
     if (!requestedEventId) return
@@ -160,19 +161,26 @@ export default function CalendarPage() {
     <div className="figma-container pb-[120px]">
       <div className="figma-dashboard-grid calendar-page-grid">
         <main className="min-w-0 pt-11">
-          <header className="mb-8">
-            <h1 className="m-0 text-[24px] font-bold leading-[1.4] tracking-[0.24px] text-[#3f3f46]">
-              Hello {firstName}!
-            </h1>
-            <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">
-              Wanna complete where we left off last time?
-            </p>
+          <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <p className="m-0 mb-1 text-[12px] font-black uppercase tracking-[0.12em] text-[#5b60f9]">Schedule</p>
+              <h1 className="m-0 text-[24px] font-bold leading-[1.25] tracking-[0.24px] text-[#3f3f46]">
+                Your week at a glance
+              </h1>
+              <p className="m-0 mt-1 text-[15px] font-bold leading-[1.3] tracking-[0.12px] text-[#9f9fa9]">
+                {weekRangeLabel} - {weekSummary}
+              </p>
+            </div>
+            <div className="flex h-11 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-[#f8f9fc] px-3 text-[13px] font-black text-[#52525c]">
+              <CalendarDays size={17} className="text-[#5b60f9]" />
+              Weekly planner
+            </div>
           </header>
 
           <section className="w-full bg-white" aria-label="Weekly calendar">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#71717b]">
-                {formatWeekRange(weekDays)}
+                {weekRangeLabel}
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => moveWeek(-1)} className="grid h-9 w-9 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#52525c]">
@@ -223,9 +231,26 @@ export default function CalendarPage() {
                       />
                     ))}
                     {!loading && weekEvents.length === 0 && (
-                      <div className="pointer-events-none absolute inset-x-4 top-20 z-10 rounded-[12px] border-2 border-dashed border-[#d4d4d8] bg-white/90 px-5 py-4 text-center">
-                        <p className="m-0 text-[14px] font-black text-[#52525c]">No events scheduled this week.</p>
-                        <p className="m-0 mt-1 text-[12px] font-bold text-[#9f9fa9]">Use the arrows to browse another week.</p>
+                      <div className="absolute inset-x-4 top-16 z-10 rounded-[14px] border border-[#dfe2ea] bg-white px-5 py-4 text-left shadow-[0_14px_35px_rgba(24,24,27,0.08)] max-[640px]:inset-x-2 max-[640px]:top-10">
+                        <div className="flex items-start gap-3">
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#eef2ff] text-[#5b60f9]">
+                            <CalendarDays size={20} strokeWidth={2.6} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 text-[15px] font-black leading-[1.25] text-[#3f3f46]">No scheduled sessions this week</p>
+                            <p className="m-0 mt-1 max-w-[420px] text-[12px] font-bold leading-[1.35] text-[#71717b]">
+                              Your calendar is clear for this range. Jump back to today or browse nearby weeks for live sessions and study blocks.
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button type="button" onClick={() => setSelectedDate(startOfDay(new Date()))} className="h-9 rounded-[10px] border border-[#e4e4e7] bg-[#5b60f9] px-3 text-[12px] font-black text-white">
+                                Today
+                              </button>
+                              <button type="button" onClick={() => moveWeek(1)} className="h-9 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c]">
+                                Next week
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                     {loading && (

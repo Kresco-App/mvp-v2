@@ -246,7 +246,7 @@ def test_season_leaderboard_uses_signed_xp_window_and_search(
         session_factory = get_session_factory()
         async with session_factory() as db:
             current = await db.get(User, current_user_id)
-            current.full_name = "Season Current"
+            current.full_name = "Season Current UniqueTarget"
             db.add(UserXP(user_id=current_user_id, total_xp=300, streak_days=2))
 
             leader = User(
@@ -349,7 +349,7 @@ def test_season_leaderboard_uses_signed_xp_window_and_search(
         headers=headers,
     )
     search_response = app_client.get(
-        "/api/progress/leaderboard/seasons?season=weekly&search=Current",
+        "/api/progress/leaderboard/seasons?season=weekly&search=UniqueTarget",
         headers=headers,
     )
     invalid_response = app_client.get(

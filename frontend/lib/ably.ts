@@ -13,6 +13,7 @@ export type RealtimeSubscriptionsResponse = {
 }
 
 let realtimeClient: Ably.Realtime | null = null
+let realtimeMisconfiguredForSession = false
 
 type RealtimeFallback = {
   intervalMs: number
@@ -71,7 +72,15 @@ function createRealtimeFallbackPoller(
 }
 
 export function isKrescoRealtimeEnabled() {
-  return process.env.NEXT_PUBLIC_ABLY_ENABLED !== 'false'
+  if (realtimeMisconfiguredForSession) return false
+  const flag = process.env.NEXT_PUBLIC_ABLY_ENABLED
+  if (flag !== undefined) return flag === 'true'
+  return process.env.NODE_ENV === 'production'
+}
+
+function isRealtimeMisconfigurationError(error: unknown) {
+  const responseStatus = (error as { response?: { status?: unknown } })?.response?.status
+  return responseStatus === 503
 }
 
 function authErrorMessage(error: unknown): string {
@@ -108,6 +117,12 @@ export function getKrescoRealtime(): Ably.Realtime | null {
           const data = await getJson<AblyTokenResponse>('/realtime/ably-token')
           callback(null, data.token)
         } catch (error) {
+          if (isRealtimeMisconfigurationError(error)) {
+            realtimeMisconfiguredForSession = true
+            const client = realtimeClient
+            realtimeClient = null
+            client?.close()
+          }
           callback(authErrorMessage(error), null)
         }
       },

@@ -105,6 +105,54 @@ describe('Ably channel naming', () => {
     expect(source).not.toContain('.catch(() => undefined)')
   })
 
+  it('keeps local realtime opt-in when the public flag is omitted', async () => {
+    delete process.env.NEXT_PUBLIC_ABLY_ENABLED
+    vi.resetModules()
+
+    const { isKrescoRealtimeEnabled } = await import('@/lib/ably')
+
+    expect(isKrescoRealtimeEnabled()).toBe(false)
+  })
+
+  it('disables realtime retries for the session after token service misconfiguration', async () => {
+    process.env.NEXT_PUBLIC_ABLY_ENABLED = 'true'
+    stubBrowserTimers()
+    vi.resetModules()
+
+    const closeMock = vi.fn()
+    type AuthCallback = (
+      tokenParams: unknown,
+      callback: (error: string | null, token: string | null) => void,
+    ) => Promise<void>
+    const authCallbackRef: { current?: AuthCallback } = {}
+    vi.doMock('@/lib/apiClient', () => ({
+      getJson: vi.fn(() => Promise.reject({ response: { status: 503 } })),
+    }))
+    vi.doMock('ably', () => ({
+      Realtime: class {
+        auth = { authorize: vi.fn() }
+        channels = { get: vi.fn() }
+        close = closeMock
+        connection = { off: vi.fn(), on: vi.fn(), state: 'connecting' }
+
+        constructor(options: { authCallback: AuthCallback }) {
+          authCallbackRef.current = options.authCallback
+        }
+      },
+    }))
+
+    const { getKrescoRealtime, isKrescoRealtimeEnabled } = await import('@/lib/ably')
+    expect(getKrescoRealtime()).not.toBeNull()
+
+    const registeredAuthCallback = authCallbackRef.current
+    if (!registeredAuthCallback) throw new Error('Ably auth callback was not registered')
+    await registeredAuthCallback({}, vi.fn())
+
+    expect(closeMock).toHaveBeenCalledTimes(1)
+    expect(isKrescoRealtimeEnabled()).toBe(false)
+    expect(getKrescoRealtime()).toBeNull()
+  })
+
   it('supports fallback polling for multi-channel subscriptions', () => {
     const source = readFileSync(resolve(process.cwd(), 'lib/ably.ts'), 'utf8')
     const helperStart = source.indexOf('export function subscribeKrescoRealtimeChannels')

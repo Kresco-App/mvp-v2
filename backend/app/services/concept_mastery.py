@@ -321,18 +321,33 @@ async def _upsert_concept_mastery_deltas_fallback(
     deltas: list[_ConceptDelta],
     practiced_at: datetime,
 ) -> None:
-    for delta in deltas:
+    active_deltas = [delta for delta in deltas if delta.attempts_count > 0]
+    if not active_deltas:
+        return
+    row_filters = [
+        and_(
+            UserConceptMastery.context_key == delta.context_key,
+            UserConceptMastery.concept_slug == delta.concept_slug,
+        )
+        for delta in active_deltas
+    ]
+    result = await db.execute(
+        select(UserConceptMastery)
+        .where(
+            UserConceptMastery.user_id == user_id,
+            or_(*row_filters),
+        )
+        .with_for_update()
+    )
+    rows_by_key = {
+        (row.context_key, row.concept_slug): row
+        for row in result.scalars().all()
+    }
+
+    for delta in active_deltas:
         if delta.attempts_count <= 0:
             continue
-        row = await db.scalar(
-            select(UserConceptMastery)
-            .where(
-                UserConceptMastery.user_id == user_id,
-                UserConceptMastery.context_key == delta.context_key,
-                UserConceptMastery.concept_slug == delta.concept_slug,
-            )
-            .with_for_update()
-        )
+        row = rows_by_key.get((delta.context_key, delta.concept_slug))
         if row is None:
             row = UserConceptMastery(
                 user_id=user_id,
@@ -342,6 +357,7 @@ async def _upsert_concept_mastery_deltas_fallback(
                 concept_slug=delta.concept_slug,
             )
             db.add(row)
+            rows_by_key[(delta.context_key, delta.concept_slug)] = row
         row.subject_id = delta.subject_id if delta.subject_id is not None else row.subject_id
         row.topic_id = delta.topic_id if delta.topic_id is not None else row.topic_id
         row.attempts_count += delta.attempts_count

@@ -904,6 +904,7 @@
         </thead>
         <tbody>
           <tr><td>Current state</td><td>Decent for MVP. Backend owns most critical rules: auth, access, quiz grading, payments, XP, ownership, Ably capabilities. Frontend rules are mostly UX.</td></tr>
+          <tr><td>Auth error UX</td><td>Login/register/reset-password error handling is currently weak. Standardize field errors, invalid credentials, unverified email, expired links, rate limits, network/server failures, retry actions, and safe non-leaky messages.</td></tr>
           <tr><td>Business rules doc</td><td>Add BUSINESS_RULES_BACKEND_ONLY.md listing backend as source of truth for access, payment, quiz, XP, roles, entitlements.</td></tr>
           <tr><td>Frontend trust cleanup</td><td>Remove unused/confusing client score field from topic completion schema. Mark frontend can_access, is_pro, role, tier checks as UX-only near shared policy helpers.</td></tr>
           <tr><td>Forged value tests</td><td>Regression tests: forged frontend values cannot grant pro access, XP, quiz score, professor role, or locked content.</td></tr>

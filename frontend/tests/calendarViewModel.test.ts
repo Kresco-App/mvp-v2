@@ -56,7 +56,7 @@ describe('calendar view model helpers', () => {
     const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8')
 
     expect(source).not.toContain("|| 'Khalid'")
-    expect(source).toContain("|| 'Student'")
-    expect(source).toContain('No events scheduled this week.')
+    expect(source).not.toContain("Hello {firstName}")
+    expect(source).toContain('No scheduled sessions this week')
   })
 })
