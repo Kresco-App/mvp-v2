@@ -92,6 +92,7 @@ class ContentReport(Base):
         BigInteger,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     resolution_action: Mapped[str] = mapped_column(String(40), nullable=False, default="", server_default="")
     resolution_note: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")

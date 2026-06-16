@@ -39,6 +39,7 @@ class Comment(Base):
         BigInteger,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     moderated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     moderation_reason: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")

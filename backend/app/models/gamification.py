@@ -121,10 +121,10 @@ class UserConceptMastery(Base):
     last_result: Mapped[str] = mapped_column(String(20), default="unknown", server_default="unknown", nullable=False)
     last_source: Mapped[str] = mapped_column(String(40), default="quiz", server_default="quiz", nullable=False)
     last_question_attempt_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, ForeignKey("question_attempts.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("question_attempts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     last_quiz_attempt_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, ForeignKey("quiz_attempts.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("quiz_attempts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     review_interval_days: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     next_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
