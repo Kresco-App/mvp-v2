@@ -5,17 +5,10 @@ from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.courses import (
-    Exam,
-    ExamProblem,
-    Resource,
-    TabContent,
-    Topic,
-    TopicItem,
-)
+from app.models.courses import Resource, TabContent, Topic, TopicItem
 from app.models.gamification import TopicItemProgress
 from app.models.users import User
-from app.schemas.courses import AccessGuardedMixin, ExamOut, ExamProblemOut, ResourceOut, TabContentOut, TopicItemOut
+from app.schemas.courses import AccessGuardedMixin, ResourceOut, TabContentOut, TopicItemOut
 from app.services.access import AccessContext, AccessDecision, build_access_context
 
 ORPHANED_PARENT_ACCESS_DECISION = AccessDecision(can_access=False, reason="parent_not_found")
@@ -113,13 +106,6 @@ def _scrub_quiz_value(value):
     if isinstance(value, list):
         return [_scrub_quiz_value(item) for item in value]
     return value
-
-
-def redact_locked_exam_problem(out: ExamProblemOut) -> ExamProblemOut:
-    if not out.can_access:
-        out.written_solution = ""
-        out.written_solution_url = ""
-    return out
 
 
 def store_access_decision(target: dict[int, AccessDecision], key: int, decision: AccessDecision) -> None:
@@ -258,47 +244,6 @@ def topic_item_out(
     if access:
         apply_access_decision(out, access)
     return out
-
-
-def exam_problem_out(
-    problem: ExamProblem,
-    access_context: AccessContext,
-    exam_access: AccessDecision,
-    *,
-    subject_id: int | None = None,
-) -> ExamProblemOut:
-    problem_access = access_context.decide_child(exam_access, problem, subject_id=subject_id)
-    out = ExamProblemOut.model_validate(problem)
-    apply_access_decision(out, problem_access)
-    redact_locked_exam_problem(out)
-    if out.video_resource:
-        video_access = access_context.decide_child(problem_access, problem.video_resource, subject_id=subject_id)
-        apply_access_decision(out.video_resource, video_access)
-        redact_locked_resource(out.video_resource)
-    return out
-
-
-def exam_out(exam: Exam, problems: list[ExamProblem], access_context: AccessContext) -> ExamOut:
-    exam_access = access_context.decide_for(exam, subject_id=exam.subject_id)
-    return ExamOut(
-        id=exam.id,
-        subject_id=exam.subject_id,
-        subject_title=exam.subject.title if exam.subject else "",
-        title=exam.title,
-        year=exam.year,
-        session=exam.session,
-        statement_url=exam.statement_url,
-        can_access=exam_access.can_access,
-        locked_reason=exam_access.locked_reason,
-        access_reason=exam_access.reason,
-        required_subject_id=exam_access.required_subject_id,
-        required_tier=exam_access.required_tier,
-        required_feature_key=exam_access.required_feature_key,
-        problems=[
-            exam_problem_out(problem, access_context, exam_access, subject_id=exam.subject_id)
-            for problem in problems
-        ],
-    )
 
 
 def _scrub_quiz_data(quiz_data: dict | None) -> dict | None:

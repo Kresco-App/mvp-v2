@@ -33,7 +33,6 @@ class QuizOut(BaseModel):
 
 class QuizDiscoveryOut(BaseModel):
     subject_id: int = Field(serialization_alias="subjectId")
-    lesson_id: int | None = Field(default=None, serialization_alias="lessonId")
     quiz: QuizOut | None = None
 
     model_config = {"populate_by_name": True}

@@ -52,7 +52,6 @@ vi.mock('@/lib/examData', () => ({
         },
       ],
     },
-    lessonId: 99,
     noQuiz: false,
     error: null,
     loading: false,

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from app.schemas.limits import StrictInputModel
 
@@ -151,36 +151,3 @@ class TopicItemProgressOut(BaseModel):
     ok: bool = True
     watched_seconds: int = 0
     completed: bool = False
-
-
-class ExamProblemOut(AccessGuardedMixin):
-    id: int
-    exam_id: int
-    topic_id: Optional[int] = None
-    title: str
-    statement: str
-    written_solution: str
-    written_solution_url: str
-    difficulty: str
-    concept_slugs: list[str] = []
-    video_resource: Optional[ResourceOut] = None
-
-    model_config = {"from_attributes": True}
-
-class ExamOut(AccessGuardedMixin):
-    id: int
-    subject_id: int
-    subject_title: str = ""
-    title: str
-    year: int
-    session: str
-    statement_url: str
-    problems: list[ExamProblemOut] = []
-
-    model_config = {"from_attributes": True}
-
-    @model_validator(mode="after")
-    def redact_if_locked(self) -> "ExamOut":
-        if not self.can_access:
-            self.statement_url = ""
-        return self

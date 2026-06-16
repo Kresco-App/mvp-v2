@@ -27,15 +27,12 @@ export type ExamResult = {
 export type ExamQuizDiscovery = {
   subjectId: string
   quiz: ExamQuiz | null
-  lessonId: number | null
 }
 
 type ExamQuizDiscoveryResponse = {
   subjectId?: string | number
   subject_id?: string | number
   quiz?: ExamQuiz | null
-  lessonId?: number | null
-  lesson_id?: number | null
 }
 
 export const NO_EXAM_QUIZ_MESSAGE = 'Aucun quiz disponible pour cette matiere.'
@@ -57,12 +54,9 @@ export async function loadExamQuiz(subjectId: string | number): Promise<ExamQuiz
   const quiz = data?.quiz && Array.isArray(data.quiz.questions) && data.quiz.questions.length > 0
     ? data.quiz
     : null
-  const lessonId = data?.lessonId ?? data?.lesson_id ?? null
-
   return {
     subjectId: normalizeExamSubjectId(data?.subjectId ?? data?.subject_id) ?? normalized,
     quiz,
-    lessonId,
   }
 }
 
@@ -79,7 +73,6 @@ export function useExamQuizData(subjectId: string | number | null | undefined) {
   return {
     discovery,
     quiz: discovery?.quiz ?? null,
-    lessonId: discovery?.lessonId ?? null,
     noQuiz: Boolean(discovery && !discovery.quiz),
     error: query.error ?? null,
     loading: query.isLoading && !discovery,

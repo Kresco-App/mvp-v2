@@ -54,7 +54,6 @@ describe('exam SWR data', () => {
         return {
           data: {
             subjectId: 42,
-            lessonId: 12,
             quiz: quizFixture(12, 'Limits exam'),
           },
         }
@@ -66,7 +65,6 @@ describe('exam SWR data', () => {
 
     expect(discovery).toMatchObject({
       subjectId: '42',
-      lessonId: 12,
       quiz: expect.objectContaining({ title: 'Limits exam' }),
     })
     expect(mocks.apiGet.mock.calls.map((call) => call[0])).toEqual(['/quizzes/subjects/42/discovery'])
@@ -75,7 +73,7 @@ describe('exam SWR data', () => {
   it('does not expose a previous subject quiz after the route subject id changes', async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       if (url === '/quizzes/subjects/1/discovery') {
-        return { data: { subjectId: '1', lessonId: 101, quiz: quizFixture(101, 'Subject one quiz') } }
+        return { data: { subjectId: '1', quiz: quizFixture(101, 'Subject one quiz') } }
       }
       if (url === '/quizzes/subjects/2/discovery') return new Promise(() => undefined)
       throw new Error(`unexpected url ${url}`)

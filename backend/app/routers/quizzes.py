@@ -49,7 +49,6 @@ async def get_subject_quiz_discovery(
                 selected_question_set = await _get_question_set(db, question_set.id)
                 return QuizDiscoveryOut(
                     subject_id=subject_id,
-                    lesson_id=None,
                     quiz=_quiz_out(selected_question_set),
                 )
             locked_reason = access.locked_reason or locked_reason
@@ -58,7 +57,6 @@ async def get_subject_quiz_discovery(
         raise HTTPException(status_code=403, detail=locked_reason)
     return QuizDiscoveryOut(
         subject_id=subject_id,
-        lesson_id=None,
         quiz=None,
     )
 

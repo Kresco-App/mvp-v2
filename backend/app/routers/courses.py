@@ -2,19 +2,17 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import Field
-from sqlalchemy import and_, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
-from app.models.courses import Exam, ExamProblem, Subject, Topic, TopicItem
+from app.models.courses import Subject, Topic, TopicItem
 from app.models.gamification import TopicItemProgress
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.courses import (
-    ExamOut,
     StreamOut,
     SubjectDetailOut,
     SubjectListOut,
@@ -27,11 +25,10 @@ from app.schemas.courses import (
 from app.schemas.interactions import ResourceOpenIn, ResourceOpenOut
 from app.schemas.limits import ShortText, StrictInputModel
 from app.services.access import build_access_context
-from app.services.course_access import exam_out, require_topic_item_primary_video_resource_access
+from app.services.course_access import require_topic_item_primary_video_resource_access
 from app.services.course_topic_mutations import complete_topic_item_state, record_topic_item_progress_state
 from app.services.course_topic_read_models import build_topic_workspace, list_topic_cards
 from app.services.interaction_mutations import open_topic_workspace_resource
-from app.services.search import LIKE_ESCAPE, substring_search_pattern
 from app.services.vdocipher import get_video_stream_data
 
 router = APIRouter(tags=["Courses"])
@@ -312,50 +309,3 @@ async def open_resource(
 ):
     del request
     return await open_topic_workspace_resource(db, user=user, resource_id=resource_id, body=body)
-
-
-@router.get("/exam-bank", response_model=list[ExamOut])
-async def get_exam_bank(
-    subject_id: int | None = None,
-    topic_id: int | None = None,
-    year: int | None = None,
-    q: str = "",
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    problem_filters = [ExamProblem.status == "published"]
-    if topic_id is not None:
-        problem_filters.append(ExamProblem.topic_id == topic_id)
-
-    stmt = (
-        select(Exam)
-        .join(Subject, Subject.id == Exam.subject_id)
-        .options(
-            selectinload(Exam.subject),
-            selectinload(Exam.problems.and_(and_(*problem_filters))).selectinload(
-                ExamProblem.video_resource
-            ),
-        )
-        .where(Exam.status == "published", Subject.is_published == True)  # noqa: E712
-    )
-    if subject_id is not None:
-        stmt = stmt.where(Exam.subject_id == subject_id)
-    if topic_id is not None:
-        stmt = stmt.where(
-            Exam.problems.any(and_(ExamProblem.status == "published", ExamProblem.topic_id == topic_id))
-        )
-    if year is not None:
-        stmt = stmt.where(Exam.year == year)
-    if q:
-        stmt = stmt.where(Exam.title.ilike(substring_search_pattern(q), escape=LIKE_ESCAPE))
-    exams = (await db.execute(stmt.order_by(Exam.year.desc(), Exam.id.desc()).limit(50))).scalars().unique().all()
-    access_context = await build_access_context(db, user)
-    output: list[ExamOut] = []
-    for exam in exams:
-        problems = [problem for problem in exam.problems if problem.status == "published"]
-        if topic_id is not None:
-            problems = [problem for problem in problems if problem.topic_id == topic_id]
-            if not problems:
-                continue
-        output.append(exam_out(exam, problems, access_context))
-    return output
