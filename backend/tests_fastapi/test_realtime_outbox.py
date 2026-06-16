@@ -20,7 +20,7 @@ def test_realtime_outbox_publishes_events_concurrently(run_db, monkeypatch, test
         await release_publishers.wait()
         return True
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _case():
         session_factory = get_session_factory()
@@ -64,7 +64,7 @@ def test_realtime_outbox_respects_publish_concurrency_limit(run_db, monkeypatch,
         current_publishers -= 1
         return True
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _case():
         session_factory = get_session_factory()
@@ -105,7 +105,7 @@ def test_realtime_outbox_reclaims_only_stale_publishing_locks(run_db, monkeypatc
         published_channels.append(channel)
         return True
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _case():
         session_factory = get_session_factory()
@@ -188,7 +188,7 @@ def test_realtime_outbox_records_retry_and_dead_letter_states(run_db, monkeypatc
             raise RuntimeError("boom")
         return True
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _wrapped_case():
         session_factory = get_session_factory()
@@ -241,7 +241,7 @@ def test_realtime_outbox_records_retry_and_dead_letter_states(run_db, monkeypatc
     assert published_row.published_at is not None
     assert retry_row.status == realtime_outbox.OUTBOX_RETRY
     assert retry_row.locked_at is None
-    assert retry_row.last_error == "Ably publish returned false"
+    assert retry_row.last_error == "Firestore publish returned false"
     assert dead_row.status == realtime_outbox.OUTBOX_DEAD
     assert dead_row.locked_at is None
     assert "RuntimeError" in dead_row.last_error
@@ -369,3 +369,4 @@ def test_purge_realtime_outbox_deletes_only_old_terminal_rows(run_db):
     assert first == {"purged": 1}
     assert second == {"purged": 1}
     assert [row.event_name for row in remaining] == ["fresh.published", "old.pending", "old.retry"]
+

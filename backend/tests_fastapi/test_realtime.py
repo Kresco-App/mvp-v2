@@ -476,7 +476,7 @@ def test_realtime_outbox_processes_pending_events(run_db, monkeypatch, test_sett
         published.append((channel, name, data, http_client))
         return True
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _case():
         session_factory = get_session_factory()
@@ -521,7 +521,7 @@ def test_realtime_outbox_retries_and_dead_letters(run_db, monkeypatch, test_sett
     async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
         return False
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _case():
         session_factory = get_session_factory()
@@ -568,7 +568,7 @@ def test_realtime_outbox_retries_unexpected_publish_exception(run_db, monkeypatc
     async def fake_publish(settings, channel, name, data, *, attempts, retry_delay_seconds, http_client):
         raise RuntimeError("unexpected publish failure")
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _case():
         session_factory = get_session_factory()
@@ -605,7 +605,7 @@ def test_scheduled_realtime_outbox_event_drains_queue(app_client, run_db, monkey
         published.append(channel)
         return True
 
-    monkeypatch.setattr(realtime_outbox, "publish_ably_message", fake_publish)
+    monkeypatch.setattr(realtime_outbox, "publish_realtime_message", fake_publish)
 
     async def _case():
         session_factory = get_session_factory()
@@ -871,3 +871,4 @@ def test_ably_token_fails_closed_when_live_session_access_is_unscoped(
     capability = response.json()["capability"]
     assert f"kresco:live:{live_id}" not in capability
     assert f"kresco:offering:{offering_id}:notifications" not in capability
+

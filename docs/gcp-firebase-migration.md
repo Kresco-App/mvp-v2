@@ -9,7 +9,7 @@ This branch intentionally targets a breaking replatform. `master` remains the ro
 - Secrets: Google Secret Manager JSON loaded through `KRESCO_GCP_RUNTIME_SECRET_NAME`.
 - Media: Cloud Storage with private `gs://` object references and short-lived signed read URLs.
 - Auth: Firebase Auth is the external identity provider; Postgres remains the authorization and entitlement source of truth.
-- Realtime: Firestore is the target realtime provider for narrow UI state and outbox delivery. Postgres keeps durable business state.
+- Realtime: Firestore is the target realtime provider for narrow UI state and outbox delivery. Postgres keeps durable business state. Backend outbox events publish to `realtimeChannels/{encodedChannel}/events`.
 - Frontend: Next.js container on Cloud Run, optionally fronted by Firebase Hosting/CDN.
 
 ## Required Backend Runtime Env
@@ -68,7 +68,7 @@ cd backend; python -m pytest backend/tests_fastapi/test_image_uploads.py backend
 7. Deploy frontend to Cloud Run staging.
 8. Move media uploads to Cloud Storage and verify `gs://` references.
 9. Add Firebase Auth token verification and map Firebase UID to Postgres users.
-10. Replace Ably token/publish paths with Firestore realtime paths.
+10. Replace frontend Ably subscriptions with Firestore listeners.
 11. Run staging smoke tests for auth, course access, payments, media upload/read, and realtime.
 
 Production cutover is blocked until staging proves those flows.
