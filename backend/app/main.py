@@ -114,8 +114,9 @@ def _ready_config_service_status(settings: Settings) -> dict[str, str]:
     db_ok = not db_url.startswith("sqlite") and db_url != ""
     return {
         "database": "ok" if db_ok else "misconfigured",
-        "s3": "ok" if _present(settings.media_s3_bucket) and _present(settings.media_s3_region) else "missing",
-        "ably": "ok" if _present(settings.ably_api_key) else "missing",
+        "gcp": "ok" if _present(settings.gcp_project_id) and _present(settings.gcp_region) else "missing",
+        "firebase": "ok" if _present(settings.firebase_project_id) else "missing",
+        "gcs": "ok" if _present(settings.media_gcs_bucket) else "missing",
         "vdocipher": "ok" if _present(settings.vdocipher_api_secret) else "missing",
         "smtp": "ok" if _present(settings.resend_api_key) else "missing",
         "payment": "ok" if _present(settings.cmi_client_id) and _present(settings.cmi_store_key) else "missing",
@@ -160,7 +161,7 @@ async def initialize_app_runtime(app: FastAPI, settings: Settings):
 
     engine, _ = init_engine(
         settings.database_url,
-        settings.is_lambda,
+        False,
         settings.pgsslrootcert,
         pool_size=settings.database_pool_size,
         max_overflow=settings.database_max_overflow,

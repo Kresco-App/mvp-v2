@@ -11,11 +11,14 @@ from app.services.image_uploads import (
 )
 from app.services import media_storage
 from app.services.media_storage import (
+    GCSMediaStorage,
+    GCSMockMediaStorage,
     LocalMediaStorage,
     S3MediaStorage,
     S3MockMediaStorage,
     async_media_url,
     media_url,
+    sign_gcs_reference,
     presign_s3_reference,
 )
 
@@ -144,6 +147,103 @@ def test_s3_mock_media_storage_rejects_traversal_keys(tmp_path):
             ))
 
     assert not (tmp_path / "s3" / "outside.png").exists()
+
+
+def test_gcs_mock_media_storage_returns_private_gs_reference_and_mock_signed_url(tmp_path):
+    settings = SimpleNamespace(
+        media_gcs_bucket="kresco-e2e-media",
+        media_gcs_prefix="e2e",
+        media_gcs_mock_root=str(tmp_path / "gcs"),
+        media_gcs_signed_url_ttl_seconds=300,
+    )
+    storage = GCSMockMediaStorage(settings)
+
+    stored = asyncio.run(storage.put_object(
+        key="profile/1/avatar.png",
+        content=b"image-bytes",
+        content_type="image/png",
+    ))
+
+    assert stored.key == "e2e/profile/1/avatar.png"
+    assert stored.reference == "gs://kresco-e2e-media/e2e/profile/1/avatar.png"
+    assert stored.url == "https://mock-gcs.local/kresco-e2e-media/e2e/profile/1/avatar.png?expires=300&signature=mock"
+    assert (tmp_path / "gcs" / "kresco-e2e-media" / "e2e" / "profile" / "1" / "avatar.png").read_bytes() == b"image-bytes"
+
+
+def test_gcs_mock_media_storage_deletes_only_owned_bucket_and_prefix(tmp_path):
+    settings = SimpleNamespace(
+        media_gcs_bucket="kresco-e2e-media",
+        media_gcs_prefix="e2e",
+        media_gcs_mock_root=str(tmp_path / "gcs"),
+        media_gcs_signed_url_ttl_seconds=300,
+    )
+    storage = GCSMockMediaStorage(settings)
+    stored = asyncio.run(storage.put_object(
+        key="profile/1/avatar.png",
+        content=b"image-bytes",
+        content_type="image/png",
+    ))
+
+    assert asyncio.run(storage.delete_reference("gs://other-bucket/e2e/profile/1/avatar.png")) is False
+    assert asyncio.run(storage.delete_reference("gs://kresco-e2e-media/other/profile/1/avatar.png")) is False
+    assert (tmp_path / "gcs" / "kresco-e2e-media" / "e2e" / "profile" / "1" / "avatar.png").exists()
+
+    assert asyncio.run(storage.delete_reference(stored.reference)) is True
+    assert not (tmp_path / "gcs" / "kresco-e2e-media" / "e2e" / "profile" / "1" / "avatar.png").exists()
+
+
+def test_gcs_media_storage_uses_private_cloud_storage_objects(monkeypatch):
+    media_storage._gcs_client.cache_clear()
+    uploads = []
+    deletes = []
+
+    class FakeBlob:
+        def __init__(self, key):
+            self.key = key
+
+        def upload_from_string(self, content, content_type):
+            uploads.append((self.key, content, content_type))
+
+        def generate_signed_url(self, *, expiration, method, version):
+            return f"https://signed-gcs.example.com/{self.key}?ttl={int(expiration.total_seconds())}&method={method}&version={version}"
+
+        def delete(self):
+            deletes.append(self.key)
+
+    class FakeBucket:
+        def __init__(self, name):
+            self.name = name
+
+        def blob(self, key):
+            return FakeBlob(key)
+
+    class FakeClient:
+        def bucket(self, name):
+            return FakeBucket(name)
+
+    fake_storage = SimpleNamespace(Client=lambda: FakeClient())
+    monkeypatch.setitem(sys.modules, "google.cloud.storage", fake_storage)
+    monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(storage=fake_storage))
+    settings = SimpleNamespace(
+        media_gcs_bucket="kresco-private-media",
+        media_gcs_prefix="production",
+        media_gcs_signed_url_ttl_seconds=300,
+    )
+
+    storage = GCSMediaStorage(settings)
+    stored = asyncio.run(storage.put_object(
+        key="profile/1/avatar.png",
+        content=b"image-bytes",
+        content_type="image/png",
+    ))
+
+    assert stored.reference == "gs://kresco-private-media/production/profile/1/avatar.png"
+    assert stored.url == "https://signed-gcs.example.com/production/profile/1/avatar.png?ttl=300&method=GET&version=v4"
+    assert uploads == [("production/profile/1/avatar.png", b"image-bytes", "image/png")]
+    assert asyncio.run(storage.delete_reference("gs://other-bucket/production/profile/1/avatar.png")) is False
+    assert asyncio.run(storage.delete_reference(stored.reference)) is True
+    assert deletes == ["production/profile/1/avatar.png"]
+    media_storage._gcs_client.cache_clear()
 
 
 def test_s3_media_storage_uses_private_server_side_encrypted_objects(monkeypatch):
@@ -351,6 +451,66 @@ def test_media_url_refuses_to_presign_s3_reference_without_configured_bucket(mon
     assert media_url("s3://unowned-bucket/production/profile/1/avatar.png", settings) == ""
     assert calls == []
     media_storage._s3_client.cache_clear()
+
+
+def test_media_url_signs_only_configured_gcs_scope(monkeypatch):
+    signed = []
+
+    def fake_sign(reference, *, settings):
+        signed.append((reference, settings.media_gcs_signed_url_ttl_seconds))
+        return f"signed:{reference}"
+
+    monkeypatch.setattr(media_storage, "sign_gcs_reference", fake_sign)
+    settings = SimpleNamespace(
+        media_storage_backend="gcs",
+        media_gcs_bucket="kresco-private-media",
+        media_gcs_prefix="production",
+        media_gcs_signed_url_ttl_seconds=300,
+    )
+
+    scoped = media_url("gs://kresco-private-media/production/profile/1/avatar.png", settings)
+    wrong_bucket = media_url("gs://other-bucket/production/profile/1/avatar.png", settings)
+    wrong_prefix = media_url("gs://kresco-private-media/staging/profile/1/avatar.png", settings)
+
+    assert scoped == "signed:gs://kresco-private-media/production/profile/1/avatar.png"
+    assert wrong_bucket == ""
+    assert wrong_prefix == ""
+    assert signed == [("gs://kresco-private-media/production/profile/1/avatar.png", 300)]
+
+
+def test_sign_gcs_reference_reuses_cached_storage_client(monkeypatch):
+    media_storage._gcs_client.cache_clear()
+    calls = []
+
+    class FakeBlob:
+        def __init__(self, key):
+            self.key = key
+
+        def generate_signed_url(self, *, expiration, method, version):
+            return f"https://signed-gcs.example.com/{self.key}?ttl={int(expiration.total_seconds())}"
+
+    class FakeBucket:
+        def __init__(self, name):
+            self.name = name
+
+        def blob(self, key):
+            return FakeBlob(key)
+
+    class FakeClient:
+        def bucket(self, name):
+            calls.append(name)
+            return FakeBucket(name)
+
+    fake_storage = SimpleNamespace(Client=lambda: FakeClient())
+    monkeypatch.setitem(sys.modules, "google.cloud.storage", fake_storage)
+    monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(storage=fake_storage))
+    settings = SimpleNamespace(media_gcs_signed_url_ttl_seconds=123)
+
+    result = sign_gcs_reference("gs://kresco-media/profile/1/avatar.png", settings=settings)
+
+    assert result == "https://signed-gcs.example.com/profile/1/avatar.png?ttl=123"
+    assert calls == ["kresco-media"]
+    media_storage._gcs_client.cache_clear()
 
 
 def test_s3_mock_media_url_presigns_only_configured_scope():

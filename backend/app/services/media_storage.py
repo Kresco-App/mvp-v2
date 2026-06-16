@@ -4,11 +4,20 @@ import asyncio
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from datetime import timedelta
 from typing import Protocol
 from urllib.parse import quote, unquote, urlparse
 import uuid
 
-from app.config import DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS, MEDIA_STORAGE_S3, MEDIA_STORAGE_S3_MOCK, Settings
+from app.config import (
+    DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS,
+    DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS,
+    MEDIA_STORAGE_GCS,
+    MEDIA_STORAGE_GCS_MOCK,
+    MEDIA_STORAGE_S3,
+    MEDIA_STORAGE_S3_MOCK,
+    Settings,
+)
 
 S3_CONNECT_TIMEOUT_SECONDS = 5
 S3_READ_TIMEOUT_SECONDS = 15
@@ -106,6 +115,73 @@ class S3MediaStorage:
         return True
 
 
+class GCSMediaStorage:
+    def __init__(self, settings: Settings) -> None:
+        self.bucket = settings.media_gcs_bucket.strip()
+        self.prefix = _clean_prefix(settings.media_gcs_prefix)
+        self.signed_url_ttl_seconds = int(settings.media_gcs_signed_url_ttl_seconds)
+        if not self.bucket:
+            raise MediaStorageError("GCS media storage is missing bucket configuration.")
+
+        self.client = _gcs_client()
+        self.bucket_client = self.client.bucket(self.bucket)
+
+    async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
+        clean_key = _normalize_media_object_key(key)
+        object_key = "/".join(part for part in [self.prefix, clean_key] if part)
+        blob = self.bucket_client.blob(object_key)
+        await asyncio.to_thread(blob.upload_from_string, content, content_type=content_type)
+        reference = gcs_reference(self.bucket, object_key)
+        return StoredMedia(
+            key=object_key,
+            reference=reference,
+            url=await asyncio.to_thread(
+                _signed_gcs_blob_url,
+                blob,
+                expires_in=self.signed_url_ttl_seconds,
+            ),
+        )
+
+    async def delete_reference(self, reference: str | None) -> bool:
+        object_key = _owned_gcs_reference_key(reference, bucket=self.bucket, prefix=self.prefix)
+        if object_key is None:
+            return False
+        blob = self.bucket_client.blob(object_key)
+        await asyncio.to_thread(blob.delete)
+        return True
+
+
+class GCSMockMediaStorage:
+    def __init__(self, settings: Settings) -> None:
+        self.bucket = settings.media_gcs_bucket.strip()
+        self.prefix = _clean_prefix(settings.media_gcs_prefix)
+        self.root = Path(settings.media_gcs_mock_root).expanduser()
+        self.signed_url_ttl_seconds = int(settings.media_gcs_signed_url_ttl_seconds)
+        if not self.bucket:
+            raise MediaStorageError("GCS mock media storage is missing bucket configuration.")
+
+    async def put_object(self, *, key: str, content: bytes, content_type: str) -> StoredMedia:
+        del content_type
+        clean_key = _normalize_media_object_key(key)
+        object_key = "/".join(part for part in [self.prefix, clean_key] if part)
+        destination = _safe_local_destination(self.root / self.bucket, object_key)
+        await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(destination.write_bytes, content)
+        reference = gcs_reference(self.bucket, object_key)
+        return StoredMedia(
+            key=object_key,
+            reference=reference,
+            url=mock_sign_gcs_reference(reference, expires_in=self.signed_url_ttl_seconds),
+        )
+
+    async def delete_reference(self, reference: str | None) -> bool:
+        object_key = _owned_gcs_reference_key(reference, bucket=self.bucket, prefix=self.prefix)
+        if object_key is None:
+            return False
+        destination = _safe_local_destination(self.root / self.bucket, object_key)
+        return await asyncio.to_thread(_unlink_if_exists, destination)
+
+
 class S3MockMediaStorage:
     def __init__(self, settings: Settings) -> None:
         self.bucket = settings.media_s3_bucket.strip()
@@ -140,6 +216,10 @@ class S3MockMediaStorage:
 
 def get_media_storage(settings: Settings) -> MediaStorage:
     backend = settings.media_storage_backend.strip().lower()
+    if backend == MEDIA_STORAGE_GCS:
+        return GCSMediaStorage(settings)
+    if backend == MEDIA_STORAGE_GCS_MOCK:
+        return GCSMockMediaStorage(settings)
     if backend == MEDIA_STORAGE_S3:
         return S3MediaStorage(settings)
     if backend == MEDIA_STORAGE_S3_MOCK:
@@ -148,6 +228,9 @@ def get_media_storage(settings: Settings) -> MediaStorage:
 
 
 async def warm_media_storage_client(settings: Settings) -> None:
+    if settings.media_storage_backend.strip().lower() == MEDIA_STORAGE_GCS:
+        await asyncio.to_thread(_gcs_client)
+        return
     if settings.media_storage_backend.strip().lower() != MEDIA_STORAGE_S3:
         return
     await asyncio.to_thread(
@@ -160,6 +243,12 @@ async def warm_media_storage_client(settings: Settings) -> None:
 def media_url(reference: str | None, settings: Settings) -> str:
     if not reference:
         return ""
+    if reference.startswith("gs://"):
+        if not _gcs_reference_matches_settings_scope(reference, settings):
+            return ""
+        if getattr(settings, "media_storage_backend", "").strip().lower() == MEDIA_STORAGE_GCS_MOCK:
+            return mock_sign_gcs_reference(reference, settings=settings)
+        return sign_gcs_reference(reference, settings=settings)
     if not reference.startswith("s3://"):
         return reference
     if not _s3_reference_matches_settings_scope(reference, settings):
@@ -172,6 +261,12 @@ def media_url(reference: str | None, settings: Settings) -> str:
 async def async_media_url(reference: str | None, settings: Settings) -> str:
     if not reference:
         return ""
+    if reference.startswith("gs://"):
+        if not _gcs_reference_matches_settings_scope(reference, settings):
+            return ""
+        if getattr(settings, "media_storage_backend", "").strip().lower() == MEDIA_STORAGE_GCS_MOCK:
+            return await asyncio.to_thread(mock_sign_gcs_reference, reference, settings=settings)
+        return await asyncio.to_thread(sign_gcs_reference, reference, settings=settings)
     if not reference.startswith("s3://"):
         return reference
     if not _s3_reference_matches_settings_scope(reference, settings):
@@ -183,6 +278,10 @@ async def async_media_url(reference: str | None, settings: Settings) -> str:
 
 def s3_reference(bucket: str, key: str) -> str:
     return f"s3://{bucket}/{quote(key, safe='/')}"
+
+
+def gcs_reference(bucket: str, key: str) -> str:
+    return f"gs://{bucket}/{quote(key, safe='/')}"
 
 
 async def delete_media_reference(storage: MediaStorage, reference: str | None) -> bool:
@@ -231,6 +330,42 @@ def presign_s3_reference(
         Params={"Bucket": bucket, "Key": key},
         ExpiresIn=ttl,
     )
+
+
+def mock_sign_gcs_reference(
+    reference: str,
+    *,
+    settings: Settings | None = None,
+    expires_in: int | None = None,
+) -> str:
+    parsed = urlparse(reference)
+    if parsed.scheme != "gs" or not parsed.netloc or not parsed.path:
+        raise MediaStorageError("Invalid GCS media reference.")
+
+    bucket = parsed.netloc
+    key = unquote(parsed.path.lstrip("/"))
+    ttl = expires_in if expires_in is not None else int(settings.media_gcs_signed_url_ttl_seconds if settings else DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS)
+    return f"https://mock-gcs.local/{bucket}/{quote(key, safe='/')}?expires={ttl}&signature=mock"
+
+
+def sign_gcs_reference(
+    reference: str,
+    *,
+    settings: Settings | None,
+    client: object | None = None,
+    expires_in: int | None = None,
+) -> str:
+    parsed = urlparse(reference)
+    if parsed.scheme != "gs" or not parsed.netloc or not parsed.path:
+        raise MediaStorageError("Invalid GCS media reference.")
+
+    bucket = parsed.netloc
+    key = unquote(parsed.path.lstrip("/"))
+    ttl = expires_in if expires_in is not None else int(settings.media_gcs_signed_url_ttl_seconds if settings else DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS)
+    if client is None:
+        client = _gcs_client()
+    blob = client.bucket(bucket).blob(key)
+    return _signed_gcs_blob_url(blob, expires_in=ttl)
 
 
 def profile_media_key(user_id: int, kind: str, extension: str) -> str:
@@ -282,6 +417,42 @@ def _owned_s3_reference_key(reference: str | None, *, bucket: str, prefix: str) 
     if reference_bucket != bucket or not _key_matches_prefix(key, prefix):
         return None
     return key
+
+
+def _gcs_reference_parts(reference: str | None) -> tuple[str, str] | None:
+    if not reference:
+        return None
+    parsed = urlparse(reference)
+    if parsed.scheme != "gs" or not parsed.netloc or not parsed.path:
+        return None
+    key = unquote(parsed.path.lstrip("/"))
+    if not key:
+        return None
+    return parsed.netloc, key
+
+
+def _owned_gcs_reference_key(reference: str | None, *, bucket: str, prefix: str) -> str | None:
+    parts = _gcs_reference_parts(reference)
+    if parts is None:
+        return None
+    reference_bucket, key = parts
+    if reference_bucket != bucket or not _key_matches_prefix(key, prefix):
+        return None
+    return key
+
+
+def _gcs_reference_matches_settings_scope(reference: str, settings: Settings) -> bool:
+    configured_bucket = str(getattr(settings, "media_gcs_bucket", "") or "").strip()
+    if not configured_bucket:
+        return False
+
+    parts = _gcs_reference_parts(reference)
+    if parts is None:
+        return False
+
+    reference_bucket, key = parts
+    configured_prefix = _clean_prefix(str(getattr(settings, "media_gcs_prefix", "") or ""))
+    return reference_bucket == configured_bucket and _key_matches_prefix(key, configured_prefix)
 
 
 def _s3_reference_matches_settings_scope(reference: str, settings: Settings) -> bool:
@@ -421,3 +592,18 @@ def _s3_client(region_name: str, endpoint_url: str = ""):
         retries={"max_attempts": S3_CLIENT_ATTEMPTS_PER_UPLOAD_ATTEMPT, "mode": "standard"},
     )
     return boto3.client("s3", region_name=region_name or None, endpoint_url=endpoint_url or None, config=config)
+
+
+@lru_cache(maxsize=1)
+def _gcs_client():
+    from google.cloud import storage
+
+    return storage.Client()
+
+
+def _signed_gcs_blob_url(blob: object, *, expires_in: int) -> str:
+    return blob.generate_signed_url(
+        expiration=timedelta(seconds=int(expires_in)),
+        method="GET",
+        version="v4",
+    )
