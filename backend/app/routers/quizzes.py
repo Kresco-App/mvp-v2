@@ -119,7 +119,7 @@ async def submit_quiz(
     del request
     for attempt_retry in range(2):
         try:
-            return await _submit_legacy_quiz_attempt(db, user=user, question_set_id=question_set_id, body=body)
+            return await _submit_quiz_attempt(db, user=user, question_set_id=question_set_id, body=body)
         except IntegrityError:
             await db.rollback()
             if attempt_retry == 1:
@@ -147,7 +147,7 @@ async def _get_accessible_question_set(db: AsyncSession, user: User, question_se
     return question_set
 
 
-async def _submit_legacy_quiz_attempt(
+async def _submit_quiz_attempt(
     db: AsyncSession,
     *,
     user: User,

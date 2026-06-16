@@ -87,7 +87,7 @@ export interface TopicWorkspaceNote {
   updated_at?: string
 }
 
-export type WorkspaceTabSlot = 'course' | 'lab' | 'quiz' | 'resources' | 'notes' | 'comments'
+export type WorkspaceTabSlot = 'course' | 'lab' | 'resources' | 'notes' | 'comments'
 
 export type WorkspaceTabSlotSpec = {
   id: WorkspaceTabSlot

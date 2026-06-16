@@ -16,6 +16,7 @@ from app.services.course_access import store_access_decision, topic_item_out
 from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
 
 WORKSPACE_SEARCH_RESULT_LIMIT = 25
+UNSUPPORTED_TOPIC_WORKSPACE_TAB_TYPES = {"quiz", "checkpoint_quiz", "questions"}
 
 
 async def _matching_topic_item_ids(
@@ -180,41 +181,10 @@ async def list_topic_cards(
     return cards
 
 
-_COMPACT_TAB_CONFIG_KEYS = {
-    "quiz_id",
-    "quizId",
-    "question_set_id",
-    "questionSetId",
-}
-_COMPACT_QUESTION_CONFIG_KEYS = {
-    "id",
-    "external_id",
-    "question_id",
-    "questionId",
-}
-
-
 def _compact_tab_config(config: dict) -> dict:
     if not isinstance(config, dict):
         return {}
-
-    compact = {
-        key: config[key]
-        for key in _COMPACT_TAB_CONFIG_KEYS
-        if key in config
-    }
-    questions = config.get("questions")
-    if isinstance(questions, list):
-        compact["questions"] = [
-            {
-                key: question[key]
-                for key in _COMPACT_QUESTION_CONFIG_KEYS
-                if isinstance(question, dict) and key in question
-            }
-            for question in questions
-            if isinstance(question, dict)
-        ]
-    return compact
+    return {}
 
 
 def _compact_tab_body(tab: TabContentOut) -> None:
@@ -302,6 +272,8 @@ async def build_topic_workspace(
             .order_by(TabContent.topic_item_id, TabContent.order, TabContent.id)
         )).scalars().all()
         for tab in tab_rows:
+            if str(tab.tab_type or "").lower() in UNSUPPORTED_TOPIC_WORKSPACE_TAB_TYPES:
+                continue
             tabs_by_item.setdefault(tab.topic_item_id, []).append(tab)
     for item in items:
         set_committed_value(item, "tabs", tabs_by_item.get(item.id, []))

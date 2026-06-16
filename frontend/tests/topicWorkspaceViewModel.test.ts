@@ -24,9 +24,7 @@ import {
   secondaryTabSlotSpecsForItem,
   selectTopicWorkspaceQueryState,
   shouldUseTopicItemVideoPlayer,
-  splitOrderingInput,
   topicWorkspaceQueryTargetsFromItemId,
-  toggleMultiAnswer,
   youtubeSrcDoc,
   youtubeVideoId,
   youtubeVideoIdForTab,
@@ -51,15 +49,6 @@ const baseItem: TopicItem = buildTopicItem({
     title: 'Video',
     summary: 'Watch this',
   }),
-})
-
-const quizTab: TabContent = buildTabContent({
-  id: 9,
-  label: 'Checkpoint',
-  tab_type: 'quiz',
-  content: 'Answer',
-  config_json: { questions: [{ id: 77, prompt: 'Question 77' }] },
-  order: 1,
 })
 
 const resourceTab: TabContent = buildTabContent({
@@ -151,9 +140,9 @@ describe('topic workspace view model', () => {
   })
 
   it('resolves real and fallback tabs for each slot', () => {
-    const item = { ...baseItem, tabs: [quizTab] }
+    const item = { ...baseItem, tabs: [resourceTab] }
 
-    expect(resolveTabForSlot(item.tabs, 'quiz', item)).toBe(quizTab)
+    expect(resolveTabForSlot(item.tabs, 'resources', item)).toBe(resourceTab)
     expect(fallbackTabForSlot('course', { ...item, description: '' })).toMatchObject({
       is_missing: true,
       empty_title: 'No course content yet',
@@ -171,14 +160,14 @@ describe('topic workspace view model', () => {
   it('distinguishes the primary center tab from secondary tabs', () => {
     const item = {
       ...baseItem,
-      primary_tab_content_id: quizTab.id,
-      primary_tab: quizTab,
-      tabs: [resourceTab, quizTab, commentsTab],
+      primary_tab_content_id: resourceTab.id,
+      primary_tab: resourceTab,
+      tabs: [resourceTab, commentsTab],
     }
 
-    expect(resolvePrimaryTab(item)).toBe(quizTab)
-    expect(secondaryTabSlotSpecsForItem(item).map((slot) => slot.id)).toEqual(['course', 'lab', 'resources', 'notes', 'comments'])
-    expect(defaultSecondaryTabSlotForItem(item)).toBe('resources')
+    expect(resolvePrimaryTab(item)).toBe(resourceTab)
+    expect(secondaryTabSlotSpecsForItem(item).map((slot) => slot.id)).toEqual(['course', 'lab', 'notes', 'comments'])
+    expect(defaultSecondaryTabSlotForItem(item)).toBe('comments')
   })
 
   it('parses workspace route query targets defensively', () => {
@@ -198,7 +187,7 @@ describe('topic workspace view model', () => {
       id: 11,
       section_id: 5,
       title: 'Practice resources',
-      tabs: [resourceTab, quizTab],
+      tabs: [resourceTab],
     }
     const workspace: TopicWorkspace = buildTopicWorkspace({
       item_count: 2,
@@ -213,19 +202,19 @@ describe('topic workspace view model', () => {
     expect(selectTopicWorkspaceQueryState(workspace, {
       ...topicWorkspaceQueryTargetsFromItemId(null),
       tabId: resourceTab.id,
-    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'quiz' })
+    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'course' })
     expect(selectTopicWorkspaceQueryState(workspace, {
       ...topicWorkspaceQueryTargetsFromItemId(null),
       resourceId: resourceTab.resource?.id ?? null,
-    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'quiz' })
+    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'course' })
     expect(resolveTabSlotForTopicWorkspaceQuery(resourceItem, {
       ...topicWorkspaceQueryTargetsFromItemId(resourceItem.id),
-      quizId: quizTab.id,
-    })).toBe('quiz')
+      quizId: 9,
+    })).toBe('course')
     expect(resolveTabSlotForTopicWorkspaceQuery(resourceItem, {
       ...topicWorkspaceQueryTargetsFromItemId(resourceItem.id),
       questionId: 77,
-    })).toBe('quiz')
+    })).toBe('course')
     expect(resolveTabSlotForTopicWorkspaceQuery(baseItem, {
       ...topicWorkspaceQueryTargetsFromItemId(baseItem.id),
       resourceId: baseItem.primary_resource?.id ?? null,
@@ -234,7 +223,7 @@ describe('topic workspace view model', () => {
 
   it('detects animated tabs and builds renderer config metadata', () => {
     const tab = {
-      ...quizTab,
+      ...resourceTab,
       tab_type: 'lab',
       renderer_key: '',
       config_json: { rendererKey: 'wave_lab', metadata: { source: 'test' } },
@@ -251,12 +240,6 @@ describe('topic workspace view model', () => {
         tab_content_id: tab.id,
       },
     })
-  })
-
-  it('normalizes quiz answer helpers', () => {
-    expect(splitOrderingInput('first, second,, third')).toEqual(['first', 'second', 'third'])
-    expect(toggleMultiAnswer(['a'], 'b')).toEqual(['a', 'b'])
-    expect(toggleMultiAnswer(['a', 'b'], 'a')).toEqual(['b'])
   })
 
   it('keeps topic workspace helpers split behind a compatibility barrel', () => {

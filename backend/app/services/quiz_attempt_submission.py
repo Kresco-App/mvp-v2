@@ -9,7 +9,7 @@ from app.models.quizzes import QuestionSet
 from app.services.concept_mastery import update_concept_mastery_from_question_attempts
 from app.services.gamification_stats import apply_quiz_pass_stats_delta
 from app.services.mistake_notebook import update_mistake_notebook_from_question_attempts
-from app.services.quiz_grading import tab_quiz_submission_hash
+from app.services.quiz_grading import quiz_submission_answer_hash
 from app.services.quiz_snapshots import (
     QUIZ_SNAPSHOT_SCHEMA_VERSION,
     build_question_set_snapshot,
@@ -70,7 +70,7 @@ async def persist_quiz_submission(
 ) -> PersistedQuizSubmission:
     question_snapshot = build_question_set_snapshot(question_set, raw_questions)
     snapshot_hash = question_snapshot_hash(question_snapshot)
-    answer_hash = tab_quiz_submission_hash(raw_questions, hash_answers if hash_answers is not None else answers)
+    answer_hash = quiz_submission_answer_hash(raw_questions, hash_answers if hash_answers is not None else answers)
     submission_hash = quiz_attempt_submission_hash(answer_hash=answer_hash, snapshot_hash=snapshot_hash)
     existing_attempt = await find_existing_quiz_submission(
         db,

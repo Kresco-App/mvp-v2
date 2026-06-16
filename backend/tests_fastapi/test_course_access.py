@@ -109,8 +109,8 @@ def test_topic_workspace_compacts_inactive_and_search_tab_bodies(app_client, aut
             inactive_item = TopicItem(
                 topic_id=topic.id,
                 section_id=section.id,
-                title="Inactive quiz item",
-                item_type="quiz",
+                title="Inactive reading item",
+                item_type="reading",
                 status="published",
                 order=2,
             )
@@ -128,19 +128,11 @@ def test_topic_workspace_compacts_inactive_and_search_tab_bodies(app_client, aut
                 ),
                 TabContent(
                     topic_item_id=inactive_item.id,
-                    label="Quiz",
-                    tab_type="quiz",
+                    label="Course",
+                    tab_type="course",
                     content="inactive lesson body with epsilon marker",
                     config_json={
-                        "quiz_id": 123,
-                        "question_set_id": 456,
-                        "questions": [
-                            {
-                                "id": "q1",
-                                "prompt": "large prompt",
-                                "answer": "secret",
-                            }
-                        ],
+                        "notes": "inactive config",
                         "large_blob": "x" * 4000,
                     },
                     status="published",
@@ -173,11 +165,7 @@ def test_topic_workspace_compacts_inactive_and_search_tab_bodies(app_client, aut
     inactive_tab = section_items[inactive_item_id]["tabs"][0]
     assert inactive_tab["content"] == ""
     assert inactive_tab["body_omitted"] is True
-    assert inactive_tab["config_json"] == {
-        "quiz_id": 123,
-        "question_set_id": 456,
-        "questions": [{"id": "q1"}],
-    }
+    assert inactive_tab["config_json"] == {}
 
     search_response = app_client.get(f"/api/courses/topics/{topic_id}/workspace?q=epsilon", headers=headers)
 

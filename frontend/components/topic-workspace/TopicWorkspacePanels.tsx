@@ -20,7 +20,6 @@ import { AnimatedContentRenderer } from '@/components/animated/registry'
 import type { AnimatedCompletionEvent, AnimatedRendererProps } from '@/components/animated/types'
 import { EmptyTabPanel } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
 import { TopicWorkspaceNotesTab } from '@/components/topic-workspace/TopicWorkspaceNotesTab'
-import { TopicWorkspaceQuizTab } from '@/components/topic-workspace/TopicWorkspaceQuizTab'
 import { TopicWorkspaceResourcePanel } from '@/components/topic-workspace/TopicWorkspaceResourcePanel'
 
 export function LockedContentPanel({
@@ -229,8 +228,6 @@ export function TabPanel({
       />
     )
   }
-
-  if (tabMatchesSlot(tab, 'quiz')) return <TopicWorkspaceQuizTab tab={tab} />
 
   if (isCommentsTab(tab)) return <CommentsTab item={item} />
 

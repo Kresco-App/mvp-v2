@@ -10,7 +10,6 @@ import {
   BookOpen,
   Check,
   FileText,
-  ListChecks,
   MessageSquare,
   RotateCcw,
   StickyNote,
@@ -42,7 +41,6 @@ import { TabPanel } from '@/components/topic-workspace/TopicWorkspacePanels'
 const workspaceTabIcons: Record<WorkspaceTabSlot, LucideIcon> = {
   course: BookOpen,
   lab: Beaker,
-  quiz: ListChecks,
   resources: FileText,
   notes: StickyNote,
   comments: MessageSquare,

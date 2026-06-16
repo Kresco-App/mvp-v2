@@ -1,12 +1,9 @@
 import {
   defaultSecondaryTabSlotForItem,
   resolvePrimaryTab,
-  tabConfig,
-  tabMatchesSlot,
   workspaceTabSlotForTab,
 } from '@/lib/topicWorkspaceTabs'
 import type {
-  TabContent,
   TopicItem,
   TopicLookups,
   TopicSection,
@@ -83,7 +80,6 @@ export function resolveTabSlotForTopicWorkspaceQuery(
     if (targetSlot && targetTab.id !== resolvePrimaryTab(item)?.id) return targetSlot
   }
   if (query.resourceId && item.primary_resource?.id === query.resourceId) return defaultSecondaryTabSlotForItem(item)
-  if ((query.quizId || query.questionId) && item.tabs.some((tab) => tabMatchesSlot(tab, 'quiz'))) return 'quiz'
   return defaultSecondaryTabSlotForItem(item)
 }
 
@@ -131,15 +127,6 @@ function findTopicItemForQuery(items: TopicItem[], query: TopicWorkspaceQueryTar
     if (item) return item
   }
 
-  if (query.quizId) {
-    const item = items.find((candidate) => candidate.tabs.some((tab) => tabMatchesQuizTarget(tab, query.quizId!)))
-    if (item) return item
-  }
-
-  if (query.questionId) {
-    return items.find((candidate) => candidate.tabs.some((tab) => tabHasQuestionTarget(tab, query.questionId!))) ?? null
-  }
-
   return null
 }
 
@@ -154,49 +141,9 @@ function findTabForQueryTarget(item: TopicItem, query: TopicWorkspaceQueryTarget
     if (tab) return tab
   }
 
-  if (query.quizId) {
-    const tab = item.tabs.find((candidate) => tabMatchesQuizTarget(candidate, query.quizId!))
-    if (tab) return tab
-  }
-
-  if (query.questionId) {
-    return item.tabs.find((candidate) => tabHasQuestionTarget(candidate, query.questionId!))
-      ?? item.tabs.find((candidate) => tabMatchesSlot(candidate, 'quiz'))
-      ?? null
-  }
-
   return null
 }
 
 function itemMatchesResourceTarget(item: TopicItem, resourceId: number) {
   return item.primary_resource?.id === resourceId || item.tabs.some((tab) => tab.resource?.id === resourceId)
-}
-
-function tabMatchesQuizTarget(tab: TabContent, quizId: number) {
-  if (!tabMatchesSlot(tab, 'quiz')) return false
-  const config = tabConfig(tab)
-  return [
-    tab.id,
-    config.quiz_id,
-    config.quizId,
-    config.question_set_id,
-    config.questionSetId,
-  ].some((value) => positiveIntParam(value) === quizId)
-}
-
-function tabHasQuestionTarget(tab: TabContent, questionId: number) {
-  if (!tabMatchesSlot(tab, 'quiz')) return false
-  const questions = tabConfig(tab).questions
-  if (!Array.isArray(questions)) return false
-
-  return questions.some((question, index) => {
-    if (!question || typeof question !== 'object') return false
-    return [
-      question.id,
-      question.external_id,
-      question.question_id,
-      question.questionId,
-      index + 1,
-    ].some((value) => positiveIntParam(value) === questionId || String(value) === String(questionId))
-  })
 }

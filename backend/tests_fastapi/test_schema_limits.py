@@ -3,7 +3,7 @@ from pydantic import ValidationError
 from typing import Annotated, get_args, get_origin
 
 from app.routers.telemetry import ClientErrorIn
-from app.schemas.courses import TabQuizSubmitIn, TopicItemCompleteIn
+from app.schemas.courses import TopicItemCompleteIn
 from app.schemas.interactions import CommentCreateIn, NoteCreateIn, SavedItemCreateIn
 from app.schemas.professor import (
     ChatConversationPatchIn,
@@ -162,38 +162,6 @@ def test_auth_request_email_fields_accept_valid_email_formats(model, payload):
     assert model(**payload).email == "student@example.com"
 
 
-def test_schema_limits_reject_oversized_answer_keys():
-    with pytest.raises(ValidationError):
-        TabQuizSubmitIn(answers={"x" * 256: "A"})
-
-
-def test_schema_limits_accept_supported_tab_quiz_answer_shapes():
-    answers = {
-        "single": "A",
-        "multi": ["A", "B"],
-        "matching": {"T": "seconds", "f": "hertz"},
-        "hotspot": {"x": 50, "y": 50, "radius": 10},
-    }
-
-    assert TabQuizSubmitIn(answers=answers).answers == answers
-
-
-@pytest.mark.parametrize(
-    "answers",
-    [
-        {"nested_dict": {"left": {"too": "deep"}}},
-        {"nested_list": [["too", "deep"]]},
-        {"long_string": "x" * 2001},
-        {"long_list": [str(index) for index in range(101)]},
-        {"long_dict": {f"k{index}": str(index) for index in range(101)}},
-        {f"q{index}": "x" * 1000 for index in range(70)},
-    ],
-)
-def test_schema_limits_reject_nested_or_oversized_tab_quiz_answers(answers):
-    with pytest.raises(ValidationError):
-        TabQuizSubmitIn(answers=answers)
-
-
 def test_schema_limits_accept_bounded_professor_change_request_json():
     payload = {
         "course_offering_id": 1,
@@ -265,7 +233,6 @@ def test_schema_limits_reject_nested_or_oversized_professor_change_request_json(
         (SavedItemCreateIn, {"target_type": "topic", "target_id": 1}),
         (CommentCreateIn, {"topic_item_id": 1, "body": "Comment"}),
         (TopicItemCompleteIn, {"watched_seconds": 1}),
-        (TabQuizSubmitIn, {"answers": {"q": "A"}}),
         (QuizSubmitIn, {"answers": {1: 1}}),
         (
             LiveSessionIn,

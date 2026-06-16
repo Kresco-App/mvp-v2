@@ -18,9 +18,6 @@ from app.schemas.courses import (
     StreamOut,
     SubjectDetailOut,
     SubjectListOut,
-    TabQuizAttemptSummaryOut,
-    TabQuizResultOut,
-    TabQuizSubmitIn,
     TopicCardOut,
     TopicItemCompleteIn,
     TopicItemProgressIn,
@@ -31,8 +28,6 @@ from app.schemas.interactions import ResourceOpenIn, ResourceOpenOut
 from app.schemas.limits import ShortText, StrictInputModel
 from app.services.access import build_access_context
 from app.services.course_access import exam_out, require_topic_item_primary_video_resource_access
-from app.services.course_tab_quiz_submission import get_recent_tab_quiz_attempts
-from app.services.course_tab_quiz_submission import submit_tab_quiz_attempt
 from app.services.course_topic_mutations import complete_topic_item_state, record_topic_item_progress_state
 from app.services.course_topic_read_models import build_topic_workspace, list_topic_cards
 from app.services.interaction_mutations import open_topic_workspace_resource
@@ -317,28 +312,6 @@ async def open_resource(
 ):
     del request
     return await open_topic_workspace_resource(db, user=user, resource_id=resource_id, body=body)
-
-
-@router.get("/tabs/{tab_id}/quiz/attempts", response_model=list[TabQuizAttemptSummaryOut])
-async def get_tab_quiz_attempts(
-    tab_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    return await get_recent_tab_quiz_attempts(db, user=user, tab_id=tab_id)
-
-
-@router.post("/tabs/{tab_id}/quiz/submit", response_model=TabQuizResultOut)
-@limiter.limit("20/minute")
-async def submit_tab_quiz(
-    request: Request,
-    tab_id: int,
-    body: TabQuizSubmitIn,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    del request
-    return await submit_tab_quiz_attempt(db, user=user, tab_id=tab_id, body=body)
 
 
 @router.get("/exam-bank", response_model=list[ExamOut])

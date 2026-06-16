@@ -72,7 +72,7 @@ def grade_quiz_question(question: dict, submitted) -> tuple[bool, object]:
     return submitted == expected, expected
 
 
-def tab_quiz_submission_hash(questions: list[dict], answers: dict) -> str:
+def quiz_submission_answer_hash(questions: list[dict], answers: dict) -> str:
     normalized_questions = []
     for index, question in enumerate(questions):
         qid = question_external_id(question, index)

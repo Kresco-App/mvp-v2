@@ -3,7 +3,6 @@ import type { TabContent, TopicItem, WorkspaceTabSlot, WorkspaceTabSlotSpec } fr
 export const workspaceTabSlotSpecs: WorkspaceTabSlotSpec[] = [
   { id: 'course', label: 'Course', tabTypes: ['course', 'summary', 'transcript', 'formula', 'definitions', 'vocabulary', 'methods', 'mistakes', 'text'] },
   { id: 'lab', label: 'Lab', tabTypes: ['lab', 'interactive', 'simulator'] },
-  { id: 'quiz', label: 'Quiz', tabTypes: ['quiz', 'checkpoint_quiz', 'questions'] },
   { id: 'resources', label: 'Resources', tabTypes: ['resources', 'resource', 'pdf', 'attachment', 'worksheet'] },
   { id: 'notes', label: 'Notes', tabTypes: ['notes'] },
   { id: 'comments', label: 'Comments', tabTypes: ['comments', 'discussion'] },
@@ -65,16 +64,6 @@ export function fallbackTabForSlot(slot: WorkspaceTabSlot, item: TopicItem): Tab
       is_missing: true,
       empty_title: 'No lab attached',
       empty_message: 'This item does not have an interactive lab tab attached yet.',
-    }
-  }
-
-  if (slot === 'quiz') {
-    return {
-      ...fallback,
-      tab_type: 'quiz',
-      is_missing: true,
-      empty_title: 'No quiz attached',
-      empty_message: 'This item does not have quiz questions attached yet.',
     }
   }
 
