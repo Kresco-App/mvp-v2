@@ -74,6 +74,8 @@
     .high { color: var(--warn); background: #fff7df; border-color: #f7df9e; }
     .present { color: var(--ok); background: #e7f7f4; border-color: #b7ebe2; }
     .future { color: var(--future); background: #f4efff; border-color: #ded1ff; }
+    .done { color: var(--ok); font-weight: 900; }
+    .partial { color: var(--warn); font-weight: 900; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -96,7 +98,7 @@
       <h1>Kresco Product Audit</h1>
       <p class="lead">Compact living checklist for turning Kresco into a cohesive Bac learning platform.</p>
       <div class="meta">
-        <span class="pill">Updated: 2026-06-12</span>
+        <span class="pill">Updated: 2026-06-16</span>
         <span class="pill">Strategy: targeted rewrites</span>
         <span class="pill">Priority: coherence before more features</span>
       </div>
@@ -118,6 +120,78 @@
           <p>Trust/support: reports, access clarity, broken-content visibility, production monitoring.</p>
         </article>
       </div>
+    </section>
+
+    <section>
+      <h2>Recent Commit Completion Tracker</h2>
+      <p class="section-note">Audit pass against the last ~60 commits. Marked done only where commit history and current repo state show concrete implementation; launch verification and polish remain separate TODOs.</p>
+      <table>
+        <thead>
+          <tr><th>Area</th><th>Status</th><th>Evidence from recent commits/current repo</th><th>Still open</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>CMI/manual payment rails</td>
+            <td><span class="done">Foundation done</span></td>
+            <td>CMI initiation/callback, CMI return pages, provider payment requests, manual payment proof, reconciliation imports, AshPlus rail, CMI env validation.</td>
+            <td>Provider onboarding credentials, staging/production CMI proof, full payment E2E, final student UX polish.</td>
+          </tr>
+          <tr>
+            <td>Finance/backoffice foundation</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Minimal finance backoffice, finance audit visibility, payment monitoring summary, reconciliation row queue, finance exports, refund request workflow, manual grants.</td>
+            <td>Complete /backoffice zones, full role UI, accountant exports, production reconciliation process, provider refund execution.</td>
+          </tr>
+          <tr>
+            <td>RBAC and SQLAdmin boundary</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Permission management, finance permission gates, explicit sqladmin:access check, SQLAdmin no longer normal staff default.</td>
+            <td>Apply granular permissions to every future backoffice endpoint and finish role assignment UX/process.</td>
+          </tr>
+          <tr>
+            <td>Entitlement-based access</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Paid payments project into subject entitlements; manual grants create audited subject access; student payment state recovery added.</td>
+            <td>Finish removing any remaining is_pro-as-source-of-truth assumptions and harden semester/package entitlement rules.</td>
+          </tr>
+          <tr>
+            <td>Exam Bank</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Problem detail view, problem/part progress, revision filters, saved/progress filtering foundations.</td>
+            <td>Full Bac content import, video correction coverage, written corrections, quality review, search/ranking polish.</td>
+          </tr>
+          <tr>
+            <td>Exercise Bank</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Student exercise workspace, save toggle, private notes, bank-local revision decisions.</td>
+            <td>Bulk import pipeline, 40 exercises/lesson content coverage, diagrams/corrections QA, public comments/moderation polish.</td>
+          </tr>
+          <tr>
+            <td>XP/gamification</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Retry-correct, perfect quiz, daily login streak, exam problem completion, corrected mistake XP, seasonal leaderboard, admin XP audit, XP adjustments, badges, expanded quests, concept mastery.</td>
+            <td>XP economy doc, anti-farming caps, frontend gamification polish, reward balance, leagues/rewards product rules.</td>
+          </tr>
+          <tr>
+            <td>Mistake/mastery loop</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Quiz mistake notebook foundation, quiz attempt history API, quiz-backed concept mastery, concept review scheduling.</td>
+            <td>Student revision UX, cross-bank revision strategy, spaced repetition display, mastery explainability.</td>
+          </tr>
+          <tr>
+            <td>Reports/moderation</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Content report queue foundation, reported comment moderation actions, live message report moderation.</td>
+            <td>Full support ticket workflow, AI answer reports, professor slow mode/mute/blocklist, moderation analytics and escalation.</td>
+          </tr>
+          <tr>
+            <td>Legacy cleanup</td>
+            <td><span class="partial">Partially done</span></td>
+            <td>Removed stale course quiz compatibility, embedded topic quiz tab legacy, and legacy Stripe payment surface; local readiness fixes applied.</td>
+            <td>Continue deleting dead compatibility code after current launch paths are stable.</td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
     <section>
@@ -176,6 +250,7 @@
           <div class="card-head"><h3>Bac Exam Video Bank</h3><span class="tag critical">critical</span></div>
           <p>End-of-year Bac prep: exam questions, full exams, and video answers.</p>
           <ul>
+            <li><span class="partial">Recent foundation:</span> problem detail view, part progress, and revision filters exist.</li>
             <li>Browse by subject, year, session, topic, concept.</li>
             <li>Video answer is primary; written statement/correction is supporting.</li>
             <li>Track watched, saved, attempted, weak Bac themes.</li>
@@ -186,6 +261,7 @@
           <div class="card-head"><h3>Lesson Exercise Bank</h3><span class="tag critical">critical</span></div>
           <p>Year-round practice: many exercises per lesson, mostly text/formula/diagram corrections.</p>
           <ul>
+            <li><span class="partial">Recent foundation:</span> student workspace, save toggle, and private notes exist.</li>
             <li>Filter by lesson, topic, difficulty, concept, status.</li>
             <li>Corrections support formulas, diagrams, hints, steps.</li>
             <li>Video optional; not required for value.</li>
@@ -196,6 +272,7 @@
           <div class="card-head"><h3>Payment and Access Rewrite</h3><span class="tag critical">critical</span></div>
           <p>Students must always know what they own, what is locked, why, and how to unlock.</p>
           <ul>
+            <li><span class="partial">Recent foundation:</span> CMI/manual rails, payment recovery, support states, entitlements, and finance audit visibility exist.</li>
             <li>Owned subjects, tier, entitlements, payment status.</li>
             <li>Support Pro/VIP/Platinum, packages, refunds, coupons, manual grants.</li>
             <li>Payment/access issues route to support.</li>
@@ -218,14 +295,14 @@
           <ul>
             <li>Create a clear XP economy doc: what earns XP, how often, caps, reversals, and rationale.</li>
             <li>Add weighting by subject, topic/course difficulty, exam relevance, and learning action value.</li>
-            <li>Wire or remove unused rewards: retry correct, exam complete, perfect quiz, daily login, streak bonus.</li>
-            <li>Add XP seasons: weekly/monthly/semester leaderboards, not only all-time ranking.</li>
-            <li>Add first-class XP reversal/adjustment transactions for bugs, abuse, or admin correction.</li>
+            <li><span class="done">Done foundation:</span> retry-correct, perfect quiz, daily login streak, exam problem completion, corrected mistake XP.</li>
+            <li><span class="done">Done foundation:</span> XP seasonal leaderboard read model exists.</li>
+            <li><span class="done">Done foundation:</span> admin XP adjustments and XP audit read model exist.</li>
             <li>Add daily anti-farming caps by category: quiz-correct, lesson complete, retry, video, lab, exam.</li>
-            <li>Expand quests: subject quests, weak-area quests, streak quests, exam-prep quests, mistake-review quests.</li>
+            <li><span class="partial">Partially done:</span> daily quest templates expanded; still needs full quest economy and UI polish.</li>
             <li>Remove fake fallback XP/leaderboard data in production; show empty/error states instead.</li>
-            <li>Add mastery model: per-concept mastery, confidence, decay, spaced repetition, weak-topic detection.</li>
-            <li>Add XP audit dashboard: explain why a user has a given XP total and which awards/reversals created it.</li>
+            <li><span class="partial">Partially done:</span> quiz-backed concept mastery and review scheduling exist; still needs student-facing mastery UX.</li>
+            <li><span class="done">Done foundation:</span> XP audit read model explains awards/adjustments for admin investigation.</li>
             <li>Improve frontend gamification display so XP, quests, badges, leagues, and progress are understandable.</li>
           </ul>
         </article>
@@ -234,6 +311,7 @@
           <div class="card-head"><h3>Mistake Notebook</h3><span class="tag critical">critical</span></div>
           <p>More valuable than generic notes: turns weak points into revision.</p>
           <ul>
+            <li><span class="partial">Recent foundation:</span> quiz mistake notebook and attempt history API exist.</li>
             <li>Wrong quizzes, failed exercises, rewatched corrections.</li>
             <li>Repeated weak concepts and "retry later" queue.</li>
             <li>Links back to exact question, correction, video timestamp.</li>
@@ -471,9 +549,9 @@
           </tr>
           <tr>
             <td>Moderation and safety</td>
-            <td>Chat/comments/live questions exist or are planned; report queues are mostly roadmap items.</td>
-            <td>No complete moderation workflow for bad comments, live chat, AI answers, wrong corrections, abuse, or takedowns.</td>
-            <td>Add report queues, hide/delete/restore actions, moderation states, block tools, admin audit logs, and escalation policy.</td>
+            <td><span class="partial">Partially done:</span> content report queue, reported comment actions, and live message report moderation exist.</td>
+            <td>Still incomplete for AI answers, wrong corrections, abuse escalation, room controls, slow mode, mute/blocklist, and moderation analytics.</td>
+            <td>Finish report queues across all surfaces, hide/delete/restore actions, moderation states, block tools, admin audit logs, and escalation policy.</td>
           </tr>
           <tr>
             <td>Support operations</td>
@@ -597,15 +675,15 @@
           </tr>
           <tr>
             <td>SQLAdmin boundary</td>
-            <td>SQLAdmin is hardened but still raw table tooling.</td>
-            <td>Restrict /admin SQLAdmin to super_admin/sqladmin:access only; use it for emergency repair and migrations, not daily work.</td>
-            <td>Critical</td>
+            <td><span class="done">Done foundation:</span> SQLAdmin now checks explicit sqladmin:access / superuser access.</td>
+            <td>Keep /admin as emergency raw tooling only; continue using custom backoffice for normal staff workflows.</td>
+            <td>Done foundation</td>
           </tr>
           <tr>
             <td>RBAC</td>
-            <td>Frontend tabs and staff boolean are not enough for real operations.</td>
-            <td>Add staff_roles, staff_permissions, staff_role_assignments, and require_permission(...) dependencies on every backoffice endpoint.</td>
-            <td>Critical</td>
+            <td><span class="partial">Partially done:</span> permission management and finance permission gates exist.</td>
+            <td>Finish staff role/assignment UX and require_permission(...) coverage for every backoffice endpoint.</td>
+            <td>High</td>
           </tr>
           <tr>
             <td>Permission set</td>
@@ -621,15 +699,15 @@
           </tr>
           <tr>
             <td>Finance source of truth</td>
-            <td>Paid access can still collapse into users.is_pro mutation.</td>
-            <td>Make entitlements and append-only money records the source of truth; keep users.is_pro only as a cache/projection.</td>
-            <td>Critical</td>
+            <td><span class="partial">Partially done:</span> paid payments and manual grants now project into subject entitlements.</td>
+            <td>Finish eliminating remaining users.is_pro source-of-truth assumptions; keep it only as compatibility/projection if needed.</td>
+            <td>High</td>
           </tr>
           <tr>
             <td>Finance tables</td>
-            <td>Stripe event/verification records are not a full provider-agnostic finance model and Stripe is not the target launch gateway.</td>
-            <td>Add payment_provider_events, payment_transactions, finance_ledger_entries, refund_requests, refunds, manual_access_grants, reconciliation_imports, and provider-specific payload storage for CMI, virement, CashPlus, and AshPlus/cash-agency variants.</td>
-            <td>Critical</td>
+            <td><span class="partial">Partially done:</span> provider-neutral events, transactions, ledger entries, refund requests, manual grants, and reconciliation imports exist.</td>
+            <td>Finish provider refund execution, accountant exports, production reconciliation, and any missing provider-specific payload coverage.</td>
+            <td>High</td>
           </tr>
           <tr>
             <td>Payment flow</td>
@@ -639,15 +717,15 @@
           </tr>
           <tr>
             <td>Refund flow</td>
-            <td>Refunds need approval, reversal, entitlement, and audit structure.</td>
-            <td>Finance admin requests refund -> optional super_admin approval -> provider refund -> refund event -> ledger reversal -> revoke/shorten entitlement -> audit.</td>
+            <td><span class="partial">Partially done:</span> audited refund request/review workflow exists.</td>
+            <td>Finish provider refund execution, confirmed refund records, ledger reversal, and entitlement shortening/revocation after money movement.</td>
             <td>High</td>
           </tr>
           <tr>
             <td>Manual grants</td>
-            <td>Manual access is dangerous without reason, expiry, and audit.</td>
-            <td>Require reason and expiry; insert manual_access_grant; create entitlement; audit. Consider approval for long/free grants.</td>
-            <td>High</td>
+            <td><span class="done">Done foundation:</span> audited manual subject access grants exist.</td>
+            <td>Keep reason/expiry/audit required; consider approval for long/free grants and add stronger review UI.</td>
+            <td>Done foundation</td>
           </tr>
           <tr>
             <td>Semester entitlements</td>
@@ -657,21 +735,21 @@
           </tr>
           <tr>
             <td>Payment gateway replacement</td>
-            <td>Payment code should not hardcode Stripe, and Stripe should be removed from the target launch path.</td>
-            <td>Build a provider-neutral payment gateway layer, migrate launch checkout to CMI, virement, CashPlus/AshPlus cash handling, then remove/deprecate Stripe checkout and webhook code from the launch surface.</td>
-            <td>Critical</td>
+            <td><span class="partial">Partially done:</span> legacy Stripe checkout is disabled/removed from visible launch surface; provider payment requests exist.</td>
+            <td>Finish cutover to CMI/virement/CashPlus/AshPlus, remove remaining unused Stripe compatibility when safe, and prove E2E launch payment paths.</td>
+            <td>High</td>
           </tr>
           <tr>
             <td>CMI card payments</td>
-            <td>Local card checkout needs signed provider verification.</td>
-            <td>Add CMI create-payment and signed callback endpoints with unique idempotent order IDs, amount validation, callback hash verification, and success/fail/pending UI.</td>
-            <td>Critical</td>
+            <td><span class="partial">Partially done:</span> CMI initiation, signed callback handling, return pages, and env validation exist.</td>
+            <td>Verify with real CMI sandbox/live credentials, complete certification cases, and run full student payment E2E.</td>
+            <td>High</td>
           </tr>
           <tr>
             <td>Virement bancaire</td>
-            <td>Bank transfers need manual/reconciliation handling, not normal instant checkout semantics.</td>
-            <td>Add bank-transfer payment requests with reference code, student instructions, proof upload, finance approval/rejection, bank-statement reconciliation import, and audited entitlement grant after confirmation.</td>
-            <td>Critical</td>
+            <td><span class="partial">Partially done:</span> manual payment proof submission and reconciliation imports exist.</td>
+            <td>Finish student instructions UX, finance review polish, bank-statement import format, and launch E2E.</td>
+            <td>High</td>
           </tr>
           <tr>
             <td>CashPlus</td>
@@ -687,8 +765,8 @@
           </tr>
           <tr>
             <td>Reconciliation</td>
-            <td>Finance needs accountant/bank/CMI matching, not just app-side status.</td>
-            <td>Add reconciliation import/export, weekly finance report, monthly accountant export, and mismatch queue.</td>
+            <td><span class="partial">Partially done:</span> reconciliation row queue and finance exports exist.</td>
+            <td>Finish accountant/bank formats, weekly/monthly reports, mismatch ownership, and operational review process.</td>
             <td>High</td>
           </tr>
           <tr>
@@ -852,7 +930,7 @@
           <tr><td>13</td><td>Use Redis-backed rate limiting in production, not memory.</td><td>High</td></tr>
           <tr><td>14</td><td>Debounce video progress writes. Send progress every 15-30s or on pause/exit, not every tick.</td><td>High</td></tr>
           <tr><td>15</td><td>Batch/async non-critical writes: audit logs, telemetry, notification fanout, leaderboard refresh.</td><td>High</td></tr>
-          <tr><td>16</td><td>Precompute leaderboard into LeaderboardRank; never sort all users on request.</td><td>High</td></tr>
+          <tr><td>16</td><td><span class="done">Done foundation:</span> all-time leaderboard uses LeaderboardRank and seasonal leaderboard read model/indexes exist. Keep refresh/caching off hot request paths.</td><td>Done foundation</td></tr>
           <tr><td>17</td><td>Precompute user sidebar summary from UserStats, not raw progress every load.</td><td>High</td></tr>
           <tr><td>18</td><td>Cursor paginate chat, notifications, comments, and professor messages everywhere.</td><td>High</td></tr>
           <tr><td>19</td><td>Add hard page-size caps to all list endpoints.</td><td>High</td></tr>
@@ -885,7 +963,7 @@
           <tr><td>Indexes</td><td>Existing scalability/hot-path index migrations are strong. Add exact composite indexes for notification cursor order, XP cursor order, professor conversation sorting, live interaction cursor scans.</td></tr>
           <tr><td>Pooling</td><td>Lambda uses NullPool and production requires RDS Proxy strategy. Keep Lambda short-lived connections through RDS Proxy.</td></tr>
           <tr><td>SELECT payloads</td><td>No raw SELECT * found, but select(Model) loads all mapped columns. Watch big Text/JSON fields in workspace tabs, exam bank, and admin overview.</td></tr>
-          <tr><td>Leaderboard</td><td>Move leaderboard projection refresh fully out of request paths.</td></tr>
+          <tr><td>Leaderboard</td><td><span class="partial">Partially done:</span> LeaderboardRank and seasonal read model/indexes exist. Remaining: prove refresh is fully out of hot request paths and cache leaderboard reads.</td></tr>
           <tr><td>Observability</td><td>Add query timing logs for slow DB calls and route-level query counts.</td></tr>
           <tr><td>EXPLAIN</td><td>Run EXPLAIN ANALYZE on the 5 hottest endpoints using staging/prod-like data.</td></tr>
           <tr><td>Query-count tests</td><td>Add tests for workspace, course listing, chat, notifications, and leaderboard.</td></tr>
@@ -1038,20 +1116,20 @@
           <tr><td>User rights</td><td>Add endpoints or admin workflow for access, correction, deletion/opposition.</td></tr>
           <tr><td>Data requests</td><td>Add data export/delete request model for support/admin.</td></tr>
           <tr><td>Legal docs in repo</td><td>Add docs/legal/subprocessors.md and retention config/doc for account data, logs, payments, chat, quiz/progress.</td></tr>
-          <tr><td>Stripe removal</td><td>Remove Stripe from the target launch payment path. Stripe is legacy/current-state compatibility only until cutover; do not build new payment features on Stripe.</td></tr>
-          <tr><td>Payment gateway abstraction</td><td>Make the provider-neutral payment gateway the canonical launch path for CMI, virement bancaire, CashPlus, and AshPlus/cash-agency variants. Money history must flow through payment transactions, provider events, ledger entries, entitlements, and audit logs.</td></tr>
+          <tr><td>Stripe removal</td><td><span class="partial">Partially done:</span> legacy Stripe checkout is disabled/removed from the launch surface. Keep remaining Stripe code as temporary compatibility only until final cutover cleanup.</td></tr>
+          <tr><td>Payment gateway abstraction</td><td><span class="partial">Partially done:</span> provider-neutral payment requests, transactions/events/ledger flow, CMI, manual proof, and reconciliation foundations exist. Finish launch E2E and operational cutover.</td></tr>
           <tr><td>Payment backend status</td><td>Backend foundation now includes CMI initiation/callback handling, manual payment proofs, manual reconciliation, AshPlus rail support, and normalized reconciliation imports. Remaining launch TODO is student UI, finance backoffice UI, provider onboarding credentials, migration/cutover, and full end-to-end testing.</td></tr>
-          <tr><td>CMI endpoints</td><td>Add and production-verify CMI create-payment endpoint and CMI callback/webhook endpoint.</td></tr>
-          <tr><td>CMI security</td><td>Verify callback hash/signature before granting access. Use unique/idempotent CMI order IDs.</td></tr>
-          <tr><td>CMI UI</td><td>Add CMI success/fail/pending pages and payment method selector for CMI card payments.</td></tr>
-          <tr><td>CMI attempts</td><td>Add CMI payment attempt table or extend existing payment attempts.</td></tr>
-          <tr><td>CMI tests</td><td>Test fake callback rejection, duplicate callback idempotency, wrong-user payment session rejection.</td></tr>
-          <tr><td>Virement flow</td><td>Finish bank-transfer launch flow around the existing backend foundation: student instructions page, proof upload UX, finance review UI, reconciliation import UI, and audited entitlement grant after confirmation.</td></tr>
-          <tr><td>CashPlus/AshPlus flow</td><td>Finish cash-agency launch flow around the existing backend foundation: student pending instructions, receipt/proof UX, manual/provider confirmation or report import UI, duplicate-safe reconciliation, and audited entitlement grant after confirmed collection.</td></tr>
-          <tr><td>Manual payment states</td><td>Add pending_manual_review, paid, failed, expired, refunded, cancelled, and mismatch states so virement and cash-agency rails do not masquerade as instant checkout.</td></tr>
-          <tr><td>Payment admin</td><td>Add finance backoffice views for payment transactions, CMI attempts/events, manual proofs, reconciliation imports/rows, mismatches, refunds, payment status monitoring, and audit logging.</td></tr>
-          <tr><td>CMI env</td><td>Add CMI_CLIENT_ID, CMI_STORE_KEY, CMI_PAYMENT_URL, CMI_OK_URL, CMI_FAIL_URL, CMI_CALLBACK_URL.</td></tr>
-          <tr><td>CMI env validation</td><td>Production env validation should require CMI secrets when CMI is enabled.</td></tr>
+          <tr><td>CMI endpoints</td><td><span class="partial">Partially done:</span> CMI create-payment and callback endpoints exist. Remaining: production/sandbox provider verification and certification.</td></tr>
+          <tr><td>CMI security</td><td><span class="partial">Partially done:</span> signed callback/idempotent order flow exists. Remaining: prove with real provider payloads and hostile callback tests in staging.</td></tr>
+          <tr><td>CMI UI</td><td><span class="partial">Partially done:</span> CMI return pages and provider payment request UX exist. Remaining: polished payment method selector and full pending/failure recovery UX.</td></tr>
+          <tr><td>CMI attempts</td><td><span class="partial">Partially done:</span> CMI/payment attempts use provider-neutral transaction/event records. Remaining: confirm all CMI operational fields needed by the bank are captured.</td></tr>
+          <tr><td>CMI tests</td><td><span class="partial">Partially done:</span> backend foundation exists. Remaining: keep/expand tests for fake callback rejection, duplicate callback idempotency, wrong-user payment session rejection, and real sandbox payloads.</td></tr>
+          <tr><td>Virement flow</td><td><span class="partial">Partially done:</span> manual payment proof and reconciliation import foundation exists. Remaining: polished student instructions, finance review UI, bank import format, and audited launch E2E.</td></tr>
+          <tr><td>CashPlus/AshPlus flow</td><td><span class="partial">Partially done:</span> AshPlus/manual payment rail and reconciliation foundation exists. Remaining: final receipt UX, provider report import format, and launch E2E.</td></tr>
+          <tr><td>Manual payment states</td><td><span class="done">Done foundation:</span> provider-neutral payment states include pending_manual_review, paid, failed, expired, refunded, cancelled, and mismatch.</td></tr>
+          <tr><td>Payment admin</td><td><span class="partial">Partially done:</span> minimal finance backoffice, monitoring, audit visibility, exports, reconciliation rows, manual grants, and refund requests exist. Remaining: complete operator UX and accountant workflow.</td></tr>
+          <tr><td>CMI env</td><td><span class="done">Done foundation:</span> CMI_CLIENT_ID, CMI_STORE_KEY, CMI_PAYMENT_URL, CMI_OK_URL, CMI_FAIL_URL, CMI_CALLBACK_URL are modeled in config/docs.</td></tr>
+          <tr><td>CMI env validation</td><td><span class="done">Done foundation:</span> production config validation requires CMI launch settings when CMI is enabled.</td></tr>
         </tbody>
       </table>
     </section>
