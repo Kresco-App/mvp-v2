@@ -36,8 +36,8 @@ from app.models.professor import (
     ProfessorChatMessage,
     ProgramTrack,
 )
+from app.security.passwords import hash_password
 from app.models.users import User
-from app.routers.users import _hash_password
 from seed_safety import require_destructive_seed_database_url, require_destructive_seed_session
 
 DEMO_PASSWORD = "kresco123"
@@ -208,7 +208,7 @@ async def upsert_user(
     user.is_email_verified = True
     user.is_staff = False
     user.is_superuser = False
-    user.password = _hash_password(DEMO_PASSWORD)
+    user.password = hash_password(DEMO_PASSWORD)
     await db.flush()
     return user
 
