@@ -8,7 +8,8 @@ const VALID_PRODUCTION_ENV = {
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'kresco-prod.firebaseapp.com',
   NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'kresco-prod',
   NEXT_PUBLIC_FIREBASE_APP_ID: '1:418905339056:web:5ff922f6917acc61c3b775',
-  NEXT_PUBLIC_ABLY_ENABLED: 'true',
+  NEXT_PUBLIC_FIRESTORE_DATABASE: '(default)',
+  NEXT_PUBLIC_REALTIME_PROVIDER: 'firestore',
   NEXT_PUBLIC_RELEASE_SHA: '0123456789abcdef0123456789abcdef01234567',
 }
 
@@ -26,7 +27,7 @@ describe('frontend production environment validation', () => {
       expect.stringContaining('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
       expect.stringContaining('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
       expect.stringContaining('NEXT_PUBLIC_FIREBASE_APP_ID'),
-      expect.stringContaining('NEXT_PUBLIC_ABLY_ENABLED'),
+      expect.stringContaining('NEXT_PUBLIC_REALTIME_PROVIDER'),
       expect.stringContaining('NEXT_PUBLIC_RELEASE_SHA'),
     ]))
   })
@@ -65,11 +66,34 @@ describe('frontend production environment validation', () => {
     })).toContain('NEXT_PUBLIC_API_BASE_URL must include the backend /api path.')
   })
 
-  it('requires realtime to be explicitly enabled in production', () => {
+  it('requires a supported realtime provider in production', () => {
     expect(validateFrontendProductionEnv({
       ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_REALTIME_PROVIDER: 'off',
+    })).toContain('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore or ably in production.')
+  })
+
+  it('requires Firestore database config for Firestore realtime', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_FIRESTORE_DATABASE: '',
+    })).toContain('NEXT_PUBLIC_FIRESTORE_DATABASE must be configured when NEXT_PUBLIC_REALTIME_PROVIDER is firestore.')
+  })
+
+  it('keeps Ably valid only as an explicit legacy provider', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_REALTIME_PROVIDER: 'ably',
+      NEXT_PUBLIC_ABLY_ENABLED: 'true',
+      NEXT_PUBLIC_FIRESTORE_DATABASE: '',
+    })).toEqual([])
+
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_REALTIME_PROVIDER: 'ably',
       NEXT_PUBLIC_ABLY_ENABLED: 'false',
-    })).toContain('NEXT_PUBLIC_ABLY_ENABLED must be true in production.')
+      NEXT_PUBLIC_FIRESTORE_DATABASE: '',
+    })).toContain('NEXT_PUBLIC_ABLY_ENABLED must be true when NEXT_PUBLIC_REALTIME_PROVIDER is ably.')
   })
 
   it('rejects local or placeholder Firebase auth values in production', () => {
@@ -125,7 +149,8 @@ describe('frontend production environment validation', () => {
       'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=kresco-prod.firebaseapp.com',
       'NEXT_PUBLIC_FIREBASE_PROJECT_ID=kresco-prod',
       'NEXT_PUBLIC_FIREBASE_APP_ID=1:418905339056:web:5ff922f6917acc61c3b775',
-      'NEXT_PUBLIC_ABLY_ENABLED=true',
+      'NEXT_PUBLIC_FIRESTORE_DATABASE=(default)',
+      'NEXT_PUBLIC_REALTIME_PROVIDER=firestore',
       'NEXT_PUBLIC_RELEASE_SHA=0123456789abcdef0123456789abcdef01234567',
     ].join('\n'))).toEqual(VALID_PRODUCTION_ENV)
   })

@@ -159,7 +159,9 @@ def test_patch_profile_rejects_direct_s3_profile_media_reference_changes(app_cli
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Upload new banner media through the profile media endpoint before referencing it here"
+    detail = response.json()["detail"]
+    assert isinstance(detail, list)
+    assert detail[0]["msg"] == "Value error, Profile media must be uploaded through the profile media endpoint"
 
 
 def test_upload_profile_avatar_persists_storage_url(app_client, auth_token):

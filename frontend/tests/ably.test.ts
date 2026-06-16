@@ -11,6 +11,7 @@ import {
 } from '@/lib/ably'
 
 const originalAblyEnabled = process.env.NEXT_PUBLIC_ABLY_ENABLED
+const originalRealtimeProvider = process.env.NEXT_PUBLIC_REALTIME_PROVIDER
 
 function restoreAblyEnabled() {
   if (originalAblyEnabled === undefined) {
@@ -18,6 +19,14 @@ function restoreAblyEnabled() {
     return
   }
   process.env.NEXT_PUBLIC_ABLY_ENABLED = originalAblyEnabled
+}
+
+function restoreRealtimeProvider() {
+  if (originalRealtimeProvider === undefined) {
+    delete process.env.NEXT_PUBLIC_REALTIME_PROVIDER
+    return
+  }
+  process.env.NEXT_PUBLIC_REALTIME_PROVIDER = originalRealtimeProvider
 }
 
 function stubBrowserTimers() {
@@ -83,9 +92,12 @@ async function importAblyWithRealtimeMock(initialState: string, subscribeImpl?: 
 
 afterEach(() => {
   restoreAblyEnabled()
+  restoreRealtimeProvider()
   vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.doUnmock('ably')
+  vi.doUnmock('@firebase/firestore')
+  vi.doUnmock('@/lib/firebaseAuth')
   vi.resetModules()
 })
 
@@ -115,6 +127,7 @@ describe('Ably channel naming', () => {
   })
 
   it('disables realtime retries for the session after token service misconfiguration', async () => {
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'ably'
     process.env.NEXT_PUBLIC_ABLY_ENABLED = 'true'
     stubBrowserTimers()
     vi.resetModules()
@@ -172,6 +185,7 @@ describe('Ably channel naming', () => {
     vi.useFakeTimers()
     stubBrowserTimers()
     process.env.NEXT_PUBLIC_ABLY_ENABLED = 'false'
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'off'
     vi.resetModules()
 
     const { subscribeKrescoRealtime } = await import('@/lib/ably')
@@ -196,6 +210,7 @@ describe('Ably channel naming', () => {
     vi.useFakeTimers()
     stubBrowserTimers()
     process.env.NEXT_PUBLIC_ABLY_ENABLED = 'true'
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'ably'
     vi.resetModules()
 
     const { getRealtime, mod } = await importAblyWithRealtimeMock('suspended', () => Promise.resolve())
@@ -228,6 +243,7 @@ describe('Ably channel naming', () => {
     vi.useFakeTimers()
     stubBrowserTimers()
     process.env.NEXT_PUBLIC_ABLY_ENABLED = 'true'
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'ably'
     vi.resetModules()
 
     let subscribeCalls = 0
@@ -259,6 +275,7 @@ describe('Ably channel naming', () => {
     vi.useFakeTimers()
     stubBrowserTimers()
     process.env.NEXT_PUBLIC_ABLY_ENABLED = 'true'
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'ably'
     vi.resetModules()
 
     let subscribeCalls = 0
@@ -295,6 +312,7 @@ describe('Ably channel naming', () => {
     vi.useFakeTimers()
     stubBrowserTimers()
     process.env.NEXT_PUBLIC_ABLY_ENABLED = 'true'
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'ably'
     vi.resetModules()
 
     const subscribeControl: { resolve: () => void } = {
@@ -327,6 +345,7 @@ describe('Ably channel naming', () => {
     vi.useFakeTimers()
     stubBrowserTimers()
     process.env.NEXT_PUBLIC_ABLY_ENABLED = 'true'
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'ably'
     vi.resetModules()
 
     const { channel, getRealtime, mod } = await importAblyWithRealtimeMock('connected')
@@ -347,5 +366,119 @@ describe('Ably channel naming', () => {
     realtime.emitConnection('failed')
     await vi.advanceTimersByTimeAsync(1000)
     expect(poll).not.toHaveBeenCalled()
+  })
+
+  it('subscribes to Firestore events with Ably-shaped messages', async () => {
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'firestore'
+    process.env.NEXT_PUBLIC_FIRESTORE_DATABASE = '(default)'
+    vi.resetModules()
+
+    const unsubscribe = vi.fn()
+    const snapshots: Array<(snapshot: {
+      docChanges: () => Array<{ type: string; doc: { id: string; data: () => Record<string, unknown> } }>
+    }) => void> = []
+    const collectionMock = vi.fn((...args: unknown[]) => ({ kind: 'collection', args }))
+    const firestore = {}
+    vi.doMock('@/lib/firebaseAuth', () => ({
+      firebasePublicAuthConfig: vi.fn(() => ({
+        apiKey: 'api-key',
+        appId: 'app-id',
+        authDomain: 'kresco.firebaseapp.com',
+        projectId: 'kresco',
+      })),
+      getFirebaseApp: vi.fn(() => ({ name: 'kresco-web' })),
+    }))
+    vi.doMock('@firebase/firestore', () => ({
+      collection: collectionMock,
+      getFirestore: vi.fn(() => firestore),
+      limitToLast: vi.fn((count: number) => ({ kind: 'limitToLast', count })),
+      onSnapshot: vi.fn((_query: unknown, next: (snapshot: {
+        docChanges: () => Array<{ type: string; doc: { id: string; data: () => Record<string, unknown> } }>
+      }) => void) => {
+        snapshots.push(next)
+        return unsubscribe
+      }),
+      orderBy: vi.fn((field: string) => ({ kind: 'orderBy', field })),
+      query: vi.fn((...args: unknown[]) => ({ kind: 'query', args })),
+    }))
+
+    const { subscribeKrescoRealtime } = await import('@/lib/ably')
+    const onMessage = vi.fn()
+    const cleanup = subscribeKrescoRealtime({
+      channelName: 'kresco:user:1:notifications',
+      onMessage,
+    })
+
+    await Promise.resolve()
+
+    expect(collectionMock).toHaveBeenCalledWith(
+      firestore,
+      'realtimeChannels',
+      'kresco%3Auser%3A1%3Anotifications',
+      'events',
+    )
+    expect(snapshots).toHaveLength(1)
+
+    snapshots[0]({ docChanges: () => [] })
+    snapshots[0]({
+      docChanges: () => [{
+        type: 'added',
+        doc: {
+          id: 'event-1',
+          data: () => ({
+            name: 'live.interaction.created',
+            data: { id: 123 },
+            createdAt: { toMillis: () => 456 },
+          }),
+        },
+      }],
+    })
+
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({
+      data: { id: 123 },
+      id: 'event-1',
+      name: 'live.interaction.created',
+      timestamp: 456,
+    }))
+
+    cleanup()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('subscribes to multiple Firestore channels through the existing facade', async () => {
+    process.env.NEXT_PUBLIC_REALTIME_PROVIDER = 'firestore'
+    vi.resetModules()
+
+    const unsubscribe = vi.fn()
+    const collectionMock = vi.fn((...args: unknown[]) => ({ kind: 'collection', args }))
+    vi.doMock('@/lib/firebaseAuth', () => ({
+      firebasePublicAuthConfig: vi.fn(() => ({
+        apiKey: 'api-key',
+        appId: 'app-id',
+        authDomain: 'kresco.firebaseapp.com',
+        projectId: 'kresco',
+      })),
+      getFirebaseApp: vi.fn(() => ({ name: 'kresco-web' })),
+    }))
+    vi.doMock('@firebase/firestore', () => ({
+      collection: collectionMock,
+      getFirestore: vi.fn(() => ({})),
+      limitToLast: vi.fn((count: number) => ({ kind: 'limitToLast', count })),
+      onSnapshot: vi.fn(() => unsubscribe),
+      orderBy: vi.fn((field: string) => ({ kind: 'orderBy', field })),
+      query: vi.fn((...args: unknown[]) => ({ kind: 'query', args })),
+    }))
+
+    const { subscribeKrescoRealtimeChannels } = await import('@/lib/ably')
+    const cleanup = subscribeKrescoRealtimeChannels({
+      channelNames: ['kresco:test:a', 'kresco:test:b', 'kresco:test:a'],
+      onMessage: vi.fn(),
+    })
+
+    await Promise.resolve()
+
+    expect(collectionMock).toHaveBeenCalledTimes(2)
+    cleanup()
+    expect(unsubscribe).toHaveBeenCalledTimes(2)
   })
 })

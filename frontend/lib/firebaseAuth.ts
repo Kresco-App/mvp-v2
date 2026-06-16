@@ -38,7 +38,7 @@ export function isFirebaseGoogleAuthConfigured(env: NodeJS.ProcessEnv = process.
   return firebasePublicAuthConfig(env) !== null
 }
 
-function firebaseApp(config: FirebasePublicAuthConfig): FirebaseApp {
+export function getFirebaseApp(config: FirebasePublicAuthConfig): FirebaseApp {
   return getApps().find((app) => app.name === FIREBASE_APP_NAME) ?? initializeApp(config, FIREBASE_APP_NAME)
 }
 
@@ -50,6 +50,6 @@ export async function getFirebaseGoogleIdToken() {
 
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
-  const result = await signInWithPopup(getAuth(firebaseApp(config)), provider)
+  const result = await signInWithPopup(getAuth(getFirebaseApp(config)), provider)
   return result.user.getIdToken()
 }

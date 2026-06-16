@@ -59,15 +59,30 @@ def test_firebase_payload_maps_to_google_login_payload():
         "uid": "firebase-uid-123",
         "name": "Firebase User",
         "picture": "https://example.com/avatar.png",
+        "firebase": {
+            "sign_in_provider": "google.com",
+            "identities": {"google.com": ["google-sub-123"]},
+        },
     })
 
     assert payload == {
         "email": "firebase-user@example.com",
         "email_verified": True,
-        "sub": "firebase-uid-123",
+        "firebase_uid": "firebase-uid-123",
+        "sub": "google-sub-123",
         "name": "Firebase User",
         "picture": "https://example.com/avatar.png",
     }
+
+
+def test_firebase_payload_rejects_non_google_provider():
+    with pytest.raises(jwt.InvalidTokenError):
+        auth_module._google_login_payload_from_firebase({
+            "email": "firebase-user@example.com",
+            "email_verified": True,
+            "uid": "firebase-uid-123",
+            "firebase": {"sign_in_provider": "password"},
+        })
 
 
 def test_decode_token_rejects_invalid_payload_shape(test_settings):

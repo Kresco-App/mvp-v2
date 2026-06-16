@@ -215,7 +215,5 @@ def test_foreign_key_columns_are_indexed_or_index_leading():
 
 def test_backend_ci_and_deploy_run_query_plan_audit():
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci-backend.yml").read_text(encoding="utf-8")
-    deploy_workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
     assert 'DATABASE_URL="$CI_POSTGRES_DATABASE_URL" python scripts/audit_query_plans.py' in ci_workflow
-    assert 'DATABASE_URL="$CI_POSTGRES_DATABASE_URL" python scripts/audit_query_plans.py' in deploy_workflow

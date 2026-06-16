@@ -3,13 +3,30 @@ name: Staging Provider Diagnostics
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   diagnostics:
     runs-on: ubuntu-latest
     environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-staging
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -18,14 +35,10 @@ jobs:
 
       - name: Run staging provider diagnostics
         env:
-          BACKEND_READY_URL: ${{ vars.BACKEND_READY_URL }}
           KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
         run: |
           set -euo pipefail
-          if [ -z "${BACKEND_READY_URL:-}" ]; then
-            echo "BACKEND_READY_URL is not configured."
-            exit 1
-          fi
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
           python scripts/check_staging_runtime.py \
-            "$BACKEND_READY_URL" \
+            "${backend_url%/}/ready" \
             --json

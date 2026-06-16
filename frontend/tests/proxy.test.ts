@@ -192,6 +192,7 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'style-src-attr')).toBe("style-src-attr 'none'")
     expect(cspDirective(csp, 'connect-src')).toContain('https://identitytoolkit.googleapis.com')
     expect(cspDirective(csp, 'connect-src')).toContain('https://securetoken.googleapis.com')
+    expect(cspDirective(csp, 'connect-src')).toContain('https://firestore.googleapis.com')
     expect(cspDirective(csp, 'connect-src')).toContain('wss://*.ably.io')
     expect(cspDirective(csp, 'frame-src')).toContain('https://*.firebaseapp.com')
     expect(cspDirective(csp, 'frame-src')).toContain('https://*.web.app')

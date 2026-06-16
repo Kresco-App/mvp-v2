@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from itsdangerous import URLSafeTimedSerializer
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
@@ -60,6 +60,13 @@ async def _get_user(email: str) -> User | None:
     async with session_factory() as db:
         result = await db.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
+
+
+async def _count_users() -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(select(func.count(User.id)))
+        return int(result.scalar_one())
 
 
 async def _get_email_throttle(email: str, purpose: str) -> EmailDispatchThrottle | None:
@@ -413,6 +420,100 @@ def test_google_login_happy_path(app_client, monkeypatch):
     assert "access_token" not in body
     assert body["user"]["email"] == "googleuser@example.com"
     assert response.cookies.get("kresco_token")
+
+
+def test_google_login_uses_firebase_verifier_when_project_configured(app_client, monkeypatch, test_settings, run_db):
+    import app.routers.users as users_router
+
+    old_project_id = test_settings.firebase_project_id
+    test_settings.firebase_project_id = "kresco-staging"
+    firebase_calls = {"count": 0}
+
+    async def fake_verify_firebase_token(credential, project_id):
+        firebase_calls["count"] += 1
+        assert credential == "firebase-credential"
+        assert project_id == "kresco-staging"
+        return {
+            "email": "firebase-google@example.com",
+            "email_verified": True,
+            "name": "Firebase Google",
+            "picture": "https://example.com/avatar.png",
+            "sub": "google-provider-sub",
+            "firebase_uid": "firebase-uid-123",
+        }
+
+    monkeypatch.setattr(users_router, "verify_firebase_token", fake_verify_firebase_token)
+    monkeypatch.setattr(users_router, "verify_google_token", lambda *_: (_ for _ in ()).throw(AssertionError("legacy verifier should not run")))
+
+    try:
+        response = app_client.post("/api/google-login", json={"credential": "firebase-credential"})
+    finally:
+        test_settings.firebase_project_id = old_project_id
+
+    assert response.status_code == 200
+    assert firebase_calls == {"count": 1}
+    user = run_db(_get_user("firebase-google@example.com"))
+    assert user is not None
+    assert user.google_id == "google-provider-sub"
+    assert user.firebase_uid == "firebase-uid-123"
+
+
+def test_firebase_google_login_links_legacy_google_id_when_email_changed(
+    app_client,
+    monkeypatch,
+    test_settings,
+    run_db,
+):
+    import app.routers.users as users_router
+
+    old_email = "old-google-email@example.com"
+    new_email = "new-google-email@example.com"
+
+    async def seed_legacy_user():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = User(
+                email=old_email,
+                full_name="Legacy Google User",
+                password="!",
+                is_active=True,
+                is_email_verified=True,
+                google_id="legacy-google-sub",
+            )
+            db.add(user)
+            await db.commit()
+            return user.id
+
+    legacy_user_id = run_db(seed_legacy_user())
+    before_count = run_db(_count_users())
+    old_project_id = test_settings.firebase_project_id
+    test_settings.firebase_project_id = "kresco-staging"
+
+    async def fake_verify_firebase_token(*_args):
+        return {
+            "email": new_email,
+            "email_verified": True,
+            "name": "Legacy Google User",
+            "picture": "https://example.com/new-avatar.png",
+            "sub": "legacy-google-sub",
+            "firebase_uid": "firebase-uid-linked",
+        }
+
+    monkeypatch.setattr(users_router, "verify_firebase_token", fake_verify_firebase_token)
+
+    try:
+        response = app_client.post("/api/google-login", json={"credential": "firebase-credential"})
+    finally:
+        test_settings.firebase_project_id = old_project_id
+
+    assert response.status_code == 200
+    assert run_db(_count_users()) == before_count
+    assert run_db(_get_user(old_email)) is None
+    linked = run_db(_get_user(new_email))
+    assert linked is not None
+    assert linked.id == legacy_user_id
+    assert linked.google_id == "legacy-google-sub"
+    assert linked.firebase_uid == "firebase-uid-linked"
 
 
 def test_google_login_recovers_from_insert_race_and_uses_existing_user(app_client, monkeypatch, run_db):

@@ -86,6 +86,7 @@ function getContentSecurityPolicyTemplate() {
       firebaseOrigin ?? '',
       'https://identitytoolkit.googleapis.com',
       'https://securetoken.googleapis.com',
+      'https://firestore.googleapis.com',
       'https://www.googleapis.com',
       'https://accounts.google.com',
       'https://player.vdocipher.com',

@@ -120,48 +120,44 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
         assert "\n  push:" not in workflow
         assert "python scripts/check_production_launch_gate.py" in workflow
         assert "python scripts/check_secret_hygiene.py --require-rotation-checklist" in workflow
+        assert "google-github-actions/auth@v2" in workflow
+        assert "workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow
+        assert "service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" in workflow
+        assert "--min-instances 0" in workflow
+        assert "--max-instances 3" in workflow
+        assert "confirm_production_dark_deploy" in workflow
+        assert "zappa " not in workflow
+        assert "vercel " not in workflow
 
-    assert "if: ${{ env.ZAPPA_STAGE == 'production' }}" in backend_workflow
-    assert "environment: ${{ inputs.stage }}" in backend_workflow
-    assert "ZAPPA_STAGE: ${{ inputs.stage }}" in backend_workflow
-    assert "KRESCO_RELEASE_SHA: ${{ github.sha }}" in backend_workflow
-    assert "confirm_database_migration" in backend_workflow
-    assert "Require production database migration confirmation" in backend_workflow
-    assert "Capture production database snapshot before migration" in backend_workflow
-    assert "aws rds create-db-cluster-snapshot" in backend_workflow
-    assert "aws rds create-db-snapshot" in backend_workflow
-    migration_index = backend_workflow.index("- name: Run Alembic migrations on target database")
-    deploy_index = backend_workflow.index("- name: Deploy to Lambda")
-    assert migration_index < deploy_index
-    assert 'zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event' not in backend_workflow
-    assert "Require production CloudWatch alarms" in backend_workflow
-    assert "CLOUDWATCH_ALARM_NAMES: ${{ vars.CLOUDWATCH_ALARM_NAMES }}" in backend_workflow
-    assert "aws cloudwatch describe-alarms" in backend_workflow
+    assert "Deploy Backend to Cloud Run" in backend_workflow
+    assert "gcloud builds submit backend" in backend_workflow
+    assert "gcloud run deploy \"$BACKEND_SERVICE\"" in backend_workflow
+    assert "gcloud run jobs deploy \"$MIGRATION_JOB\"" in backend_workflow
+    assert "gcloud run jobs execute \"$MIGRATION_JOB\"" in backend_workflow
+    assert "--set-cloudsql-instances \"$cloud_sql_connection\"" in backend_workflow
+    assert "--args scripts/run_alembic_from_settings.py" in backend_workflow
+    assert 'ready_url = base_url + "/ready"' in backend_workflow
+    assert "--activation-policy ALWAYS" in backend_workflow
+    assert "--activation-policy NEVER" in backend_workflow
+    assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in backend_workflow
 
-    assert "if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}" in frontend_workflow
-    assert "environment: ${{ inputs.environment }}" in frontend_workflow
-    assert "NEXT_PUBLIC_RELEASE_SHA: ${{ github.sha }}" in frontend_workflow
-    assert "vercel deploy --prebuilt --prod" in frontend_workflow
-    assert "vercel deploy --prebuilt --token" in frontend_workflow
-    assert "Post-deploy production surface scan" in frontend_workflow
-    assert "FRONTEND_PRODUCTION_BASE_URLS: ${{ vars.FRONTEND_PRODUCTION_BASE_URLS }}" in frontend_workflow
-    assert "FRONTEND_PRODUCTION_BASE_URLS must include every public production alias to scan." in frontend_workflow
-    assert 'scan_urls="$deployment_url ${production_base_urls//,/ }"' in frontend_workflow
-    assert "for base_url in $scan_urls" in frontend_workflow
-    assert 'npm run check:production-demo-surface -- --base-url "$base_url" --json' in frontend_workflow
+    assert "Deploy Frontend to Cloud Run" in frontend_workflow
+    assert "gcloud builds submit frontend" in frontend_workflow
+    assert "gcloud run deploy \"$FRONTEND_SERVICE\"" in frontend_workflow
+    assert "npm run validate:production-env" in frontend_workflow
+    assert "NEXT_PUBLIC_FIREBASE_API_KEY" in frontend_workflow
+    assert "NEXT_PUBLIC_REALTIME_PROVIDER=firestore" in frontend_workflow
+    assert "KRESCO_BACKEND_ORIGIN=$BACKEND_URL" in frontend_workflow
 
 
 def test_ci_and_deploy_workflows_report_test_coverage():
     backend_ci = (REPO_ROOT / ".github" / "workflows" / "ci-backend.yml").read_text(encoding="utf-8")
-    backend_deploy = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
     frontend_ci = (REPO_ROOT / ".github" / "workflows" / "ci-frontend.yml").read_text(encoding="utf-8")
-    frontend_deploy = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
     e2e_db_prep = (REPO_ROOT / "backend" / "scripts" / "prepare_e2e_db.py").read_text(encoding="utf-8")
     backend_conftest = (REPO_ROOT / "backend" / "tests_fastapi" / "conftest.py").read_text(encoding="utf-8")
 
     assert "pytest-cov" in (REPO_ROOT / "backend" / "requirements.txt").read_text(encoding="utf-8")
     assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_ci
-    assert "--cov=app --cov=scripts --cov-report=term-missing:skip-covered --cov-report=xml" in backend_deploy
     for workflow_path in (
         ".github/workflows/ci-frontend.yml",
         ".github/workflows/deploy-frontend.yml",
@@ -170,11 +166,9 @@ def test_ci_and_deploy_workflows_report_test_coverage():
     ):
         assert workflow_path in backend_ci
     assert "npm run test:coverage" in frontend_ci
-    assert "npm run test:coverage" in frontend_deploy
-    for workflow in (frontend_ci, frontend_deploy):
-        assert "image: postgres:16" in workflow
-        assert "KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e" in workflow
-        assert "npm run test:e2e:integration" in workflow
+    assert "image: postgres:16" in frontend_ci
+    assert "KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e" in frontend_ci
+    assert "npm run test:e2e:integration" in frontend_ci
     assert "command.upgrade(config, \"head\")" in e2e_db_prep
     assert "DROP SCHEMA IF EXISTS public CASCADE" in e2e_db_prep
     assert "KRESCO_E2E_DATABASE_URL is required for CI integration tests." in e2e_db_prep

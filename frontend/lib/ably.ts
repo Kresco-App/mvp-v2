@@ -1,5 +1,16 @@
 import * as Ably from 'ably'
+import {
+  collection,
+  getFirestore,
+  limitToLast,
+  onSnapshot,
+  orderBy,
+  query,
+  type QueryDocumentSnapshot,
+  type Unsubscribe,
+} from '@firebase/firestore'
 import { getJson } from './apiClient'
+import { firebasePublicAuthConfig, getFirebaseApp } from './firebaseAuth'
 
 export type AblyTokenResponse = {
   token: string
@@ -14,6 +25,9 @@ export type RealtimeSubscriptionsResponse = {
 
 let realtimeClient: Ably.Realtime | null = null
 let realtimeMisconfiguredForSession = false
+let firestoreMisconfiguredForSession = false
+
+type RealtimeProvider = 'ably' | 'firestore' | 'disabled'
 
 type RealtimeFallback = {
   intervalMs: number
@@ -30,6 +44,36 @@ type RealtimeSubscriptionOptions = {
 type RealtimeFailureContext = {
   channelName?: string
   operation: string
+}
+
+function realtimeProviderFlag(env: NodeJS.ProcessEnv = process.env) {
+  return env.NEXT_PUBLIC_REALTIME_PROVIDER?.trim().toLowerCase() ?? ''
+}
+
+function isKrescoAblyRealtimeEnabled(env: NodeJS.ProcessEnv = process.env) {
+  if (realtimeMisconfiguredForSession) return false
+  const flag = env.NEXT_PUBLIC_ABLY_ENABLED
+  if (flag !== undefined) return flag === 'true'
+  return env.NODE_ENV === 'production'
+}
+
+export function isKrescoFirestoreRealtimeConfigured(env: NodeJS.ProcessEnv = process.env) {
+  return !firestoreMisconfiguredForSession && firebasePublicAuthConfig(env) !== null
+}
+
+export function getKrescoRealtimeProvider(env: NodeJS.ProcessEnv = process.env): RealtimeProvider {
+  const explicitProvider = realtimeProviderFlag(env)
+  if (explicitProvider === 'off' || explicitProvider === 'none' || explicitProvider === 'disabled') {
+    return 'disabled'
+  }
+  if (explicitProvider === 'ably') {
+    return isKrescoAblyRealtimeEnabled(env) ? 'ably' : 'disabled'
+  }
+  if (explicitProvider === 'firestore') {
+    return isKrescoFirestoreRealtimeConfigured(env) ? 'firestore' : 'disabled'
+  }
+  if (isKrescoFirestoreRealtimeConfigured(env)) return 'firestore'
+  return isKrescoAblyRealtimeEnabled(env) ? 'ably' : 'disabled'
 }
 
 function createRealtimeFallbackPoller(
@@ -72,10 +116,7 @@ function createRealtimeFallbackPoller(
 }
 
 export function isKrescoRealtimeEnabled() {
-  if (realtimeMisconfiguredForSession) return false
-  const flag = process.env.NEXT_PUBLIC_ABLY_ENABLED
-  if (flag !== undefined) return flag === 'true'
-  return process.env.NODE_ENV === 'production'
+  return getKrescoRealtimeProvider() !== 'disabled'
 }
 
 function isRealtimeMisconfigurationError(error: unknown) {
@@ -103,12 +144,169 @@ function reportRealtimeAsyncFailure(error: unknown, context: RealtimeFailureCont
   }
 }
 
+function firestoreDatabaseId() {
+  return process.env.NEXT_PUBLIC_FIRESTORE_DATABASE?.trim() || '(default)'
+}
+
+function getKrescoFirestore() {
+  const config = firebasePublicAuthConfig()
+  if (!config || firestoreMisconfiguredForSession) return null
+
+  const app = getFirebaseApp(config)
+  const databaseId = firestoreDatabaseId()
+  if (databaseId && databaseId !== '(default)') return getFirestore(app, databaseId)
+  return getFirestore(app)
+}
+
+export function firestoreChannelDocumentId(channel: string) {
+  const cleanChannel = channel.trim()
+  if (!cleanChannel) {
+    throw new Error('Realtime channel is required')
+  }
+  return encodeURIComponent(cleanChannel).replace(/[!'()*]/g, (char) => {
+    return `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  })
+}
+
+function firestoreTimestampMillis(value: unknown) {
+  if (value && typeof value === 'object' && 'toMillis' in value) {
+    const toMillis = (value as { toMillis?: unknown }).toMillis
+    if (typeof toMillis === 'function') return toMillis.call(value)
+  }
+  return Date.now()
+}
+
+function firestoreDocToRealtimeMessage(doc: QueryDocumentSnapshot): Ably.InboundMessage {
+  const data = doc.data()
+  return {
+    id: doc.id,
+    name: typeof data.name === 'string' ? data.name : '',
+    data: data.data,
+    timestamp: firestoreTimestampMillis(data.createdAt),
+  } as Ably.InboundMessage
+}
+
+function isFirestoreMisconfigurationError(error: unknown) {
+  const code = (error as { code?: unknown })?.code
+  return code === 'permission-denied' || code === 'unauthenticated' || code === 'failed-precondition'
+}
+
+function subscribeKrescoFirestore({
+  channelName,
+  onMessage,
+  fallback,
+  beforeSubscribe,
+}: RealtimeSubscriptionOptions) {
+  let stopped = false
+  let unsubscribe: Unsubscribe | null = null
+  let sawInitialSnapshot = false
+  const { runPoll, startFallback, stopFallback } = createRealtimeFallbackPoller(
+    fallback,
+    () => stopped,
+    { channelName, operation: 'firestore-fallback-poll' },
+  )
+
+  const firestore = getKrescoFirestore()
+  if (!firestore) {
+    startFallback?.(false)
+    return () => {
+      stopped = true
+      stopFallback()
+    }
+  }
+
+  const startSubscription = async () => {
+    try {
+      await beforeSubscribe?.()
+      if (stopped) return
+      const eventsQuery = query(
+        collection(firestore, 'realtimeChannels', firestoreChannelDocumentId(channelName), 'events'),
+        orderBy('createdAt'),
+        limitToLast(25),
+      )
+      unsubscribe = onSnapshot(
+        eventsQuery,
+        (snapshot) => {
+          if (stopped) return
+          stopFallback()
+          if (!sawInitialSnapshot) {
+            sawInitialSnapshot = true
+            void runPoll()
+            return
+          }
+          for (const change of snapshot.docChanges()) {
+            if (change.type === 'added') {
+              onMessage(firestoreDocToRealtimeMessage(change.doc))
+            }
+          }
+        },
+        (error) => {
+          reportRealtimeAsyncFailure(error, { channelName, operation: 'firestore-listen' })
+          if (isFirestoreMisconfigurationError(error)) {
+            firestoreMisconfiguredForSession = true
+          }
+          startFallback?.(true)
+        },
+      )
+    } catch (error) {
+      reportRealtimeAsyncFailure(error, { channelName, operation: 'firestore-subscribe' })
+      startFallback?.(true)
+    }
+  }
+
+  void startSubscription()
+
+  return () => {
+    stopped = true
+    stopFallback()
+    unsubscribe?.()
+  }
+}
+
+function subscribeKrescoFirestoreChannels({
+  channelNames,
+  onMessage,
+  beforeSubscribe,
+  fallback,
+}: {
+  channelNames: string[]
+  onMessage: (message: Ably.InboundMessage) => void
+  beforeSubscribe?: () => void | Promise<void>
+  fallback?: RealtimeFallback
+}) {
+  const uniqueChannelNames = Array.from(new Set(channelNames.map((name) => name.trim()).filter(Boolean)))
+  if (uniqueChannelNames.length === 0) {
+    let stopped = false
+    const { startFallback, stopFallback } = createRealtimeFallbackPoller(
+      fallback,
+      () => stopped,
+      { operation: 'firestore-empty-channel-fallback-poll' },
+    )
+    startFallback?.(false)
+    return () => {
+      stopped = true
+      stopFallback()
+    }
+  }
+
+  const cleanups = uniqueChannelNames.map((channelName) => subscribeKrescoFirestore({
+    channelName,
+    onMessage,
+    beforeSubscribe,
+    fallback,
+  }))
+
+  return () => {
+    cleanups.forEach((cleanup) => cleanup())
+  }
+}
+
 export function getKrescoRealtime(): Ably.Realtime | null {
   if (typeof window === 'undefined') {
     throw new Error('Ably realtime client is only available in the browser.')
   }
 
-  if (!isKrescoRealtimeEnabled()) return null
+  if (getKrescoRealtimeProvider() !== 'ably') return null
 
   if (!realtimeClient) {
     realtimeClient = new Ably.Realtime({
@@ -147,6 +345,10 @@ export function subscribeKrescoRealtime({
   fallback,
   beforeSubscribe,
 }: RealtimeSubscriptionOptions) {
+  if (getKrescoRealtimeProvider() === 'firestore') {
+    return subscribeKrescoFirestore({ channelName, onMessage, fallback, beforeSubscribe })
+  }
+
   let stopped = false
   let subscribing = false
   let subscribed = false
@@ -256,6 +458,10 @@ export function subscribeKrescoRealtimeChannels({
   beforeSubscribe?: () => void | Promise<void>
   fallback?: RealtimeFallback
 }) {
+  if (getKrescoRealtimeProvider() === 'firestore') {
+    return subscribeKrescoFirestoreChannels({ channelNames, onMessage, beforeSubscribe, fallback })
+  }
+
   let stopped = false
   let subscribing = false
   let subscribeRetryTimer: number | null = null

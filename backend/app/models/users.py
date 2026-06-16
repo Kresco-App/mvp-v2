@@ -36,6 +36,7 @@ class User(Base):
     tier: Mapped[str] = mapped_column(String(30), default="basic")
     is_pro: Mapped[bool] = mapped_column(Boolean, default=False)
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
+    firebase_uid: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), index=True)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_staff: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))

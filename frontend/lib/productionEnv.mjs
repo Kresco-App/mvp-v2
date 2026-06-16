@@ -4,7 +4,7 @@ export const REQUIRED_FRONTEND_PRODUCTION_ENV = [
   'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
   'NEXT_PUBLIC_FIREBASE_PROJECT_ID',
   'NEXT_PUBLIC_FIREBASE_APP_ID',
-  'NEXT_PUBLIC_ABLY_ENABLED',
+  'NEXT_PUBLIC_REALTIME_PROVIDER',
   'NEXT_PUBLIC_RELEASE_SHA',
 ]
 
@@ -22,7 +22,7 @@ export function validateFrontendProductionEnv(env) {
 
   validateApiBaseUrl(env.NEXT_PUBLIC_API_BASE_URL, errors)
   validateFirebaseAuthConfig(env, errors)
-  validateRealtimeToggle(env.NEXT_PUBLIC_ABLY_ENABLED, errors)
+  validateRealtimeProvider(env, errors)
   validateReleaseSha(env.NEXT_PUBLIC_RELEASE_SHA, errors)
   validateLocalRewritePolicy(env, errors)
   validateLocalDemoFeaturePolicy(env, errors)
@@ -128,10 +128,21 @@ function validateFirebaseValue(key, value, errors) {
   }
 }
 
-function validateRealtimeToggle(value, errors) {
-  if (!hasValue(value)) return
-  if (value !== 'true') {
-    errors.push('NEXT_PUBLIC_ABLY_ENABLED must be true in production.')
+function validateRealtimeProvider(env, errors) {
+  const provider = env.NEXT_PUBLIC_REALTIME_PROVIDER?.trim().toLowerCase()
+  if (!hasValue(provider)) return
+  if (!['firestore', 'ably'].includes(provider)) {
+    errors.push('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore or ably in production.')
+    return
+  }
+  if (provider === 'ably' && env.NEXT_PUBLIC_ABLY_ENABLED !== 'true') {
+    errors.push('NEXT_PUBLIC_ABLY_ENABLED must be true when NEXT_PUBLIC_REALTIME_PROVIDER is ably.')
+  }
+  if (provider === 'firestore') {
+    validateFirebaseValue('NEXT_PUBLIC_FIRESTORE_DATABASE', env.NEXT_PUBLIC_FIRESTORE_DATABASE, errors)
+    if (!hasValue(env.NEXT_PUBLIC_FIRESTORE_DATABASE)) {
+      errors.push('NEXT_PUBLIC_FIRESTORE_DATABASE must be configured when NEXT_PUBLIC_REALTIME_PROVIDER is firestore.')
+    }
   }
 }
 

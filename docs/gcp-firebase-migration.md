@@ -19,18 +19,18 @@ KRESCO_ENV=staging
 KRESCO_RELEASE_SHA=<git-sha>
 GCP_PROJECT_ID=kresco-staging
 GCP_REGION=europe-southwest1
-KRESCO_GCP_RUNTIME_SECRET_NAME=projects/kresco-staging/secrets/kresco-runtime/versions/latest
+KRESCO_GCP_RUNTIME_SECRET_NAME=<gcp-runtime-secret-version-name>
 FIREBASE_PROJECT_ID=kresco-staging
 FIREBASE_WEB_API_KEY=<firebase-web-api-key>
 FIRESTORE_DATABASE=(default)
-DATABASE_URL=postgresql+asyncpg://...
+DATABASE_URL=<postgres-asyncpg-url>
 DATABASE_CONNECTION_STRATEGY=alloydb
 PGSSLROOTCERT=certifi
 MEDIA_STORAGE_BACKEND=gcs
 MEDIA_GCS_BUCKET=<private-media-bucket>
 MEDIA_GCS_PREFIX=staging
 MEDIA_GCS_SIGNED_URL_TTL_SECONDS=3600
-KRESCO_RATE_LIMIT_STORAGE_URI=redis://...
+KRESCO_RATE_LIMIT_STORAGE_URI=<shared-rate-limit-uri>
 REALTIME_OUTBOX_SECRET=<32+ chars>
 ```
 
@@ -46,6 +46,8 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=kresco-staging
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=<firebase-storage-bucket>
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<sender-id>
 NEXT_PUBLIC_FIREBASE_APP_ID=<app-id>
+NEXT_PUBLIC_FIRESTORE_DATABASE=(default)
+NEXT_PUBLIC_REALTIME_PROVIDER=firestore
 NEXT_PUBLIC_RELEASE_SHA=<git-sha>
 ```
 
@@ -67,8 +69,8 @@ cd backend; python -m pytest backend/tests_fastapi/test_image_uploads.py backend
 6. Deploy backend to Cloud Run staging.
 7. Deploy frontend to Cloud Run staging.
 8. Move media uploads to Cloud Storage and verify `gs://` references.
-9. Add Firebase Auth token verification and map Firebase UID to Postgres users.
-10. Replace frontend Ably subscriptions with Firestore listeners.
+9. Add Firebase Auth token verification, preserve legacy Google provider IDs, and map Firebase UID to Postgres users.
+10. Replace frontend Ably subscriptions with Firestore listeners through the provider-neutral realtime facade.
 11. Run staging smoke tests for auth, course access, payments, media upload/read, and realtime.
 
 Production cutover is blocked until staging proves those flows.

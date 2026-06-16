@@ -267,13 +267,41 @@ def _firebase_auth_app(project_id: str):
         return firebase_admin.initialize_app(options={"projectId": project_id}, name=app_name)
 
 
+def _firebase_string_claim(payload: dict, *names: str) -> str:
+    for name in names:
+        value = payload.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _firebase_google_subject(payload: dict) -> str:
+    firebase_claim = payload.get("firebase")
+    if not isinstance(firebase_claim, dict):
+        raise jwt.InvalidTokenError("Firebase provider claim is missing")
+    if firebase_claim.get("sign_in_provider") != "google.com":
+        raise jwt.InvalidTokenError("Firebase credential is not a Google sign-in")
+
+    identities = firebase_claim.get("identities")
+    google_identities = identities.get("google.com") if isinstance(identities, dict) else None
+    if isinstance(google_identities, list):
+        for identity in google_identities:
+            if isinstance(identity, str) and identity.strip():
+                return identity.strip()
+    raise jwt.InvalidTokenError("Firebase Google identity is missing")
+
+
 def _google_login_payload_from_firebase(payload: dict) -> dict:
+    firebase_uid = _firebase_string_claim(payload, "uid", "user_id", "sub")
+    if not firebase_uid:
+        raise jwt.InvalidTokenError("Firebase UID is missing")
     return {
         "email": payload.get("email"),
         "email_verified": payload.get("email_verified"),
         "name": payload.get("name") or "",
         "picture": payload.get("picture") or "",
-        "sub": payload.get("uid") or payload.get("sub"),
+        "sub": _firebase_google_subject(payload),
+        "firebase_uid": firebase_uid,
     }
 
 

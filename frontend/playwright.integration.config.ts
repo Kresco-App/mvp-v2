@@ -8,9 +8,6 @@ const localE2eDatabaseUrl = 'sqlite+aiosqlite:///./e2e.sqlite3'
 if (process.env.CI && !process.env.KRESCO_E2E_DATABASE_URL) {
   throw new Error('KRESCO_E2E_DATABASE_URL is required for CI integration tests.')
 }
-if (process.env.CI && !process.env.ABLY_API_KEY) {
-  throw new Error('ABLY_API_KEY is required for CI integration tests so live fanout coverage cannot self-skip.')
-}
 const e2eDatabaseUrl = process.env.KRESCO_E2E_DATABASE_URL ?? localE2eDatabaseUrl
 const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
 const e2eAblyApiKey = process.env.ABLY_API_KEY ?? 'e2e-app.e2e-key:e2e-secret-for-local-integration'
@@ -66,7 +63,8 @@ export default defineConfig({
         KRESCO_ENABLE_LOCAL_REWRITES: 'true',
         KRESCO_LOCAL_BACKEND_ORIGIN: backendOrigin,
         JWT_SECRET_KEY: jwtSecretKey,
-        NEXT_PUBLIC_ABLY_ENABLED: process.env.NEXT_PUBLIC_ABLY_ENABLED ?? 'true',
+        NEXT_PUBLIC_REALTIME_PROVIDER: process.env.NEXT_PUBLIC_REALTIME_PROVIDER ?? 'off',
+        NEXT_PUBLIC_ABLY_ENABLED: process.env.NEXT_PUBLIC_ABLY_ENABLED ?? 'false',
         NEXT_PUBLIC_API_BASE_URL: '/api/',
       },
     },

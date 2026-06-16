@@ -74,8 +74,8 @@ def validate_runtime_payloads(
         errors.append(f"configuration.errors contains blocking errors: {joined}")
 
     database = _check(checks, "database", errors)
-    _require(database.get("strategy") == "rds_proxy", "database.strategy must be rds_proxy.", errors)
-    _require(database.get("rds_proxy_declared") is True, "database.rds_proxy_declared must be true.", errors)
+    _require(database.get("strategy") in {"alloydb", "cloud_sql"}, "database.strategy must be alloydb or cloud_sql.", errors)
+    _require(database.get("managed_postgres_declared") is True, "database.managed_postgres_declared must be true.", errors)
 
     migrations = _check(checks, "migrations", errors)
     current_heads = migrations.get("current_heads")
@@ -84,28 +84,20 @@ def validate_runtime_payloads(
     _require(current_heads == expected_heads, "migrations.current_heads must match expected_heads.", errors)
 
     storage = _check(checks, "storage", errors)
-    _require(storage.get("backend") == "s3", "storage.backend must be s3.", errors)
+    _require(storage.get("backend") == "gcs", "storage.backend must be gcs.", errors)
     _require(storage.get("bucket_configured") is True, "storage.bucket_configured must be true.", errors)
-    _require(storage.get("region_configured") is True, "storage.region_configured must be true.", errors)
     _require(storage.get("prefix_configured") is True, "storage.prefix_configured must be true.", errors)
-    _require(_int_value(storage, "presign_ttl_seconds") >= 60, "storage.presign_ttl_seconds must be at least 60.", errors)
+    _require(_int_value(storage, "signed_url_ttl_seconds") >= 60, "storage.signed_url_ttl_seconds must be at least 60.", errors)
     _require(_int_value(storage, "profile_quota_bytes") > 0, "storage.profile_quota_bytes must be positive.", errors)
     _require(
         _int_value(storage, "chat_conversation_quota_bytes") > 0,
         "storage.chat_conversation_quota_bytes must be positive.",
         errors,
     )
-    _require(
-        _int_value(storage, "lifecycle_expiration_days") > 0,
-        "storage.lifecycle_expiration_days must be positive.",
-        errors,
-    )
-
     realtime = _check(checks, "realtime", errors)
-    ably_key_status = realtime.get("ably_key")
     _require(
-        ably_key_status == "ok",
-        f"realtime.ably_key must be ok (current: {ably_key_status!r}).",
+        realtime.get("firestore_configured") is True,
+        "realtime.firestore_configured must be true.",
         errors,
     )
     _require(realtime.get("outbox_secret_configured") is True, "realtime.outbox_secret_configured must be true.", errors)

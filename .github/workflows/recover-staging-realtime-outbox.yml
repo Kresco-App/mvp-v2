@@ -14,26 +14,43 @@ on:
         default: "500"
         type: string
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   recover:
     runs-on: ubuntu-latest
     environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-staging
     steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Requeue and drain staging realtime outbox
         env:
-          BACKEND_READY_URL: ${{ vars.BACKEND_READY_URL }}
           KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
           REQUEUE_LIMIT: ${{ inputs.requeue_limit }}
           PROCESS_LIMIT: ${{ inputs.process_limit }}
         run: |
           set -euo pipefail
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          export BACKEND_URL="$backend_url"
           python - <<'PY'
           import json
           import os
           import urllib.request
 
-          ready_url = os.environ["BACKEND_READY_URL"].rstrip("/")
-          base_url = ready_url[:-len("/ready")] if ready_url.endswith("/ready") else ready_url
+          base_url = os.environ["BACKEND_URL"].rstrip("/")
           headers = {
               "Accept": "application/json",
               "x-kresco-internal-secret": os.environ["KRESCO_INTERNAL_SECRET"],
