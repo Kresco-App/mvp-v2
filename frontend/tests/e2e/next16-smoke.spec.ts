@@ -590,11 +590,6 @@ async function mockApi(page: Page) {
       return
     }
 
-    if (path === '/payments/verify-session') {
-      await route.fulfill({ json: { is_pro: true } })
-      return
-    }
-
     if (request.method() === 'POST' || request.method() === 'PATCH') {
       await route.fulfill({ json: { ok: true, xp_earned: 0, is_pro: true } })
       return
@@ -872,8 +867,8 @@ test('authenticated dashboard, payment, and admin routes hydrate with mocked API
   await expect(page.getByLabel('Weekly calendar')).toBeVisible()
   await expect(page.getByText('Live calculus review')).toBeVisible()
 
-  await page.goto('/payment-success?session_id=cs_test_smoke')
-  await expect(page.getByText('Bienvenue dans Kresco Pro !')).toBeVisible()
+  await page.goto('/payment/cmi/ok')
+  await expect(page.getByText('Acces Pro active')).toBeVisible()
 
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: /Operations control center/i })).toBeVisible()

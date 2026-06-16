@@ -9,32 +9,6 @@ SUPPORTED_PAYMENT_RAILS = {PAYMENT_RAIL_CMI, PAYMENT_RAIL_BANK_TRANSFER, PAYMENT
 MANUAL_PAYMENT_RAILS = {PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS, PAYMENT_RAIL_ASHPLUS}
 
 
-class CheckoutCreateIn(BaseModel):
-    plan: str = "pro"
-    success_path: str = "/payment-success?session_id={CHECKOUT_SESSION_ID}"
-    cancel_path: str = "/pricing"
-
-
-class CheckoutOut(BaseModel):
-    checkout_url: str
-
-
-class VerifyIn(BaseModel):
-    session_id: str = Field(min_length=1, max_length=255)
-
-    @field_validator("session_id")
-    @classmethod
-    def normalize_session_id(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("session_id is required")
-        return normalized
-
-
-class VerifyOut(BaseModel):
-    is_pro: bool
-
-
 class PaymentRequestCreateIn(BaseModel):
     payment_method: str = Field(min_length=1, max_length=40)
     plan: str = "pro"

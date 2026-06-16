@@ -134,14 +134,13 @@ def test_bearer_write_does_not_require_csrf_token(app_client, auth_token):
     assert response.json()["full_name"] == "Bearer User"
 
 
-def test_signed_webhook_path_is_csrf_exempt_for_cookie_sessions(app_client, run_db):
+def test_cmi_callback_path_is_csrf_exempt_for_cookie_sessions(app_client, run_db):
     _login_cookie_session(app_client, run_db, "csrf-webhook@example.com")
 
     response = app_client.post(
-        "/api/payments/webhook",
-        content=b"{}",
-        headers={"stripe-signature": "sig"},
+        "/api/payments/cmi/callback",
+        data={},
     )
 
-    assert response.status_code == 500
-    assert response.json()["detail"] == "Webhook secret not configured"
+    assert response.status_code == 503
+    assert response.status_code != 403

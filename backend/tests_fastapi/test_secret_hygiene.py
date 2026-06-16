@@ -45,16 +45,16 @@ def _rotation_table(
 
 def test_secret_hygiene_scanner_detects_without_printing_secret_values():
     secret_hygiene = _load_secret_hygiene_module()
-    secret_value = "sk" + "_live_" + "1234567890abcdefghijklmnop"
+    secret_value = "ghp_" + "1234567890abcdefghijklmnopqrstuvwx"
 
     findings = secret_hygiene.scan_text(
         REPO_ROOT / "example.env",
-        f"STRIPE_SK={secret_value}\n",
+        f"GITHUB_TOKEN={secret_value}\n",
     )
     rendered = "\n".join(finding.format() for finding in findings)
 
-    assert {finding.kind for finding in findings} == {"stripe-live-secret", "literal-sensitive-env-value"}
-    assert "STRIPE_SK" in rendered
+    assert {finding.kind for finding in findings} == {"github-token", "literal-sensitive-env-value"}
+    assert "GITHUB_TOKEN" in rendered
     assert secret_value not in rendered
 
 

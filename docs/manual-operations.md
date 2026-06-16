@@ -138,9 +138,7 @@ Before launch, verify anonymous `GET` to an uploaded object key fails through S3
 
 Backend deploys are stage-aware. The checked-in Zappa template must keep runtime-specific values as placeholders; set `FRONTEND_URL`, `CORS_ALLOWED_ORIGINS`, `DATABASE_URL`, `MEDIA_S3_BUCKET`, `KRESCO_RATE_LIMIT_STORAGE_URI`, `REALTIME_OUTBOX_SECRET`, and provider credentials as environment-scoped GitHub secrets or variables for each GitHub Environment.
 
-Use the backend deploy workflow manually for staging first. Select the `staging` stage and confirm it renders `KRESCO_ENV=staging` and `MEDIA_S3_PREFIX=staging`. The workflow runs `scripts/check_staging_runtime.py --include-provider-reachability` after Lambda deploy and `zappa schedule`; it must pass `/ready`, `/api/internal/diagnostics`, and a bounded protected outbox-drain call before the deploy is considered usable non-Stripe evidence.
-
-Stripe billing is deferred for the current launch gate. The staging verifier still reports the payment diagnostics object and Stripe reachability result when provider reachability is included, but payment status does not fail the non-Stripe launch verifier. Use `--require-payment-provider-reachability` only when Stripe billing is pulled back into the launch scope.
+Use the backend deploy workflow manually for staging first. Select the `staging` stage and confirm it renders `KRESCO_ENV=staging` and `MEDIA_S3_PREFIX=staging`. The workflow runs `scripts/check_staging_runtime.py` after Lambda deploy and `zappa schedule`; it must pass `/ready`, `/api/internal/diagnostics`, the CMI payment configuration check, and a bounded protected outbox-drain call before the deploy is considered usable launch evidence.
 
 ## Frontend Production Deploys
 
@@ -206,7 +204,7 @@ Minimum stage separation before launch:
 - Separate staging and production database URLs.
 - Separate staging and production S3 media buckets or prefixes.
 - Separate frontend URLs and CORS origin lists.
-- Separate `KRESCO_RATE_LIMIT_STORAGE_URI`, `REALTIME_OUTBOX_SECRET`, JWT secret, Stripe webhook secret, and provider credentials.
+- Separate `KRESCO_RATE_LIMIT_STORAGE_URI`, `REALTIME_OUTBOX_SECRET`, JWT secret, CMI credentials, and other provider credentials.
 
 ## Realtime Outbox
 
@@ -264,9 +262,7 @@ GET /api/internal/diagnostics
 x-kresco-internal-secret: <REALTIME_OUTBOX_SECRET>
 ```
 
-The response reports database reachability, Alembic head state, S3 media configuration, Ably/outbox state, VdoCipher configuration, and Resend configuration without returning secret values. Treat `status="not_ready"` or any check with `status="error"` as a failed release gate.
-
-Exception for the current non-Stripe launch gate: a diagnostics payload whose only error is `payment` is deferred and must be recorded, not counted as a launch-blocking runtime failure. Non-deferred checks such as database, migrations, storage, realtime, video, and email remain blocking.
+The response reports database reachability, Alembic head state, S3 media configuration, Ably/outbox state, VdoCipher configuration, Resend configuration, and CMI payment configuration without returning secret values. Treat `status="not_ready"` or any check with `status="error"` as a failed release gate.
 
 ## RDS TLS
 

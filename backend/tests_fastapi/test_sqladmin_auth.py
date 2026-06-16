@@ -194,7 +194,6 @@ def test_sqladmin_hides_sensitive_columns_from_read_and_export_surfaces():
         "google_id",
         "password",
         "password_changed_at",
-        "stripe_customer_id",
     }
 
     for view, sensitive_keys in (
@@ -591,29 +590,6 @@ def test_non_superuser_staff_cannot_modify_auth_token_version(run_db):
             with pytest.raises(HTTPException) as exc_info:
                 await view.on_model_change(
                     {"auth_token_version": 99},
-                    student,
-                    False,
-                    request,
-                )
-            assert exc_info.value.status_code == 403
-
-    run_db(_run())
-
-
-def test_non_superuser_staff_cannot_modify_stripe_customer_id(run_db):
-    """Non-superuser staff cannot touch stripe_customer_id."""
-    users = run_db(_seed_priv_esc_users("priv-stripe"))
-    request = _make_request(int(users["staff_id"]))
-
-    async def _run():
-        session_factory = get_session_factory()
-        async with session_factory() as db:  # type: AsyncSession
-            student = await db.get(User, int(users["student_id"]))
-            view = UserAdmin()
-
-            with pytest.raises(HTTPException) as exc_info:
-                await view.on_model_change(
-                    {"stripe_customer_id": "cus_evil123"},
                     student,
                     False,
                     request,

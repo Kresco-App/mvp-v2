@@ -736,7 +736,6 @@ def test_power_admin_views_are_searchable_filterable_and_safe():
         "password",
         "password_changed_at",
         "role",
-        "stripe_customer_id",
     }.issubset(set(UserAdmin.form_excluded_columns))
     assert {"role", "niveau", "filiere", "is_staff", "is_active"}.issubset(
         {column_filter.column.key for column_filter in UserAdmin.column_filters}

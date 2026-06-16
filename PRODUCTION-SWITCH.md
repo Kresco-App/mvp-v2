@@ -2,13 +2,13 @@
 
 ## Current Readiness Gate
 
-Stripe billing is intentionally deferred for this gate. Do not count billing/subscription readiness in the score below until Stripe is pulled back into scope.
+Payment readiness is in scope for this gate through the CMI card rail and manual payment-request flows. Do not add a second legacy checkout path for launch.
 
-Current non-Stripe launch readiness: **5.5/10**.
+Current launch readiness: **5.5/10**.
 
 Target for broad student production: **9/10**.
 
-The production switch is not approved until the non-Stripe gates below are complete.
+The production switch is not approved until the launch gates below are complete.
 
 Executable guard: `python scripts/check_production_launch_gate.py` must pass before any production backend or frontend deploy. It currently fails by design while traceability rows are not `verified` or the readiness score is below target.
 
@@ -26,7 +26,7 @@ Checklist:
 - Cover student login -> home -> topic -> watch page with real backend data.
 - Cover the watch route N+1 regression: opening one section must call the direct watch-context endpoint, not enumerate all subjects/chapters.
 - Cover professor action -> student-visible result for at least one live/chat/content flow.
-- Mock only external vendors such as Google OAuth, Stripe, and video providers; do not blanket-mock internal `POST`/`PATCH` calls.
+- Mock only external vendors such as Google OAuth, CMI, and video providers; do not blanket-mock internal `POST`/`PATCH` calls.
 
 ### Realtime Hardening
 

@@ -6,113 +6,10 @@ import {
   PAYMENT_ERROR_MESSAGE,
   PRO_CHECKOUT_PLAN,
   createProPaymentRequest,
-  createProCheckoutSession,
   getCurrentProPaymentRequest,
   getPaymentErrorMessage,
   submitProviderPaymentForm,
-  verifyCheckoutSession,
 } from '@/lib/payments'
-
-describe('payment success verification', () => {
-  it('rejects missing checkout session ids without calling the API', async () => {
-    const apiClient = { post: vi.fn() }
-
-    await expect(verifyCheckoutSession(apiClient, '')).resolves.toEqual({ status: 'error' })
-    await expect(verifyCheckoutSession(apiClient, null)).resolves.toEqual({ status: 'error' })
-    expect(apiClient.post).not.toHaveBeenCalled()
-  })
-
-  it('posts checkout session ids and returns the Pro user patch on paid sessions', async () => {
-    const apiClient = {
-      post: vi.fn().mockResolvedValue({ data: { is_pro: true } }),
-    }
-
-    await expect(verifyCheckoutSession(apiClient, ' cs_test/needs encoding ')).resolves.toEqual({
-      status: 'success',
-      userPatch: { is_pro: true },
-    })
-    expect(apiClient.post).toHaveBeenCalledWith(
-      '/payments/verify-session',
-      { session_id: 'cs_test/needs encoding' },
-    )
-  })
-
-  it('treats unpaid sessions and provider failures as errors', async () => {
-    await expect(verifyCheckoutSession(
-      { post: vi.fn().mockResolvedValue({ data: { is_pro: false } }) },
-      'cs_unpaid',
-    )).resolves.toEqual({ status: 'error' })
-
-    await expect(verifyCheckoutSession(
-      { post: vi.fn().mockRejectedValue(new Error('network')) },
-      'cs_error',
-    )).resolves.toEqual({ status: 'error' })
-  })
-})
-
-describe('Pro checkout creation', () => {
-  it('creates one-time Pro checkout sessions through the backend', async () => {
-    const apiClient = {
-      post: vi.fn().mockResolvedValue({ data: { checkout_url: 'https://checkout.stripe.test/session' } }),
-    }
-
-    await expect(createProCheckoutSession(apiClient)).resolves.toEqual({
-      status: 'success',
-      checkoutUrl: 'https://checkout.stripe.test/session',
-    })
-    expect(apiClient.post).toHaveBeenCalledWith(
-      '/payments/create-checkout-session',
-      {
-        plan: PRO_CHECKOUT_PLAN,
-        success_path: '/payment-success?session_id={CHECKOUT_SESSION_ID}',
-        cancel_path: '/pricing',
-      },
-    )
-  })
-
-  it('passes caller return paths to checkout creation', async () => {
-    const apiClient = {
-      post: vi.fn().mockResolvedValue({ data: { checkout_url: 'https://checkout.stripe.test/session' } }),
-    }
-
-    await expect(createProCheckoutSession(apiClient, {
-      successPath: '/payment-success?return_to=%2Ftopics%2F42',
-      cancelPath: '/topics/42',
-    })).resolves.toEqual({
-      status: 'success',
-      checkoutUrl: 'https://checkout.stripe.test/session',
-    })
-    expect(apiClient.post).toHaveBeenCalledWith(
-      '/payments/create-checkout-session',
-      {
-        plan: PRO_CHECKOUT_PLAN,
-        success_path: '/payment-success?return_to=%2Ftopics%2F42',
-        cancel_path: '/topics/42',
-      },
-    )
-  })
-
-  it('returns a safe error when checkout creation does not return a URL', async () => {
-    await expect(createProCheckoutSession({
-      post: vi.fn().mockResolvedValue({ data: {} }),
-    })).resolves.toEqual({
-      status: 'error',
-      message: PAYMENT_ERROR_MESSAGE,
-    })
-  })
-
-  it('preserves backend checkout error details without hardcoding Stripe in the component', async () => {
-    const error = { response: { data: { detail: 'Stripe checkout is not configured.' } } }
-
-    expect(getPaymentErrorMessage(error)).toBe('Stripe checkout is not configured.')
-    await expect(createProCheckoutSession({
-      post: vi.fn().mockRejectedValue(error),
-    })).resolves.toEqual({
-      status: 'error',
-      message: 'Stripe checkout is not configured.',
-    })
-  })
-})
 
 describe('provider-neutral payment requests', () => {
   it('loads the current Pro payment request through the student endpoint', async () => {
@@ -249,6 +146,12 @@ describe('provider-neutral payment requests', () => {
       status: 'error',
       message: PAYMENT_ERROR_MESSAGE,
     })
+  })
+
+  it('preserves backend payment error details', () => {
+    const error = { response: { data: { detail: 'CMI checkout is not configured.' } } }
+
+    expect(getPaymentErrorMessage(error)).toBe('CMI checkout is not configured.')
   })
 
   it('builds a hidden provider form before submitting to CMI', () => {

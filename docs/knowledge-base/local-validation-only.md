@@ -39,7 +39,7 @@ If a third-party service is missing, do not stop the whole loop.
 Use a local workaround:
 
 - Missing VdoCipher: use demo video records or a mock video provider adapter.
-- Missing Stripe: use mock payment/subscription state.
+- Missing CMI: use mock payment-request and callback state.
 - Missing Resend: log/mock email sends.
 - Missing Google OAuth: use mock/dev login if available.
 - Missing AI provider: use mock AI response provider.

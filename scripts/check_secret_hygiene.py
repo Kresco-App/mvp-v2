@@ -25,10 +25,6 @@ SENSITIVE_ENV_NAMES = {
     "MEDIA_S3_BUCKET",
     "REALTIME_OUTBOX_SECRET",
     "RESEND_API_KEY",
-    "STRIPE_PRODUCT_ID",
-    "STRIPE_SK",
-    "STRIPE_SECRET_KEY",
-    "STRIPE_WEBHOOK_SECRET",
     "VDOCIPHER_API_SECRET",
     "VDOCIPHER_LIVE_CREATE_URL",
     "VERCEL_OIDC_TOKEN",
@@ -45,8 +41,6 @@ REQUIRED_ROTATION_RECORD_IDENTIFIERS = (
     "MEDIA_S3_BUCKET",
     "REALTIME_OUTBOX_SECRET",
     "RESEND_API_KEY",
-    "STRIPE_SK",
-    "STRIPE_WEBHOOK_SECRET",
     "VDOCIPHER_API_SECRET",
     "VDOCIPHER_LIVE_CREATE_URL",
     "VERCEL_ORG_ID",
@@ -71,8 +65,6 @@ ENV_ASSIGNMENT_RE = re.compile(
 SECRET_VALUE_PATTERNS = (
     ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b")),
-    ("stripe-live-secret", re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b")),
-    ("stripe-webhook-secret", re.compile(r"\bwhsec_[A-Za-z0-9]{16,}\b")),
     ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----")),
 )
 ENV_SECRET_VALUE_PATTERNS = (
@@ -153,8 +145,6 @@ REQUIRED_ROTATION_RECORDS = (
     RequiredRotationRecord("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY", "deploy"),
     RequiredRotationRecord("MEDIA_S3_BUCKET policy and lifecycle", "staging"),
     RequiredRotationRecord("MEDIA_S3_BUCKET policy and lifecycle", "production"),
-    RequiredRotationRecord("STRIPE_SK / STRIPE_WEBHOOK_SECRET", "staging"),
-    RequiredRotationRecord("STRIPE_SK / STRIPE_WEBHOOK_SECRET", "production"),
     RequiredRotationRecord("RESEND_API_KEY", "staging"),
     RequiredRotationRecord("RESEND_API_KEY", "production"),
     RequiredRotationRecord("ABLY_API_KEY", "staging"),

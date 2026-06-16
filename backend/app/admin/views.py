@@ -186,12 +186,6 @@ class UserAdmin(PowerModelView, model=User):
                 status_code=403,
                 detail="Only superusers can modify auth_token_version",
             )
-        if "stripe_customer_id" in data:
-            raise HTTPException(
-                status_code=403,
-                detail="Only superusers can modify stripe_customer_id",
-            )
-
 
 class UserSubjectEntitlementAdmin(PowerModelView, model=UserSubjectEntitlement):
     name = "Subject Entitlement"
@@ -750,7 +744,6 @@ SENSITIVE_COLUMN_NAMES = {
     "password",
     "password_changed_at",
     "provider_payload_json",
-    "stripe_customer_id",
     "stream_ingest_url",
     "stream_key",
 }
@@ -784,7 +777,6 @@ PROTECTED_FORM_COLUMNS_BY_MODEL = {
         "password",
         "password_changed_at",
         "role",
-        "stripe_customer_id",
     },
 }
 

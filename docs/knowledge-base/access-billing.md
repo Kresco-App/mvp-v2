@@ -31,26 +31,30 @@ Locked API responses must keep the learning structure visible while hiding prote
 
 ## Current Billing Surface
 
-Stripe payment integration lives in:
+Payment integration lives in:
 
 - `backend/app/routers/payments.py`
-- `backend/app/services/stripe_service.py`
+- `backend/app/services/payment_gateway.py`
 - `backend/app/services/payment_entitlements.py`
 
 Current endpoints:
 
-- `POST /api/payments/create-checkout-session`
-- `POST /api/payments/verify-session`
-- `GET /api/payments/verify-session` returns current Pro status only for compatibility
-- `POST /api/payments/webhook`
+- `POST /api/payments/payment-requests`
+- `GET /api/payments/payment-requests/current`
+- `POST /api/payments/cmi/callback`
+- `POST /api/payments/manual-payment-requests/{transaction_id}/proof`
+- Finance/admin endpoints under `/api/payments/finance/*`,
+  `/api/payments/manual-payment-requests/*`, and
+  `/api/payments/manual-payment-reconciliation-imports`.
 
-The current billing model is a one-time `pro` Checkout payment. Successful payment marks `User.is_pro=true` through the shared payment entitlement service; the app does not currently create Stripe subscriptions or model recurring billing periods.
+The current billing model is one-time `pro` access through CMI card payments
+or manual rails. Confirmed payment marks `User.is_pro=true` through the shared
+payment entitlement service, while finance records remain the durable source of
+truth.
 
 ## Target Billing Direction
 
-Stripe is not the target launch gateway. The payment roadmap should remove
-Stripe from the active checkout path and replace it with a provider-neutral
-payment gateway layer.
+The launch payment surface is provider-neutral and should stay that way.
 
 Target launch rails:
 
@@ -71,9 +75,6 @@ Required target behavior:
 - Manual rails such as virement and CashPlus must show pending/manual-review
   states and must not unlock access until finance confirmation or matched
   reconciliation.
-- Stripe checkout/webhook code should be deprecated and removed after the new
-  gateway layer is ready. Any temporary compatibility shim must not become the
-  basis for new payment features.
 
 ## Current Preview Rule
 

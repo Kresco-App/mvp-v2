@@ -2,12 +2,11 @@ from datetime import datetime
 
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 
-PAYMENT_PROVIDER_STRIPE = "stripe"
 PAYMENT_PROVIDER_CMI = "cmi"
 PAYMENT_PROVIDER_BANK_TRANSFER = "bank_transfer"
 PAYMENT_PROVIDER_CASHPLUS = "cashplus"
@@ -34,44 +33,13 @@ REFUND_REQUEST_STATUS_REJECTED = "rejected"
 REFUND_REQUEST_STATUS_CANCELLED = "cancelled"
 
 
-class StripeWebhookEvent(Base):
-    __tablename__ = "stripe_webhook_events"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    event_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
-    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
-class PaymentVerificationAttempt(Base):
-    __tablename__ = "payment_verification_attempts"
-    __table_args__ = (
-        UniqueConstraint(
-            "user_id",
-            "session_id",
-            name="uq_payment_verification_attempts_user_session",
-        ),
-        Index("ix_payment_verification_attempts_user_created", "user_id", "created_at"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    session_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending", server_default="pending")
-    is_pro_result: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
-    response_status_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    response_detail: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
 class PaymentTransaction(Base):
     __tablename__ = "payment_transactions"
     __table_args__ = (
         UniqueConstraint("reference_code", name="uq_payment_transactions_reference_code"),
         UniqueConstraint("open_request_key", name="uq_payment_transactions_open_request_key"),
         CheckConstraint(
-            "provider IN ('stripe', 'cmi', 'bank_transfer', 'cashplus', 'ashplus')",
+            "provider IN ('cmi', 'bank_transfer', 'cashplus', 'ashplus')",
             name="ck_payment_transactions_provider",
         ),
         CheckConstraint(
@@ -119,7 +87,7 @@ class PaymentProviderEvent(Base):
     __table_args__ = (
         UniqueConstraint("provider", "event_id", name="uq_payment_provider_events_provider_event"),
         CheckConstraint(
-            "provider IN ('stripe', 'cmi', 'bank_transfer', 'cashplus', 'ashplus')",
+            "provider IN ('cmi', 'bank_transfer', 'cashplus', 'ashplus')",
             name="ck_payment_provider_events_provider",
         ),
         CheckConstraint(

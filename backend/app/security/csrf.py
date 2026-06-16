@@ -33,7 +33,6 @@ UNAUTHENTICATED_AUTH_PATHS = {
 }
 SIGNED_WEBHOOK_PATHS = {
     "/api/payments/cmi/callback",
-    "/api/payments/webhook",
 }
 
 

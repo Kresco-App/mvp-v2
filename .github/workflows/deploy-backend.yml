@@ -290,7 +290,7 @@ jobs:
           zappa schedule "$ZAPPA_STAGE"
 
       - name: Post-deploy staging runtime verification
-        run: python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}" --include-provider-reachability
+        run: python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"
         env:
           KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
 

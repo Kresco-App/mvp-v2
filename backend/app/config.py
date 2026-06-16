@@ -61,14 +61,6 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "VDOCIPHER_API_BASE_URL": "vdocipher_api_base_url",
     "VDOCIPHER_LIVE_CREATE_URL": "vdocipher_live_create_url",
     "VDOCIPHER_LIVE_DELETE_URL": "vdocipher_live_delete_url",
-    "STRIPE_SK": "stripe_sk",
-    "STRIPE_SECRET_KEY": "stripe_sk",
-    "STRIPE_PK": "stripe_pk",
-    "STRIPE_PUBLISHABLE_KEY": "stripe_pk",
-    "STRIPE_PRODUCT_ID": "stripe_product_id",
-    "STRIPE_WEBHOOK_SECRET": "stripe_webhook_secret",
-    "FAKE_STRIPE_CHECKOUT": "fake_stripe_checkout",
-    "LEGACY_STRIPE_CHECKOUT_ENABLED": "legacy_stripe_checkout_enabled",
     "CMI_CLIENT_ID": "cmi_client_id",
     "CMI_STORE_KEY": "cmi_store_key",
     "CMI_PAYMENT_URL": "cmi_payment_url",
@@ -162,24 +154,6 @@ class Settings(BaseSettings):
     vdocipher_live_delete_url: str = Field(
         default="",
         validation_alias=AliasChoices("vdocipher_live_delete_url", "VDOCIPHER_LIVE_DELETE_URL"),
-    )
-    stripe_sk: str = Field(default="", validation_alias=AliasChoices("stripe_sk", "STRIPE_SK", "STRIPE_SECRET_KEY"))
-    stripe_pk: str = Field(
-        default="",
-        validation_alias=AliasChoices("stripe_pk", "STRIPE_PK", "STRIPE_PUBLISHABLE_KEY"),
-    )
-    stripe_product_id: str = Field(default="", validation_alias=AliasChoices("stripe_product_id", "STRIPE_PRODUCT_ID"))
-    stripe_webhook_secret: str = Field(
-        default="",
-        validation_alias=AliasChoices("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
-    )
-    fake_stripe_checkout: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("fake_stripe_checkout", "FAKE_STRIPE_CHECKOUT"),
-    )
-    legacy_stripe_checkout_enabled: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("legacy_stripe_checkout_enabled", "LEGACY_STRIPE_CHECKOUT_ENABLED"),
     )
     cmi_client_id: str = Field(default="", validation_alias=AliasChoices("cmi_client_id", "CMI_CLIENT_ID"))
     cmi_store_key: str = Field(default="", validation_alias=AliasChoices("cmi_store_key", "CMI_STORE_KEY"))
@@ -292,17 +266,6 @@ class Settings(BaseSettings):
             value = getattr(self, field_name, "")
             if not str(value).strip():
                 errors.append(f"{env_name} must be configured for production environments.")
-
-        if self.fake_stripe_checkout:
-            errors.append("FAKE_STRIPE_CHECKOUT must be disabled in production environments.")
-        if self.legacy_stripe_checkout_enabled:
-            for field_name, env_name in (
-                ("stripe_sk", "STRIPE_SK"),
-                ("stripe_product_id", "STRIPE_PRODUCT_ID"),
-                ("stripe_webhook_secret", "STRIPE_WEBHOOK_SECRET"),
-            ):
-                if not str(getattr(self, field_name, "")).strip():
-                    errors.append(f"{env_name} must be configured when LEGACY_STRIPE_CHECKOUT_ENABLED is true.")
 
         for field_name, env_name in CMI_PRODUCTION_FIELDS:
             if not str(getattr(self, field_name, "")).strip():

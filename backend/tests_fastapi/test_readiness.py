@@ -1,10 +1,7 @@
-from types import SimpleNamespace
-
 from sqlalchemy import delete, text
 
 from app.database import get_session_factory
 from app.models.professor import RealtimeOutbox
-from app.services import diagnostics
 from app.services.diagnostics import expected_migration_heads
 
 
@@ -119,81 +116,13 @@ def test_internal_diagnostics_reports_ready_launch_gate(app_client, run_db, test
     }
     assert body["checks"]["payment"] == {
         "status": "ok",
-        "stripe_sk_configured": True,
-        "stripe_product_id_configured": True,
-        "stripe_webhook_secret_configured": True,
+        "cmi_client_id_configured": True,
+        "cmi_store_key_configured": True,
+        "cmi_payment_url_configured": True,
+        "cmi_ok_url_configured": True,
+        "cmi_fail_url_configured": True,
+        "cmi_callback_url_configured": True,
     }
-
-
-def test_internal_diagnostics_can_check_stripe_provider_reachability(app_client, run_db, test_settings, monkeypatch):
-    class FakeProducts:
-        def retrieve(self, product_id):
-            return SimpleNamespace(id=product_id, active=True)
-
-    class FakeStripeClient:
-        v1 = SimpleNamespace(products=FakeProducts())
-
-    monkeypatch.setattr(diagnostics, "_stripe_client", lambda settings: FakeStripeClient())
-    old_values = _snapshot_diagnostics_settings(test_settings)
-    run_db(_set_alembic_heads(expected_migration_heads()))
-    run_db(_clear_outbox())
-    _set_ready_diagnostics_settings(test_settings)
-    try:
-        response = app_client.get(
-            "/api/internal/diagnostics?include_provider_reachability=true",
-            headers={"x-kresco-internal-secret": test_settings.realtime_outbox_secret},
-        )
-    finally:
-        _restore_settings(test_settings, old_values)
-
-    body = response.json()
-    assert response.status_code == 200
-    assert body["status"] == "ready"
-    assert body["checks"]["payment"]["provider_reachability"] == {
-        "status": "ok",
-        "product_id_matches": True,
-        "product_active": True,
-    }
-
-
-def test_internal_diagnostics_reports_stripe_connection_failure_without_secret(
-    app_client,
-    run_db,
-    test_settings,
-    monkeypatch,
-):
-    class FakeProducts:
-        def retrieve(self, product_id):
-            raise diagnostics.stripe.APIConnectionError("network unavailable")
-
-    class FakeStripeClient:
-        v1 = SimpleNamespace(products=FakeProducts())
-
-    monkeypatch.setattr(diagnostics, "_stripe_client", lambda settings: FakeStripeClient())
-    old_values = _snapshot_diagnostics_settings(test_settings)
-    run_db(_set_alembic_heads(expected_migration_heads()))
-    run_db(_clear_outbox())
-    _set_ready_diagnostics_settings(test_settings)
-    configured_stripe_secret = test_settings.stripe_sk
-    try:
-        response = app_client.get(
-            "/api/internal/diagnostics?include_provider_reachability=true",
-            headers={"x-kresco-internal-secret": test_settings.realtime_outbox_secret},
-        )
-    finally:
-        _restore_settings(test_settings, old_values)
-
-    body = response.json()
-    payment = body["checks"]["payment"]
-    assert response.status_code == 200
-    assert body["status"] == "not_ready"
-    assert "payment" in body["errors"]
-    assert payment["provider_reachability"] == {
-        "status": "error",
-        "detail": "api_connection_error",
-        "error_type": "APIConnectionError",
-    }
-    assert configured_stripe_secret not in str(payment)
 
 
 def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_db, test_settings):
@@ -265,9 +194,12 @@ DIAGNOSTICS_SETTING_FIELDS = (
     "vdocipher_api_base_url",
     "vdocipher_live_create_url",
     "resend_api_key",
-    "stripe_sk",
-    "stripe_product_id",
-    "stripe_webhook_secret",
+    "cmi_client_id",
+    "cmi_store_key",
+    "cmi_payment_url",
+    "cmi_ok_url",
+    "cmi_fail_url",
+    "cmi_callback_url",
 )
 
 
@@ -296,9 +228,12 @@ def _set_ready_diagnostics_settings(settings):
     settings.vdocipher_api_base_url = "https://video.example.com/api"
     settings.vdocipher_live_create_url = "https://video.example.com/live"
     settings.resend_api_key = "re_test"
-    settings.stripe_sk = "sk_test_staging"
-    settings.stripe_product_id = "prod_test_staging"
-    settings.stripe_webhook_secret = "whsec_test_staging"
+    settings.cmi_client_id = "cmi-client"
+    settings.cmi_store_key = "cmi-store-key"
+    settings.cmi_payment_url = "https://test.cmi.co.ma/payment"
+    settings.cmi_ok_url = "https://app.example.com/payment/cmi/ok"
+    settings.cmi_fail_url = "https://app.example.com/payment/cmi/fail"
+    settings.cmi_callback_url = "https://api.example.com/api/payments/cmi/callback"
 
 
 async def _set_alembic_heads(heads: list[str]):

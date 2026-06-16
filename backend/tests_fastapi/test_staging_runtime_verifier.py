@@ -88,51 +88,58 @@ def _diagnostics_payload():
             "email": {"status": "ok", "resend_api_key_configured": True},
             "payment": {
                 "status": "ok",
-                "stripe_sk_configured": True,
-                "stripe_product_id_configured": True,
-                "stripe_webhook_secret_configured": True,
+                "cmi_client_id_configured": True,
+                "cmi_store_key_configured": True,
+                "cmi_payment_url_configured": True,
+                "cmi_ok_url_configured": True,
+                "cmi_fail_url_configured": True,
+                "cmi_callback_url_configured": True,
             },
         },
     }
 
 
-def _diagnostics_payload_with_deferred_payment_error():
+def _diagnostics_payload_with_payment_error():
     diagnostics = _diagnostics_payload()
     diagnostics["status"] = "not_ready"
     diagnostics["errors"] = ["payment"]
     diagnostics["checks"]["payment"] = {
         "status": "error",
-        "stripe_sk_configured": True,
-        "stripe_product_id_configured": True,
-        "stripe_webhook_secret_configured": True,
-        "provider_reachability": {
-            "status": "error",
-            "detail": "authentication_error",
-            "error_type": "AuthenticationError",
-        },
+        "cmi_client_id_configured": True,
+        "cmi_store_key_configured": True,
+        "cmi_payment_url_configured": False,
+        "cmi_ok_url_configured": True,
+        "cmi_fail_url_configured": True,
+        "cmi_callback_url_configured": True,
     }
     return diagnostics
 
 
-def _diagnostics_payload_with_deferred_payment_config_error():
-    diagnostics = _diagnostics_payload_with_deferred_payment_error()
+def _diagnostics_payload_with_payment_config_error():
+    diagnostics = _diagnostics_payload_with_payment_error()
     diagnostics["errors"] = ["configuration", "payment"]
     diagnostics["checks"]["configuration"] = {
         "status": "error",
         "environment": "staging",
         "production_like": True,
-        "error_count": 3,
+        "error_count": 6,
         "errors": [
-            "STRIPE_SK must be configured for production environments.",
-            "STRIPE_PRODUCT_ID must be configured for production environments.",
-            "STRIPE_WEBHOOK_SECRET must be configured for production environments.",
+            "CMI_CLIENT_ID must be configured for the launch CMI checkout path.",
+            "CMI_STORE_KEY must be configured for the launch CMI checkout path.",
+            "CMI_PAYMENT_URL must be configured for the launch CMI checkout path.",
+            "CMI_OK_URL must be configured for the launch CMI checkout path.",
+            "CMI_FAIL_URL must be configured for the launch CMI checkout path.",
+            "CMI_CALLBACK_URL must be configured for the launch CMI checkout path.",
         ],
     }
     diagnostics["checks"]["payment"] = {
         "status": "error",
-        "stripe_sk_configured": False,
-        "stripe_product_id_configured": False,
-        "stripe_webhook_secret_configured": False,
+        "cmi_client_id_configured": False,
+        "cmi_store_key_configured": False,
+        "cmi_payment_url_configured": False,
+        "cmi_ok_url_configured": False,
+        "cmi_fail_url_configured": False,
+        "cmi_callback_url_configured": False,
     }
     return diagnostics
 
@@ -150,94 +157,55 @@ def test_staging_runtime_verifier_accepts_ready_runtime_payloads():
     assert result.errors == ()
 
 
-def test_staging_runtime_verifier_reports_deferred_payment_without_failing_non_stripe_gate():
+def test_staging_runtime_verifier_fails_payment_errors():
     verifier = _load_verifier_module()
 
     result = verifier.validate_runtime_payloads(
         _ready_payload(),
-        _diagnostics_payload_with_deferred_payment_error(),
+        _diagnostics_payload_with_payment_error(),
         {"ok": True, "claimed": 0, "published": 0, "retry": 0, "dead": 0},
-    )
-
-    assert result.passed is True
-    assert result.errors == ()
-    assert result.deferred_payment_check == {
-        "status": "error",
-        "stripe_sk_configured": True,
-        "stripe_product_id_configured": True,
-        "stripe_webhook_secret_configured": True,
-        "provider_reachability": {
-            "status": "error",
-            "detail": "authentication_error",
-            "error_type": "AuthenticationError",
-        },
-    }
-
-
-def test_staging_runtime_verifier_defers_payment_configuration_errors_for_non_stripe_gate():
-    verifier = _load_verifier_module()
-
-    result = verifier.validate_runtime_payloads(
-        _ready_payload(),
-        _diagnostics_payload_with_deferred_payment_config_error(),
-        {"ok": True, "claimed": 0, "published": 0, "retry": 0, "dead": 0},
-    )
-
-    assert result.passed is True
-    assert result.errors == ()
-    assert result.deferred_payment_check == {
-        "status": "error",
-        "stripe_sk_configured": False,
-        "stripe_product_id_configured": False,
-        "stripe_webhook_secret_configured": False,
-    }
-
-
-def test_staging_runtime_verifier_requires_payment_only_with_payment_specific_flag():
-    verifier = _load_verifier_module()
-
-    result = verifier.validate_runtime_payloads(
-        _ready_payload(),
-        _diagnostics_payload_with_deferred_payment_error(),
-        require_payment_provider_reachability=True,
     )
 
     assert result.passed is False
-    assert "diagnostics.status must be ready for non-deferred systems (blocking errors: payment)." in result.errors
+    assert "diagnostics.status must be ready (blocking errors: payment)." in result.errors
     assert "diagnostics.checks.payment.status must be ok." in result.errors
-    assert "payment.provider_reachability.status must be ok (current: 'error')." in result.errors
+    assert "payment.cmi_payment_url_configured must be true." in result.errors
+    assert result.payment_check == {
+        "status": "error",
+        "cmi_client_id_configured": True,
+        "cmi_store_key_configured": True,
+        "cmi_payment_url_configured": False,
+        "cmi_ok_url_configured": True,
+        "cmi_fail_url_configured": True,
+        "cmi_callback_url_configured": True,
+    }
 
 
-def test_staging_runtime_verifier_requires_payment_reachability_payload_with_payment_flag():
+def test_staging_runtime_verifier_fails_payment_configuration_errors():
     verifier = _load_verifier_module()
 
     result = verifier.validate_runtime_payloads(
         _ready_payload(),
-        _diagnostics_payload(),
-        require_payment_provider_reachability=True,
-    )
-
-    assert result.passed is False
-    assert "payment.provider_reachability must be present when payment provider reachability is required." in result.errors
-
-
-def test_staging_runtime_verifier_requires_payment_config_with_payment_flag():
-    verifier = _load_verifier_module()
-
-    result = verifier.validate_runtime_payloads(
-        _ready_payload(),
-        _diagnostics_payload_with_deferred_payment_config_error(),
-        require_payment_provider_reachability=True,
+        _diagnostics_payload_with_payment_config_error(),
+        {"ok": True, "claimed": 0, "published": 0, "retry": 0, "dead": 0},
     )
 
     assert result.passed is False
     assert "diagnostics.checks.configuration.status must be ok for blocking configuration errors." in result.errors
-    assert "payment.stripe_sk_configured must be true." in result.errors
-    assert "payment.stripe_product_id_configured must be true." in result.errors
-    assert "payment.stripe_webhook_secret_configured must be true." in result.errors
+    assert "payment.cmi_client_id_configured must be true." in result.errors
+    assert "payment.cmi_callback_url_configured must be true." in result.errors
+    assert result.payment_check == {
+        "status": "error",
+        "cmi_client_id_configured": False,
+        "cmi_store_key_configured": False,
+        "cmi_payment_url_configured": False,
+        "cmi_ok_url_configured": False,
+        "cmi_fail_url_configured": False,
+        "cmi_callback_url_configured": False,
+    }
 
 
-def test_staging_runtime_verifier_still_fails_non_deferred_diagnostics_errors():
+def test_staging_runtime_verifier_still_fails_diagnostics_errors():
     verifier = _load_verifier_module()
     diagnostics = _diagnostics_payload()
     diagnostics["status"] = "not_ready"
@@ -247,12 +215,12 @@ def test_staging_runtime_verifier_still_fails_non_deferred_diagnostics_errors():
     result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
 
     assert result.passed is False
-    assert "diagnostics.status must be ready for non-deferred systems (blocking errors: email)." in result.errors
+    assert "diagnostics.status must be ready (blocking errors: email)." in result.errors
     assert "diagnostics.checks.email.status must be ok." in result.errors
     assert "email.resend_api_key_configured must be true." in result.errors
 
 
-def test_staging_runtime_verifier_rejects_not_ready_without_named_deferred_errors():
+def test_staging_runtime_verifier_rejects_not_ready_without_named_errors():
     verifier = _load_verifier_module()
     diagnostics = _diagnostics_payload()
     diagnostics["status"] = "not_ready"
@@ -261,10 +229,10 @@ def test_staging_runtime_verifier_rejects_not_ready_without_named_deferred_error
     result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
 
     assert result.passed is False
-    assert "diagnostics.status must be ready or name only deferred payment errors." in result.errors
+    assert "diagnostics.status must be ready." in result.errors
 
 
-def test_staging_runtime_verifier_still_fails_non_deferred_configuration_errors():
+def test_staging_runtime_verifier_still_fails_configuration_errors():
     verifier = _load_verifier_module()
     diagnostics = _diagnostics_payload()
     diagnostics["status"] = "not_ready"
@@ -280,7 +248,7 @@ def test_staging_runtime_verifier_still_fails_non_deferred_configuration_errors(
     result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
 
     assert result.passed is False
-    assert "diagnostics.status must be ready for non-deferred systems (blocking errors: configuration)." in result.errors
+    assert "diagnostics.status must be ready (blocking errors: configuration)." in result.errors
     assert "diagnostics.checks.configuration.status must be ok for blocking configuration errors." in result.errors
     assert (
         "configuration.errors contains blocking errors: "
@@ -364,7 +332,7 @@ def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
     render_index = workflow.index("- name: Render Zappa environment")
     deploy_index = workflow.index('zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"')
     schedule_index = workflow.index('zappa schedule "$ZAPPA_STAGE"')
-    verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}" --include-provider-reachability')
+    verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"')
     s3_posture_index = workflow.index('python scripts/check_s3_media_posture.py "${MEDIA_S3_BUCKET:?MEDIA_S3_BUCKET is required.}"')
 
     assert db_policy_index < migration_index < vpc_index < render_index < deploy_index
@@ -381,17 +349,16 @@ def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
     assert "MEDIA_S3_BUCKET: ${{ vars.MEDIA_S3_BUCKET }}" in workflow
     assert "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS: ${{ vars.MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS }}" in workflow
     assert "MEDIA_S3_ANONYMOUS_READ_KEY: ${{ vars.MEDIA_S3_ANONYMOUS_READ_KEY }}" in workflow
-    assert "--require-payment-provider-reachability" not in workflow
+    assert "--include-provider-reachability" not in workflow
 
 
-def test_provider_diagnostics_workflow_uses_non_stripe_runtime_verifier():
+def test_provider_diagnostics_workflow_uses_runtime_verifier():
     workflow = (REPO_ROOT / ".github" / "workflows" / "staging-provider-diagnostics.yml").read_text(encoding="utf-8")
 
     assert "actions/checkout@v4" in workflow
     assert "python scripts/check_staging_runtime.py" in workflow
-    assert "--include-provider-reachability" in workflow
+    assert "--include-provider-reachability" not in workflow
     assert "--json" in workflow
-    assert "--require-payment-provider-reachability" not in workflow
 
 
 def test_frontend_deploy_workflow_smokes_deployed_url():

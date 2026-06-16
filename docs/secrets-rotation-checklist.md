@@ -4,7 +4,7 @@ Do not record secret values in this file. Record only provider, secret name, own
 
 ## Required Before Production Unfreeze
 
-1. Inventory every deployed secret in GitHub Environments, Vercel, AWS, Stripe, Resend, Ably, Google, VdoCipher, and RDS.
+1. Inventory every deployed secret in GitHub Environments, Vercel, AWS, CMI, Resend, Ably, Google, VdoCipher, and RDS.
 2. Rotate any credential that was ever present in a local ignored `.env`, shell history, chat transcript, screenshot, or pasted debugging output.
 3. Revoke the old value after the new value is installed and staging diagnostics pass.
 4. Confirm backend deploys source runtime secrets from GitHub Environment secrets or variables, not checked-in files.
@@ -27,8 +27,6 @@ Do not record secret values in this file. Record only provider, secret name, own
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | GitHub Environment / AWS IAM | deploy | TBD | TBD | TBD | TBD |
 | `MEDIA_S3_BUCKET` policy and lifecycle | AWS S3 | staging | TBD | TBD | TBD | TBD |
 | `MEDIA_S3_BUCKET` policy and lifecycle | AWS S3 | production | TBD | TBD | TBD | TBD |
-| `STRIPE_SK` / `STRIPE_WEBHOOK_SECRET` | GitHub Environment / Stripe | staging | TBD | TBD | TBD | TBD |
-| `STRIPE_SK` / `STRIPE_WEBHOOK_SECRET` | GitHub Environment / Stripe | production | TBD | TBD | TBD | TBD |
 | `RESEND_API_KEY` | GitHub Environment / Resend | staging | TBD | TBD | TBD | TBD |
 | `RESEND_API_KEY` | GitHub Environment / Resend | production | TBD | TBD | TBD | TBD |
 | `ABLY_API_KEY` | GitHub Environment / Ably | staging | TBD | TBD | TBD | TBD |

@@ -35,7 +35,6 @@ class User(Base):
     filiere: Mapped[str] = mapped_column(String(100), default="")
     tier: Mapped[str] = mapped_column(String(30), default="basic")
     is_pro: Mapped[bool] = mapped_column(Boolean, default=False)
-    stripe_customer_id: Mapped[str] = mapped_column(String(255), default="", index=True)
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), index=True)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)

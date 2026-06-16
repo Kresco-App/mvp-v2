@@ -9,19 +9,6 @@ export type PaymentApiClient = {
   post<T = unknown>(url: string, body?: unknown, config?: unknown): Promise<{ data: T }>
 }
 
-export type PaymentVerificationResult =
-  | { status: 'success'; userPatch: { is_pro: true } }
-  | { status: 'error' }
-
-export type CheckoutSessionResult =
-  | { status: 'success'; checkoutUrl: string }
-  | { status: 'error'; message: string }
-
-export type CheckoutReturnPaths = {
-  successPath?: string
-  cancelPath?: string
-}
-
 export type PaymentRequest = {
   id: number
   payment_method: PaymentMethod
@@ -53,50 +40,6 @@ export type PaymentRequestResult =
   | { status: 'provider_redirect'; request: PaymentRequest; actionUrl: string; formFields: Record<string, string> }
   | { status: 'pending_manual_review'; request: PaymentRequest }
   | { status: 'error'; message: string }
-
-export async function verifyCheckoutSession(
-  apiClient: Pick<PaymentApiClient, 'post'>,
-  sessionId: string | null | undefined,
-): Promise<PaymentVerificationResult> {
-  const normalizedSessionId = sessionId?.trim()
-  if (!normalizedSessionId) return { status: 'error' }
-
-  try {
-    const { data } = await apiClient.post<{ is_pro?: boolean }>(
-      '/payments/verify-session',
-      { session_id: normalizedSessionId },
-    )
-    if (data?.is_pro === true) {
-      return { status: 'success', userPatch: { is_pro: true } }
-    }
-  } catch {
-    return { status: 'error' }
-  }
-
-  return { status: 'error' }
-}
-
-export async function createProCheckoutSession(
-  apiClient: Pick<PaymentApiClient, 'post'>,
-  returnPaths: CheckoutReturnPaths = {},
-): Promise<CheckoutSessionResult> {
-  try {
-    const { data } = await apiClient.post<{ checkout_url?: string }>(
-      '/payments/create-checkout-session',
-      {
-        plan: PRO_CHECKOUT_PLAN,
-        success_path: returnPaths.successPath ?? '/payment-success?session_id={CHECKOUT_SESSION_ID}',
-        cancel_path: returnPaths.cancelPath ?? '/pricing',
-      },
-    )
-    const checkoutUrl = data?.checkout_url?.trim()
-    if (checkoutUrl) return { status: 'success', checkoutUrl }
-  } catch (error) {
-    return { status: 'error', message: getPaymentErrorMessage(error) }
-  }
-
-  return { status: 'error', message: PAYMENT_ERROR_MESSAGE }
-}
 
 export async function createProPaymentRequest(
   apiClient: Pick<PaymentApiClient, 'post'>,

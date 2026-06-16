@@ -118,7 +118,7 @@ def _ready_config_service_status(settings: Settings) -> dict[str, str]:
         "ably": "ok" if _present(settings.ably_api_key) else "missing",
         "vdocipher": "ok" if _present(settings.vdocipher_api_secret) else "missing",
         "smtp": "ok" if _present(settings.resend_api_key) else "missing",
-        "payment": "ok" if _present(settings.stripe_sk) else "missing",
+        "payment": "ok" if _present(settings.cmi_client_id) and _present(settings.cmi_store_key) else "missing",
     }
 
 

@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Run non-Stripe staging diagnostics
+      - name: Run staging provider diagnostics
         env:
           BACKEND_READY_URL: ${{ vars.BACKEND_READY_URL }}
           KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
@@ -28,5 +28,4 @@ jobs:
           fi
           python scripts/check_staging_runtime.py \
             "$BACKEND_READY_URL" \
-            --include-provider-reachability \
             --json

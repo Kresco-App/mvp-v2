@@ -30,11 +30,4 @@ describe('Playwright integration config', () => {
     expect(source).toContain("const localE2eDatabaseUrl = 'sqlite+aiosqlite:///./e2e.sqlite3'")
     expect(packageJson.scripts['test:e2e:integration']).toContain('node scripts/build-integration.mjs')
   })
-
-  it('does not enable legacy fake Stripe checkout in integration tests', () => {
-    const source = readFileSync(resolve(process.cwd(), 'playwright.integration.config.ts'), 'utf8')
-
-    expect(source).toContain("KRESCO_ENV: 'development'")
-    expect(source).not.toContain('FAKE_STRIPE_CHECKOUT')
-  })
 })

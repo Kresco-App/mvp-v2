@@ -13,7 +13,6 @@ orjson==3.11.9
 sqladmin==0.26.0
 PyJWT==2.13.0
 google-auth==2.53.0
-stripe==15.1.0
 requests==2.34.2
 boto3==1.43.15
 python-dotenv==1.2.2

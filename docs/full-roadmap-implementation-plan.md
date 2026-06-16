@@ -5,7 +5,7 @@ security, finance, legal, and operations work required to safely launch it.
 
 The current executable production gate is still closed:
 
-- Current non-Stripe launch readiness: `5.5/10`.
+- Current launch readiness: `5.5/10`.
 - Target broad student production readiness: `9/10`.
 - Current blocker count: `11` incomplete launch-gate rows.
 

@@ -43,7 +43,7 @@ FastAPI handles:
 - Access decisions and locked response shaping.
 - Quiz grading and attempt tracking.
 - Progress and XP tracking.
-- Payments and Stripe webhooks.
+- CMI and manual payment flows.
 - VdoCipher OTP generation.
 - SQLAdmin-backed content operations.
 - Notifications and calendar APIs.

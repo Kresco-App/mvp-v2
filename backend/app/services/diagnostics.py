@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from urllib.parse import urlparse
 
-import stripe
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import func, select, text
@@ -15,7 +13,6 @@ from app.config import BACKEND_DIR, MEDIA_STORAGE_S3, Settings
 from app.models.professor import RealtimeOutbox
 from app.services.ably import AblyConfigurationError, split_ably_api_key
 from app.services.realtime_outbox import OUTBOX_DEAD, OUTBOX_PENDING, OUTBOX_RETRY
-from app.services.stripe_service import _stripe_client
 
 
 DIAGNOSTICS_VERSION = "2.0.0"
@@ -212,47 +209,19 @@ def _email_check(settings: Settings) -> dict[str, Any]:
 
 
 async def _payment_check(settings: Settings, *, include_provider_reachability: bool = False) -> dict[str, Any]:
-    sk_configured = bool(settings.stripe_sk.strip())
-    product_id_configured = bool(settings.stripe_product_id.strip())
-    webhook_secret_configured = bool(settings.stripe_webhook_secret.strip())
-    status = "ok" if sk_configured and product_id_configured and webhook_secret_configured else "error"
-    check: dict[str, Any] = {
-        "status": status,
-        "stripe_sk_configured": sk_configured,
-        "stripe_product_id_configured": product_id_configured,
-        "stripe_webhook_secret_configured": webhook_secret_configured,
+    del include_provider_reachability
+    cmi_fields = {
+        "cmi_client_id_configured": bool(settings.cmi_client_id.strip()),
+        "cmi_store_key_configured": bool(settings.cmi_store_key.strip()),
+        "cmi_payment_url_configured": bool(settings.cmi_payment_url.strip()),
+        "cmi_ok_url_configured": bool(settings.cmi_ok_url.strip()),
+        "cmi_fail_url_configured": bool(settings.cmi_fail_url.strip()),
+        "cmi_callback_url_configured": bool(settings.cmi_callback_url.strip()),
     }
-    if include_provider_reachability and sk_configured and product_id_configured:
-        reachability = await _stripe_product_reachability(settings)
-        check["provider_reachability"] = reachability
-        if reachability["status"] != "ok":
-            status = "error"
-    check["status"] = status
-    return check
-
-
-async def _stripe_product_reachability(settings: Settings) -> dict[str, Any]:
-    try:
-        client = _stripe_client(settings)
-        product = await asyncio.to_thread(client.v1.products.retrieve, settings.stripe_product_id)
-    except stripe.AuthenticationError:
-        return {"status": "error", "detail": "authentication_error", "error_type": "AuthenticationError"}
-    except stripe.InvalidRequestError as exc:
-        code = str(getattr(exc, "code", "") or "")
-        return {"status": "error", "detail": "invalid_request", "error_type": "InvalidRequestError", "code": code}
-    except stripe.APIConnectionError:
-        return {"status": "error", "detail": "api_connection_error", "error_type": "APIConnectionError"}
-    except stripe.RateLimitError:
-        return {"status": "error", "detail": "rate_limited", "error_type": "RateLimitError"}
-    except stripe.StripeError as exc:
-        return {"status": "error", "detail": "stripe_error", "error_type": type(exc).__name__}
-
-    product_id = str(getattr(product, "id", "") or "")
-    active = bool(getattr(product, "active", False))
+    status = "ok" if all(cmi_fields.values()) else "error"
     return {
-        "status": "ok" if product_id == settings.stripe_product_id else "error",
-        "product_id_matches": product_id == settings.stripe_product_id,
-        "product_active": active,
+        "status": status,
+        **cmi_fields,
     }
 
 

@@ -332,8 +332,7 @@ Notes:
 1. `DATABASE_URL` here should match the GitHub Environment `DATABASE_URL` secret for the same environment.
 2. `REALTIME_OUTBOX_SECRET` here should match the GitHub Environment `REALTIME_OUTBOX_SECRET` secret for the same environment.
 3. `JWT_SECRET_KEY` must be non-default and at least 32 characters.
-4. CMI settings are required for the non-Stripe launch checkout path. `CMI_PAYMENT_URL` must use `cmi.co.ma` or a subdomain, and all CMI URLs must be public HTTPS URLs.
-5. Stripe secrets are legacy compatibility only. Add `LEGACY_STRIPE_CHECKOUT_ENABLED=true`, `STRIPE_SK`, `STRIPE_PRODUCT_ID`, and `STRIPE_WEBHOOK_SECRET` only if Stripe checkout is explicitly pulled back into scope.
+4. CMI settings are required for the launch checkout path. `CMI_PAYMENT_URL` must use `cmi.co.ma` or a subdomain, and all CMI URLs must be public HTTPS URLs.
 
 Generate random internal secrets locally with:
 
@@ -393,7 +392,7 @@ KRESCO_ENABLE_LOCAL_REWRITES
 KRESCO_ENABLE_LOCAL_IMAGE_HOSTS
 ```
 
-Backend secrets such as Stripe secret keys, Ably API keys, VdoCipher secrets, database URLs, and JWT secrets must not be placed in Vercel frontend env vars.
+Backend secrets such as CMI store keys, Ably API keys, VdoCipher secrets, database URLs, and JWT secrets must not be placed in Vercel frontend env vars.
 
 ### 7.2 Google OAuth
 
@@ -421,13 +420,9 @@ Vercel: NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
 The current repo uses the client ID only. Do not invent a Google client secret unless code is added for it.
 
-### 7.3 CMI And Legacy Stripe
+### 7.3 CMI
 
-CMI is the required launch card checkout rail. Stripe billing is intentionally
-deferred and legacy-only for the current non-Stripe launch gate. Keep any
-legacy Stripe secrets redacted and stage-specific, but do not count Stripe
-configuration or provider reachability in the non-Stripe launch score until
-billing is explicitly pulled back into scope.
+CMI is the required launch card checkout rail.
 
 Create separate CMI setup:
 
@@ -445,18 +440,6 @@ For each environment:
 5. Set `CMI_CALLBACK_URL` to the backend callback endpoint:
    - staging endpoint: `https://<staging-backend-origin>/api/payments/cmi/callback`
    - production endpoint: `https://<production-backend-origin>/api/payments/cmi/callback`
-
-Legacy Stripe checkout remains disabled by default. If Stripe checkout is
-explicitly pulled back into scope, set `LEGACY_STRIPE_CHECKOUT_ENABLED=true`
-and then provision `STRIPE_SK`, `STRIPE_PRODUCT_ID`, and
-`STRIPE_WEBHOOK_SECRET` for the legacy `/api/payments/create-checkout-session`
-and `/api/payments/webhook` compatibility paths.
-
-When Stripe is brought back into scope, run staging runtime verification with:
-
-```powershell
-python scripts/check_staging_runtime.py <staging-ready-url> --include-provider-reachability --require-payment-provider-reachability
-```
 
 ### 7.4 Resend
 
@@ -628,9 +611,8 @@ The workflow must pass:
 12. Zappa schedule
 13. `scripts/check_staging_runtime.py`
 
-The workflow asks diagnostics to include provider reachability so the JSON evidence can report deferred Stripe payment status. For the current non-Stripe launch scope, a payment-only diagnostics error does not fail staging verification. Database, migrations, storage, realtime, video, email, readiness, and outbox checks remain blocking.
-
-If runtime verification fails on a non-deferred check, staging is not ready.
+The workflow checks `/ready`, protected diagnostics, CMI payment configuration,
+and a bounded outbox drain. If runtime verification fails, staging is not ready.
 
 ### Step 7: Run Staging Frontend Deploy
 
@@ -667,7 +649,7 @@ Record evidence for:
 6. Media upload writes to S3 and direct anonymous object read fails.
 7. VdoCipher OTP/embed works for real content.
 8. Resend email path works.
-9. CMI staging payment request and signed callback flow work; record Stripe diagnostics as deferred unless Stripe has been pulled back into scope.
+9. CMI staging payment request and signed callback flow work.
 10. Ably realtime event and outbox drain work.
 11. Scheduled realtime outbox worker fires.
 12. 50-student or agreed load test is run against staging.
@@ -688,7 +670,6 @@ Production Secrets Manager secret kresco/production/runtime
 Production CloudWatch alarms
 Production Google OAuth client
 Production CMI live credentials and callback URLs
-Production Stripe live product/key/webhook only if legacy Stripe checkout is explicitly re-enabled
 Production Resend key/domain
 Production Ably app/key
 Production VdoCipher key/live URL
@@ -904,8 +885,6 @@ aws sts get-caller-identity
 - Vercel CLI global `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and token options: https://vercel.com/docs/cli/global-options
 - AWS Secrets Manager create secret: https://docs.aws.amazon.com/secretsmanager/latest/userguide/create_secret.html
 - AWS IAM access keys: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html
-- Stripe API keys and webhook secrets: https://docs.stripe.com/keys
-- Stripe webhooks: https://docs.stripe.com/webhooks
 - Google OAuth clients: https://support.google.com/cloud/answer/15549257
 - Resend API keys: https://resend.com/docs/dashboard/api-keys/introduction
 - Ably authentication and API keys: https://ably.com/docs/auth

@@ -150,7 +150,7 @@ def _split_markdown_row(line: str) -> list[str]:
 
 
 def _parse_switch_scores(markdown: str) -> tuple[float | None, float | None]:
-    current = _first_score(markdown, r"Current non-Stripe launch readiness:\s*\*\*([0-9]+(?:\.[0-9]+)?)/10\*\*")
+    current = _first_score(markdown, r"Current launch readiness:\s*\*\*([0-9]+(?:\.[0-9]+)?)/10\*\*")
     target = _first_score(markdown, r"Target for broad student production:\s*\*\*([0-9]+(?:\.[0-9]+)?)/10\*\*")
     return current, target
 

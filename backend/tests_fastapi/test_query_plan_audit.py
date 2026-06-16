@@ -182,7 +182,6 @@ def test_user_hot_path_indexes_exist_in_model_metadata():
     table = Base.metadata.tables["users"]
     indexes = {index.name: tuple(column.name for column in index.columns) for index in table.indexes}
 
-    assert indexes["ix_users_stripe_customer_id"] == ("stripe_customer_id",)
     assert indexes["ix_users_is_active"] == ("is_active",)
     assert indexes["ix_users_role_niveau_filiere_active"] == ("role", "niveau", "filiere", "is_active")
 
@@ -191,7 +190,6 @@ def test_user_hot_path_index_migration_declares_required_indexes():
     migration = (BACKEND_ROOT / "alembic" / "versions" / "0033_user_hot_path_indexes.py").read_text(encoding="utf-8")
 
     assert 'down_revision: Union[str, None] = "0032"' in migration
-    assert '"ix_users_stripe_customer_id", ("stripe_customer_id",)' in migration
     assert '"ix_users_is_active", ("is_active",)' in migration
     assert '"ix_users_role_niveau_filiere_active", ("role", "niveau", "filiere", "is_active")' in migration
 

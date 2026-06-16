@@ -56,7 +56,7 @@ def test_launch_gate_fails_current_repo_until_all_rows_and_score_are_ready():
 def test_launch_gate_passes_only_when_traceability_and_score_pass():
     launch_gate = _load_launch_gate_module()
     switch = """
-Current non-Stripe launch readiness: **9/10**.
+Current launch readiness: **9/10**.
 
 Target for broad student production: **9/10**.
 """
@@ -71,7 +71,7 @@ Target for broad student production: **9/10**.
 def test_launch_gate_rejects_stale_score_even_if_rows_are_verified():
     launch_gate = _load_launch_gate_module()
     switch = """
-Current non-Stripe launch readiness: **8.5/10**.
+Current launch readiness: **8.5/10**.
 
 Target for broad student production: **9/10**.
 """
@@ -97,7 +97,7 @@ def test_launch_gate_rejects_missing_duplicate_unknown_and_invalid_rows():
         ),
     )
     switch = """
-Current non-Stripe launch readiness: **9/10**.
+Current launch readiness: **9/10**.
 
 Target for broad student production: **9/10**.
 """

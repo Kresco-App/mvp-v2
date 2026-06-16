@@ -15,20 +15,11 @@ from urllib.request import Request, urlopen
 DEFAULT_RETRIES = 12
 DEFAULT_DELAY_SECONDS = 5
 DEFAULT_TIMEOUT_SECONDS = 10
-DEFERRED_PAYMENT_CONFIGURATION_MARKERS = (
-    "STRIPE_SK",
-    "STRIPE_PRODUCT_ID",
-    "STRIPE_WEBHOOK_SECRET",
-    "STRIPE_PK",
-    "FAKE_STRIPE_CHECKOUT",
-)
 SENSITIVE_PAYLOAD_KEY_RE = re.compile(r"(SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|API[_-]?KEY|AUTH)", re.I)
 SECRET_SHAPED_PATTERNS = (
     re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
     re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b"),
-    re.compile(r"\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b"),
-    re.compile(r"\bwhsec_[A-Za-z0-9]{16,}\b"),
 )
 
 
@@ -39,7 +30,7 @@ class RuntimeVerificationResult:
     readiness_status: str | None
     diagnostics_status: str | None
     outbox_result: dict[str, Any] | None
-    deferred_payment_check: dict[str, Any] | None = None
+    payment_check: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,7 +39,7 @@ class RuntimeVerificationResult:
             "readiness_status": self.readiness_status,
             "diagnostics_status": self.diagnostics_status,
             "outbox_result": self.outbox_result,
-            "deferred_payment_check": self.deferred_payment_check,
+            "payment_check": self.payment_check,
         }
 
 
@@ -56,8 +47,6 @@ def validate_runtime_payloads(
     readiness: dict[str, Any],
     diagnostics: dict[str, Any],
     outbox_result: dict[str, Any] | None = None,
-    *,
-    require_payment_provider_reachability: bool = False,
 ) -> RuntimeVerificationResult:
     errors: list[str] = []
 
@@ -70,30 +59,16 @@ def validate_runtime_payloads(
         errors.append("diagnostics.checks must be an object.")
         checks = {}
 
-    configuration = _configuration_check(
-        checks,
-        errors,
-        require_payment=require_payment_provider_reachability,
-    )
+    configuration = _configuration_check(checks, errors)
     if diagnostics.get("status") != "ready":
-        blocking_errors = _blocking_diagnostics_errors(
-            diagnostics_errors,
-            configuration,
-            require_payment=require_payment_provider_reachability,
-        )
-        if blocking_errors:
-            joined = ", ".join(blocking_errors)
-            errors.append(f"diagnostics.status must be ready for non-deferred systems (blocking errors: {joined}).")
-        elif diagnostics_errors and set(diagnostics_errors).issubset({"configuration", "payment"}):
-            pass
+        if diagnostics_errors:
+            joined = ", ".join(diagnostics_errors)
+            errors.append(f"diagnostics.status must be ready (blocking errors: {joined}).")
         else:
-            errors.append("diagnostics.status must be ready or name only deferred payment errors.")
+            errors.append("diagnostics.status must be ready.")
 
     _require(configuration.get("production_like") is True, "configuration.production_like must be true.", errors)
-    blocking_configuration_errors = _blocking_configuration_errors(
-        configuration,
-        require_payment=require_payment_provider_reachability,
-    )
+    blocking_configuration_errors = _blocking_configuration_errors(configuration)
     if blocking_configuration_errors:
         joined = "; ".join(blocking_configuration_errors)
         errors.append(f"configuration.errors contains blocking errors: {joined}")
@@ -146,20 +121,13 @@ def validate_runtime_payloads(
     email = _check(checks, "email", errors)
     _require(email.get("resend_api_key_configured") is True, "email.resend_api_key_configured must be true.", errors)
 
-    payment = _payment_check(checks, errors, require_payment=require_payment_provider_reachability)
-    if require_payment_provider_reachability:
-        _require(payment.get("stripe_sk_configured") is True, "payment.stripe_sk_configured must be true.", errors)
-        _require(payment.get("stripe_product_id_configured") is True, "payment.stripe_product_id_configured must be true.", errors)
-        _require(payment.get("stripe_webhook_secret_configured") is True, "payment.stripe_webhook_secret_configured must be true.", errors)
-        provider_reachability = payment.get("provider_reachability")
-        if not isinstance(provider_reachability, dict):
-            errors.append("payment.provider_reachability must be present when payment provider reachability is required.")
-        else:
-            _require(
-                provider_reachability.get("status") == "ok",
-                f"payment.provider_reachability.status must be ok (current: {provider_reachability.get('status')!r}).",
-                errors,
-            )
+    payment = _payment_check(checks, errors)
+    _require(payment.get("cmi_client_id_configured") is True, "payment.cmi_client_id_configured must be true.", errors)
+    _require(payment.get("cmi_store_key_configured") is True, "payment.cmi_store_key_configured must be true.", errors)
+    _require(payment.get("cmi_payment_url_configured") is True, "payment.cmi_payment_url_configured must be true.", errors)
+    _require(payment.get("cmi_ok_url_configured") is True, "payment.cmi_ok_url_configured must be true.", errors)
+    _require(payment.get("cmi_fail_url_configured") is True, "payment.cmi_fail_url_configured must be true.", errors)
+    _require(payment.get("cmi_callback_url_configured") is True, "payment.cmi_callback_url_configured must be true.", errors)
 
     if outbox_result is not None:
         _require(outbox_result.get("ok") is True, "outbox drain endpoint must return ok=true.", errors)
@@ -172,7 +140,7 @@ def validate_runtime_payloads(
         readiness_status=str(readiness.get("status")) if readiness.get("status") is not None else None,
         diagnostics_status=str(diagnostics.get("status")) if diagnostics.get("status") is not None else None,
         outbox_result=outbox_result,
-        deferred_payment_check=_deferred_payment_summary(payment),
+        payment_check=_payment_summary(payment),
     )
 
 
@@ -186,23 +154,22 @@ def _check(checks: dict[str, Any], name: str, errors: list[str]) -> dict[str, An
     return check
 
 
-def _configuration_check(checks: dict[str, Any], errors: list[str], *, require_payment: bool) -> dict[str, Any]:
+def _configuration_check(checks: dict[str, Any], errors: list[str]) -> dict[str, Any]:
     check = checks.get("configuration")
     if not isinstance(check, dict):
         errors.append("diagnostics.checks.configuration must be an object.")
         return {}
-    if check.get("status") != "ok" and _blocking_configuration_errors(check, require_payment=require_payment):
+    if check.get("status") != "ok" and _blocking_configuration_errors(check):
         errors.append("diagnostics.checks.configuration.status must be ok for blocking configuration errors.")
     return check
 
 
-def _payment_check(checks: dict[str, Any], errors: list[str], *, require_payment: bool) -> dict[str, Any]:
+def _payment_check(checks: dict[str, Any], errors: list[str]) -> dict[str, Any]:
     check = checks.get("payment")
     if not isinstance(check, dict):
-        if require_payment:
-            errors.append("diagnostics.checks.payment must be an object.")
+        errors.append("diagnostics.checks.payment must be an object.")
         return {}
-    if require_payment and check.get("status") != "ok":
+    if check.get("status") != "ok":
         errors.append("diagnostics.checks.payment.status must be ok.")
     return check
 
@@ -214,24 +181,6 @@ def _diagnostics_errors(diagnostics: dict[str, Any]) -> tuple[str, ...]:
     return tuple(str(error) for error in raw_errors)
 
 
-def _blocking_diagnostics_errors(
-    errors: tuple[str, ...],
-    configuration: dict[str, Any],
-    *,
-    require_payment: bool,
-) -> tuple[str, ...]:
-    if require_payment:
-        return errors
-    blocking_errors: list[str] = []
-    for error in errors:
-        if error == "payment":
-            continue
-        if error == "configuration" and not _blocking_configuration_errors(configuration, require_payment=False):
-            continue
-        blocking_errors.append(error)
-    return tuple(blocking_errors)
-
-
 def _configuration_errors(configuration: dict[str, Any]) -> tuple[str, ...]:
     raw_errors = configuration.get("errors")
     if not isinstance(raw_errors, list):
@@ -239,39 +188,30 @@ def _configuration_errors(configuration: dict[str, Any]) -> tuple[str, ...]:
     return tuple(str(error) for error in raw_errors)
 
 
-def _blocking_configuration_errors(configuration: dict[str, Any], *, require_payment: bool) -> tuple[str, ...]:
+def _blocking_configuration_errors(configuration: dict[str, Any]) -> tuple[str, ...]:
     errors = _configuration_errors(configuration)
     if not errors:
         if configuration.get("status") != "ok" or _int_value(configuration, "error_count") > 0:
             return ("configuration status/error_count is not ok but no error details were provided.",)
         return ()
-    if require_payment:
-        return errors
-    return tuple(
-        error for error in errors
-        if not any(marker in error for marker in DEFERRED_PAYMENT_CONFIGURATION_MARKERS)
-    )
+    return errors
 
 
-def _deferred_payment_summary(payment: dict[str, Any]) -> dict[str, Any] | None:
+def _payment_summary(payment: dict[str, Any]) -> dict[str, Any] | None:
     if not payment:
         return None
     summary: dict[str, Any] = {}
     for key in (
         "status",
-        "stripe_sk_configured",
-        "stripe_product_id_configured",
-        "stripe_webhook_secret_configured",
+        "cmi_client_id_configured",
+        "cmi_store_key_configured",
+        "cmi_payment_url_configured",
+        "cmi_ok_url_configured",
+        "cmi_fail_url_configured",
+        "cmi_callback_url_configured",
     ):
         if key in payment:
             summary[key] = payment[key]
-    provider_reachability = payment.get("provider_reachability")
-    if isinstance(provider_reachability, dict):
-        summary["provider_reachability"] = {
-            key: provider_reachability[key]
-            for key in ("status", "detail", "error_type", "code", "product_id_matches", "product_active")
-            if key in provider_reachability
-        }
     return summary
 
 
@@ -292,16 +232,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--process-outbox-url", default="")
     parser.add_argument("--internal-secret", default=os.environ.get("KRESCO_INTERNAL_SECRET", ""))
     parser.add_argument("--skip-outbox-drain", action="store_true")
-    parser.add_argument(
-        "--include-provider-reachability",
-        action="store_true",
-        help="Ask diagnostics to report provider reachability. Deferred Stripe reachability is reported but not enforced.",
-    )
-    parser.add_argument(
-        "--require-payment-provider-reachability",
-        action="store_true",
-        help="Fail if deferred Stripe payment configuration or provider reachability is not healthy.",
-    )
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
     parser.add_argument("--delay-seconds", type=int, default=DEFAULT_DELAY_SECONDS)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
@@ -317,13 +247,7 @@ def main(argv: list[str] | None = None) -> int:
         print("error: KRESCO_INTERNAL_SECRET is required for protected diagnostics.", file=sys.stderr)
         return 1
 
-    include_provider_reachability = args.include_provider_reachability or args.require_payment_provider_reachability
-    diagnostics_path = (
-        "/api/internal/diagnostics?include_provider_reachability=true"
-        if include_provider_reachability
-        else "/api/internal/diagnostics"
-    )
-    diagnostics_url = args.diagnostics_url.strip() or derive_url(ready_url, diagnostics_path)
+    diagnostics_url = args.diagnostics_url.strip() or derive_url(ready_url, "/api/internal/diagnostics")
     process_outbox_url = args.process_outbox_url.strip() or derive_url(
         ready_url,
         "/api/internal/realtime/process-outbox?limit=1",
@@ -346,7 +270,6 @@ def main(argv: list[str] | None = None) -> int:
         readiness,
         diagnostics,
         outbox_result,
-        require_payment_provider_reachability=args.require_payment_provider_reachability,
     )
     if args.json:
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
