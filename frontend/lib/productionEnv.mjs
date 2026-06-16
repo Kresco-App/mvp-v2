@@ -1,6 +1,9 @@
 export const REQUIRED_FRONTEND_PRODUCTION_ENV = [
   'NEXT_PUBLIC_API_BASE_URL',
-  'NEXT_PUBLIC_GOOGLE_CLIENT_ID',
+  'NEXT_PUBLIC_FIREBASE_API_KEY',
+  'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'NEXT_PUBLIC_FIREBASE_PROJECT_ID',
+  'NEXT_PUBLIC_FIREBASE_APP_ID',
   'NEXT_PUBLIC_ABLY_ENABLED',
   'NEXT_PUBLIC_RELEASE_SHA',
 ]
@@ -18,7 +21,7 @@ export function validateFrontendProductionEnv(env) {
   }
 
   validateApiBaseUrl(env.NEXT_PUBLIC_API_BASE_URL, errors)
-  validateGoogleClientId(env.NEXT_PUBLIC_GOOGLE_CLIENT_ID, errors)
+  validateFirebaseAuthConfig(env, errors)
   validateRealtimeToggle(env.NEXT_PUBLIC_ABLY_ENABLED, errors)
   validateReleaseSha(env.NEXT_PUBLIC_RELEASE_SHA, errors)
   validateLocalRewritePolicy(env, errors)
@@ -99,10 +102,29 @@ function validateBackendRewriteOrigin(value, errors) {
   }
 }
 
-function validateGoogleClientId(value, errors) {
+function validateFirebaseAuthConfig(env, errors) {
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_API_KEY', env.NEXT_PUBLIC_FIREBASE_API_KEY, errors)
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_PROJECT_ID', env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, errors)
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_APP_ID', env.NEXT_PUBLIC_FIREBASE_APP_ID, errors)
+
+  const authDomain = env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN', authDomain, errors)
+  if (!hasValue(authDomain)) return
+
+  const trimmed = authDomain.trim()
+  if (/^https?:\/\//i.test(trimmed)) {
+    errors.push('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN must be a hostname, not a URL.')
+    return
+  }
+  if (LOCAL_HOST_PATTERN.test(trimmed) || LOCAL_OR_TUNNEL_PATTERN.test(trimmed)) {
+    errors.push('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN must not point to localhost or tunnel origins in production.')
+  }
+}
+
+function validateFirebaseValue(key, value, errors) {
   if (!hasValue(value)) return
-  if (LOCAL_OR_TUNNEL_PATTERN.test(value)) {
-    errors.push('NEXT_PUBLIC_GOOGLE_CLIENT_ID must not use local or tunnel placeholders in production.')
+  if (LOCAL_OR_TUNNEL_PATTERN.test(value) || /placeholder|change-me|development|unknown/i.test(value)) {
+    errors.push(`${key} must not use local or placeholder values in production.`)
   }
 }
 

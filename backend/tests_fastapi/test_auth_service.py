@@ -52,6 +52,24 @@ def test_create_token_rejects_invalid_token_versions(test_settings):
             create_token(1, test_settings, token_version=version)
 
 
+def test_firebase_payload_maps_to_google_login_payload():
+    payload = auth_module._google_login_payload_from_firebase({
+        "email": "firebase-user@example.com",
+        "email_verified": True,
+        "uid": "firebase-uid-123",
+        "name": "Firebase User",
+        "picture": "https://example.com/avatar.png",
+    })
+
+    assert payload == {
+        "email": "firebase-user@example.com",
+        "email_verified": True,
+        "sub": "firebase-uid-123",
+        "name": "Firebase User",
+        "picture": "https://example.com/avatar.png",
+    }
+
+
 def test_decode_token_rejects_invalid_payload_shape(test_settings):
     invalid_payloads = [
         {"token_version": 0},

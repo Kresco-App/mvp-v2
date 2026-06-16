@@ -19,6 +19,8 @@
     "ci": "npm run lint && npm run audit:csp-styles && npm run typecheck && npm run test:coverage && npm run build && npm run test:e2e && npm run test:e2e:integration"
   },
   "dependencies": {
+    "@firebase/app": "^0.15.0",
+    "@firebase/auth": "^1.13.3",
     "@radix-ui/react-slider": "^1.3.6",
     "ably": "^2.21.0",
     "axios": "^1.16.1",

@@ -8,12 +8,7 @@ import { resolveAuthSuccess } from '@/lib/authPolicy'
 import { isStoredAuthSnapshot } from '@/lib/authSession'
 import { useAuthStore } from '@/lib/store'
 import { apiDataErrorMessage } from '@/lib/apiData'
-
-declare global {
-  interface Window {
-    google: any
-  }
-}
+import { getFirebaseGoogleIdToken, isFirebaseGoogleAuthConfigured } from '@/lib/firebaseAuth'
 
 export type AuthStep = 'auth' | 'niveau' | 'filiere'
 export type AuthMode = 'options' | 'login' | 'signup' | 'verify-pending' | 'forgot' | 'forgot-sent'
@@ -142,48 +137,23 @@ function useAuthForm({
   const [googleReady, setGoogleReady] = useState(false)
 
   useEffect(() => {
-    const handleGoogleCredential = async (response: any) => {
-      setLoading(true)
-      try {
-        const data = await postJson<any>('/google-login', { credential: response.credential })
-        login(data.user, data.csrf_token)
-        toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
-        onAuthResolution(data.user)
-      } catch (err: any) {
-        toast.error(apiDataErrorMessage(err, 'Connexion échouée.'))
-      } finally {
-        setLoading(false)
-      }
-    }
+    setGoogleReady(isFirebaseGoogleAuthConfigured())
+  }, [])
 
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.onload = () => {
-      if (window.google && hiddenGoogleRef.current) {
-        window.google.accounts.id.initialize({
-          client_id: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
-          callback: handleGoogleCredential,
-        })
-        window.google.accounts.id.renderButton(hiddenGoogleRef.current, {
-          size: 'large', width: 1, text: 'continue_with',
-        })
-        setGoogleReady(true)
-      }
+  async function triggerGoogle() {
+    if (!googleReady || loading) return
+    setLoading(true)
+    try {
+      const credential = await getFirebaseGoogleIdToken()
+      const data = await postJson<any>('/google-login', { credential })
+      login(data.user, data.csrf_token)
+      toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
+      onAuthResolution(data.user)
+    } catch (err: any) {
+      toast.error(apiDataErrorMessage(err, 'Connexion Google echouee.'))
+    } finally {
+      setLoading(false)
     }
-    document.head.appendChild(script)
-    return () => {
-      if (script.parentNode) {
-        script.parentNode.removeChild(script)
-      }
-    }
-  }, [login, onAuthResolution])
-
-  function triggerGoogle() {
-    if (!googleReady) return
-    const btn = hiddenGoogleRef.current?.querySelector('div[role="button"]') as HTMLElement | null
-    if (btn) btn.click()
-    else window.google?.accounts?.id?.prompt()
   }
 
   function resetForm() {
@@ -196,16 +166,16 @@ function useAuthForm({
   async function handleSignup(e: FormEvent) {
     e.preventDefault()
     if (!fullName.trim()) return toast.error('Entrez votre nom complet')
-    if (password.length < 6) return toast.error('Mot de passe trop court (min. 6 caractères)')
+    if (password.length < 6) return toast.error('Mot de passe trop court (min. 6 caracteres)')
     setLoading(true)
     try {
       const normalizedEmail = normalizeEmailInput(email)
       const data = await postJson<any>('/auth/signup', { email: normalizedEmail, password, full_name: fullName })
       setPendingEmail(normalizeEmailInput(data.email))
       setAuthMode('verify-pending')
-      toast.success('Email de vérification envoyé !')
+      toast.success('Email de verification envoye !')
     } catch (err: any) {
-      toast.error(apiDataErrorMessage(err, 'Erreur lors de la création du compte.'))
+      toast.error(apiDataErrorMessage(err, 'Erreur lors de la creation du compte.'))
     } finally {
       setLoading(false)
     }
@@ -224,7 +194,7 @@ function useAuthForm({
       if (isUnverifiedEmailLoginError(err)) {
         setPendingEmail(normalizeEmailInput(email))
         setAuthMode('verify-pending')
-        toast.error('Vérifiez votre email avant de vous connecter.')
+        toast.error('Verifiez votre email avant de vous connecter.')
       } else {
         toast.error(apiDataErrorMessage(err, 'Email ou mot de passe incorrect.'))
       }
@@ -251,7 +221,7 @@ function useAuthForm({
     setLoading(true)
     try {
       await postJson('/auth/resend-verification', { email: normalizeEmailInput(pendingEmail) })
-      toast.success('Email renvoyé !')
+      toast.success('Email renvoye !')
     } catch {
       toast.error('Impossible d\'envoyer l\'email.')
     } finally {

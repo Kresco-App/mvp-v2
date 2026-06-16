@@ -17,6 +17,7 @@ GOOGLE_JWKS_DEFAULT_TTL_SECONDS = 3600
 GOOGLE_JWKS_FORCE_REFRESH_MIN_INTERVAL_SECONDS = 60
 GOOGLE_ID_TOKEN_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 GOOGLE_ID_TOKEN_ALGORITHMS = ["RS256"]
+FIREBASE_AUTH_APP_NAME_PREFIX = "kresco-auth-"
 
 _google_jwks_cache: tuple[float, dict] | None = None
 _google_jwks_cache_fingerprint: str | None = None
@@ -254,3 +255,35 @@ async def verify_google_token(credential: str, client_id: str) -> dict:
     if payload.get("iss") not in GOOGLE_ID_TOKEN_ISSUERS:
         raise jwt.InvalidIssuerError("Invalid Google token issuer")
     return payload
+
+
+def _firebase_auth_app(project_id: str):
+    import firebase_admin
+
+    app_name = f"{FIREBASE_AUTH_APP_NAME_PREFIX}{project_id}"
+    try:
+        return firebase_admin.get_app(app_name)
+    except ValueError:
+        return firebase_admin.initialize_app(options={"projectId": project_id}, name=app_name)
+
+
+def _google_login_payload_from_firebase(payload: dict) -> dict:
+    return {
+        "email": payload.get("email"),
+        "email_verified": payload.get("email_verified"),
+        "name": payload.get("name") or "",
+        "picture": payload.get("picture") or "",
+        "sub": payload.get("uid") or payload.get("sub"),
+    }
+
+
+async def verify_firebase_token(credential: str, project_id: str) -> dict:
+    from firebase_admin import auth as firebase_auth
+
+    project_id = project_id.strip()
+    if not project_id:
+        raise jwt.InvalidAudienceError("Firebase project id is not configured")
+
+    app = _firebase_auth_app(project_id)
+    payload = await asyncio.to_thread(firebase_auth.verify_id_token, credential, app=app)
+    return _google_login_payload_from_firebase(payload)
