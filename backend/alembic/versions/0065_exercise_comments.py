@@ -34,11 +34,23 @@ def _indexes(table_name: str) -> set[str]:
     return {index["name"] for index in inspector.get_indexes(table_name) if index.get("name")}
 
 
+def _check_constraints(table_name: str) -> set[str]:
+    inspector = sa.inspect(op.get_bind())
+    if table_name not in inspector.get_table_names():
+        return set()
+    return {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints(table_name)
+        if constraint.get("name")
+    }
+
+
 def upgrade() -> None:
     if "comments" not in _tables():
         return
 
     columns = _columns("comments")
+    check_constraints = _check_constraints("comments")
     with op.batch_alter_table("comments") as batch_op:
         if "topic_item_id" in columns and columns["topic_item_id"].get("nullable") is False:
             batch_op.alter_column("topic_item_id", existing_type=sa.BigInteger(), nullable=True)
@@ -51,13 +63,14 @@ def upgrade() -> None:
                 ["id"],
                 ondelete="CASCADE",
             )
-        batch_op.create_check_constraint(
-            "ck_comments_exactly_one_target",
-            "(topic_item_id IS NOT NULL AND exercise_id IS NULL) OR "
-            "(topic_item_id IS NULL AND exercise_id IS NOT NULL)",
-        )
+        if "ck_comments_exactly_one_target" not in check_constraints:
+            batch_op.create_check_constraint(
+                "ck_comments_exactly_one_target",
+                "(topic_item_id IS NOT NULL AND exercise_id IS NULL) OR "
+                "(topic_item_id IS NULL AND exercise_id IS NOT NULL)",
+            )
 
-    if "ix_comments_exercise_created" not in _indexes("comments"):
+    if "exercise_id" in _columns("comments") and "ix_comments_exercise_created" not in _indexes("comments"):
         op.create_index("ix_comments_exercise_created", "comments", ["exercise_id", "created_at"])
 
 
@@ -71,8 +84,10 @@ def downgrade() -> None:
     columns = _columns("comments")
     if "exercise_id" in columns:
         op.execute("DELETE FROM comments WHERE topic_item_id IS NULL")
+        check_constraints = _check_constraints("comments")
         with op.batch_alter_table("comments") as batch_op:
-            batch_op.drop_constraint("ck_comments_exactly_one_target", type_="check")
+            if "ck_comments_exactly_one_target" in check_constraints:
+                batch_op.drop_constraint("ck_comments_exactly_one_target", type_="check")
             batch_op.drop_column("exercise_id")
             if "topic_item_id" in columns:
                 batch_op.alter_column("topic_item_id", existing_type=sa.BigInteger(), nullable=False)
