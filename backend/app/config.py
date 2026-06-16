@@ -62,6 +62,7 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "FIREBASE_PROJECT_ID": "firebase_project_id",
     "FIREBASE_WEB_API_KEY": "firebase_web_api_key",
     "FIRESTORE_DATABASE": "firestore_database",
+    "KRESCO_DARK_PRODUCTION_MODE": "dark_production_mode",
     "DATABASE_URL": "database_url",
     "DATABASE_CONNECTION_STRATEGY": "database_connection_strategy",
     "DATABASE_POOL_SIZE": "database_pool_size",
@@ -142,6 +143,10 @@ class Settings(BaseSettings):
     firebase_project_id: str = Field(default="", validation_alias=AliasChoices("firebase_project_id", "FIREBASE_PROJECT_ID"))
     firebase_web_api_key: str = Field(default="", validation_alias=AliasChoices("firebase_web_api_key", "FIREBASE_WEB_API_KEY"))
     firestore_database: str = Field(default="(default)", validation_alias=AliasChoices("firestore_database", "FIRESTORE_DATABASE"))
+    dark_production_mode: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("dark_production_mode", "KRESCO_DARK_PRODUCTION_MODE"),
+    )
     database_url: str = Field(
         default=LOCAL_DATABASE_URL,
         validation_alias=AliasChoices("database_url", "DATABASE_URL"),
@@ -290,29 +295,43 @@ class Settings(BaseSettings):
         if _is_disallowed_jwt_secret(self.jwt_secret_key):
             errors.append("JWT_SECRET_KEY must be configured to a non-default secret with at least 32 characters.")
 
+        database_strategy = self.database_connection_strategy.strip().lower()
         if _is_sqlite_database_url(self.database_url):
             errors.append("DATABASE_URL must point to a production database, not a local SQLite database.")
         elif not _is_postgres_database_url(self.database_url):
             errors.append("DATABASE_URL must use PostgreSQL in production environments.")
         else:
             sslmode = _database_sslmode(self.database_url)
-            if sslmode != "verify-full":
-                errors.append("DATABASE_URL must include sslmode=verify-full in production environments.")
-            if not _is_readable_trust_store(self.pgsslrootcert):
-                errors.append("PGSSLROOTCERT must point to a readable CA trust store.")
+            if database_strategy == "cloud_sql" and _is_cloud_sql_socket_database_url(self.database_url):
+                if sslmode not in {"", "disable"}:
+                    errors.append("Cloud SQL socket DATABASE_URL must omit sslmode or set sslmode=disable.")
+            else:
+                if sslmode != "verify-full":
+                    errors.append("DATABASE_URL must include sslmode=verify-full in production environments.")
+                if not _is_readable_trust_store(self.pgsslrootcert):
+                    errors.append("PGSSLROOTCERT must point to a readable CA trust store.")
 
-        if self.database_connection_strategy.strip().lower() not in PRODUCTION_DATABASE_CONNECTION_STRATEGIES:
+        if database_strategy not in PRODUCTION_DATABASE_CONNECTION_STRATEGIES:
             errors.append("DATABASE_CONNECTION_STRATEGY must be alloydb or cloud_sql in production environments.")
 
+        provider_fields = {
+            "firebase_web_api_key",
+            "vdocipher_api_secret",
+            "vdocipher_live_create_url",
+            "resend_api_key",
+        }
         for field_name, env_name in REQUIRED_PRODUCTION_FIELDS:
+            if self.dark_production_mode and field_name in provider_fields:
+                continue
             value = getattr(self, field_name, "")
             if not str(value).strip():
                 errors.append(f"{env_name} must be configured for production environments.")
 
-        for field_name, env_name in CMI_PRODUCTION_FIELDS:
-            if not str(getattr(self, field_name, "")).strip():
-                errors.append(f"{env_name} must be configured for the launch CMI checkout path.")
-        errors.extend(_cmi_production_url_errors(self))
+        if not self.dark_production_mode:
+            for field_name, env_name in CMI_PRODUCTION_FIELDS:
+                if not str(getattr(self, field_name, "")).strip():
+                    errors.append(f"{env_name} must be configured for the launch CMI checkout path.")
+            errors.extend(_cmi_production_url_errors(self))
 
         storage_backend = self.media_storage_backend.strip().lower()
         if storage_backend != MEDIA_STORAGE_GCS:
@@ -329,7 +348,7 @@ class Settings(BaseSettings):
             errors.append("MAX_REQUEST_BODY_BYTES must be greater than zero.")
         if len(self.realtime_outbox_secret.strip()) < 32:
             errors.append("REALTIME_OUTBOX_SECRET must be configured with at least 32 characters.")
-        if not _is_shared_rate_limit_storage_uri(self.rate_limit_storage_uri):
+        if not self.dark_production_mode and not _is_shared_rate_limit_storage_uri(self.rate_limit_storage_uri):
             errors.append("KRESCO_RATE_LIMIT_STORAGE_URI must point to a shared rate-limit store in production environments.")
 
         if _is_local_origin(self.frontend_url):
@@ -426,7 +445,7 @@ def _load_gcp_runtime_secret(secret_name: str) -> dict[str, object]:
         raise RuntimeError("Failed to load runtime configuration from Google Secret Manager.") from exc
 
     try:
-        decoded = json.loads(response.payload.data.decode("utf-8"))
+        decoded = json.loads(response.payload.data.decode("utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise RuntimeError("GCP runtime configuration secret must contain valid JSON.") from exc
 
@@ -461,6 +480,10 @@ def _database_sslmode(value: str) -> str:
 
     parsed = urlparse(value.strip())
     return parse_qs(parsed.query).get("sslmode", [""])[0].strip().lower()
+
+
+def _is_cloud_sql_socket_database_url(value: str) -> bool:
+    return "/cloudsql/" in value.strip()
 
 
 def _is_readable_trust_store(value: str) -> bool:

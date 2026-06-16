@@ -30,6 +30,9 @@ def _build_async_url(url: str, pgsslrootcert: str | None = None) -> tuple[str, d
         # Strip libpq-style SSL keys and translate them into asyncpg's `ssl`.
         sslmode = qs.pop("sslmode", [None])[0]
         sslrootcert = qs.pop("sslrootcert", [None])[0] or pgsslrootcert or os.environ.get("PGSSLROOTCERT", "")
+        socket_host = qs.pop("host", [None])[0]
+        if socket_host and socket_host.startswith("/cloudsql/"):
+            connect_args["host"] = socket_host
         if sslmode:
             sslmode = sslmode.lower()
             if sslmode not in _POSTGRES_SSLMODES:

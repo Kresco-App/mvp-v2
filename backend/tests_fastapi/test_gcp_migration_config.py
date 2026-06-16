@@ -47,6 +47,34 @@ def test_gcp_production_settings_accept_alloydb_and_gcs():
     assert settings.production_config_errors() == []
 
 
+def test_gcp_production_settings_accept_cloud_sql_socket_url():
+    settings = _production_settings(
+        database_url=(
+            "postgresql://kresco:pass@/kresco_staging"
+            "?host=/cloudsql/kresco-staging:europe-southwest1:kresco-staging-postgres"
+            "&sslmode=disable"
+        ),
+        database_connection_strategy="cloud_sql",
+        pgsslrootcert="",
+    )
+
+    assert settings.production_config_errors() == []
+
+
+def test_gcp_production_settings_reject_cloud_sql_socket_url_with_tls_mode():
+    settings = _production_settings(
+        database_url=(
+            "postgresql://kresco:pass@/kresco_staging"
+            "?host=/cloudsql/kresco-staging:europe-southwest1:kresco-staging-postgres"
+            "&sslmode=verify-full"
+        ),
+        database_connection_strategy="cloud_sql",
+        pgsslrootcert="certifi",
+    )
+
+    assert "Cloud SQL socket DATABASE_URL must omit sslmode or set sslmode=disable." in settings.production_config_errors()
+
+
 def test_gcp_production_settings_reject_aws_runtime_shape():
     settings = _production_settings(
         database_connection_strategy="rds_proxy",
@@ -61,11 +89,47 @@ def test_gcp_production_settings_reject_aws_runtime_shape():
     assert "MEDIA_GCS_BUCKET must be configured for production environments." in errors
 
 
+def test_gcp_dark_production_mode_allows_provider_cutover_secrets_to_be_absent():
+    settings = _production_settings(
+        dark_production_mode=True,
+        firebase_web_api_key="",
+        vdocipher_api_secret="",
+        vdocipher_live_create_url="",
+        resend_api_key="",
+        cmi_client_id="",
+        cmi_store_key="",
+        cmi_payment_url="",
+        cmi_ok_url="",
+        cmi_fail_url="",
+        cmi_callback_url="",
+        rate_limit_storage_uri="",
+    )
+
+    assert settings.production_config_errors() == []
+
+
+def test_gcp_live_production_requires_cutover_provider_secrets():
+    settings = _production_settings(
+        firebase_web_api_key="",
+        cmi_client_id="",
+        cmi_store_key="",
+        cmi_payment_url="",
+        cmi_ok_url="",
+        cmi_fail_url="",
+        cmi_callback_url="",
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "FIREBASE_WEB_API_KEY must be configured for production environments." in errors
+    assert "CMI_CLIENT_ID must be configured for the launch CMI checkout path." in errors
+
+
 def test_gcp_runtime_secret_overrides_are_loaded_from_secret_manager(monkeypatch):
     secret_name = "projects/kresco-staging/secrets/kresco-runtime/versions/latest"
 
     class FakeSecretPayload:
-        data = json.dumps(
+        data = ("\ufeff" + json.dumps(
             {
                 "KRESCO_ENV": "staging",
                 "GCP_PROJECT_ID": "kresco-staging",
@@ -76,7 +140,7 @@ def test_gcp_runtime_secret_overrides_are_loaded_from_secret_manager(monkeypatch
                 "MEDIA_STORAGE_BACKEND": "gcs",
                 "MEDIA_GCS_BUCKET": "kresco-private-media",
             }
-        ).encode("utf-8")
+        )).encode("utf-8")
 
     class FakeSecretResponse:
         payload = FakeSecretPayload()
