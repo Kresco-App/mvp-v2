@@ -15,6 +15,7 @@ on:
       - ".github/workflows/staging-topic-latency-evidence.yml"
       - ".github/workflows/staging-live-chat-load-evidence.yml"
       - ".github/workflows/staging-realtime-fanout-evidence.yml"
+      - ".github/workflows/staging-runbook-drill-evidence.yml"
       - ".github/workflows/production-dark-evidence.yml"
   push:
     branches:
@@ -32,6 +33,7 @@ on:
       - ".github/workflows/staging-topic-latency-evidence.yml"
       - ".github/workflows/staging-live-chat-load-evidence.yml"
       - ".github/workflows/staging-realtime-fanout-evidence.yml"
+      - ".github/workflows/staging-runbook-drill-evidence.yml"
       - ".github/workflows/production-dark-evidence.yml"
 
 jobs:

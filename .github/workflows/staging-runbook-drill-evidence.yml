@@ -1,0 +1,200 @@
+name: Staging Runbook Drill Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      incident_commander:
+        description: "Person accountable for the drill"
+        required: true
+      rollback_owner:
+        description: "Person accountable for rollback execution"
+        required: true
+      evidence_owner:
+        description: "Person accountable for attaching evidence"
+        required: true
+      restore_drill_artifact_url:
+        description: "HTTPS link to the managed Postgres restore drill evidence"
+        required: true
+      restored_instance:
+        description: "Temporary/restored database instance validated by the drill"
+        required: true
+      confirm_no_user_traffic:
+        description: "Type STAGING_DARK_CONFIRMED to confirm no user traffic is routed"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-staging
+      FRONTEND_SERVICE: kresco-frontend-staging
+      CLOUD_SQL_INSTANCE: kresco-staging-postgres
+      EVIDENCE_DIR: artifacts/staging-runbook-drill
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Prepare evidence directory
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' '{"passed":false,"errors":["staging runbook drill evidence collection did not finish"]}' > "$EVIDENCE_DIR/runbook-drill-manifest.json"
+
+      - name: Collect Cloud Run rollback posture
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/backend-cloud-run.json"
+          gcloud run services describe "$FRONTEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/frontend-cloud-run.json"
+          gcloud run revisions list \
+            --service "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/backend-revisions.json"
+          gcloud run revisions list \
+            --service "$FRONTEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/frontend-revisions.json"
+
+      - name: Collect Cloud SQL backup posture
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          gcloud sql instances describe "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --format=json > "$EVIDENCE_DIR/cloud-sql.json"
+          gcloud sql backups list \
+            --instance "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --format=json > "$EVIDENCE_DIR/cloud-sql-backups.json"
+
+      - name: Collect runtime diagnostics
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cleanup() {
+            gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+              --project "$PROJECT_ID" \
+              --activation-policy NEVER \
+              --quiet || true
+          }
+          trap cleanup EXIT
+          gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --activation-policy ALWAYS \
+            --quiet
+          for attempt in {1..90}; do
+            state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project "$PROJECT_ID" --format='value(state)')"
+            if [ "$state" = "RUNNABLE" ]; then
+              break
+            fi
+            echo "Waiting for Cloud SQL instance $CLOUD_SQL_INSTANCE to become RUNNABLE; current state=$state"
+            sleep 10
+          done
+          if [ "$state" != "RUNNABLE" ]; then
+            echo "::error::Cloud SQL instance $CLOUD_SQL_INSTANCE did not become RUNNABLE within 15 minutes."
+            exit 1
+          fi
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          internal_secret="$(jq -r '.REALTIME_OUTBOX_SECRET // .realtime_outbox_secret // empty' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -z "$internal_secret" ]; then
+            echo "::error::REALTIME_OUTBOX_SECRET is missing from kresco-runtime."
+            exit 1
+          fi
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          set +e
+          python scripts/check_staging_runtime.py \
+            "${backend_url%/}/ready" \
+            --internal-secret "$internal_secret" \
+            --skip-outbox-drain \
+            --json > "$EVIDENCE_DIR/runtime-diagnostics.json"
+          status=$?
+          set -e
+          cat "$EVIDENCE_DIR/runtime-diagnostics.json"
+          exit "$status"
+
+      - name: Record runbook drill sign-off
+        env:
+          incident_commander: ${{ inputs.incident_commander }}
+          rollback_owner: ${{ inputs.rollback_owner }}
+          evidence_owner: ${{ inputs.evidence_owner }}
+          restore_drill_artifact_url: ${{ inputs.restore_drill_artifact_url }}
+          restored_instance: ${{ inputs.restored_instance }}
+          confirm_no_user_traffic: ${{ inputs.confirm_no_user_traffic }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          confirmation = os.environ["confirm_no_user_traffic"].strip()
+          restore_url = os.environ["restore_drill_artifact_url"].strip()
+          restored_instance = os.environ["restored_instance"].strip()
+          evidence_dir.joinpath("incident-checklist.json").write_text(
+              json.dumps({
+                  "runbook_path": "docs/production-runbook.md",
+                  "manual_operations_path": "docs/manual-operations.md",
+                  "incident_commander": os.environ["incident_commander"].strip(),
+                  "rollback_owner": os.environ["rollback_owner"].strip(),
+                  "evidence_owner": os.environ["evidence_owner"].strip(),
+                  "confirmation": confirmation,
+                  "no_user_traffic_confirmed": confirmation == "STAGING_DARK_CONFIRMED",
+                  "traffic_routing_hold_confirmed": confirmation == "STAGING_DARK_CONFIRMED",
+                  "recorded_at": datetime.now(timezone.utc).isoformat(),
+              }, indent=2),
+              encoding="utf-8",
+          )
+          evidence_dir.joinpath("restore-drill.json").write_text(
+              json.dumps({
+                  "restore_drill_completed": bool(restore_url and restored_instance),
+                  "restore_drill_artifact_url": restore_url,
+                  "restored_instance": restored_instance,
+                  "validated_at": datetime.now(timezone.utc).isoformat(),
+              }, indent=2),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Evaluate staging runbook drill evidence
+        if: always()
+        run: python scripts/check_staging_runbook_drill_evidence.py "$EVIDENCE_DIR"
+
+      - name: Upload staging runbook drill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-runbook-drill
+          path: artifacts/staging-runbook-drill
+          if-no-files-found: error

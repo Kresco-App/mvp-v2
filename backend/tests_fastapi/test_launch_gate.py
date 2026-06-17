@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -175,6 +177,7 @@ def test_ci_and_deploy_workflows_report_test_coverage():
         ".github/workflows/staging-topic-latency-evidence.yml",
         ".github/workflows/staging-live-chat-load-evidence.yml",
         ".github/workflows/staging-realtime-fanout-evidence.yml",
+        ".github/workflows/staging-runbook-drill-evidence.yml",
         ".github/workflows/production-dark-evidence.yml",
     ):
         assert workflow_path in backend_ci
@@ -194,3 +197,51 @@ def test_ci_and_deploy_workflows_report_test_coverage():
     assert "KRESCO_TEST_DATABASE_URL is required for CI backend tests." in backend_conftest
     assert "KRESCO_TEST_DATABASE_URL: ${{ env.CI_POSTGRES_DATABASE_URL }}" in backend_ci
     assert "if _is_postgres_url(test_settings.database_url):" in backend_conftest
+
+
+def test_launch_gate_docs_and_workflows_do_not_reference_retired_deployment_providers():
+    tracked = subprocess.run(
+        ["git", "ls-files"],
+        cwd=REPO_ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout.splitlines()
+    audited_roots = (
+        ".github/workflows/",
+        "docs/",
+        "scripts/",
+        "backend/tests_fastapi/test_staging",
+        "backend/tests_fastapi/test_launch_gate.py",
+        "backend/tests_fastapi/test_startup_security.py",
+    )
+    ignored_paths = {
+        "docs/knowledge-base/content-authoring.md",
+    }
+    retired_terms = (
+        "a" + "ws",
+        "r" + "ds",
+        "za" + "ppa",
+        "ab" + "ly",
+        "ver" + "cel",
+        "s" + "3",
+        "MEDIA_" + "S" + "3",
+        "MEDIA-" + "S" + "3",
+        "OPS-" + "R" + "DS",
+        "OPS-" + "LAM" + "BDA",
+    )
+    stale_pattern = re.compile("|".join(rf"\b{re.escape(term)}\b" for term in retired_terms), re.IGNORECASE)
+    offenders: list[str] = []
+    for relative in tracked:
+        if relative in ignored_paths or not relative.startswith(audited_roots):
+            continue
+        path = REPO_ROOT / relative
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if stale_pattern.search(line):
+                offenders.append(f"{relative}:{line_number}:{line.strip()}")
+
+    assert offenders == []

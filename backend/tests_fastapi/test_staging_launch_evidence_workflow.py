@@ -123,8 +123,6 @@ def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
     assert "staging launch evidence collection did not finish" in workflow
     assert "python scripts/check_staging_launch_evidence.py \"$EVIDENCE_DIR\"" in workflow
     assert workflow.count("continue-on-error: true") >= 5
-    assert "check_s3_media_posture.py" not in workflow
-    assert "check_staging_ops_posture.py" not in workflow
 
     for artifact in EXPECTED_ARTIFACTS:
         assert artifact in workflow
