@@ -177,6 +177,8 @@ def test_ci_and_deploy_workflows_report_test_coverage():
         ".github/workflows/production-dark-evidence.yml",
     ):
         assert workflow_path in backend_ci
+    assert '"codex/**"' not in backend_ci
+    assert '"codex/**"' not in frontend_ci
     assert "npm run test:coverage" in frontend_ci
     assert "image: postgres:16" in frontend_ci
     assert "KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e" in frontend_ci

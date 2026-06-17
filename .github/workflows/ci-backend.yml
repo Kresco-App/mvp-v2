@@ -18,7 +18,6 @@ on:
   push:
     branches:
       - master
-      - "codex/**"
     paths:
       - "backend/**"
       - "scripts/**"
