@@ -330,8 +330,14 @@ def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
 
 def test_provider_diagnostics_workflow_uses_runtime_verifier():
     workflow = (REPO_ROOT / ".github" / "workflows" / "staging-provider-diagnostics.yml").read_text(encoding="utf-8")
+    diagnostics_step = workflow[workflow.index("- name: Run staging provider diagnostics"):]
 
     assert "actions/checkout@v4" in workflow
+    assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "--activation-policy ALWAYS" in diagnostics_step
+    assert "--activation-policy NEVER" in diagnostics_step
+    assert "trap cleanup EXIT" in diagnostics_step
+    assert "did not become RUNNABLE within 15 minutes" in diagnostics_step
     assert "python scripts/check_staging_runtime.py" in workflow
     assert "--include-provider-reachability" not in workflow
     assert "--json" in workflow
