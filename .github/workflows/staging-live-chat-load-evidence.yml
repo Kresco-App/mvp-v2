@@ -1,0 +1,75 @@
+name: Staging Live Chat Load Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Measured request samples per endpoint"
+        required: true
+        default: "5"
+      warmups:
+        description: "Warmup requests per endpoint"
+        required: true
+        default: "1"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-staging
+      EVIDENCE_DIR: artifacts/staging-live-chat-load
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare evidence directory
+        run: mkdir -p "$EVIDENCE_DIR"
+
+      - name: Collect live chat load evidence
+        env:
+          staging_live_chat_auth_token: ${{ secrets.STAGING_LIVE_CHAT_AUTH_TOKEN }}
+          staging_live_session_id: ${{ vars.STAGING_LIVE_SESSION_ID }}
+          staging_chat_conversation_id: ${{ vars.STAGING_CHAT_CONVERSATION_ID }}
+        run: |
+          set -euo pipefail
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format='value(status.url)')"
+          python scripts/run_evidence_command.py \
+            --name staging-live-chat-load \
+            --output "$EVIDENCE_DIR/live-chat-load.json" \
+            --require-json \
+            -- \
+            python scripts/check_staging_live_chat_load.py \
+              --backend-url "$backend_url" \
+              --auth-token "$staging_live_chat_auth_token" \
+              --live-session-id "$staging_live_session_id" \
+              --conversation-id "$staging_chat_conversation_id" \
+              --samples "${{ inputs.samples }}" \
+              --warmups "${{ inputs.warmups }}" \
+              --json
+
+      - name: Upload staging live chat load evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-live-chat-load
+          path: artifacts/staging-live-chat-load
+          if-no-files-found: error
