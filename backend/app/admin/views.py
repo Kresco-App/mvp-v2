@@ -126,7 +126,7 @@ class UserAdmin(PowerModelView, model=User):
 
     # Roles that grant elevated access — anything outside the safe baseline set
     # is considered privileged and may not be assigned by non-superusers.
-    _NON_PRIVILEGED_ROLES: frozenset[str | None] = frozenset({"student", "professor", "", None})
+    _NON_PRIVILEGED_ROLES: frozenset[str | None] = frozenset({"student", "", None})
 
     form_overrides = {
         "role": SelectField,
