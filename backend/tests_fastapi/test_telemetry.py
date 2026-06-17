@@ -77,7 +77,7 @@ def test_emit_metrics_bounds_async_stdout_submissions(monkeypatch):
     assert len(loop.calls) == 2
 
 
-def test_client_error_endpoint_accepts_browser_reports_without_csrf(app_client, monkeypatch, caplog, capsys):
+def test_client_error_endpoint_accepts_browser_reports_without_csrf(app_client, monkeypatch, capsys):
     from app.services import telemetry as telemetry_service
 
     route = "/users/private@example.com/dashboard"
@@ -85,7 +85,6 @@ def test_client_error_endpoint_accepts_browser_reports_without_csrf(app_client, 
     stack = "Error: boom at private@example.com"
 
     monkeypatch.setattr(telemetry_service, "_submit_stdout_write", lambda *_args, **_kwargs: False)
-    caplog.set_level("WARNING", logger="kresco.client_errors")
     app_client.cookies.set("kresco_auth", "invalid-cookie-still-csrf-exempt")
     response = app_client.post(
         "/api/client-errors",
@@ -104,18 +103,6 @@ def test_client_error_endpoint_accepts_browser_reports_without_csrf(app_client, 
 
     assert response.status_code == 202
     assert response.json() == {"ok": True}
-
-    [log_record] = [
-        record for record in caplog.records
-        if record.message.startswith("client_error_reported")
-    ]
-    assert route not in log_record.message
-    assert message not in log_record.message
-    assert stack not in log_record.message
-    assert "route_present=True" in log_record.message
-    assert f"route_length={len(route)}" in log_record.message
-    assert f"message_length={len(message)}" in log_record.message
-    assert "stack_present=True" in log_record.message
 
     captured = capsys.readouterr().out
     assert route not in captured

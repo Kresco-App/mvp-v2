@@ -14,7 +14,7 @@ class AdminAuditLog(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    action: Mapped[str] = mapped_column(String(20), index=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)
     model_name: Mapped[str] = mapped_column(String(120), index=True)
     object_pk: Mapped[str] = mapped_column(String(120), default="", index=True)
     object_repr: Mapped[str] = mapped_column(String(500), default="")

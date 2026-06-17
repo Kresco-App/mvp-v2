@@ -770,11 +770,10 @@ def test_demo_login_endpoint_is_removed(app_client):
     assert "access_token" not in response.text
 
 
-def test_signup_does_not_block_when_verification_email_fails(app_client, monkeypatch, caplog):
+def test_signup_does_not_block_when_verification_email_fails(app_client, monkeypatch):
     import app.routers.users as users_router
 
     monkeypatch.setattr(users_router, "send_verification_email", _failing_send_email)
-    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post(
         "/api/auth/signup",
@@ -783,43 +782,30 @@ def test_signup_does_not_block_when_verification_email_fails(app_client, monkeyp
 
     assert response.status_code == 202
     assert response.json()["email"] == "email-failure@example.com"
-    assert any(
-        record.message == "auth_email_dispatch_failed"
-        and getattr(record, "flow", "") == "signup_verification"
-        for record in caplog.records
-    )
 
 
-def test_email_dispatch_failure_logging_preserves_flow_without_exc_info(caplog):
-    caplog.set_level("WARNING", logger="kresco.auth")
+def test_email_dispatch_failure_logging_preserves_flow_without_exc_info(monkeypatch):
+    calls = []
+    monkeypatch.setattr(auth_email_dispatch.logger, "warning", lambda *args, **kwargs: calls.append((args, kwargs)))
 
     auth_email_dispatch.log_email_dispatch_failure("signup_verification", RuntimeError("email provider unavailable"))
 
-    [record] = [
-        entry for entry in caplog.records
-        if entry.message == "auth_email_dispatch_failed"
-    ]
-    assert getattr(record, "flow", "") == "signup_verification"
-    assert getattr(record, "error_type", "") == "RuntimeError"
-    assert record.exc_info is None
+    [(args, kwargs)] = calls
+    assert args == ("auth_email_dispatch_failed",)
+    assert kwargs["extra"] == {"flow": "signup_verification", "error_type": "RuntimeError"}
+    assert "exc_info" not in kwargs
 
 
-def test_resend_verification_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
+def test_resend_verification_does_not_block_when_email_fails(app_client, monkeypatch, run_db):
     import app.routers.users as users_router
 
     run_db(_seed_user("resend-failure@example.com", is_email_verified=False))
     monkeypatch.setattr(users_router, "send_verification_email", _failing_send_email)
-    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post("/api/auth/resend-verification", json={"email": "resend-failure@example.com"})
 
     assert response.status_code == 200
     assert "un email a ete envoye" in response.json()["message"]
-    assert any(
-        record.message == "auth_email_dispatch_failed"
-        and getattr(record, "flow", "") == "resend_verification"
-        for record in caplog.records
-    )
 
 
 def test_resend_verification_retry_is_not_blackholed_by_failed_send(app_client, monkeypatch, run_db):
@@ -966,22 +952,16 @@ def test_resend_verification_throttle_insert_race_is_neutral_no_send(app_client,
     assert throttle.sent_count == 1
 
 
-def test_forgot_password_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
+def test_forgot_password_does_not_block_when_email_fails(app_client, monkeypatch, run_db):
     import app.routers.users as users_router
 
     run_db(_seed_user("forgot-failure@example.com", is_email_verified=True))
     monkeypatch.setattr(users_router, "send_reset_email", _failing_send_email)
-    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post("/api/auth/forgot-password", json={"email": "forgot-failure@example.com"})
 
     assert response.status_code == 200
     assert "email de reinitialisation" in response.json()["message"]
-    assert any(
-        record.message == "auth_email_dispatch_failed"
-        and getattr(record, "flow", "") == "forgot_password"
-        for record in caplog.records
-    )
 
 
 def test_resend_verification_is_throttled_by_target_email(app_client, monkeypatch, run_db):

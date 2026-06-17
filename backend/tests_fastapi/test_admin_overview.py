@@ -648,7 +648,7 @@ def test_admin_overview_batches_metric_reads_by_phase(monkeypatch, run_db):
     assert calls <= 20
 
 
-def test_admin_overview_gather_reads_keeps_partial_results(monkeypatch, run_db, caplog):
+def test_admin_overview_gather_reads_keeps_partial_results(monkeypatch, run_db):
     from app.services import admin_overview
 
     async def fake_run_read(operation):
@@ -663,15 +663,16 @@ def test_admin_overview_gather_reads_keeps_partial_results(monkeypatch, run_db, 
     async def also_ok(_session):
         return 11
 
+    warnings = []
     monkeypatch.setattr(admin_overview, "_run_read", fake_run_read)
-    caplog.set_level("WARNING", logger="kresco.admin_overview")
+    monkeypatch.setattr(admin_overview.logger, "warning", lambda *args, **kwargs: warnings.append((args, kwargs)))
 
     result = run_db(admin_overview._gather_reads(ok, failed, also_ok))
 
     assert result == [7, 0, 11]
     assert any(
-        "Admin overview read operation 1 failed" in record.message
-        for record in caplog.records
+        args[:2] == ("Admin overview read operation %s failed; using zero fallback", 1)
+        for args, _kwargs in warnings
     )
 
 
