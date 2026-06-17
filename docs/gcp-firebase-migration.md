@@ -70,7 +70,7 @@ cd backend; python -m pytest backend/tests_fastapi/test_image_uploads.py backend
 7. Deploy frontend to Cloud Run staging.
 8. Move media uploads to Cloud Storage and verify `gs://` references.
 9. Add Firebase Auth token verification and map Firebase UID to Postgres users.
-10. Replace frontend Ably subscriptions with Firestore listeners through the provider-neutral realtime facade.
+10. Verify frontend Firestore listeners through the realtime facade.
 11. Run staging smoke tests for auth, course access, payments, media upload/read, and realtime.
 
 Production cutover is blocked until staging proves those flows.

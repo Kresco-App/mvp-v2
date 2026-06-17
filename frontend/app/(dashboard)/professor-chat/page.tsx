@@ -5,7 +5,7 @@ import { Check, ChevronUp, ImageIcon, Link2, Loader2, LockKeyhole, MessageCircle
 import Image from 'next/image'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
+import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/realtime'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { canEditChatMessage, parseChatTimestamp, shouldShowChatTimestamp } from '@/lib/chatTime'
 import {

@@ -23,7 +23,7 @@ import {
   Zap,
 } from 'lucide-react'
 import KrescoWordmark from '@/components/KrescoWordmark'
-import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
+import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/realtime'
 import { AUTH_ROUTES, canUseStudentProfessorChat } from '@/lib/authPolicy'
 import { isActiveNavHref } from '@/lib/navigationPolicy'
 import { deleteAllNotifications, deleteNotification, listNotifications, markAllNotificationsRead, markNotificationRead, type NotificationItem } from '@/lib/notifications'

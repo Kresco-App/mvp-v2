@@ -64,7 +64,6 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "JWT_SECRET_KEY": "jwt_secret_key",
     "JWT_ALGORITHM": "jwt_algorithm",
     "JWT_EXPIRE_MINUTES": "jwt_expire_minutes",
-    "GOOGLE_CLIENT_ID": "google_client_id",
     "VDOCIPHER_API_SECRET": "vdocipher_api_secret",
     "VDOCIPHER_API_BASE_URL": "vdocipher_api_base_url",
     "VDOCIPHER_LIVE_CREATE_URL": "vdocipher_live_create_url",
@@ -82,8 +81,6 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "KRESCO_AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
     "DEBUG": "debug",
     "RESEND_API_KEY": "resend_api_key",
-    "ABLY_API_KEY": "ably_api_key",
-    "ABLY_TOKEN_TTL_SECONDS": "ably_token_ttl_seconds",
     "KRESCO_RATE_LIMIT_STORAGE_URI": "rate_limit_storage_uri",
     "REALTIME_OUTBOX_SECRET": "realtime_outbox_secret",
     "MEDIA_STORAGE_BACKEND": "media_storage_backend",
@@ -153,7 +150,6 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256", validation_alias=AliasChoices("jwt_algorithm", "JWT_ALGORITHM"))
     jwt_expire_minutes: int = Field(default=10080, validation_alias=AliasChoices("jwt_expire_minutes", "JWT_EXPIRE_MINUTES"))
-    google_client_id: str = Field(default="", validation_alias=AliasChoices("google_client_id", "GOOGLE_CLIENT_ID"))
     vdocipher_api_secret: str = Field(default="", validation_alias=AliasChoices("vdocipher_api_secret", "VDOCIPHER_API_SECRET"))
     vdocipher_api_base_url: str = Field(
         default="",
@@ -192,11 +188,6 @@ class Settings(BaseSettings):
     )
     debug: bool = Field(default=False, validation_alias=AliasChoices("debug", "DEBUG"))
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("resend_api_key", "RESEND_API_KEY"))
-    ably_api_key: str = Field(default="", validation_alias=AliasChoices("ably_api_key", "ABLY_API_KEY"))
-    ably_token_ttl_seconds: int = Field(
-        default=3600,
-        validation_alias=AliasChoices("ably_token_ttl_seconds", "ABLY_TOKEN_TTL_SECONDS"),
-    )
     realtime_outbox_secret: str = Field(
         default="",
         validation_alias=AliasChoices("realtime_outbox_secret", "REALTIME_OUTBOX_SECRET"),

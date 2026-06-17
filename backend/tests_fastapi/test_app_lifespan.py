@@ -23,7 +23,6 @@ def test_app_lifespan_initializes_and_disposes_database_engine(monkeypatch):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         jwt_secret_key="test-secret-key-for-ci-32-bytes-minimum",
-        google_client_id="test-google-client-id",
         debug=True,
     )
 

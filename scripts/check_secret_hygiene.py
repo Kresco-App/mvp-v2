@@ -13,13 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ROTATION_CHECKLIST_PATH = REPO_ROOT / "docs" / "secrets-rotation-checklist.md"
 
 SENSITIVE_ENV_NAMES = {
-    "ABLY_API_KEY",
     "ADMIN_PASSWORD",
     "DATABASE_URL",
     "FIREBASE_WEB_API_KEY",
     "GCP_DEPLOY_SERVICE_ACCOUNT",
     "GCP_WORKLOAD_IDENTITY_PROVIDER",
-    "GOOGLE_CLIENT_ID",
     "JWT_SECRET_KEY",
     "KRESCO_INTERNAL_SECRET",
     "KRESCO_RATE_LIMIT_STORAGE_URI",
@@ -29,12 +27,10 @@ SENSITIVE_ENV_NAMES = {
     "VDOCIPHER_LIVE_CREATE_URL",
 }
 REQUIRED_ROTATION_RECORD_IDENTIFIERS = (
-    "ABLY_API_KEY",
     "DATABASE_URL",
     "FIREBASE_WEB_API_KEY",
     "GCP_DEPLOY_SERVICE_ACCOUNT",
     "GCP_WORKLOAD_IDENTITY_PROVIDER",
-    "GOOGLE_CLIENT_ID",
     "JWT_SECRET_KEY",
     "KRESCO_RATE_LIMIT_STORAGE_URI",
     "MEDIA_GCS_BUCKET",
@@ -142,10 +138,6 @@ REQUIRED_ROTATION_RECORDS = (
     RequiredRotationRecord("MEDIA_GCS_BUCKET policy and lifecycle", "production"),
     RequiredRotationRecord("RESEND_API_KEY", "staging"),
     RequiredRotationRecord("RESEND_API_KEY", "production"),
-    RequiredRotationRecord("ABLY_API_KEY", "staging"),
-    RequiredRotationRecord("ABLY_API_KEY", "production"),
-    RequiredRotationRecord("GOOGLE_CLIENT_ID", "staging"),
-    RequiredRotationRecord("GOOGLE_CLIENT_ID", "production"),
     RequiredRotationRecord("FIREBASE_WEB_API_KEY", "staging"),
     RequiredRotationRecord("FIREBASE_WEB_API_KEY", "production"),
     RequiredRotationRecord("VDOCIPHER_API_SECRET / VDOCIPHER_LIVE_CREATE_URL", "staging"),

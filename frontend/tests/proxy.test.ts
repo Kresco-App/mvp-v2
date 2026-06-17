@@ -193,7 +193,6 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'connect-src')).toContain('https://identitytoolkit.googleapis.com')
     expect(cspDirective(csp, 'connect-src')).toContain('https://securetoken.googleapis.com')
     expect(cspDirective(csp, 'connect-src')).toContain('https://firestore.googleapis.com')
-    expect(cspDirective(csp, 'connect-src')).toContain('wss://*.ably.io')
     expect(cspDirective(csp, 'frame-src')).toContain('https://*.firebaseapp.com')
     expect(cspDirective(csp, 'frame-src')).toContain('https://*.web.app')
     expect(cspDirective(csp, 'frame-src')).toContain('https://www.youtube-nocookie.com')
@@ -291,7 +290,7 @@ describe('Next proxy auth boundary', () => {
     }
   })
 
-  it('keeps production CSP same-origin when Vercel API env is missing (no cross-site backend default)', () => {
+  it('keeps production CSP same-origin when API env is missing (no cross-site backend default)', () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', '')
     try {

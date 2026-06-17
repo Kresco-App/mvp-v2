@@ -192,8 +192,8 @@ const InterferenceChallenge = () => {
     // Calculate lambda.
 
     // Setup:
-    // Lambda = 650nm (Red)
-    // i = Lambda * D / a = 650e-9 * 2 / 0.5e-3 = 1300e-6 * 2 = 2.6e-3 m = 2.6 mm.
+    // Wavelength = 650nm (Red)
+    // i = wavelength * D / a = 650e-9 * 2 / 0.5e-3 = 1300e-6 * 2 = 2.6e-3 m = 2.6 mm.
     // 10*i = 26 mm.
 
     // On screen representation:

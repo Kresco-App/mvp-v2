@@ -26,7 +26,6 @@ export default defineConfig({
       PORT: '3100',
       JWT_SECRET_KEY: jwtSecretKey,
       NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api/',
-      NEXT_PUBLIC_ABLY_ENABLED: 'false',
     },
   },
   projects: [

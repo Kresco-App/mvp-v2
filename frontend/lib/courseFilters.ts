@@ -20,9 +20,9 @@ export const defaultCourseFilters: CourseFilters = {
 
 export function parseCourseFilters(params: CourseFilterSearchParams): CourseFilters {
   return {
-    query: params.get('q')?.trim() || params.get('search')?.trim() || '',
+    query: params.get('q')?.trim() || '',
     subject: params.get('subject')?.trim() || '',
-    status: parseCourseStatusFilter(params.get('status') ?? params.get('filter')) ?? 'all',
+    status: parseCourseStatusFilter(params.get('status')) ?? 'all',
   }
 }
 

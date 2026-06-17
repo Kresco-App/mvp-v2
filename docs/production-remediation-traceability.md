@@ -39,4 +39,4 @@ This file is the executable source for `scripts/check_production_launch_gate.py`
 
 | Date | Gate | Evidence |
 | --- | --- | --- |
-| 2026-06-17 | GCP migration cleanup | Branch posture moved to Cloud Run, Cloud SQL or AlloyDB, Firebase Auth, Firestore realtime, Google Secret Manager, and private Cloud Storage media. Remaining incomplete rows require live provider evidence, not old-platform compatibility. |
+| 2026-06-17 | GCP migration cleanup | Branch posture moved to Cloud Run, Cloud SQL or AlloyDB, Firebase Auth, Firestore realtime, Google Secret Manager, and private Cloud Storage media. Remaining incomplete rows require live provider evidence, not old-platform fallback paths. |

@@ -2,7 +2,7 @@
 
 ## Current Readiness Gate
 
-Payment readiness is in scope for this gate through the CMI card rail and manual payment-request flows. Do not add a second legacy checkout path for launch.
+Payment readiness is in scope for this gate through the CMI card rail and manual payment-request flows. Do not add a second checkout path for launch.
 
 Current launch readiness: **5.5/10**.
 
@@ -34,10 +34,10 @@ Realtime must fail visibly and degrade intentionally. Silent delivery failure is
 
 Checklist:
 
-- Stop silently swallowing Ably publish failures.
-- Add structured logs/metrics for Ably token minting, subscribe failures, publish failures, reconnects, and fallback polling activation.
+- Stop silently swallowing Firestore realtime publish failures.
+- Add structured logs/metrics for outbox publishing, Firestore subscribe failures, reconnects, and fallback polling activation.
 - Add retry/backoff or a durable fallback path for important professor/student realtime events.
-- Add at least one browser-level test with realtime enabled or a local fake Ably adapter.
+- Add at least one browser-level test with Firestore realtime enabled or a local Firebase emulator.
 - Validate that polling fallback works, but do not treat polling-only tests as proof that realtime works.
 - Review fanout paths so notifying many students does not open a fresh HTTP client and publish sequentially for every recipient.
 

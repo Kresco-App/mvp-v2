@@ -45,7 +45,7 @@ Goal: remove stale Study Tools wiring and clean local runtime artifacts while pr
 ### Intentionally not removed
 
 - Existing tracked SQLite files and tracked dev log files were not deleted. They are already tracked by git, so removing them should be handled as an explicit repository policy change with `git rm --cached` or a migration to seed-only fixtures.
-- Legacy `Chapter`/`Lesson` models and routes were not removed in this cleanup. They still back existing screens and progress endpoints. A full removal requires a separate migration plan that replaces old watch/admin/exam flows with TopicItem-first equivalents.
+- `Chapter`/`Lesson` models and routes were not removed in this cleanup. They still back existing screens and progress endpoints. A full removal requires a separate migration plan that replaces watch/admin/exam flows with TopicItem-first equivalents.
 
 ### Verification
 

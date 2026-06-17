@@ -28,10 +28,7 @@ type AuthStoreState = {
   logoutError: string | null
   isLoggingOut: boolean
   hydrate: () => void
-  login: {
-    (tokenOrUser: string, maybeUser: AuthUser, maybeCsrfToken?: string | null): void
-    (user: AuthUser, csrfToken?: string | null): void
-  }
+  login: (user: AuthUser, csrfToken?: string | null) => void
   logout: () => Promise<boolean>
   clearSession: () => void
   updateUser: (patch: AuthUserPatch) => void
@@ -70,16 +67,9 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
     set(readAuthStoreSnapshot())
   },
 
-  login(tokenOrUser: string | AuthUser, maybeUser?: AuthUser | string | null, maybeCsrfToken?: string | null) {
-    const isLegacyTokenSignature = (
-      typeof tokenOrUser === 'string'
-      && maybeUser
-      && typeof maybeUser === 'object'
-    )
-    const user = isLegacyTokenSignature ? maybeUser : tokenOrUser
-    const csrfToken = isLegacyTokenSignature ? maybeCsrfToken : maybeUser
-    writeStoredAuthSession(user as AuthUser, csrfToken as string | null | undefined)
-    set({ token: KRESCO_COOKIE_SESSION, user: user as AuthUser, logoutError: null, isLoggingOut: false })
+  login(user: AuthUser, csrfToken?: string | null) {
+    writeStoredAuthSession(user, csrfToken)
+    set({ token: KRESCO_COOKIE_SESSION, user, logoutError: null, isLoggingOut: false })
   },
 
   async logout() {

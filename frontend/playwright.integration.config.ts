@@ -11,7 +11,6 @@ if (process.env.CI && !process.env.KRESCO_E2E_DATABASE_URL) {
 }
 const e2eDatabaseUrl = process.env.KRESCO_E2E_DATABASE_URL ?? localE2eDatabaseUrl
 const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
-const e2eAblyApiKey = process.env.ABLY_API_KEY ?? 'e2e-app.e2e-key:e2e-secret-for-local-integration'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -39,8 +38,6 @@ export default defineConfig({
         CORS_ALLOW_ORIGIN_REGEX: '',
         DATABASE_URL: e2eDatabaseUrl,
         FRONTEND_URL: frontendOrigin,
-        ABLY_API_KEY: e2eAblyApiKey,
-        ABLY_TOKEN_TTL_SECONDS: process.env.ABLY_TOKEN_TTL_SECONDS ?? '3600',
         JWT_SECRET_KEY: jwtSecretKey,
         KRESCO_AUTH_LOGIN_RATE_LIMIT: '30/minute',
         KRESCO_E2E_DATABASE_URL: e2eDatabaseUrl,
@@ -58,13 +55,11 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         ...process.env,
-        ABLY_API_KEY: e2eAblyApiKey,
         KRESCO_ENV: 'development',
         KRESCO_ENABLE_LOCAL_REWRITES: 'true',
         KRESCO_LOCAL_BACKEND_ORIGIN: backendOrigin,
         JWT_SECRET_KEY: jwtSecretKey,
         NEXT_PUBLIC_REALTIME_PROVIDER: process.env.NEXT_PUBLIC_REALTIME_PROVIDER ?? 'off',
-        NEXT_PUBLIC_ABLY_ENABLED: process.env.NEXT_PUBLIC_ABLY_ENABLED ?? 'false',
         NEXT_PUBLIC_API_BASE_URL: '/api/',
         HOSTNAME: '127.0.0.1',
         PORT: String(frontendPort),

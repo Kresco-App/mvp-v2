@@ -1,13 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import nextEnv from '@next/env'
 
-import { parseEnvFile, validateFrontendProductionEnv } from '../lib/productionEnv.mjs'
+import { validateFrontendProductionEnv } from '../lib/productionEnv.mjs'
 
 const FRONTEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const VERCEL_ENV = process.env.VERCEL_ENV || 'production'
 const { loadEnvConfig } = nextEnv
 const FIXTURE_ENV = {
   NEXT_PUBLIC_API_BASE_URL: 'https://api.kresco.example/api',
@@ -26,7 +24,6 @@ loadEnvConfig(FRONTEND_ROOT, false, {
     console.error(message)
   },
 })
-loadVercelPulledEnv(FRONTEND_ROOT, VERCEL_ENV, process.env)
 if (process.argv.includes('--fixture')) {
   for (const [key, value] of Object.entries(FIXTURE_ENV)) {
     process.env[key] = value
@@ -43,19 +40,3 @@ if (errors.length > 0) {
 }
 
 console.log('Frontend production environment validates.')
-
-export function loadVercelPulledEnv(projectRoot, vercelEnv, targetEnv) {
-  const candidates = [
-    path.join(projectRoot, '.vercel', `.env.${vercelEnv}.local`),
-    path.join(projectRoot, '.vercel', '.env.production.local'),
-  ]
-
-  for (const candidate of candidates) {
-    if (!existsSync(candidate)) continue
-
-    const parsed = parseEnvFile(readFileSync(candidate, 'utf-8'))
-    for (const [key, value] of Object.entries(parsed)) {
-      if (!targetEnv[key]) targetEnv[key] = value
-    }
-  }
-}

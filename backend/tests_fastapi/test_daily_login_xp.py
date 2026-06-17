@@ -150,9 +150,9 @@ def test_email_verification_session_awards_daily_login(app_client, run_db, test_
 def test_google_login_session_awards_daily_login(app_client, run_db, monkeypatch):
     email = "daily-login-google@example.com"
 
-    def _verify_google_token(credential: str, client_id: str):
+    def _verify_firebase_token(credential: str, project_id: str):
         assert credential == "valid-google-credential"
-        assert client_id
+        assert project_id
         return {
             "email": email,
             "email_verified": True,
@@ -161,7 +161,7 @@ def test_google_login_session_awards_daily_login(app_client, run_db, monkeypatch
             "picture": "",
         }
 
-    monkeypatch.setattr("app.routers.users.verify_google_token", _verify_google_token)
+    monkeypatch.setattr("app.routers.users.verify_firebase_token", _verify_firebase_token)
 
     response = app_client.post("/api/google-login", json={"credential": "valid-google-credential"})
 

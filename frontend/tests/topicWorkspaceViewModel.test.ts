@@ -242,7 +242,7 @@ describe('topic workspace view model', () => {
     })
   })
 
-  it('keeps topic workspace helpers split behind a compatibility barrel', () => {
+  it('keeps topic workspace helpers split behind a small public barrel', () => {
     const barrel = readFileSync(resolve(process.cwd(), 'lib/topicWorkspaceViewModel.ts'), 'utf8')
 
     expect(barrel).toContain('@/lib/topicWorkspaceRendering')

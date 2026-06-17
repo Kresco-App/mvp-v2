@@ -70,7 +70,7 @@ describe('frontend production environment validation', () => {
     expect(validateFrontendProductionEnv({
       ...VALID_PRODUCTION_ENV,
       NEXT_PUBLIC_REALTIME_PROVIDER: 'off',
-    })).toContain('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore or ably in production.')
+    })).toContain('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore in production.')
   })
 
   it('requires Firestore database config for Firestore realtime', () => {
@@ -80,20 +80,11 @@ describe('frontend production environment validation', () => {
     })).toContain('NEXT_PUBLIC_FIRESTORE_DATABASE must be configured when NEXT_PUBLIC_REALTIME_PROVIDER is firestore.')
   })
 
-  it('keeps Ably valid only as an explicit legacy provider', () => {
+  it('rejects non-Firestore realtime providers in production', () => {
     expect(validateFrontendProductionEnv({
       ...VALID_PRODUCTION_ENV,
-      NEXT_PUBLIC_REALTIME_PROVIDER: 'ably',
-      NEXT_PUBLIC_ABLY_ENABLED: 'true',
-      NEXT_PUBLIC_FIRESTORE_DATABASE: '',
-    })).toEqual([])
-
-    expect(validateFrontendProductionEnv({
-      ...VALID_PRODUCTION_ENV,
-      NEXT_PUBLIC_REALTIME_PROVIDER: 'ably',
-      NEXT_PUBLIC_ABLY_ENABLED: 'false',
-      NEXT_PUBLIC_FIRESTORE_DATABASE: '',
-    })).toContain('NEXT_PUBLIC_ABLY_ENABLED must be true when NEXT_PUBLIC_REALTIME_PROVIDER is ably.')
+      NEXT_PUBLIC_REALTIME_PROVIDER: 'websocket-vendor',
+    })).toContain('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore in production.')
   })
 
   it('rejects local or placeholder Firebase auth values in production', () => {
@@ -143,7 +134,7 @@ describe('frontend production environment validation', () => {
 
   it('parses quoted env files without exposing values in validation code', () => {
     expect(parseEnvFile([
-      '# pulled by Vercel',
+      '# deployment environment',
       'NEXT_PUBLIC_API_BASE_URL="https://api.kresco.example/api"',
       "NEXT_PUBLIC_FIREBASE_API_KEY='firebase-web-api-key'",
       'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=kresco-prod.firebaseapp.com',

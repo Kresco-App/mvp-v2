@@ -131,18 +131,13 @@ function validateFirebaseValue(key, value, errors) {
 function validateRealtimeProvider(env, errors) {
   const provider = env.NEXT_PUBLIC_REALTIME_PROVIDER?.trim().toLowerCase()
   if (!hasValue(provider)) return
-  if (!['firestore', 'ably'].includes(provider)) {
-    errors.push('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore or ably in production.')
+  if (provider !== 'firestore') {
+    errors.push('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore in production.')
     return
   }
-  if (provider === 'ably' && env.NEXT_PUBLIC_ABLY_ENABLED !== 'true') {
-    errors.push('NEXT_PUBLIC_ABLY_ENABLED must be true when NEXT_PUBLIC_REALTIME_PROVIDER is ably.')
-  }
-  if (provider === 'firestore') {
-    validateFirebaseValue('NEXT_PUBLIC_FIRESTORE_DATABASE', env.NEXT_PUBLIC_FIRESTORE_DATABASE, errors)
-    if (!hasValue(env.NEXT_PUBLIC_FIRESTORE_DATABASE)) {
-      errors.push('NEXT_PUBLIC_FIRESTORE_DATABASE must be configured when NEXT_PUBLIC_REALTIME_PROVIDER is firestore.')
-    }
+  validateFirebaseValue('NEXT_PUBLIC_FIRESTORE_DATABASE', env.NEXT_PUBLIC_FIRESTORE_DATABASE, errors)
+  if (!hasValue(env.NEXT_PUBLIC_FIRESTORE_DATABASE)) {
+    errors.push('NEXT_PUBLIC_FIRESTORE_DATABASE must be configured when NEXT_PUBLIC_REALTIME_PROVIDER is firestore.')
   }
 }
 

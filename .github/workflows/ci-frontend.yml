@@ -26,7 +26,6 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       NEXT_PUBLIC_API_BASE_URL: "/api/"
       NEXT_PUBLIC_REALTIME_PROVIDER: "off"
-      NEXT_PUBLIC_ABLY_ENABLED: "false"
       KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e
       KRESCO_ENV: development
     services:

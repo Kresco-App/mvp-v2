@@ -172,7 +172,7 @@ def test_google_login_persistence_stays_out_of_router():
     route_source = inspect.getsource(users_router.google_login)
     service_source = inspect.getsource(auth_google)
 
-    assert "verify_google_token(" in route_source
+    assert "verify_firebase_token(" in route_source
     assert "complete_google_login(" in route_source
     assert "select(User)" not in route_source
     assert "UserXP(" not in route_source
@@ -404,7 +404,7 @@ def test_google_login_happy_path(app_client, monkeypatch):
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": "googleuser@example.com",
             "email_verified": True,
@@ -443,7 +443,6 @@ def test_google_login_uses_firebase_verifier_when_project_configured(app_client,
         }
 
     monkeypatch.setattr(users_router, "verify_firebase_token", fake_verify_firebase_token)
-    monkeypatch.setattr(users_router, "verify_google_token", lambda *_: (_ for _ in ()).throw(AssertionError("legacy verifier should not run")))
 
     try:
         response = app_client.post("/api/google-login", json={"credential": "firebase-credential"})
@@ -458,7 +457,7 @@ def test_google_login_uses_firebase_verifier_when_project_configured(app_client,
     assert user.firebase_uid == "firebase-uid-123"
 
 
-def test_firebase_google_login_links_legacy_google_id_when_email_changed(
+def test_firebase_google_login_links_existing_google_id_when_email_changed(
     app_client,
     monkeypatch,
     test_settings,
@@ -469,22 +468,22 @@ def test_firebase_google_login_links_legacy_google_id_when_email_changed(
     old_email = "old-google-email@example.com"
     new_email = "new-google-email@example.com"
 
-    async def seed_legacy_user():
+    async def seed_existing_google_user():
         session_factory = get_session_factory()
         async with session_factory() as db:
             user = User(
                 email=old_email,
-                full_name="Legacy Google User",
+                full_name="Existing Google User",
                 password="!",
                 is_active=True,
                 is_email_verified=True,
-                google_id="legacy-google-sub",
+                google_id="existing-google-sub",
             )
             db.add(user)
             await db.commit()
             return user.id
 
-    legacy_user_id = run_db(seed_legacy_user())
+    existing_user_id = run_db(seed_existing_google_user())
     before_count = run_db(_count_users())
     old_project_id = test_settings.firebase_project_id
     test_settings.firebase_project_id = "kresco-staging"
@@ -493,9 +492,9 @@ def test_firebase_google_login_links_legacy_google_id_when_email_changed(
         return {
             "email": new_email,
             "email_verified": True,
-            "name": "Legacy Google User",
+            "name": "Existing Google User",
             "picture": "https://example.com/new-avatar.png",
-            "sub": "legacy-google-sub",
+            "sub": "existing-google-sub",
             "firebase_uid": "firebase-uid-linked",
         }
 
@@ -511,8 +510,8 @@ def test_firebase_google_login_links_legacy_google_id_when_email_changed(
     assert run_db(_get_user(old_email)) is None
     linked = run_db(_get_user(new_email))
     assert linked is not None
-    assert linked.id == legacy_user_id
-    assert linked.google_id == "legacy-google-sub"
+    assert linked.id == existing_user_id
+    assert linked.google_id == "existing-google-sub"
     assert linked.firebase_uid == "firebase-uid-linked"
 
 
@@ -553,7 +552,7 @@ def test_google_login_recovers_from_insert_race_and_uses_existing_user(app_clien
     monkeypatch.setattr(AsyncSession, "rollback", rollback_and_seed)
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,
@@ -582,7 +581,7 @@ def test_google_login_normalizes_email_and_neutralizes_unverified_password(app_c
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": "  GOOGLE-PRE-ATO@EXAMPLE.COM  ",
             "email_verified": True,
@@ -615,7 +614,7 @@ def test_google_login_activation_invalidates_pending_verification_token(app_clie
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,
@@ -651,7 +650,7 @@ def test_google_login_activation_invalidates_pending_verification_token(app_clie
 def test_google_login_rejects_unverified_or_malformed_identity_payload(app_client, monkeypatch, payload):
     import app.routers.users as users_router
 
-    monkeypatch.setattr(users_router, "verify_google_token", lambda *_: payload)
+    monkeypatch.setattr(users_router, "verify_firebase_token", lambda *_: payload)
 
     response = app_client.post("/api/google-login", json={"credential": "fake-credential"})
 
@@ -660,15 +659,15 @@ def test_google_login_rejects_unverified_or_malformed_identity_payload(app_clien
     assert "access_token" not in response.text
 
 
-def test_legacy_unusable_password_sentinel_still_cannot_login(app_client, run_db):
-    email = "legacy-unusable@example.com"
+def test_unusable_password_sentinel_still_cannot_login(app_client, run_db):
+    email = "unusable-password@example.com"
 
     async def _seed():
         session_factory = get_session_factory()
         async with session_factory() as db:
             db.add(User(
                 email=email,
-                full_name="Legacy Unusable",
+                full_name="Unusable Password",
                 password="!",
                 is_active=True,
                 is_email_verified=True,
@@ -690,7 +689,7 @@ def test_google_login_does_not_mint_token_after_persistence_failure(app_client, 
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,
@@ -724,7 +723,7 @@ def test_google_login_rejected_professor_does_not_persist_profile_mutations(app_
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,

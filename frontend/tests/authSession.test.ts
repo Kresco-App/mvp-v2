@@ -217,7 +217,7 @@ describe('auth session JWT helpers', () => {
       is_staff: false,
     }
     const snapshot = storedAuthSnapshot(user)
-    localStorage.setItem(KRESCO_TOKEN_KEY, 'legacy-token')
+    localStorage.setItem(KRESCO_TOKEN_KEY, 'stale-local-token')
 
     writeStoredAuthSession(user)
 
@@ -234,23 +234,23 @@ describe('auth session JWT helpers', () => {
     expect(isStoredAuthSnapshot(snapshot)).toBe(true)
   })
 
-  it('scrubs legacy full user cache entries when reading stored auth', () => {
-    const legacyUser = {
+  it('scrubs full user cache entries when reading stored auth', () => {
+    const storedUser = {
       id: 1,
-      email: 'legacy@example.com',
-      full_name: 'Legacy Student',
+      email: 'cached@example.com',
+      full_name: 'Cached Student',
       role: 'student',
       is_staff: false,
       banner_url: '/banner.png',
     }
-    const snapshot = storedAuthSnapshot(legacyUser)
-    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(legacyUser))
+    const snapshot = storedAuthSnapshot(storedUser)
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(storedUser))
     document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
 
     expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: snapshot })
     expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(snapshot)
-    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('legacy@example.com')
-    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('Legacy Student')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('cached@example.com')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('Cached Student')
     expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('/banner.png')
   })
 
@@ -329,19 +329,6 @@ describe('auth store session writes', () => {
       logoutError: null,
       isLoggingOut: false,
     })
-  })
-
-  it('continues to support the legacy token/user/csrf signature', () => {
-    const user = { id: 2, email: 'vip@kresco.local', role: 'student', tier: 'vip' }
-
-    clearStoredAuthSession()
-    useAuthStore.setState({ token: null, user: null, isHydrated: false })
-    useAuthStore.getState().login('legacy-token', user, 'legacy-csrf-token')
-
-    expect(useAuthStore.getState().token).toBe(KRESCO_COOKIE_SESSION)
-    expect(useAuthStore.getState().user).toEqual(user)
-    expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(storedAuthSnapshot(user))
-    expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('legacy-csrf-token')
   })
 
   it('clears the SWR cache and local session after backend logout revocation succeeds', async () => {

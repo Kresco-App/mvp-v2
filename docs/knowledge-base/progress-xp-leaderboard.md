@@ -16,7 +16,7 @@ Progress answers how much of a topic the student has completed. XP answers how m
 - `xp_transactions`
 - `daily_quests`
 
-Compatibility progress tables remain active for existing lesson/section screens.
+Lesson and section progress tables remain active for existing lesson/section screens.
 
 ## Current Trackable Actions
 

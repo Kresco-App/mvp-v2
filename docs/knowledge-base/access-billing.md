@@ -24,7 +24,7 @@ Access checks apply to:
 - TopicItems.
 - TabContent.
 - Resources.
-- Lessons and sections on compatibility routes.
+- Lessons and sections.
 - Exams and ExamProblems.
 
 Locked API responses must keep the learning structure visible while hiding protected payloads such as provider IDs, URLs, quiz configs, and written solutions. Course response projection and locked-payload redaction live in `backend/app/services/course_access.py`.

@@ -90,12 +90,6 @@ function getContentSecurityPolicyTemplate() {
       'https://www.googleapis.com',
       'https://accounts.google.com',
       'https://player.vdocipher.com',
-      'https://*.ably.io',
-      'wss://*.ably.io',
-      'https://*.ably.net',
-      'wss://*.ably.net',
-      'https://*.ably-realtime.com',
-      'wss://*.ably-realtime.com',
       ...devConnectSources,
     ]).join(' ')}`,
     `img-src ${uniqueSources([

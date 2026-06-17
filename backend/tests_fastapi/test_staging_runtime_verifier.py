@@ -345,4 +345,3 @@ def test_frontend_deploy_workflow_smokes_deployed_url():
     assert "urllib.request.urlopen" in workflow
     assert "npm run validate:production-env" in workflow
     assert "NEXT_PUBLIC_FIREBASE_API_KEY" in workflow
-    assert "vercel " not in workflow
