@@ -12,6 +12,7 @@ on:
       - ".github/workflows/deploy-frontend.yml"
       - ".github/workflows/staging-provider-diagnostics.yml"
       - ".github/workflows/staging-launch-evidence.yml"
+      - ".github/workflows/staging-topic-latency-evidence.yml"
       - ".github/workflows/production-dark-evidence.yml"
   push:
     branches:
@@ -27,6 +28,7 @@ on:
       - ".github/workflows/deploy-frontend.yml"
       - ".github/workflows/staging-provider-diagnostics.yml"
       - ".github/workflows/staging-launch-evidence.yml"
+      - ".github/workflows/staging-topic-latency-evidence.yml"
       - ".github/workflows/production-dark-evidence.yml"
 
 jobs:
