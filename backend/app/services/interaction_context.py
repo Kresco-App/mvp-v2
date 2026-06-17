@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.courses import Exam, ExamProblem, Resource, TabContent, Topic, TopicItem
+from app.models.exercises import Exercise
 from app.models.quizzes import Question, QuestionSet
 
 
@@ -103,6 +104,18 @@ async def _context_from_exam_problem(db: AsyncSession, problem_id: int) -> Inter
     }
 
 
+async def _context_from_exercise(db: AsyncSession, exercise_id: int) -> InteractionContext:
+    result = await db.execute(select(Exercise.subject_id, Exercise.topic_id).where(Exercise.id == exercise_id))
+    row = result.one_or_none()
+    if row is None:
+        return {"subject_id": None, "topic_id": None}
+    subject_id, topic_id = row
+    return {
+        "subject_id": int(subject_id),
+        "topic_id": int(topic_id) if topic_id is not None else None,
+    }
+
+
 async def _context_from_quiz(db: AsyncSession, quiz_id: int) -> InteractionContext:
     question_set = await db.get(QuestionSet, quiz_id)
     if question_set is not None:
@@ -150,6 +163,8 @@ async def _target_context(db: AsyncSession, target_type: str, target_id: int) ->
         return await _context_from_tab_content(db, target_id)
     if target_type == "exam_problem":
         return await _context_from_exam_problem(db, target_id)
+    if target_type == "exercise":
+        return await _context_from_exercise(db, target_id)
     if target_type in {"quiz", "question_set"}:
         return await _context_from_quiz(db, target_id)
     if target_type == "question":

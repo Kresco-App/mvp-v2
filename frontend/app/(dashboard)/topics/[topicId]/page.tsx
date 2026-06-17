@@ -56,6 +56,9 @@ export default function TopicWorkspacePage() {
     parseTopicWorkspaceQuery(new URLSearchParams(workspaceSearchKey))
   ), [workspaceSearchKey])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [saveDetailsOpen, setSaveDetailsOpen] = useState(false)
+  const [saveNote, setSaveNote] = useState('')
+  const [saveTags, setSaveTags] = useState('')
   const actionInFlightRef = useRef(false)
   const lastWorkspaceErrorToastRef = useRef('')
   const {
@@ -163,7 +166,7 @@ export default function TopicWorkspacePage() {
     })
   }, [activeItem, requestWorkspace])
 
-  const saveActive = useCallback(async () => {
+  const saveActive = useCallback(async (options: { includeDetails?: boolean } = {}) => {
     if (!activeItem || !workspace || actionInFlightRef.current) return
     if (activeItem.can_access === false) {
       toast.info(lockedContentReason(activeItem.locked_reason))
@@ -172,15 +175,23 @@ export default function TopicWorkspacePage() {
     actionInFlightRef.current = true
     setIsSubmitting(true)
     try {
-      await postJson('/interactions/saves', { target_type: 'topic_item', target_id: activeItem.id, topic_id: workspace.id, topic_item_id: activeItem.id, label: activeItem.title })
-      toast.success('Saved.')
+      await postJson('/interactions/saves', {
+        target_type: 'topic_item',
+        target_id: activeItem.id,
+        topic_id: workspace.id,
+        topic_item_id: activeItem.id,
+        label: activeItem.title,
+        ...(options.includeDetails ? { note: saveNote, tags: parseSaveTags(saveTags) } : {}),
+      })
+      setSaveDetailsOpen(true)
+      toast.success(options.includeDetails ? 'Save details updated.' : 'Saved.')
     } catch {
       toast.error('Could not save item.')
     } finally {
       actionInFlightRef.current = false
       setIsSubmitting(false)
     }
-  }, [activeItem, workspace])
+  }, [activeItem, saveNote, saveTags, workspace])
 
   const primaryContent = useMemo(() => {
     if (!activeItem) return null
@@ -323,7 +334,7 @@ export default function TopicWorkspacePage() {
                 )}
                 <button
                   type="button"
-                  onClick={saveActive}
+                  onClick={() => void saveActive()}
                   disabled={isSubmitting}
                   className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46] disabled:opacity-50"
                 >
@@ -336,6 +347,46 @@ export default function TopicWorkspacePage() {
               <span className="ml-1 text-[12px] font-bold text-[#9f9fa9]">{activeDurationLabel}</span>
             )}
           </div>
+          {saveDetailsOpen && activeItem.can_access !== false && (
+            <div className="grid gap-3 rounded-[14px] border border-[#e4e4e7] bg-white p-4">
+              <div>
+                <p className="m-0 text-[13px] font-black text-[#3f3f46]">Review pin details</p>
+                <p className="m-0 mt-1 text-[12px] font-bold text-[#9f9fa9]">Optional note and tags for finding this item later.</p>
+              </div>
+              <textarea
+                aria-label="Saved item note"
+                value={saveNote}
+                onChange={(event) => setSaveNote(event.target.value)}
+                maxLength={500}
+                className="min-h-20 w-full resize-y rounded-[12px] border border-[#e4e4e7] bg-[#f8f9fc] px-3 py-2 text-[13px] font-semibold leading-5 text-[#3f3f46] outline-none focus:border-[#3a2fd3] focus:bg-white"
+                placeholder="Why are you saving this?"
+              />
+              <input
+                aria-label="Saved item tags"
+                value={saveTags}
+                onChange={(event) => setSaveTags(event.target.value)}
+                className="h-10 rounded-[12px] border border-[#e4e4e7] bg-[#f8f9fc] px-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#3a2fd3] focus:bg-white"
+                placeholder="Tags separated by commas"
+              />
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSaveDetailsOpen(false)}
+                  className="inline-flex h-9 items-center rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc]"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveActive({ includeDetails: true })}
+                  disabled={isSubmitting}
+                  className="inline-flex h-9 items-center rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:opacity-50"
+                >
+                  Save details
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </LessonBody>
     </VideoLearningWorkspace>
@@ -361,4 +412,19 @@ function requiresTimedCompletion(item: TopicItem) {
 
 function requiredWatchSeconds(durationSeconds: number) {
   return Math.max(1, Math.ceil(durationSeconds * 0.9))
+}
+
+function parseSaveTags(value: string) {
+  const tags: string[] = []
+  const seen = new Set<string>()
+  for (const part of value.split(',')) {
+    const tag = part.trim().replace(/\s+/g, ' ')
+    if (!tag) continue
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    tags.push(tag.slice(0, 32))
+    if (tags.length >= 8) break
+  }
+  return tags
 }

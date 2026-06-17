@@ -33,6 +33,17 @@ export async function patchJson<T = unknown, Body = unknown>(
   return data
 }
 
+export async function putJson<T = unknown, Body = unknown>(
+  url: string,
+  body?: Body,
+  config?: ApiRequestConfig,
+): Promise<T> {
+  const { data } = config === undefined
+    ? await api.put<T>(url, body)
+    : await api.put<T>(url, body, config)
+  return data
+}
+
 export async function deleteJson<T = unknown>(url: string, config?: ApiRequestConfig): Promise<T> {
   const { data } = config === undefined
     ? await api.delete<T>(url)
@@ -49,6 +60,9 @@ export const apiJsonClient = {
   },
   async patch<T = unknown, Body = unknown>(url: string, body?: Body, config?: ApiRequestConfig) {
     return { data: await patchJson<T, Body>(url, body, config) }
+  },
+  async put<T = unknown, Body = unknown>(url: string, body?: Body, config?: ApiRequestConfig) {
+    return { data: await putJson<T, Body>(url, body, config) }
   },
   async delete<T = unknown>(url: string, config?: ApiRequestConfig) {
     return { data: await deleteJson<T>(url, config) }

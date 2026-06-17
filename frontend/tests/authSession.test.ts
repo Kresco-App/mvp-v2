@@ -27,6 +27,7 @@ import {
   KRESCO_CSRF_COOKIE,
   KRESCO_CSRF_HEADER,
   KRESCO_CSRF_KEY,
+  KRESCO_AUTH_SESSION_EVENT,
   KRESCO_STORED_AUTH_SNAPSHOT,
   KRESCO_TOKEN_KEY,
   KRESCO_TOKEN_COOKIE,
@@ -322,6 +323,33 @@ describe('auth store session writes', () => {
       url: window.location.href,
     }))
 
+    expect(useAuthStore.getState()).toMatchObject({
+      token: null,
+      user: null,
+      isHydrated: true,
+      logoutError: null,
+      isLoggingOut: false,
+    })
+  })
+
+  it('syncs the in-memory auth session when the same tab clears stored auth', () => {
+    const user = { id: 12, email: 'same-tab@kresco.local', role: 'student' }
+    const sessionEvents: string[] = []
+
+    window.addEventListener(KRESCO_AUTH_SESSION_EVENT, () => sessionEvents.push('cleared'), { once: true })
+    writeStoredAuthSession(user)
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+    useAuthStore.setState({
+      token: KRESCO_COOKIE_SESSION,
+      user,
+      isHydrated: true,
+      logoutError: 'stale',
+      isLoggingOut: true,
+    })
+
+    clearStoredAuthSession()
+
+    expect(sessionEvents).toEqual(['cleared'])
     expect(useAuthStore.getState()).toMatchObject({
       token: null,
       user: null,

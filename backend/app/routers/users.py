@@ -18,7 +18,7 @@ from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_to
 from app.services.auth_account import (
     authenticate_password_login,
     reset_password_account,
-    revoke_user_sessions,
+    revoke_cookie_session_if_valid,
     verify_email_account,
 )
 from app.services.auth_email_dispatch import (
@@ -248,12 +248,14 @@ async def login(
 async def logout(
     request: Request,
     response: Response,
-    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    del request
-    await revoke_user_sessions(db, user)
+    await revoke_cookie_session_if_valid(
+        db,
+        token=request.cookies.get(AUTH_COOKIE_NAME),
+        settings=settings,
+    )
     _clear_auth_cookies(response, settings)
     return MessageOut(message="Deconnecte.")
 

@@ -7,6 +7,7 @@ export const KRESCO_CSRF_COOKIE = 'kresco_csrf'
 export const KRESCO_CSRF_HEADER = 'x-csrf-token'
 export const KRESCO_COOKIE_SESSION = 'cookie-session'
 export const KRESCO_STORED_AUTH_SNAPSHOT = '__kresco_minimal_auth_snapshot'
+export const KRESCO_AUTH_SESSION_EVENT = 'kresco:auth-session'
 
 const DEFAULT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
 const BASE64URL_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
@@ -200,6 +201,7 @@ export function clearStoredAuthSession() {
   localStorage.removeItem(KRESCO_TOKEN_KEY)
   localStorage.removeItem(KRESCO_USER_KEY)
   clearAuthCookie()
+  window.dispatchEvent(new Event(KRESCO_AUTH_SESSION_EVENT))
 }
 
 export function readStoredAuthSession(): StoredAuthSession {

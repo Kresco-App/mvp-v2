@@ -5,6 +5,7 @@ import { mutate } from 'swr'
 import {
   KRESCO_COOKIE_SESSION,
   KRESCO_CSRF_HEADER,
+  KRESCO_AUTH_SESSION_EVENT,
   KRESCO_TOKEN_KEY,
   KRESCO_USER_KEY,
   clearStoredAuthSession,
@@ -33,7 +34,7 @@ type AuthStoreState = {
     (user: AuthUser, csrfToken?: string | null): void
   }
   logout: () => Promise<boolean>
-  clearSession: () => void
+  clearSession: () => Promise<void>
   updateUser: (patch: AuthUserPatch) => void
   readonly isAuthenticated: boolean
 }
@@ -57,6 +58,36 @@ function syncAuthStoreFromStorage(event?: StorageEvent) {
   }
 
   useAuthStore.setState(readAuthStoreSnapshot())
+}
+
+function syncAuthStoreFromAuthSessionEvent() {
+  syncAuthStoreFromStorage()
+}
+
+async function requestServerLogout() {
+  if (typeof window === 'undefined') return true
+
+  try {
+    const csrfToken = readCsrfToken() || ''
+    const response = await fetch(getBackendUrl('/api/auth/logout'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: csrfToken
+        ? {
+          [KRESCO_CSRF_HEADER]: csrfToken,
+        }
+        : undefined,
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+async function clearClientAuthState(set: (state: Partial<AuthStoreState>) => void) {
+  clearStoredAuthSession()
+  await mutate(() => true, undefined, { revalidate: false })
+  set({ token: null, user: null, logoutError: null, isLoggingOut: false })
 }
 
 export const useAuthStore = create<AuthStoreState>()((set, get) => ({
@@ -84,39 +115,23 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
 
   async logout() {
     set({ isLoggingOut: true, logoutError: null })
-    const csrfToken = readCsrfToken() || ''
+    const serverLogoutSucceeded = await requestServerLogout()
 
-    if (typeof window !== 'undefined') {
-      try {
-        const response = await fetch(getBackendUrl('/api/auth/logout'), {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            [KRESCO_CSRF_HEADER]: csrfToken,
-          },
-        })
-        if (!response.ok) {
-          throw new Error('Logout revocation failed')
-        }
-      } catch {
-        set({
-          logoutError: LOGOUT_REVOCATION_ERROR,
-          isLoggingOut: false,
-        })
-        return false
-      }
+    if (!serverLogoutSucceeded) {
+      set({
+        logoutError: LOGOUT_REVOCATION_ERROR,
+        isLoggingOut: false,
+      })
+      return false
     }
 
-    clearStoredAuthSession()
-    await mutate(() => true, undefined, { revalidate: false })
-    set({ token: null, user: null, logoutError: null, isLoggingOut: false })
+    await clearClientAuthState(set)
     return true
   },
 
-  clearSession() {
-    clearStoredAuthSession()
-    void mutate(() => true, undefined, { revalidate: false })
-    set({ token: null, user: null, logoutError: null, isLoggingOut: false })
+  async clearSession() {
+    await requestServerLogout()
+    await clearClientAuthState(set)
   },
 
   updateUser(patch) {
@@ -134,6 +149,7 @@ if (typeof window !== 'undefined') {
   const globalWindow = window as typeof window & { __krescoAuthStorageListenerInstalled?: boolean }
   if (!globalWindow.__krescoAuthStorageListenerInstalled) {
     globalWindow.addEventListener('storage', syncAuthStoreFromStorage)
+    globalWindow.addEventListener(KRESCO_AUTH_SESSION_EVENT, syncAuthStoreFromAuthSessionEvent)
     globalWindow.__krescoAuthStorageListenerInstalled = true
   }
 }

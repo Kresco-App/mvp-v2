@@ -198,7 +198,7 @@ def test_token_guarded_auth_mutations_stay_out_of_router():
     assert "verify_email_account(" in route_sources["verify_email"]
     assert "authenticate_password_login(" in route_sources["login"]
     assert "reset_password_account(" in route_sources["reset_password"]
-    assert "revoke_user_sessions(" in route_sources["logout"]
+    assert "revoke_cookie_session_if_valid(" in route_sources["logout"]
     for source in route_sources.values():
         assert "select(User)" not in source
         assert "verify_verification_token(" not in source
@@ -211,6 +211,7 @@ def test_token_guarded_auth_mutations_stay_out_of_router():
     assert "async def authenticate_password_login" in service_source
     assert "async def reset_password_account" in service_source
     assert "async def revoke_user_sessions" in service_source
+    assert "async def revoke_cookie_session_if_valid" in service_source
     assert "Lien de verification invalide ou expire" in service_source
     assert "Email ou mot de passe incorrect" in service_source
     assert "Lien de reinitialisation invalide ou expire" in service_source
@@ -1012,6 +1013,23 @@ def test_logout_revokes_existing_cookie_token(app_client, run_db):
     revoked = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {old_token}"})
     assert revoked.status_code == 401
     assert revoked.json()["detail"] == "Token revoked"
+
+
+def test_logout_clears_stale_cookie_without_valid_session(app_client):
+    app_client.cookies.set("kresco_token", "not-a-valid-jwt")
+    app_client.cookies.set("kresco_user_role", "student")
+    app_client.cookies.set("kresco_csrf", "stale-csrf")
+
+    logout = app_client.post(
+        "/api/auth/logout",
+        headers={"Origin": "http://localhost:3000"},
+    )
+
+    assert logout.status_code == 200
+    cookies = logout.headers.get_list("set-cookie")
+    assert any(cookie.startswith("kresco_token=") and "Max-Age=0" in cookie for cookie in cookies)
+    assert any(cookie.startswith("kresco_user_role=") and "Max-Age=0" in cookie for cookie in cookies)
+    assert any(cookie.startswith("kresco_csrf=") and "Max-Age=0" in cookie for cookie in cookies)
 
 
 def test_logout_does_not_invalidate_pending_password_reset_link(app_client, test_settings, run_db):

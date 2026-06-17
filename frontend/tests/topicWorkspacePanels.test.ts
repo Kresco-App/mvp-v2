@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TabPanel } from '@/components/topic-workspace/TopicWorkspacePanels'
-import type { TabContent, TopicItem, TopicWorkspaceNote } from '@/lib/topicWorkspaceViewModel'
+import type { TabContent, TopicItem } from '@/lib/topicWorkspaceViewModel'
 import { buildTabContent, buildTopicItem, buildTopicResource } from './factories/topicWorkspace'
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
   patchJson: vi.fn(),
   postJson: vi.fn(),
+  putJson: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
@@ -34,11 +35,18 @@ vi.mock('@/components/animated/registry', () => ({
   AnimatedContentRenderer: () => React.createElement('div', null, 'animated'),
 }))
 
+vi.mock('@/components/topic-workspace/TopicWorkspaceWhiteboard', () => ({
+  TopicWorkspaceWhiteboard: (props: { item: { title: string } }) => (
+    React.createElement('div', { 'data-testid': 'lesson-whiteboard' }, `Whiteboard ${props.item.title}`)
+  ),
+}))
+
 vi.mock('@/lib/apiClient', () => ({
   deleteJson: mocks.deleteJson,
   getJson: mocks.getJson,
   patchJson: mocks.patchJson,
   postJson: mocks.postJson,
+  putJson: mocks.putJson,
 }))
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -158,105 +166,11 @@ describe('TopicWorkspacePanels', () => {
     expect(window.open).toHaveBeenCalledWith('/worksheet.pdf', '_blank', 'noopener,noreferrer')
   })
 
-  it('lists context notes and supports create, edit, and delete when note endpoints exist', async () => {
-    const existingNotes: TopicWorkspaceNote[] = [
-      {
-        id: 1,
-        topic_id: 42,
-        topic_item_id: 101,
-        tab_content_id: 8,
-        body: 'Match this note to the active tab',
-        created_at: '2026-05-30T10:00:00Z',
-        updated_at: '2026-05-30T10:00:00Z',
-      },
-      {
-        id: 2,
-        topic_id: 42,
-        topic_item_id: 101,
-        tab_content_id: 99,
-        body: 'Other tab note should stay hidden',
-        created_at: '2026-05-30T11:00:00Z',
-        updated_at: '2026-05-30T11:00:00Z',
-      },
-    ]
-
-    mocks.getJson.mockResolvedValue(existingNotes)
-    mocks.postJson.mockImplementation(async (url: string, body?: Record<string, unknown>) => {
-      if (url === '/interactions/notes') {
-        return {
-          id: 3,
-          topic_id: 42,
-          topic_item_id: 101,
-          tab_content_id: 8,
-          body: String(body?.body ?? ''),
-          created_at: '2026-06-01T08:00:00Z',
-          updated_at: '2026-06-01T08:00:00Z',
-        }
-      }
-      throw new Error(`unexpected post url: ${url}`)
-    })
-    mocks.patchJson.mockImplementation(async (url: string, body?: Record<string, unknown>) => ({
-      id: 3,
-      topic_id: 42,
-      topic_item_id: 101,
-      tab_content_id: 8,
-      body: String(body?.body ?? ''),
-      created_at: '2026-06-01T08:00:00Z',
-      updated_at: '2026-06-01T08:05:00Z',
-    }))
-    mocks.deleteJson.mockResolvedValue({})
-
+  it('renders the notes tab as a lesson whiteboard surface', () => {
     const { container } = renderPanel(notesTab, baseItem)
 
-    await waitFor(() => {
-      expect(container.textContent).toContain('Match this note to the active tab')
-    })
-    expect(container.textContent).not.toContain('Other tab note should stay hidden')
-
-    await act(async () => {
-      changeField(container, 'Topic note', 'Newly created note')
-      await flushPromises()
-      buttonByText(container, 'Save note')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      await flushPromises()
-    })
-
-    await waitFor(() => {
-      expect(container.textContent).toContain('Newly created note')
-    })
-    expect(mocks.postJson).toHaveBeenCalledWith('/interactions/notes', {
-      topic_id: 42,
-      topic_item_id: 101,
-      tab_content_id: 8,
-      body: 'Newly created note',
-    })
-
-    await act(async () => {
-      buttonByText(container, 'Edit')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      await flushPromises()
-    })
-
-    await act(async () => {
-      changeField(container, 'Edit note 3', 'Edited note body')
-      buttonByText(container, 'Save changes')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      await flushPromises()
-    })
-
-    await waitFor(() => {
-      expect(container.textContent).toContain('Edited note body')
-    })
-    expect(mocks.patchJson).toHaveBeenCalledWith('/interactions/notes/3', {
-      body: 'Edited note body',
-    })
-
-    await act(async () => {
-      buttonByText(container, 'Delete')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      await flushPromises()
-    })
-
-    await waitFor(() => {
-      expect(container.textContent).not.toContain('Edited note body')
-    })
-    expect(mocks.deleteJson).toHaveBeenCalledWith('/interactions/notes/3')
+    expect(container.querySelector('[data-testid="lesson-whiteboard"]')?.textContent).toContain(baseItem.title)
+    expect(container.querySelector('textarea[aria-label="Topic note"]')).toBeNull()
   })
 
   it('wraps long unbroken comment bodies inside the comments panel', async () => {
@@ -306,19 +220,6 @@ function buttonByText(container: HTMLElement, text: string) {
   return Array.from(container.querySelectorAll('button')).find((button) => (
     button.textContent?.includes(text)
   )) ?? null
-}
-
-function changeField(container: HTMLElement, label: string, value: string) {
-  const field = Array.from(container.querySelectorAll('textarea')).find((textarea) => (
-    textarea.getAttribute('aria-label') === label
-  )) as HTMLTextAreaElement | undefined
-  if (!field) throw new Error(`field not found: ${label}`)
-  act(() => {
-    const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
-    valueSetter?.call(field, value)
-    field.dispatchEvent(new Event('input', { bubbles: true }))
-    field.dispatchEvent(new Event('change', { bubbles: true }))
-  })
 }
 
 async function flushPromises() {
