@@ -39,7 +39,7 @@ describe('calendar view model helpers', () => {
   })
 
   it('keeps realtime subscriptions stable across week navigation', () => {
-    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8').replace(/\r\n/g, '\n')
+    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8').replace(/\r\n?/g, '\n')
     const hookSource = readFileSync(join(process.cwd(), 'hooks', 'useNotificationChannelsSubscription.ts'), 'utf8')
 
     expect(source).toContain('const loadEventsForWeekRef = useRef(loadEventsForWeek)')

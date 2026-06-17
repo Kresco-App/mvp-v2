@@ -181,7 +181,7 @@ beforeEach(() => {
   })
   mocks.apiGet.mockImplementation(async (url: string) => ({ data: endpointData[url] }))
   mocks.apiPatch.mockResolvedValue({ data: profileUser })
-  mocks.apiPost.mockResolvedValue({ data: { url: 's3://kresco-test/avatar.png' } })
+  mocks.apiPost.mockResolvedValue({ data: { url: 'gs://kresco-test/avatar.png' } })
 })
 
 afterEach(() => {
@@ -355,7 +355,7 @@ describe('Profile page SWR data behavior', () => {
   })
 
   it('keeps uploaded avatar cache state through save without resending the uploaded URL', async () => {
-    const uploadedAvatarUrl = 's3://kresco-test/avatar.png'
+    const uploadedAvatarUrl = 'gs://kresco-test/avatar.png'
     let currentProfile = { ...profileUser }
     mocks.apiGet.mockImplementation(async (url: string) => {
       if (url === '/profile/me') return { data: currentProfile }

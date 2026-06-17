@@ -4,8 +4,12 @@ import { parseEnvFile, validateFrontendProductionEnv } from '@/lib/productionEnv
 
 const VALID_PRODUCTION_ENV = {
   NEXT_PUBLIC_API_BASE_URL: 'https://api.kresco.example/api',
-  NEXT_PUBLIC_GOOGLE_CLIENT_ID: 'google-client-id.apps.googleusercontent.com',
-  NEXT_PUBLIC_ABLY_ENABLED: 'true',
+  NEXT_PUBLIC_FIREBASE_API_KEY: 'firebase-web-api-key',
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'kresco-prod.firebaseapp.com',
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'kresco-prod',
+  NEXT_PUBLIC_FIREBASE_APP_ID: '1:418905339056:web:5ff922f6917acc61c3b775',
+  NEXT_PUBLIC_FIRESTORE_DATABASE: '(default)',
+  NEXT_PUBLIC_REALTIME_PROVIDER: 'firestore',
   NEXT_PUBLIC_RELEASE_SHA: '0123456789abcdef0123456789abcdef01234567',
 }
 
@@ -19,8 +23,11 @@ describe('frontend production environment validation', () => {
 
     expect(errors).toEqual(expect.arrayContaining([
       expect.stringContaining('NEXT_PUBLIC_API_BASE_URL'),
-      expect.stringContaining('NEXT_PUBLIC_GOOGLE_CLIENT_ID'),
-      expect.stringContaining('NEXT_PUBLIC_ABLY_ENABLED'),
+      expect.stringContaining('NEXT_PUBLIC_FIREBASE_API_KEY'),
+      expect.stringContaining('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
+      expect.stringContaining('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
+      expect.stringContaining('NEXT_PUBLIC_FIREBASE_APP_ID'),
+      expect.stringContaining('NEXT_PUBLIC_REALTIME_PROVIDER'),
       expect.stringContaining('NEXT_PUBLIC_RELEASE_SHA'),
     ]))
   })
@@ -63,11 +70,36 @@ describe('frontend production environment validation', () => {
     })).toContain('NEXT_PUBLIC_API_BASE_URL must include the backend /api path.')
   })
 
-  it('requires realtime to be explicitly enabled in production', () => {
+  it('requires a supported realtime provider in production', () => {
     expect(validateFrontendProductionEnv({
       ...VALID_PRODUCTION_ENV,
-      NEXT_PUBLIC_ABLY_ENABLED: 'false',
-    })).toContain('NEXT_PUBLIC_ABLY_ENABLED must be true in production.')
+      NEXT_PUBLIC_REALTIME_PROVIDER: 'off',
+    })).toContain('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore in production.')
+  })
+
+  it('requires Firestore database config for Firestore realtime', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_FIRESTORE_DATABASE: '',
+    })).toContain('NEXT_PUBLIC_FIRESTORE_DATABASE must be configured when NEXT_PUBLIC_REALTIME_PROVIDER is firestore.')
+  })
+
+  it('rejects non-Firestore realtime providers in production', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_REALTIME_PROVIDER: 'websocket-vendor',
+    })).toContain('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore in production.')
+  })
+
+  it('rejects local or placeholder Firebase auth values in production', () => {
+    expect(validateFrontendProductionEnv({
+      ...VALID_PRODUCTION_ENV,
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'http://localhost:9099',
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'placeholder',
+    })).toEqual(expect.arrayContaining([
+      'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN must be a hostname, not a URL.',
+      'NEXT_PUBLIC_FIREBASE_PROJECT_ID must not use local or placeholder values in production.',
+    ]))
   })
 
   it('rejects local rewrite overrides in production', () => {
@@ -106,10 +138,14 @@ describe('frontend production environment validation', () => {
 
   it('parses quoted env files without exposing values in validation code', () => {
     expect(parseEnvFile([
-      '# pulled by Vercel',
+      '# deployment environment',
       'NEXT_PUBLIC_API_BASE_URL="https://api.kresco.example/api"',
-      "NEXT_PUBLIC_GOOGLE_CLIENT_ID='google-client-id.apps.googleusercontent.com'",
-      'NEXT_PUBLIC_ABLY_ENABLED=true',
+      "NEXT_PUBLIC_FIREBASE_API_KEY='firebase-web-api-key'",
+      'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=kresco-prod.firebaseapp.com',
+      'NEXT_PUBLIC_FIREBASE_PROJECT_ID=kresco-prod',
+      'NEXT_PUBLIC_FIREBASE_APP_ID=1:418905339056:web:5ff922f6917acc61c3b775',
+      'NEXT_PUBLIC_FIRESTORE_DATABASE=(default)',
+      'NEXT_PUBLIC_REALTIME_PROVIDER=firestore',
       'NEXT_PUBLIC_RELEASE_SHA=0123456789abcdef0123456789abcdef01234567',
     ].join('\n'))).toEqual(VALID_PRODUCTION_ENV)
   })

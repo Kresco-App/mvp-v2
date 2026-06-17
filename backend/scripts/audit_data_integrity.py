@@ -27,7 +27,10 @@ from app.models.users import User
 from app.services.data_integrity import DataIntegrityFinding
 from app.services.data_integrity import audit_data_integrity
 
-TOPIC_ITEM_PROGRESS_TOPIC_ITEM_FK = "fk_topic_item_progress_topic_item_id_topic_items"
+TOPIC_ITEM_PROGRESS_TOPIC_ITEM_FK_NAMES = (
+    "fk_topic_item_progress_topic_item_id_topic_items",
+    "topic_item_progress_topic_item_id_fkey",
+)
 
 
 @dataclass(frozen=True)
@@ -174,12 +177,13 @@ async def seed_integrity_audit_fixture(db: AsyncSession) -> IntegrityAuditFixtur
 async def _relax_fixture_constraints(db: AsyncSession) -> None:
     dialect_name = db.get_bind().dialect.name
     if dialect_name == "postgresql":
-        await db.execute(
-            text(
-                "ALTER TABLE topic_item_progress "
-                f"DROP CONSTRAINT IF EXISTS {TOPIC_ITEM_PROGRESS_TOPIC_ITEM_FK}"
+        for constraint_name in TOPIC_ITEM_PROGRESS_TOPIC_ITEM_FK_NAMES:
+            await db.execute(
+                text(
+                    "ALTER TABLE topic_item_progress "
+                    f"DROP CONSTRAINT IF EXISTS {constraint_name}"
+                )
             )
-        )
     elif dialect_name == "sqlite":
         await db.execute(text("PRAGMA foreign_keys=OFF"))
 

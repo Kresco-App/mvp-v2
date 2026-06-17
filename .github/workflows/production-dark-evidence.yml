@@ -1,0 +1,152 @@
+name: Production Dark Evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    environment: Production
+    env:
+      PROJECT_ID: kresco-prod
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-prod
+      FRONTEND_SERVICE: kresco-frontend-prod
+      CLOUD_SQL_INSTANCE: kresco-prod-postgres
+      EVIDENCE_DIR: artifacts/production-dark-evidence
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare evidence directory
+        run: mkdir -p "$EVIDENCE_DIR"
+
+      - name: Collect Cloud Run posture
+        run: |
+          set -euo pipefail
+          gcloud run services describe "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/backend-cloud-run.json"
+          gcloud run services describe "$FRONTEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/frontend-cloud-run.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          errors = []
+          for name in ("backend", "frontend"):
+              doc = json.loads((evidence_dir / f"{name}-cloud-run.json").read_text())
+              annotations = doc.get("spec", {}).get("template", {}).get("metadata", {}).get("annotations", {})
+              if annotations.get("autoscaling.knative.dev/minScale", "0") not in {"0", ""}:
+                  errors.append(f"{name} minScale must be 0")
+              if annotations.get("autoscaling.knative.dev/maxScale") not in {"3", 3}:
+                  errors.append(f"{name} maxScale must be 3")
+              if doc.get("status", {}).get("conditions", []) and not any(
+                  item.get("type") == "Ready" and item.get("status") == "True"
+                  for item in doc["status"]["conditions"]
+              ):
+                  errors.append(f"{name} Cloud Run service is not Ready")
+          if errors:
+              raise SystemExit("; ".join(errors))
+          PY
+
+      - name: Collect Cloud SQL cost posture
+        run: |
+          set -euo pipefail
+          gcloud sql instances describe "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --format=json > "$EVIDENCE_DIR/cloud-sql.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          doc = json.loads((Path(os.environ["EVIDENCE_DIR"]) / "cloud-sql.json").read_text())
+          settings = doc.get("settings", {})
+          errors = []
+          if doc.get("state") != "STOPPED":
+              errors.append("Cloud SQL must be stopped outside active test windows")
+          if settings.get("activationPolicy") != "NEVER":
+              errors.append("Cloud SQL activationPolicy must be NEVER")
+          if settings.get("availabilityType") != "ZONAL":
+              errors.append("Dark production Cloud SQL must be zonal before launch")
+          if str(settings.get("dataDiskSizeGb")) not in {"20", "20.0"}:
+              errors.append("Cloud SQL disk should stay at the 20GB floor before launch")
+          if errors:
+              raise SystemExit("; ".join(errors))
+          PY
+
+      - name: Collect Artifact Registry cleanup posture
+        run: |
+          set -euo pipefail
+          gcloud artifacts repositories describe kresco-containers \
+            --project "$PROJECT_ID" \
+            --location "$REGION" \
+            --format=json > "$EVIDENCE_DIR/artifact-registry.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          doc = json.loads((Path(os.environ["EVIDENCE_DIR"]) / "artifact-registry.json").read_text())
+          policies = doc.get("cleanupPolicies") or {}
+          if "delete-old-images" not in policies or "keep-latest-10" not in policies:
+              raise SystemExit("Artifact Registry cleanup policies delete-old-images and keep-latest-10 are required.")
+          PY
+
+      - name: Collect runtime smoke evidence
+        run: |
+          set -euo pipefail
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          frontend_url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          export BACKEND_URL="$backend_url"
+          export FRONTEND_URL="$frontend_url"
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          backend_url = os.environ["BACKEND_URL"].rstrip("/") + "/health"
+          frontend_url = os.environ["FRONTEND_URL"]
+          with urllib.request.urlopen(backend_url, timeout=30) as response:
+              backend = json.loads(response.read().decode("utf-8"))
+          with urllib.request.urlopen(frontend_url, timeout=30) as response:
+              frontend_status = response.getcode()
+              frontend_body = response.read(8192).decode("utf-8", errors="replace")
+          if frontend_status >= 400 or "<html" not in frontend_body.lower():
+              raise SystemExit("Frontend smoke did not return HTML.")
+          (evidence_dir / "runtime-smoke.json").write_text(json.dumps({
+              "backend_health_url": backend_url,
+              "backend_release_sha": backend.get("release_sha"),
+              "frontend_url": frontend_url,
+              "frontend_status": frontend_status,
+          }, indent=2), encoding="utf-8")
+          PY
+
+      - name: Upload production dark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-dark-evidence
+          path: artifacts/production-dark-evidence
+          if-no-files-found: error

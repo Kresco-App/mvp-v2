@@ -3,7 +3,7 @@ import {
   listKrescoRealtimeSubscriptions,
   subscribeKrescoRealtimeChannels,
   userNotificationsChannelName,
-} from '@/lib/ably'
+} from '@/lib/realtime'
 
 type NotificationChannelsSubscriptionOptions = {
   userId: number | string | null | undefined

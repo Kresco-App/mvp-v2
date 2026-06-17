@@ -13,7 +13,7 @@ class UnsafeSeedDatabaseError(RuntimeError):
 
 
 def require_local_seed_database_url(database_url: str, script_name: str) -> None:
-    if is_local_seed_database_url(database_url):
+    if is_local_seed_database_url(database_url) or is_ci_ephemeral_postgres_seed_database_url(database_url):
         return
 
     raise UnsafeSeedDatabaseError(
@@ -58,6 +58,20 @@ def is_local_seed_database_url(database_url: str) -> bool:
 
     parsed = urlparse(database_url)
     return parsed.scheme in LOCAL_SQLITE_SCHEMES and parsed.netloc in {"", "localhost"}
+
+
+def is_ci_ephemeral_postgres_seed_database_url(database_url: str) -> bool:
+    if os.environ.get("CI") != "true" or not database_url.strip():
+        return False
+
+    parsed = urlparse(database_url)
+    if parsed.scheme not in {"postgres", "postgresql", "postgresql+asyncpg"}:
+        return False
+    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return False
+
+    database_name = parsed.path.lstrip("/")
+    return database_name.endswith("_ci") or database_name.endswith("_e2e")
 
 
 def redact_database_url(database_url: str) -> str:

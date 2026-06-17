@@ -149,17 +149,18 @@ def test_patch_profile_rejects_direct_local_profile_media_reference_changes(app_
     assert response.json()["detail"] == "Upload new avatar media through the profile media endpoint before referencing it here"
 
 
-def test_patch_profile_rejects_direct_s3_profile_media_reference_changes(app_client, auth_token):
-    token, _ = auth_token(email="profile-direct-s3-media@example.com")
+def test_patch_profile_rejects_direct_gcs_profile_media_reference_changes(app_client, auth_token):
+    token, _ = auth_token(email="profile-direct-gcs-media@example.com")
 
     response = app_client.patch(
         "/api/profile/me",
         headers={"Authorization": f"Bearer {token}"},
-        json={"banner_url": "s3://kresco-private-media/profile/999/banner-0123456789abcdef0123456789abcdef.png"},
+        json={"banner_url": "gs://kresco-private-media/profile/999/banner-0123456789abcdef0123456789abcdef.png"},
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Upload new banner media through the profile media endpoint before referencing it here"
+    detail = response.json()["detail"]
+    assert detail == "Upload new banner media through the profile media endpoint before referencing it here"
 
 
 def test_upload_profile_avatar_persists_storage_url(app_client, auth_token):
@@ -361,8 +362,8 @@ def test_profile_media_replacement_and_clear_delete_old_object_and_keep_quota_fr
         test_settings.media_profile_quota_bytes = original_quota
 
 
-def test_upload_profile_avatar_uses_configured_s3_storage(app_client, auth_token, monkeypatch):
-    token, _ = auth_token(email="profile-avatar-s3@example.com")
+def test_upload_profile_avatar_uses_configured_gcs_storage(app_client, auth_token, monkeypatch):
+    token, _ = auth_token(email="profile-avatar-gcs@example.com")
     calls = []
 
     class _Storage:
@@ -370,15 +371,15 @@ def test_upload_profile_avatar_uses_configured_s3_storage(app_client, auth_token
             calls.append({"key": key, "content": content, "content_type": content_type})
             return SimpleNamespace(
                 key=f"test-prefix/{key}",
-                reference=f"s3://kresco-media/test-prefix/{key}",
+                reference=f"gs://kresco-media/test-prefix/{key}",
                 url=f"https://signed.example.com/test-prefix/{key}?signature=upload",
             )
 
     monkeypatch.setattr("app.routers.users.get_media_storage", lambda settings: _Storage())
     monkeypatch.setattr(
         "app.routers.users.media_url",
-        lambda reference, settings: f"https://signed.example.com/{reference.removeprefix('s3://kresco-media/')}?signature=read"
-        if str(reference).startswith("s3://")
+        lambda reference, settings: f"https://signed.example.com/{reference.removeprefix('gs://kresco-media/')}?signature=read"
+        if str(reference).startswith("gs://")
         else reference,
     )
 

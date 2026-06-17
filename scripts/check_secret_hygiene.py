@@ -13,39 +13,31 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ROTATION_CHECKLIST_PATH = REPO_ROOT / "docs" / "secrets-rotation-checklist.md"
 
 SENSITIVE_ENV_NAMES = {
-    "ABLY_API_KEY",
     "ADMIN_PASSWORD",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
     "DATABASE_URL",
-    "GOOGLE_CLIENT_ID",
+    "FIREBASE_WEB_API_KEY",
+    "GCP_DEPLOY_SERVICE_ACCOUNT",
+    "GCP_WORKLOAD_IDENTITY_PROVIDER",
     "JWT_SECRET_KEY",
     "KRESCO_INTERNAL_SECRET",
     "KRESCO_RATE_LIMIT_STORAGE_URI",
-    "MEDIA_S3_BUCKET",
     "REALTIME_OUTBOX_SECRET",
     "RESEND_API_KEY",
     "VDOCIPHER_API_SECRET",
     "VDOCIPHER_LIVE_CREATE_URL",
-    "VERCEL_OIDC_TOKEN",
-    "VERCEL_TOKEN",
 }
 REQUIRED_ROTATION_RECORD_IDENTIFIERS = (
-    "ABLY_API_KEY",
-    "AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY",
     "DATABASE_URL",
-    "GOOGLE_CLIENT_ID",
+    "FIREBASE_WEB_API_KEY",
+    "GCP_DEPLOY_SERVICE_ACCOUNT",
+    "GCP_WORKLOAD_IDENTITY_PROVIDER",
     "JWT_SECRET_KEY",
     "KRESCO_RATE_LIMIT_STORAGE_URI",
-    "MEDIA_S3_BUCKET",
+    "MEDIA_GCS_BUCKET",
     "REALTIME_OUTBOX_SECRET",
     "RESEND_API_KEY",
     "VDOCIPHER_API_SECRET",
     "VDOCIPHER_LIVE_CREATE_URL",
-    "VERCEL_ORG_ID",
-    "VERCEL_PROJECT_ID",
-    "VERCEL_TOKEN",
 )
 SENSITIVE_NAME_FRAGMENTS = ("SECRET", "PASSWORD", "PRIVATE_KEY", "API_KEY")
 NON_SECRET_TOKEN_NAME_FRAGMENTS = (
@@ -63,7 +55,6 @@ ENV_ASSIGNMENT_RE = re.compile(
     r"^\s*(?:export\s+)?(?P<key>[A-Z][A-Z0-9_]*)\s*[:=]\s*(?P<value>.+?)\s*$"
 )
 SECRET_VALUE_PATTERNS = (
-    ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9_]{30,}\b")),
     ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----")),
 )
@@ -102,7 +93,7 @@ SKIP_PARTS = {
     ".venv",
 }
 ALLOW_VALUE_MARKERS = (
-    "__SET_IN_AWS_SECRETS__",
+    "__SET_IN_SECRET_MANAGER__",
     "change-me",
     "example",
     "fake",
@@ -142,18 +133,15 @@ REQUIRED_ROTATION_RECORDS = (
     RequiredRotationRecord("REALTIME_OUTBOX_SECRET", "production"),
     RequiredRotationRecord("KRESCO_RATE_LIMIT_STORAGE_URI", "staging"),
     RequiredRotationRecord("KRESCO_RATE_LIMIT_STORAGE_URI", "production"),
-    RequiredRotationRecord("AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY", "deploy"),
-    RequiredRotationRecord("MEDIA_S3_BUCKET policy and lifecycle", "staging"),
-    RequiredRotationRecord("MEDIA_S3_BUCKET policy and lifecycle", "production"),
+    RequiredRotationRecord("GCP_WORKLOAD_IDENTITY_PROVIDER / GCP_DEPLOY_SERVICE_ACCOUNT", "deploy"),
+    RequiredRotationRecord("MEDIA_GCS_BUCKET policy and lifecycle", "staging"),
+    RequiredRotationRecord("MEDIA_GCS_BUCKET policy and lifecycle", "production"),
     RequiredRotationRecord("RESEND_API_KEY", "staging"),
     RequiredRotationRecord("RESEND_API_KEY", "production"),
-    RequiredRotationRecord("ABLY_API_KEY", "staging"),
-    RequiredRotationRecord("ABLY_API_KEY", "production"),
-    RequiredRotationRecord("GOOGLE_CLIENT_ID", "staging"),
-    RequiredRotationRecord("GOOGLE_CLIENT_ID", "production"),
+    RequiredRotationRecord("FIREBASE_WEB_API_KEY", "staging"),
+    RequiredRotationRecord("FIREBASE_WEB_API_KEY", "production"),
     RequiredRotationRecord("VDOCIPHER_API_SECRET / VDOCIPHER_LIVE_CREATE_URL", "staging"),
     RequiredRotationRecord("VDOCIPHER_API_SECRET / VDOCIPHER_LIVE_CREATE_URL", "production"),
-    RequiredRotationRecord("VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID", "deploy"),
 )
 
 REQUIRED_ROTATION_COLUMNS = (

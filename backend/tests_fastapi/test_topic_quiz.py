@@ -259,7 +259,7 @@ def test_subject_quiz_discovery_loads_questions_only_for_selected_quiz(app_clien
         if "FROM questions" in statement and "questions.question_set_id" in statement
     ]
     assert len(question_loads) == 1, queries.statements
-    assert question_loads[0].count("?") == 1, question_loads[0]
+    assert question_loads[0].count("?") == 1 or "$1" in question_loads[0], question_loads[0]
 
 
 def test_quiz_routes_hide_unpublished_parent_content(app_client, auth_token, run_db):

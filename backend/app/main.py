@@ -114,8 +114,9 @@ def _ready_config_service_status(settings: Settings) -> dict[str, str]:
     db_ok = not db_url.startswith("sqlite") and db_url != ""
     return {
         "database": "ok" if db_ok else "misconfigured",
-        "s3": "ok" if _present(settings.media_s3_bucket) and _present(settings.media_s3_region) else "missing",
-        "ably": "ok" if _present(settings.ably_api_key) else "missing",
+        "gcp": "ok" if _present(settings.gcp_project_id) and _present(settings.gcp_region) else "missing",
+        "firebase": "ok" if _present(settings.firebase_project_id) else "missing",
+        "gcs": "ok" if _present(settings.media_gcs_bucket) else "missing",
         "vdocipher": "ok" if _present(settings.vdocipher_api_secret) else "missing",
         "smtp": "ok" if _present(settings.resend_api_key) else "missing",
         "payment": "ok" if _present(settings.cmi_client_id) and _present(settings.cmi_store_key) else "missing",
@@ -160,7 +161,6 @@ async def initialize_app_runtime(app: FastAPI, settings: Settings):
 
     engine, _ = init_engine(
         settings.database_url,
-        settings.is_lambda,
         settings.pgsslrootcert,
         pool_size=settings.database_pool_size,
         max_overflow=settings.database_max_overflow,
@@ -179,10 +179,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     validate_production_settings(settings)
     configure_rate_limit_storage(settings.rate_limit_storage_uri)
 
-    # The API Gateway stage prefix (e.g. /production) is stripped before requests
-    # reach FastAPI (see StripApiGatewayStagePrefix in app_handler.py), so root_path
-    # must stay empty. A non-empty root_path makes the docs page fetch the spec at
-    # /<stage>/openapi.json, which the same-origin /api/* proxy does not forward.
     root_path = ""
     release_sha = settings.release_sha.strip() or "development"
 

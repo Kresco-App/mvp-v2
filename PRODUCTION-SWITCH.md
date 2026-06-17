@@ -2,7 +2,7 @@
 
 ## Current Readiness Gate
 
-Payment readiness is in scope for this gate through the CMI card rail and manual payment-request flows. Do not add a second legacy checkout path for launch.
+Payment readiness is in scope for this gate through the CMI card rail and manual payment-request flows. Do not add a second checkout path for launch.
 
 Current launch readiness: **5.5/10**.
 
@@ -34,10 +34,10 @@ Realtime must fail visibly and degrade intentionally. Silent delivery failure is
 
 Checklist:
 
-- Stop silently swallowing Ably publish failures.
-- Add structured logs/metrics for Ably token minting, subscribe failures, publish failures, reconnects, and fallback polling activation.
+- Stop silently swallowing Firestore realtime publish failures.
+- Add structured logs/metrics for outbox publishing, Firestore subscribe failures, reconnects, and fallback polling activation.
 - Add retry/backoff or a durable fallback path for important professor/student realtime events.
-- Add at least one browser-level test with realtime enabled or a local fake Ably adapter.
+- Add at least one browser-level test with Firestore realtime enabled or a local Firebase emulator.
 - Validate that polling fallback works, but do not treat polling-only tests as proof that realtime works.
 - Review fanout paths so notifying many students does not open a fresh HTTP client and publish sequentially for every recipient.
 
@@ -78,18 +78,19 @@ Checklist:
 
 ## Database TLS Verification
 
-Before switching production to PostgreSQL/RDS, use full certificate and hostname verification.
+Before switching production to managed Postgres, use full certificate and hostname verification.
 
 Checklist:
 
-- Bundle the Amazon RDS CA PEM with the backend deployment, for example `backend/certs/rds-global-bundle.pem`.
-- Set `PGSSLROOTCERT` in the deployed backend environment to the deployed absolute path, for example `/var/task/certs/rds-global-bundle.pem`.
-- Set production `DATABASE_URL` to use the real RDS/RDS Proxy hostname and `sslmode=verify-full`.
+- Set `PGSSLROOTCERT=certifi` in the deployed backend environment.
+- Set production `DATABASE_URL` to use the managed Postgres endpoint or Cloud SQL socket and `sslmode=verify-full` when using TCP.
+- Set `DATABASE_CONNECTION_STRATEGY=cloud_sql` or `DATABASE_CONNECTION_STRATEGY=alloydb`.
 - Do not use an IP address in `DATABASE_URL`; `verify-full` requires the hostname to match the certificate.
 
 Expected production shape:
 
 ```text
-DATABASE_URL=postgresql://USER:PASSWORD@your-db.xxxxxx.eu-north-1.rds.amazonaws.com:5432/kresco?sslmode=verify-full
-PGSSLROOTCERT=/var/task/certs/rds-global-bundle.pem
+DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@/kresco?host=/cloudsql/PROJECT:REGION:INSTANCE
+DATABASE_CONNECTION_STRATEGY=cloud_sql
+PGSSLROOTCERT=certifi
 ```

@@ -1,0 +1,16 @@
+.git
+.github
+.pytest_cache
+.ruff_cache
+.venv
+.venv_vulture
+__pycache__
+node_modules
+.next
+artifacts
+media
+*.log
+*.out.log
+*.err.log
+*.sqlite3
+*.db

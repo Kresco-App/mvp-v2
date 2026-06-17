@@ -68,7 +68,7 @@ def test_secret_hygiene_scanner_allows_placeholders_and_ci_secret_references():
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET_KEY: test-secret-key-for-ci-32-bytes-minimum
           POSTGRES_PASSWORD: postgres
-          VDOCIPHER_API_SECRET: __SET_IN_AWS_SECRETS__
+          VDOCIPHER_API_SECRET: __SET_IN_SECRET_MANAGER__
         """,
     )
 
@@ -93,7 +93,7 @@ def test_secret_hygiene_scanner_allows_ci_database_url_references():
 
 def test_secret_hygiene_scanner_flags_literal_database_urls_without_printing_values():
     secret_hygiene = _load_secret_hygiene_module()
-    database_url = "postgresql://kresco:real-password@db-prod.rds.invalid:5432/kresco?sslmode=verify-full"
+    database_url = "postgresql://kresco:real-password@db-prod.internal:5432/kresco?sslmode=verify-full"
 
     findings = secret_hygiene.scan_text(
         REPO_ROOT / ".env.local",
@@ -130,12 +130,12 @@ def test_secret_hygiene_scanner_detects_oidc_jwt_tokens_without_printing_values(
 
     findings = secret_hygiene.scan_text(
         REPO_ROOT / "frontend" / ".env.inspect",
-        f'VERCEL_OIDC_TOKEN="{token_value}"\n',
+        f'DEPLOY_OIDC_TOKEN="{token_value}"\n',
     )
     rendered = "\n".join(finding.format() for finding in findings)
 
     assert {finding.kind for finding in findings} == {"jwt-token", "literal-sensitive-env-value"}
-    assert "VERCEL_OIDC_TOKEN" in rendered
+    assert "DEPLOY_OIDC_TOKEN" in rendered
     assert token_value not in rendered
 
 
@@ -160,10 +160,9 @@ def test_secret_hygiene_scanner_allows_non_secret_token_metadata_names():
     findings = secret_hygiene.scan_text(
         REPO_ROOT / ".env.example",
         "\n".join([
-            "ABLY_TOKEN_TTL_SECONDS=3600",
             "AUTH_TOKEN_VERSION=1",
             "RESET_TOKEN_EXPIRATION_MINUTES=30",
-            "VERCEL_OIDC_TOKEN=<vercel-runtime-issued-oidc-token>",
+            "DEPLOY_OIDC_TOKEN=<runtime-issued-oidc-token>",
             "DEPLOY_TOKEN=${{ secrets.DEPLOY_TOKEN }}",
             "STAGING_STUDENT_TOKENS_FILE=student-tokens.json",
         ]),
@@ -180,7 +179,7 @@ def test_include_local_env_output_redacts_detected_oidc_jwt_tokens(tmp_path, cap
         "signature-segment-that-is-long-enough"
     )
     local_env = tmp_path / ".env.local"
-    local_env.write_text(f"VERCEL_OIDC_TOKEN={token_value}\n", encoding="utf-8")
+    local_env.write_text(f"DEPLOY_OIDC_TOKEN={token_value}\n", encoding="utf-8")
 
     monkeypatch.setattr(secret_hygiene, "tracked_paths", lambda: [])
     monkeypatch.setattr(secret_hygiene, "local_env_paths", lambda: [local_env])
@@ -192,7 +191,7 @@ def test_include_local_env_output_redacts_detected_oidc_jwt_tokens(tmp_path, cap
     assert "Scanned 1 ignored local env file(s)." in output
     assert "jwt-token" in output
     assert "literal-sensitive-env-value" in output
-    assert "VERCEL_OIDC_TOKEN" in output
+    assert "DEPLOY_OIDC_TOKEN" in output
     assert token_value not in output
 
 
@@ -224,7 +223,7 @@ def test_rotation_checklist_detects_placeholders_and_missing_required_records():
         """
         | Secret Name | Provider | Environment | Owner | Rotated At UTC | Old Value Revoked | Evidence Link |
         | --- | --- | --- | --- | --- | --- | --- |
-        | `DATABASE_URL` | GitHub Environment / AWS RDS Proxy | production | TBD | TBD | TBD | TBD |
+        | `DATABASE_URL` | GitHub Environment / Google Cloud SQL | production | TBD | TBD | TBD | TBD |
         """,
     )
 
@@ -328,7 +327,7 @@ def test_rotation_checklist_rejects_one_row_identifier_only_coverage():
     )
     assert any(
         finding.kind == "rotation-checklist-missing-record"
-        and finding.identifier == "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY [deploy]"
+        and finding.identifier == "GCP_WORKLOAD_IDENTITY_PROVIDER / GCP_DEPLOY_SERVICE_ACCOUNT [deploy]"
         for finding in findings
     )
 

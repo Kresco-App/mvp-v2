@@ -138,7 +138,6 @@ async def refresh_leaderboard_projection_once(
 def _init_scheduled_database(settings: Settings) -> None:
     init_engine(
         settings.database_url,
-        settings.is_lambda,
         settings.pgsslrootcert,
         pool_size=settings.database_pool_size,
         max_overflow=settings.database_max_overflow,

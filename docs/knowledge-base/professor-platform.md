@@ -373,18 +373,19 @@ The professor dashboard exposes chat as a dedicated surface:
 
 This chat should remain Kresco-owned so the platform can support moderation, VIP/Platinum priority, AI summaries, auditability, and long-term history.
 
-## Ably realtime foundation
+## Firestore realtime foundation
 
-Use Ably as the realtime transport foundation for live-session notifications and future professor chat.
+Use Firestore as the realtime transport foundation for live-session notifications and professor chat updates. Postgres remains the durable source of truth; Firestore receives short-lived event documents from the backend realtime outbox.
 
-Security rule: never expose the Ably API key to the frontend. The browser must authenticate through Kresco's backend.
+Security rule: do not let the browser publish realtime business events directly. The browser listens to authorized channels, while backend services persist the durable record and enqueue the corresponding realtime event.
 
 Backend configuration:
 
 ```text
-ABLY_API_KEY=<keyName:keySecret>
-ABLY_TOKEN_TTL_SECONDS=3600
-NEXT_PUBLIC_ABLY_ENABLED=true
+FIREBASE_PROJECT_ID=<firebase-project-id>
+FIREBASE_WEB_API_KEY=<firebase-web-api-key>
+FIRESTORE_DATABASE=(default)
+REALTIME_OUTBOX_SECRET=<32+ chars>
 ```
 
 ### Local demo seed
@@ -408,30 +409,26 @@ Seeded accounts:
 
 The seed fills live sessions in `scheduled`, `live`, `completed`, and `cancelled` states; pending, approved, and rejected change requests; pinned and unread professor chat threads; and a locked basic-student chat state.
 
-Initial backend endpoint:
+Realtime subscription endpoint:
 
 ```text
-GET /api/realtime/ably-token
+GET /api/realtime/subscriptions
 ```
 
-The endpoint requires the normal Kresco bearer token, validates the current user, and returns a short-lived Ably JWT. The Ably JWT uses:
-
-```text
-x-ably-clientId = user:{user_id}
-x-ably-capability = user-scoped channel permissions
-```
+The endpoint requires the normal Kresco bearer token, validates the current user, and returns the notification channels the frontend should subscribe to.
 
 Initial channel naming:
 
 ```text
 kresco:user:{user_id}:notifications
-kresco:user:{user_id}:presence
 kresco:professor:{professor_user_id}:inbox
+kresco:offering:{course_offering_id}:notifications
+kresco:live:{live_session_id}
 ```
 
-Default capabilities should stay narrow. Start with subscribe-only notification/inbox access and presence-only presence access. Do not grant broad wildcard publish rights from the browser. Persist durable chat and notification records in Kresco first, then use Ably for fanout.
+Default access should stay narrow. Persist durable chat and notification records in Kresco first, then enqueue Firestore events for fanout.
 
-Frontend rule: use the Ably browser SDK with `authCallback` pointed at the Kresco backend endpoint. This lets the SDK refresh short-lived tokens automatically without storing Ably secrets in the browser.
+Frontend rule: use the shared realtime facade in `frontend/lib/realtime.ts`. It listens to `realtimeChannels/{encodedChannel}/events` and falls back to polling when Firebase realtime configuration is missing.
 
 ## Professor dashboard route
 

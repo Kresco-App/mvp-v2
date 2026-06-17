@@ -1,218 +1,178 @@
-name: Deploy Frontend to Vercel
+name: Deploy Frontend to Cloud Run
 
 on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Frontend environment to deploy"
+        description: "Target environment"
         required: true
         default: "staging"
         type: choice
         options:
           - staging
           - production
+      confirm_production_dark_deploy:
+        description: "Required for production: confirms this is dark production only and no domains/traffic are cut over"
+        required: true
+        default: false
+        type: boolean
+      enforce_production_launch_gate:
+        description: "Set true only for full production cutover after provider rotation evidence is complete"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: ${{ inputs.environment == 'production' && 'Production' || 'staging' }}
     env:
-      NEXT_TELEMETRY_DISABLED: "1"
-      DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
-      NEXT_PUBLIC_RELEASE_SHA: ${{ github.sha }}
-      KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: kresco_frontend_e2e
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d kresco_frontend_e2e"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    defaults:
-      run:
-        working-directory: frontend
+      REGION: europe-southwest1
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Resolve target
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::8}"
+          echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
+          case "${{ inputs.environment }}" in
+            staging)
+              echo "PROJECT_ID=kresco-staging" >> "$GITHUB_ENV"
+              echo "FRONTEND_SERVICE=kresco-frontend-staging" >> "$GITHUB_ENV"
+              echo "BACKEND_SERVICE=kresco-backend-staging" >> "$GITHUB_ENV"
+              ;;
+            production)
+              if [ "${{ inputs.confirm_production_dark_deploy }}" != "true" ]; then
+                echo "::error::Production deploys are dark-production only and require confirm_production_dark_deploy=true."
+                exit 1
+              fi
+              echo "PROJECT_ID=kresco-prod" >> "$GITHUB_ENV"
+              echo "FRONTEND_SERVICE=kresco-frontend-prod" >> "$GITHUB_ENV"
+              echo "BACKEND_SERVICE=kresco-backend-prod" >> "$GITHUB_ENV"
+              ;;
+          esac
 
       - name: Check repository hygiene
-        working-directory: .
         run: python scripts/check_repo_hygiene.py
 
       - name: Check secret hygiene
-        working-directory: .
         run: python scripts/check_secret_hygiene.py
 
+      - name: Assert dark production boundary
+        if: ${{ inputs.environment == 'production' && inputs.enforce_production_launch_gate == false }}
+        run: |
+          echo "Dark production deploy only: this workflow does not route domains or user traffic."
+          echo "Provider rotation evidence and production launch gate remain required before cutover."
+
       - name: Enforce production secret rotation checklist
-        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
-        working-directory: .
+        if: ${{ inputs.environment == 'production' && inputs.enforce_production_launch_gate == true }}
         run: python scripts/check_secret_hygiene.py --require-rotation-checklist
 
       - name: Enforce production launch gate
-        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
-        working-directory: .
+        if: ${{ inputs.environment == 'production' && inputs.enforce_production_launch_gate == true }}
         run: python scripts/check_production_launch_gate.py
 
-      - name: Install dependencies
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve Cloud Run URLs and Firebase build config
+        run: |
+          set -euo pipefail
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          frontend_url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          {
+            echo "BACKEND_URL=$backend_url"
+            echo "FRONTEND_URL=$frontend_url"
+            echo "NEXT_PUBLIC_FIREBASE_API_KEY=$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY' "$runtime_json")"
+            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=$(jq -r '.NEXT_PUBLIC_FIREBASE_PROJECT_ID' "$runtime_json")"
+            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$(jq -r '.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN' "$runtime_json")"
+            echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$(jq -r '.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET' "$runtime_json")"
+            echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$(jq -r '.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID' "$runtime_json")"
+            echo "NEXT_PUBLIC_FIREBASE_APP_ID=$(jq -r '.NEXT_PUBLIC_FIREBASE_APP_ID' "$runtime_json")"
+            echo "NEXT_PUBLIC_FIRESTORE_DATABASE=$(jq -r '.NEXT_PUBLIC_FIRESTORE_DATABASE' "$runtime_json")"
+          } >> "$GITHUB_ENV"
+          rm -f "$runtime_json"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
         run: npm ci
 
-      - name: Install backend dependencies for integration tests
-        working-directory: backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Run lint
-        run: npm run lint
-
-      - name: Run typecheck
-        run: npm run typecheck
-
-      - name: Run unit tests with coverage
-        run: npm run test:coverage
-
-      - name: Build frontend for browser smoke
-        run: npm run build
-        env:
-          NEXT_PUBLIC_API_BASE_URL: "/api/"
-
-      - name: Run browser smoke tests
-        run: npm run test:e2e
-        env:
-          NEXT_PUBLIC_API_BASE_URL: "/api/"
-
-      - name: Run real browser integration test
-        run: npm run test:e2e:integration
-
-      - name: Install Vercel CLI
-        run: npm install --global vercel@54.4.1
-
-      - name: Pull Vercel preview environment
-        if: ${{ env.DEPLOY_ENVIRONMENT != 'production' }}
-        run: vercel pull --yes --environment=preview --token="${{ secrets.VERCEL_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Pull Vercel production environment
-        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
-        run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Validate production environment
-        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
-        run: npm run validate:production-env
-
-      - name: Validate staging frontend environment
-        if: ${{ env.DEPLOY_ENVIRONMENT != 'production' }}
+      - name: Validate production-shaped frontend env
+        working-directory: frontend
         run: npm run validate:production-env
         env:
-          VERCEL_ENV: preview
+          NEXT_PUBLIC_API_BASE_URL: /api
+          KRESCO_BACKEND_ORIGIN: ${{ env.BACKEND_URL }}
+          NEXT_PUBLIC_REALTIME_PROVIDER: firestore
+          NEXT_PUBLIC_RELEASE_SHA: ${{ env.SHORT_SHA }}
 
-      - name: Build frontend preview
-        if: ${{ env.DEPLOY_ENVIRONMENT != 'production' }}
-        run: vercel build --token="${{ secrets.VERCEL_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Build frontend production
-        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
-        run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-
-      - name: Deploy prebuilt frontend preview
-        if: ${{ env.DEPLOY_ENVIRONMENT != 'production' }}
+      - name: Build frontend image
         run: |
           set -euo pipefail
-          deployment_url="$(vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}")"
-          echo "FRONTEND_DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
-          echo "Deployed preview to $deployment_url"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          image="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-frontend:$SHORT_SHA"
+          echo "FRONTEND_IMAGE=$image" >> "$GITHUB_ENV"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build --pull \
+            --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+            --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_URL" \
+            --build-arg NEXT_PUBLIC_REALTIME_PROVIDER=firestore \
+            --build-arg NEXT_PUBLIC_RELEASE_SHA="$SHORT_SHA" \
+            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
+            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
+            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
+            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET" \
+            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
+            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
+            --build-arg NEXT_PUBLIC_FIRESTORE_DATABASE="$NEXT_PUBLIC_FIRESTORE_DATABASE" \
+            --build-arg KRESCO_BACKEND_ORIGIN="$BACKEND_URL" \
+            -f frontend/Dockerfile \
+            -t "$image" \
+            frontend
+          docker push "$image"
 
-      - name: Deploy prebuilt frontend production
-        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
+      - name: Deploy frontend service
         run: |
           set -euo pipefail
-          deployment_url="$(vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}")"
-          echo "FRONTEND_DEPLOYMENT_URL=$deployment_url" >> "$GITHUB_ENV"
-          echo "Deployed production to $deployment_url"
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          gcloud run deploy "$FRONTEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --image "$FRONTEND_IMAGE" \
+            --min-instances 0 \
+            --max-instances 3 \
+            --quiet
 
-      - name: Post-deploy frontend smoke
+      - name: Verify frontend surface
         run: |
           set -euo pipefail
+          url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
           python - <<'PY'
           import os
           import urllib.request
 
-          raw_url = os.environ.get("FRONTEND_DEPLOYMENT_URL", "").strip()
-          if not raw_url:
-              raise SystemExit("FRONTEND_DEPLOYMENT_URL was not captured from Vercel deploy.")
-          url = raw_url if raw_url.startswith(("http://", "https://")) else f"https://{raw_url}"
-          request = urllib.request.Request(
-              url,
-              headers={"Accept": "text/html", "User-Agent": "kresco-frontend-deploy-smoke/1.0"},
-              method="GET",
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
+          url = os.environ["FRONTEND_URL"]
+          with urllib.request.urlopen(url, timeout=30) as response:
               status = response.getcode()
-              body = response.read(4096).decode("utf-8", errors="replace")
-          if status >= 400:
-              raise SystemExit(f"Frontend smoke request failed with HTTP {status}.")
-          if "<html" not in body.lower():
-              raise SystemExit("Frontend smoke response did not look like an HTML page.")
+              body = response.read(8192).decode("utf-8", errors="replace")
+          if status >= 400 or "<html" not in body.lower():
+              raise SystemExit(f"Frontend smoke failed for {url}: HTTP {status}")
+          if f'data-release="{os.environ["SHORT_SHA"]}"' not in body:
+              raise SystemExit("Frontend release marker mismatch.")
           print(f"Frontend smoke passed for {url}")
           PY
-
-      - name: Post-deploy production surface scan
-        if: ${{ env.DEPLOY_ENVIRONMENT == 'production' }}
-        run: |
-          set -euo pipefail
-          deployment_url="${FRONTEND_DEPLOYMENT_URL:?FRONTEND_DEPLOYMENT_URL was not captured from Vercel deploy.}"
-          production_base_urls="${FRONTEND_PRODUCTION_BASE_URLS:-}"
-          if [ -z "$production_base_urls" ]; then
-            echo "::error::FRONTEND_PRODUCTION_BASE_URLS must include every public production alias to scan."
-            exit 1
-          fi
-          scan_urls="$deployment_url ${production_base_urls//,/ }"
-          for base_url in $scan_urls; do
-            case "$base_url" in
-              http://*|https://*) ;;
-              *) base_url="https://$base_url" ;;
-            esac
-            npm run check:production-demo-surface -- --base-url "$base_url" --json
-          done
         env:
-          FRONTEND_PRODUCTION_BASE_URLS: ${{ vars.FRONTEND_PRODUCTION_BASE_URLS }}
+          FRONTEND_URL: ${{ env.FRONTEND_URL }}

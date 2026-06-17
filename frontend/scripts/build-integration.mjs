@@ -13,7 +13,6 @@ const result = spawnSync(process.execPath, [nextCliPath, 'build'], {
     KRESCO_ENABLE_LOCAL_REWRITES: 'true',
     KRESCO_LOCAL_BACKEND_ORIGIN: backendOrigin,
     NEXT_PUBLIC_API_BASE_URL: '/api/',
-    NEXT_PUBLIC_ABLY_ENABLED: process.env.NEXT_PUBLIC_ABLY_ENABLED ?? 'true',
   },
 })
 

@@ -88,6 +88,20 @@ def test_postgres_url_normalizes_sync_dialect_to_asyncpg():
     assert connect_args == {"ssl": True}
 
 
+def test_postgres_cloud_sql_socket_host_moves_to_asyncpg_connect_args():
+    async_url, connect_args = _build_async_url(
+        "postgresql://user:pass@/kresco"
+        "?host=/cloudsql/kresco-staging:europe-southwest1:kresco-staging-postgres"
+        "&sslmode=disable"
+    )
+
+    assert async_url == "postgresql+asyncpg://user:pass@/kresco"
+    assert connect_args == {
+        "host": "/cloudsql/kresco-staging:europe-southwest1:kresco-staging-postgres",
+        "ssl": False,
+    }
+
+
 def test_postgres_sslmode_rejects_unknown_value():
     with pytest.raises(ValueError, match="Unsupported PostgreSQL sslmode"):
         _build_async_url("postgresql://user:pass@db.example.com/kresco?sslmode=trust-me")

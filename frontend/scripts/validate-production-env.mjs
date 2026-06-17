@@ -1,14 +1,22 @@
-import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import nextEnv from '@next/env'
 
-import { parseEnvFile, validateFrontendProductionEnv } from '../lib/productionEnv.mjs'
+import { validateFrontendProductionEnv } from '../lib/productionEnv.mjs'
 
 const FRONTEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const VERCEL_ENV = process.env.VERCEL_ENV || 'production'
 const { loadEnvConfig } = nextEnv
+const FIXTURE_ENV = {
+  NEXT_PUBLIC_API_BASE_URL: 'https://api.kresco.example/api',
+  NEXT_PUBLIC_FIREBASE_API_KEY: 'firebase-web-api-key',
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'kresco-prod.firebaseapp.com',
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'kresco-prod',
+  NEXT_PUBLIC_FIREBASE_APP_ID: '1:418905339056:web:5ff922f6917acc61c3b775',
+  NEXT_PUBLIC_FIRESTORE_DATABASE: '(default)',
+  NEXT_PUBLIC_REALTIME_PROVIDER: 'firestore',
+  NEXT_PUBLIC_RELEASE_SHA: '0123456789abcdef0123456789abcdef01234567',
+}
 
 loadEnvConfig(FRONTEND_ROOT, false, {
   info() {},
@@ -16,7 +24,11 @@ loadEnvConfig(FRONTEND_ROOT, false, {
     console.error(message)
   },
 })
-loadVercelPulledEnv(FRONTEND_ROOT, VERCEL_ENV, process.env)
+if (process.argv.includes('--fixture')) {
+  for (const [key, value] of Object.entries(FIXTURE_ENV)) {
+    process.env[key] = value
+  }
+}
 
 const errors = validateFrontendProductionEnv(process.env)
 if (errors.length > 0) {
@@ -28,19 +40,3 @@ if (errors.length > 0) {
 }
 
 console.log('Frontend production environment validates.')
-
-export function loadVercelPulledEnv(projectRoot, vercelEnv, targetEnv) {
-  const candidates = [
-    path.join(projectRoot, '.vercel', `.env.${vercelEnv}.local`),
-    path.join(projectRoot, '.vercel', '.env.production.local'),
-  ]
-
-  for (const candidate of candidates) {
-    if (!existsSync(candidate)) continue
-
-    const parsed = parseEnvFile(readFileSync(candidate, 'utf-8'))
-    for (const [key, value] of Object.entries(parsed)) {
-      if (!targetEnv[key]) targetEnv[key] = value
-    }
-  }
-}

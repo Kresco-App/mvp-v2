@@ -1,7 +1,10 @@
 export const REQUIRED_FRONTEND_PRODUCTION_ENV = [
   'NEXT_PUBLIC_API_BASE_URL',
-  'NEXT_PUBLIC_GOOGLE_CLIENT_ID',
-  'NEXT_PUBLIC_ABLY_ENABLED',
+  'NEXT_PUBLIC_FIREBASE_API_KEY',
+  'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'NEXT_PUBLIC_FIREBASE_PROJECT_ID',
+  'NEXT_PUBLIC_FIREBASE_APP_ID',
+  'NEXT_PUBLIC_REALTIME_PROVIDER',
   'NEXT_PUBLIC_RELEASE_SHA',
 ]
 
@@ -18,8 +21,8 @@ export function validateFrontendProductionEnv(env) {
   }
 
   validateApiBaseUrl(env.NEXT_PUBLIC_API_BASE_URL, env.KRESCO_BACKEND_ORIGIN, errors)
-  validateGoogleClientId(env.NEXT_PUBLIC_GOOGLE_CLIENT_ID, errors)
-  validateRealtimeToggle(env.NEXT_PUBLIC_ABLY_ENABLED, errors)
+  validateFirebaseAuthConfig(env, errors)
+  validateRealtimeProvider(env, errors)
   validateReleaseSha(env.NEXT_PUBLIC_RELEASE_SHA, errors)
   validateLocalRewritePolicy(env, errors)
   validateLocalDemoFeaturePolicy(env, errors)
@@ -99,17 +102,42 @@ function validateBackendRewriteOrigin(value, errors) {
   }
 }
 
-function validateGoogleClientId(value, errors) {
-  if (!hasValue(value)) return
-  if (LOCAL_OR_TUNNEL_PATTERN.test(value)) {
-    errors.push('NEXT_PUBLIC_GOOGLE_CLIENT_ID must not use local or tunnel placeholders in production.')
+function validateFirebaseAuthConfig(env, errors) {
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_API_KEY', env.NEXT_PUBLIC_FIREBASE_API_KEY, errors)
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_PROJECT_ID', env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, errors)
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_APP_ID', env.NEXT_PUBLIC_FIREBASE_APP_ID, errors)
+
+  const authDomain = env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+  validateFirebaseValue('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN', authDomain, errors)
+  if (!hasValue(authDomain)) return
+
+  const trimmed = authDomain.trim()
+  if (/^https?:\/\//i.test(trimmed)) {
+    errors.push('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN must be a hostname, not a URL.')
+    return
+  }
+  if (LOCAL_HOST_PATTERN.test(trimmed) || LOCAL_OR_TUNNEL_PATTERN.test(trimmed)) {
+    errors.push('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN must not point to localhost or tunnel origins in production.')
   }
 }
 
-function validateRealtimeToggle(value, errors) {
+function validateFirebaseValue(key, value, errors) {
   if (!hasValue(value)) return
-  if (value !== 'true') {
-    errors.push('NEXT_PUBLIC_ABLY_ENABLED must be true in production.')
+  if (LOCAL_OR_TUNNEL_PATTERN.test(value) || /placeholder|change-me|development|unknown/i.test(value)) {
+    errors.push(`${key} must not use local or placeholder values in production.`)
+  }
+}
+
+function validateRealtimeProvider(env, errors) {
+  const provider = env.NEXT_PUBLIC_REALTIME_PROVIDER?.trim().toLowerCase()
+  if (!hasValue(provider)) return
+  if (provider !== 'firestore') {
+    errors.push('NEXT_PUBLIC_REALTIME_PROVIDER must be firestore in production.')
+    return
+  }
+  validateFirebaseValue('NEXT_PUBLIC_FIRESTORE_DATABASE', env.NEXT_PUBLIC_FIRESTORE_DATABASE, errors)
+  if (!hasValue(env.NEXT_PUBLIC_FIRESTORE_DATABASE)) {
+    errors.push('NEXT_PUBLIC_FIRESTORE_DATABASE must be configured when NEXT_PUBLIC_REALTIME_PROVIDER is firestore.')
   }
 }
 

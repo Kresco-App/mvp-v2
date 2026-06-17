@@ -190,7 +190,11 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'style-src-elem')).toContain("'sha256-CIxDM5jnsGiKqXs2v7NKCY5MzdR9gu6TtiMJrDw29AY='")
     expect(cspDirective(csp, 'style-src-elem')).not.toContain("'unsafe-inline'")
     expect(cspDirective(csp, 'style-src-attr')).toBe("style-src-attr 'none'")
-    expect(cspDirective(csp, 'connect-src')).toContain('wss://*.ably.io')
+    expect(cspDirective(csp, 'connect-src')).toContain('https://identitytoolkit.googleapis.com')
+    expect(cspDirective(csp, 'connect-src')).toContain('https://securetoken.googleapis.com')
+    expect(cspDirective(csp, 'connect-src')).toContain('https://firestore.googleapis.com')
+    expect(cspDirective(csp, 'frame-src')).toContain('https://*.firebaseapp.com')
+    expect(cspDirective(csp, 'frame-src')).toContain('https://*.web.app')
     expect(cspDirective(csp, 'frame-src')).toContain('https://www.youtube-nocookie.com')
     expect(cspDirective(csp, 'frame-src')).toContain('https://player.vdocipher.com')
     expect(cspDirective(csp, 'frame-src')).toContain('blob:')
@@ -286,15 +290,15 @@ describe('Next proxy auth boundary', () => {
     }
   })
 
-  it('keeps production CSP same-origin when Vercel API env is missing (no cross-site backend default)', () => {
+  it('keeps production CSP same-origin when API env is missing (no cross-site backend default)', () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_API_BASE_URL', '')
     try {
       const csp = buildContentSecurityPolicy('test-nonce')
 
       // Same-origin model: with no explicit API URL we must NOT silently whitelist
-      // the cross-site staging Lambda (that path also breaks SameSite=Lax cookie auth).
-      expect(cspDirective(csp, 'connect-src')).not.toContain('execute-api.eu-west-3.amazonaws.com')
+      // the cross-site staging backend (that path also breaks SameSite=Lax cookie auth).
+      expect(cspDirective(csp, 'connect-src')).not.toContain('https://staging-api.invalid')
       expect(cspDirective(csp, 'connect-src')).toContain("'self'")
     } finally {
       vi.unstubAllEnvs()

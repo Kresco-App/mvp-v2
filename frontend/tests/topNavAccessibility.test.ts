@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
   }),
 }))
 
-vi.mock('@/lib/ably', () => ({
+vi.mock('@/lib/realtime', () => ({
   subscribeKrescoRealtime: vi.fn(() => () => {}),
   userNotificationsChannelName: vi.fn(() => 'kresco:user:1:notifications'),
 }))

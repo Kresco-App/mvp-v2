@@ -15,12 +15,14 @@ DISALLOWED_JWT_SECRETS = {"", "change-me", LEGACY_FALLBACK_JWT_SECRET, PUBLIC_DE
 DISALLOWED_JWT_SECRET_MARKERS = ("change-me", "placeholder", "test-secret", "development", "local")
 
 REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
-    ("google_client_id", "GOOGLE_CLIENT_ID"),
+    ("gcp_project_id", "GCP_PROJECT_ID"),
+    ("gcp_region", "GCP_REGION"),
+    ("firebase_project_id", "FIREBASE_PROJECT_ID"),
+    ("firebase_web_api_key", "FIREBASE_WEB_API_KEY"),
     ("vdocipher_api_secret", "VDOCIPHER_API_SECRET"),
     ("vdocipher_api_base_url", "VDOCIPHER_API_BASE_URL"),
     ("vdocipher_live_create_url", "VDOCIPHER_LIVE_CREATE_URL"),
     ("resend_api_key", "RESEND_API_KEY"),
-    ("ably_api_key", "ABLY_API_KEY"),
 )
 CMI_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("cmi_client_id", "CMI_CLIENT_ID"),
@@ -31,12 +33,11 @@ CMI_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("cmi_callback_url", "CMI_CALLBACK_URL"),
 )
 MEDIA_STORAGE_LOCAL = "local"
-MEDIA_STORAGE_S3 = "s3"
-MEDIA_STORAGE_S3_MOCK = "s3-mock"
-DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS = 3600
-RUNTIME_SECRET_ID_ENV = "KRESCO_RUNTIME_SECRET_ID"
-RUNTIME_SECRET_REGION_ENV = "KRESCO_RUNTIME_SECRET_REGION"
-AWS_REGION_ENV_NAMES = ("AWS_REGION", "AWS_DEFAULT_REGION")
+MEDIA_STORAGE_GCS = "gcs"
+MEDIA_STORAGE_GCS_MOCK = "gcs-mock"
+DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS = 3600
+GCP_RUNTIME_SECRET_NAME_ENV = "KRESCO_GCP_RUNTIME_SECRET_NAME"
+PRODUCTION_DATABASE_CONNECTION_STRATEGIES = {"alloydb", "cloud_sql"}
 RUNTIME_SECRET_KEY_ALIASES = {
     "KRESCO_ENV": "environment",
     "APP_ENV": "environment",
@@ -45,8 +46,15 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "KRESCO_RELEASE_SHA": "release_sha",
     "RELEASE_SHA": "release_sha",
     "GITHUB_SHA": "release_sha",
-    RUNTIME_SECRET_ID_ENV: "runtime_secret_id",
-    RUNTIME_SECRET_REGION_ENV: "runtime_secret_region",
+    GCP_RUNTIME_SECRET_NAME_ENV: "gcp_runtime_secret_name",
+    "GCP_PROJECT": "gcp_project_id",
+    "GCP_PROJECT_ID": "gcp_project_id",
+    "GOOGLE_CLOUD_PROJECT": "gcp_project_id",
+    "GCP_REGION": "gcp_region",
+    "FIREBASE_PROJECT_ID": "firebase_project_id",
+    "FIREBASE_WEB_API_KEY": "firebase_web_api_key",
+    "FIRESTORE_DATABASE": "firestore_database",
+    "KRESCO_DARK_PRODUCTION_MODE": "dark_production_mode",
     "DATABASE_URL": "database_url",
     "DATABASE_CONNECTION_STRATEGY": "database_connection_strategy",
     "DATABASE_POOL_SIZE": "database_pool_size",
@@ -56,7 +64,6 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "JWT_SECRET_KEY": "jwt_secret_key",
     "JWT_ALGORITHM": "jwt_algorithm",
     "JWT_EXPIRE_MINUTES": "jwt_expire_minutes",
-    "GOOGLE_CLIENT_ID": "google_client_id",
     "VDOCIPHER_API_SECRET": "vdocipher_api_secret",
     "VDOCIPHER_API_BASE_URL": "vdocipher_api_base_url",
     "VDOCIPHER_LIVE_CREATE_URL": "vdocipher_live_create_url",
@@ -74,21 +81,15 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "KRESCO_AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
     "DEBUG": "debug",
     "RESEND_API_KEY": "resend_api_key",
-    "ABLY_API_KEY": "ably_api_key",
-    "ABLY_TOKEN_TTL_SECONDS": "ably_token_ttl_seconds",
     "KRESCO_RATE_LIMIT_STORAGE_URI": "rate_limit_storage_uri",
     "REALTIME_OUTBOX_SECRET": "realtime_outbox_secret",
     "MEDIA_STORAGE_BACKEND": "media_storage_backend",
-    "MEDIA_S3_BUCKET": "media_s3_bucket",
-    "MEDIA_S3_REGION": "media_s3_region",
-    "AWS_REGION": "media_s3_region",
-    "MEDIA_S3_PREFIX": "media_s3_prefix",
-    "MEDIA_S3_ENDPOINT_URL": "media_s3_endpoint_url",
-    "MEDIA_S3_MOCK_ROOT": "media_s3_mock_root",
-    "MEDIA_S3_PRESIGN_TTL_SECONDS": "media_s3_presign_ttl_seconds",
+    "MEDIA_GCS_BUCKET": "media_gcs_bucket",
+    "MEDIA_GCS_PREFIX": "media_gcs_prefix",
+    "MEDIA_GCS_SIGNED_URL_TTL_SECONDS": "media_gcs_signed_url_ttl_seconds",
+    "MEDIA_GCS_MOCK_ROOT": "media_gcs_mock_root",
     "MEDIA_PROFILE_QUOTA_BYTES": "media_profile_quota_bytes",
     "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "media_chat_conversation_quota_bytes",
-    "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "media_s3_lifecycle_expiration_days",
     "MAX_REQUEST_BODY_BYTES": "max_request_body_bytes",
     "KRESCO_MAX_REQUEST_BODY_BYTES": "max_request_body_bytes",
 }
@@ -103,13 +104,21 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("release_sha", "KRESCO_RELEASE_SHA", "RELEASE_SHA", "GITHUB_SHA"),
     )
-    runtime_secret_id: str = Field(
+    gcp_runtime_secret_name: str = Field(
         default="",
-        validation_alias=AliasChoices("runtime_secret_id", RUNTIME_SECRET_ID_ENV),
+        validation_alias=AliasChoices("gcp_runtime_secret_name", GCP_RUNTIME_SECRET_NAME_ENV),
     )
-    runtime_secret_region: str = Field(
+    gcp_project_id: str = Field(
         default="",
-        validation_alias=AliasChoices("runtime_secret_region", RUNTIME_SECRET_REGION_ENV),
+        validation_alias=AliasChoices("gcp_project_id", "GCP_PROJECT_ID", "GCP_PROJECT", "GOOGLE_CLOUD_PROJECT"),
+    )
+    gcp_region: str = Field(default="europe-southwest1", validation_alias=AliasChoices("gcp_region", "GCP_REGION"))
+    firebase_project_id: str = Field(default="", validation_alias=AliasChoices("firebase_project_id", "FIREBASE_PROJECT_ID"))
+    firebase_web_api_key: str = Field(default="", validation_alias=AliasChoices("firebase_web_api_key", "FIREBASE_WEB_API_KEY"))
+    firestore_database: str = Field(default="(default)", validation_alias=AliasChoices("firestore_database", "FIRESTORE_DATABASE"))
+    dark_production_mode: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("dark_production_mode", "KRESCO_DARK_PRODUCTION_MODE"),
     )
     database_url: str = Field(
         default=LOCAL_DATABASE_URL,
@@ -132,7 +141,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("database_pool_timeout", "DATABASE_POOL_TIMEOUT"),
     )
     pgsslrootcert: str = Field(
-        default=str(BACKEND_DIR / "certs" / "rds-global-bundle.pem"),
+        default="certifi",
         validation_alias=AliasChoices("pgsslrootcert", "PGSSLROOTCERT"),
     )
     jwt_secret_key: str = Field(
@@ -141,7 +150,6 @@ class Settings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256", validation_alias=AliasChoices("jwt_algorithm", "JWT_ALGORITHM"))
     jwt_expire_minutes: int = Field(default=10080, validation_alias=AliasChoices("jwt_expire_minutes", "JWT_EXPIRE_MINUTES"))
-    google_client_id: str = Field(default="", validation_alias=AliasChoices("google_client_id", "GOOGLE_CLIENT_ID"))
     vdocipher_api_secret: str = Field(default="", validation_alias=AliasChoices("vdocipher_api_secret", "VDOCIPHER_API_SECRET"))
     vdocipher_api_base_url: str = Field(
         default="",
@@ -180,11 +188,6 @@ class Settings(BaseSettings):
     )
     debug: bool = Field(default=False, validation_alias=AliasChoices("debug", "DEBUG"))
     resend_api_key: str = Field(default="", validation_alias=AliasChoices("resend_api_key", "RESEND_API_KEY"))
-    ably_api_key: str = Field(default="", validation_alias=AliasChoices("ably_api_key", "ABLY_API_KEY"))
-    ably_token_ttl_seconds: int = Field(
-        default=3600,
-        validation_alias=AliasChoices("ably_token_ttl_seconds", "ABLY_TOKEN_TTL_SECONDS"),
-    )
     realtime_outbox_secret: str = Field(
         default="",
         validation_alias=AliasChoices("realtime_outbox_secret", "REALTIME_OUTBOX_SECRET"),
@@ -193,15 +196,13 @@ class Settings(BaseSettings):
         default=MEDIA_STORAGE_LOCAL,
         validation_alias=AliasChoices("media_storage_backend", "MEDIA_STORAGE_BACKEND"),
     )
-    media_s3_bucket: str = Field(default="", validation_alias=AliasChoices("media_s3_bucket", "MEDIA_S3_BUCKET"))
-    media_s3_region: str = Field(default="", validation_alias=AliasChoices("media_s3_region", "MEDIA_S3_REGION", "AWS_REGION"))
-    media_s3_prefix: str = Field(default="media", validation_alias=AliasChoices("media_s3_prefix", "MEDIA_S3_PREFIX"))
-    media_s3_endpoint_url: str = Field(default="", validation_alias=AliasChoices("media_s3_endpoint_url", "MEDIA_S3_ENDPOINT_URL"))
-    media_s3_mock_root: str = Field(default=".mock-s3", validation_alias=AliasChoices("media_s3_mock_root", "MEDIA_S3_MOCK_ROOT"))
-    media_s3_presign_ttl_seconds: int = Field(
-        default=DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS,
-        validation_alias=AliasChoices("media_s3_presign_ttl_seconds", "MEDIA_S3_PRESIGN_TTL_SECONDS"),
+    media_gcs_bucket: str = Field(default="", validation_alias=AliasChoices("media_gcs_bucket", "MEDIA_GCS_BUCKET"))
+    media_gcs_prefix: str = Field(default="media", validation_alias=AliasChoices("media_gcs_prefix", "MEDIA_GCS_PREFIX"))
+    media_gcs_signed_url_ttl_seconds: int = Field(
+        default=DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS,
+        validation_alias=AliasChoices("media_gcs_signed_url_ttl_seconds", "MEDIA_GCS_SIGNED_URL_TTL_SECONDS"),
     )
+    media_gcs_mock_root: str = Field(default=".mock-gcs", validation_alias=AliasChoices("media_gcs_mock_root", "MEDIA_GCS_MOCK_ROOT"))
     media_profile_quota_bytes: int = Field(
         default=10 * 1024 * 1024,
         validation_alias=AliasChoices("media_profile_quota_bytes", "MEDIA_PROFILE_QUOTA_BYTES"),
@@ -209,10 +210,6 @@ class Settings(BaseSettings):
     media_chat_conversation_quota_bytes: int = Field(
         default=50 * 1024 * 1024,
         validation_alias=AliasChoices("media_chat_conversation_quota_bytes", "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES"),
-    )
-    media_s3_lifecycle_expiration_days: int = Field(
-        default=365,
-        validation_alias=AliasChoices("media_s3_lifecycle_expiration_days", "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS"),
     )
     max_request_body_bytes: int = Field(
         default=8 * 1024 * 1024,
@@ -229,12 +226,12 @@ class Settings(BaseSettings):
         return value or None
 
     @property
-    def is_lambda(self) -> bool:
-        return bool(os.environ.get("LAMBDA_TASK_ROOT"))
+    def is_cloud_run(self) -> bool:
+        return bool(os.environ.get("K_SERVICE"))
 
     @property
     def is_production_like(self) -> bool:
-        return self.is_lambda or self.environment.strip().lower() in PRODUCTION_ENVIRONMENTS
+        return self.is_cloud_run or self.environment.strip().lower() in PRODUCTION_ENVIRONMENTS
 
     def production_config_errors(self) -> list[str]:
         if not self.is_production_like:
@@ -248,52 +245,60 @@ class Settings(BaseSettings):
         if _is_disallowed_jwt_secret(self.jwt_secret_key):
             errors.append("JWT_SECRET_KEY must be configured to a non-default secret with at least 32 characters.")
 
+        database_strategy = self.database_connection_strategy.strip().lower()
         if _is_sqlite_database_url(self.database_url):
             errors.append("DATABASE_URL must point to a production database, not a local SQLite database.")
         elif not _is_postgres_database_url(self.database_url):
             errors.append("DATABASE_URL must use PostgreSQL in production environments.")
         else:
             sslmode = _database_sslmode(self.database_url)
-            if sslmode != "verify-full":
-                errors.append("DATABASE_URL must include sslmode=verify-full in production environments.")
-            if not _is_readable_trust_store(self.pgsslrootcert):
-                errors.append("PGSSLROOTCERT must point to a readable CA trust store.")
+            if database_strategy == "cloud_sql" and _is_cloud_sql_socket_database_url(self.database_url):
+                if sslmode not in {"", "disable"}:
+                    errors.append("Cloud SQL socket DATABASE_URL must omit sslmode or set sslmode=disable.")
+            else:
+                if sslmode != "verify-full":
+                    errors.append("DATABASE_URL must include sslmode=verify-full in production environments.")
+                if not _is_readable_trust_store(self.pgsslrootcert):
+                    errors.append("PGSSLROOTCERT must point to a readable CA trust store.")
 
-        if self.database_connection_strategy.strip().lower() != "rds_proxy":
-            errors.append("DATABASE_CONNECTION_STRATEGY must be rds_proxy in production environments.")
+        if database_strategy not in PRODUCTION_DATABASE_CONNECTION_STRATEGIES:
+            errors.append("DATABASE_CONNECTION_STRATEGY must be alloydb or cloud_sql in production environments.")
 
+        provider_fields = {
+            "firebase_web_api_key",
+            "vdocipher_api_secret",
+            "vdocipher_live_create_url",
+            "resend_api_key",
+        }
         for field_name, env_name in REQUIRED_PRODUCTION_FIELDS:
+            if self.dark_production_mode and field_name in provider_fields:
+                continue
             value = getattr(self, field_name, "")
             if not str(value).strip():
                 errors.append(f"{env_name} must be configured for production environments.")
 
-        for field_name, env_name in CMI_PRODUCTION_FIELDS:
-            if not str(getattr(self, field_name, "")).strip():
-                errors.append(f"{env_name} must be configured for the launch CMI checkout path.")
-        errors.extend(_cmi_production_url_errors(self))
+        if not self.dark_production_mode:
+            for field_name, env_name in CMI_PRODUCTION_FIELDS:
+                if not str(getattr(self, field_name, "")).strip():
+                    errors.append(f"{env_name} must be configured for the launch CMI checkout path.")
+            errors.extend(_cmi_production_url_errors(self))
 
         storage_backend = self.media_storage_backend.strip().lower()
-        if storage_backend != MEDIA_STORAGE_S3:
-            errors.append("MEDIA_STORAGE_BACKEND must be set to s3 in production environments.")
-        if not self.media_s3_bucket.strip():
-            errors.append("MEDIA_S3_BUCKET must be configured for production environments.")
-        if not self.media_s3_region.strip():
-            errors.append("MEDIA_S3_REGION or AWS_REGION must be configured for production environments.")
-        if self.media_s3_endpoint_url.strip() and _is_local_origin(self.media_s3_endpoint_url):
-            errors.append("MEDIA_S3_ENDPOINT_URL must not point to localhost in production environments.")
-        if int(self.media_s3_presign_ttl_seconds) < 60:
-            errors.append("MEDIA_S3_PRESIGN_TTL_SECONDS must be at least 60 seconds.")
+        if storage_backend != MEDIA_STORAGE_GCS:
+            errors.append("MEDIA_STORAGE_BACKEND must be set to gcs in production environments.")
+        if not self.media_gcs_bucket.strip():
+            errors.append("MEDIA_GCS_BUCKET must be configured for production environments.")
+        if int(self.media_gcs_signed_url_ttl_seconds) < 60:
+            errors.append("MEDIA_GCS_SIGNED_URL_TTL_SECONDS must be at least 60 seconds.")
         if int(self.media_profile_quota_bytes) <= 0:
             errors.append("MEDIA_PROFILE_QUOTA_BYTES must be greater than zero.")
         if int(self.media_chat_conversation_quota_bytes) <= 0:
             errors.append("MEDIA_CHAT_CONVERSATION_QUOTA_BYTES must be greater than zero.")
-        if int(self.media_s3_lifecycle_expiration_days) <= 0:
-            errors.append("MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS must be greater than zero.")
         if int(self.max_request_body_bytes) <= 0:
             errors.append("MAX_REQUEST_BODY_BYTES must be greater than zero.")
         if len(self.realtime_outbox_secret.strip()) < 32:
             errors.append("REALTIME_OUTBOX_SECRET must be configured with at least 32 characters.")
-        if not _is_shared_rate_limit_storage_uri(self.rate_limit_storage_uri):
+        if not self.dark_production_mode and not _is_shared_rate_limit_storage_uri(self.rate_limit_storage_uri):
             errors.append("KRESCO_RATE_LIMIT_STORAGE_URI must point to a shared rate-limit store in production environments.")
 
         if _is_local_origin(self.frontend_url):
@@ -335,36 +340,32 @@ def get_settings() -> Settings:
 
 def load_runtime_secret_overrides(runtime_env: dict[str, str] | None = None) -> dict[str, object]:
     env = runtime_env if runtime_env is not None else os.environ
-    secret_id = str(env.get(RUNTIME_SECRET_ID_ENV, "")).strip()
-    if not secret_id:
-        return {}
+    gcp_secret_name = str(env.get(GCP_RUNTIME_SECRET_NAME_ENV, "")).strip()
+    if gcp_secret_name:
+        return _load_gcp_runtime_secret(gcp_secret_name)
 
-    import boto3
+    return {}
 
-    region_name = str(env.get(RUNTIME_SECRET_REGION_ENV, "")).strip()
-    if not region_name:
-        for env_name in AWS_REGION_ENV_NAMES:
-            region_name = str(env.get(env_name, "")).strip()
-            if region_name:
-                break
 
-    client = boto3.client("secretsmanager", region_name=region_name or None)
+def _load_gcp_runtime_secret(secret_name: str) -> dict[str, object]:
     try:
-        response = client.get_secret_value(SecretId=secret_id)
-    except Exception as exc:  # pragma: no cover - exercised against AWS in staging
-        raise RuntimeError("Failed to load runtime configuration from AWS Secrets Manager.") from exc
+        from google.cloud import secretmanager
+    except Exception as exc:  # pragma: no cover - depends on deployed image deps
+        raise RuntimeError("google-cloud-secret-manager is required to load GCP runtime configuration.") from exc
 
-    secret_string = response.get("SecretString")
-    if not secret_string:
-        raise RuntimeError("Runtime configuration secret must be a JSON SecretString.")
+    client = secretmanager.SecretManagerServiceClient()
+    try:
+        response = client.access_secret_version(request={"name": secret_name})
+    except Exception as exc:  # pragma: no cover - exercised against GCP in staging
+        raise RuntimeError("Failed to load runtime configuration from Google Secret Manager.") from exc
 
     try:
-        decoded = json.loads(secret_string)
+        decoded = json.loads(response.payload.data.decode("utf-8-sig"))
     except json.JSONDecodeError as exc:
-        raise RuntimeError("Runtime configuration secret must contain valid JSON.") from exc
+        raise RuntimeError("GCP runtime configuration secret must contain valid JSON.") from exc
 
     if not isinstance(decoded, dict):
-        raise RuntimeError("Runtime configuration secret must contain a JSON object.")
+        raise RuntimeError("GCP runtime configuration secret must contain a JSON object.")
 
     return {
         RUNTIME_SECRET_KEY_ALIASES.get(str(key), str(key)): value
@@ -394,6 +395,10 @@ def _database_sslmode(value: str) -> str:
 
     parsed = urlparse(value.strip())
     return parse_qs(parsed.query).get("sslmode", [""])[0].strip().lower()
+
+
+def _is_cloud_sql_socket_database_url(value: str) -> bool:
+    return "/cloudsql/" in value.strip()
 
 
 def _is_readable_trust_store(value: str) -> bool:

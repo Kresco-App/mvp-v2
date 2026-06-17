@@ -341,12 +341,15 @@ def test_delete_live_stream_uses_configured_cleanup_endpoint(monkeypatch):
     ]
 
 
-def test_delete_live_stream_returns_cleanup_required_without_endpoint(caplog):
-    with caplog.at_level("CRITICAL", logger=vdocipher.logger.name):
-        result = asyncio.run(vdocipher.delete_live_stream("generated_live_123", live_settings()))
+def test_delete_live_stream_returns_cleanup_required_without_endpoint(monkeypatch):
+    logs = []
+    monkeypatch.setattr(vdocipher.logger, "critical", lambda *args, **kwargs: logs.append((args, kwargs)))
+
+    result = asyncio.run(vdocipher.delete_live_stream("generated_live_123", live_settings()))
 
     assert result == {"cleanup_state": "cleanup_required", "cleanup_reason": "delete_endpoint_unconfigured"}
-    assert "vdocipher_live_cleanup_required" in caplog.text
+    assert logs[0][0] == ("vdocipher_live_cleanup_required",)
+    assert logs[0][1]["extra"]["cleanup_reason"] == "delete_endpoint_unconfigured"
 
 
 def test_provider_payload_sanitizer_redacts_nested_secrets():

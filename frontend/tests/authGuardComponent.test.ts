@@ -86,7 +86,7 @@ afterEach(() => {
 
 describe('AuthGuard component behavior', () => {
   it('requires server profile verification before rendering a stored student session', async () => {
-    localStorage.setItem(KRESCO_TOKEN_KEY, 'legacy-token')
+    localStorage.setItem(KRESCO_TOKEN_KEY, 'stale-local-token')
     localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
     document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
     getMyProfileMock.mockResolvedValueOnce(studentUser as never)

@@ -34,6 +34,12 @@ function absoluteOrigin(value?: string | null) {
   }
 }
 
+function firebaseAuthOrigin() {
+  const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN?.trim()
+  if (!authDomain || /^https?:\/\//i.test(authDomain)) return null
+  return absoluteOrigin(`https://${authDomain}`)
+}
+
 function uniqueSources(sources: string[]) {
   return Array.from(new Set(sources.filter(Boolean)))
 }
@@ -60,6 +66,7 @@ function getContentSecurityPolicyTemplate() {
   const apiBase = getApiOrigin()
   const apiOrigin = absoluteOrigin(process.env.NEXT_PUBLIC_API_BASE_URL) ?? (apiBase || null)
   const apiNetworkOrigin = absoluteOrigin(apiBase)
+  const firebaseOrigin = firebaseAuthOrigin()
   const devConnectSources = isDevelopment
     ? ['http://localhost:*', 'http://127.0.0.1:*', 'ws://localhost:*', 'ws://127.0.0.1:*']
     : []
@@ -76,14 +83,13 @@ function getContentSecurityPolicyTemplate() {
       "'self'",
       apiOrigin ?? '',
       apiNetworkOrigin ?? '',
+      firebaseOrigin ?? '',
+      'https://identitytoolkit.googleapis.com',
+      'https://securetoken.googleapis.com',
+      'https://firestore.googleapis.com',
+      'https://www.googleapis.com',
       'https://accounts.google.com',
       'https://player.vdocipher.com',
-      'https://*.ably.io',
-      'wss://*.ably.io',
-      'https://*.ably.net',
-      'wss://*.ably.net',
-      'https://*.ably-realtime.com',
-      'wss://*.ably-realtime.com',
       ...devConnectSources,
     ]).join(' ')}`,
     `img-src ${uniqueSources([
@@ -100,7 +106,18 @@ function getContentSecurityPolicyTemplate() {
       ...devImageSources,
     ]).join(' ')}`,
     "font-src 'self' data:",
-    "frame-src 'self' blob: about: https://accounts.google.com https://player.vdocipher.com https://*.vdocipher.com https://www.youtube-nocookie.com",
+    `frame-src ${uniqueSources([
+      "'self'",
+      'blob:',
+      'about:',
+      firebaseOrigin ?? '',
+      'https://*.firebaseapp.com',
+      'https://*.web.app',
+      'https://accounts.google.com',
+      'https://player.vdocipher.com',
+      'https://*.vdocipher.com',
+      'https://www.youtube-nocookie.com',
+    ]).join(' ')}`,
     "media-src 'self' blob: data: https:",
     "worker-src 'self' blob:",
     "object-src 'none'",

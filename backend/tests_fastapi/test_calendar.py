@@ -259,7 +259,7 @@ def test_calendar_events_defaults_to_current_week(app_client, auth_token):
     assert isinstance(response.json(), list)
 
 
-def test_calendar_events_scope_legacy_role_users_and_hide_live_join_url(app_client, run_db, test_settings):
+def test_calendar_events_scope_other_role_users_and_hide_live_join_url(app_client, run_db, test_settings):
     from app.services.auth import create_token
 
     async def _seed():
@@ -275,24 +275,24 @@ def test_calendar_events_scope_legacy_role_users_and_hide_live_join_url(app_clie
             db.add(track)
             await db.flush()
             professor = User(
-                email="calendar-legacy-prof@example.com",
+                email="calendar-scope-prof@example.com",
                 full_name="Prof Scope",
                 role="professor",
                 is_email_verified=True,
                 is_active=True,
                 password="!",
             )
-            legacy_user = User(
-                email="calendar-legacy-user@example.com",
-                full_name="Legacy User",
-                role="legacy",
+            other_user = User(
+                email="calendar-other-user@example.com",
+                full_name="Other Role User",
+                role="other",
                 is_email_verified=True,
                 is_active=True,
                 password="!",
                 niveau="",
                 filiere="",
             )
-            db.add_all([professor, legacy_user])
+            db.add_all([professor, other_user])
             await db.flush()
             offering = CourseOffering(
                 subject_id=subject.id,
@@ -338,7 +338,7 @@ def test_calendar_events_scope_legacy_role_users_and_hide_live_join_url(app_clie
                 status="scheduled",
             ))
             await db.commit()
-            return create_token(legacy_user.id, test_settings), live_event.id
+            return create_token(other_user.id, test_settings), live_event.id
 
     token, live_event_id = run_db(_seed())
     response = app_client.get(

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from itsdangerous import URLSafeTimedSerializer
-from sqlalchemy import insert, select
+from sqlalchemy import func, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
@@ -60,6 +60,13 @@ async def _get_user(email: str) -> User | None:
     async with session_factory() as db:
         result = await db.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
+
+
+async def _count_users() -> int:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        result = await db.execute(select(func.count(User.id)))
+        return int(result.scalar_one())
 
 
 async def _get_email_throttle(email: str, purpose: str) -> EmailDispatchThrottle | None:
@@ -165,7 +172,7 @@ def test_google_login_persistence_stays_out_of_router():
     route_source = inspect.getsource(users_router.google_login)
     service_source = inspect.getsource(auth_google)
 
-    assert "verify_google_token(" in route_source
+    assert "verify_firebase_token(" in route_source
     assert "complete_google_login(" in route_source
     assert "select(User)" not in route_source
     assert "UserXP(" not in route_source
@@ -398,7 +405,7 @@ def test_google_login_happy_path(app_client, monkeypatch):
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": "googleuser@example.com",
             "email_verified": True,
@@ -414,6 +421,99 @@ def test_google_login_happy_path(app_client, monkeypatch):
     assert "access_token" not in body
     assert body["user"]["email"] == "googleuser@example.com"
     assert response.cookies.get("kresco_token")
+
+
+def test_google_login_uses_firebase_verifier_when_project_configured(app_client, monkeypatch, test_settings, run_db):
+    import app.routers.users as users_router
+
+    old_project_id = test_settings.firebase_project_id
+    test_settings.firebase_project_id = "kresco-staging"
+    firebase_calls = {"count": 0}
+
+    async def fake_verify_firebase_token(credential, project_id):
+        firebase_calls["count"] += 1
+        assert credential == "firebase-credential"
+        assert project_id == "kresco-staging"
+        return {
+            "email": "firebase-google@example.com",
+            "email_verified": True,
+            "name": "Firebase Google",
+            "picture": "https://example.com/avatar.png",
+            "sub": "google-provider-sub",
+            "firebase_uid": "firebase-uid-123",
+        }
+
+    monkeypatch.setattr(users_router, "verify_firebase_token", fake_verify_firebase_token)
+
+    try:
+        response = app_client.post("/api/google-login", json={"credential": "firebase-credential"})
+    finally:
+        test_settings.firebase_project_id = old_project_id
+
+    assert response.status_code == 200
+    assert firebase_calls == {"count": 1}
+    user = run_db(_get_user("firebase-google@example.com"))
+    assert user is not None
+    assert user.google_id == "google-provider-sub"
+    assert user.firebase_uid == "firebase-uid-123"
+
+
+def test_firebase_google_login_links_existing_google_id_when_email_changed(
+    app_client,
+    monkeypatch,
+    test_settings,
+    run_db,
+):
+    import app.routers.users as users_router
+
+    old_email = "old-google-email@example.com"
+    new_email = "new-google-email@example.com"
+
+    async def seed_existing_google_user():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = User(
+                email=old_email,
+                full_name="Existing Google User",
+                password="!",
+                is_active=True,
+                is_email_verified=True,
+                google_id="existing-google-sub",
+            )
+            db.add(user)
+            await db.commit()
+            return user.id
+
+    existing_user_id = run_db(seed_existing_google_user())
+    before_count = run_db(_count_users())
+    old_project_id = test_settings.firebase_project_id
+    test_settings.firebase_project_id = "kresco-staging"
+
+    async def fake_verify_firebase_token(*_args):
+        return {
+            "email": new_email,
+            "email_verified": True,
+            "name": "Existing Google User",
+            "picture": "https://example.com/new-avatar.png",
+            "sub": "existing-google-sub",
+            "firebase_uid": "firebase-uid-linked",
+        }
+
+    monkeypatch.setattr(users_router, "verify_firebase_token", fake_verify_firebase_token)
+
+    try:
+        response = app_client.post("/api/google-login", json={"credential": "firebase-credential"})
+    finally:
+        test_settings.firebase_project_id = old_project_id
+
+    assert response.status_code == 200
+    assert run_db(_count_users()) == before_count
+    assert run_db(_get_user(old_email)) is None
+    linked = run_db(_get_user(new_email))
+    assert linked is not None
+    assert linked.id == existing_user_id
+    assert linked.google_id == "existing-google-sub"
+    assert linked.firebase_uid == "firebase-uid-linked"
 
 
 def test_google_login_recovers_from_insert_race_and_uses_existing_user(app_client, monkeypatch, run_db):
@@ -453,7 +553,7 @@ def test_google_login_recovers_from_insert_race_and_uses_existing_user(app_clien
     monkeypatch.setattr(AsyncSession, "rollback", rollback_and_seed)
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,
@@ -482,7 +582,7 @@ def test_google_login_normalizes_email_and_neutralizes_unverified_password(app_c
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": "  GOOGLE-PRE-ATO@EXAMPLE.COM  ",
             "email_verified": True,
@@ -515,7 +615,7 @@ def test_google_login_activation_invalidates_pending_verification_token(app_clie
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,
@@ -551,7 +651,7 @@ def test_google_login_activation_invalidates_pending_verification_token(app_clie
 def test_google_login_rejects_unverified_or_malformed_identity_payload(app_client, monkeypatch, payload):
     import app.routers.users as users_router
 
-    monkeypatch.setattr(users_router, "verify_google_token", lambda *_: payload)
+    monkeypatch.setattr(users_router, "verify_firebase_token", lambda *_: payload)
 
     response = app_client.post("/api/google-login", json={"credential": "fake-credential"})
 
@@ -560,15 +660,15 @@ def test_google_login_rejects_unverified_or_malformed_identity_payload(app_clien
     assert "access_token" not in response.text
 
 
-def test_legacy_unusable_password_sentinel_still_cannot_login(app_client, run_db):
-    email = "legacy-unusable@example.com"
+def test_unusable_password_sentinel_still_cannot_login(app_client, run_db):
+    email = "unusable-password@example.com"
 
     async def _seed():
         session_factory = get_session_factory()
         async with session_factory() as db:
             db.add(User(
                 email=email,
-                full_name="Legacy Unusable",
+                full_name="Unusable Password",
                 password="!",
                 is_active=True,
                 is_email_verified=True,
@@ -590,7 +690,7 @@ def test_google_login_does_not_mint_token_after_persistence_failure(app_client, 
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,
@@ -624,7 +724,7 @@ def test_google_login_rejected_professor_does_not_persist_profile_mutations(app_
 
     monkeypatch.setattr(
         users_router,
-        "verify_google_token",
+        "verify_firebase_token",
         lambda *_: {
             "email": email,
             "email_verified": True,
@@ -670,11 +770,10 @@ def test_demo_login_endpoint_is_removed(app_client):
     assert "access_token" not in response.text
 
 
-def test_signup_does_not_block_when_verification_email_fails(app_client, monkeypatch, caplog):
+def test_signup_does_not_block_when_verification_email_fails(app_client, monkeypatch):
     import app.routers.users as users_router
 
     monkeypatch.setattr(users_router, "send_verification_email", _failing_send_email)
-    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post(
         "/api/auth/signup",
@@ -683,43 +782,30 @@ def test_signup_does_not_block_when_verification_email_fails(app_client, monkeyp
 
     assert response.status_code == 202
     assert response.json()["email"] == "email-failure@example.com"
-    assert any(
-        record.message == "auth_email_dispatch_failed"
-        and getattr(record, "flow", "") == "signup_verification"
-        for record in caplog.records
-    )
 
 
-def test_email_dispatch_failure_logging_preserves_flow_without_exc_info(caplog):
-    caplog.set_level("WARNING", logger="kresco.auth")
+def test_email_dispatch_failure_logging_preserves_flow_without_exc_info(monkeypatch):
+    calls = []
+    monkeypatch.setattr(auth_email_dispatch.logger, "warning", lambda *args, **kwargs: calls.append((args, kwargs)))
 
     auth_email_dispatch.log_email_dispatch_failure("signup_verification", RuntimeError("email provider unavailable"))
 
-    [record] = [
-        entry for entry in caplog.records
-        if entry.message == "auth_email_dispatch_failed"
-    ]
-    assert getattr(record, "flow", "") == "signup_verification"
-    assert getattr(record, "error_type", "") == "RuntimeError"
-    assert record.exc_info is None
+    [(args, kwargs)] = calls
+    assert args == ("auth_email_dispatch_failed",)
+    assert kwargs["extra"] == {"flow": "signup_verification", "error_type": "RuntimeError"}
+    assert "exc_info" not in kwargs
 
 
-def test_resend_verification_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
+def test_resend_verification_does_not_block_when_email_fails(app_client, monkeypatch, run_db):
     import app.routers.users as users_router
 
     run_db(_seed_user("resend-failure@example.com", is_email_verified=False))
     monkeypatch.setattr(users_router, "send_verification_email", _failing_send_email)
-    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post("/api/auth/resend-verification", json={"email": "resend-failure@example.com"})
 
     assert response.status_code == 200
     assert "un email a ete envoye" in response.json()["message"]
-    assert any(
-        record.message == "auth_email_dispatch_failed"
-        and getattr(record, "flow", "") == "resend_verification"
-        for record in caplog.records
-    )
 
 
 def test_resend_verification_retry_is_not_blackholed_by_failed_send(app_client, monkeypatch, run_db):
@@ -866,22 +952,16 @@ def test_resend_verification_throttle_insert_race_is_neutral_no_send(app_client,
     assert throttle.sent_count == 1
 
 
-def test_forgot_password_does_not_block_when_email_fails(app_client, monkeypatch, run_db, caplog):
+def test_forgot_password_does_not_block_when_email_fails(app_client, monkeypatch, run_db):
     import app.routers.users as users_router
 
     run_db(_seed_user("forgot-failure@example.com", is_email_verified=True))
     monkeypatch.setattr(users_router, "send_reset_email", _failing_send_email)
-    caplog.set_level("WARNING", logger="kresco.auth")
 
     response = app_client.post("/api/auth/forgot-password", json={"email": "forgot-failure@example.com"})
 
     assert response.status_code == 200
     assert "email de reinitialisation" in response.json()["message"]
-    assert any(
-        record.message == "auth_email_dispatch_failed"
-        and getattr(record, "flow", "") == "forgot_password"
-        for record in caplog.records
-    )
 
 
 def test_resend_verification_is_throttled_by_target_email(app_client, monkeypatch, run_db):

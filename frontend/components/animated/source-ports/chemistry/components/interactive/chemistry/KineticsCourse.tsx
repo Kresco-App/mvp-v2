@@ -181,7 +181,7 @@ export const KineticsQuenching: React.FC = () => {
     );
 }
 
-// Default export for backward compatibility
+// Default export
 export const KineticsCourse: React.FC = () => {
     return (
         <div className="max-w-4xl mx-auto space-y-8 font-sans">

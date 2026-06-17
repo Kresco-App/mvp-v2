@@ -2642,13 +2642,13 @@ def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db,
             calls.append({"key": key, "content": content, "content_type": content_type})
             return SimpleNamespace(
                 key=f"test-prefix/{key}",
-                reference=f"s3://kresco-media/test-prefix/{key}",
+                reference=f"gs://kresco-media/test-prefix/{key}",
                 url=f"https://signed.example.com/test-prefix/{key}?signature=upload",
             )
 
     monkeypatch.setattr("app.services.professor_chat_mutations.get_media_storage", lambda settings: _Storage())
     async def _async_media_url(reference, settings):
-        return f"https://signed.example.com/{reference.removeprefix('s3://kresco-media/')}?signature=read" if str(reference).startswith("s3://") else reference
+        return f"https://signed.example.com/{reference.removeprefix('gs://kresco-media/')}?signature=read" if str(reference).startswith("gs://") else reference
 
     monkeypatch.setattr(
         "app.services.professor_serializers.async_media_url",
@@ -2677,5 +2677,5 @@ def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db,
             return message.attachment_url
 
     assert run_db(_stored_message_attachment()).startswith(
-        f"s3://kresco-media/test-prefix/professor-chat/{conversation_id}/"
+        f"gs://kresco-media/test-prefix/professor-chat/{conversation_id}/"
     )

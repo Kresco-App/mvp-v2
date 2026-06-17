@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.database import get_session_factory
 from app.models.professor import RealtimeOutbox
-from app.services.ably import publish_ably_message
+from app.services.firestore_realtime import publish_firestore_message
 
 OUTBOX_PENDING = "pending"
 OUTBOX_RETRY = "retry"
@@ -73,9 +73,9 @@ async def process_realtime_outbox(
     dead = 0
 
     async def _publish_event(event: RealtimeOutbox) -> tuple[RealtimeOutbox, bool, str]:
-        failure_reason = "Ably publish returned false"
+        failure_reason = "Firestore publish returned false"
         try:
-            delivered = await publish_ably_message(
+            delivered = await publish_realtime_message(
                 settings,
                 event.channel,
                 event.event_name,
@@ -124,6 +124,9 @@ async def process_realtime_outbox(
 
     await db.commit()
     return {"claimed": len(events), "published": published, "retry": retry, "dead": dead}
+
+
+publish_realtime_message = publish_firestore_message
 
 
 async def requeue_failed_realtime_outbox(
@@ -196,6 +199,9 @@ async def drain_realtime_outbox_in_background(
     errors because the scheduled worker remains the durable safety net. Claiming
     uses ``skip_locked``, so overlapping with the cron is safe.
     """
+    if not settings.firebase_project_id.strip():
+        return
+
     session_factory = get_session_factory()
     if session_factory is None:
         return

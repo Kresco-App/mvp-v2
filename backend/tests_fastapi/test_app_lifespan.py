@@ -23,15 +23,14 @@ def test_app_lifespan_initializes_and_disposes_database_engine(monkeypatch):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         jwt_secret_key="test-secret-key-for-ci-32-bytes-minimum",
-        google_client_id="test-google-client-id",
         debug=True,
     )
 
     calls: list[tuple[str, object]] = []
     fake_engine = object()
 
-    def fake_init_engine(database_url, is_lambda=False, pgsslrootcert=None, **engine_kwargs):
-        calls.append(("init", (database_url, is_lambda, pgsslrootcert, engine_kwargs)))
+    def fake_init_engine(database_url, pgsslrootcert=None, **engine_kwargs):
+        calls.append(("init", (database_url, pgsslrootcert, engine_kwargs)))
         return fake_engine, object()
 
     async def fake_reset_engine():
@@ -49,7 +48,6 @@ def test_app_lifespan_initializes_and_disposes_database_engine(monkeypatch):
         assert client.app.state.db_engine is fake_engine
         assert calls[0] == ("init", (
             settings.database_url,
-            settings.is_lambda,
             settings.pgsslrootcert,
             {
                 "pool_size": settings.database_pool_size,

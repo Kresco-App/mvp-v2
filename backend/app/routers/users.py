@@ -14,7 +14,7 @@ from app.schemas.users import (
     VerifyEmailIn,
 )
 from app.security.csrf import clear_csrf_cookie, set_csrf_cookie
-from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_google_token
+from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_firebase_token
 from app.services.auth_account import (
     authenticate_password_login,
     reset_password_account,
@@ -132,8 +132,11 @@ async def google_login(
     settings: Settings = Depends(get_settings),
 ):
     del request
+    if not settings.firebase_project_id.strip():
+        raise HTTPException(status_code=503, detail="Firebase authentication is not configured")
+
     try:
-        verification = verify_google_token(body.credential, settings.google_client_id)
+        verification = verify_firebase_token(body.credential, settings.firebase_project_id)
         payload = await verification if inspect.isawaitable(verification) else verification
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Google credential")
