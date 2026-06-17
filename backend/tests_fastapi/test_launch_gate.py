@@ -127,10 +127,12 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
         assert "--max-instances 3" in workflow
         assert "confirm_production_dark_deploy" in workflow
         assert "zappa " not in workflow
-        assert "vercel " not in workflow
+    assert "vercel " not in workflow
 
     assert "Deploy Backend to Cloud Run" in backend_workflow
-    assert "gcloud builds submit backend" in backend_workflow
+    assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in backend_workflow
+    assert 'docker build --pull -t "$image" backend' in backend_workflow
+    assert 'docker push "$image"' in backend_workflow
     assert "gcloud run deploy \"$BACKEND_SERVICE\"" in backend_workflow
     assert "gcloud run jobs deploy \"$MIGRATION_JOB\"" in backend_workflow
     assert "gcloud run jobs execute \"$MIGRATION_JOB\"" in backend_workflow
@@ -142,12 +144,15 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in backend_workflow
 
     assert "Deploy Frontend to Cloud Run" in frontend_workflow
-    assert "gcloud builds submit frontend" in frontend_workflow
+    assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in frontend_workflow
+    assert "docker build --pull" in frontend_workflow
+    assert 'docker push "$image"' in frontend_workflow
     assert "gcloud run deploy \"$FRONTEND_SERVICE\"" in frontend_workflow
+    assert "npm ci" in frontend_workflow
     assert "npm run validate:production-env" in frontend_workflow
     assert "NEXT_PUBLIC_FIREBASE_API_KEY" in frontend_workflow
     assert "NEXT_PUBLIC_REALTIME_PROVIDER=firestore" in frontend_workflow
-    assert "KRESCO_BACKEND_ORIGIN=$BACKEND_URL" in frontend_workflow
+    assert 'KRESCO_BACKEND_ORIGIN="$BACKEND_URL"' in frontend_workflow
 
 
 def test_ci_and_deploy_workflows_report_test_coverage():

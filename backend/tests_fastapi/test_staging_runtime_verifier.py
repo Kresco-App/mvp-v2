@@ -329,10 +329,16 @@ def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
     build_index = workflow.index("- name: Build backend image")
     deploy_index = workflow.index("- name: Deploy backend service")
     migration_index = workflow.index("- name: Run migrations with stopped-db cleanup")
-    verifier_index = workflow.index("- name: Verify backend health")
+    readiness_index = workflow.index('ready_url = base_url + "/ready"')
+    verifier_index = workflow.index("- name: Verify backend release health")
+    migration_block = workflow[migration_index:verifier_index]
 
-    assert build_index < deploy_index < migration_index < verifier_index
+    assert build_index < deploy_index < migration_index < readiness_index < verifier_index
+    assert 'ready_url = base_url + "/ready"' in migration_block
+    assert "--activation-policy NEVER" in migration_block
     assert "google-github-actions/auth@v2" in workflow
+    assert 'docker build --pull -t "$image" backend' in workflow
+    assert 'docker push "$image"' in workflow
     assert "gcloud run deploy \"$BACKEND_SERVICE\"" in workflow
     assert "gcloud run jobs deploy \"$MIGRATION_JOB\"" in workflow
     assert "gcloud run jobs execute \"$MIGRATION_JOB\"" in workflow

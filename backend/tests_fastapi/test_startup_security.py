@@ -752,7 +752,9 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert "GCP_DEPLOY_SERVICE_ACCOUNT" in workflow
     assert "python scripts/check_production_launch_gate.py" in workflow
     assert "python scripts/check_secret_hygiene.py" in workflow
-    assert "gcloud builds submit backend" in workflow
+    assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in workflow
+    assert 'docker build --pull -t "$image" backend' in workflow
+    assert 'docker push "$image"' in workflow
     assert 'gcloud run deploy "$BACKEND_SERVICE"' in workflow
     assert 'gcloud run jobs deploy "$MIGRATION_JOB"' in workflow
     assert 'gcloud run jobs execute "$MIGRATION_JOB"' in workflow
