@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, ChevronDown, ChevronRight,
   Video, HelpCircle, Puzzle, FileText,
-  GripVertical, Eye,
+  GripVertical, Eye, FileCode2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -214,6 +214,14 @@ export default function AdminSubjectPage() {
                             )}
                             <Link href={`/topics/${topic.id}`} className="text-slate-400 transition hover:text-slate-200" title="Previsualiser" aria-label={`Previsualiser ${item.title}`}>
                               <Eye size={13} />
+                            </Link>
+                            <Link
+                              href={`/admin/courses/content?subjectId=${subjectId}&topicId=${topic.id}&itemId=${item.id}`}
+                              className="text-slate-400 transition hover:text-indigo-300"
+                              title="Modifier le cours"
+                              aria-label={`Modifier le cours ${item.title}`}
+                            >
+                              <FileCode2 size={13} />
                             </Link>
                           </div>
                         </div>

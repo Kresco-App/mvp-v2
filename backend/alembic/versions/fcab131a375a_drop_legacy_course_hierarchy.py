@@ -38,5 +38,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    pass
+    raise RuntimeError(
+        "fcab131a375a drops the legacy course hierarchy tables and cannot safely recreate "
+        "their data on downgrade. Restore from backup or rebuild the schema intentionally."
+    )
 

@@ -196,6 +196,104 @@ describe('TopicWorkspacePanels', () => {
     const commentBody = Array.from(container.querySelectorAll('p')).find((paragraph) => paragraph.textContent === longBody)
     expect(commentBody?.className).toContain('break-words')
   })
+
+  it('renders typed Course document blocks instead of the plain Course fallback', () => {
+    const courseTab = buildTabContent({
+      id: 21,
+      label: 'Course',
+      tab_type: 'course',
+      content: 'Plain fallback body',
+      config_json: {
+        schema_version: 1,
+        blocks: [
+          { id: 'h-decay', type: 'heading', level: 2, text: 'Loi de décroissance' },
+          { id: 'p-random', type: 'paragraph', text: 'La désintégration est un phénomène aléatoire.' },
+          { id: 'def-half-life', type: 'definition', title: 'Demi-vie', body: 'La moitié des noyaux initialement présents.' },
+          { id: 'f-law', type: 'formula', latex: 'N(t)=N_0e^{-\\lambda t}', caption: 'Loi exponentielle' },
+          { id: 'tip-units', type: 'callout', variant: 'warning', title: 'Attention aux unités', body: 'Les unités de $\\lambda$ et t doivent correspondre.' },
+        ],
+      },
+    })
+
+    const { container } = renderPanel(courseTab, baseItem)
+
+    expect(container.textContent).toContain('Loi de décroissance')
+    expect(container.textContent).toContain('La désintégration est un phénomène aléatoire.')
+    expect(container.textContent).toContain('Définition')
+    expect(container.textContent).toContain('Demi-vie')
+    expect(container.textContent).toContain('Loi exponentielle')
+    expect(container.textContent).toContain('Attention aux unités')
+    expect(container.textContent).not.toContain('Plain fallback body')
+  })
+
+  it('renders allowlisted Course component blocks through the animated registry', () => {
+    const courseTab = buildTabContent({
+      id: 22,
+      label: 'Course',
+      tab_type: 'course',
+      config_json: {
+        schema_version: 1,
+        blocks: [
+          { id: 'decay-graph', type: 'component', key: 'decay_law_graph', display: 'inline', props: { show_half_life: true } },
+        ],
+      },
+    })
+
+    const { container } = renderPanel(courseTab, baseItem)
+
+    expect(container.textContent).toContain('animated')
+  })
+
+  it('rejects non-course component keys inside Course documents', () => {
+    const courseTab = buildTabContent({
+      id: 23,
+      label: 'Course',
+      tab_type: 'course',
+      config_json: {
+        schema_version: 1,
+        blocks: [
+          { id: 'lab-in-course', type: 'component', key: 'wave_lab', display: 'panel' },
+        ],
+      },
+    })
+
+    const { container } = renderPanel(courseTab, baseItem)
+
+    expect(container.textContent).toContain('Unknown Course component key')
+    expect(container.textContent).toContain('wave_lab')
+  })
+
+  it('renders rich Course structure blocks', () => {
+    const courseTab = buildTabContent({
+      id: 24,
+      label: 'Course',
+      tab_type: 'course',
+      config_json: {
+        schema_version: 1,
+        blocks: [
+          { id: 'list-main', type: 'list', style: 'check', title: 'Checklist', items: [{ text: 'Check units' }] },
+          { id: 'table-main', type: 'table', title: 'Values', columns: ['Time', 'Value'], rows: [['0', 'N0']] },
+          { id: 'timeline-main', type: 'timeline', title: 'Process', items: [{ title: 'Start', body: 'Initial state' }] },
+          { id: 'equations-main', type: 'equation_set', title: 'Relations', equations: [{ latex: 'a=b', caption: 'Equality' }] },
+          { id: 'quote-main', type: 'quote', body: 'Remember the model.', cite: 'Exam note' },
+          { id: 'kv-main', type: 'key_value_grid', items: [{ label: 'Half-life', value: 't1/2', caption: 'Half remains' }] },
+          { id: 'code-main', type: 'code', language: 'pseudo', code: 'solve()' },
+        ],
+      },
+    })
+
+    const { container } = renderPanel(courseTab, baseItem)
+
+    expect(container.textContent).toContain('Checklist')
+    expect(container.textContent).toContain('Check units')
+    expect(container.textContent).toContain('Values')
+    expect(container.textContent).toContain('Initial state')
+    expect(container.textContent).toContain('Relations')
+    expect(container.textContent).toContain('Equality')
+    expect(container.textContent).toContain('Remember the model.')
+    expect(container.textContent).toContain('Half-life')
+    expect(container.textContent).toContain('solve()')
+  })
 })
 
 function renderPanel(tab: TabContent, item: TopicItem) {

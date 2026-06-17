@@ -81,13 +81,15 @@ export type ExamBankListResponse = {
   total: number
 }
 
-export type AdminSubject = {
+export type CourseSubject = {
   id: number
   title: string
   description?: string
   chapter_count?: number
   lesson_count?: number
 }
+
+export type AdminSubject = CourseSubject
 
 export const COURSE_TOPICS_KEY = '/courses/topics'
 export const ADMIN_SUBJECTS_KEY = '/courses/subjects'
@@ -161,7 +163,7 @@ export async function recordExamProblemProgress(
 }
 
 export function useAdminSubjectsData() {
-  const query = useSWR<AdminSubject[]>(ADMIN_SUBJECTS_KEY, apiSWRFetcher)
+  const query = useSWR<CourseSubject[]>(ADMIN_SUBJECTS_KEY, apiSWRFetcher)
   const subjects = Array.isArray(query.data) ? query.data : []
 
   return {
@@ -172,3 +174,5 @@ export function useAdminSubjectsData() {
     retry: query.mutate,
   }
 }
+
+export const useCourseSubjectsData = useAdminSubjectsData

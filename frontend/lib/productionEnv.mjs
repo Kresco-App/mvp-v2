@@ -17,7 +17,7 @@ export function validateFrontendProductionEnv(env) {
     }
   }
 
-  validateApiBaseUrl(env.NEXT_PUBLIC_API_BASE_URL, errors)
+  validateApiBaseUrl(env.NEXT_PUBLIC_API_BASE_URL, env.KRESCO_BACKEND_ORIGIN, errors)
   validateGoogleClientId(env.NEXT_PUBLIC_GOOGLE_CLIENT_ID, errors)
   validateRealtimeToggle(env.NEXT_PUBLIC_ABLY_ENABLED, errors)
   validateReleaseSha(env.NEXT_PUBLIC_RELEASE_SHA, errors)
@@ -46,7 +46,7 @@ export function parseEnvFile(contents) {
   return env
 }
 
-function validateApiBaseUrl(value, errors) {
+function validateApiBaseUrl(value, backendRewriteOrigin, errors) {
   if (!hasValue(value)) return
 
   const trimmed = value.trim()
@@ -54,7 +54,7 @@ function validateApiBaseUrl(value, errors) {
     if (trimmed.replace(/\/+$/, '') !== '/api') {
       errors.push('NEXT_PUBLIC_API_BASE_URL must be /api or an absolute HTTPS URL in production.')
     }
-    validateBackendRewriteOrigin(process.env.KRESCO_BACKEND_ORIGIN, errors)
+    validateBackendRewriteOrigin(backendRewriteOrigin, errors)
     return
   }
 

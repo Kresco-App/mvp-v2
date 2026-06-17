@@ -188,8 +188,9 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
         setError(msg)
         toast.error(msg)
       } finally {
-        if (cancelled) return
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
@@ -342,6 +343,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
       <iframe
         ref={iframeRef}
         src={iframeSrc}
+        title="VdoCipher lesson video player"
         allow="encrypted-media"
         allowFullScreen
         sandbox="allow-scripts allow-presentation"

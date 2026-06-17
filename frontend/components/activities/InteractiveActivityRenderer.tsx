@@ -81,6 +81,19 @@ function renderLazyActivity(
   )
 }
 
+function activityInstanceKey(activityType: string, activityData: any) {
+  const explicitId = activityData?.id ?? activityData?.activity_id ?? activityData?.slug
+  if (explicitId != null && String(explicitId).trim() !== '') {
+    return `${activityType}:${String(explicitId)}`
+  }
+
+  try {
+    return `${activityType}:${JSON.stringify(activityData ?? {})}`
+  } catch {
+    return activityType
+  }
+}
+
 function SimulatorBlock({
   simulatorType,
   title,
@@ -143,6 +156,8 @@ export default function InteractiveActivityRenderer({
     )
   }
 
+  const lazyActivityKey = activityInstanceKey(activityType, activityData)
+
   switch (activityType) {
     case 'true_false':
       return renderLazyActivity(
@@ -156,7 +171,7 @@ export default function InteractiveActivityRenderer({
         </div>
         ,
         'Vrai/Faux',
-        'true_false',
+        lazyActivityKey,
       )
 
     case 'matching':
@@ -170,7 +185,7 @@ export default function InteractiveActivityRenderer({
         </div>
         ,
         'Association',
-        'matching',
+        lazyActivityKey,
       )
 
     case 'fill_in_blank':
@@ -185,7 +200,7 @@ export default function InteractiveActivityRenderer({
         </div>
         ,
         'Texte a trous',
-        'fill_in_blank',
+        lazyActivityKey,
       )
 
     case 'ordering':
@@ -200,7 +215,7 @@ export default function InteractiveActivityRenderer({
         </div>
         ,
         'Ordre logique',
-        'ordering',
+        lazyActivityKey,
       )
 
     case 'drag_and_drop':
@@ -215,7 +230,7 @@ export default function InteractiveActivityRenderer({
         </div>
         ,
         'Glisser-deposer',
-        'drag_and_drop',
+        lazyActivityKey,
       )
 
     case 'simulator':

@@ -97,16 +97,15 @@ export function resolveTabForSlot(tabs: TabContent[] = [], slot: WorkspaceTabSlo
   return tabs.find((tab) => tabMatchesSlot(tab, slot)) || fallbackTabForSlot(slot, item)
 }
 
-export function secondaryTabSlotSpecsForItem(item: TopicItem, primaryTab: TabContent | null = resolvePrimaryTab(item)) {
-  const primarySlot = primaryTab ? workspaceTabSlotForTab(primaryTab) : null
+export function secondaryTabSlotSpecsForItem(item: TopicItem) {
   return workspaceTabSlotSpecs.filter((slot) => {
     if (slot.id === 'comments') return item.tabs.some((tab) => tabMatchesSlot(tab, 'comments'))
-    return slot.id !== primarySlot
+    return true
   })
 }
 
-export function defaultSecondaryTabSlotForItem(item: TopicItem, primaryTab: TabContent | null = resolvePrimaryTab(item)) {
-  const slots = secondaryTabSlotSpecsForItem(item, primaryTab)
+export function defaultSecondaryTabSlotForItem(item: TopicItem) {
+  const slots = secondaryTabSlotSpecsForItem(item)
   return slots.find((slot) => item.tabs.some((tab) => tabMatchesSlot(tab, slot.id)))?.id ?? slots[0]?.id ?? 'course'
 }
 

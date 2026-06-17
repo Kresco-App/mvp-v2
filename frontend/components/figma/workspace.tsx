@@ -1,6 +1,7 @@
 'use client'
 
 import type React from 'react'
+import { LockKeyhole, VideoOff } from 'lucide-react'
 import { CourseContentRail, type CourseContentRailProps } from './rail'
 import { LearningTabBar } from './tabs'
 import { figmaWorkspaceTabs } from './data'
@@ -74,6 +75,16 @@ export function PrimaryContentFrame({ children }: { children: React.ReactNode })
 }
 
 export function VideoPlayerFrame({ srcDoc, videoId }: { srcDoc?: string; videoId?: string }) {
+  if (!videoId && !srcDoc) {
+    return (
+      <VideoFrameState
+        eyebrow="Video resource"
+        title="Video not ready"
+        message="Course content stays available below while this lesson video is being prepared."
+      />
+    )
+  }
+
   const iframeSrc = videoId
     ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1`
     : 'about:blank'
@@ -83,7 +94,7 @@ export function VideoPlayerFrame({ srcDoc, videoId }: { srcDoc?: string; videoId
       <iframe
         title="Kresco lesson video"
         src={iframeSrc}
-        srcDoc={srcDoc ?? (!videoId ? missingVideoFrameSrcDoc() : undefined)}
+        srcDoc={srcDoc}
         scrolling="no"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         allowFullScreen
@@ -94,20 +105,44 @@ export function VideoPlayerFrame({ srcDoc, videoId }: { srcDoc?: string; videoId
   )
 }
 
-function missingVideoFrameSrcDoc() {
-  return `
-    <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f4f5; font-family: system-ui, sans-serif; color: #3f3f46; }
-      article { width: min(560px, calc(100% - 48px)); border: 2px dashed #d4d4d8; border-radius: 18px; background: white; padding: 24px; text-align: center; }
-      b { display: block; margin-bottom: 8px; color: #9f9fa9; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-      p { margin: 0; color: #71717b; font-size: 14px; font-weight: 650; line-height: 1.55; }
-    </style>
-    <article aria-label="Video unavailable">
-      <b>Video unavailable</b>
-      <p>This lesson does not have a configured video source.</p>
-    </article>
-  `
+export function VideoFrameState({
+  eyebrow,
+  title,
+  message,
+  variant = 'missing',
+}: {
+  eyebrow: string
+  title: string
+  message: string
+  variant?: 'missing' | 'locked'
+}) {
+  const Icon = variant === 'locked' ? LockKeyhole : VideoOff
+  const tone = variant === 'locked'
+    ? {
+        surface: 'bg-[#fff7ed]',
+        icon: 'bg-white text-[#f5900b]',
+        eyebrow: 'text-[#c76a00]',
+      }
+    : {
+        surface: 'bg-[#f8f9fc]',
+        icon: 'bg-white text-[#5b60f9]',
+        eyebrow: 'text-[#5b60f9]',
+      }
+
+  return (
+    <div className={`kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] ${tone.surface} shadow-none`} data-figma-video-frame>
+      <section role="status" aria-live="polite" className="absolute inset-0 grid place-items-center px-6 text-center">
+        <div className="grid max-w-[430px] justify-items-center">
+          <span className={`grid h-14 w-14 place-items-center rounded-[18px] shadow-[0_12px_30px_rgba(24,24,27,0.08)] ${tone.icon}`}>
+            <Icon size={25} aria-hidden="true" />
+          </span>
+          <p className={`m-0 mt-5 text-[12px] font-black uppercase tracking-[0.12em] ${tone.eyebrow}`}>{eyebrow}</p>
+          <h2 className="m-0 mt-2 text-[24px] font-black leading-[1.15] tracking-[0.12px] text-[#3f3f46]">{title}</h2>
+          <p className="m-0 mt-3 text-[14px] font-bold leading-[1.55] tracking-[0.14px] text-[#71717b]">{message}</p>
+        </div>
+      </section>
+    </div>
+  )
 }
 
 export function LessonBody({ children }: { children?: React.ReactNode }) {

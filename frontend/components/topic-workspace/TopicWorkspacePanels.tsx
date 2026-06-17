@@ -18,6 +18,7 @@ import {
 } from '@/lib/topicWorkspaceViewModel'
 import { AnimatedContentRenderer } from '@/components/animated/registry'
 import type { AnimatedCompletionEvent, AnimatedRendererProps } from '@/components/animated/types'
+import { CourseContentRenderer, courseDocumentFromConfig } from '@/components/topic-workspace/CourseContentRenderer'
 import { EmptyTabPanel } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
 import { TopicWorkspaceNotesTab } from '@/components/topic-workspace/TopicWorkspaceNotesTab'
 import { TopicWorkspaceResourcePanel } from '@/components/topic-workspace/TopicWorkspaceResourcePanel'
@@ -233,6 +234,11 @@ export function TabPanel({
 
   if (tabMatchesSlot(tab, 'notes')) {
     return <TopicWorkspaceNotesTab tab={tab} item={item} topicId={topicId} onNoteSaved={onNoteSaved} />
+  }
+
+  const courseDocument = tabMatchesSlot(tab, 'course') ? courseDocumentFromConfig(tab.config_json) : null
+  if (courseDocument) {
+    return <CourseContentRenderer document={courseDocument} />
   }
 
   if (isAnimatedTab(tab, item)) {

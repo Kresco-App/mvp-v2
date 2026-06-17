@@ -21,10 +21,9 @@ import { useWorkspaceTree } from '@/lib/topicWorkspaceTree'
 import {
   formatTopicItemDuration,
   lockedContentReason,
-  lockedVideoSrcDoc,
-  missingVideoSrcDoc,
   parseTopicWorkspaceQuery,
   shouldUseTopicItemVideoPlayer,
+  tabMatchesSlot,
   topicWorkspaceQueryTargetsFromItemId,
   youtubeVideoId,
   youtubeVideoIdForTab,
@@ -33,7 +32,7 @@ import {
 } from '@/lib/topicWorkspaceViewModel'
 import VideoPlayer from '@/components/VideoPlayer'
 import YouTubeVideoPlayer from '@/components/YouTubeVideoPlayer'
-import { LessonBody, PrimaryContentFrame, VideoLearningWorkspace, VideoPlayerFrame, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
+import { LessonBody, PrimaryContentFrame, VideoFrameState, VideoLearningWorkspace, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
 import RouteErrorState from '@/components/RouteErrorState'
 import { TabPanel } from '@/components/topic-workspace/TopicWorkspacePanels'
@@ -100,13 +99,14 @@ export default function TopicWorkspacePage() {
     }))
   }, [activeTabSlot, availableTabSlots])
   const isActiveItemLocked = activeItem?.can_access === false
+  const activePrimaryTabIsCourse = activePrimaryTab ? tabMatchesSlot(activePrimaryTab, 'course') : false
   const activePrimaryVideoId = useMemo(() => {
     if (!activeItem || isActiveItemLocked) return null
-    return youtubeVideoIdForTab(activePrimaryTab, activeItem) ?? (!activePrimaryTab ? youtubeVideoId(activeItem) : null)
+    return youtubeVideoIdForTab(activePrimaryTab, activeItem) ?? youtubeVideoId(activeItem)
   }, [activeItem, activePrimaryTab, isActiveItemLocked])
   const shouldUsePrimaryVideoPlayer = useMemo(() => {
     if (!activeItem || isActiveItemLocked) return false
-    return shouldUseTopicItemVideoPlayer(activePrimaryTab, activeItem)
+    return shouldUseTopicItemVideoPlayer(activePrimaryTab, activeItem) || shouldUseTopicItemVideoPlayer(null, activeItem)
   }, [activeItem, activePrimaryTab, isActiveItemLocked])
   const activeDurationLabel = activeItem ? formatTopicItemDuration(activeItem.duration_seconds) : ''
   const canMarkActiveItemComplete = activeItem ? canUseGenericCompletion(activeItem) : false
@@ -196,7 +196,14 @@ export default function TopicWorkspacePage() {
   const primaryContent = useMemo(() => {
     if (!activeItem) return null
     if (isActiveItemLocked) {
-      return <VideoPlayerFrame videoId="" srcDoc={lockedVideoSrcDoc(activeItem)} />
+      return (
+        <VideoFrameState
+          variant="locked"
+          eyebrow="Locked preview"
+          title={activeItem.title || 'Locked lesson'}
+          message={activeItem.description || 'Unlock this topic to watch the full lesson and use the attached practice tools.'}
+        />
+      )
     }
     if (shouldUsePrimaryVideoPlayer) {
       return (
@@ -223,7 +230,7 @@ export default function TopicWorkspacePage() {
         </PrimaryContentFrame>
       )
     }
-    if (activePrimaryTab) {
+    if (activePrimaryTab && !activePrimaryTabIsCourse) {
       return (
         <PrimaryContentFrame>
           <TabPanel
@@ -239,8 +246,14 @@ export default function TopicWorkspacePage() {
         </PrimaryContentFrame>
       )
     }
-    return <VideoPlayerFrame videoId="" srcDoc={missingVideoSrcDoc(activeItem)} />
-  }, [activeItem, activePrimaryTab, activePrimaryVideoId, completeActive, isActiveItemLocked, refreshActiveProgress, requestWorkspace, shouldUsePrimaryVideoPlayer, topicId, workspace?.id])
+    return (
+      <VideoFrameState
+        eyebrow="Video resource"
+        title={activeItem.title || 'Lesson video'}
+        message="This lesson does not have a valid video resource attached yet. Course content stays available below."
+      />
+    )
+  }, [activeItem, activePrimaryTab, activePrimaryTabIsCourse, activePrimaryVideoId, completeActive, isActiveItemLocked, refreshActiveProgress, requestWorkspace, shouldUsePrimaryVideoPlayer, topicId, workspace?.id])
 
   if (loading && !workspace) {
     return <FigmaVideoWorkspaceSkeleton />

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { motion } from 'framer-motion'
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion'
 import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { getJson } from '@/lib/apiClient'
@@ -49,6 +49,7 @@ const miniDayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const hours = Array.from({ length: 24 }, (_, index) => index)
 const hourHeight = 80
 const calendarColumnWidth = 100 / 7
+const miniCalendarSelectionTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.7 } as const
 
 export default function CalendarPage() {
   const searchParams = useSearchParams()
@@ -171,10 +172,6 @@ export default function CalendarPage() {
                 {weekRangeLabel} - {weekSummary}
               </p>
             </div>
-            <div className="flex h-11 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-[#f8f9fc] px-3 text-[13px] font-black text-[#52525c]">
-              <CalendarDays size={17} className="text-[#5b60f9]" />
-              Weekly planner
-            </div>
           </header>
 
           <section className="w-full bg-white" aria-label="Weekly calendar">
@@ -266,7 +263,7 @@ export default function CalendarPage() {
         </main>
 
         <aside className="flex w-[351px] shrink-0 flex-col gap-[14px] pb-[120px] pt-32 max-[1440px]:mt-8 max-[1440px]:w-full max-[1440px]:pt-0">
-          <MiniCalendarCard selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+          <MiniCalendarCard selectedDate={selectedDate} events={events} onSelectDate={setSelectedDate} />
           {selectedEvent && <EventDetailCard event={selectedEvent} onClose={() => setSelectedEvent(null)} />}
         </aside>
       </div>
@@ -308,53 +305,169 @@ function CalendarEventBlock({
   )
 }
 
-function MiniCalendarCard({ selectedDate, onSelectDate }: { selectedDate: Date; onSelectDate: (date: Date) => void }) {
+function MiniCalendarCard({
+  selectedDate,
+  events,
+  onSelectDate,
+}: {
+  selectedDate: Date
+  events: CalendarEvent[]
+  onSelectDate: (date: Date) => void
+}) {
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
+  const [monthDirection, setMonthDirection] = useState(0)
   const days = useMemo(() => buildMonthGrid(visibleMonth), [visibleMonth])
+  const today = useMemo(() => startOfDay(new Date()), [])
+  const selectedWeekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
+  const visibleMonthKey = `${visibleMonth.getFullYear()}-${visibleMonth.getMonth()}`
+  const eventDayKeys = useMemo(() => {
+    return new Set(
+      events
+        .map((event) => dateForCalendarEvent(event))
+        .filter((date): date is Date => Boolean(date))
+        .map((date) => formatCalendarDate(date)),
+    )
+  }, [events])
 
   useEffect(() => {
-    setVisibleMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
+    const nextMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
+    setVisibleMonth((currentMonth) => {
+      if (currentMonth.getFullYear() === nextMonth.getFullYear() && currentMonth.getMonth() === nextMonth.getMonth()) {
+        return currentMonth
+      }
+      setMonthDirection(nextMonth.getTime() > currentMonth.getTime() ? 1 : -1)
+      return nextMonth
+    })
   }, [selectedDate])
+
+  function moveVisibleMonth(direction: -1 | 1) {
+    setMonthDirection(direction)
+    setVisibleMonth((currentMonth) => addMonths(currentMonth, direction))
+  }
 
   return (
     <section className="w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none max-[1180px]:w-full">
       <PermanentSidebarPanelTitle title="Calendar" subtitle="Stay up to date with everything!" />
-      <div className="mt-6 flex items-start py-2">
-        <div className="flex min-w-0 flex-1 items-center px-3">
-          <strong className="text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#3f3f46]">{formatMonth(visibleMonth)}</strong>
+      <div className="mt-6 flex items-start py-1.5">
+        <div className="flex min-w-0 flex-1 items-center overflow-hidden px-3">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.strong
+              key={visibleMonthKey}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
+              className="text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#3f3f46]"
+            >
+              {formatMonth(visibleMonth)}
+            </motion.strong>
+          </AnimatePresence>
         </div>
-        <div className="flex shrink-0">
-          <button type="button" onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))} className="grid h-8 w-8 place-items-center rounded-md border-0 bg-transparent text-[#3f3f46]">
+        <div className="flex shrink-0 gap-1">
+          <motion.button
+            type="button"
+            onClick={() => moveVisibleMonth(-1)}
+            className="grid h-8 w-8 place-items-center rounded-[10px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
+            whileTap={{ scale: 0.92 }}
+            aria-label="Previous month"
+          >
             <ChevronLeft size={18} strokeWidth={3} />
-          </button>
-          <button type="button" onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))} className="grid h-8 w-8 place-items-center rounded-md border-0 bg-transparent text-[#3f3f46]">
+          </motion.button>
+          <motion.button
+            type="button"
+            onClick={() => moveVisibleMonth(1)}
+            className="grid h-8 w-8 place-items-center rounded-[10px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
+            whileTap={{ scale: 0.92 }}
+            aria-label="Next month"
+          >
             <ChevronRight size={18} strokeWidth={3} />
-          </button>
+          </motion.button>
         </div>
       </div>
-      <div className="grid grid-cols-7">
+      <div className="mt-2 grid grid-cols-7">
         {miniDayNames.map((day) => (
-          <div key={day} className="grid h-[45px] place-items-center p-2">
-            <span className="text-center text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#9f9fa9]">{day}</span>
+          <div key={day} className="grid h-9 place-items-center p-1">
+            <span className="text-center text-[15px] font-bold leading-[1.2] tracking-[0.15px] text-[#9f9fa9]">{day}</span>
           </div>
         ))}
-        {days.map((day) => {
-          const isSelected = isSameCalendarDay(day.date, selectedDate)
-          const isCurrentMonth = day.date.getMonth() === visibleMonth.getMonth()
-          return (
-            <button
-              type="button"
-              key={day.date.toISOString()}
-              onClick={() => onSelectDate(startOfDay(day.date))}
-              className={`grid h-[45px] place-items-center rounded-md border-0 p-1 text-[16px] font-bold leading-[1.2] tracking-[0.16px] ${
-                isSelected ? 'bg-[#453dee] text-white' : isCurrentMonth ? 'bg-transparent text-[#3f3f46]' : 'bg-transparent text-[#9f9fa9]'
-              }`}
-            >
-              {day.date.getDate()}
-            </button>
-          )
-        })}
       </div>
+      <LayoutGroup id="mini-calendar">
+        <div className="relative mt-1 min-h-[270px] overflow-hidden">
+          <AnimatePresence initial={false} custom={monthDirection} mode="wait">
+            <motion.div
+              key={visibleMonthKey}
+              custom={monthDirection}
+              initial={{ opacity: 0, x: monthDirection >= 0 ? 14 : -14 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: monthDirection >= 0 ? -14 : 14 }}
+              transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+              className="absolute inset-0 grid grid-cols-7 gap-y-1"
+            >
+              {days.map((day) => {
+                const isSelected = isSameCalendarDay(day.date, selectedDate)
+                const isCurrentMonth = day.date.getMonth() === visibleMonth.getMonth()
+                const isToday = isSameCalendarDay(day.date, today)
+                const isSelectedWeek = isSameCalendarDay(startOfWeek(day.date), selectedWeekStart)
+                const hasEvents = eventDayKeys.has(formatCalendarDate(day.date))
+                const dayLabel = day.date.toLocaleDateString([], {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                  year: 'numeric',
+                })
+
+                return (
+                  <div key={day.date.toISOString()} className="grid h-11 place-items-center">
+                    <motion.button
+                      type="button"
+                      onClick={() => onSelectDate(startOfDay(day.date))}
+                      className={`relative grid h-10 w-10 place-items-center overflow-hidden rounded-[11px] border-0 bg-transparent p-0 text-[16px] font-bold leading-[1.2] tracking-[0.16px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#c7c8ff] ${
+                        isSelected
+                          ? 'text-white'
+                          : isCurrentMonth
+                            ? 'text-[#3f3f46] hover:bg-[#f7f7ff]'
+                            : 'text-[#a1a1aa] hover:bg-[#fafafa]'
+                      }`}
+                      whileHover={{ y: -1 }}
+                      whileTap={{ scale: 0.94 }}
+                      transition={miniCalendarSelectionTransition}
+                      aria-current={isToday ? 'date' : undefined}
+                      aria-pressed={isSelected}
+                      aria-label={`${dayLabel}${isToday ? ', today' : ''}${hasEvents ? ', scheduled items' : ''}`}
+                    >
+                      {isSelectedWeek && !isSelected && (
+                        <motion.span
+                          layout
+                          className="absolute inset-1 rounded-[9px] bg-[#f7f7ff]"
+                          transition={miniCalendarSelectionTransition}
+                        />
+                      )}
+                      {isToday && !isSelected && (
+                        <span className="absolute inset-[3px] rounded-[9px] ring-2 ring-[#d4d4ff]" />
+                      )}
+                      {isSelected && (
+                        <motion.span
+                          layoutId="mini-calendar-selected-day"
+                          className="absolute inset-0 rounded-[11px] bg-[#4f46f8] shadow-[0_10px_20px_rgba(79,70,248,0.25)]"
+                          transition={miniCalendarSelectionTransition}
+                        />
+                      )}
+                      <span className="relative z-10">{day.date.getDate()}</span>
+                      {(isToday || hasEvents) && (
+                        <span
+                          className={`absolute bottom-1.5 z-10 h-1 w-1 rounded-full ${
+                            isSelected ? 'bg-white' : hasEvents ? 'bg-[#5b60f9]' : 'bg-[#4f46f8]'
+                          }`}
+                        />
+                      )}
+                    </motion.button>
+                  </div>
+                )
+              })}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </LayoutGroup>
     </section>
   )
 }

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_current_user, get_db
-from app.models.courses import TabContent, Topic, TopicItem
+from app.models.courses import Subject, TabContent, Topic, TopicItem
 from app.models.gamification import QuestionAttempt
 from app.models.quizzes import QuestionSet
 from app.models.users import User
@@ -45,6 +45,8 @@ async def get_subject_quiz_discovery(
         parents = await _question_set_parent_maps(db, question_sets)
         for question_set in question_sets:
             access = _question_set_access_from_maps(access_context, question_set, parents)
+            if _is_orphaned_parent_access(access):
+                continue
             if access.can_access:
                 selected_question_set = await _get_question_set(db, question_set.id)
                 return QuizDiscoveryOut(
@@ -69,7 +71,9 @@ async def _load_quiz_discovery_batch(
 ) -> list[QuestionSet]:
     result = await db.execute(
         select(QuestionSet)
+        .join(Subject, Subject.id == QuestionSet.subject_id)
         .where(QuestionSet.subject_id == subject_id, QuestionSet.status == "published")
+        .where(Subject.is_published == True)  # noqa: E712
         .order_by(QuestionSet.order, QuestionSet.id)
         .offset(offset)
         .limit(QUIZ_DISCOVERY_BATCH_SIZE)
@@ -140,6 +144,8 @@ async def _get_question_set(db: AsyncSession, question_set_id: int) -> QuestionS
 async def _get_accessible_question_set(db: AsyncSession, user: User, question_set_id: int) -> QuestionSet:
     question_set = await _get_question_set(db, question_set_id)
     access = await _question_set_access(db, user, question_set)
+    if _is_orphaned_parent_access(access):
+        raise HTTPException(status_code=404, detail="Quiz not found")
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
     return question_set
@@ -234,8 +240,17 @@ async def _question_set_access(db: AsyncSession, user: User, question_set: Quest
     if question_set.tab_content_id is not None:
         tab = await db.scalar(
             select(TabContent)
+            .join(TopicItem, TopicItem.id == TabContent.topic_item_id)
+            .join(Topic, Topic.id == TopicItem.topic_id)
+            .join(Subject, Subject.id == Topic.subject_id)
             .options(selectinload(TabContent.topic_item).selectinload(TopicItem.topic))
-            .where(TabContent.id == question_set.tab_content_id)
+            .where(
+                TabContent.id == question_set.tab_content_id,
+                TabContent.status == "published",
+                TopicItem.status == "published",
+                Topic.status == "published",
+                Subject.is_published == True,  # noqa: E712
+            )
         )
         if tab is None:
             return ORPHANED_PARENT_ACCESS_DECISION
@@ -244,19 +259,36 @@ async def _question_set_access(db: AsyncSession, user: User, question_set: Quest
     if question_set.topic_item_id is not None:
         item = await db.scalar(
             select(TopicItem)
+            .join(Topic, Topic.id == TopicItem.topic_id)
+            .join(Subject, Subject.id == Topic.subject_id)
             .options(selectinload(TopicItem.topic))
-            .where(TopicItem.id == question_set.topic_item_id)
+            .where(
+                TopicItem.id == question_set.topic_item_id,
+                TopicItem.status == "published",
+                Topic.status == "published",
+                Subject.is_published == True,  # noqa: E712
+            )
         )
         if item is None:
             return ORPHANED_PARENT_ACCESS_DECISION
         return await access_for_topic_item(db, user, item, access_context=access_context)
 
     if question_set.topic_id is not None:
-        topic = await db.scalar(select(Topic).where(Topic.id == question_set.topic_id))
+        topic = await db.scalar(
+            select(Topic)
+            .join(Subject, Subject.id == Topic.subject_id)
+            .where(
+                Topic.id == question_set.topic_id,
+                Topic.status == "published",
+                Subject.is_published == True,  # noqa: E712
+            )
+        )
         if topic is None:
             return ORPHANED_PARENT_ACCESS_DECISION
         return access_context.decide_for(topic, subject_id=topic.subject_id)
 
+    if not await _subject_is_published(db, question_set.subject_id):
+        return ORPHANED_PARENT_ACCESS_DECISION
     return access_context.decide_for(question_set, subject_id=question_set.subject_id)
 
 
@@ -274,21 +306,45 @@ async def _question_set_parent_maps(
     if tab_ids:
         tab_result = await db.execute(
             select(TabContent)
+            .join(TopicItem, TopicItem.id == TabContent.topic_item_id)
+            .join(Topic, Topic.id == TopicItem.topic_id)
+            .join(Subject, Subject.id == Topic.subject_id)
             .options(selectinload(TabContent.topic_item).selectinload(TopicItem.topic))
-            .where(TabContent.id.in_(tab_ids))
+            .where(
+                TabContent.id.in_(tab_ids),
+                TabContent.status == "published",
+                TopicItem.status == "published",
+                Topic.status == "published",
+                Subject.is_published == True,  # noqa: E712
+            )
         )
         tabs = {tab.id: tab for tab in tab_result.scalars().all()}
 
     if item_ids:
         item_result = await db.execute(
             select(TopicItem)
+            .join(Topic, Topic.id == TopicItem.topic_id)
+            .join(Subject, Subject.id == Topic.subject_id)
             .options(selectinload(TopicItem.topic))
-            .where(TopicItem.id.in_(item_ids))
+            .where(
+                TopicItem.id.in_(item_ids),
+                TopicItem.status == "published",
+                Topic.status == "published",
+                Subject.is_published == True,  # noqa: E712
+            )
         )
         items = {item.id: item for item in item_result.scalars().all()}
 
     if topic_ids:
-        topic_result = await db.execute(select(Topic).where(Topic.id.in_(topic_ids)))
+        topic_result = await db.execute(
+            select(Topic)
+            .join(Subject, Subject.id == Topic.subject_id)
+            .where(
+                Topic.id.in_(topic_ids),
+                Topic.status == "published",
+                Subject.is_published == True,  # noqa: E712
+            )
+        )
         topics = {topic.id: topic for topic in topic_result.scalars().all()}
 
     return {
@@ -326,6 +382,21 @@ def _question_set_access_from_maps(
         return access_context.decide_for(topic, subject_id=topic.subject_id)
 
     return access_context.decide_for(question_set, subject_id=question_set.subject_id)
+
+
+def _is_orphaned_parent_access(access: AccessDecision) -> bool:
+    return access.reason == ORPHANED_PARENT_ACCESS_DECISION.reason
+
+
+async def _subject_is_published(db: AsyncSession, subject_id: int) -> bool:
+    return bool(
+        await db.scalar(
+            select(Subject.id).where(
+                Subject.id == subject_id,
+                Subject.is_published == True,  # noqa: E712
+            )
+        )
+    )
 
 
 def _quiz_out(question_set: QuestionSet) -> QuizOut:

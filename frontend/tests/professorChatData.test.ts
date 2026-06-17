@@ -191,6 +191,8 @@ describe('professor chat SWR data', () => {
 
     expect(source).toContain('fallback: { intervalMs: 5000, poll: refreshChat }')
     expect(source).toContain('const threadOptions = useMemo(() => status ? teacherThreads(status) : [], [status])')
+    expect(source).toContain('const pendingConversationId = !active && selectedThread?.conversation?.id ? selectedThread.conversation.id : null')
+    expect(source).not.toContain('Start a private question')
     expect(source).not.toContain('fallback: { intervalMs: 2500')
     expect(source).not.toContain('{teacherThreads(status).map')
   })

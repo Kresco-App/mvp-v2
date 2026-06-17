@@ -157,7 +157,7 @@ describe('topic workspace view model', () => {
     })
   })
 
-  it('distinguishes the primary center tab from secondary tabs', () => {
+  it('keeps workspace tabs available below the primary content', () => {
     const item = {
       ...baseItem,
       primary_tab_content_id: resourceTab.id,
@@ -166,8 +166,8 @@ describe('topic workspace view model', () => {
     }
 
     expect(resolvePrimaryTab(item)).toBe(resourceTab)
-    expect(secondaryTabSlotSpecsForItem(item).map((slot) => slot.id)).toEqual(['course', 'lab', 'notes', 'comments'])
-    expect(defaultSecondaryTabSlotForItem(item)).toBe('comments')
+    expect(secondaryTabSlotSpecsForItem(item).map((slot) => slot.id)).toEqual(['course', 'lab', 'resources', 'notes', 'comments'])
+    expect(defaultSecondaryTabSlotForItem(item)).toBe('resources')
   })
 
   it('parses workspace route query targets defensively', () => {
@@ -202,11 +202,11 @@ describe('topic workspace view model', () => {
     expect(selectTopicWorkspaceQueryState(workspace, {
       ...topicWorkspaceQueryTargetsFromItemId(null),
       tabId: resourceTab.id,
-    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'course' })
+    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'resources' })
     expect(selectTopicWorkspaceQueryState(workspace, {
       ...topicWorkspaceQueryTargetsFromItemId(null),
       resourceId: resourceTab.resource?.id ?? null,
-    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'course' })
+    })).toEqual({ activeItemId: resourceItem.id, activeTabSlot: 'resources' })
     expect(resolveTabSlotForTopicWorkspaceQuery(resourceItem, {
       ...topicWorkspaceQueryTargetsFromItemId(resourceItem.id),
       quizId: 9,

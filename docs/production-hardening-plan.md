@@ -182,7 +182,6 @@ Evidence:
 - `AuthGuard` and `ProfessorAuthGate` are mostly client-side/hydration behavior.
 - Pure auth redirect logic now covers role-aware root redirects: the proxy receives the stored role cookie and professors hitting `/` route to `/professor`; stale token redirects clear both auth cookies in the proxy implementation.
 - Student professor-chat navigation eligibility now lives in `frontend/lib/authPolicy.ts`, and active nav-route matching lives in `frontend/lib/navigationPolicy.ts` instead of being reimplemented inside nav components.
-- `VideoQuizOverlay` now submits selected answer ids to the backend instead of computing trusted score/pass state in the browser.
 - Subject identity/canonicalization now lives in `frontend/lib/subjectIdentity.ts`; home shortcuts, profile subject progress, and courses filtering/bucketing share the same chemistry/physics/math alias rules.
 - Permanent sidebar quest normalization now preserves live API quest titles and uses default quest copy only for missing/blank titles or empty fallback data.
 - Actual Next proxy behavior now has direct coverage for unauthenticated student/professor redirects, expired-cookie cleanup, professor landing redirects, and valid-token pass-through.

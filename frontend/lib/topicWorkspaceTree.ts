@@ -117,8 +117,8 @@ export function useWorkspaceTree(
     activeItem ? resolvePrimaryTab(activeItem) : null
   ), [activeItem])
   const availableTabSlots = useMemo(() => (
-    activeItem ? secondaryTabSlotSpecsForItem(activeItem, activePrimaryTab) : []
-  ), [activeItem, activePrimaryTab])
+    activeItem ? secondaryTabSlotSpecsForItem(activeItem) : []
+  ), [activeItem])
   const activeTab = useMemo(() => (
     activeItem && availableTabSlots.some((slot) => slot.id === activeTabSlot)
       ? resolveTabForSlot(activeItem.tabs, activeTabSlot, activeItem)
@@ -132,12 +132,12 @@ export function useWorkspaceTree(
   useEffect(() => {
     if (!activeItem) return
     if (availableTabSlots.some((slot) => slot.id === activeTabSlot)) return
-    setActiveTabSlot(defaultSecondaryTabSlotForItem(activeItem, activePrimaryTab))
+    setActiveTabSlot(defaultSecondaryTabSlotForItem(activeItem))
   }, [activeItem, activePrimaryTab, activeTabSlot, availableTabSlots])
 
   const selectWorkspaceItem = useCallback((item: TopicItem) => {
     setActiveItemId(item.id)
-    setActiveTabSlot(defaultSecondaryTabSlotForItem(item, resolvePrimaryTab(item)))
+    setActiveTabSlot(defaultSecondaryTabSlotForItem(item))
     setOpenSectionIds((prev) => {
       const next = new Set(prev)
       next.add(item.section_id)

@@ -72,6 +72,10 @@ Current tab slots:
 
 Notes should be available for every learning path item. If a seeded notes tab is missing, the UI can still render a notes surface against the current item.
 
+Course tabs can render a typed Course document. A Course document is an ordered block list for the current `TopicItem`, with controlled block types such as paragraph, heading, definition, property, formula, callout, divider, image, cards, comparison, steps, and component. Formula blocks use LaTeX. Component blocks reference allowlisted visual component keys and can choose controlled display modes such as inline, panel, compact, full_width, hero, or boxed. Raw HTML, arbitrary CSS classes, and arbitrary component imports are not Course content.
+
+SQL owns which `TopicItem` exists and how students access it. Rich Course documents can be seeded locally in v1 and later stored in Firestore, keyed by a stable topic item key.
+
 ## Quizzes
 
 Current quiz source data may originate in `TabContent.config_json`, but runtime tracking uses normalized records:

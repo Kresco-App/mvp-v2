@@ -55,7 +55,6 @@ describe('apiClient transport wrapper', () => {
       ['lib', 'examData.ts'],
       ['components', 'Leaderboard.tsx'],
       ['components', 'VideoPlayer.tsx'],
-      ['components', 'VideoQuizOverlay.tsx'],
       ['components', 'topic-workspace', 'TopicWorkspacePanels.tsx'],
       ['app', '(dashboard)', 'topics', '[topicId]', 'page.tsx'],
     ]) {

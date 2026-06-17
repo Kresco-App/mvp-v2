@@ -18,6 +18,8 @@ describe('InteractiveActivityRenderer lazy loading', () => {
     expect(source).toContain("const DragAndDrop = lazy(() => import('./DragAndDrop'))")
     expect(source).toContain('function ActivityLoadingState')
     expect(source).toContain('class ActivityErrorBoundary')
+    expect(source).toContain('function activityInstanceKey')
+    expect(source).toContain('const lazyActivityKey = activityInstanceKey(activityType, activityData)')
     expect(source).not.toContain("import TrueFalse from './TrueFalse'")
     expect(source).not.toContain("import Matching from './Matching'")
     expect(source).not.toContain("import FillInBlank from './FillInBlank'")

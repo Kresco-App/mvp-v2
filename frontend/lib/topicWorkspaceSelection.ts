@@ -74,6 +74,8 @@ export function resolveTabSlotForTopicWorkspaceQuery(
   item: TopicItem,
   query: TopicWorkspaceQueryTargets,
 ): WorkspaceTabSlot {
+  if (query.quizId || query.questionId) return 'course'
+
   const targetTab = findTabForQueryTarget(item, query)
   if (targetTab) {
     const targetSlot = workspaceTabSlotForTab(targetTab)

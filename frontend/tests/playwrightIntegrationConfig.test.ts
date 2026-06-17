@@ -30,4 +30,11 @@ describe('Playwright integration config', () => {
     expect(source).toContain("const localE2eDatabaseUrl = 'sqlite+aiosqlite:///./e2e.sqlite3'")
     expect(packageJson.scripts['test:e2e:integration']).toContain('node scripts/build-integration.mjs')
   })
+
+  it('builds the app before standalone Playwright smoke tests run', () => {
+    const packageJson = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'))
+
+    expect(packageJson.scripts['test:e2e']).toBe('npm run build && playwright test')
+    expect(packageJson.scripts.ci).not.toContain('npm run build && npm run test:e2e')
+  })
 })

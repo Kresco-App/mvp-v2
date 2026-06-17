@@ -114,8 +114,10 @@ export default function KrescoMascot({
         )}
 
         {/* Fox mascot */}
-        <div
-          className={`cursor-pointer transition-transform duration-200 hover:scale-110 ${mascotSizeClass(size)} ${floating ? animationClass : ''}`}
+        <button
+          type="button"
+          aria-label="Show Kresco mascot message"
+          className={`border-0 bg-transparent p-0 cursor-pointer transition-transform duration-200 hover:scale-110 ${mascotSizeClass(size)} ${floating ? animationClass : ''}`}
           onClick={handleClick}
         >
           <Image
@@ -127,7 +129,7 @@ export default function KrescoMascot({
             draggable={false}
             priority={false}
           />
-        </div>
+        </button>
       </div>
     </>
   )

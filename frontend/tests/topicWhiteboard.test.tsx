@@ -114,6 +114,47 @@ describe('useTopicWhiteboard', () => {
       base_version: 3,
     })
   })
+
+  it('ignores repeated editor change events for the same scene', async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    mocks.getJson.mockResolvedValue({
+      id: 7,
+      target_type: 'topic_item',
+      target_id: 101,
+      topic_id: 42,
+      topic_item_id: 101,
+      scene_json: {
+        type: 'excalidraw',
+        version: 1,
+        source: 'server',
+        elements: [],
+        appState: { viewBackgroundColor: '#ffffff' },
+        files: {},
+      },
+      scene_version: 3,
+      updated_at: '2026-06-16T20:00:00Z',
+    })
+
+    const { container } = renderHarness()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('saved')
+    })
+
+    await act(async () => {
+      buttonByText(container, 'Draw')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+    expect(setItemSpy).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      buttonByText(container, 'Draw')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+    expect(setItemSpy).toHaveBeenCalledTimes(1)
+
+    setItemSpy.mockRestore()
+  })
 })
 
 function WhiteboardHarness() {

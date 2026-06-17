@@ -71,7 +71,9 @@ export function useTopicWhiteboard({
   const isDirtyRef = useRef(false)
   const savingRef = useRef(false)
   const loadedRef = useRef(false)
-  const lastSerializedSceneRef = useRef(serializeScene(scene))
+  const initialSerializedScene = serializeScene(scene)
+  const lastSerializedSceneRef = useRef(initialSerializedScene)
+  const currentSerializedSceneRef = useRef(initialSerializedScene)
 
   useEffect(() => {
     sceneRef.current = scene
@@ -107,6 +109,7 @@ export function useTopicWhiteboard({
         const nextVersion = shouldUseLocalDraft && localDraft ? localDraft.baseVersion : document.scene_version
 
         lastSerializedSceneRef.current = serializeScene(nextScene)
+        currentSerializedSceneRef.current = lastSerializedSceneRef.current
         sceneRef.current = nextScene
         sceneVersionRef.current = nextVersion
         isDirtyRef.current = shouldUseLocalDraft
@@ -124,6 +127,7 @@ export function useTopicWhiteboard({
         if (localDraft) {
           const nextScene = normalizeCanvasScene(localDraft.scene)
           lastSerializedSceneRef.current = serializeScene(nextScene)
+          currentSerializedSceneRef.current = lastSerializedSceneRef.current
           sceneRef.current = nextScene
           sceneVersionRef.current = localDraft.baseVersion
           isDirtyRef.current = localDraft.dirty
@@ -169,6 +173,7 @@ export function useTopicWhiteboard({
       const nextScene = normalizeCanvasScene(document.scene_json)
       const serialized = serializeScene(nextScene)
       lastSerializedSceneRef.current = serialized
+      currentSerializedSceneRef.current = serialized
       sceneRef.current = nextScene
       sceneVersionRef.current = document.scene_version
       isDirtyRef.current = false
@@ -214,8 +219,9 @@ export function useTopicWhiteboard({
       files: jsonClone(files) as Record<string, unknown>,
     })
     const serialized = serializeScene(nextScene)
-    if (serialized === lastSerializedSceneRef.current) return
+    if (serialized === currentSerializedSceneRef.current) return
 
+    currentSerializedSceneRef.current = serialized
     sceneRef.current = nextScene
     isDirtyRef.current = true
     setScene(nextScene)

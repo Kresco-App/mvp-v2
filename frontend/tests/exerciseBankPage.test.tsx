@@ -47,10 +47,9 @@ beforeEach(() => {
   document.body.innerHTML = ''
   searchParams.forEach((_value, key) => searchParams.delete(key))
   mocks.apiGet.mockImplementation(async (url: string) => {
-    if (url === '/courses/topics') {
+    if (url === '/courses/subjects') {
       return [
-        { id: 1, subject_id: 2, subject_title: 'Physique', title: 'Ondes' },
-        { id: 2, subject_id: 2, subject_title: 'Physique', title: 'Optique' },
+        { id: 2, title: 'Physique', chapter_count: 2, lesson_count: 9 },
       ]
     }
     if (url.startsWith('/exercises/subjects/2')) {
@@ -99,6 +98,32 @@ afterEach(() => {
 })
 
 describe('ExerciseBankPage', () => {
+  it('offers subjects from the subject catalog even when they have no published topics', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/subjects') {
+        return [{ id: 5, title: 'Mathematics', chapter_count: 0, lesson_count: 0 }]
+      }
+      if (url === '/exercises/subjects/5?limit=50') {
+        return {
+          subject_id: 5,
+          topic_id: null,
+          total: 1,
+          items: [exerciseListItem({ id: 50, subject_id: 5, topic_id: null, title: 'Subject-only exercise' })],
+        }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Mathematics')
+      expect(container.textContent).toContain('0 topics available')
+      expect(container.textContent).toContain('Subject-only exercise')
+    })
+    expect(mocks.apiGet).toHaveBeenCalledWith('/exercises/subjects/5?limit=50')
+  })
+
   it('loads exercises, syncs filters, reveals correction, and saves self-grade', async () => {
     const { container } = renderExerciseBankPage()
 
@@ -181,7 +206,7 @@ describe('ExerciseBankPage', () => {
   it('does not render a previous exercise detail while a newly selected exercise is loading', async () => {
     let resolveSecondDetail: ((value: unknown) => void) | null = null
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/courses/topics') return [{ id: 1, subject_id: 2, subject_title: 'Physique', title: 'Ondes' }]
+      if (url === '/courses/subjects') return [{ id: 2, title: 'Physique', chapter_count: 1, lesson_count: 4 }]
       if (url.startsWith('/exercises/subjects/2')) {
         return {
           subject_id: 2,
@@ -225,7 +250,7 @@ describe('ExerciseBankPage', () => {
   it('does not render previous filter results while a new exercise list is loading', async () => {
     let resolveFilteredList: ((value: unknown) => void) | null = null
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/courses/topics') return [{ id: 1, subject_id: 2, subject_title: 'Physique', title: 'Ondes' }]
+      if (url === '/courses/subjects') return [{ id: 2, title: 'Physique', chapter_count: 1, lesson_count: 4 }]
       if (url === '/exercises/subjects/2?limit=50') {
         return {
           subject_id: 2,
@@ -273,7 +298,7 @@ describe('ExerciseBankPage', () => {
     searchParams.set('subject', '2')
     searchParams.set('saved', 'true')
     mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/courses/topics') return [{ id: 1, subject_id: 2, subject_title: 'Physique', title: 'Ondes' }]
+      if (url === '/courses/subjects') return [{ id: 2, title: 'Physique', chapter_count: 1, lesson_count: 4 }]
       if (url === '/exercises/subjects/2?limit=50&saved=true') {
         return {
           subject_id: 2,

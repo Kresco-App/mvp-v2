@@ -25,9 +25,10 @@ describe('Figma workspace video placeholders', () => {
     const { container } = renderComponent(React.createElement(VideoLearningWorkspace))
     const iframe = container.querySelector('iframe')
 
-    expect(iframe?.getAttribute('src')).toBe('about:blank')
-    expect(iframe?.getAttribute('src')).not.toContain('dQw4w9WgXcQ')
-    expect(iframe?.getAttribute('srcdoc')).toContain('Video unavailable')
+    expect(iframe).toBeNull()
+    expect(container.textContent).toContain('Video not ready')
+    expect(container.textContent).not.toContain('dQw4w9WgXcQ')
+    expect(container.querySelector('[role="status"]')).not.toBeNull()
   })
 
   it('uses the caller-provided video id when a real source is configured', () => {

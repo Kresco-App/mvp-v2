@@ -6,11 +6,11 @@ if (process.env.CI && !hasAblyKey) {
   throw new Error('ABLY_API_KEY must be configured in CI for live-session fanout integration coverage.')
 }
 
-test.describe('Live session fanout (real Ably)', () => {
+test.describe('Ably REST credential smoke (real Ably)', () => {
   test.skip(!hasAblyKey, 'Skipped – ABLY_API_KEY is not set or is a placeholder')
 
-  test('subscribe to a channel and receive a message', async ({ page, request }) => {
-    // 1. Open the app so the Ably client is initialised
+  test('publishes a message and verifies it through Ably history', async ({ page, request }) => {
+    // 1. Open the app so the integration run still exercises the deployed frontend.
     await page.goto('/')
     await page.waitForLoadState('networkidle')
 

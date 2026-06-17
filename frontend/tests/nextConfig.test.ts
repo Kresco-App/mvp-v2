@@ -95,10 +95,23 @@ describe('Next production config boundaries', () => {
     }
   })
 
-  it('allows production backend rewrites only for HTTPS origins', () => {
+  it('allows production backend rewrites only for non-local HTTPS origins', () => {
     expect(shouldEnableBackendRewrites('https://api.example.com/staging')).toBe(true)
     expect(shouldEnableBackendRewrites('http://api.example.com')).toBe(false)
+    expect(shouldEnableBackendRewrites('https://localhost:8000')).toBe(false)
+    expect(shouldEnableBackendRewrites('https://127.0.0.1:8000')).toBe(false)
+    expect(shouldEnableBackendRewrites('https://kresco.ngrok.app')).toBe(false)
     expect(shouldEnableBackendRewrites('not-a-url')).toBe(false)
+  })
+
+  it('does not emit HTTPS localhost backend rewrites in production', async () => {
+    await expect(configuredRewritesWithEnv({
+      NODE_ENV: 'production',
+      KRESCO_ENV: 'production',
+      KRESCO_ENABLE_LOCAL_REWRITES: undefined,
+      KRESCO_LOCAL_BACKEND_ORIGIN: undefined,
+      KRESCO_BACKEND_ORIGIN: 'https://localhost:8000',
+    })).resolves.toEqual([])
   })
 
   it('does not emit localhost rewrites for production-marked builds even when local flags are present', async () => {

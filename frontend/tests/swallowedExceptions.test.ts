@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest'
 const AUDITED_FILES = [
   'app/admin/courses/page.tsx',
   'components/Leaderboard.tsx',
-  'components/VideoQuizOverlay.tsx',
   'app/page.tsx',
   'app/(dashboard)/home/[subjectId]/page.tsx',
 ]

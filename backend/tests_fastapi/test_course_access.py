@@ -13,12 +13,21 @@ async def _seed_topic(
     *,
     item_tier: str = "",
     tab_tier: str = "",
+    subject_published: bool = True,
+    topic_status: str = "published",
+    item_status: str = "published",
     resource_status: str = "published",
     provider_resource_id: str = "secret-video",
 ):
     seeded = await seed_course_hierarchy(
         user_id,
         slug,
+        subject_kwargs={
+            "is_published": subject_published,
+        },
+        topic_kwargs={
+            "status": topic_status,
+        },
         resource_kwargs={
             "title": "Locked video",
             "resource_type": "video",
@@ -31,7 +40,7 @@ async def _seed_topic(
         item_kwargs={
             "title": "Topic item",
             "item_type": "video",
-            "status": "published",
+            "status": item_status,
             "required_tier": item_tier,
         },
         tab_kwargs={
@@ -315,6 +324,35 @@ def test_locked_topic_item_stream_and_completion_are_forbidden(app_client, auth_
     assert stream.status_code == 403
     assert progress.status_code == 403
     assert complete.status_code == 403
+
+
+def test_direct_topic_item_endpoints_hide_unpublished_course_chain(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="access-unpublished-direct-item@example.com", is_pro=True)
+    cases = [
+        ("access-draft-item-direct", {"item_status": "draft"}),
+        ("access-draft-topic-direct", {"topic_status": "draft"}),
+        ("access-unpublished-subject-direct", {"subject_published": False}),
+    ]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for slug, kwargs in cases:
+        _subject_id, _topic_id, item_id, _tab_id = run_db(_seed_topic(user_id, slug, **kwargs))
+
+        stream = app_client.get(f"/api/courses/topic-items/{item_id}/stream", headers=headers)
+        progress = app_client.post(
+            f"/api/courses/topic-items/{item_id}/progress",
+            headers=headers,
+            json={"watched_seconds": 1},
+        )
+        complete = app_client.post(
+            f"/api/courses/topic-items/{item_id}/complete",
+            headers=headers,
+            json={"watched_seconds": 120},
+        )
+
+        assert stream.status_code == 404, slug
+        assert progress.status_code == 404, slug
+        assert complete.status_code == 404, slug
 
 
 def test_topic_item_stream_enforces_primary_resource_access(app_client, auth_token, run_db):

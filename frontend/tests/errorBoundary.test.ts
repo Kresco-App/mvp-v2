@@ -53,6 +53,7 @@ describe('route error states', () => {
     expect(container.textContent).toContain('Topic unavailable')
     expect(container.textContent).toContain('This topic workspace could not be loaded.')
     expect(container.textContent).toContain('Error reference: digest-123')
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
     expect(container.querySelector('a')?.getAttribute('href')).toBe('/home')
 
     await act(async () => {
@@ -72,6 +73,7 @@ describe('route error states', () => {
 
     const shell = container.querySelector('main')
     expect(shell?.className).toContain('place-items-center')
+    expect(shell?.className).toContain('isolate')
     expect(shell?.className).toContain('min-h-[calc(100dvh-84px)]')
     expect(container.textContent).toContain('This lesson could not be opened.')
   })

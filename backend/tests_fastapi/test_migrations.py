@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 ALEMBIC_VERSION_NUM_LIMIT = 32
@@ -59,3 +61,10 @@ def test_alembic_revisions_form_one_linear_chain():
         current = down_revisions[current]
 
     assert visited == set(revisions)
+
+
+def test_legacy_course_drop_downgrade_fails_loudly():
+    modules = {path.name: module for path, module in _load_migration_modules()}
+
+    with pytest.raises(RuntimeError, match="cannot safely recreate"):
+        modules["fcab131a375a_drop_legacy_course_hierarchy.py"].downgrade()

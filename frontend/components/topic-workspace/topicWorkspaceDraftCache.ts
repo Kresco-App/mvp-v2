@@ -7,7 +7,3 @@ export function readTopicWorkspaceDraft<T>(key: string, fallback: T): T {
 export function writeTopicWorkspaceDraft<T>(key: string, value: T) {
   topicWorkspaceDraftCache.set(key, value)
 }
-
-export function clearTopicWorkspaceDraftCache() {
-  topicWorkspaceDraftCache.clear()
-}

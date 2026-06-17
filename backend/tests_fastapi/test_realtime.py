@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import httpx
 import jwt
+import pytest
 from sqlalchemy import delete
 
 from app import scheduled
@@ -667,6 +668,32 @@ def test_scheduled_alembic_migration_event_runs_head(monkeypatch, test_settings)
     assert calls == [(str(scheduled.BACKEND_DIR / "alembic"), "head")]
     assert scheduled.os.environ["DATABASE_URL"] == test_settings.database_url
     assert scheduled.os.environ["PGSSLROOTCERT"] == test_settings.pgsslrootcert
+
+
+def test_scheduled_staging_demo_seed_requires_staging_and_explicit_confirmation(monkeypatch, test_settings):
+    seeded_urls: list[tuple[str, bool]] = []
+
+    async def fake_seed(database_url: str, *, allow_confirmed: bool = False):
+        seeded_urls.append((database_url, allow_confirmed))
+
+    staging_settings = test_settings.model_copy(update={
+        "environment": "staging",
+        "database_url": "sqlite+aiosqlite:///kresco_staging_demo.db",
+    })
+    monkeypatch.delenv("KRESCO_ALLOW_STAGING_DEMO_SEED", raising=False)
+    monkeypatch.setattr(scheduled, "seed_staging_demo", fake_seed)
+
+    monkeypatch.setattr(scheduled, "get_settings", lambda: test_settings)
+    with pytest.raises(ValueError, match="only run when KRESCO_ENV is staging"):
+        scheduled.seed_staging_demo_event({"confirm": scheduled.STAGING_DEMO_SEED_CONFIRMATION})
+
+    monkeypatch.setattr(scheduled, "get_settings", lambda: staging_settings)
+    with pytest.raises(ValueError, match="requires confirm=seed-staging-demo"):
+        scheduled.seed_staging_demo_event({})
+
+    assert scheduled.seed_staging_demo_event({"detail": {"confirm": scheduled.STAGING_DEMO_SEED_CONFIRMATION}}) == {"ok": True}
+    assert seeded_urls == [(staging_settings.database_url, True)]
+    assert scheduled.os.environ.get("KRESCO_ALLOW_STAGING_DEMO_SEED") is None
 
 
 def test_scheduled_database_initialization_uses_pool_settings(monkeypatch, test_settings):
