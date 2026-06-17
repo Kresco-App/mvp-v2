@@ -170,6 +170,7 @@ def test_ci_and_deploy_workflows_report_test_coverage():
         ".github/workflows/staging-provider-diagnostics.yml",
         ".github/workflows/staging-launch-evidence.yml",
         ".github/workflows/staging-topic-latency-evidence.yml",
+        ".github/workflows/staging-realtime-fanout-evidence.yml",
         ".github/workflows/production-dark-evidence.yml",
     ):
         assert workflow_path in backend_ci
