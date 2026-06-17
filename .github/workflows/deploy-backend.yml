@@ -147,9 +147,18 @@ jobs:
             --project "$PROJECT_ID" \
             --activation-policy ALWAYS \
             --quiet
-          gcloud sql instances wait "$CLOUD_SQL_INSTANCE" \
-            --project "$PROJECT_ID" \
-            --timeout 900
+          for attempt in {1..90}; do
+            state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project "$PROJECT_ID" --format='value(state)')"
+            if [ "$state" = "RUNNABLE" ]; then
+              break
+            fi
+            echo "Waiting for Cloud SQL instance $CLOUD_SQL_INSTANCE to become RUNNABLE; current state=$state"
+            sleep 10
+          done
+          if [ "$state" != "RUNNABLE" ]; then
+            echo "::error::Cloud SQL instance $CLOUD_SQL_INSTANCE did not become RUNNABLE within 15 minutes."
+            exit 1
+          fi
           gcloud run jobs execute "$MIGRATION_JOB" \
             --project "$PROJECT_ID" \
             --region "$REGION" \
