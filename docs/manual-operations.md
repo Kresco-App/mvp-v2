@@ -19,6 +19,7 @@ Kresco production and staging run on Cloud Run with managed Postgres, Firebase A
 - Store durable references as `gs://bucket/prefix/object`.
 - Return only short-lived signed read URLs to clients.
 - Keep buckets private, deny anonymous object reads, and enable lifecycle cleanup for staging and production prefixes.
+- Grant the GitHub deploy service account enough read-only bucket posture access for evidence collection: `storage.buckets.get` and `storage.buckets.getIamPolicy` on the staging and production media buckets.
 
 ## Deploy Evidence
 
