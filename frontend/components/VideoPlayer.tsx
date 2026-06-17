@@ -4,9 +4,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertCircle, Play } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import { getJson } from '@/lib/apiClient'
-import { isLocalDemoVideoStream } from '@/lib/devFeatures'
 import { useVideoProgress } from '@/hooks/useVideoProgress'
 
 export { isActiveLesson } from '@/hooks/useVideoProgress'
@@ -205,8 +204,6 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
   useEffect(() => {
     if (!streamData || !iframeRef.current) return
 
-    if (isLocalDemoVideoStream(streamData)) return
-
     let cancelled = false
     let cleanupVideoEvents: (() => void) | null = null
 
@@ -299,38 +296,6 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
           <span className="text-slate-400 text-sm">Chargement de la video...</span>
-        </div>
-      </div>
-    )
-  }
-
-  if (isLocalDemoVideoStream(streamData)) {
-    return (
-      <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/30 to-slate-950" />
-        <div className="relative flex flex-col items-center gap-4 text-center p-8">
-          <div className="w-16 h-16 rounded-full bg-slate-900/10 flex items-center justify-center backdrop-blur-sm border border-white/20">
-            <Play size={28} className="text-white fill-white ml-1" />
-          </div>
-          <div>
-            <p className="text-white font-semibold mb-1">Apercu video local</p>
-            <p className="text-slate-400 text-sm">
-              Le lecteur VdoCipher apparaitra ici quand la source video sera configuree.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              void reportCompletion().then((completed) => {
-                if (completed) {
-                  toast.success('Lecon marquee comme terminee !')
-                }
-              })
-            }}
-            className="mt-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-          >
-            Marquer comme terminee
-          </button>
         </div>
       </div>
     )

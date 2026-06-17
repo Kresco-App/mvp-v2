@@ -38,4 +38,13 @@ describe('VideoPlayer VdoCipher URL construction', () => {
     expect(source.indexOf('if (error)')).toBeGreaterThan(-1)
     expect(source.indexOf('if (error)')).toBeLessThan(source.indexOf('if (loading || !streamData)'))
   })
+
+  it('does not bundle a local demo video fallback into the production player', () => {
+    const source = readFileSync(join(process.cwd(), 'components', 'VideoPlayer.tsx'), 'utf8')
+
+    expect(source).not.toContain('devFeatures')
+    expect(source).not.toContain('isLocalDemoVideoStream')
+    expect(source).not.toContain('mock-otp-token')
+    expect(source).not.toContain('Apercu video local')
+  })
 })

@@ -837,7 +837,7 @@ async function mockApi(page: Page) {
     if (path === '/courses/topic-items/101/stream') {
       await route.fulfill({
         json: {
-          otp: 'mock-otp-token',
+          otp: 'provider-smoke-otp',
           playback_info: 'smoke-playback',
         },
       })
@@ -877,6 +877,35 @@ function collectCriticalBrowserErrors(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.route('https://accounts.google.com/**', (route) => route.abort())
+  await page.route('https://player.vdocipher.com/v2/**', async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/api.js')) {
+      await route.fulfill({
+        contentType: 'application/javascript',
+        body: `
+          window.VdoPlayer = {
+            getInstance: function () {
+              return {
+                video: {
+                  currentTime: 0,
+                  duration: 120,
+                  addEventListener: function () {},
+                  removeEventListener: function () {}
+                },
+                destroy: function () {}
+              }
+            }
+          };
+        `,
+      })
+      return
+    }
+
+    await route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body><main>VdoCipher lesson player</main></body></html>',
+    })
+  })
   await page.route('https://player.vdocipher.com/mock-frame**', async (route) => {
     const label = new URL(route.request().url()).searchParams.get('label') ?? 'VdoCipher live player'
     await route.fulfill({
@@ -933,7 +962,7 @@ test('topic workspace hydrates with mocked course data', async ({ page }) => {
 
   await page.goto('/topics/42')
   await expect(page.getByRole('heading', { name: /Mathematics: Continuity introduction/i })).toBeVisible()
-  await expect(page.getByText('Apercu video local')).toBeVisible()
+  await expect(page.locator('iframe[title="VdoCipher lesson video player"]')).toBeVisible()
   await expect(page.getByText('Mock course content for continuity and limits.')).toBeVisible()
   await page.getByRole('button', { name: /Lab/i }).click()
   await expect(page.getByText('Periodicite des ondes')).toBeVisible()

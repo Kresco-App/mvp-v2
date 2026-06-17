@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
-  isLocalDemoVideoStream: vi.fn(),
 }))
 
 vi.mock('@/lib/axios', () => ({
@@ -20,10 +19,6 @@ vi.mock('@/lib/axios', () => ({
     get: mocks.apiGet,
     post: mocks.apiPost,
   },
-}))
-
-vi.mock('@/lib/devFeatures', () => ({
-  isLocalDemoVideoStream: mocks.isLocalDemoVideoStream,
 }))
 
 vi.mock('sonner', () => ({
@@ -39,7 +34,6 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.isLocalDemoVideoStream.mockReturnValue(false)
   mountedRoots = []
   document.body.innerHTML = ''
 })
@@ -157,10 +151,16 @@ describe('core learning component rendering', () => {
     expect(container.textContent).toContain('Quiz reussi')
   })
 
-  it('renders VideoPlayer demo stream and reports completion from the UI', async () => {
-    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'mock-otp-token' } })
+  it('renders the VdoCipher iframe and reports completion from provider events', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'provider-otp', playback_info: 'provider-playback' } })
     mocks.apiPost.mockResolvedValue({ data: {} })
-    mocks.isLocalDemoVideoStream.mockReturnValue(true)
+    const fakeVideo = document.createElement('video')
+    Object.defineProperty(fakeVideo, 'duration', { value: 120, configurable: true })
+    const getInstance = vi.fn(() => ({
+      video: fakeVideo,
+      destroy: vi.fn(),
+    }))
+    window.VdoPlayer = { getInstance }
     const onComplete = vi.fn()
     const { container } = renderComponent(React.createElement(VideoPlayer, {
       lessonId: 42,
@@ -175,10 +175,15 @@ describe('core learning component rendering', () => {
     })
 
     expect(mocks.apiGet).toHaveBeenCalledWith('/courses/topic-items/42/stream')
-    expect(container.textContent).toContain('Apercu video local')
+    await waitFor(() => {
+      expect(getInstance).toHaveBeenCalledTimes(1)
+    })
+    expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
+      'https://player.vdocipher.com/v2/?otp=provider-otp&playbackInfo=provider-playback&player=&',
+    )
 
     await act(async () => {
-      buttonByText(container, 'Marquer comme terminee')?.click()
+      fakeVideo.dispatchEvent(new Event('ended'))
       await flushPromises()
     })
 
@@ -186,29 +191,34 @@ describe('core learning component rendering', () => {
       watched_seconds: 120,
     })
     expect(onComplete).toHaveBeenCalledTimes(1)
-    expect(mocks.toastSuccess).toHaveBeenCalledWith('Lecon marquee comme terminee !')
   })
 
-  it('lets VideoPlayer demo completion retry after a failed save', async () => {
-    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'mock-otp-token' } })
+  it('lets VideoPlayer provider completion retry after a failed save', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'provider-otp', playback_info: 'provider-playback' } })
     mocks.apiPost
       .mockRejectedValueOnce(new Error('save failed'))
       .mockResolvedValueOnce({ data: {} })
-    mocks.isLocalDemoVideoStream.mockReturnValue(true)
+    const fakeVideo = document.createElement('video')
+    Object.defineProperty(fakeVideo, 'duration', { value: 120, configurable: true })
+    const getInstance = vi.fn(() => ({
+      video: fakeVideo,
+      destroy: vi.fn(),
+    }))
+    window.VdoPlayer = { getInstance }
     const onComplete = vi.fn()
-    const { container } = renderComponent(React.createElement(VideoPlayer, {
+    renderComponent(React.createElement(VideoPlayer, {
       lessonId: 42,
       durationSeconds: 120,
       onProgress: vi.fn(),
       onComplete,
     }))
 
-    await act(async () => {
-      await flushPromises()
+    await waitFor(() => {
+      expect(getInstance).toHaveBeenCalledTimes(1)
     })
 
     await act(async () => {
-      buttonByText(container, 'Marquer comme terminee')?.click()
+      fakeVideo.dispatchEvent(new Event('ended'))
       await flushPromises()
     })
 
@@ -217,13 +227,12 @@ describe('core learning component rendering', () => {
     expect(mocks.toastError).toHaveBeenCalledWith('Could not save video completion.')
 
     await act(async () => {
-      buttonByText(container, 'Marquer comme terminee')?.click()
+      fakeVideo.dispatchEvent(new Event('ended'))
       await flushPromises()
     })
 
     expect(mocks.apiPost).toHaveBeenCalledTimes(2)
     expect(onComplete).toHaveBeenCalledTimes(1)
-    expect(mocks.toastSuccess).toHaveBeenCalledWith('Lecon marquee comme terminee !')
   })
 
   it('seeks VdoCipher playback to the resume checkpoint and flushes latest progress on pagehide', async () => {

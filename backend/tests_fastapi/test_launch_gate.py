@@ -145,12 +145,15 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in backend_workflow
 
     assert "Deploy Frontend to Cloud Run" in frontend_workflow
+    assert "actions/setup-node@v4" in frontend_workflow
+    assert 'node-version: "22"' in frontend_workflow
     assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in frontend_workflow
     assert "docker build --pull" in frontend_workflow
     assert 'docker push "$image"' in frontend_workflow
     assert "gcloud run deploy \"$FRONTEND_SERVICE\"" in frontend_workflow
     assert "npm ci" in frontend_workflow
     assert "npm run validate:production-env" in frontend_workflow
+    assert "npm run check:production-demo-surface -- --base-url \"$FRONTEND_URL\" --json" in frontend_workflow
     assert "NEXT_PUBLIC_FIREBASE_API_KEY" in frontend_workflow
     assert "NEXT_PUBLIC_REALTIME_PROVIDER=firestore" in frontend_workflow
     assert 'KRESCO_BACKEND_ORIGIN="$BACKEND_URL"' in frontend_workflow
