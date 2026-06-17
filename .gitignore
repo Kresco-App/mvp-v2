@@ -35,5 +35,6 @@ Thumbs.db
 .codex-logs/
 media/
 *.sqlite3
+*.sqlite3.backup-*
 *.db
 .codex-quiz-dom.png
