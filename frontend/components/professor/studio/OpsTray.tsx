@@ -5,12 +5,12 @@ import { useState } from 'react'
 import type { StudioOperation } from '@/lib/studio'
 import { describeOperation } from '@/lib/studioDiff'
 
-const OP_META: Record<string, { Icon: typeof Plus; color: string; bg: string }> = {
-  create: { Icon: Plus, color: '#16a34a', bg: '#f0fdf4' },
-  update_fields: { Icon: Pencil, color: '#5b60f9', bg: '#f0f0ff' },
-  update_content: { Icon: FileText, color: '#5b60f9', bg: '#f0f0ff' },
-  reorder: { Icon: ArrowUpDown, color: '#f5900b', bg: '#fff7ed' },
-  delete: { Icon: Trash2, color: '#ef4444', bg: '#fef2f2' },
+const OP_META: Record<string, { Icon: typeof Plus; className: string }> = {
+  create: { Icon: Plus, className: 'bg-[#f0fdf4] text-[#16a34a]' },
+  update_fields: { Icon: Pencil, className: 'bg-[#f0f0ff] text-[#5b60f9]' },
+  update_content: { Icon: FileText, className: 'bg-[#f0f0ff] text-[#5b60f9]' },
+  reorder: { Icon: ArrowUpDown, className: 'bg-[#fff7ed] text-[#f5900b]' },
+  delete: { Icon: Trash2, className: 'bg-[#fef2f2] text-[#ef4444]' },
 }
 
 export default function OpsTray({ operations }: { operations: StudioOperation[] }) {
@@ -50,8 +50,7 @@ export default function OpsTray({ operations }: { operations: StudioOperation[] 
                     className="flex items-center gap-2.5 rounded-[10px] border border-[#f4f4f5] px-3 py-2"
                   >
                     <span
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-[8px]"
-                      style={{ background: meta.bg, color: meta.color }}
+                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] ${meta.className}`}
                     >
                       <Icon size={14} />
                     </span>

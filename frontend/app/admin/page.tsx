@@ -15,6 +15,36 @@ import {
 } from '@/lib/adminOverview'
 
 const card = 'rounded-[16px] border-[2px] border-[#e4e4e7] bg-white'
+const READINESS_WIDTH_CLASSES = [
+  'w-[4%]',
+  'w-[5%]',
+  'w-[10%]',
+  'w-[15%]',
+  'w-[20%]',
+  'w-[25%]',
+  'w-[30%]',
+  'w-[35%]',
+  'w-[40%]',
+  'w-[45%]',
+  'w-[50%]',
+  'w-[55%]',
+  'w-[60%]',
+  'w-[65%]',
+  'w-[70%]',
+  'w-[75%]',
+  'w-[80%]',
+  'w-[85%]',
+  'w-[90%]',
+  'w-[95%]',
+  'w-full',
+] as const
+
+function readinessWidthClass(pct: number) {
+  if (pct >= 100) return 'w-full'
+  if (pct <= 0) return READINESS_WIDTH_CLASSES[0]
+  const bucket = Math.max(1, Math.min(19, Math.round(pct / 5)))
+  return READINESS_WIDTH_CLASSES[bucket]
+}
 
 function KpiTile({ icon: Icon, label, value, hint, loading }: { icon: typeof Users; label: string; value: number; hint?: string; loading: boolean }) {
   return (
@@ -31,6 +61,7 @@ function KpiTile({ icon: Icon, label, value, hint, loading }: { icon: typeof Use
 
 function ReadinessBar({ label, ratio }: { label: string; ratio: number }) {
   const pct = Math.round(ratio * 100)
+  const widthClass = readinessWidthClass(pct)
   return (
     <div>
       <div className="mb-1 flex items-center justify-between text-[12.5px] font-bold">
@@ -38,7 +69,7 @@ function ReadinessBar({ label, ratio }: { label: string; ratio: number }) {
         <span className="text-[#a1a1aa]">{pct}% publié</span>
       </div>
       <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#f4f4f5]">
-        <div className="h-full rounded-full bg-[#5b60f9]" style={{ width: `${Math.max(4, pct)}%` }} />
+        <div className={`h-full rounded-full bg-[#5b60f9] ${widthClass}`} />
       </div>
     </div>
   )

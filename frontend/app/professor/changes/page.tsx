@@ -9,7 +9,7 @@ import { listProfessorChangeRequests, type ProfessorChangeSummary } from '@/lib/
 import { withdrawStudioChange } from '@/lib/studio'
 
 const FILTERS = [
-  { value: '', label: 'Toutes' },
+  { value: 'all', label: 'Toutes' },
   { value: 'pending', label: 'En attente' },
   { value: 'partially_applied', label: 'Partiel' },
   { value: 'applied', label: 'Appliquées' },
@@ -31,7 +31,7 @@ function statusMeta(status: string) {
 
 export default function ProfessorChangesPage() {
   const [requests, setRequests] = useState<ProfessorChangeSummary[]>([])
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState('all')
   const [loading, setLoading] = useState(true)
 
   function reload() {

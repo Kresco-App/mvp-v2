@@ -1,7 +1,6 @@
 'use client'
 
 import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 
 export default function SortableShell({
@@ -15,17 +14,10 @@ export default function SortableShell({
   className?: string
   handleClassName?: string
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 30 : undefined,
-    opacity: isDragging ? 0.85 : 1,
-  }
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id })
 
   return (
-    <div ref={setNodeRef} style={style} className={`${className} ${isDragging ? 'shadow-[0_18px_40px_rgba(24,24,27,0.14)]' : ''}`}>
+    <div ref={setNodeRef} className={`${className} ${isDragging ? 'relative z-30 opacity-[0.85] shadow-[0_18px_40px_rgba(24,24,27,0.14)]' : ''}`}>
       <button
         type="button"
         aria-label="Glisser pour réordonner"

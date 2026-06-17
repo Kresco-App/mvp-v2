@@ -1566,6 +1566,28 @@ def test_change_request_requires_target_inside_offering(app_client, run_db, test
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()] == [created.json()["id"]]
 
+    async def _mark_applied():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            row = await db.get(ProfessorChangeRequest, created.json()["id"])
+            row.status = "applied"
+            await db.commit()
+
+    run_db(_mark_applied())
+
+    pending_after_apply = app_client.get(
+        "/api/professor/change-requests",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    all_after_apply = app_client.get(
+        "/api/professor/change-requests?status=all",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert pending_after_apply.status_code == 200
+    assert pending_after_apply.json() == []
+    assert all_after_apply.status_code == 200
+    assert [item["id"] for item in all_after_apply.json()] == [created.json()["id"]]
+
     invalid_limit = app_client.get(
         "/api/professor/change-requests?limit=101",
         headers={"Authorization": f"Bearer {seeded['professor_token']}"},

@@ -299,7 +299,7 @@ test('backend-backed VIP student chat sends a real professor message', async ({ 
 
   const response = await sendResponse
   expect(response.status()).toBe(201)
-  await expect(page.getByText(message)).toBeVisible()
+  await expect(page.getByText(message, { exact: true })).toBeVisible()
 })
 
 test('backend-backed upload flows use GCS mock storage for profile and chat media', async ({ browser }) => {
@@ -366,7 +366,7 @@ test('backend-backed upload flows use GCS mock storage for profile and chat medi
     expect(studentImageMessage.attachment_mime_type).toBe('image/png')
     expect(studentImageMessage.attachment_name).toBe('student-chat-e2e.png')
     expectMockGcsMediaUrl(studentImageMessage.attachment_url, '/professor-chat/')
-    await expect(studentPage.getByText(studentCaption)).toBeVisible()
+    await expect(studentPage.getByText(studentCaption, { exact: true })).toBeVisible()
 
     await loginAsSeededUser(professorPage, 'professor@example.com')
     await professorPage.goto('/professor/chat')
@@ -388,7 +388,7 @@ test('backend-backed upload flows use GCS mock storage for profile and chat medi
     expect(professorImageMessage.attachment_mime_type).toBe('image/png')
     expect(professorImageMessage.attachment_name).toBe('professor-chat-e2e.png')
     expectMockGcsMediaUrl(professorImageMessage.attachment_url, '/professor-chat/')
-    await expect(professorPage.getByText(professorCaption)).toBeVisible()
+    await expect(professorPage.getByText(professorCaption, { exact: true })).toBeVisible()
   } finally {
     await studentContext.close()
     await professorContext.close()
@@ -458,8 +458,8 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
       })
     })
     await backendFailurePage.goto('/admin')
-    await expect(backendFailurePage.getByRole('heading', { name: 'Operations control center' })).toBeVisible()
-    await expect(backendFailurePage.getByText('Live analytics could not be loaded.')).toBeVisible()
+    await expect(backendFailurePage.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible()
+    await expect(backendFailurePage.getByText('Les analyses en direct n’ont pas pu être chargées.')).toBeVisible()
     expect(overviewFailures).toBeGreaterThan(0)
 
     const emptyPage = await emptyContext.newPage()

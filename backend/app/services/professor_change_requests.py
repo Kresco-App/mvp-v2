@@ -36,7 +36,7 @@ async def list_professor_change_requests(
     allowed_ids = [offering.id for offering in allowed_offerings]
     if not allowed_ids:
         return []
-    if status in {"", "pending"}:
+    if status in {"", "pending", "all"}:
         await close_dangling_change_requests(db, offering_ids=allowed_ids)
 
     stmt = (
@@ -45,7 +45,7 @@ async def list_professor_change_requests(
         .where(ProfessorChangeRequest.course_offering_id.in_(allowed_ids))
         .order_by(ProfessorChangeRequest.created_at.desc())
     )
-    if status:
+    if status and status != "all":
         stmt = stmt.where(ProfessorChangeRequest.status == status)
     requests = (await db.execute(stmt.offset(offset).limit(limit))).scalars().unique().all()
     if not requests:

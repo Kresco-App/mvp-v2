@@ -57,12 +57,13 @@ def _slugify(value: str) -> str:
 
 async def _unique_topic_slug(db: AsyncSession, title: str) -> str:
     base = _slugify(title)[:140]
-    candidate = base
-    for _ in range(8):
-        exists = await db.scalar(select(Topic.id).where(Topic.slug == candidate).limit(1))
-        if exists is None:
+    candidates = [base, *(f"{base}-{secrets.token_hex(3)}" for _ in range(7))]
+    existing = set(
+        (await db.scalars(select(Topic.slug).where(Topic.slug.in_(candidates)))).all()
+    )
+    for candidate in candidates:
+        if candidate not in existing:
             return candidate
-        candidate = f"{base}-{secrets.token_hex(3)}"
     return f"{base}-{secrets.token_hex(6)}"
 
 

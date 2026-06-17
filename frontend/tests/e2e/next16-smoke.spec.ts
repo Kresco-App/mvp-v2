@@ -370,12 +370,18 @@ const professorChangeRequests = [
   {
     id: 71,
     course_offering_id: professorOffering.id,
+    offering_title: professorOffering.title,
+    summary: 'Limits and Continuity - National Focus',
     target_type: 'topic',
     target_id: 42,
     change_type: 'update_fields',
     proposed_patch_json: { title: 'Limits and Continuity - National Focus' },
     current_snapshot_json: { title: 'Limits and Continuity' },
     status: 'pending',
+    operation_count: 1,
+    pending_count: 1,
+    applied_count: 0,
+    rejected_count: 0,
     admin_note: '',
     created_at: new Date().toISOString(),
     reviewed_at: null,
@@ -383,12 +389,18 @@ const professorChangeRequests = [
   {
     id: 72,
     course_offering_id: professorOffering.id,
+    offering_title: professorOffering.title,
+    summary: 'Continuity proof walkthrough',
     target_type: 'topic_item',
     target_id: 101,
     change_type: 'update_fields',
     proposed_patch_json: { title: 'Continuity proof walkthrough', duration_seconds: 1200 },
     current_snapshot_json: { title: 'Continuity introduction' },
     status: 'pending',
+    operation_count: 1,
+    pending_count: 1,
+    applied_count: 0,
+    rejected_count: 0,
     admin_note: '',
     created_at: new Date().toISOString(),
     reviewed_at: null,
@@ -396,12 +408,18 @@ const professorChangeRequests = [
   {
     id: 73,
     course_offering_id: professorOffering.id,
+    offering_title: professorOffering.title,
+    summary: 'Add tangent-line example.',
     target_type: 'tab_content',
     target_id: 501,
     change_type: 'update_fields',
     proposed_patch_json: { content: 'Add tangent-line example.' },
     current_snapshot_json: { content: 'Existing quiz content.' },
-    status: 'approved',
+    status: 'applied',
+    operation_count: 1,
+    pending_count: 0,
+    applied_count: 1,
+    rejected_count: 0,
     admin_note: 'Demo approved admin note',
     created_at: new Date().toISOString(),
     reviewed_at: new Date().toISOString(),
@@ -409,17 +427,37 @@ const professorChangeRequests = [
   {
     id: 74,
     course_offering_id: professorOffering.id,
+    offering_title: professorOffering.title,
+    summary: 'Remove optimisation checkpoint',
     target_type: 'topic_item',
     target_id: 102,
     change_type: 'update_fields',
     proposed_patch_json: { title: 'Remove optimisation checkpoint' },
     current_snapshot_json: { title: 'Optimisation checkpoint' },
     status: 'rejected',
+    operation_count: 1,
+    pending_count: 0,
+    applied_count: 0,
+    rejected_count: 1,
     admin_note: 'Demo rejected admin note',
     created_at: new Date().toISOString(),
     reviewed_at: new Date().toISOString(),
   },
 ]
+
+const adminChangeRequests = professorChangeRequests.map((request) => ({
+  id: request.id,
+  course_offering_id: request.course_offering_id,
+  offering_title: request.offering_title,
+  professor_name: smokeProfessor.full_name,
+  professor_email: smokeProfessor.email,
+  summary: request.summary,
+  status: request.status,
+  operation_count: request.operation_count,
+  pending_count: request.pending_count,
+  created_at: request.created_at,
+  reviewed_at: request.reviewed_at,
+}))
 
 const professorConversations = [
   {
@@ -611,6 +649,15 @@ async function mockApi(page: Page) {
       return
     }
 
+    if (path === '/admin/change-requests') {
+      const requestedStatus = url.searchParams.get('status')
+      const items = requestedStatus && requestedStatus !== 'all'
+        ? adminChangeRequests.filter((request) => request.status === requestedStatus)
+        : adminChangeRequests
+      await route.fulfill({ json: items })
+      return
+    }
+
     if (path === '/professor/dashboard') {
       await route.fulfill({
         json: {
@@ -735,8 +782,11 @@ async function mockApi(page: Page) {
     }
 
     if (path === '/professor/change-requests') {
-      const requestedStatus = url.searchParams.get('status') || 'pending'
-      await route.fulfill({ json: professorChangeRequests.filter((request) => request.status === requestedStatus) })
+      const requestedStatus = url.searchParams.get('status')
+      const items = requestedStatus && requestedStatus !== 'all'
+        ? professorChangeRequests.filter((request) => request.status === requestedStatus)
+        : professorChangeRequests
+      await route.fulfill({ json: items })
       return
     }
 
@@ -871,8 +921,8 @@ test('authenticated dashboard, payment, and admin routes hydrate with mocked API
   await expect(page.getByText('Acces Pro active')).toBeVisible()
 
   await page.goto('/admin')
-  await expect(page.getByRole('heading', { name: /Operations control center/i })).toBeVisible()
-  await expect(page.getByText('Live analytics')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Tableau de bord/i })).toBeVisible()
+  await expect(page.getByText('2 demande(s) à réviser')).toBeVisible()
 
   browserErrors.assertClean()
 })
@@ -897,7 +947,7 @@ test('professor dashboard, live sessions, change requests, and chat hydrate with
 
   await page.goto('/professor')
   await expect(page.getByRole('heading', { name: 'Professor Dashboard' })).toBeVisible()
-  await expect(page.getByText('Mathematics - 2BAC Sciences Math B')).toBeVisible()
+  await expect(page.getByText('Mathematics - 2BAC Sciences Math B', { exact: true })).toBeVisible()
   await expect(page.getByText('Live correction: limits national exam')).toBeVisible()
   await expect(page.getByText('VIP private conversations are student-initiated only.')).toBeVisible()
 
@@ -924,11 +974,11 @@ test('professor dashboard, live sessions, change requests, and chat hydrate with
   await page.screenshot({ path: 'artifacts/context-screenshots/professor-live-control-smoke.png', fullPage: true })
 
   await page.goto('/professor/changes')
-  await expect(page.getByRole('heading', { name: 'Change Requests' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Mes demandes de modification' })).toBeVisible()
   await expect(page.getByText('Limits and Continuity - National Focus')).toBeVisible()
-  await page.getByRole('button', { name: 'approved' }).click()
+  await page.getByRole('button', { name: 'Appliquées' }).click()
   await expect(page.getByText('Add tangent-line example.')).toBeVisible()
-  await page.getByRole('button', { name: 'rejected' }).click()
+  await page.getByRole('button', { name: 'Rejetées' }).click()
   await expect(page.getByText('Remove optimisation checkpoint')).toBeVisible()
 
   await page.goto('/professor/chat')
@@ -982,8 +1032,9 @@ test('vip student professor chat and locked basic student state hydrate', async 
   await expect(page.getByRole('button', { name: /Pr Lina Berrada Physics/i })).toBeVisible()
 
   await page.getByRole('button', { name: /Pr Lina Berrada Physics/i }).click()
-  await expect(page.locator('p').filter({ hasText: 'Pr Lina Berrada - Physics' })).toBeVisible()
-  await expect(page.getByPlaceholder('Write your question...')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pr Lina Berrada' })).toBeVisible()
+  await expect(page.getByText('No messages yet')).toBeVisible()
+  await expect(page.getByPlaceholder('Message your professor')).toBeVisible()
 
   await seedAuthenticatedUser(page, smokeBasicStudent)
   await page.route('**/api/professor/student-chat', async (route) => {

@@ -27,6 +27,19 @@ class PreviewBoundary extends Component<{ children: ReactNode; resetKey: string 
   }
 }
 
+const ACCENT_DOT_CLASSES: Record<string, string> = {
+  '#5b60f9': 'bg-[#5b60f9]',
+  '#0ea5e9': 'bg-[#0ea5e9]',
+  '#f5900b': 'bg-[#f5900b]',
+  '#16a34a': 'bg-[#16a34a]',
+  '#db2777': 'bg-[#db2777]',
+  '#7c3aed': 'bg-[#7c3aed]',
+}
+
+function accentDotClass(accent: string) {
+  return ACCENT_DOT_CLASSES[accent] ?? 'bg-[#5b60f9]'
+}
+
 export default function SimulatorLibrary({
   open,
   currentKey,
@@ -128,7 +141,7 @@ export default function SimulatorLibrary({
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: sim.accent }} />
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${accentDotClass(sim.accent)}`} />
                           <span className="truncate text-[13.5px] font-black text-[#3f3f46]">{sim.title}</span>
                           {isCurrent && <Check size={14} className="ml-auto shrink-0 text-[#16a34a]" />}
                         </div>
