@@ -126,8 +126,11 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
         assert "--min-instances 0" in workflow
         assert "--max-instances 3" in workflow
         assert "confirm_production_dark_deploy" in workflow
+        assert "enforce_production_launch_gate" in workflow
+        assert "Dark production deploy only: this workflow does not route domains or user traffic." in workflow
+        assert "inputs.enforce_production_launch_gate == true" in workflow
         assert "zappa " not in workflow
-    assert "vercel " not in workflow
+        assert "vercel " not in workflow
 
     assert "Deploy Backend to Cloud Run" in backend_workflow
     assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in backend_workflow

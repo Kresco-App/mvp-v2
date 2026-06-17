@@ -21,6 +21,11 @@ on:
         required: true
         default: false
         type: boolean
+      enforce_production_launch_gate:
+        description: "Set true only for full production cutover after provider rotation evidence is complete"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -70,12 +75,18 @@ jobs:
       - name: Check secret hygiene
         run: python scripts/check_secret_hygiene.py
 
+      - name: Assert dark production boundary
+        if: ${{ inputs.environment == 'production' && inputs.enforce_production_launch_gate == false }}
+        run: |
+          echo "Dark production deploy only: this workflow does not route domains or user traffic."
+          echo "Provider rotation evidence and production launch gate remain required before cutover."
+
       - name: Enforce production secret rotation checklist
-        if: ${{ inputs.environment == 'production' }}
+        if: ${{ inputs.environment == 'production' && inputs.enforce_production_launch_gate == true }}
         run: python scripts/check_secret_hygiene.py --require-rotation-checklist
 
       - name: Enforce production launch gate
-        if: ${{ inputs.environment == 'production' }}
+        if: ${{ inputs.environment == 'production' && inputs.enforce_production_launch_gate == true }}
         run: python scripts/check_production_launch_gate.py
 
       - name: Authenticate to Google Cloud
