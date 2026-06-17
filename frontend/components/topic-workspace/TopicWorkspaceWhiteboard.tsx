@@ -41,7 +41,7 @@ export function TopicWorkspaceWhiteboard({
   const statusTone = syncStatusTone(whiteboard.syncStatus)
 
   const editor = (mode: 'compact' | 'expanded') => (
-    <div className="h-full min-h-0 overflow-hidden bg-[#fbfcff]">
+    <div className="kresco-whiteboard-editor h-full min-h-0 overflow-hidden bg-[#fbfcff]">
       <Excalidraw
         key={`${item.id}-${mode}-${whiteboard.sceneLoadKey}`}
         initialData={initialData}

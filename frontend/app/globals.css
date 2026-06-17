@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+.kresco-whiteboard-editor .HintViewer,
+.kresco-whiteboard-editor .HelpButton,
+.kresco-whiteboard-editor .mobile-misc-tools-container,
+.kresco-whiteboard-editor [aria-label="Library"],
+.kresco-whiteboard-editor [title="Library"],
+.kresco-whiteboard-editor [aria-label="Help"],
+.kresco-whiteboard-editor [title="Help"] {
+  display: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+}
+
 @font-face {
   font-family: "Kresco SF Rounded";
   src:
