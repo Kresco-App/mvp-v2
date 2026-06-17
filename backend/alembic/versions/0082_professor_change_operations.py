@@ -1,7 +1,7 @@
 """Professor studio: batched change operations + request summary.
 
-Revision ID: 0079
-Revises: 0078
+Revision ID: 0082
+Revises: 0081
 Create Date: 2026-06-17 09:00:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0079"
-down_revision: Union[str, None] = "0078"
+revision: str = "0082"
+down_revision: Union[str, None] = "0081"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

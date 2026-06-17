@@ -1,7 +1,7 @@
 """Widen admin audit action names.
 
-Revision ID: 0080
-Revises: 0079
+Revision ID: 0081
+Revises: 0080
 Create Date: 2026-06-16 23:58:00.000000
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0080"
-down_revision: Union[str, None] = "0079"
+revision: str = "0081"
+down_revision: Union[str, None] = "0080"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
