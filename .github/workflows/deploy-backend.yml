@@ -105,10 +105,9 @@ jobs:
           set -euo pipefail
           image="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-backend:$SHORT_SHA"
           echo "BACKEND_IMAGE=$image" >> "$GITHUB_ENV"
-          gcloud builds submit backend \
-            --project "$PROJECT_ID" \
-            --tag "$image" \
-            --quiet
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build --pull -t "$image" backend
+          docker push "$image"
 
       - name: Deploy backend service
         run: |
