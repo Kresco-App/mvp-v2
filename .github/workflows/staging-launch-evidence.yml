@@ -130,10 +130,52 @@ jobs:
             exit 1
           fi
           printf '{"bucket_configured":true,"prefix_configured":%s}\n' "$([ -n "$media_prefix" ] && echo true || echo false)" > "$EVIDENCE_DIR/media-runtime-config.json"
-          gcloud storage buckets describe "gs://$media_bucket" \
-            --format=json > "$EVIDENCE_DIR/media-bucket.json"
-          gcloud storage buckets get-iam-policy "gs://$media_bucket" \
-            --format=json > "$EVIDENCE_DIR/media-bucket-iam.json"
+          if ! gcloud storage buckets describe "gs://$media_bucket" \
+            --format=json > "$EVIDENCE_DIR/media-bucket.json" 2> "$EVIDENCE_DIR/media-bucket-error.txt"; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          detail = (evidence_dir / "media-bucket-error.txt").read_text(encoding="utf-8", errors="replace")
+          (evidence_dir / "media-bucket-error.json").write_text(
+              json.dumps({
+                  "passed": False,
+                  "error": "unable_to_describe_media_bucket",
+                  "required_permission": "storage.buckets.get",
+                  "detail": detail[:2000],
+              }, indent=2),
+              encoding="utf-8",
+          )
+          PY
+            cat "$EVIDENCE_DIR/media-bucket-error.txt" >&2
+            exit 1
+          fi
+          rm -f "$EVIDENCE_DIR/media-bucket-error.txt"
+          if ! gcloud storage buckets get-iam-policy "gs://$media_bucket" \
+            --format=json > "$EVIDENCE_DIR/media-bucket-iam.json" 2> "$EVIDENCE_DIR/media-bucket-iam-error.txt"; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          detail = (evidence_dir / "media-bucket-iam-error.txt").read_text(encoding="utf-8", errors="replace")
+          (evidence_dir / "media-bucket-iam-error.json").write_text(
+              json.dumps({
+                  "passed": False,
+                  "error": "unable_to_read_media_bucket_iam",
+                  "required_permission": "storage.buckets.getIamPolicy",
+                  "detail": detail[:2000],
+              }, indent=2),
+              encoding="utf-8",
+          )
+          PY
+            cat "$EVIDENCE_DIR/media-bucket-iam-error.txt" >&2
+            exit 1
+          fi
+          rm -f "$EVIDENCE_DIR/media-bucket-iam-error.txt"
           python - <<'PY'
           import json
           import os

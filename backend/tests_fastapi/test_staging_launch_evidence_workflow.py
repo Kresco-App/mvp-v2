@@ -12,7 +12,9 @@ EXPECTED_ARTIFACTS = (
     "artifact-registry.json",
     "media-runtime-config.json",
     "media-bucket.json",
+    "media-bucket-error.json",
     "media-bucket-iam.json",
+    "media-bucket-iam-error.json",
     "runtime-smoke.json",
     "evidence-manifest.json",
 )
@@ -89,7 +91,13 @@ def test_staging_launch_evidence_checks_private_media_bucket_posture():
     assert "MEDIA_GCS_BUCKET is missing from kresco-runtime" in media_block
     assert "media-runtime-config.json" in media_block
     assert "media-bucket.json" in media_block
+    assert "media-bucket-error.json" in media_block
     assert "media-bucket-iam.json" in media_block
+    assert "media-bucket-iam-error.json" in media_block
+    assert "unable_to_describe_media_bucket" in media_block
+    assert "unable_to_read_media_bucket_iam" in media_block
+    assert "storage.buckets.get" in media_block
+    assert "storage.buckets.getIamPolicy" in media_block
     assert 'uniform_access.get("enabled") is not True' in media_block
     assert 'publicAccessPrevention") != "enforced"' in media_block
     assert 'bucket.get("lifecycle", {}).get("rule")' in media_block
