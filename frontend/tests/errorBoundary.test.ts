@@ -61,6 +61,21 @@ describe('route error states', () => {
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
+  it('can center a segment fallback inside the app shell', () => {
+    const { container } = renderComponent(React.createElement(RouteErrorState, {
+      eyebrow: 'Topic unavailable',
+      title: 'This lesson could not be opened.',
+      message: 'Retry the lesson.',
+      centered: true,
+      homeHref: '/home',
+    }))
+
+    const shell = container.querySelector('main')
+    expect(shell?.className).toContain('place-items-center')
+    expect(shell?.className).toContain('min-h-[calc(100dvh-84px)]')
+    expect(container.textContent).toContain('This lesson could not be opened.')
+  })
+
   it('keeps widget crashes inside a retryable boundary', async () => {
     let shouldThrow = true
 
