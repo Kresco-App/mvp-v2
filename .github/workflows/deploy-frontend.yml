@@ -97,6 +97,10 @@ jobs:
           } >> "$GITHUB_ENV"
           rm -f "$runtime_json"
 
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Validate production-shaped frontend env
         working-directory: frontend
         run: npm run validate:production-env
