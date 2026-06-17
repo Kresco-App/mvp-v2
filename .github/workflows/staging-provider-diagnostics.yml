@@ -16,6 +16,7 @@ jobs:
       REGION: europe-southwest1
       BACKEND_SERVICE: kresco-backend-staging
       CLOUD_SQL_INSTANCE: kresco-staging-postgres
+      EVIDENCE_DIR: artifacts/staging-provider-diagnostics
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,6 +34,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Prepare evidence directory
+        run: mkdir -p "$EVIDENCE_DIR"
 
       - name: Run staging provider diagnostics
         run: |
@@ -69,7 +73,20 @@ jobs:
             exit 1
           fi
           backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          set +e
           python scripts/check_staging_runtime.py \
             "${backend_url%/}/ready" \
             --internal-secret "$internal_secret" \
-            --json
+            --json > "$EVIDENCE_DIR/runtime-diagnostics.json"
+          status=$?
+          set -e
+          cat "$EVIDENCE_DIR/runtime-diagnostics.json"
+          exit "$status"
+
+      - name: Upload staging provider diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-provider-diagnostics
+          path: artifacts/staging-provider-diagnostics
+          if-no-files-found: error

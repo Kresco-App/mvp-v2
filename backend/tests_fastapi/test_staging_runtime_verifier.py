@@ -334,6 +334,8 @@ def test_provider_diagnostics_workflow_uses_runtime_verifier():
 
     assert "actions/checkout@v4" in workflow
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "EVIDENCE_DIR: artifacts/staging-provider-diagnostics" in workflow
+    assert "mkdir -p \"$EVIDENCE_DIR\"" in workflow
     assert "--activation-policy ALWAYS" in diagnostics_step
     assert "--activation-policy NEVER" in diagnostics_step
     assert "trap cleanup EXIT" in diagnostics_step
@@ -344,6 +346,11 @@ def test_provider_diagnostics_workflow_uses_runtime_verifier():
     assert "KRESCO_INTERNAL_SECRET" not in workflow
     assert "secrets.REALTIME_OUTBOX_SECRET" not in workflow
     assert "python scripts/check_staging_runtime.py" in workflow
+    assert "> \"$EVIDENCE_DIR/runtime-diagnostics.json\"" in diagnostics_step
+    assert "cat \"$EVIDENCE_DIR/runtime-diagnostics.json\"" in diagnostics_step
+    assert "uses: actions/upload-artifact@v4" in workflow
+    assert "if: always()" in workflow
+    assert "name: staging-provider-diagnostics" in workflow
     assert "--include-provider-reachability" not in workflow
     assert "--json" in workflow
 
