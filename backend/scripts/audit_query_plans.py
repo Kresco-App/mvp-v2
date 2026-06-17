@@ -85,7 +85,7 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
             "SELECT id FROM topic_item_progress "
             "WHERE user_id = 1 AND topic_id = 1 AND topic_item_id IN (1, 2, 3)"
         ),
-        ("ix_topic_item_progress_user_topic_item",),
+        ("ix_topic_item_progress_user_topic_item", "ix_topic_item_progress_user_topic_status"),
     ),
     PlanCheck(
         "topic card progress",

@@ -118,7 +118,10 @@ def test_query_plan_audit_checks_distinct_progress_hot_paths():
     workspace_progress = checks["topic workspace progress"]
     assert "topic_id = 1" in workspace_progress.sql
     assert "status = 'completed'" not in workspace_progress.sql
-    assert workspace_progress.expected_indexes == ("ix_topic_item_progress_user_topic_item",)
+    assert workspace_progress.expected_indexes == (
+        "ix_topic_item_progress_user_topic_item",
+        "ix_topic_item_progress_user_topic_status",
+    )
 
     card_progress = checks["topic card progress"]
     assert "topic_id = 1" not in card_progress.sql
