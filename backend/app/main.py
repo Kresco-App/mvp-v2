@@ -256,6 +256,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def csrf_middleware(request: Request, call_next):
+        if request.url.path.startswith("/admin"):
+            return await call_next(request)
         reason = csrf_failure_reason(request, settings)
         if reason:
             return _apply_security_headers(JSONResponse(status_code=403, content={"detail": reason}))

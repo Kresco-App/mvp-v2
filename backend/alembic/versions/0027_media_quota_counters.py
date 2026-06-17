@@ -29,10 +29,8 @@ def upgrade() -> None:
     with op.batch_alter_table("users") as batch_op:
         if "avatar_media_size" not in existing_columns:
             batch_op.add_column(sa.Column("avatar_media_size", sa.Integer(), nullable=False, server_default="0"))
-            batch_op.alter_column("avatar_media_size", server_default=None)
         if "banner_media_size" not in existing_columns:
             batch_op.add_column(sa.Column("banner_media_size", sa.Integer(), nullable=False, server_default="0"))
-            batch_op.alter_column("banner_media_size", server_default=None)
 
 
 def downgrade() -> None:
