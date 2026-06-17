@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -133,6 +134,22 @@ def test_staging_runtime_verifier_accepts_ready_runtime_payloads():
 
     assert result.passed is True
     assert result.errors == ()
+    assert result.video_check == {
+        "status": "ok",
+        "api_secret_configured": True,
+        "api_base_url_https": True,
+        "live_create_url_https": True,
+    }
+    assert result.email_check == {"status": "ok", "resend_api_key_configured": True}
+    assert result.storage_check == {
+        "status": "ok",
+        "backend": "gcs",
+        "bucket_configured": True,
+        "prefix_configured": True,
+        "signed_url_ttl_seconds": 300,
+        "profile_quota_bytes": 10 * 1024 * 1024,
+        "chat_conversation_quota_bytes": 50 * 1024 * 1024,
+    }
 
 
 def test_staging_runtime_verifier_fails_payment_errors():
@@ -196,6 +213,7 @@ def test_staging_runtime_verifier_still_fails_diagnostics_errors():
     assert "diagnostics.status must be ready (blocking errors: email)." in result.errors
     assert "diagnostics.checks.email.status must be ok." in result.errors
     assert "email.resend_api_key_configured must be true." in result.errors
+    assert result.email_check == {"status": "error", "resend_api_key_configured": False}
 
 
 def test_staging_runtime_verifier_rejects_not_ready_without_named_errors():
@@ -303,6 +321,47 @@ def test_staging_runtime_http_error_payload_redacts_sensitive_values():
     assert redacted["nested"]["detail"] == "[redacted]"
 
 
+def test_staging_runtime_non_json_http_error_payload_is_structured_and_redacted():
+    verifier = _load_verifier_module()
+
+    token_like_value = "ghp_" + "abcdefghijklmnopqrstuvwxyz123456789"
+    payload = verifier._parse_error_payload(f"service unavailable {token_like_value}")
+    redacted = verifier._redact_payload(payload)
+
+    assert redacted == {"body": "service unavailable [redacted]"}
+
+
+def test_staging_runtime_json_mode_emits_failure_artifact_payload(monkeypatch, capsys):
+    verifier = _load_verifier_module()
+
+    def fake_fetch_json(url, *, timeout_seconds):
+        del url, timeout_seconds
+        raise RuntimeError("GET https://api.example.com/ready returned 503: {'token': '[redacted]'}")
+
+    monkeypatch.setattr(verifier, "fetch_json", fake_fetch_json)
+    monkeypatch.setattr(verifier.time, "sleep", lambda delay: None)
+
+    exit_code = verifier.main([
+        "https://api.example.com/ready",
+        "--internal-secret",
+        "diagnostics-worker-secret-32-bytes",
+        "--retries",
+        "1",
+        "--json",
+    ])
+    captured = capsys.readouterr()
+    body = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert body["passed"] is False
+    assert body["readiness_status"] is None
+    assert body["diagnostics_status"] is None
+    assert body["outbox_result"] is None
+    assert "staging runtime verifier failed while fetching runtime evidence" in body["errors"][0]
+    assert "[redacted]" in body["errors"][0]
+    assert "error: staging runtime verifier failed while fetching runtime evidence" in captured.err
+
+
 def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
@@ -336,6 +395,7 @@ def test_provider_diagnostics_workflow_uses_runtime_verifier():
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
     assert "EVIDENCE_DIR: artifacts/staging-provider-diagnostics" in workflow
     assert "mkdir -p \"$EVIDENCE_DIR\"" in workflow
+    assert "staging provider diagnostics did not reach runtime verifier" in workflow
     assert "--activation-policy ALWAYS" in diagnostics_step
     assert "--activation-policy NEVER" in diagnostics_step
     assert "trap cleanup EXIT" in diagnostics_step

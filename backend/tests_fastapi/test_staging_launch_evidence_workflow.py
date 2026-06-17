@@ -11,6 +11,7 @@ EXPECTED_ARTIFACTS = (
     "cloud-sql.json",
     "artifact-registry.json",
     "runtime-smoke.json",
+    "evidence-manifest.json",
 )
 
 
@@ -34,7 +35,9 @@ def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
     assert "gcloud artifacts repositories describe kresco-containers" in workflow
     assert "urllib.request.urlopen" in workflow
     assert "actions/upload-artifact@v4" in workflow
+    assert "if: always()" in workflow
     assert "if-no-files-found: error" in workflow
+    assert "staging launch evidence collection did not finish" in workflow
     assert "check_s3_media_posture.py" not in workflow
     assert "check_staging_ops_posture.py" not in workflow
 

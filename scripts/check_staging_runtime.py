@@ -30,6 +30,12 @@ class RuntimeVerificationResult:
     readiness_status: str | None
     diagnostics_status: str | None
     outbox_result: dict[str, Any] | None
+    configuration_check: dict[str, Any] | None = None
+    database_check: dict[str, Any] | None = None
+    storage_check: dict[str, Any] | None = None
+    realtime_check: dict[str, Any] | None = None
+    video_check: dict[str, Any] | None = None
+    email_check: dict[str, Any] | None = None
     payment_check: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -39,6 +45,12 @@ class RuntimeVerificationResult:
             "readiness_status": self.readiness_status,
             "diagnostics_status": self.diagnostics_status,
             "outbox_result": self.outbox_result,
+            "configuration_check": self.configuration_check,
+            "database_check": self.database_check,
+            "storage_check": self.storage_check,
+            "realtime_check": self.realtime_check,
+            "video_check": self.video_check,
+            "email_check": self.email_check,
             "payment_check": self.payment_check,
         }
 
@@ -132,6 +144,12 @@ def validate_runtime_payloads(
         readiness_status=str(readiness.get("status")) if readiness.get("status") is not None else None,
         diagnostics_status=str(diagnostics.get("status")) if diagnostics.get("status") is not None else None,
         outbox_result=outbox_result,
+        configuration_check=_configuration_summary(configuration),
+        database_check=_database_summary(database),
+        storage_check=_storage_summary(storage),
+        realtime_check=_realtime_summary(realtime),
+        video_check=_video_summary(video),
+        email_check=_email_summary(email),
         payment_check=_payment_summary(payment),
     )
 
@@ -189,22 +207,79 @@ def _blocking_configuration_errors(configuration: dict[str, Any]) -> tuple[str, 
     return errors
 
 
-def _payment_summary(payment: dict[str, Any]) -> dict[str, Any] | None:
-    if not payment:
+def _check_summary(check: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any] | None:
+    if not check:
         return None
     summary: dict[str, Any] = {}
-    for key in (
-        "status",
-        "cmi_client_id_configured",
-        "cmi_store_key_configured",
-        "cmi_payment_url_configured",
-        "cmi_ok_url_configured",
-        "cmi_fail_url_configured",
-        "cmi_callback_url_configured",
-    ):
-        if key in payment:
-            summary[key] = payment[key]
+    for key in keys:
+        if key in check:
+            summary[key] = check[key]
     return summary
+
+
+def _configuration_summary(configuration: dict[str, Any]) -> dict[str, Any] | None:
+    return _check_summary(
+        configuration,
+        ("status", "environment", "production_like", "error_count"),
+    )
+
+
+def _database_summary(database: dict[str, Any]) -> dict[str, Any] | None:
+    return _check_summary(
+        database,
+        ("status", "strategy", "managed_postgres_declared"),
+    )
+
+
+def _storage_summary(storage: dict[str, Any]) -> dict[str, Any] | None:
+    return _check_summary(
+        storage,
+        (
+            "status",
+            "backend",
+            "bucket_configured",
+            "prefix_configured",
+            "signed_url_ttl_seconds",
+            "profile_quota_bytes",
+            "chat_conversation_quota_bytes",
+        ),
+    )
+
+
+def _realtime_summary(realtime: dict[str, Any]) -> dict[str, Any] | None:
+    return _check_summary(
+        realtime,
+        ("status", "firestore_configured", "outbox_secret_configured", "outbox"),
+    )
+
+
+def _video_summary(video: dict[str, Any]) -> dict[str, Any] | None:
+    return _check_summary(
+        video,
+        ("status", "api_secret_configured", "api_base_url_https", "live_create_url_https"),
+    )
+
+
+def _email_summary(email: dict[str, Any]) -> dict[str, Any] | None:
+    return _check_summary(
+        email,
+        ("status", "resend_api_key_configured"),
+    )
+
+
+def _payment_summary(payment: dict[str, Any]) -> dict[str, Any] | None:
+    return _check_summary(
+        payment,
+        (
+            "status",
+            "cmi_client_id_configured",
+            "cmi_store_key_configured",
+            "cmi_payment_url_configured",
+            "cmi_ok_url_configured",
+            "cmi_fail_url_configured",
+            "cmi_callback_url_configured",
+        ),
+    )
 
 
 def _require(condition: bool, message: str, errors: list[str]) -> None:
@@ -255,7 +330,17 @@ def main(argv: list[str] | None = None) -> int:
             internal_secret=internal_secret,
         )
     except Exception as exc:
-        print(f"error: staging runtime verifier failed while fetching runtime evidence: {type(exc).__name__}: {exc}", file=sys.stderr)
+        error = f"staging runtime verifier failed while fetching runtime evidence: {type(exc).__name__}: {exc}"
+        if args.json:
+            result = RuntimeVerificationResult(
+                passed=False,
+                errors=(error,),
+                readiness_status=None,
+                diagnostics_status=None,
+                outbox_result=None,
+            )
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        print(f"error: {error}", file=sys.stderr)
         return 1
 
     result = validate_runtime_payloads(
@@ -313,7 +398,7 @@ def fetch_json(
             return _parse_json(response.read().decode("utf-8"))
     except HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        payload = _parse_json(body)
+        payload = _parse_error_payload(body)
         raise RuntimeError(f"{method} {_redact_url(url)} returned {exc.code}: {_redact_payload(payload)}") from exc
     except URLError as exc:
         reason = getattr(exc, "reason", exc)
@@ -325,6 +410,13 @@ def _parse_json(value: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("response JSON must be an object")
     return parsed
+
+
+def _parse_error_payload(value: str) -> dict[str, Any]:
+    try:
+        return _parse_json(value)
+    except Exception:
+        return {"body": value[:2048]}
 
 
 def _redact_url(url: str) -> str:

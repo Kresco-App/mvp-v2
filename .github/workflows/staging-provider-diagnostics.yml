@@ -36,7 +36,9 @@ jobs:
           python-version: "3.11"
 
       - name: Prepare evidence directory
-        run: mkdir -p "$EVIDENCE_DIR"
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' '{"passed":false,"errors":["staging provider diagnostics did not reach runtime verifier"]}' > "$EVIDENCE_DIR/runtime-diagnostics.json"
 
       - name: Run staging provider diagnostics
         run: |
