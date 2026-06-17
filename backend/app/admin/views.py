@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import Boolean, Date, DateTime, Integer, String, Text, inspect as sa_inspect
 from sqladmin import ModelView
 from sqladmin.filters import AllUniqueStringValuesFilter, BooleanFilter
+from wtforms import SelectField
 
 from app.database import get_session_factory
 from app.admin.auth import ADMIN_SESSION_AUTHENTICATED, ADMIN_SESSION_USER_ID
@@ -125,6 +126,56 @@ class UserAdmin(PowerModelView, model=User):
     # Roles that grant elevated access — anything outside the safe baseline set
     # is considered privileged and may not be assigned by non-superusers.
     _NON_PRIVILEGED_ROLES: frozenset[str | None] = frozenset({"student", "professor", "", None})
+
+    form_overrides = {
+        "role": SelectField,
+        "tier": SelectField,
+        "niveau": SelectField,
+        "filiere": SelectField,
+    }
+    form_args = {
+        "role": {
+            "choices": [
+                ("student", "Student"),
+                ("professor", "Professor"),
+                ("admin", "Admin"),
+            ],
+        },
+        "tier": {
+            "choices": [
+                ("basic", "Basic"),
+                ("pro", "Pro"),
+                ("vip", "VIP"),
+                ("platinum", "Platinum"),
+            ],
+        },
+        "niveau": {
+            "choices": [
+                ("", "—"),
+                ("1bac", "1ère BAC"),
+                ("2bac", "2ème BAC"),
+            ],
+        },
+        "filiere": {
+            "choices": [
+                ("", "—"),
+                ("Sciences Mathématiques A", "Sciences Mathématiques A"),
+                ("Sciences Mathématiques B", "Sciences Mathématiques B"),
+                ("Sciences Physiques", "Sciences Physiques"),
+                ("SVT", "SVT"),
+                ("Sciences Et Technologies Electriques", "Sciences Et Technologies Electriques"),
+                ("Sciences Et Technologies Mécaniques", "Sciences Et Technologies Mécaniques"),
+                ("Sciences Économiques", "Sciences Économiques"),
+                ("Techniques De Gestion Et Comptabilité", "Techniques De Gestion Et Comptabilité"),
+                ("Sciences Agronomiques", "Sciences Agronomiques"),
+                ("Lettres", "Lettres"),
+                ("Langue Arabe", "Langue Arabe"),
+                ("Sciences De La Chariaa", "Sciences De La Chariaa"),
+                ("Arts Appliqués", "Arts Appliqués"),
+                ("Autre", "Autre"),
+            ],
+        },
+    }
 
     async def on_model_change(self, data: dict, model: User, is_created: bool, request) -> None:
         # Always resolve the acting admin first — applies to both create and edit.
