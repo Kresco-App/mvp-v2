@@ -164,8 +164,23 @@ jobs:
             --region "$REGION" \
             --wait \
             --quiet
+          url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          export BACKEND_URL="$url"
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
 
-      - name: Verify backend health
+          base_url = os.environ["BACKEND_URL"].rstrip("/")
+          ready_url = base_url + "/ready"
+          with urllib.request.urlopen(ready_url, timeout=30) as response:
+              ready = json.loads(response.read().decode("utf-8"))
+          if ready.get("status") != "ready":
+              raise SystemExit(f"Backend readiness failed for {ready_url}: {ready}")
+          print(f"Backend readiness passed for {base_url}")
+          PY
+
+      - name: Verify backend release health
         run: |
           set -euo pipefail
           url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
@@ -181,10 +196,5 @@ jobs:
               body = json.loads(response.read().decode("utf-8"))
           if body.get("release_sha") != os.environ["SHORT_SHA"]:
               raise SystemExit(f"Release mismatch: {body.get('release_sha')} != {os.environ['SHORT_SHA']}")
-          ready_url = base_url + "/ready"
-          with urllib.request.urlopen(ready_url, timeout=30) as response:
-              ready = json.loads(response.read().decode("utf-8"))
-          if ready.get("status") != "ready":
-              raise SystemExit(f"Backend readiness failed for {ready_url}: {ready}")
-          print(f"Backend health and readiness passed for {base_url}")
+          print(f"Backend release health passed for {base_url}")
           PY
