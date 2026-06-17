@@ -338,9 +338,32 @@ def test_provider_diagnostics_workflow_uses_runtime_verifier():
     assert "--activation-policy NEVER" in diagnostics_step
     assert "trap cleanup EXIT" in diagnostics_step
     assert "did not become RUNNABLE within 15 minutes" in diagnostics_step
+    assert "gcloud secrets versions access latest --project \"$PROJECT_ID\" --secret kresco-runtime" in diagnostics_step
+    assert ".REALTIME_OUTBOX_SECRET // .realtime_outbox_secret // empty" in diagnostics_step
+    assert "--internal-secret \"$internal_secret\"" in diagnostics_step
+    assert "KRESCO_INTERNAL_SECRET" not in workflow
+    assert "secrets.REALTIME_OUTBOX_SECRET" not in workflow
     assert "python scripts/check_staging_runtime.py" in workflow
     assert "--include-provider-reachability" not in workflow
     assert "--json" in workflow
+
+
+def test_recover_staging_realtime_outbox_workflow_uses_runtime_secret_and_cloud_sql_cleanup():
+    workflow = (REPO_ROOT / ".github" / "workflows" / "recover-staging-realtime-outbox.yml").read_text(encoding="utf-8")
+    recovery_step = workflow[workflow.index("- name: Requeue and drain staging realtime outbox"):]
+
+    assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "--activation-policy ALWAYS" in recovery_step
+    assert "--activation-policy NEVER" in recovery_step
+    assert "trap cleanup EXIT" in recovery_step
+    assert "did not become RUNNABLE within 15 minutes" in recovery_step
+    assert "gcloud secrets versions access latest --project \"$PROJECT_ID\" --secret kresco-runtime" in recovery_step
+    assert ".REALTIME_OUTBOX_SECRET // .realtime_outbox_secret // empty" in recovery_step
+    assert 'os.environ["internal_secret"]' in recovery_step
+    assert "KRESCO_INTERNAL_SECRET" not in workflow
+    assert "secrets.REALTIME_OUTBOX_SECRET" not in workflow
+    assert "/api/internal/realtime/requeue-failed-outbox" in workflow
+    assert "/api/internal/realtime/process-outbox" in workflow
 
 
 def test_frontend_deploy_workflow_smokes_deployed_url():

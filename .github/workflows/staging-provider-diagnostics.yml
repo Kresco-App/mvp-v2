@@ -35,8 +35,6 @@ jobs:
           python-version: "3.11"
 
       - name: Run staging provider diagnostics
-        env:
-          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
         run: |
           set -euo pipefail
           cleanup() {
@@ -62,7 +60,16 @@ jobs:
             echo "::error::Cloud SQL instance $CLOUD_SQL_INSTANCE did not become RUNNABLE within 15 minutes."
             exit 1
           fi
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          internal_secret="$(jq -r '.REALTIME_OUTBOX_SECRET // .realtime_outbox_secret // empty' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -z "$internal_secret" ]; then
+            echo "::error::REALTIME_OUTBOX_SECRET is missing from kresco-runtime."
+            exit 1
+          fi
           backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
           python scripts/check_staging_runtime.py \
             "${backend_url%/}/ready" \
+            --internal-secret "$internal_secret" \
             --json
