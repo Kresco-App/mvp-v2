@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+import sys
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "staging-launch-evidence.yml"
+EVIDENCE_VERIFIER_PATH = REPO_ROOT / "scripts" / "check_staging_launch_evidence.py"
 EXPECTED_ARTIFACTS = (
     "backend-cloud-run.json",
     "frontend-cloud-run.json",
@@ -20,10 +24,81 @@ EXPECTED_ARTIFACTS = (
 )
 
 
+def _load_evidence_verifier_module():
+    spec = importlib.util.spec_from_file_location("check_staging_launch_evidence_for_tests", EVIDENCE_VERIFIER_PATH)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _step_block(workflow: str, step_name: str) -> str:
     start = workflow.index(f"- name: {step_name}")
     end = workflow.find("\n      - name:", start + 1)
     return workflow[start:] if end == -1 else workflow[start:end]
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _write_complete_evidence(evidence_dir: Path) -> None:
+    cloud_run = {
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "autoscaling.knative.dev/minScale": "0",
+                        "autoscaling.knative.dev/maxScale": "3",
+                    },
+                },
+            },
+        },
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    }
+    for name in ("backend", "frontend"):
+        _write_json(evidence_dir / f"{name}-cloud-run.json", cloud_run)
+    _write_json(
+        evidence_dir / "cloud-sql.json",
+        {
+            "state": "STOPPED",
+            "settings": {
+                "activationPolicy": "NEVER",
+                "availabilityType": "ZONAL",
+                "dataDiskSizeGb": "20",
+            },
+        },
+    )
+    _write_json(
+        evidence_dir / "artifact-registry.json",
+        {"cleanupPolicies": {"delete-old-images": {}, "keep-latest-10": {}}},
+    )
+    _write_json(evidence_dir / "media-runtime-config.json", {"bucket_configured": True, "prefix_configured": True})
+    _write_json(
+        evidence_dir / "media-bucket.json",
+        {
+            "iamConfiguration": {
+                "publicAccessPrevention": "enforced",
+                "uniformBucketLevelAccess": {"enabled": True},
+            },
+            "lifecycle": {"rule": [{"action": {"type": "Delete"}, "condition": {"age": 30}}]},
+        },
+    )
+    _write_json(
+        evidence_dir / "media-bucket-iam.json",
+        {"bindings": [{"role": "roles/storage.objectViewer", "members": ["serviceAccount:backend@example.com"]}]},
+    )
+    _write_json(
+        evidence_dir / "runtime-smoke.json",
+        {
+            "backend_health_url": "https://backend.example.com/health",
+            "backend_release_sha": "abc1234",
+            "frontend_url": "https://frontend.example.com",
+            "frontend_status": 200,
+        },
+    )
 
 
 def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
@@ -46,6 +121,8 @@ def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
     assert "if: always()" in workflow
     assert "if-no-files-found: error" in workflow
     assert "staging launch evidence collection did not finish" in workflow
+    assert "python scripts/check_staging_launch_evidence.py \"$EVIDENCE_DIR\"" in workflow
+    assert workflow.count("continue-on-error: true") >= 5
     assert "check_s3_media_posture.py" not in workflow
     assert "check_staging_ops_posture.py" not in workflow
 
@@ -104,3 +181,41 @@ def test_staging_launch_evidence_checks_private_media_bucket_posture():
     assert "MEDIA_GCS_PREFIX must be configured" in media_block
     assert "allUsers" in media_block
     assert "allAuthenticatedUsers" in media_block
+
+
+def test_staging_launch_evidence_verifier_accepts_complete_artifacts(tmp_path):
+    verifier = _load_evidence_verifier_module()
+    _write_complete_evidence(tmp_path)
+
+    result = verifier.evaluate_evidence(tmp_path)
+    manifest_path = verifier.write_manifest(tmp_path, result)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert result.passed is True
+    assert result.errors == ()
+    assert manifest["passed"] is True
+    assert all(check["passed"] for check in manifest["checks"].values())
+
+
+def test_staging_launch_evidence_verifier_reports_media_permission_artifact(tmp_path):
+    verifier = _load_evidence_verifier_module()
+    _write_complete_evidence(tmp_path)
+    (tmp_path / "media-bucket.json").unlink()
+    (tmp_path / "media-bucket-iam.json").unlink()
+    _write_json(
+        tmp_path / "media-bucket-error.json",
+        {
+            "passed": False,
+            "error": "unable_to_describe_media_bucket",
+            "required_permission": "storage.buckets.get",
+            "detail": "Permission denied.",
+        },
+    )
+
+    exit_code = verifier.main([str(tmp_path)])
+    manifest = json.loads((tmp_path / "evidence-manifest.json").read_text(encoding="utf-8"))
+
+    assert exit_code == 1
+    assert manifest["passed"] is False
+    assert manifest["checks"]["media_bucket"]["passed"] is False
+    assert any("required_permission=storage.buckets.get" in error for error in manifest["errors"])

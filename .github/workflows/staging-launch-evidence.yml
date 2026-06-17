@@ -38,6 +38,7 @@ jobs:
           printf '%s\n' '{"passed":false,"errors":["staging launch evidence collection did not finish"]}' > "$EVIDENCE_DIR/evidence-manifest.json"
 
       - name: Collect Cloud Run posture
+        continue-on-error: true
         run: |
           set -euo pipefail
           gcloud run services describe "$BACKEND_SERVICE" \
@@ -72,6 +73,7 @@ jobs:
           PY
 
       - name: Collect Cloud SQL cost posture
+        continue-on-error: true
         run: |
           set -euo pipefail
           gcloud sql instances describe "$CLOUD_SQL_INSTANCE" \
@@ -98,6 +100,7 @@ jobs:
           PY
 
       - name: Collect Artifact Registry cleanup posture
+        continue-on-error: true
         run: |
           set -euo pipefail
           gcloud artifacts repositories describe kresco-containers \
@@ -116,6 +119,7 @@ jobs:
           PY
 
       - name: Collect private media bucket posture
+        continue-on-error: true
         run: |
           set -euo pipefail
           runtime_json="$(mktemp)"
@@ -205,6 +209,7 @@ jobs:
           PY
 
       - name: Collect runtime smoke evidence
+        continue-on-error: true
         run: |
           set -euo pipefail
           backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
@@ -234,6 +239,10 @@ jobs:
               "frontend_status": frontend_status,
           }, indent=2), encoding="utf-8")
           PY
+
+      - name: Evaluate staging launch evidence
+        if: always()
+        run: python scripts/check_staging_launch_evidence.py "$EVIDENCE_DIR"
 
       - name: Upload staging launch evidence
         if: always()
