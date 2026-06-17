@@ -81,7 +81,7 @@ def trusted_remote_address(request) -> str:
 
 RATE_LIMIT_STORAGE_URI_ENV = "KRESCO_RATE_LIMIT_STORAGE_URI"
 DEFAULT_RATE_LIMIT_STORAGE_URI = "memory://"
-# Shared store (e.g. redis://...) makes limits global across Lambda containers.
+# Shared store (e.g. redis://...) makes limits global across Cloud Run instances.
 # Defaults to in-memory for local/dev; production validation requires a shared URI.
 _rate_limit_storage_uri = os.environ.get(RATE_LIMIT_STORAGE_URI_ENV, "").strip() or DEFAULT_RATE_LIMIT_STORAGE_URI
 

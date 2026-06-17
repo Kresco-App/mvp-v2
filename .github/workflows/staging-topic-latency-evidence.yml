@@ -1,0 +1,75 @@
+name: Staging Topic Latency Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Measured request samples per endpoint"
+        required: true
+        default: "5"
+      warmups:
+        description: "Warmup requests per endpoint"
+        required: true
+        default: "1"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-staging
+      EVIDENCE_DIR: artifacts/staging-topic-latency
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare evidence directory
+        run: mkdir -p "$EVIDENCE_DIR"
+
+      - name: Collect topic latency evidence
+        env:
+          staging_topic_id: ${{ vars.STAGING_TOPIC_ID }}
+          staging_topic_search_query: ${{ vars.STAGING_TOPIC_SEARCH_QUERY }}
+          staging_topic_auth_token: ${{ secrets.STAGING_TOPIC_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format='value(status.url)')"
+          python scripts/run_evidence_command.py \
+            --name staging-topic-latency \
+            --output "$EVIDENCE_DIR/topic-latency.json" \
+            --require-json \
+            -- \
+            python scripts/check_staging_topic_latency.py \
+              --backend-url "$backend_url" \
+              --topic-id "$staging_topic_id" \
+              --auth-token "$staging_topic_auth_token" \
+              --search-query "$staging_topic_search_query" \
+              --samples "${{ inputs.samples }}" \
+              --warmups "${{ inputs.warmups }}" \
+              --json
+
+      - name: Upload staging topic latency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-topic-latency
+          path: artifacts/staging-topic-latency
+          if-no-files-found: error

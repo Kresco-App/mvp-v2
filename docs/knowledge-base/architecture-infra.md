@@ -13,10 +13,11 @@ Next.js Frontend
 Current production target remains:
 
 ```text
-Vercel Frontend
--> API Gateway
--> Lambda / FastAPI
--> RDS PostgreSQL
+Cloud Run Frontend
+-> Cloud Run FastAPI
+-> Cloud SQL or AlloyDB PostgreSQL
+-> Cloud Storage private media
+-> Firebase Auth / Firestore realtime
 ```
 
 Deployment work is paused during product implementation. Use local validation unless the task is explicitly deployment-focused.
@@ -24,7 +25,7 @@ Deployment work is paused during product implementation. Use local validation un
 ## Active Runtime Files
 
 - Backend factory: `backend/app/main.py`
-- Lambda adapter: `backend/app_handler.py`
+- Production entrypoint: `backend/app/main.py`
 - Backend config: `backend/app/config.py`
 - Database engine/session setup: `backend/app/database.py`
 - Backend liveness/readiness: `/health` is cheap liveness; `/ready` checks config policy and database connectivity.

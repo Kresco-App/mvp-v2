@@ -8,29 +8,10 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = REPO_ROOT / "scripts" / "check_staging_runtime.py"
-RENDERER_PATH = REPO_ROOT / "backend" / "scripts" / "render_zappa_settings.py"
-VALID_RENDER_ENV = {
-    "KRESCO_RUNTIME_SECRET_ID": "arn:aws:secretsmanager:eu-west-3:123456789012:secret:kresco/staging/runtime",
-    "KRESCO_RELEASE_SHA": "0123456789abcdef0123456789abcdef01234567",
-    "FRONTEND_URL": "https://staging.kresco.ma",
-    "CORS_ALLOWED_ORIGINS": "https://staging.kresco.ma",
-    "ZAPPA_SUBNET_IDS": "subnet-11111111,subnet-22222222",
-    "ZAPPA_SECURITY_GROUP_IDS": "sg-11111111",
-}
 
 
 def _load_verifier_module():
     spec = importlib.util.spec_from_file_location("check_staging_runtime_for_tests", VERIFIER_PATH)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_renderer_module():
-    spec = importlib.util.spec_from_file_location("render_zappa_settings_for_ops_tests", RENDERER_PATH)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -56,7 +37,7 @@ def _diagnostics_payload():
                 "error_count": 0,
                 "errors": [],
             },
-            "database": {"status": "ok", "strategy": "rds_proxy", "rds_proxy_declared": True},
+            "database": {"status": "ok", "strategy": "cloud_sql", "managed_postgres_declared": True},
             "migrations": {
                 "status": "ok",
                 "current_heads": ["0027_media_quota_counters"],
@@ -64,18 +45,16 @@ def _diagnostics_payload():
             },
             "storage": {
                 "status": "ok",
-                "backend": "s3",
+                "backend": "gcs",
                 "bucket_configured": True,
-                "region_configured": True,
                 "prefix_configured": True,
-                "presign_ttl_seconds": 300,
+                "signed_url_ttl_seconds": 300,
                 "profile_quota_bytes": 10 * 1024 * 1024,
                 "chat_conversation_quota_bytes": 50 * 1024 * 1024,
-                "lifecycle_expiration_days": 365,
             },
             "realtime": {
                 "status": "ok",
-                "ably_key": "ok",
+                "firestore_configured": True,
                 "outbox_secret_configured": True,
                 "outbox": {"status": "ok", "pending": 0, "retry": 0, "dead": 0},
             },
@@ -155,6 +134,22 @@ def test_staging_runtime_verifier_accepts_ready_runtime_payloads():
 
     assert result.passed is True
     assert result.errors == ()
+    assert result.video_check == {
+        "status": "ok",
+        "api_secret_configured": True,
+        "api_base_url_https": True,
+        "live_create_url_https": True,
+    }
+    assert result.email_check == {"status": "ok", "resend_api_key_configured": True}
+    assert result.storage_check == {
+        "status": "ok",
+        "backend": "gcs",
+        "bucket_configured": True,
+        "prefix_configured": True,
+        "signed_url_ttl_seconds": 300,
+        "profile_quota_bytes": 10 * 1024 * 1024,
+        "chat_conversation_quota_bytes": 50 * 1024 * 1024,
+    }
 
 
 def test_staging_runtime_verifier_fails_payment_errors():
@@ -218,6 +213,7 @@ def test_staging_runtime_verifier_still_fails_diagnostics_errors():
     assert "diagnostics.status must be ready (blocking errors: email)." in result.errors
     assert "diagnostics.checks.email.status must be ok." in result.errors
     assert "email.resend_api_key_configured must be true." in result.errors
+    assert result.email_check == {"status": "error", "resend_api_key_configured": False}
 
 
 def test_staging_runtime_verifier_rejects_not_ready_without_named_errors():
@@ -256,19 +252,21 @@ def test_staging_runtime_verifier_still_fails_configuration_errors():
     ) in result.errors
 
 
-def test_staging_runtime_verifier_rejects_cosmetic_rds_proxy_and_local_media():
+def test_staging_runtime_verifier_rejects_direct_database_and_local_media():
     verifier = _load_verifier_module()
     diagnostics = _diagnostics_payload()
-    diagnostics["checks"]["database"] = {"status": "ok", "strategy": "direct", "rds_proxy_declared": False}
+    diagnostics["checks"]["database"] = {"status": "ok", "strategy": "direct", "managed_postgres_declared": False}
     diagnostics["checks"]["storage"]["backend"] = "local"
+    diagnostics["checks"]["realtime"]["firestore_configured"] = False
     diagnostics["checks"]["realtime"]["outbox"]["dead"] = 2
 
     result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
 
     assert result.passed is False
-    assert "database.strategy must be rds_proxy." in result.errors
-    assert "database.rds_proxy_declared must be true." in result.errors
-    assert "storage.backend must be s3." in result.errors
+    assert "database.strategy must be alloydb or cloud_sql." in result.errors
+    assert "database.managed_postgres_declared must be true." in result.errors
+    assert "storage.backend must be gcs." in result.errors
+    assert "realtime.firestore_configured must be true." in result.errors
     assert "realtime.outbox.dead must be zero." in result.errors
 
 
@@ -323,105 +321,123 @@ def test_staging_runtime_http_error_payload_redacts_sensitive_values():
     assert redacted["nested"]["detail"] == "[redacted]"
 
 
-def test_backend_deploy_workflow_runs_runtime_verifier_after_scheduling():
+def test_staging_runtime_non_json_http_error_payload_is_structured_and_redacted():
+    verifier = _load_verifier_module()
+
+    token_like_value = "ghp_" + "abcdefghijklmnopqrstuvwxyz123456789"
+    payload = verifier._parse_error_payload(f"service unavailable {token_like_value}")
+    redacted = verifier._redact_payload(payload)
+
+    assert redacted == {"body": "service unavailable [redacted]"}
+
+
+def test_staging_runtime_json_mode_emits_failure_artifact_payload(monkeypatch, capsys):
+    verifier = _load_verifier_module()
+
+    def fake_fetch_json(url, *, timeout_seconds):
+        del url, timeout_seconds
+        raise RuntimeError("GET https://api.example.com/ready returned 503: {'token': '[redacted]'}")
+
+    monkeypatch.setattr(verifier, "fetch_json", fake_fetch_json)
+    monkeypatch.setattr(verifier.time, "sleep", lambda delay: None)
+
+    exit_code = verifier.main([
+        "https://api.example.com/ready",
+        "--internal-secret",
+        "diagnostics-worker-secret-32-bytes",
+        "--retries",
+        "1",
+        "--json",
+    ])
+    captured = capsys.readouterr()
+    body = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert body["passed"] is False
+    assert body["readiness_status"] is None
+    assert body["diagnostics_status"] is None
+    assert body["outbox_result"] is None
+    assert "staging runtime verifier failed while fetching runtime evidence" in body["errors"][0]
+    assert "[redacted]" in body["errors"][0]
+    assert "error: staging runtime verifier failed while fetching runtime evidence" in captured.err
+
+
+def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
-    db_policy_index = workflow.index("- name: Validate target database URL policy")
-    migration_index = workflow.index("- name: Run Alembic migrations on target database")
-    vpc_index = workflow.index("- name: Resolve Lambda VPC config")
-    render_index = workflow.index("- name: Render Zappa environment")
-    deploy_index = workflow.index('zappa deploy "$ZAPPA_STAGE" || zappa update "$ZAPPA_STAGE"')
-    schedule_index = workflow.index('zappa schedule "$ZAPPA_STAGE"')
-    verifier_index = workflow.index('python scripts/check_staging_runtime.py "${{ vars.BACKEND_READY_URL }}"')
-    s3_posture_index = workflow.index('python scripts/check_s3_media_posture.py "${MEDIA_S3_BUCKET:?MEDIA_S3_BUCKET is required.}"')
+    build_index = workflow.index("- name: Build backend image")
+    deploy_index = workflow.index("- name: Deploy backend service")
+    migration_index = workflow.index("- name: Run migrations with stopped-db cleanup")
+    readiness_index = workflow.index('ready_url = base_url + "/ready"')
+    verifier_index = workflow.index("- name: Verify backend release health")
+    migration_block = workflow[migration_index:verifier_index]
 
-    assert db_policy_index < migration_index < vpc_index < render_index < deploy_index
-    assert deploy_index < schedule_index
-    assert schedule_index < verifier_index < s3_posture_index
-    assert 'zappa invoke "$ZAPPA_STAGE" app.scheduled.run_alembic_migrations_event' not in workflow
-    assert "DATABASE_URL: ${{ secrets.DATABASE_URL }}" in workflow
-    assert "validate_database_url_policy" in workflow
-    assert "python scripts/resolve_zappa_vpc_config.py" in workflow
-    assert "KRESCO_TEST_DATABASE_URL: ${{ env.CI_POSTGRES_DATABASE_URL }}" in workflow
-    assert "ZAPPA_SUBNET_IDS: ${{ steps.vpc_config.outputs.subnet_ids }}" in workflow
-    assert "ZAPPA_SECURITY_GROUP_IDS: ${{ steps.vpc_config.outputs.security_group_ids }}" in workflow
-    assert "KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}" in workflow
-    assert "MEDIA_S3_BUCKET: ${{ vars.MEDIA_S3_BUCKET }}" in workflow
-    assert "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS: ${{ vars.MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS }}" in workflow
-    assert "MEDIA_S3_ANONYMOUS_READ_KEY: ${{ vars.MEDIA_S3_ANONYMOUS_READ_KEY }}" in workflow
-    assert "--include-provider-reachability" not in workflow
-
+    assert build_index < deploy_index < migration_index < readiness_index < verifier_index
+    assert 'ready_url = base_url + "/ready"' in migration_block
+    assert "--activation-policy NEVER" in migration_block
+    assert "google-github-actions/auth@v2" in workflow
+    assert 'docker build --pull -t "$image" backend' in workflow
+    assert 'docker push "$image"' in workflow
+    assert "gcloud run deploy \"$BACKEND_SERVICE\"" in workflow
+    assert "gcloud run jobs deploy \"$MIGRATION_JOB\"" in workflow
+    assert "gcloud run jobs execute \"$MIGRATION_JOB\"" in workflow
+    assert "--set-cloudsql-instances \"$cloud_sql_connection\"" in workflow
+    assert 'ready_url = base_url + "/ready"' in workflow
+    assert "--activation-policy ALWAYS" in workflow
+    assert "--activation-policy NEVER" in workflow
+    assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in workflow
 
 def test_provider_diagnostics_workflow_uses_runtime_verifier():
     workflow = (REPO_ROOT / ".github" / "workflows" / "staging-provider-diagnostics.yml").read_text(encoding="utf-8")
+    diagnostics_step = workflow[workflow.index("- name: Run staging provider diagnostics"):]
 
     assert "actions/checkout@v4" in workflow
+    assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "EVIDENCE_DIR: artifacts/staging-provider-diagnostics" in workflow
+    assert "mkdir -p \"$EVIDENCE_DIR\"" in workflow
+    assert "staging provider diagnostics did not reach runtime verifier" in workflow
+    assert "--activation-policy ALWAYS" in diagnostics_step
+    assert "--activation-policy NEVER" in diagnostics_step
+    assert "trap cleanup EXIT" in diagnostics_step
+    assert "did not become RUNNABLE within 15 minutes" in diagnostics_step
+    assert "gcloud secrets versions access latest --project \"$PROJECT_ID\" --secret kresco-runtime" in diagnostics_step
+    assert ".REALTIME_OUTBOX_SECRET // .realtime_outbox_secret // empty" in diagnostics_step
+    assert "--internal-secret \"$internal_secret\"" in diagnostics_step
+    assert "KRESCO_INTERNAL_SECRET" not in workflow
+    assert "secrets.REALTIME_OUTBOX_SECRET" not in workflow
     assert "python scripts/check_staging_runtime.py" in workflow
+    assert "> \"$EVIDENCE_DIR/runtime-diagnostics.json\"" in diagnostics_step
+    assert "cat \"$EVIDENCE_DIR/runtime-diagnostics.json\"" in diagnostics_step
+    assert "uses: actions/upload-artifact@v4" in workflow
+    assert "if: always()" in workflow
+    assert "name: staging-provider-diagnostics" in workflow
     assert "--include-provider-reachability" not in workflow
     assert "--json" in workflow
+
+
+def test_recover_staging_realtime_outbox_workflow_uses_runtime_secret_and_cloud_sql_cleanup():
+    workflow = (REPO_ROOT / ".github" / "workflows" / "recover-staging-realtime-outbox.yml").read_text(encoding="utf-8")
+    recovery_step = workflow[workflow.index("- name: Requeue and drain staging realtime outbox"):]
+
+    assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "--activation-policy ALWAYS" in recovery_step
+    assert "--activation-policy NEVER" in recovery_step
+    assert "trap cleanup EXIT" in recovery_step
+    assert "did not become RUNNABLE within 15 minutes" in recovery_step
+    assert "gcloud secrets versions access latest --project \"$PROJECT_ID\" --secret kresco-runtime" in recovery_step
+    assert ".REALTIME_OUTBOX_SECRET // .realtime_outbox_secret // empty" in recovery_step
+    assert 'os.environ["internal_secret"]' in recovery_step
+    assert "KRESCO_INTERNAL_SECRET" not in workflow
+    assert "secrets.REALTIME_OUTBOX_SECRET" not in workflow
+    assert "/api/internal/realtime/requeue-failed-outbox" in workflow
+    assert "/api/internal/realtime/process-outbox" in workflow
 
 
 def test_frontend_deploy_workflow_smokes_deployed_url():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
 
-    assert "FRONTEND_DEPLOYMENT_URL" in workflow
-    assert "Post-deploy frontend smoke" in workflow
+    assert "gcloud run deploy \"$FRONTEND_SERVICE\"" in workflow
+    assert "Verify frontend surface" in workflow
     assert "urllib.request.urlopen" in workflow
-    assert "Validate staging frontend environment" in workflow
-    assert "VERCEL_ENV: preview" in workflow
-
-
-def test_target_database_url_policy_rejects_non_rds_proxy_shapes():
-    renderer = _load_renderer_module()
-
-    invalid_urls = [
-        "",
-        "sqlite+aiosqlite:///./db.sqlite3",
-        "postgresql+asyncpg://user:pass@localhost:5432/kresco?sslmode=verify-full",
-        "postgresql+asyncpg://user:pass@127.0.0.1:5432/kresco?sslmode=verify-full",
-        "postgresql+asyncpg://user:pass@db.example.com:5432/kresco?sslmode=require",
-    ]
-
-    for database_url in invalid_urls:
-        try:
-            renderer.validate_database_url_policy(database_url)
-        except renderer.ZappaRenderError:
-            continue
-        raise AssertionError(f"DATABASE_URL policy accepted invalid URL: {database_url!r}")
-
-    renderer.validate_database_url_policy(
-        "postgresql+asyncpg://user:pass@kresco-staging-proxy.proxy-c123.eu-west-3.rds.amazonaws.com:5432/kresco"
-        "?sslmode=verify-full"
-    )
-
-
-def test_render_zappa_settings_rejects_lambda_runtime_drift(tmp_path):
-    renderer = _load_renderer_module()
-    settings_path = REPO_ROOT / "backend" / "zappa_settings.json"
-    zappa_settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    zappa_settings["staging"]["memory_size"] = 512
-    zappa_path = tmp_path / "zappa_settings.json"
-    zappa_path.write_text(json.dumps(zappa_settings), encoding="utf-8")
-
-    try:
-        renderer.render_zappa_settings(zappa_path, VALID_RENDER_ENV, stage="staging")
-    except renderer.ZappaRenderError as exc:
-        assert "memory_size must be at least 1024" in str(exc)
-        return
-    raise AssertionError("render_zappa_settings accepted staging Lambda memory drift")
-
-
-def test_render_zappa_settings_requires_realtime_outbox_schedule(tmp_path):
-    renderer = _load_renderer_module()
-    settings_path = REPO_ROOT / "backend" / "zappa_settings.json"
-    zappa_settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    zappa_settings["staging"]["events"] = []
-    zappa_path = tmp_path / "zappa_settings.json"
-    zappa_path.write_text(json.dumps(zappa_settings), encoding="utf-8")
-
-    try:
-        renderer.render_zappa_settings(zappa_path, VALID_RENDER_ENV, stage="staging")
-    except renderer.ZappaRenderError as exc:
-        assert "events must include the realtime outbox EventBridge schedule" in str(exc)
-        return
-    raise AssertionError("render_zappa_settings accepted missing realtime outbox schedule")
+    assert "npm run validate:production-env" in workflow
+    assert "NEXT_PUBLIC_FIREBASE_API_KEY" in workflow

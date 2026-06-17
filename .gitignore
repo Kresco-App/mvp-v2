@@ -33,6 +33,7 @@ Thumbs.db
 
 # Local runtime artifacts
 .codex-logs/
+media/
 *.sqlite3
 *.db
 .codex-quiz-dom.png

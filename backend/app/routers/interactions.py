@@ -6,6 +6,8 @@ from app.dependencies import get_current_user, get_db, get_settings
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.interactions import (
+    CanvasDocumentOut,
+    CanvasDocumentPutIn,
     CommentCreateIn,
     CommentOut,
     ExerciseCommentCreateIn,
@@ -23,10 +25,12 @@ from app.services.interaction_mutations import (
     delete_topic_item_comment,
     delete_user_note,
     delete_user_save,
+    get_user_canvas_document,
     list_topic_item_comments,
     list_exercise_comments,
     list_user_notes,
     list_user_saves,
+    save_user_canvas_document,
     save_user_item,
     update_user_note,
 )
@@ -167,6 +171,28 @@ async def delete_note(
 ):
     del request
     return await delete_user_note(db, user=user, note_id=note_id)
+
+
+@router.get("/canvas", response_model=CanvasDocumentOut)
+async def get_canvas_document(
+    target_type: str,
+    target_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await get_user_canvas_document(db, user, target_type=target_type, target_id=target_id)
+
+
+@router.put("/canvas", response_model=CanvasDocumentOut)
+@limiter.limit("30/minute")
+async def put_canvas_document(
+    request: Request,
+    body: CanvasDocumentPutIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await save_user_canvas_document(db, user=user, body=body)
 
 
 @router.get("/saves", response_model=list[SavedItemOut])

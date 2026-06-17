@@ -26,8 +26,8 @@ REQUIRED_CONFIRMATION = "true"
 STAGING_MARKERS = ("kresco_staging", "staging")
 
 
-def require_staging_seed_allowed(database_url: str) -> None:
-    if os.getenv("KRESCO_ALLOW_STAGING_DEMO_SEED") != REQUIRED_CONFIRMATION:
+def require_staging_seed_allowed(database_url: str, *, allow_confirmed: bool = False) -> None:
+    if not allow_confirmed and os.getenv("KRESCO_ALLOW_STAGING_DEMO_SEED") != REQUIRED_CONFIRMATION:
         raise RuntimeError("Set KRESCO_ALLOW_STAGING_DEMO_SEED=true to seed staging demo accounts.")
 
     lowered = database_url.lower()
@@ -193,8 +193,8 @@ async def upsert_topic_surface(db: AsyncSession, subject: Subject, offering: Cou
     await db.flush()
 
 
-async def seed_staging_demo(database_url: str) -> None:
-    require_staging_seed_allowed(database_url)
+async def seed_staging_demo(database_url: str, *, allow_confirmed: bool = False) -> None:
+    require_staging_seed_allowed(database_url, allow_confirmed=allow_confirmed)
     async_url, connect_args = _build_async_url(database_url)
     engine = create_async_engine(async_url, poolclass=NullPool, connect_args=connect_args)
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -249,7 +249,6 @@ async def seed_staging_demo(database_url: str) -> None:
                 tier="platinum",
                 is_pro=True,
                 is_staff=True,
-                is_superuser=True,
             ),
         ]
         subject = await upsert_subject(db)

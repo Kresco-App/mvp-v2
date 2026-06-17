@@ -340,7 +340,7 @@ async def _load_accessible_exercise_for_mutation(
             Subject.is_published == True,  # noqa: E712
             or_(Exercise.topic_id.is_(None), Topic.status == "published"),
         )
-        .with_for_update()
+        .with_for_update(of=Exercise)
     )
     if exercise is None:
         raise HTTPException(status_code=404, detail="Exercise not found")

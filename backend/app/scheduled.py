@@ -55,18 +55,21 @@ def process_realtime_outbox_event(
     return asyncio.run(process_realtime_outbox_once(event or {}))
 
 
+STAGING_DEMO_SEED_CONFIRMATION = "seed-staging-demo"
+
+
 def seed_staging_demo_event(
     event: Mapping[str, Any] | None = None,
     context: Any = None,
 ) -> dict[str, bool]:
-    del event
     del context
     settings = get_settings()
-    if settings.environment.strip().lower() == "production":
-        raise ValueError("Refusing to seed production.")
+    if settings.environment.strip().lower() != "staging":
+        raise ValueError("Staging demo seed can only run when KRESCO_ENV is staging.")
+    if _event_text(event or {}, "confirm") != STAGING_DEMO_SEED_CONFIRMATION:
+        raise ValueError("Staging demo seed requires confirm=seed-staging-demo.")
 
-    os.environ["KRESCO_ALLOW_STAGING_DEMO_SEED"] = "true"
-    asyncio.run(seed_staging_demo(settings.database_url))
+    asyncio.run(seed_staging_demo(settings.database_url, allow_confirmed=True))
     return {"ok": True}
 
 
@@ -135,7 +138,6 @@ async def refresh_leaderboard_projection_once(
 def _init_scheduled_database(settings: Settings) -> None:
     init_engine(
         settings.database_url,
-        settings.is_lambda,
         settings.pgsslrootcert,
         pool_size=settings.database_pool_size,
         max_overflow=settings.database_max_overflow,
@@ -175,3 +177,11 @@ def _event_int(
     if max_value is not None:
         value = min(value, max_value)
     return max(1, value)
+
+
+def _event_text(event: Mapping[str, Any], key: str) -> str:
+    raw_value = event.get(key)
+    detail = event.get("detail")
+    if raw_value is None and isinstance(detail, Mapping):
+        raw_value = detail.get(key)
+    return str(raw_value or "").strip()

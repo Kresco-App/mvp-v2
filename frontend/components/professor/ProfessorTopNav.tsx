@@ -3,17 +3,18 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { Bell, ClipboardList, LayoutDashboard, LogOut, Menu, MessageCircle, Radio, User } from 'lucide-react'
+import { Bell, ClipboardList, LayoutDashboard, Layers, LogOut, Menu, MessageCircle, Radio, User } from 'lucide-react'
 import KrescoWordmark from '@/components/KrescoWordmark'
 import { AUTH_ROUTES } from '@/lib/authPolicy'
 import { isActiveNavHref } from '@/lib/navigationPolicy'
 import { useAuthStore } from '@/lib/store'
 
 const professorLinks = [
-  { href: AUTH_ROUTES.professorHome, label: 'Dashboard', Icon: LayoutDashboard },
-  { href: '/professor/live', label: 'Live Sessions', Icon: Radio },
-  { href: '/professor/changes', label: 'Change Requests', Icon: ClipboardList },
-  { href: AUTH_ROUTES.professorChat, label: 'Chat', Icon: MessageCircle },
+  { href: AUTH_ROUTES.professorHome, label: 'Tableau de bord', Icon: LayoutDashboard },
+  { href: '/professor/studio', label: 'Studio', Icon: Layers },
+  { href: '/professor/live', label: 'Sessions live', Icon: Radio },
+  { href: '/professor/changes', label: 'Demandes', Icon: ClipboardList },
+  { href: AUTH_ROUTES.professorChat, label: 'Messagerie', Icon: MessageCircle },
 ]
 
 export default function ProfessorTopNav() {
@@ -67,7 +68,7 @@ export default function ProfessorTopNav() {
             <Menu size={19} />
           </button>
           <span className="hidden rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2 text-[12px] font-black text-[#453dee] sm:inline-flex">
-            Professor
+            Professeur
           </span>
           <button type="button" className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] hover:bg-[#f4f4f5]">
             <Bell size={18} />
@@ -80,7 +81,7 @@ export default function ProfessorTopNav() {
             type="button"
             onClick={doLogout}
             className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#71717b] transition hover:bg-red-50 hover:text-red-500"
-            title="Log out"
+            title="Se déconnecter"
           >
             <LogOut size={18} />
           </button>

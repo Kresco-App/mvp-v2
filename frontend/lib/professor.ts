@@ -120,7 +120,7 @@ export type ProfessorDashboard = {
   offerings: CourseOffering[]
   active_offering: CourseOffering | null
   upcoming_live_sessions: ProfessorLiveSession[]
-  pending_change_requests: ChangeRequest[]
+  pending_change_requests: ProfessorChangeSummary[]
   chat_unread_count: number
   chat_pinned_count: number
 }
@@ -314,8 +314,23 @@ export async function listStudentLiveCheckpoints(id: number) {
   return getJson<LiveSessionCheckpoint[]>(`/professor/student-live-sessions/${id}/checkpoints`)
 }
 
-export async function listProfessorChangeRequests(status = 'pending') {
-  return getJson<ChangeRequest[]>('/professor/change-requests', { params: { status } })
+export type ProfessorChangeSummary = {
+  id: number
+  course_offering_id: number
+  offering_title: string
+  summary: string
+  status: string
+  operation_count: number
+  pending_count: number
+  applied_count: number
+  rejected_count: number
+  admin_note: string
+  created_at: string
+  reviewed_at?: string | null
+}
+
+export async function listProfessorChangeRequests(status = '') {
+  return getJson<ProfessorChangeSummary[]>('/professor/change-requests', { params: { status } })
 }
 
 export async function listProfessorConversations(params: { q?: string; unread?: boolean; pinned?: boolean } & OffsetPageParams = {}) {

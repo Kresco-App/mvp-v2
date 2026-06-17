@@ -156,8 +156,8 @@ function pngUpload(name: string) {
   }
 }
 
-function expectMockS3MediaUrl(value: string, expectedPathSegment: string) {
-  expect(value).toContain('https://mock-s3.local/kresco-e2e-media/e2e/')
+function expectMockGcsMediaUrl(value: string, expectedPathSegment: string) {
+  expect(value).toContain('https://mock-gcs.local/kresco-e2e-media/e2e/')
   expect(value).toContain(expectedPathSegment)
   expect(value).toContain('signature=mock')
   expect(value).not.toContain('/media/')
@@ -299,10 +299,10 @@ test('backend-backed VIP student chat sends a real professor message', async ({ 
 
   const response = await sendResponse
   expect(response.status()).toBe(201)
-  await expect(page.getByText(message)).toBeVisible()
+  await expect(page.getByText(message, { exact: true })).toBeVisible()
 })
 
-test('backend-backed upload flows use S3 mock storage for profile and chat media', async ({ browser }) => {
+test('backend-backed upload flows use GCS mock storage for profile and chat media', async ({ browser }) => {
   const studentContext = await browser.newContext({ baseURL: frontendOrigin })
   const professorContext = await browser.newContext({ baseURL: frontendOrigin })
   const studentPage = await studentContext.newPage()
@@ -324,7 +324,7 @@ test('backend-backed upload flows use S3 mock storage for profile and chat media
     const avatarResponse = await avatarResponsePromise
     expect(avatarResponse.status()).toBe(200)
     const avatarUpload = await avatarResponse.json() as ProfileMediaResponse
-    expectMockS3MediaUrl(avatarUpload.url, '/profile/')
+    expectMockGcsMediaUrl(avatarUpload.url, '/profile/')
     expect(avatarUpload.url).toContain('/avatar-')
     await expect(studentPage.getByLabel('Avatar image URL')).toHaveValue(avatarUpload.url)
 
@@ -338,7 +338,7 @@ test('backend-backed upload flows use S3 mock storage for profile and chat media
     const bannerResponse = await bannerResponsePromise
     expect(bannerResponse.status()).toBe(200)
     const bannerUpload = await bannerResponse.json() as ProfileMediaResponse
-    expectMockS3MediaUrl(bannerUpload.url, '/profile/')
+    expectMockGcsMediaUrl(bannerUpload.url, '/profile/')
     expect(bannerUpload.url).toContain('/banner-')
     await expect(studentPage.getByLabel('Banner image URL')).toHaveValue(bannerUpload.url)
 
@@ -350,7 +350,7 @@ test('backend-backed upload flows use S3 mock storage for profile and chat media
 
     await studentPage.goto('/professor-chat')
     await expect(studentPage.getByRole('heading', { name: /Pr Ahmed Kamil/i })).toBeVisible()
-    const studentCaption = `Student S3 mock upload ${Date.now()}`
+    const studentCaption = `Student GCS mock upload ${Date.now()}`
     await studentPage.locator('input[aria-label="Image attachment"]').setInputFiles(pngUpload('student-chat-e2e.png'))
     await expect(studentPage.getByText('student-chat-e2e.png')).toBeVisible()
     await studentPage.getByLabel('Message caption').fill(studentCaption)
@@ -365,14 +365,14 @@ test('backend-backed upload flows use S3 mock storage for profile and chat media
     expect(studentImageMessage.body).toBe(studentCaption)
     expect(studentImageMessage.attachment_mime_type).toBe('image/png')
     expect(studentImageMessage.attachment_name).toBe('student-chat-e2e.png')
-    expectMockS3MediaUrl(studentImageMessage.attachment_url, '/professor-chat/')
-    await expect(studentPage.getByText(studentCaption)).toBeVisible()
+    expectMockGcsMediaUrl(studentImageMessage.attachment_url, '/professor-chat/')
+    await expect(studentPage.getByText(studentCaption, { exact: true })).toBeVisible()
 
     await loginAsSeededUser(professorPage, 'professor@example.com')
     await professorPage.goto('/professor/chat')
     await expect(professorPage.getByRole('heading', { name: 'Professor Chat' })).toBeVisible()
     await expect(professorPage.getByText('Sara Benali').first()).toBeVisible()
-    const professorCaption = `Professor S3 mock upload ${Date.now()}`
+    const professorCaption = `Professor GCS mock upload ${Date.now()}`
     await professorPage.locator('input[aria-label="Image attachment"]').setInputFiles(pngUpload('professor-chat-e2e.png'))
     await expect(professorPage.getByText('professor-chat-e2e.png')).toBeVisible()
     await professorPage.getByLabel('Reply caption').fill(professorCaption)
@@ -387,8 +387,8 @@ test('backend-backed upload flows use S3 mock storage for profile and chat media
     expect(professorImageMessage.body).toBe(professorCaption)
     expect(professorImageMessage.attachment_mime_type).toBe('image/png')
     expect(professorImageMessage.attachment_name).toBe('professor-chat-e2e.png')
-    expectMockS3MediaUrl(professorImageMessage.attachment_url, '/professor-chat/')
-    await expect(professorPage.getByText(professorCaption)).toBeVisible()
+    expectMockGcsMediaUrl(professorImageMessage.attachment_url, '/professor-chat/')
+    await expect(professorPage.getByText(professorCaption, { exact: true })).toBeVisible()
   } finally {
     await studentContext.close()
     await professorContext.close()
@@ -458,8 +458,8 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
       })
     })
     await backendFailurePage.goto('/admin')
-    await expect(backendFailurePage.getByRole('heading', { name: 'Operations control center' })).toBeVisible()
-    await expect(backendFailurePage.getByText('Live analytics could not be loaded.')).toBeVisible()
+    await expect(backendFailurePage.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible()
+    await expect(backendFailurePage.getByText('Les analyses en direct n’ont pas pu être chargées.')).toBeVisible()
     expect(overviewFailures).toBeGreaterThan(0)
 
     const emptyPage = await emptyContext.newPage()

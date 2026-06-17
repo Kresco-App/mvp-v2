@@ -9,16 +9,16 @@ import {
 } from '@/lib/courseFilters'
 
 describe('course filter URL helpers', () => {
-  it('parses canonical and legacy course filter params', () => {
+  it('parses canonical course filter params', () => {
     expect(parseCourseFilters(new URLSearchParams('q=limits&subject=Physics&status=in-progress'))).toEqual({
       query: 'limits',
       subject: 'Physics',
       status: 'in_progress',
     })
     expect(parseCourseFilters(new URLSearchParams('search=waves&filter=locked'))).toEqual({
-      query: 'waves',
+      query: '',
       subject: '',
-      status: 'locked',
+      status: 'all',
     })
     expect(parseCourseStatusFilter('not-real')).toBeNull()
   })

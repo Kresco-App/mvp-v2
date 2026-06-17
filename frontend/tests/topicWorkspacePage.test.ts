@@ -76,6 +76,9 @@ vi.mock('@/components/figma', () => ({
     children,
   ),
   VideoPlayerFrame: ({ videoId }: { videoId: string }) => React.createElement('div', { 'data-testid': 'youtube-frame' }, videoId),
+  VideoFrameState: ({ title, message }: { title: string; message: string }) => (
+    React.createElement('div', { 'data-testid': 'video-frame-state' }, `${title} ${message}`)
+  ),
 }))
 
 vi.mock('@/components/figma/skeletons', () => ({
@@ -209,6 +212,21 @@ describe('TopicWorkspacePage primary playback', () => {
     expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
   })
 
+  it('keeps Course tabs below while the primary area stays on the lesson video', () => {
+    currentWorkspace = workspaceWithActiveItem({
+      primary_resource: providerVideoResource,
+      primary_tab_content_id: providerCourseTab.id,
+      primary_tab: providerCourseTab,
+      tabs: [providerCourseTab],
+    })
+
+    const { container } = renderPage()
+
+    expect(container.querySelector('[data-testid="primary-frame"]')?.textContent).toContain('Video player 101:75')
+    expect(container.textContent).toContain('tab panel')
+    expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
+  })
+
   it('refreshes workspace after tracked video completion without a duplicate completion post', () => {
     renderPage()
 
@@ -294,6 +312,21 @@ describe('TopicWorkspacePage primary playback', () => {
     const { container } = renderPage()
 
     expect(buttonByText(container, 'Mark complete')).toBeDefined()
+  })
+
+  it('renders a native missing-video state instead of iframe srcdoc fallback', () => {
+    currentWorkspace = workspaceWithActiveItem({
+      item_type: 'lesson',
+      duration_seconds: 0,
+      primary_resource: null,
+      primary_tab: providerActiveItem.tabs[1],
+      tabs: [providerActiveItem.tabs[1]],
+    })
+
+    const { container } = renderPage()
+
+    expect(container.querySelector('[data-testid="video-frame-state"]')?.textContent).toContain('Course content stays available below')
+    expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
   })
 })
 

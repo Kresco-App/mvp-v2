@@ -1,15 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import Settings
 from app.models.professor import CourseOffering, LiveSession, ProgramTrack
 from app.models.users import User
-from app.schemas.realtime import AblyTokenOut, RealtimeSubscriptionsOut
+from app.schemas.realtime import RealtimeSubscriptionsOut
 from app.services.access import AccessContext, FeatureAccessRequirement, build_access_context
-from app.services.ably import AblyConfigurationError, ably_client_id, create_ably_jwt, offering_notifications_channel_name
+from app.services.realtime_channels import offering_notifications_channel_name, user_notifications_channel_name
 
 LIVE_SESSION_ACCESS_REQUIREMENT = FeatureAccessRequirement("live_sessions")
 LIVE_SESSION_TOKEN_LOOKAHEAD = timedelta(days=7)
@@ -117,24 +115,8 @@ def _allows_unscoped_realtime(access_context: AccessContext) -> bool:
     return access_context.subject_scope_enforced or access_context.effective_tier in GLOBAL_PAID_REALTIME_TIERS
 
 
-async def build_ably_token(db: AsyncSession, *, user: User, settings: Settings) -> AblyTokenOut:
-    try:
-        access_context = None if user.role == "professor" else await build_access_context(db, user)
-        live_session_ids = await live_session_ids_for_user(db, user, access_context=access_context)
-        offering_ids = await offering_ids_for_user(db, user, access_context=access_context)
-        token, expires_at, capability = create_ably_jwt(user, settings, live_session_ids, offering_ids)
-    except AblyConfigurationError:
-        raise HTTPException(status_code=503, detail="Realtime services are currently misconfigured: ABLY_API_KEY")
-    return AblyTokenOut(
-        token=token,
-        client_id=ably_client_id(user),
-        expires_at=expires_at,
-        capability=capability,
-    )
-
-
 async def build_realtime_subscriptions(db: AsyncSession, *, user: User) -> RealtimeSubscriptionsOut:
     offering_ids = await offering_ids_for_user(db, user)
-    channels = [f"kresco:user:{user.id}:notifications"]
+    channels = [user_notifications_channel_name(user.id)]
     channels.extend(offering_notifications_channel_name(offering_id) for offering_id in offering_ids)
     return RealtimeSubscriptionsOut(notification_channels=channels)

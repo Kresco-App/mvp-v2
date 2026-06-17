@@ -5,7 +5,7 @@ from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.courses import Resource, TabContent, Topic, TopicItem
+from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem
 from app.models.gamification import TopicItemProgress
 from app.models.users import User
 from app.schemas.courses import AccessGuardedMixin, ResourceOut, TabContentOut, TopicItemOut
@@ -273,7 +273,14 @@ async def _require_topic_item_access_with_context(
     item = await db.scalar(
         select(TopicItem)
         .options(selectinload(TopicItem.topic))
+        .join(Topic, Topic.id == TopicItem.topic_id)
+        .join(Subject, Subject.id == Topic.subject_id)
         .where(TopicItem.id == topic_item_id)
+        .where(
+            TopicItem.status == "published",
+            Topic.status == "published",
+            Subject.is_published == True,  # noqa: E712
+        )
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Topic item not found")

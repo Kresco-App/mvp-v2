@@ -3,29 +3,92 @@ name: Staging Provider Diagnostics
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   diagnostics:
     runs-on: ubuntu-latest
     environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-staging
+      CLOUD_SQL_INSTANCE: kresco-staging-postgres
+      EVIDENCE_DIR: artifacts/staging-provider-diagnostics
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      - name: Prepare evidence directory
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' '{"passed":false,"errors":["staging provider diagnostics did not reach runtime verifier"]}' > "$EVIDENCE_DIR/runtime-diagnostics.json"
+
       - name: Run staging provider diagnostics
-        env:
-          BACKEND_READY_URL: ${{ vars.BACKEND_READY_URL }}
-          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
         run: |
           set -euo pipefail
-          if [ -z "${BACKEND_READY_URL:-}" ]; then
-            echo "BACKEND_READY_URL is not configured."
+          cleanup() {
+            gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+              --project "$PROJECT_ID" \
+              --activation-policy NEVER \
+              --quiet || true
+          }
+          trap cleanup EXIT
+          gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --activation-policy ALWAYS \
+            --quiet
+          for attempt in {1..90}; do
+            state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project "$PROJECT_ID" --format='value(state)')"
+            if [ "$state" = "RUNNABLE" ]; then
+              break
+            fi
+            echo "Waiting for Cloud SQL instance $CLOUD_SQL_INSTANCE to become RUNNABLE; current state=$state"
+            sleep 10
+          done
+          if [ "$state" != "RUNNABLE" ]; then
+            echo "::error::Cloud SQL instance $CLOUD_SQL_INSTANCE did not become RUNNABLE within 15 minutes."
             exit 1
           fi
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          internal_secret="$(jq -r '.REALTIME_OUTBOX_SECRET // .realtime_outbox_secret // empty' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -z "$internal_secret" ]; then
+            echo "::error::REALTIME_OUTBOX_SECRET is missing from kresco-runtime."
+            exit 1
+          fi
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          set +e
           python scripts/check_staging_runtime.py \
-            "$BACKEND_READY_URL" \
-            --json
+            "${backend_url%/}/ready" \
+            --internal-secret "$internal_secret" \
+            --json > "$EVIDENCE_DIR/runtime-diagnostics.json"
+          status=$?
+          set -e
+          cat "$EVIDENCE_DIR/runtime-diagnostics.json"
+          exit "$status"
+
+      - name: Upload staging provider diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-provider-diagnostics
+          path: artifacts/staging-provider-diagnostics
+          if-no-files-found: error

@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
 import { Check, ChevronLeft, ChevronRight, Clock3, Trophy, Zap } from 'lucide-react'
 import { getJson, postJson } from '@/lib/apiClient'
 import {
@@ -36,6 +37,9 @@ import {
   type PermanentSidebarStrikeDay,
 } from '@/lib/permanentSidebarViewModel'
 import { FigmaSidebarSkeleton } from './skeletons'
+
+const sidebarCalendarSlideTransition = { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] } as const
+const sidebarCalendarDayTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.72 } as const
 
 export type PermanentSidebarProps = {
   data?: PermanentSidebarData
@@ -268,21 +272,27 @@ export function CalendarCard({
   onDaySelect?: (day: PermanentSidebarCalendarDay) => void
   onWindowChange?: (days: PermanentSidebarCalendarDay[]) => void
 }) {
+  const calendarLayoutId = useId()
+  const reduceMotion = useReducedMotion()
   const safeDays = days.length > 0 ? days : permanentSidebarCalendarDefaults
   const initialActiveIndex = Math.max(0, safeDays.findIndex((day) => day.active))
   const [activeIndex, setActiveIndex] = useState(initialActiveIndex)
   const [windowStart, setWindowStart] = useState(getCalendarStart(initialActiveIndex, safeDays.length, windowSize))
+  const [windowDirection, setWindowDirection] = useState<-1 | 0 | 1>(0)
   const visibleDays = getCalendarWindow(safeDays, windowStart, windowSize)
+  const visibleDayKey = visibleDays.map(getCalendarDayKey).join('|')
 
   useEffect(() => {
     const nextActiveIndex = Math.max(0, safeDays.findIndex((day) => day.active))
     const nextStart = getCalendarStart(nextActiveIndex, safeDays.length, windowSize)
     setActiveIndex(nextActiveIndex)
     setWindowStart(nextStart)
+    setWindowDirection(0)
     onWindowChange?.(getCalendarWindow(safeDays, nextStart, windowSize))
   }, [days, onWindowChange, safeDays, windowSize])
 
   function moveWindow(direction: -1 | 1) {
+    setWindowDirection(direction)
     setWindowStart((current) => {
       const next = wrapIndex(current + direction, safeDays.length)
       onWindowChange?.(getCalendarWindow(safeDays, next, windowSize))
@@ -301,27 +311,45 @@ export function CalendarCard({
       <div className="mt-6 flex w-full items-center gap-2">
         <CalendarArrow direction="left" onClick={() => moveWindow(-1)} />
         <div className="relative h-12 min-w-0 flex-1 overflow-hidden text-center text-[14px] font-bold leading-[1.1] tracking-[0.21px]">
-            <div
-              key={visibleDays.map(getCalendarDayKey).join('|')}
-              className="absolute inset-0 flex items-center gap-1.5 transition-opacity duration-150"
-            >
-              {visibleDays.map((day) => {
-                const isActive = safeDays[activeIndex] && getCalendarDayKey(safeDays[activeIndex]) === getCalendarDayKey(day)
-                return (
-                  <button
-                    className={`flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg transition-colors duration-200 ${
-                      isActive ? 'bg-[#453dee] text-[#edf1ff]' : 'bg-[#f4f4f5] text-[#52525c] hover:bg-[#eceef2]'
-                    }`}
-                    key={getCalendarDayKey(day)}
-                    type="button"
-                    onClick={() => selectDay(day)}
-                  >
-                    <span>{day.value}</span>
-                    <span>{day.label}</span>
-                  </button>
-                )
-              })}
-            </div>
+          <LayoutGroup id={calendarLayoutId}>
+            <AnimatePresence initial={false} custom={windowDirection}>
+              <motion.div
+                key={visibleDayKey}
+                custom={windowDirection}
+                initial={reduceMotion ? { opacity: 0 } : { opacity: 0, x: windowDirection === 0 ? 0 : windowDirection * 18 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: windowDirection === 0 ? 0 : windowDirection * -18 }}
+                transition={sidebarCalendarSlideTransition}
+                className="absolute inset-0 flex items-center gap-1.5"
+              >
+                {visibleDays.map((day) => {
+                  const isActive = safeDays[activeIndex] && getCalendarDayKey(safeDays[activeIndex]) === getCalendarDayKey(day)
+                  return (
+                    <motion.button
+                      className={`relative flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg bg-[#f4f4f5] transition-colors duration-200 ${
+                        isActive ? 'text-[#edf1ff]' : 'text-[#52525c] hover:bg-[#eceef2]'
+                      }`}
+                      key={getCalendarDayKey(day)}
+                      type="button"
+                      onClick={() => selectDay(day)}
+                      whileHover={reduceMotion ? undefined : { y: -1 }}
+                      whileTap={reduceMotion ? undefined : { scale: 0.96 }}
+                    >
+                      {isActive && (
+                        <motion.span
+                          layoutId={`sidebar-calendar-active-day-${visibleDayKey}`}
+                          className="absolute inset-[3px] rounded-[7px] bg-[#5b60f9] shadow-[0_6px_14px_rgba(91,96,249,0.2)]"
+                          transition={sidebarCalendarDayTransition}
+                        />
+                      )}
+                      <span className="relative z-10">{day.value}</span>
+                      <span className="relative z-10">{day.label}</span>
+                    </motion.button>
+                  )
+                })}
+              </motion.div>
+            </AnimatePresence>
+          </LayoutGroup>
         </div>
         <CalendarArrow direction="right" onClick={() => moveWindow(1)} />
       </div>
@@ -350,15 +378,18 @@ export function CalendarCard({
 
 export function CalendarArrow({ direction, onClick }: { direction: 'left' | 'right'; onClick?: () => void }) {
   const Icon = direction === 'left' ? ChevronLeft : ChevronRight
+  const reduceMotion = useReducedMotion()
   return (
-    <button
+    <motion.button
       className="kresco-hover-lift grid h-8 w-8 shrink-0 place-items-center rounded-[10.5px] border-0 bg-[#f4f4f5] text-[#27272f] shadow-[0_2px_0_rgba(0,0,0,0.2)] active:translate-y-px active:shadow-none"
       type="button"
       aria-label={direction === 'left' ? 'Previous days' : 'Next days'}
       onClick={onClick}
+      whileHover={reduceMotion ? undefined : { y: -1 }}
+      whileTap={reduceMotion ? undefined : { scale: 0.94, y: 1 }}
     >
       <Icon size={15} strokeWidth={3} />
-    </button>
+    </motion.button>
   )
 }
 

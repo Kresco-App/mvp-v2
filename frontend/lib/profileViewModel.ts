@@ -66,6 +66,8 @@ export type FigmaProfileSavedItem = {
   topic_id?: number | null
   topic_item_id?: number | null
   label?: string
+  note?: string
+  tags?: string[]
   created_at?: string
 }
 

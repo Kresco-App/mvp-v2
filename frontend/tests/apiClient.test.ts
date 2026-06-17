@@ -35,7 +35,7 @@ describe('apiClient transport wrapper', () => {
     expect(mocks.delete).toHaveBeenCalledWith('/items/1')
   })
 
-  it('offers an axios-shaped compatibility adapter without exposing raw transport imports', async () => {
+  it('offers an axios-shaped adapter without exposing raw transport imports', async () => {
     mocks.get.mockResolvedValueOnce({ data: { ok: 'adapter-get' } })
     mocks.post.mockResolvedValueOnce({ data: { ok: 'adapter-post' } })
 
@@ -55,7 +55,6 @@ describe('apiClient transport wrapper', () => {
       ['lib', 'examData.ts'],
       ['components', 'Leaderboard.tsx'],
       ['components', 'VideoPlayer.tsx'],
-      ['components', 'VideoQuizOverlay.tsx'],
       ['components', 'topic-workspace', 'TopicWorkspacePanels.tsx'],
       ['app', '(dashboard)', 'topics', '[topicId]', 'page.tsx'],
     ]) {

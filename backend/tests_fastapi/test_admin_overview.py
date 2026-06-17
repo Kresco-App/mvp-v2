@@ -648,7 +648,7 @@ def test_admin_overview_batches_metric_reads_by_phase(monkeypatch, run_db):
     assert calls <= 20
 
 
-def test_admin_overview_gather_reads_keeps_partial_results(monkeypatch, run_db, caplog):
+def test_admin_overview_gather_reads_keeps_partial_results(monkeypatch, run_db):
     from app.services import admin_overview
 
     async def fake_run_read(operation):
@@ -663,15 +663,16 @@ def test_admin_overview_gather_reads_keeps_partial_results(monkeypatch, run_db, 
     async def also_ok(_session):
         return 11
 
+    warnings = []
     monkeypatch.setattr(admin_overview, "_run_read", fake_run_read)
-    caplog.set_level("WARNING", logger="kresco.admin_overview")
+    monkeypatch.setattr(admin_overview.logger, "warning", lambda *args, **kwargs: warnings.append((args, kwargs)))
 
     result = run_db(admin_overview._gather_reads(ok, failed, also_ok))
 
     assert result == [7, 0, 11]
     assert any(
-        "Admin overview read operation 1 failed" in record.message
-        for record in caplog.records
+        args[:2] == ("Admin overview read operation %s failed; using zero fallback", 1)
+        for args, _kwargs in warnings
     )
 
 
@@ -710,6 +711,9 @@ def test_admin_overview_router_stays_thin():
         "update_report",
         "moderate_reported_comment",
         "moderate_reported_live_message",
+        "list_professor_change_requests_admin",
+        "get_professor_change_request_admin",
+        "review_professor_change_request_admin",
     ]
     assert "build_admin_overview" in router_source
     assert "list_user_permissions" in router_source
@@ -721,6 +725,9 @@ def test_admin_overview_router_stays_thin():
     assert "update_admin_content_report" in router_source
     assert "apply_reported_comment_moderation_action" in router_source
     assert "apply_reported_live_message_moderation_action" in router_source
+    assert "list_admin_change_requests" in router_source
+    assert "get_admin_change_request_detail" in router_source
+    assert "review_admin_change_request" in router_source
     assert "_ops_readiness" not in router_source
     assert "_gather_reads" not in router_source
     assert "select(" not in router_source
@@ -735,8 +742,9 @@ def test_power_admin_views_are_searchable_filterable_and_safe():
         "is_superuser",
         "password",
         "password_changed_at",
-        "role",
     }.issubset(set(UserAdmin.form_excluded_columns))
+    assert "role" in UserAdmin.form_overrides
+    assert "admin" not in UserAdmin._NON_PRIVILEGED_ROLES
     assert {"role", "niveau", "filiere", "is_staff", "is_active"}.issubset(
         {column_filter.column.key for column_filter in UserAdmin.column_filters}
     )

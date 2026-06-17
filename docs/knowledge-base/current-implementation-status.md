@@ -32,9 +32,9 @@ Subject
 
 The Topic Workspace uses one Main Path rail. Revision and practice collections belong in the final `TopicSection`, not in a separate tools mode.
 
-## Compatibility Surfaces
+## Lesson And Section Surfaces
 
-These remain active because current screens and tests still depend on them:
+These remain active because current screens and tests depend on them:
 
 - `Chapter`
 - `Lesson`

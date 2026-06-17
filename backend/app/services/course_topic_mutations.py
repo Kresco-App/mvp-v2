@@ -3,12 +3,11 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.courses import TopicItem
 from app.models.users import User
 from app.schemas.courses import TopicItemCompleteIn, TopicItemProgressIn
-from app.services.course_access import access_for_topic_item
+from app.services.course_access import require_topic_item_access
 from app.services.course_progress import (
     bounded_topic_watch_seconds,
     get_or_create_topic_item_progress,
@@ -45,18 +44,7 @@ def _xp_reason_for_item_type(item_type: str) -> str:
 
 
 async def _get_accessible_topic_item(db: AsyncSession, user: User, item_id: int) -> TopicItem:
-    result = await db.execute(
-        select(TopicItem)
-        .options(selectinload(TopicItem.topic))
-        .where(TopicItem.id == item_id)
-    )
-    item = result.scalar_one_or_none()
-    if item is None:
-        raise HTTPException(status_code=404, detail="Topic item not found")
-    access = await access_for_topic_item(db, user, item)
-    if not access.can_access:
-        raise HTTPException(status_code=403, detail=access.locked_reason)
-    return item
+    return await require_topic_item_access(db, user, item_id)
 
 
 async def complete_topic_item_state(

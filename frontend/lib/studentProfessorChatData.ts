@@ -88,9 +88,11 @@ export function useStudentProfessorChatData(activeConversationId: number | null)
     status: statusQuery.data ?? null,
     statusError: statusQuery.error ?? null,
     statusLoading: statusQuery.isLoading && !statusQuery.data,
+    statusRefreshing: statusQuery.isValidating && Boolean(statusQuery.data),
     messages: activeEnvelope?.messages ?? [],
     messagesError: messageQuery.error ?? null,
     messagesLoading: Boolean(activeConversationId) && !activeEnvelope && messageQuery.isLoading,
+    messagesRefreshing: Boolean(activeConversationId) && Boolean(activeEnvelope) && messageQuery.isValidating,
     mutateStatus: statusQuery.mutate,
     mutateMessages: messageQuery.mutate,
   }

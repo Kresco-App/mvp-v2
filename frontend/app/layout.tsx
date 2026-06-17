@@ -4,6 +4,7 @@ import { headers } from 'next/headers'
 import AppToaster from '@/components/AppToaster'
 import ApiDataProvider from '@/components/ApiDataProvider'
 import ClientErrorReporter from '@/components/ClientErrorReporter'
+import '@excalidraw/excalidraw/index.css'
 import './globals.css'
 
 const sunghyunSans = localFont({

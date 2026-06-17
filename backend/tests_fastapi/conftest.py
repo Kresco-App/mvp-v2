@@ -33,13 +33,12 @@ def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
     return Settings(
         database_url=database_url,
         jwt_secret_key="test-secret-key-for-ci-32-bytes-minimum",
-        google_client_id="test-google-client-id",
+        firebase_project_id="test-firebase-project",
         vdocipher_api_secret="",
         vdocipher_api_base_url="",
         vdocipher_live_create_url="",
         frontend_url="http://localhost:3000",
         resend_api_key="",
-        ably_api_key="",
         debug=True,
     )
 
@@ -74,7 +73,6 @@ def app_client(test_settings: Settings):
     asyncio.run(reset_engine())
     engine, _ = init_engine(
         test_settings.database_url,
-        is_lambda=False,
         pgsslrootcert=test_settings.pgsslrootcert,
     )
 

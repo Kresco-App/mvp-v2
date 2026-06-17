@@ -4,7 +4,7 @@ const ABSOLUTE_URL_PATTERN = /^(https?:|data:|blob:)/
 
 export function defaultApiBaseUrl() {
   // Default to same-origin (/api/) in every environment. A cross-site backend
-  // (e.g. the staging Lambda) must be opted into explicitly via
+  // (e.g. a cross-site staging backend) must be opted into explicitly via
   // NEXT_PUBLIC_API_BASE_URL, because cross-site cookie auth requires the auth
   // cookie to be SameSite=None — silently defaulting there 401s after login.
   return LOCAL_API_BASE_URL

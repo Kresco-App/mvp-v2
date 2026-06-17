@@ -1566,6 +1566,28 @@ def test_change_request_requires_target_inside_offering(app_client, run_db, test
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()] == [created.json()["id"]]
 
+    async def _mark_applied():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            row = await db.get(ProfessorChangeRequest, created.json()["id"])
+            row.status = "applied"
+            await db.commit()
+
+    run_db(_mark_applied())
+
+    pending_after_apply = app_client.get(
+        "/api/professor/change-requests",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    all_after_apply = app_client.get(
+        "/api/professor/change-requests?status=all",
+        headers={"Authorization": f"Bearer {seeded['professor_token']}"},
+    )
+    assert pending_after_apply.status_code == 200
+    assert pending_after_apply.json() == []
+    assert all_after_apply.status_code == 200
+    assert [item["id"] for item in all_after_apply.json()] == [created.json()["id"]]
+
     invalid_limit = app_client.get(
         "/api/professor/change-requests?limit=101",
         headers={"Authorization": f"Bearer {seeded['professor_token']}"},
@@ -2250,7 +2272,7 @@ def test_professor_output_serializers_stay_out_of_router():
     assert "row_number()" in inspect.getsource(professor_queries.conversation_last_sender_role)
     assert ".distinct(" not in inspect.getsource(professor_queries.conversation_last_sender_role)
     assert "ProfessorDashboardOut(" in query_source
-    assert "select(ProfessorChangeRequest)" in query_source
+    assert "select(ProfessorChangeRequest)" in inspect.getsource(professor_change_requests)
     assert "async def require_professor_live_session" in query_source
     assert "async def messages_for_conversation" in query_source
     assert "async def student_teacher_threads" in query_source
@@ -2642,13 +2664,13 @@ def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db,
             calls.append({"key": key, "content": content, "content_type": content_type})
             return SimpleNamespace(
                 key=f"test-prefix/{key}",
-                reference=f"s3://kresco-media/test-prefix/{key}",
+                reference=f"gs://kresco-media/test-prefix/{key}",
                 url=f"https://signed.example.com/test-prefix/{key}?signature=upload",
             )
 
     monkeypatch.setattr("app.services.professor_chat_mutations.get_media_storage", lambda settings: _Storage())
     async def _async_media_url(reference, settings):
-        return f"https://signed.example.com/{reference.removeprefix('s3://kresco-media/')}?signature=read" if str(reference).startswith("s3://") else reference
+        return f"https://signed.example.com/{reference.removeprefix('gs://kresco-media/')}?signature=read" if str(reference).startswith("gs://") else reference
 
     monkeypatch.setattr(
         "app.services.professor_serializers.async_media_url",
@@ -2677,5 +2699,5 @@ def test_professor_chat_image_upload_uses_configured_storage(app_client, run_db,
             return message.attachment_url
 
     assert run_db(_stored_message_attachment()).startswith(
-        f"s3://kresco-media/test-prefix/professor-chat/{conversation_id}/"
+        f"gs://kresco-media/test-prefix/professor-chat/{conversation_id}/"
     )

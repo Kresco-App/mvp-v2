@@ -45,6 +45,7 @@ REQUIRED_INDEXES: tuple[RequiredIndex, ...] = (
     RequiredIndex("tab_contents", "ix_tab_contents_item_status_order", ("topic_item_id", "status", "order", "id")),
     RequiredIndex("topic_item_progress", "ix_topic_item_progress_user_topic_item", ("user_id", "topic_id", "topic_item_id")),
     RequiredIndex("topic_item_progress", "ix_topic_item_progress_user_item_status", ("user_id", "topic_item_id", "status")),
+    RequiredIndex("topic_item_progress", "ix_topic_item_progress_user_topic_status", ("user_id", "topic_id", "status")),
     RequiredIndex("user_notes", "ix_user_notes_user_topic_updated", ("user_id", "topic_id", "updated_at")),
     RequiredIndex("topics", "ix_topics_status", ("status",)),
     RequiredIndex("resources", "ix_resources_status", ("status",)),
@@ -84,7 +85,7 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
             "SELECT id FROM topic_item_progress "
             "WHERE user_id = 1 AND topic_id = 1 AND topic_item_id IN (1, 2, 3)"
         ),
-        ("ix_topic_item_progress_user_topic_item",),
+        ("ix_topic_item_progress_user_topic_item", "ix_topic_item_progress_user_topic_status"),
     ),
     PlanCheck(
         "topic card progress",
@@ -92,7 +93,7 @@ PLAN_CHECKS: tuple[PlanCheck, ...] = (
             "SELECT topic_item_id FROM topic_item_progress "
             "WHERE user_id = 1 AND topic_item_id IN (1, 2, 3) AND status = 'completed'"
         ),
-        ("ix_topic_item_progress_user_item_status",),
+        ("ix_topic_item_progress_user_item_status", "ix_topic_item_progress_user_topic_status"),
     ),
     PlanCheck(
         "topic workspace notes",

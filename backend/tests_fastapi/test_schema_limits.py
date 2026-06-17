@@ -4,7 +4,7 @@ from typing import Annotated, get_args, get_origin
 
 from app.routers.telemetry import ClientErrorIn
 from app.schemas.courses import TopicItemCompleteIn
-from app.schemas.interactions import CommentCreateIn, NoteCreateIn, SavedItemCreateIn
+from app.schemas.interactions import CanvasDocumentPutIn, CommentCreateIn, NoteCreateIn, SavedItemCreateIn
 from app.schemas.professor import (
     ChatConversationPatchIn,
     ChatMessageIn,
@@ -40,7 +40,7 @@ LIMITED_STRING_FIELDS = {
     ForgotPasswordIn: ("email",),
     ResetPasswordIn: ("token", "password"),
     NoteCreateIn: ("body",),
-    SavedItemCreateIn: ("target_type", "label"),
+    SavedItemCreateIn: ("target_type", "label", "note"),
     CommentCreateIn: ("body",),
     LiveSessionIn: (
         "title",
@@ -107,6 +107,16 @@ def test_request_schema_string_fields_have_max_length_constraints():
         (NoteCreateIn, {"body": "x" * 10001}),
         (CommentCreateIn, {"topic_item_id": 1, "body": "x" * 10001}),
         (SavedItemCreateIn, {"target_type": "x" * 256, "target_id": 1}),
+        (SavedItemCreateIn, {"target_type": "topic_item", "target_id": 1, "note": "x" * 501}),
+        (SavedItemCreateIn, {"target_type": "topic_item", "target_id": 1, "tags": ["x" * 33]}),
+        (
+            CanvasDocumentPutIn,
+            {
+                "target_type": "topic_item",
+                "target_id": 1,
+                "scene_json": {"type": "excalidraw", "files": {"file-1": {"dataURL": "data:image/png;base64,abc"}}},
+            },
+        ),
         (
             LiveSessionIn,
             {
@@ -231,6 +241,7 @@ def test_schema_limits_reject_nested_or_oversized_professor_change_request_json(
         (ResetPasswordIn, {"token": "token", "password": "strong-pass-123"}),
         (NoteCreateIn, {"body": "Note"}),
         (SavedItemCreateIn, {"target_type": "topic", "target_id": 1}),
+        (CanvasDocumentPutIn, {"target_type": "topic_item", "target_id": 1, "scene_json": {"elements": []}}),
         (CommentCreateIn, {"topic_item_id": 1, "body": "Comment"}),
         (TopicItemCompleteIn, {"watched_seconds": 1}),
         (QuizSubmitIn, {"answers": {1: 1}}),

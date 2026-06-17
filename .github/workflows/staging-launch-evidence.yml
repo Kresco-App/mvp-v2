@@ -3,192 +3,249 @@ name: Staging Launch Evidence
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   collect:
     runs-on: ubuntu-latest
     environment: staging
     env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      BACKEND_SERVICE: kresco-backend-staging
+      FRONTEND_SERVICE: kresco-frontend-staging
+      CLOUD_SQL_INSTANCE: kresco-staging-postgres
       EVIDENCE_DIR: artifacts/staging-launch-evidence
-      AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      BACKEND_READY_URL: ${{ vars.BACKEND_READY_URL }}
-      STAGING_BACKEND_URL: ${{ vars.STAGING_BACKEND_URL }}
-      MEDIA_S3_BUCKET: ${{ vars.MEDIA_S3_BUCKET }}
-      MEDIA_S3_REGION: ${{ vars.MEDIA_S3_REGION }}
-      MEDIA_S3_PREFIX: ${{ vars.MEDIA_S3_PREFIX }}
-      MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS: ${{ vars.MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS }}
-      MEDIA_S3_ANONYMOUS_READ_KEY: ${{ vars.MEDIA_S3_ANONYMOUS_READ_KEY }}
-      STAGING_RDS_PROXY_NAME: ${{ vars.STAGING_RDS_PROXY_NAME }}
-      STAGING_LAMBDA_FUNCTION_NAME: ${{ vars.STAGING_LAMBDA_FUNCTION_NAME }}
-      STAGING_KEEP_WARM_RULE_NAME: ${{ vars.STAGING_KEEP_WARM_RULE_NAME }}
-      STAGING_WORKER_SCHEDULE_RULE_NAME: ${{ vars.STAGING_WORKER_SCHEDULE_RULE_NAME }}
-      STAGING_LIVE_SESSION_ID: ${{ vars.STAGING_LIVE_SESSION_ID }}
-      STAGING_EXPECTED_STUDENTS: ${{ vars.STAGING_EXPECTED_STUDENTS }}
-      STAGING_TOPIC_ID: ${{ vars.STAGING_TOPIC_ID }}
-      STAGING_TOPIC_SEARCH_QUERY: ${{ vars.STAGING_TOPIC_SEARCH_QUERY }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Prepare evidence directory
         run: |
-          set -euo pipefail
           mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' '{"passed":false,"errors":["staging launch evidence collection did not finish"]}' > "$EVIDENCE_DIR/evidence-manifest.json"
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-west-3
-
-      - name: Install backend dependencies
+      - name: Collect Cloud Run posture
+        continue-on-error: true
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          gcloud run services describe "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/backend-cloud-run.json"
+          gcloud run services describe "$FRONTEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$EVIDENCE_DIR/frontend-cloud-run.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
 
-      - name: Check tracked secret hygiene and rotation checklist
-        if: ${{ always() }}
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          errors = []
+          for name in ("backend", "frontend"):
+              doc = json.loads((evidence_dir / f"{name}-cloud-run.json").read_text())
+              annotations = doc.get("spec", {}).get("template", {}).get("metadata", {}).get("annotations", {})
+              if annotations.get("autoscaling.knative.dev/minScale", "0") not in {"0", ""}:
+                  errors.append(f"{name} minScale must be 0")
+              if annotations.get("autoscaling.knative.dev/maxScale") not in {"3", 3}:
+                  errors.append(f"{name} maxScale must be 3")
+              if doc.get("status", {}).get("conditions", []) and not any(
+                  item.get("type") == "Ready" and item.get("status") == "True"
+                  for item in doc["status"]["conditions"]
+              ):
+                  errors.append(f"{name} Cloud Run service is not Ready")
+          if errors:
+              raise SystemExit("; ".join(errors))
+          PY
+
+      - name: Collect Cloud SQL cost posture
+        continue-on-error: true
         run: |
           set -euo pipefail
-          python scripts/run_evidence_command.py \
-            --name secret-rotation-checklist \
-            --output "$EVIDENCE_DIR/secret-rotation-checklist.json" \
-            -- \
-            python scripts/check_secret_hygiene.py --require-rotation-checklist
+          gcloud sql instances describe "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --format=json > "$EVIDENCE_DIR/cloud-sql.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
 
-      - name: Collect staging runtime diagnostics
-        if: ${{ always() }}
+          doc = json.loads((Path(os.environ["EVIDENCE_DIR"]) / "cloud-sql.json").read_text())
+          settings = doc.get("settings", {})
+          errors = []
+          if doc.get("state") != "STOPPED":
+              errors.append("Cloud SQL must be stopped outside active test windows")
+          if settings.get("activationPolicy") != "NEVER":
+              errors.append("Cloud SQL activationPolicy must be NEVER")
+          if settings.get("availabilityType") != "ZONAL":
+              errors.append("Dark/staging Cloud SQL must be zonal before launch")
+          if str(settings.get("dataDiskSizeGb")) not in {"20", "20.0"}:
+              errors.append("Cloud SQL disk should stay at the 20GB floor before launch")
+          if errors:
+              raise SystemExit("; ".join(errors))
+          PY
+
+      - name: Collect Artifact Registry cleanup posture
+        continue-on-error: true
         run: |
           set -euo pipefail
-          python scripts/run_evidence_command.py \
-            --name staging-runtime \
-            --output "$EVIDENCE_DIR/staging-runtime.json" \
-            --require-json \
-            -- \
-            python scripts/check_staging_runtime.py "${BACKEND_READY_URL:-}" --include-provider-reachability --json
-        env:
-          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+          gcloud artifacts repositories describe kresco-containers \
+            --project "$PROJECT_ID" \
+            --location "$REGION" \
+            --format=json > "$EVIDENCE_DIR/artifact-registry.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
 
-      - name: Collect S3 media posture evidence
-        if: ${{ always() }}
+          doc = json.loads((Path(os.environ["EVIDENCE_DIR"]) / "artifact-registry.json").read_text())
+          policies = doc.get("cleanupPolicies") or {}
+          if "delete-old-images" not in policies or "keep-latest-10" not in policies:
+              raise SystemExit("Artifact Registry cleanup policies delete-old-images and keep-latest-10 are required.")
+          PY
+
+      - name: Collect private media bucket posture
+        continue-on-error: true
         run: |
           set -euo pipefail
-          python scripts/run_evidence_command.py \
-            --name s3-media-posture \
-            --output "$EVIDENCE_DIR/s3-media-posture.json" \
-            --require-json \
-            -- \
-            python scripts/check_s3_media_posture.py "${MEDIA_S3_BUCKET:-}" \
-            --prefix "${MEDIA_S3_PREFIX:-}" \
-            --anonymous-read-key "${MEDIA_S3_ANONYMOUS_READ_KEY:-}" \
-            --json
-
-      - name: Collect staging ops posture evidence
-        if: ${{ always() }}
-        env:
-          STAGING_OPS_DRILL_EVIDENCE_JSON: ${{ secrets.STAGING_OPS_DRILL_EVIDENCE_JSON }}
-        run: |
-          set -euo pipefail
-          if [ -n "${STAGING_OPS_DRILL_EVIDENCE_JSON:-}" ]; then
-            drill_file="$RUNNER_TEMP/staging-ops-drill-evidence.json"
-            printf '%s' "$STAGING_OPS_DRILL_EVIDENCE_JSON" > "$drill_file"
-            export STAGING_OPS_DRILL_EVIDENCE_FILE="$drill_file"
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest \
+            --project "$PROJECT_ID" \
+            --secret kresco-runtime > "$runtime_json"
+          media_bucket="$(jq -r '.MEDIA_GCS_BUCKET // .media_gcs_bucket // empty' "$runtime_json")"
+          media_prefix="$(jq -r '.MEDIA_GCS_PREFIX // .media_gcs_prefix // "media"' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -z "$media_bucket" ]; then
+            echo "::error::MEDIA_GCS_BUCKET is missing from kresco-runtime."
+            exit 1
           fi
-          python scripts/run_evidence_command.py \
-            --name staging-ops-posture \
-            --output "$EVIDENCE_DIR/staging-ops-posture.json" \
-            --require-json \
-            -- \
-            python scripts/check_staging_ops_posture.py --json
+          printf '{"bucket_configured":true,"prefix_configured":%s}\n' "$([ -n "$media_prefix" ] && echo true || echo false)" > "$EVIDENCE_DIR/media-runtime-config.json"
+          if ! gcloud storage buckets describe "gs://$media_bucket" \
+            --format=json > "$EVIDENCE_DIR/media-bucket.json" 2> "$EVIDENCE_DIR/media-bucket-error.txt"; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
 
-      - name: Collect realtime outbox evidence
-        if: ${{ always() }}
-        env:
-          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          detail = (evidence_dir / "media-bucket-error.txt").read_text(encoding="utf-8", errors="replace")
+          (evidence_dir / "media-bucket-error.json").write_text(
+              json.dumps({
+                  "passed": False,
+                  "error": "unable_to_describe_media_bucket",
+                  "required_permission": "storage.buckets.get",
+                  "detail": detail[:2000],
+              }, indent=2),
+              encoding="utf-8",
+          )
+          PY
+            cat "$EVIDENCE_DIR/media-bucket-error.txt" >&2
+            exit 1
+          fi
+          rm -f "$EVIDENCE_DIR/media-bucket-error.txt"
+          if ! gcloud storage buckets get-iam-policy "gs://$media_bucket" \
+            --format=json > "$EVIDENCE_DIR/media-bucket-iam.json" 2> "$EVIDENCE_DIR/media-bucket-iam-error.txt"; then
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          detail = (evidence_dir / "media-bucket-iam-error.txt").read_text(encoding="utf-8", errors="replace")
+          (evidence_dir / "media-bucket-iam-error.json").write_text(
+              json.dumps({
+                  "passed": False,
+                  "error": "unable_to_read_media_bucket_iam",
+                  "required_permission": "storage.buckets.getIamPolicy",
+                  "detail": detail[:2000],
+              }, indent=2),
+              encoding="utf-8",
+          )
+          PY
+            cat "$EVIDENCE_DIR/media-bucket-iam-error.txt" >&2
+            exit 1
+          fi
+          rm -f "$EVIDENCE_DIR/media-bucket-iam-error.txt"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          bucket = json.loads((evidence_dir / "media-bucket.json").read_text())
+          iam = json.loads((evidence_dir / "media-bucket-iam.json").read_text())
+          runtime = json.loads((evidence_dir / "media-runtime-config.json").read_text())
+          errors = []
+          iam_config = bucket.get("iamConfiguration", {})
+          uniform_access = iam_config.get("uniformBucketLevelAccess", {})
+          if uniform_access.get("enabled") is not True:
+              errors.append("media bucket must enable uniform bucket-level access")
+          if iam_config.get("publicAccessPrevention") != "enforced":
+              errors.append("media bucket publicAccessPrevention must be enforced")
+          if not bucket.get("lifecycle", {}).get("rule"):
+              errors.append("media bucket lifecycle rules are required")
+          if runtime.get("prefix_configured") is not True:
+              errors.append("MEDIA_GCS_PREFIX must be configured")
+          public_members = {"allUsers", "allAuthenticatedUsers"}
+          for binding in iam.get("bindings", []):
+              if public_members.intersection(set(binding.get("members", []))):
+                  errors.append(f"media bucket IAM must not grant {binding.get('role')} to public principals")
+          if errors:
+              raise SystemExit("; ".join(errors))
+          PY
+
+      - name: Collect runtime smoke evidence
+        continue-on-error: true
         run: |
           set -euo pipefail
-          backend_url="${STAGING_BACKEND_URL:-${BACKEND_READY_URL:-}}"
-          python scripts/run_evidence_command.py \
-            --name realtime-outbox \
-            --output "$EVIDENCE_DIR/realtime-outbox.json" \
-            --require-json \
-            -- \
-            python scripts/check_staging_realtime_fanout.py "$backend_url" \
-            --mode outbox \
-            --json
+          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          frontend_url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          export BACKEND_URL="$backend_url"
+          export FRONTEND_URL="$frontend_url"
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
 
-      - name: Collect realtime fanout provider evidence
-        if: ${{ always() }}
-        env:
-          KRESCO_INTERNAL_SECRET: ${{ secrets.REALTIME_OUTBOX_SECRET }}
-          STAGING_PROFESSOR_TOKEN: ${{ secrets.STAGING_PROFESSOR_TOKEN }}
-          STAGING_STUDENT_TOKENS: ${{ secrets.STAGING_STUDENT_TOKENS }}
-          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
-        run: |
-          set -euo pipefail
-          backend_url="${STAGING_BACKEND_URL:-${BACKEND_READY_URL:-}}"
-          expected_students="${STAGING_EXPECTED_STUDENTS:-50}"
-          python scripts/run_evidence_command.py \
-            --name realtime-fanout-50 \
-            --output "$EVIDENCE_DIR/realtime-fanout-50.json" \
-            --require-json \
-            -- \
-            python scripts/check_staging_realtime_fanout.py "$backend_url" \
-            --mode fanout-50 \
-            --expected-students "$expected_students" \
-            --require-provider-delivery \
-            --json
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          backend_url = os.environ["BACKEND_URL"].rstrip("/") + "/health"
+          frontend_url = os.environ["FRONTEND_URL"]
+          with urllib.request.urlopen(backend_url, timeout=30) as response:
+              backend = json.loads(response.read().decode("utf-8"))
+          with urllib.request.urlopen(frontend_url, timeout=30) as response:
+              frontend_status = response.getcode()
+              frontend_body = response.read(8192).decode("utf-8", errors="replace")
+          if frontend_status >= 400 or "<html" not in frontend_body.lower():
+              raise SystemExit("Frontend smoke did not return HTML.")
+          (evidence_dir / "runtime-smoke.json").write_text(json.dumps({
+              "backend_health_url": backend_url,
+              "backend_release_sha": backend.get("release_sha"),
+              "frontend_url": frontend_url,
+              "frontend_status": frontend_status,
+          }, indent=2), encoding="utf-8")
+          PY
 
-      - name: Collect topic latency evidence
-        if: ${{ always() }}
-        env:
-          STAGING_AUTH_TOKEN: ${{ secrets.STAGING_AUTH_TOKEN }}
-        run: |
-          set -euo pipefail
-          backend_url="${STAGING_BACKEND_URL:-${BACKEND_READY_URL:-}}"
-          python scripts/run_evidence_command.py \
-            --name topic-latency \
-            --output "$EVIDENCE_DIR/topic-latency.json" \
-            --require-json \
-            -- \
-            python scripts/check_staging_topic_latency.py \
-            --backend-url "$backend_url" \
-            --json
-
-      - name: Validate staging launch evidence bundle
-        if: ${{ always() }}
-        run: |
-          set -euo pipefail
-          missing=0
-          for artifact in \
-            secret-rotation-checklist.json \
-            staging-runtime.json \
-            s3-media-posture.json \
-            staging-ops-posture.json \
-            realtime-outbox.json \
-            realtime-fanout-50.json \
-            topic-latency.json
-          do
-            path="$EVIDENCE_DIR/$artifact"
-            if [ ! -s "$path" ]; then
-              echo "::error file=$path::Missing or empty staging launch evidence artifact"
-              missing=1
-              continue
-            fi
-            python -m json.tool "$path" > /dev/null
-          done
-          exit "$missing"
+      - name: Evaluate staging launch evidence
+        if: always()
+        run: python scripts/check_staging_launch_evidence.py "$EVIDENCE_DIR"
 
       - name: Upload staging launch evidence
-        if: ${{ always() }}
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: staging-launch-evidence

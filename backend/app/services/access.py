@@ -17,9 +17,8 @@ TIER_RANK: dict[str, int] = {
     "platinum": 30,
 }
 
-# Current compatibility mapping while feature-specific entitlements are not yet
-# persisted. New feature gates should be added here or moved behind a real
-# user-feature table without changing router code.
+# Current tier-to-feature mapping. New feature gates should be added here or
+# moved behind a persisted user-feature table without changing router code.
 FEATURES_BY_TIER: dict[str, set[str]] = {
     "basic": set(),
     "pro": {

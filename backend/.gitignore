@@ -27,8 +27,11 @@ env/
 .venv/
 db.sqlite3
 db.sqlite3-journal
+db.sqlite3.backup-*
 media/
 staticfiles/
+e2e-s3/
+e2e-gcs/
 
 # Zappa / AWS
 zappa_settings.json

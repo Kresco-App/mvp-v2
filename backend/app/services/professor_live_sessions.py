@@ -17,7 +17,6 @@ from app.schemas.professor import (
     LiveSessionUpdateIn,
     ProfessorLiveSessionOut,
 )
-from app.services.ably import live_session_channel_name, offering_notifications_channel_name
 from app.services.professor_audit import enforce_professor_mutation_rate_limit, record_professor_audit
 from app.services.professor_queries import professor_offerings, require_professor_live_session, require_professor_offering
 from app.services.professor_serializers import (
@@ -25,6 +24,7 @@ from app.services.professor_serializers import (
     notification_status_from_realtime,
     professor_live_session_out,
 )
+from app.services.realtime_channels import live_session_channel_name, offering_notifications_channel_name
 from app.services.professor_status import ALLOWED_LIVE_STATUSES, LiveSessionStatus
 from app.services.realtime_outbox import enqueue_realtime_event
 from app.services.vdocipher import create_live_stream, delete_live_stream, sanitize_provider_payload

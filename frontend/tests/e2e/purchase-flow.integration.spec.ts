@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 test.describe('Purchase flow (provider-neutral manual payment)', () => {
   test('creates a pending CashPlus request from pricing', async ({ page }) => {
-    await loginAsSeededUser(page, 'student@example.com')
+    await loginAsSeededUser(page, 'basic@example.com')
 
     await page.goto('/pricing')
     await expect(page.getByRole('heading', { name: /tarification/i })).toBeVisible()

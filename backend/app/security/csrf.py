@@ -27,6 +27,7 @@ UNAUTHENTICATED_AUTH_PATHS = {
     "/api/auth/verify-email",
     "/api/auth/resend-verification",
     "/api/auth/login",
+    "/api/auth/logout",
     "/api/auth/forgot-password",
     "/api/auth/reset-password",
     "/api/client-errors",

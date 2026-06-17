@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { BookOpenCheck, ChevronLeft, Dumbbell, Lock, RotateCcw, Star, Trophy } from 'lucide-react'
 import { apiDataErrorMessage } from '@/lib/apiData'
-import { useCourseTopicsData } from '@/lib/courseDiscoveryData'
+import { useCourseSubjectsData, type CourseSubject } from '@/lib/courseDiscoveryData'
 import {
   revealExercise,
   saveExercise,
@@ -39,8 +39,8 @@ export default function ExerciseBankPage() {
   const [notesExerciseId, setNotesExerciseId] = useState<number | null>(null)
   const [mutating, setMutating] = useState(false)
   const lastErrorRef = useRef('')
-  const { topics, loading: loadingTopics, error: topicsError } = useCourseTopicsData()
-  const subjectOptions = useMemo(() => subjectOptionsFromTopics(topics), [topics])
+  const { subjects, loading: loadingSubjects, error: subjectsError } = useCourseSubjectsData()
+  const subjectOptions = useMemo(() => subjectOptionsFromSubjects(subjects), [subjects])
 
   useEffect(() => {
     setSelectedSubjectId(routeSubjectId)
@@ -79,13 +79,13 @@ export default function ExerciseBankPage() {
   }, [detail.exercise, notesDirty, notesDraft, notesExerciseId])
 
   useEffect(() => {
-    const error = topicsError || list.error || detail.error
+    const error = subjectsError || list.error || detail.error
     if (!error) return
     const message = apiDataErrorMessage(error, 'Could not load exercise bank.')
     if (lastErrorRef.current === message) return
     lastErrorRef.current = message
     toast.error(message)
-  }, [detail.error, list.error, topicsError])
+  }, [detail.error, list.error, subjectsError])
 
   function syncRoute(next: Partial<RouteState>) {
     const state: RouteState = {
@@ -203,7 +203,7 @@ export default function ExerciseBankPage() {
     }
   }
 
-  const showListSkeleton = (loadingTopics || list.loading) && list.items.length === 0
+  const showListSkeleton = (loadingSubjects || list.loading) && list.items.length === 0
   const selectedExercise = detail.exercise
 
   return (
@@ -528,18 +528,12 @@ function ExerciseDetailSkeleton() {
   return <div className="h-[420px] rounded-[18px] bg-[#f4f4f5]" />
 }
 
-function subjectOptionsFromTopics(topics: Array<{ subject_id?: number; subject_title: string }>) {
-  const byId = new Map<number, { id: number; title: string; topicCount: number }>()
-  topics.forEach((topic) => {
-    if (typeof topic.subject_id !== 'number') return
-    const existing = byId.get(topic.subject_id)
-    if (existing) {
-      existing.topicCount += 1
-    } else {
-      byId.set(topic.subject_id, { id: topic.subject_id, title: topic.subject_title, topicCount: 1 })
-    }
-  })
-  return Array.from(byId.values())
+function subjectOptionsFromSubjects(subjects: CourseSubject[]) {
+  return subjects.map((subject) => ({
+    id: subject.id,
+    title: subject.title,
+    topicCount: Number(subject.chapter_count ?? 0),
+  }))
 }
 
 function numberParam(value: string | null) {

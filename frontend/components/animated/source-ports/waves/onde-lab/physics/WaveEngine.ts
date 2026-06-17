@@ -367,7 +367,7 @@ export class WaveEngine {
         return null;
     }
     
-    // Legacy
+    // Previous frame state
     get tracerIndex(): number {
         return this.tracerIndices[0];
     }

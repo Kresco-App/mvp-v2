@@ -36,8 +36,8 @@ from app.models.professor import (
     ProfessorChatMessage,
     ProgramTrack,
 )
+from app.security.passwords import hash_password
 from app.models.users import User
-from app.routers.users import _hash_password
 from seed_safety import require_destructive_seed_database_url, require_destructive_seed_session
 
 DEMO_PASSWORD = "kresco123"
@@ -48,7 +48,7 @@ async def main() -> None:
     await reset_engine()
     database_url = os.getenv("DATABASE_URL", DEMO_DATABASE_URL)
     require_destructive_seed_database_url(database_url, "seed_professor_demo.py")
-    engine, session_factory = init_engine(database_url, is_lambda=False)
+    engine, session_factory = init_engine(database_url)
     assert isinstance(session_factory, async_sessionmaker)
 
     async with engine.begin() as conn:
@@ -208,7 +208,7 @@ async def upsert_user(
     user.is_email_verified = True
     user.is_staff = False
     user.is_superuser = False
-    user.password = _hash_password(DEMO_PASSWORD)
+    user.password = hash_password(DEMO_PASSWORD)
     await db.flush()
     return user
 

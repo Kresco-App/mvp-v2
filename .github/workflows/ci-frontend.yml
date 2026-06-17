@@ -11,7 +11,6 @@ on:
   push:
     branches:
       - master
-      - "codex/**"
     paths:
       - "frontend/**"
       - "backend/**"
@@ -25,9 +24,9 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       NEXT_PUBLIC_API_BASE_URL: "/api/"
+      NEXT_PUBLIC_REALTIME_PROVIDER: "off"
       KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e
       KRESCO_ENV: development
-      ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
     services:
       postgres:
         image: postgres:16
@@ -96,13 +95,17 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 8
+        run: npx playwright install chromium
 
       - name: Run lint
         run: npm run lint
 
       - name: Audit CSP inline style policy
         run: npm run audit:csp-styles
+
+      - name: Validate production-shaped frontend env
+        run: npm run validate:production-env:fixture
 
       - name: Run typecheck
         run: npm run typecheck

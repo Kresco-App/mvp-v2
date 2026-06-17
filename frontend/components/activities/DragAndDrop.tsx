@@ -24,13 +24,23 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
   const assignedItemIds = Object.values(assignments)
   const unassigned = items.filter(i => !assignedItemIds.includes(i.id))
 
-  function handleDrop(zoneId: string) {
-    if (!dragItem) return
+  function assignItemToZone(itemId: string, zoneId: string) {
     const updated = { ...assignments }
-    Object.keys(updated).forEach(z => { if (updated[z] === dragItem) delete updated[z] })
-    updated[zoneId] = dragItem
+    Object.keys(updated).forEach(z => { if (updated[z] === itemId) delete updated[z] })
+    updated[zoneId] = itemId
     setAssignments(updated)
     setDragItem(null)
+  }
+
+  function unassignZone(zoneId: string) {
+    const updated = { ...assignments }
+    delete updated[zoneId]
+    setAssignments(updated)
+  }
+
+  function handleDrop(zoneId: string) {
+    if (!dragItem || submitted) return
+    assignItemToZone(dragItem, zoneId)
   }
 
   function handleSubmit() {
@@ -53,14 +63,19 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
       {/* Draggable items */}
       <div className="flex flex-wrap gap-3">
         {unassigned.map(item => (
-          <div
+          <button
             key={item.id}
+            type="button"
             draggable
             onDragStart={() => setDragItem(item.id)}
-            className="bg-indigo-500/15 text-indigo-300 text-sm font-medium px-4 py-2.5 rounded-xl cursor-grab active:cursor-grabbing hover:bg-indigo-500/25 transition select-none border border-indigo-500/30"
+            onClick={() => setDragItem(item.id)}
+            aria-pressed={dragItem === item.id}
+            className={`bg-indigo-500/15 text-indigo-300 text-sm font-medium px-4 py-2.5 rounded-xl cursor-grab active:cursor-grabbing hover:bg-indigo-500/25 transition select-none border text-left ${
+              dragItem === item.id ? 'border-indigo-300 ring-2 ring-indigo-400/40' : 'border-indigo-500/30'
+            }`}
           >
             {item.label}
-          </div>
+          </button>
         ))}
         {unassigned.length === 0 && !submitted && (
           <p className="text-sm text-slate-500">Tous les elements sont places</p>
@@ -75,18 +90,28 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
           const isWrong = submitted && assigned && assignments[zone.id] !== zone.correctItemId
 
           return (
-            <div
+            <button
               key={zone.id}
+              type="button"
               onDragOver={e => e.preventDefault()}
               onDrop={() => handleDrop(zone.id)}
               onClick={() => {
-                if (assigned && !submitted) {
-                  const updated = { ...assignments }
-                  delete updated[zone.id]
-                  setAssignments(updated)
+                if (submitted) return
+                if (dragItem) {
+                  assignItemToZone(dragItem, zone.id)
+                } else if (assigned) {
+                  unassignZone(zone.id)
                 }
               }}
-              className={`min-h-[80px] rounded-xl border-2 border-dashed p-4 flex flex-col gap-2 transition ${
+              aria-disabled={submitted || (!dragItem && !assigned)}
+              aria-label={
+                assigned
+                  ? `${zone.label}: ${assigned.label}. Activate to remove.`
+                  : dragItem
+                    ? `Place selected item in ${zone.label}`
+                    : `${zone.label}: empty`
+              }
+              className={`min-h-[80px] rounded-xl border-2 border-dashed p-4 flex flex-col gap-2 transition text-left ${
                 submitted
                   ? isCorrect ? 'border-green-500/50 bg-green-500/10' : isWrong ? 'border-red-500/50 bg-red-500/10' : 'border-slate-700'
                   : 'border-slate-700 hover:border-indigo-500/40'
@@ -102,7 +127,7 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
                   {assigned.label}
                 </span>
               )}
-            </div>
+            </button>
           )
         })}
       </div>

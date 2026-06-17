@@ -24,7 +24,7 @@ def test_ready_checks_database_and_configuration(app_client):
     assert body["status"] == "ready"
     assert body["checks"]["configuration"] == "ok"
     assert body["checks"]["database"] == "ok"
-    assert set(body["checks"]["config_services"].keys()) == {"database", "s3", "ably", "vdocipher", "smtp", "payment"}
+    assert set(body["checks"]["config_services"].keys()) == {"database", "gcp", "firebase", "gcs", "vdocipher", "smtp", "payment"}
 
 
 def test_ready_reports_database_failure_without_exception_details(app_client):
@@ -41,7 +41,7 @@ def test_ready_reports_database_failure_without_exception_details(app_client):
     assert body["errors"] == ["database"]
     assert body["checks"]["configuration"] == "ok"
     assert body["checks"]["database"] == "error"
-    assert set(body["checks"]["config_services"].keys()) == {"database", "s3", "ably", "vdocipher", "smtp", "payment"}
+    assert set(body["checks"]["config_services"].keys()) == {"database", "gcp", "firebase", "gcs", "vdocipher", "smtp", "payment"}
 
 
 def test_internal_diagnostics_requires_worker_secret(app_client, test_settings):
@@ -79,8 +79,8 @@ def test_internal_diagnostics_reports_ready_launch_gate(app_client, run_db, test
     assert body["errors"] == []
     assert body["checks"]["database"] == {
         "status": "ok",
-        "strategy": "rds_proxy",
-        "rds_proxy_declared": True,
+        "strategy": "cloud_sql",
+        "managed_postgres_declared": True,
     }
     assert body["checks"]["migrations"] == {
         "status": "ok",
@@ -89,18 +89,16 @@ def test_internal_diagnostics_reports_ready_launch_gate(app_client, run_db, test
     }
     assert body["checks"]["storage"] == {
         "status": "ok",
-        "backend": "s3",
+        "backend": "gcs",
         "bucket_configured": True,
-        "region_configured": True,
         "prefix_configured": True,
-        "presign_ttl_seconds": 300,
+        "signed_url_ttl_seconds": 300,
         "profile_quota_bytes": 10 * 1024 * 1024,
         "chat_conversation_quota_bytes": 50 * 1024 * 1024,
-        "lifecycle_expiration_days": 365,
     }
     assert body["checks"]["realtime"] == {
         "status": "ok",
-        "ably_key": "ok",
+        "firestore_configured": True,
         "outbox_secret_configured": True,
         "outbox": {"status": "ok", "pending": 0, "retry": 0, "dead": 0},
     }
@@ -131,10 +129,9 @@ def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_d
     run_db(_clear_outbox())
     run_db(_add_dead_outbox_event())
     test_settings.realtime_outbox_secret = "diagnostics-worker-secret-32-bytes"
-    test_settings.ably_api_key = "malformed"
+    test_settings.firebase_project_id = ""
     test_settings.media_storage_backend = "local"
-    test_settings.media_s3_bucket = ""
-    test_settings.media_s3_region = ""
+    test_settings.media_gcs_bucket = ""
     test_settings.vdocipher_api_secret = ""
     test_settings.vdocipher_api_base_url = "http://video.example.com/api"
     test_settings.vdocipher_live_create_url = ""
@@ -156,9 +153,9 @@ def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_d
     assert body["checks"]["migrations"]["current_heads"] == ["0000"]
     assert body["checks"]["migrations"]["expected_heads"] == expected_migration_heads()
     assert body["checks"]["database"]["strategy"] == "direct"
-    assert body["checks"]["database"]["rds_proxy_declared"] is False
+    assert body["checks"]["database"]["managed_postgres_declared"] is False
     assert body["checks"]["storage"]["backend"] == "local"
-    assert body["checks"]["realtime"]["ably_key"] == "malformed"
+    assert body["checks"]["realtime"]["firestore_configured"] is False
     assert body["checks"]["realtime"]["outbox"]["dead"] == 1
     assert body["checks"]["video"]["api_secret_configured"] is False
     assert body["checks"]["video"]["api_base_url_https"] is False
@@ -181,15 +178,14 @@ class BrokenConnection:
 DIAGNOSTICS_SETTING_FIELDS = (
     "realtime_outbox_secret",
     "database_connection_strategy",
-    "ably_api_key",
+    "firebase_project_id",
+    "firestore_database",
     "media_storage_backend",
-    "media_s3_bucket",
-    "media_s3_region",
-    "media_s3_prefix",
-    "media_s3_presign_ttl_seconds",
+    "media_gcs_bucket",
+    "media_gcs_prefix",
+    "media_gcs_signed_url_ttl_seconds",
     "media_profile_quota_bytes",
     "media_chat_conversation_quota_bytes",
-    "media_s3_lifecycle_expiration_days",
     "vdocipher_api_secret",
     "vdocipher_api_base_url",
     "vdocipher_live_create_url",
@@ -214,16 +210,15 @@ def _restore_settings(settings, values):
 
 def _set_ready_diagnostics_settings(settings):
     settings.realtime_outbox_secret = "diagnostics-worker-secret-32-bytes"
-    settings.database_connection_strategy = "rds_proxy"
-    settings.ably_api_key = "test.key:ably-test-secret"
-    settings.media_storage_backend = "s3"
-    settings.media_s3_bucket = "kresco-test-media"
-    settings.media_s3_region = "eu-north-1"
-    settings.media_s3_prefix = "media"
-    settings.media_s3_presign_ttl_seconds = 300
+    settings.database_connection_strategy = "cloud_sql"
+    settings.firebase_project_id = "kresco-test"
+    settings.firestore_database = "(default)"
+    settings.media_storage_backend = "gcs"
+    settings.media_gcs_bucket = "kresco-test-media"
+    settings.media_gcs_prefix = "media"
+    settings.media_gcs_signed_url_ttl_seconds = 300
     settings.media_profile_quota_bytes = 10 * 1024 * 1024
     settings.media_chat_conversation_quota_bytes = 50 * 1024 * 1024
-    settings.media_s3_lifecycle_expiration_days = 365
     settings.vdocipher_api_secret = "vdocipher-secret"
     settings.vdocipher_api_base_url = "https://video.example.com/api"
     settings.vdocipher_live_create_url = "https://video.example.com/live"

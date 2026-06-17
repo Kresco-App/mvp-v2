@@ -89,11 +89,14 @@ Current tab types:
 Tabs can render:
 
 - Rich text.
+- Typed Course documents.
 - PDF/download.
 - React component registry key.
 - Quiz.
 - Resource list.
 - Notes component.
+
+Course documents are block documents for the Course tab of a `TopicItem`. They can contain text, formulas, definitions, callouts, images, cards, comparisons, steps, and allowlisted visual component blocks. A topic item can have zero or one Course document. In v1 these documents can be generated locally and seeded; the target content store is Firestore after the Firebase migration is ready.
 
 ## Current Search
 

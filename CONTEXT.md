@@ -36,6 +36,10 @@ _Avoid_: Inline exercise discussion
 An exercise selected for the student inside a Topic Workspace by a professor or content team. It is separate guided topic content, often video-backed or highly selected for the lesson flow, and does not source from the broad Exercise Bank.
 _Avoid_: Exercise Bank
 
+**Course Content**:
+The structured explanation inside the Topic Workspace Course tab. It can combine definitions, properties, formulas, diagrams, images, and lightweight animated explanations; it is distinct from Labs, which are experiment-style simulators.
+_Avoid_: Lab, simulator, plain text-only course
+
 **Bac Example**:
 A curated Bac-style example shown inside a Topic Workspace. It is selected to support the current topic and is not the same thing as the full Exam Bank.
 _Avoid_: Exam Bank

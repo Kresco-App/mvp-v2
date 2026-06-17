@@ -55,8 +55,8 @@ export const DiffractionLab: React.FC = () => {
     const [rulerPos, setRulerPos] = useState({ x1: 50, x2: 250 }); // in pixels on the screen view
 
     // --- Physics ---
-    // Theta = Lambda / a
-    // L = 2 * D * tan(Theta) ~ 2 * D * Theta = 2 * Lambda * D / a
+    // Theta = wavelength / a
+    // L = 2 * D * tan(Theta) ~ 2 * D * Theta = 2 * wavelength * D / a
     // L (in meters) = 2 * (wl * 1e-9) * D / (slit * 1e-6)
 
     const calculateL = () => {

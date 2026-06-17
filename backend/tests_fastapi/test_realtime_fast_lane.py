@@ -6,7 +6,9 @@ BackgroundTasks so realtime events are delivered without waiting for the
 regression style) so the wiring cannot be silently removed.
 """
 import inspect
+import asyncio
 
+from app.config import Settings
 from app.routers import professor as professor_router
 from app.services import realtime_outbox
 
@@ -41,11 +43,23 @@ def test_realtime_write_endpoints_schedule_fast_lane_drain():
 
 def test_fast_lane_helper_uses_fresh_session_and_is_best_effort():
     source = inspect.getsource(realtime_outbox.drain_realtime_outbox_in_background)
+    assert "settings.firebase_project_id.strip()" in source
     # Fresh session: the request session is closed by the time the task runs.
     assert "get_session_factory()" in source
     assert "process_realtime_outbox(" in source
     # Best-effort: failures are swallowed because the cron is the safety net.
     assert "except Exception" in source
+
+
+def test_fast_lane_skips_when_firestore_is_not_configured(monkeypatch):
+    async def fail_if_called(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("fast-lane drain should not process without FIREBASE_PROJECT_ID")
+
+    monkeypatch.setattr(realtime_outbox, "process_realtime_outbox", fail_if_called)
+    settings = Settings(firebase_project_id="")
+
+    asyncio.run(realtime_outbox.drain_realtime_outbox_in_background(settings))
 
 
 def test_fast_lane_limit_is_bounded():

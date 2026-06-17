@@ -36,6 +36,7 @@ class User(Base):
     tier: Mapped[str] = mapped_column(String(30), default="basic")
     is_pro: Mapped[bool] = mapped_column(Boolean, default=False)
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
+    firebase_uid: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), index=True)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_staff: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
@@ -44,7 +45,7 @@ class User(Base):
     email_token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     professor_unread_chat_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Django AbstractBaseUser columns — kept so SQLAlchemy doesn't error on existing RDS schema
+    # Django AbstractBaseUser columns kept for the existing Postgres user table.
     password: Mapped[str] = mapped_column(String(128), default="!")
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -10,13 +10,15 @@ from app.config import Settings
 from app.database import get_or_create
 from app.models.courses import ExamProblem, Resource, Subject, TabContent, Topic, TopicItem
 from app.models.exercises import EXERCISE_STATUS_PUBLISHED, Exercise
-from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
+from app.models.interactions import ALLOWED_TARGET_TYPES, CANVAS_TARGET_TYPES, CanvasDocument, Comment, SavedItem, UserNote
 from app.models.quizzes import Question, QuestionSet
 from app.models.users import User
 from app.schemas.interactions import (
     CommentAuthorOut,
     CommentCreateIn,
     CommentOut,
+    CanvasDocumentOut,
+    CanvasDocumentPutIn,
     ExerciseCommentCreateIn,
     InteractionDeleteOut,
     NoteCreateIn,
@@ -42,7 +44,9 @@ SAVED_TARGET_MODELS = {
     "question": Question,
     "exam_problem": ExamProblem,
     "tab_content": TabContent,
+    "exercise": Exercise,
 }
+EMPTY_CANVAS_SCENE = {"type": "excalidraw", "version": 1, "source": "kresco", "elements": [], "appState": {}, "files": {}}
 
 
 async def require_comments_enabled_for_topic_item(db: AsyncSession, user: User, topic_item_id: int) -> None:
@@ -205,6 +209,32 @@ async def require_saved_target_exists(db: AsyncSession, target_type: str, target
         raise HTTPException(status_code=400, detail=f"Invalid target_type. Use one of: {ALLOWED_TARGET_TYPES}")
     if await db.get(model, target_id) is None:
         raise HTTPException(status_code=404, detail="Saved item target not found")
+
+
+async def require_canvas_target_access(
+    db: AsyncSession,
+    user: User,
+    *,
+    target_type: str,
+    target_id: int,
+) -> dict[str, int | None]:
+    if target_type not in CANVAS_TARGET_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid canvas target_type. Use one of: {CANVAS_TARGET_TYPES}")
+
+    if target_type == "topic_item":
+        await require_topic_item_access(db, user, target_id)
+    elif target_type == "exercise":
+        await require_exercise_comments_access(db, user, target_id)
+    elif target_type == "exam_problem":
+        from app.services.exam_bank import get_exam_problem_detail
+
+        problem = await get_exam_problem_detail(db, user, problem_id=target_id)
+        if problem is None:
+            raise HTTPException(status_code=404, detail="Exam problem not found")
+        if not problem.can_access:
+            raise HTTPException(status_code=403, detail=problem.locked_reason or "subject_access_required")
+
+    return await infer_interaction_context(db, target_type=target_type, target_id=target_id)
 
 
 async def require_interaction_context_access(
@@ -407,6 +437,85 @@ async def delete_user_note(
     return InteractionDeleteOut(ok=True, id=note_id)
 
 
+async def get_user_canvas_document(
+    db: AsyncSession,
+    user: User,
+    *,
+    target_type: str,
+    target_id: int,
+) -> CanvasDocumentOut:
+    context = await require_canvas_target_access(db, user, target_type=target_type, target_id=target_id)
+    document = await db.scalar(
+        select(CanvasDocument).where(
+            CanvasDocument.user_id == user.id,
+            CanvasDocument.target_type == target_type,
+            CanvasDocument.target_id == target_id,
+        )
+    )
+    if document is None:
+        return CanvasDocumentOut(
+            id=None,
+            target_type=target_type,
+            target_id=target_id,
+            subject_id=context.get("subject_id"),
+            topic_id=context.get("topic_id"),
+            topic_item_id=context.get("topic_item_id"),
+            scene_json=EMPTY_CANVAS_SCENE.copy(),
+            scene_version=0,
+            created_at=None,
+            updated_at=None,
+        )
+    return CanvasDocumentOut.model_validate(document)
+
+
+async def save_user_canvas_document(
+    db: AsyncSession,
+    user: User,
+    *,
+    body: CanvasDocumentPutIn,
+) -> CanvasDocumentOut:
+    context = await require_canvas_target_access(db, user, target_type=body.target_type, target_id=body.target_id)
+    document = await db.scalar(
+        select(CanvasDocument).where(
+            CanvasDocument.user_id == user.id,
+            CanvasDocument.target_type == body.target_type,
+            CanvasDocument.target_id == body.target_id,
+        )
+    )
+    if document is not None and body.base_version is not None and int(body.base_version) != int(document.scene_version or 0):
+        raise HTTPException(status_code=409, detail="Canvas changed elsewhere")
+
+    if document is None:
+        if body.base_version not in (None, 0):
+            raise HTTPException(status_code=409, detail="Canvas changed elsewhere")
+        document = CanvasDocument(
+            user_id=user.id,
+            target_type=body.target_type,
+            target_id=body.target_id,
+            subject_id=context.get("subject_id"),
+            topic_id=context.get("topic_id"),
+            topic_item_id=context.get("topic_item_id"),
+            scene_json=body.scene_json,
+            scene_version=1,
+        )
+        db.add(document)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="Canvas changed elsewhere")
+    else:
+        document.subject_id = context.get("subject_id")
+        document.topic_id = context.get("topic_id")
+        document.topic_item_id = context.get("topic_item_id")
+        document.scene_json = body.scene_json
+        document.scene_version = int(document.scene_version or 0) + 1
+
+    await db.commit()
+    await db.refresh(document)
+    return CanvasDocumentOut.model_validate(document)
+
+
 async def list_user_saves(
     db: AsyncSession,
     user: User,
@@ -455,6 +564,8 @@ async def save_user_item(
             "topic_id": context.get("topic_id"),
             "topic_item_id": context.get("topic_item_id"),
             "label": body.label,
+            "note": body.note,
+            "tags": body.tags,
         },
         user_id=user.id,
         target_type=body.target_type,
@@ -467,6 +578,10 @@ async def save_user_item(
         save.topic_item_id = save.topic_item_id if save.topic_item_id is not None else context.get("topic_item_id")
         if body.label and body.label != save.label:
             save.label = body.label
+        if "note" in body.model_fields_set:
+            save.note = body.note
+        if "tags" in body.model_fields_set:
+            save.tags = body.tags
 
     await db.commit()
     await db.refresh(save)

@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import useSWR, { type KeyedMutator } from 'swr'
-import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime } from '@/lib/ably'
+import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime } from '@/lib/realtime'
 import { isLiveInteraction, mergeLiveInteraction, mergeLiveInteractions, sortLiveInteractions } from '@/lib/liveInteractions'
 import {
   getProfessorLiveEmbed,

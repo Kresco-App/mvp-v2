@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import Boolean, Date, DateTime, Integer, String, Text, inspect as sa_inspect
 from sqladmin import ModelView
 from sqladmin.filters import AllUniqueStringValuesFilter, BooleanFilter
+from wtforms import SelectField
 
 from app.database import get_session_factory
 from app.admin.auth import ADMIN_SESSION_AUTHENTICATED, ADMIN_SESSION_USER_ID
@@ -23,6 +24,7 @@ from app.models.professor import (
     LiveSession,
     LiveSessionCheckpoint,
     LiveSessionInteraction,
+    ProfessorChangeOperation,
     ProfessorChangeRequest,
     ProfessorChatConversation,
     ProfessorChatMessage,
@@ -125,6 +127,56 @@ class UserAdmin(PowerModelView, model=User):
     # Roles that grant elevated access — anything outside the safe baseline set
     # is considered privileged and may not be assigned by non-superusers.
     _NON_PRIVILEGED_ROLES: frozenset[str | None] = frozenset({"student", "", None})
+
+    form_overrides = {
+        "role": SelectField,
+        "tier": SelectField,
+        "niveau": SelectField,
+        "filiere": SelectField,
+    }
+    form_args = {
+        "role": {
+            "choices": [
+                ("student", "Student"),
+                ("professor", "Professor"),
+                ("admin", "Admin"),
+            ],
+        },
+        "tier": {
+            "choices": [
+                ("basic", "Basic"),
+                ("pro", "Pro"),
+                ("vip", "VIP"),
+                ("platinum", "Platinum"),
+            ],
+        },
+        "niveau": {
+            "choices": [
+                ("", "—"),
+                ("1bac", "1ère BAC"),
+                ("2bac", "2ème BAC"),
+            ],
+        },
+        "filiere": {
+            "choices": [
+                ("", "—"),
+                ("Sciences Mathématiques A", "Sciences Mathématiques A"),
+                ("Sciences Mathématiques B", "Sciences Mathématiques B"),
+                ("Sciences Physiques", "Sciences Physiques"),
+                ("SVT", "SVT"),
+                ("Sciences Et Technologies Electriques", "Sciences Et Technologies Electriques"),
+                ("Sciences Et Technologies Mécaniques", "Sciences Et Technologies Mécaniques"),
+                ("Sciences Économiques", "Sciences Économiques"),
+                ("Techniques De Gestion Et Comptabilité", "Techniques De Gestion Et Comptabilité"),
+                ("Sciences Agronomiques", "Sciences Agronomiques"),
+                ("Lettres", "Lettres"),
+                ("Langue Arabe", "Langue Arabe"),
+                ("Sciences De La Chariaa", "Sciences De La Chariaa"),
+                ("Arts Appliqués", "Arts Appliqués"),
+                ("Autre", "Autre"),
+            ],
+        },
+    }
 
     async def on_model_change(self, data: dict, model: User, is_created: bool, request) -> None:
         # Always resolve the acting admin first — applies to both create and edit.
@@ -650,7 +702,69 @@ class ProfessorChangeRequestAdmin(PowerModelView, model=ProfessorChangeRequest):
     name_plural = "Professor Change Requests"
     icon = "fa-solid fa-pen-to-square"
     column_list = [ProfessorChangeRequest.id, ProfessorChangeRequest.course_offering_id, ProfessorChangeRequest.professor_user_id, ProfessorChangeRequest.target_type, ProfessorChangeRequest.target_id, ProfessorChangeRequest.status, ProfessorChangeRequest.created_at]
-    form_excluded_columns = ["course_offering", "professor", "admin"]
+    form_excluded_columns = ["course_offering", "professor", "admin", "operations"]
+    can_create = False
+    can_edit = True
+    can_delete = True
+    can_view_details = True
+
+    # Statuses that mean "approve and apply the whole batch" when set via SQLAdmin.
+    _AUTO_APPLY_STATUSES = frozenset({"accepted", "approved", "applied"})
+
+    async def after_model_change(self, data: dict, model: Any, is_created: bool, request) -> None:
+        await super().after_model_change(data, model, is_created, request)
+        # SQLAdmin fallback: setting the status to an approval value applies every
+        # still-pending operation in the batch via the shared apply engine.
+        if is_created:
+            return
+        new_status = str(data.get("status") or getattr(model, "status", "") or "").lower()
+        if new_status not in self._AUTO_APPLY_STATUSES:
+            return
+
+        from app.models.professor import ProfessorChangeOperation as _Op
+        from app.services.professor_change_apply import apply_change_operations
+        from sqlalchemy import select as _select
+
+        session_factory = get_session_factory()
+        if session_factory is None:
+            return
+        async with session_factory() as db:
+            change_request = await db.get(ProfessorChangeRequest, model.id)
+            if change_request is None:
+                return
+            pending_ids = set(
+                (
+                    await db.execute(
+                        _select(_Op.id).where(
+                            _Op.change_request_id == change_request.id,
+                            _Op.status == "pending",
+                        )
+                    )
+                ).scalars().all()
+            )
+            if not pending_ids:
+                return
+            await apply_change_operations(
+                db,
+                change_request=change_request,
+                approve_op_ids=pending_ids,
+                reject_op_ids=set(),
+                admin_user_id=_admin_user_id(request),
+                admin_note="Applied via SQLAdmin",
+            )
+
+
+class ProfessorChangeOperationAdmin(PowerModelView, model=ProfessorChangeOperation):
+    name = "Professor Change Operation"
+    name_plural = "Professor Change Operations"
+    icon = "fa-solid fa-list-check"
+    column_list = [
+        ProfessorChangeOperation.id, ProfessorChangeOperation.change_request_id,
+        ProfessorChangeOperation.seq, ProfessorChangeOperation.op_type,
+        ProfessorChangeOperation.entity_type, ProfessorChangeOperation.target_id,
+        ProfessorChangeOperation.status, ProfessorChangeOperation.applied_target_id,
+    ]
+    form_excluded_columns = ["change_request"]
     can_create = False
     can_edit = True
     can_delete = True
@@ -699,7 +813,8 @@ ALL_VIEWS = [
     TopicItemProgressAdmin, QuizAttemptAdmin, QuestionAttemptAdmin, CommentAdmin,
     NotificationAdmin, ProgramTrackAdmin, CourseOfferingAdmin, LiveSessionAdmin,
     LiveSessionInteractionAdmin, LiveSessionCheckpointAdmin,
-    ProfessorChangeRequestAdmin, ProfessorChatConversationAdmin, ProfessorChatMessageAdmin,
+    ProfessorChangeRequestAdmin, ProfessorChangeOperationAdmin,
+    ProfessorChatConversationAdmin, ProfessorChatMessageAdmin,
     AdminAuditLogAdmin,
 ]
 
@@ -776,7 +891,6 @@ PROTECTED_FORM_COLUMNS_BY_MODEL = {
         "is_superuser",
         "password",
         "password_changed_at",
-        "role",
     },
 }
 

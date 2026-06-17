@@ -35,12 +35,20 @@ def _indexes() -> set[str]:
     return {index["name"] for index in inspector.get_indexes(TABLE_NAME)}
 
 
+def _columns() -> set[str]:
+    inspector = sa.inspect(op.get_bind())
+    if TABLE_NAME not in inspector.get_table_names():
+        return set()
+    return {column["name"] for column in inspector.get_columns(TABLE_NAME)}
+
+
 def upgrade() -> None:
     if TABLE_NAME not in _table_names():
         return
     existing_indexes = _indexes()
+    existing_columns = _columns()
     for index_name, columns in INDEX_SPECS:
-        if index_name not in existing_indexes:
+        if index_name not in existing_indexes and set(columns).issubset(existing_columns):
             op.create_index(index_name, TABLE_NAME, list(columns))
 
 

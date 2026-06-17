@@ -58,7 +58,7 @@ class UserUpdateIn(StrictInputModel):
     def validate_profile_media_reference(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return value
-        if value.startswith("/media/profile/") or value.startswith("s3://"):
+        if value.startswith("/media/profile/") or value.startswith("gs://"):
             return value
         raise ValueError("Profile media must be uploaded through the profile media endpoint")
 

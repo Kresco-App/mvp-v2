@@ -27,6 +27,7 @@ import {
   KRESCO_CSRF_COOKIE,
   KRESCO_CSRF_HEADER,
   KRESCO_CSRF_KEY,
+  KRESCO_AUTH_SESSION_EVENT,
   KRESCO_STORED_AUTH_SNAPSHOT,
   KRESCO_TOKEN_KEY,
   KRESCO_TOKEN_COOKIE,
@@ -217,7 +218,7 @@ describe('auth session JWT helpers', () => {
       is_staff: false,
     }
     const snapshot = storedAuthSnapshot(user)
-    localStorage.setItem(KRESCO_TOKEN_KEY, 'legacy-token')
+    localStorage.setItem(KRESCO_TOKEN_KEY, 'stale-local-token')
 
     writeStoredAuthSession(user)
 
@@ -234,23 +235,23 @@ describe('auth session JWT helpers', () => {
     expect(isStoredAuthSnapshot(snapshot)).toBe(true)
   })
 
-  it('scrubs legacy full user cache entries when reading stored auth', () => {
-    const legacyUser = {
+  it('scrubs full user cache entries when reading stored auth', () => {
+    const storedUser = {
       id: 1,
-      email: 'legacy@example.com',
-      full_name: 'Legacy Student',
+      email: 'cached@example.com',
+      full_name: 'Cached Student',
       role: 'student',
       is_staff: false,
       banner_url: '/banner.png',
     }
-    const snapshot = storedAuthSnapshot(legacyUser)
-    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(legacyUser))
+    const snapshot = storedAuthSnapshot(storedUser)
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(storedUser))
     document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
 
     expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: snapshot })
     expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(snapshot)
-    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('legacy@example.com')
-    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('Legacy Student')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('cached@example.com')
+    expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('Cached Student')
     expect(localStorage.getItem(KRESCO_USER_KEY)).not.toContain('/banner.png')
   })
 
@@ -322,6 +323,33 @@ describe('auth store session writes', () => {
       url: window.location.href,
     }))
 
+    expect(useAuthStore.getState()).toMatchObject({
+      token: null,
+      user: null,
+      isHydrated: true,
+      logoutError: null,
+      isLoggingOut: false,
+    })
+  })
+
+  it('syncs the in-memory auth session when the same tab clears stored auth', () => {
+    const user = { id: 12, email: 'same-tab@kresco.local', role: 'student' }
+    const sessionEvents: string[] = []
+
+    window.addEventListener(KRESCO_AUTH_SESSION_EVENT, () => sessionEvents.push('cleared'), { once: true })
+    writeStoredAuthSession(user)
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+    useAuthStore.setState({
+      token: KRESCO_COOKIE_SESSION,
+      user,
+      isHydrated: true,
+      logoutError: 'stale',
+      isLoggingOut: true,
+    })
+
+    clearStoredAuthSession()
+
+    expect(sessionEvents).toEqual(['cleared'])
     expect(useAuthStore.getState()).toMatchObject({
       token: null,
       user: null,

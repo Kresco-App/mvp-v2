@@ -118,6 +118,12 @@ describe('AdminSubjectPage topic loading', () => {
       expect(container.textContent).toContain('Slope overview')
       expect(container.textContent).toContain('Apercu')
     })
+
+    const editorLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('a')).find((link) => (
+      link.getAttribute('aria-label') === 'Modifier le cours Slope overview'
+    ))
+    expect(editorLink).not.toBeNull()
+    expect(editorLink?.getAttribute('href')).toBe('/admin/courses/content?subjectId=42&topicId=7&itemId=501')
   })
 })
 

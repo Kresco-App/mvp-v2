@@ -14,11 +14,11 @@ from app.schemas.users import (
     VerifyEmailIn,
 )
 from app.security.csrf import clear_csrf_cookie, set_csrf_cookie
-from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_google_token
+from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_firebase_token
 from app.services.auth_account import (
     authenticate_password_login,
     reset_password_account,
-    revoke_user_sessions,
+    revoke_cookie_session_if_valid,
     verify_email_account,
 )
 from app.services.auth_email_dispatch import (
@@ -132,8 +132,11 @@ async def google_login(
     settings: Settings = Depends(get_settings),
 ):
     del request
+    if not settings.firebase_project_id.strip():
+        raise HTTPException(status_code=503, detail="Firebase authentication is not configured")
+
     try:
-        verification = verify_google_token(body.credential, settings.google_client_id)
+        verification = verify_firebase_token(body.credential, settings.firebase_project_id)
         payload = await verification if inspect.isawaitable(verification) else verification
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid Google credential")
@@ -248,12 +251,14 @@ async def login(
 async def logout(
     request: Request,
     response: Response,
-    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    del request
-    await revoke_user_sessions(db, user)
+    await revoke_cookie_session_if_valid(
+        db,
+        token=request.cookies.get(AUTH_COOKIE_NAME),
+        settings=settings,
+    )
     _clear_auth_cookies(response, settings)
     return MessageOut(message="Deconnecte.")
 

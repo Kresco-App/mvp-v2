@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from app.database import get_session_factory
 from app.models.courses import Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.gamification import TopicItemProgress, UserStats, UserXP, XPTransaction
-from app.models.interactions import ALLOWED_TARGET_TYPES, Comment, SavedItem, UserNote
+from app.models.interactions import ALLOWED_TARGET_TYPES, CanvasDocument, Comment, SavedItem, UserNote
 from app.models.quizzes import QuestionSet
 import app.services.interaction_mutations as interaction_mutations
 from app.models.users import User, UserSubjectEntitlement
@@ -100,7 +100,13 @@ def test_notes_and_saves_infer_topic_context_and_dedupe(app_client, auth_token, 
     save_response = app_client.post(
         "/api/interactions/saves",
         headers=headers,
-        json={"target_type": "tab_content", "target_id": seeded["tab_content_id"], "label": "Course tab"},
+        json={
+            "target_type": "tab_content",
+            "target_id": seeded["tab_content_id"],
+            "label": "Course tab",
+            "note": "Review this before the checkpoint",
+            "tags": ["limits", " checkpoint ", "Limits"],
+        },
     )
     duplicate_response = app_client.post(
         "/api/interactions/saves",
@@ -118,8 +124,12 @@ def test_notes_and_saves_infer_topic_context_and_dedupe(app_client, auth_token, 
     assert note["topic_id"] == seeded["topic_id"]
     assert note["topic_item_id"] == seeded["topic_item_id"]
     assert save["topic_item_id"] == seeded["topic_item_id"]
+    assert save["note"] == "Review this before the checkpoint"
+    assert save["tags"] == ["limits", "checkpoint"]
     assert duplicate["id"] == save["id"]
     assert duplicate["label"] == "Updated label"
+    assert duplicate["note"] == "Review this before the checkpoint"
+    assert duplicate["tags"] == ["limits", "checkpoint"]
 
     async def _assert_persisted_once():
         session_factory = get_session_factory()
@@ -134,6 +144,140 @@ def test_notes_and_saves_infer_topic_context_and_dedupe(app_client, auth_token, 
             assert save_count == 1
 
     run_db(_assert_persisted_once())
+
+
+def test_save_item_allows_editing_note_and_tags_on_existing_pin(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-save-annotations@example.com", is_pro=True)
+    seeded = run_db(_seed_context(user_id, "interactions-save-annotations"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    saved = app_client.post(
+        "/api/interactions/saves",
+        headers=headers,
+        json={
+            "target_type": "topic_item",
+            "target_id": seeded["topic_item_id"],
+            "label": "Item",
+            "note": "Initial reason",
+            "tags": ["revision"],
+        },
+    )
+    edited = app_client.post(
+        "/api/interactions/saves",
+        headers=headers,
+        json={
+            "target_type": "topic_item",
+            "target_id": seeded["topic_item_id"],
+            "note": "",
+            "tags": ["formula", "bac"],
+        },
+    )
+
+    assert saved.status_code == 200
+    assert edited.status_code == 200
+    assert edited.json()["id"] == saved.json()["id"]
+    assert edited.json()["label"] == "Item"
+    assert edited.json()["note"] == ""
+    assert edited.json()["tags"] == ["formula", "bac"]
+
+
+def test_canvas_document_load_upsert_and_version_conflict(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-canvas@example.com", is_pro=True)
+    seeded = run_db(_seed_context(user_id, "interactions-canvas"))
+    headers = {"Authorization": f"Bearer {token}"}
+    scene = {
+        "type": "excalidraw",
+        "version": 1,
+        "source": "kresco-test",
+        "elements": [{"id": "line-1", "type": "freedraw", "points": [[0, 0], [10, 10]]}],
+        "appState": {"viewBackgroundColor": "#ffffff"},
+        "files": {},
+    }
+
+    empty = app_client.get(
+        f"/api/interactions/canvas?target_type=topic_item&target_id={seeded['topic_item_id']}",
+        headers=headers,
+    )
+    saved = app_client.put(
+        "/api/interactions/canvas",
+        headers=headers,
+        json={
+            "target_type": "topic_item",
+            "target_id": seeded["topic_item_id"],
+            "scene_json": scene,
+            "base_version": 0,
+        },
+    )
+    stale = app_client.put(
+        "/api/interactions/canvas",
+        headers=headers,
+        json={
+            "target_type": "topic_item",
+            "target_id": seeded["topic_item_id"],
+            "scene_json": {**scene, "source": "stale"},
+            "base_version": 0,
+        },
+    )
+    updated = app_client.put(
+        "/api/interactions/canvas",
+        headers=headers,
+        json={
+            "target_type": "topic_item",
+            "target_id": seeded["topic_item_id"],
+            "scene_json": {**scene, "source": "updated"},
+            "base_version": 1,
+        },
+    )
+
+    assert empty.status_code == 200
+    assert empty.json()["id"] is None
+    assert empty.json()["scene_version"] == 0
+    assert empty.json()["topic_item_id"] == seeded["topic_item_id"]
+    assert saved.status_code == 200
+    assert saved.json()["scene_version"] == 1
+    assert saved.json()["scene_json"] == scene
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == "Canvas changed elsewhere"
+    assert updated.status_code == 200
+    assert updated.json()["scene_version"] == 2
+    assert updated.json()["scene_json"]["source"] == "updated"
+
+    async def _assert_persisted_once():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            canvas_count = await db.scalar(
+                select(func.count()).select_from(CanvasDocument).where(
+                    CanvasDocument.user_id == user_id,
+                    CanvasDocument.target_type == "topic_item",
+                    CanvasDocument.target_id == seeded["topic_item_id"],
+                )
+            )
+            assert canvas_count == 1
+
+    run_db(_assert_persisted_once())
+
+
+def test_canvas_document_rejects_embedded_data_urls(app_client, auth_token, run_db):
+    token, user_id = auth_token(email="interactions-canvas-data-url@example.com", is_pro=True)
+    seeded = run_db(_seed_context(user_id, "interactions-canvas-data-url"))
+
+    response = app_client.put(
+        "/api/interactions/canvas",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "target_type": "topic_item",
+            "target_id": seeded["topic_item_id"],
+            "scene_json": {
+                "type": "excalidraw",
+                "version": 1,
+                "elements": [],
+                "files": {"file-1": {"dataURL": "data:image/png;base64,abc"}},
+            },
+            "base_version": 0,
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_notes_support_tab_filters_and_owner_mutations(app_client, auth_token, run_db):

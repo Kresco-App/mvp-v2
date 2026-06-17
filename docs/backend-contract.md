@@ -4,7 +4,7 @@
 
 - Runtime: FastAPI.
 - Application factory: `backend/app/main.py`, `app.main:create_app`.
-- Lambda adapter: `backend/app_handler.py`, `application`.
+- Production target: Cloud Run service using the FastAPI application factory.
 - API routers: `backend/app/routers/**`.
 - SQLAlchemy models: `backend/app/models/**`.
 - Pydantic schemas: `backend/app/schemas/**`.
@@ -33,7 +33,7 @@ Subject
 -> TabContent / Resource
 ```
 
-Historical `Chapter`, `Lesson`, and `ChapterSection` routes are no longer active runtime surfaces. Remaining `lesson` naming in schemas, stats, tests, or UI copy is compatibility terminology around `TopicItem`-first learning content.
+New product work should avoid adding new `Chapter`, `Lesson`, or `ChapterSection` surfaces. Remaining `lesson` naming in schemas, stats, tests, or UI copy refers to active lesson/section learning content around the `TopicItem` model.
 
 ## Current Verification
 

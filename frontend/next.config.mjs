@@ -18,6 +18,9 @@ const localImageRemotePatterns = [
   { protocol: 'http', hostname: 'localhost' },
 ]
 
+const LOCAL_HOST_PATTERN = /(^|\.)localhost$|^127\.|^\[?::1\]?$/
+const LOCAL_OR_TUNNEL_PATTERN = /localhost|127\.0\.0\.1|\[::1\]|ngrok/i
+
 export function shouldEnableLocalRewrites(
   nodeEnv = process.env.NODE_ENV,
   localRewriteFlag = process.env.KRESCO_ENABLE_LOCAL_REWRITES,
@@ -33,6 +36,8 @@ export function shouldEnableBackendRewrites(value = process.env.KRESCO_BACKEND_O
   try {
     const parsed = new URL(value)
     return parsed.protocol === 'https:'
+      && !LOCAL_HOST_PATTERN.test(parsed.hostname)
+      && !LOCAL_OR_TUNNEL_PATTERN.test(value)
   } catch {
     return false
   }
@@ -51,6 +56,7 @@ const SECURITY_HEADERS = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   experimental: {
     optimizePackageImports,
   },

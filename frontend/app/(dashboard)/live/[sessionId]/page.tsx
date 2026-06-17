@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, HelpCircle, ListChecks, MessageCircle, Radio, RotateCcw, Send } from 'lucide-react'
 import { toast } from 'sonner'
-import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/ably'
+import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/realtime'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import {
   refreshStudentLiveInteractionsEnvelope,

@@ -5,7 +5,7 @@
 VdoCipher OTP generation is implemented in:
 
 - Service: `backend/app/services/vdocipher.py`
-- Compatibility stream endpoints: `backend/app/routers/courses.py`
+- Stream endpoints: `backend/app/routers/courses.py`
 
 Current implemented stream endpoints:
 
@@ -52,9 +52,9 @@ Do not expose this value to the frontend.
 
 ## Content Data
 
-Current compatibility content stores VdoCipher ids on lesson/section video fields.
+Current lesson/section content stores VdoCipher ids on video fields.
 
-TopicItem-first content should model provider-backed video through `Resource` and `TabContent` so the Topic Workspace can render it without depending on the compatibility lesson route.
+TopicItem-first content should model provider-backed video through `Resource` and `TabContent` so the Topic Workspace can render it without depending on lesson stream routes.
 
 ## Local Verification
 
