@@ -49,7 +49,7 @@ export default defineConfig({
       },
     },
     {
-      command: 'node .next/standalone/server.js',
+      command: 'node scripts/prepare-standalone-server.mjs && node .next/standalone/server.js',
       url: frontendOrigin,
       timeout: 120_000,
       reuseExistingServer: false,

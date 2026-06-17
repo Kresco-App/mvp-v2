@@ -16,7 +16,7 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'node .next/standalone/server.js',
+    command: 'node scripts/prepare-standalone-server.mjs && node .next/standalone/server.js',
     url: 'http://127.0.0.1:3100',
     timeout: 120_000,
     reuseExistingServer: false,

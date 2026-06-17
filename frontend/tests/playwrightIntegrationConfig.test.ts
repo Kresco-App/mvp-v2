@@ -15,7 +15,7 @@ describe('Playwright integration config', () => {
     expect(source).toContain('JWT_SECRET_KEY: jwtSecretKey')
     expect(source).toContain("KRESCO_LOCAL_BACKEND_ORIGIN: backendOrigin")
     expect(source).toContain("NEXT_PUBLIC_API_BASE_URL: '/api/'")
-    expect(source).toContain("command: 'node .next/standalone/server.js'")
+    expect(source).toContain("node scripts/prepare-standalone-server.mjs && node .next/standalone/server.js")
     expect(source).not.toContain('NEXT_PUBLIC_API_BASE_URL: `${backendOrigin}/api/`')
     expect(source).not.toContain('npx next build && npm run start')
   })

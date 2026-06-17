@@ -199,6 +199,9 @@ async def drain_realtime_outbox_in_background(
     errors because the scheduled worker remains the durable safety net. Claiming
     uses ``skip_locked``, so overlapping with the cron is safe.
     """
+    if not settings.firebase_project_id.strip():
+        return
+
     session_factory = get_session_factory()
     if session_factory is None:
         return
