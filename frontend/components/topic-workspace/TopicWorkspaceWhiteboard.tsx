@@ -120,7 +120,7 @@ export function TopicWorkspaceWhiteboard({
           </div>
         )}
 
-        <div className="h-[430px] overflow-hidden rounded-[14px] border border-[#dfe3ea] bg-white shadow-[0_10px_24px_rgba(24,24,27,0.06)]">
+        <div className="h-[860px] overflow-hidden rounded-[14px] border border-[#dfe3ea] bg-white shadow-[0_10px_24px_rgba(24,24,27,0.06)]">
           {editor('compact')}
         </div>
       </section>
