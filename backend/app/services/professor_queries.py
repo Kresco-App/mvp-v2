@@ -155,7 +155,6 @@ async def professor_dashboard(db: AsyncSession, professor: User) -> ProfessorDas
     offerings = await professor_offerings(db, professor)
     offering_ids = [offering.id for offering in offerings]
     live_sessions: list[LiveSession] = []
-    change_requests: list[ProfessorChangeRequest] = []
     chat_unread_count = 0
     chat_pinned_count = 0
 
@@ -172,17 +171,6 @@ async def professor_dashboard(db: AsyncSession, professor: User) -> ProfessorDas
         )
         live_sessions = list(live_result.scalars().all())
 
-        request_result = await db.execute(
-            select(ProfessorChangeRequest)
-            .where(
-                ProfessorChangeRequest.course_offering_id.in_(offering_ids),
-                ProfessorChangeRequest.status == "pending",
-            )
-            .order_by(ProfessorChangeRequest.created_at.desc())
-            .limit(5)
-        )
-        change_requests = list(request_result.scalars().all())
-
         chat_unread_count = int(professor.professor_unread_chat_count or 0)
         chat_pinned_count = int(await db.scalar(
             select(func.count())
@@ -193,11 +181,20 @@ async def professor_dashboard(db: AsyncSession, professor: User) -> ProfessorDas
             )
         ) or 0)
 
+    # Imported lazily to avoid a circular import (professor_change_requests imports this module).
+    from app.services.professor_change_requests import list_professor_change_requests
+
+    pending_summaries = (
+        await list_professor_change_requests(db, professor, status="pending", limit=5)
+        if offering_ids
+        else []
+    )
+
     return ProfessorDashboardOut(
         offerings=[offering_out(offering) for offering in offerings],
         active_offering=offering_out(offerings[0]) if offerings else None,
         upcoming_live_sessions=[professor_live_session_out(session) for session in live_sessions],
-        pending_change_requests=[ProfessorChangeRequestOut.model_validate(request) for request in change_requests],
+        pending_change_requests=pending_summaries,
         chat_unread_count=chat_unread_count,
         chat_pinned_count=chat_pinned_count,
     )

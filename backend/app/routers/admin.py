@@ -6,6 +6,11 @@ from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.admin import AdminOverviewOut
 from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionOut, UserPermissionRevokeIn
+from app.schemas.professor import (
+    AdminChangeRequestListItemOut,
+    AdminReviewIn,
+    ProfessorChangeRequestDetailOut,
+)
 from app.schemas.gamification import XPAdjustmentCreateIn, XPAdjustmentOut, XPAdminAuditOut
 from app.schemas.reports import (
     CommentModerationActionIn,
@@ -18,6 +23,11 @@ from app.schemas.reports import (
 )
 from app.services.admin_permissions import grant_user_permission, list_user_permissions, revoke_user_permission
 from app.services.admin_overview import build_admin_overview
+from app.services.admin_change_requests import (
+    get_admin_change_request_detail,
+    list_admin_change_requests,
+    review_admin_change_request,
+)
 from app.services.reports import (
     apply_reported_comment_moderation_action,
     apply_reported_live_message_moderation_action,
@@ -203,4 +213,42 @@ async def moderate_reported_live_message(
         body=body,
         request_path=str(request.url.path),
         client_host=request.client.host if request.client else "",
+    )
+
+
+@router.get("/change-requests", response_model=list[AdminChangeRequestListItemOut])
+async def list_professor_change_requests_admin(
+    status: str = "pending",
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await list_admin_change_requests(db, status=status, limit=limit, offset=offset)
+
+
+@router.get("/change-requests/{change_request_id}", response_model=ProfessorChangeRequestDetailOut)
+async def get_professor_change_request_admin(
+    change_request_id: int,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await get_admin_change_request_detail(db, change_request_id)
+
+
+@router.post("/change-requests/{change_request_id}/review", response_model=ProfessorChangeRequestDetailOut)
+@limiter.limit("30/minute")
+async def review_professor_change_request_admin(
+    request: Request,
+    change_request_id: int,
+    body: AdminReviewIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(get_current_staff_user),
+):
+    del request
+    return await review_admin_change_request(
+        db,
+        change_request_id=change_request_id,
+        body=body,
+        admin_user=staff,
     )

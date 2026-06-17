@@ -29,11 +29,15 @@ from app.schemas.professor import (
     ProfessorLiveSessionOut,
     ProfessorChangeRequestIn,
     ProfessorChangeRequestOut,
+    ProfessorChangeRequestDetailOut,
+    ProfessorChangeRequestSummaryOut,
     ProfessorChatConversationOut,
     ProfessorChatMessageOut,
     ProfessorDashboardOut,
     StudentProfessorChatStatusOut,
     StudentStartConversationIn,
+    StudioSubmitIn,
+    StudioTreeOut,
 )
 from app.services.professor_chat_mutations import (
     delete_chat_message_state,
@@ -51,6 +55,13 @@ from app.services.professor_chat_mutations import (
 from app.services.professor_change_requests import (
     create_professor_change_request,
     list_professor_change_requests,
+)
+from app.services.professor_studio import (
+    get_professor_change_request_detail,
+    load_studio_tree,
+    submit_studio_change_request,
+    update_studio_change_request,
+    withdraw_studio_change_request,
 )
 from app.services.professor_queries import (
     professor_dashboard as _professor_dashboard,
@@ -534,9 +545,9 @@ async def end_live_session(
     return result
 
 
-@router.get("/change-requests", response_model=list[ProfessorChangeRequestOut])
+@router.get("/change-requests", response_model=list[ProfessorChangeRequestSummaryOut])
 async def list_change_requests(
-    status: str = "pending",
+    status: str = "",
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -565,6 +576,71 @@ async def create_change_request(
         request=request,
         body=body,
     )
+
+
+@router.get("/studio/offerings/{offering_id}/tree", response_model=StudioTreeOut)
+async def get_studio_tree(
+    offering_id: int,
+    db: AsyncSession = Depends(get_db),
+    professor: User = Depends(get_current_professor_user),
+):
+    return await load_studio_tree(db, professor, offering_id)
+
+
+@router.post("/studio/change-requests", response_model=ProfessorChangeRequestDetailOut, status_code=201)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
+async def submit_studio_changes(
+    body: StudioSubmitIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    professor: User = Depends(get_current_professor_user),
+):
+    return await submit_studio_change_request(
+        db,
+        professor=professor,
+        request=request,
+        body=body,
+    )
+
+
+@router.get("/studio/change-requests/{change_request_id}", response_model=ProfessorChangeRequestDetailOut)
+async def get_studio_change_request(
+    change_request_id: int,
+    db: AsyncSession = Depends(get_db),
+    professor: User = Depends(get_current_professor_user),
+):
+    return await get_professor_change_request_detail(db, professor, change_request_id)
+
+
+@router.put("/studio/change-requests/{change_request_id}", response_model=ProfessorChangeRequestDetailOut)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
+async def update_studio_changes(
+    change_request_id: int,
+    body: StudioSubmitIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    professor: User = Depends(get_current_professor_user),
+):
+    return await update_studio_change_request(
+        db,
+        professor=professor,
+        request=request,
+        change_request_id=change_request_id,
+        body=body,
+    )
+
+
+@router.delete("/studio/change-requests/{change_request_id}", status_code=204)
+@limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
+async def withdraw_studio_changes(
+    change_request_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    professor: User = Depends(get_current_professor_user),
+):
+    del request
+    await withdraw_studio_change_request(db, professor=professor, change_request_id=change_request_id)
+    return Response(status_code=204)
 
 
 @router.get("/chat/conversations", response_model=list[ProfessorChatConversationOut])

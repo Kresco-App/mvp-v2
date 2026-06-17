@@ -52,6 +52,10 @@ async def close_dangling_change_requests(
         .where(
             ProfessorChangeRequest.course_offering_id.in_(offering_ids),
             ProfessorChangeRequest.status == "pending",
+            # Batch studio requests (target_type='batch') carry their targets in
+            # child ProfessorChangeOperation rows, not on the request itself, so
+            # they must never be treated as dangling single-target requests.
+            ProfessorChangeRequest.target_type.in_(ALLOWED_CHANGE_TARGETS),
         )
         .with_for_update()
     )
