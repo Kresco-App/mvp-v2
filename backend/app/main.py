@@ -161,7 +161,6 @@ async def initialize_app_runtime(app: FastAPI, settings: Settings):
 
     engine, _ = init_engine(
         settings.database_url,
-        False,
         settings.pgsslrootcert,
         pool_size=settings.database_pool_size,
         max_overflow=settings.database_max_overflow,
@@ -180,10 +179,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     validate_production_settings(settings)
     configure_rate_limit_storage(settings.rate_limit_storage_uri)
 
-    # The API Gateway stage prefix (e.g. /production) is stripped before requests
-    # reach FastAPI (see StripApiGatewayStagePrefix in app_handler.py), so root_path
-    # must stay empty. A non-empty root_path makes the docs page fetch the spec at
-    # /<stage>/openapi.json, which the same-origin /api/* proxy does not forward.
     root_path = ""
     release_sha = settings.release_sha.strip() or "development"
 

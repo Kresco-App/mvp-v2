@@ -35,14 +35,8 @@ CMI_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
 MEDIA_STORAGE_LOCAL = "local"
 MEDIA_STORAGE_GCS = "gcs"
 MEDIA_STORAGE_GCS_MOCK = "gcs-mock"
-MEDIA_STORAGE_S3 = "s3"
-MEDIA_STORAGE_S3_MOCK = "s3-mock"
-DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS = 3600
 DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS = 3600
-RUNTIME_SECRET_ID_ENV = "KRESCO_RUNTIME_SECRET_ID"
-RUNTIME_SECRET_REGION_ENV = "KRESCO_RUNTIME_SECRET_REGION"
 GCP_RUNTIME_SECRET_NAME_ENV = "KRESCO_GCP_RUNTIME_SECRET_NAME"
-AWS_REGION_ENV_NAMES = ("AWS_REGION", "AWS_DEFAULT_REGION")
 PRODUCTION_DATABASE_CONNECTION_STRATEGIES = {"alloydb", "cloud_sql"}
 RUNTIME_SECRET_KEY_ALIASES = {
     "KRESCO_ENV": "environment",
@@ -52,8 +46,6 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "KRESCO_RELEASE_SHA": "release_sha",
     "RELEASE_SHA": "release_sha",
     "GITHUB_SHA": "release_sha",
-    RUNTIME_SECRET_ID_ENV: "runtime_secret_id",
-    RUNTIME_SECRET_REGION_ENV: "runtime_secret_region",
     GCP_RUNTIME_SECRET_NAME_ENV: "gcp_runtime_secret_name",
     "GCP_PROJECT": "gcp_project_id",
     "GCP_PROJECT_ID": "gcp_project_id",
@@ -99,16 +91,8 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "MEDIA_GCS_PREFIX": "media_gcs_prefix",
     "MEDIA_GCS_SIGNED_URL_TTL_SECONDS": "media_gcs_signed_url_ttl_seconds",
     "MEDIA_GCS_MOCK_ROOT": "media_gcs_mock_root",
-    "MEDIA_S3_BUCKET": "media_s3_bucket",
-    "MEDIA_S3_REGION": "media_s3_region",
-    "AWS_REGION": "media_s3_region",
-    "MEDIA_S3_PREFIX": "media_s3_prefix",
-    "MEDIA_S3_ENDPOINT_URL": "media_s3_endpoint_url",
-    "MEDIA_S3_MOCK_ROOT": "media_s3_mock_root",
-    "MEDIA_S3_PRESIGN_TTL_SECONDS": "media_s3_presign_ttl_seconds",
     "MEDIA_PROFILE_QUOTA_BYTES": "media_profile_quota_bytes",
     "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES": "media_chat_conversation_quota_bytes",
-    "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS": "media_s3_lifecycle_expiration_days",
     "MAX_REQUEST_BODY_BYTES": "max_request_body_bytes",
     "KRESCO_MAX_REQUEST_BODY_BYTES": "max_request_body_bytes",
 }
@@ -122,14 +106,6 @@ class Settings(BaseSettings):
     release_sha: str = Field(
         default="",
         validation_alias=AliasChoices("release_sha", "KRESCO_RELEASE_SHA", "RELEASE_SHA", "GITHUB_SHA"),
-    )
-    runtime_secret_id: str = Field(
-        default="",
-        validation_alias=AliasChoices("runtime_secret_id", RUNTIME_SECRET_ID_ENV),
-    )
-    runtime_secret_region: str = Field(
-        default="",
-        validation_alias=AliasChoices("runtime_secret_region", RUNTIME_SECRET_REGION_ENV),
     )
     gcp_runtime_secret_name: str = Field(
         default="",
@@ -168,7 +144,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("database_pool_timeout", "DATABASE_POOL_TIMEOUT"),
     )
     pgsslrootcert: str = Field(
-        default=str(BACKEND_DIR / "certs" / "rds-global-bundle.pem"),
+        default="certifi",
         validation_alias=AliasChoices("pgsslrootcert", "PGSSLROOTCERT"),
     )
     jwt_secret_key: str = Field(
@@ -236,15 +212,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("media_gcs_signed_url_ttl_seconds", "MEDIA_GCS_SIGNED_URL_TTL_SECONDS"),
     )
     media_gcs_mock_root: str = Field(default=".mock-gcs", validation_alias=AliasChoices("media_gcs_mock_root", "MEDIA_GCS_MOCK_ROOT"))
-    media_s3_bucket: str = Field(default="", validation_alias=AliasChoices("media_s3_bucket", "MEDIA_S3_BUCKET"))
-    media_s3_region: str = Field(default="", validation_alias=AliasChoices("media_s3_region", "MEDIA_S3_REGION", "AWS_REGION"))
-    media_s3_prefix: str = Field(default="media", validation_alias=AliasChoices("media_s3_prefix", "MEDIA_S3_PREFIX"))
-    media_s3_endpoint_url: str = Field(default="", validation_alias=AliasChoices("media_s3_endpoint_url", "MEDIA_S3_ENDPOINT_URL"))
-    media_s3_mock_root: str = Field(default=".mock-s3", validation_alias=AliasChoices("media_s3_mock_root", "MEDIA_S3_MOCK_ROOT"))
-    media_s3_presign_ttl_seconds: int = Field(
-        default=DEFAULT_MEDIA_S3_PRESIGN_TTL_SECONDS,
-        validation_alias=AliasChoices("media_s3_presign_ttl_seconds", "MEDIA_S3_PRESIGN_TTL_SECONDS"),
-    )
     media_profile_quota_bytes: int = Field(
         default=10 * 1024 * 1024,
         validation_alias=AliasChoices("media_profile_quota_bytes", "MEDIA_PROFILE_QUOTA_BYTES"),
@@ -252,10 +219,6 @@ class Settings(BaseSettings):
     media_chat_conversation_quota_bytes: int = Field(
         default=50 * 1024 * 1024,
         validation_alias=AliasChoices("media_chat_conversation_quota_bytes", "MEDIA_CHAT_CONVERSATION_QUOTA_BYTES"),
-    )
-    media_s3_lifecycle_expiration_days: int = Field(
-        default=365,
-        validation_alias=AliasChoices("media_s3_lifecycle_expiration_days", "MEDIA_S3_LIFECYCLE_EXPIRATION_DAYS"),
     )
     max_request_body_bytes: int = Field(
         default=8 * 1024 * 1024,
@@ -270,10 +233,6 @@ class Settings(BaseSettings):
     def cors_allow_origin_regex_value(self) -> str | None:
         value = self.cors_allow_origin_regex.strip()
         return value or None
-
-    @property
-    def is_lambda(self) -> bool:
-        return bool(os.environ.get("LAMBDA_TASK_ROOT"))
 
     @property
     def is_cloud_run(self) -> bool:
@@ -394,42 +353,7 @@ def load_runtime_secret_overrides(runtime_env: dict[str, str] | None = None) -> 
     if gcp_secret_name:
         return _load_gcp_runtime_secret(gcp_secret_name)
 
-    secret_id = str(env.get(RUNTIME_SECRET_ID_ENV, "")).strip()
-    if not secret_id:
-        return {}
-
-    import boto3
-
-    region_name = str(env.get(RUNTIME_SECRET_REGION_ENV, "")).strip()
-    if not region_name:
-        for env_name in AWS_REGION_ENV_NAMES:
-            region_name = str(env.get(env_name, "")).strip()
-            if region_name:
-                break
-
-    client = boto3.client("secretsmanager", region_name=region_name or None)
-    try:
-        response = client.get_secret_value(SecretId=secret_id)
-    except Exception as exc:  # pragma: no cover - exercised against AWS in staging
-        raise RuntimeError("Failed to load runtime configuration from AWS Secrets Manager.") from exc
-
-    secret_string = response.get("SecretString")
-    if not secret_string:
-        raise RuntimeError("Runtime configuration secret must be a JSON SecretString.")
-
-    try:
-        decoded = json.loads(secret_string)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("Runtime configuration secret must contain valid JSON.") from exc
-
-    if not isinstance(decoded, dict):
-        raise RuntimeError("Runtime configuration secret must contain a JSON object.")
-
-    return {
-        RUNTIME_SECRET_KEY_ALIASES.get(str(key), str(key)): value
-        for key, value in decoded.items()
-        if value is not None
-    }
+    return {}
 
 
 def _load_gcp_runtime_secret(secret_name: str) -> dict[str, object]:

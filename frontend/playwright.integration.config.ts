@@ -5,6 +5,7 @@ const frontendPort = Number(process.env.KRESCO_E2E_FRONTEND_PORT ?? 3101)
 const backendOrigin = `http://127.0.0.1:${backendPort}`
 const frontendOrigin = `http://127.0.0.1:${frontendPort}`
 const localE2eDatabaseUrl = 'sqlite+aiosqlite:///./e2e.sqlite3'
+const backendPython = process.env.KRESCO_E2E_BACKEND_PYTHON ?? 'python'
 if (process.env.CI && !process.env.KRESCO_E2E_DATABASE_URL) {
   throw new Error('KRESCO_E2E_DATABASE_URL is required for CI integration tests.')
 }
@@ -27,7 +28,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `cd ../backend && python scripts/prepare_e2e_db.py && python -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port ${backendPort}`,
+      command: `cd ../backend && ${backendPython} scripts/prepare_e2e_db.py && ${backendPython} -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port ${backendPort}`,
       url: `${backendOrigin}/health`,
       timeout: 120_000,
       reuseExistingServer: false,
@@ -44,15 +45,14 @@ export default defineConfig({
         KRESCO_AUTH_LOGIN_RATE_LIMIT: '30/minute',
         KRESCO_E2E_DATABASE_URL: e2eDatabaseUrl,
         KRESCO_ENV: 'development',
-        MEDIA_STORAGE_BACKEND: 's3-mock',
-        MEDIA_S3_BUCKET: 'kresco-e2e-media',
-        MEDIA_S3_REGION: 'us-east-1',
-        MEDIA_S3_PREFIX: 'e2e',
-        MEDIA_S3_MOCK_ROOT: './e2e-s3',
+        MEDIA_STORAGE_BACKEND: 'gcs-mock',
+        MEDIA_GCS_BUCKET: 'kresco-e2e-media',
+        MEDIA_GCS_PREFIX: 'e2e',
+        MEDIA_GCS_MOCK_ROOT: './e2e-gcs',
       },
     },
     {
-      command: `npm run start -- --hostname 127.0.0.1 --port ${frontendPort}`,
+      command: 'node .next/standalone/server.js',
       url: frontendOrigin,
       timeout: 120_000,
       reuseExistingServer: false,
@@ -66,6 +66,8 @@ export default defineConfig({
         NEXT_PUBLIC_REALTIME_PROVIDER: process.env.NEXT_PUBLIC_REALTIME_PROVIDER ?? 'off',
         NEXT_PUBLIC_ABLY_ENABLED: process.env.NEXT_PUBLIC_ABLY_ENABLED ?? 'false',
         NEXT_PUBLIC_API_BASE_URL: '/api/',
+        HOSTNAME: '127.0.0.1',
+        PORT: String(frontendPort),
       },
     },
   ],

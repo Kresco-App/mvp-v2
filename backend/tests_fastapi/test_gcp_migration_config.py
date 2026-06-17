@@ -75,10 +75,10 @@ def test_gcp_production_settings_reject_cloud_sql_socket_url_with_tls_mode():
     assert "Cloud SQL socket DATABASE_URL must omit sslmode or set sslmode=disable." in settings.production_config_errors()
 
 
-def test_gcp_production_settings_reject_aws_runtime_shape():
+def test_gcp_production_settings_reject_non_gcp_runtime_shape():
     settings = _production_settings(
-        database_connection_strategy="rds_proxy",
-        media_storage_backend="s3",
+        database_connection_strategy="direct",
+        media_storage_backend="local",
         media_gcs_bucket="",
     )
 

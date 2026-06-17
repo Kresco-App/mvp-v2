@@ -13,7 +13,7 @@ def _json_lines(output: str) -> list[dict]:
     ]
 
 
-def test_request_metric_uses_cloudwatch_embedded_metric_format(capsys):
+def test_request_metric_emits_platform_neutral_json(capsys):
     settings = Settings(environment="staging")
 
     emit_request_metric(
@@ -34,8 +34,9 @@ def test_request_metric_uses_cloudwatch_embedded_metric_format(capsys):
     assert event["RequestDurationMs"] == 42
     assert event["Request5xx"] == 1
     assert event["event_type"] == "api_request"
-    assert event["_aws"]["CloudWatchMetrics"][0]["Namespace"] == "Kresco/Api"
-    assert event["_aws"]["CloudWatchMetrics"][0]["Dimensions"] == [["Service", "Environment", "Release"]]
+    assert event["metric_namespace"] == "Kresco/Api"
+    assert event["metric_dimensions"] == ["Service", "Environment", "Release"]
+    assert event["metric_units"]["RequestDurationMs"] == "Milliseconds"
 
 
 def test_emit_metrics_bounds_async_stdout_submissions(monkeypatch):

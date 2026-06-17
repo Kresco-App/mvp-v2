@@ -258,14 +258,14 @@ Upgrade in this order:
 
 1. SQL layer: `sqlalchemy`, `alembic`, `asyncpg`, `aiosqlite`.
 2. Web layer: `fastapi`, Starlette via FastAPI, `httpx`, `uvicorn`.
-3. Config and admin: `pydantic-settings`, `sqladmin`, `slowapi`, `a2wsgi`.
+3. Config and admin: `pydantic-settings`, `sqladmin`, `slowapi`.
 4. External clients: `stripe`, `google-auth`, `resend`, `requests`, `Pillow`.
 
 Status:
 
 - SQL layer upgraded and verified.
 - Web layer upgraded and verified. FastAPI 0.136.1 resolves Starlette 1.0.0 in the local environment.
-- Config/admin layer upgraded for `pydantic-settings` and `sqladmin`; `slowapi` and `a2wsgi` remain unchanged because they were not reported stale in the current inventory.
+- Config/admin layer upgraded for `pydantic-settings` and `sqladmin`; `slowapi` remains unchanged because it was not reported stale in the current inventory.
 - External packages upgraded for `PyJWT`, `google-auth`, `requests`, `python-dotenv`, `stripe`, and `resend`.
 - `Pillow` was removed instead of upgraded because backend runtime code does not import `PIL` or process images.
 - Contract tests now cover `backend/app/services/stripe_service.py`, payment webhook branches, Resend payload shape, and non-blocking email-provider failures in auth routes.

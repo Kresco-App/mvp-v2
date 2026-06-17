@@ -74,7 +74,6 @@ def app_client(test_settings: Settings):
     asyncio.run(reset_engine())
     engine, _ = init_engine(
         test_settings.database_url,
-        is_lambda=False,
         pgsslrootcert=test_settings.pgsslrootcert,
     )
 

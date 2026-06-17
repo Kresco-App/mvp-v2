@@ -134,21 +134,11 @@ def emit_metrics(
         "Environment": _bounded(settings.environment.strip().lower() or "development", 60),
         "Release": _bounded(release_sha.strip() or "development", 120),
     }
-    metric_specs = [
-        {"Name": name, "Unit": unit}
-        for name, (_, unit) in metrics.items()
-    ]
     event: dict[str, Any] = {
-        "_aws": {
-            "Timestamp": int(time.time() * 1000),
-            "CloudWatchMetrics": [
-                {
-                    "Namespace": METRIC_NAMESPACE,
-                    "Dimensions": [["Service", "Environment", "Release"]],
-                    "Metrics": metric_specs,
-                }
-            ],
-        },
+        "timestamp_ms": int(time.time() * 1000),
+        "metric_namespace": METRIC_NAMESPACE,
+        "metric_dimensions": ["Service", "Environment", "Release"],
+        "metric_units": {name: unit for name, (_, unit) in metrics.items()},
         **dimensions,
     }
     for name, (value, _) in metrics.items():

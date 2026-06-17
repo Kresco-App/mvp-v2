@@ -62,7 +62,7 @@ Goal: make Markdown files reflect the current implementation only.
 
 - Replaced the long historical `docs/content-semantics.md` with a current content semantics contract.
 - Replaced `docs/backend-contract.md` with the active FastAPI/Alembic/backend contract.
-- Replaced `docs/aws-deployment.md` with current deployment status and local validation rules.
+- Replaced the old deployment notes with current GCP deployment status and local validation rules.
 - Replaced the old gateway integration doc with `docs/knowledge-base/access-billing.md`, which now describes the active payment endpoints and service behavior.
 - Replaced `docs/vdocipher-integration.md` with the current VdoCipher OTP service contract.
 - Replaced the generic `frontend/README.md` with current frontend runtime and verification commands.

@@ -675,8 +675,8 @@ def test_scheduled_database_initialization_uses_pool_settings(monkeypatch, test_
     test_settings.database_max_overflow = 4
     test_settings.database_pool_timeout = 5
 
-    def fake_init_engine(database_url, is_lambda=False, pgsslrootcert=None, **engine_kwargs):
-        calls.append((database_url, is_lambda, pgsslrootcert, engine_kwargs))
+    def fake_init_engine(database_url, pgsslrootcert=None, **engine_kwargs):
+        calls.append((database_url, pgsslrootcert, engine_kwargs))
 
     monkeypatch.setattr(scheduled, "init_engine", fake_init_engine)
 
@@ -685,7 +685,6 @@ def test_scheduled_database_initialization_uses_pool_settings(monkeypatch, test_
     assert calls == [
         (
             test_settings.database_url,
-            test_settings.is_lambda,
             test_settings.pgsslrootcert,
             {"pool_size": 3, "max_overflow": 4, "pool_timeout": 5},
         )

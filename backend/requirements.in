@@ -17,10 +17,8 @@ google-cloud-secret-manager
 google-cloud-storage
 firebase-admin
 requests==2.34.2
-boto3==1.43.15
 python-dotenv==1.2.2
 itsdangerous==2.2.0
-a2wsgi==1.10.10
 resend==2.30.1
 slowapi==0.1.9
 redis==8.0.0

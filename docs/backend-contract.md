@@ -4,7 +4,7 @@
 
 - Runtime: FastAPI.
 - Application factory: `backend/app/main.py`, `app.main:create_app`.
-- Lambda adapter: `backend/app_handler.py`, `application`.
+- Production target: Cloud Run service using the FastAPI application factory.
 - API routers: `backend/app/routers/**`.
 - SQLAlchemy models: `backend/app/models/**`.
 - Pydantic schemas: `backend/app/schemas/**`.

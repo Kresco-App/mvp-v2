@@ -48,7 +48,7 @@ async def main() -> None:
     await reset_engine()
     database_url = os.getenv("DATABASE_URL", DEMO_DATABASE_URL)
     require_destructive_seed_database_url(database_url, "seed_professor_demo.py")
-    engine, session_factory = init_engine(database_url, is_lambda=False)
+    engine, session_factory = init_engine(database_url)
     assert isinstance(session_factory, async_sessionmaker)
 
     async with engine.begin() as conn:

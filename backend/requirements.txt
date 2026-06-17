@@ -4,10 +4,6 @@
 #
 #    pip-compile --generate-hashes --output-file='backend\requirements.txt' 'backend\requirements.in'
 #
-a2wsgi==1.10.10 \
-    --hash=sha256:a5bcffb52081ba39df0d5e9a884fc6f819d92e3a42389343ba77cbf809fe1f45 \
-    --hash=sha256:d2b21379479718539dc15fce53b876251a0efe7615352dfe49f6ad1bc507848d
-    # via -r backend/requirements.in
 aiosqlite==0.22.1 \
     --hash=sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650 \
     --hash=sha256:21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb
@@ -89,16 +85,6 @@ asyncpg==0.31.0 \
     --hash=sha256:f6b56b91bb0ffc328c4e3ed113136cddd9deefdf5f79ab448598b9772831df44 \
     --hash=sha256:f890de5e1e4f7e14023619399a471ce4b71f5418cd67a51853b9910fdfa73696
     # via -r backend/requirements.in
-boto3==1.43.15 \
-    --hash=sha256:67510ef57a79f0d53b963b0dd1d1741d1e3de1eb2ef6cf1737b6a6bddd34b8cb \
-    --hash=sha256:8dbb1a129c693313218a099d4f086f3bb48f50159b74b5bd8869e1037fde4101
-    # via -r backend/requirements.in
-botocore==1.43.16 \
-    --hash=sha256:813dae233d8b365c19aaf7865b32070e34d7e793654881bf86ecbbef3f4ad5c6 \
-    --hash=sha256:8ab05b1346d26a3c6d69c7338051f07bd4739a090f414d2cff43c0dbc1e18ca7
-    # via
-    #   boto3
-    #   s3transfer
 cachecontrol==0.14.4 \
     --hash=sha256:b7ac014ff72ee199b5f8af1de29d60239954f223e948196fa3d84adaffc71d2b \
     --hash=sha256:e6220afafa4c22a47dd0badb319f84475d79108100d04e26e8542ef7d3ab05a1
@@ -771,12 +757,6 @@ jinja2==3.1.6 \
     --hash=sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d \
     --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
     # via sqladmin
-jmespath==1.1.0 \
-    --hash=sha256:472c87d80f36026ae83c6ddd0f1d05d4e510134ed462851fd5f754c8c3cbb88d \
-    --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
-    # via
-    #   boto3
-    #   botocore
 limits==5.8.0 \
     --hash=sha256:ae1b008a43eb43073c3c579398bd4eb4c795de60952532dc24720ab45e1ac6b8 \
     --hash=sha256:c9e0d74aed837e8f6f50d1fcebcf5fd8130957287206bc3799adaee5092655da
@@ -1224,7 +1204,7 @@ pytest-cov==6.2.1 \
 python-dateutil==2.9.0.post0 \
     --hash=sha256:37dd54208da7e1cd875388217d5e00ebd4179249f90fb72437e91a35459a0ad3 \
     --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
-    # via botocore
+    # via google-cloud-storage
 python-dotenv==1.2.2 \
     --hash=sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a \
     --hash=sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3
@@ -1254,10 +1234,6 @@ resend==2.30.1 \
     --hash=sha256:45da25b86940307e130f8a44d2bac889574362400843e9cd98b49b79a7b3db63 \
     --hash=sha256:a529a019e83be285d855ecf135475dc6a6b9fa1c24f9b710686988e021a535ec
     # via -r backend/requirements.in
-s3transfer==0.17.1 \
-    --hash=sha256:042dd5e3b1b512355e35a23f0223e426b7042e80b97830ea2680ddce327fc45e \
-    --hash=sha256:5b9827d1044159bbb01b86ef8902760ea39281927f5de31de75e1d657177bf4c
-    # via boto3
 six==1.17.0 \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
     --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
@@ -1370,9 +1346,7 @@ tzdata==2026.2 \
 urllib3==2.7.0 \
     --hash=sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c \
     --hash=sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897
-    # via
-    #   botocore
-    #   requests
+    # via requests
 uvicorn==0.47.0 \
     --hash=sha256:2c5715bc12d1892d84752049f400cd1c3cb018514967fdfeb97640443a6a9432 \
     --hash=sha256:7c9a0ea1a9414106bbab7324609c162d8fa0cdcdcb703060987269d77c7bb533

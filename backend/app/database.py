@@ -114,9 +114,9 @@ def _is_configured_test_database_url(database_url: str) -> bool:
 
 def init_engine(
     database_url: str,
-    is_lambda: bool = False,
     pgsslrootcert: str | None = None,
     *,
+    use_null_pool: bool = False,
     pool_size: int = 10,
     max_overflow: int = 20,
     pool_timeout: int = 30,
@@ -128,20 +128,20 @@ def init_engine(
     normalized_pool_size = max(1, int(pool_size))
     normalized_max_overflow = max(0, int(max_overflow))
     normalized_pool_timeout = max(1, int(pool_timeout))
-    uses_direct_pool = not async_url.startswith("sqlite+aiosqlite") and not is_lambda and not uses_test_database
+    uses_direct_pool = not async_url.startswith("sqlite+aiosqlite") and not use_null_pool and not uses_test_database
     pool_cache_key = (
         normalized_pool_size,
         normalized_max_overflow,
         normalized_pool_timeout,
     ) if uses_direct_pool else (None, None, None)
     cache_pgsslrootcert = "" if async_url.startswith("sqlite") else str(pgsslrootcert or os.environ.get("PGSSLROOTCERT", ""))
-    cache_key = (async_url, is_lambda, cache_pgsslrootcert, *pool_cache_key)
+    cache_key = (async_url, use_null_pool, cache_pgsslrootcert, *pool_cache_key)
     if _engine is not None and _engine_cache_key == cache_key:
         return _engine, _session_factory
     if _engine is not None:
         (
             current_url,
-            current_is_lambda,
+            current_use_null_pool,
             _current_pgsslrootcert,
             current_pool_size,
             current_max_overflow,
@@ -150,10 +150,10 @@ def init_engine(
         raise RuntimeError(
             "Database engine already initialized for "
             f"{_safe_url_for_error(current_url)} "
-            f"(is_lambda={current_is_lambda}, pool_size={current_pool_size}, "
+            f"(use_null_pool={current_use_null_pool}, pool_size={current_pool_size}, "
             f"max_overflow={current_max_overflow}, pool_timeout={current_pool_timeout}); "
             f"refusing to reuse it for {_safe_url_for_error(async_url)} "
-            f"(is_lambda={is_lambda}, pool_size={pool_cache_key[0]}, "
+            f"(use_null_pool={use_null_pool}, pool_size={pool_cache_key[0]}, "
             f"max_overflow={pool_cache_key[1]}, pool_timeout={pool_cache_key[2]}). "
             "Call reset_engine() before switching databases."
         )
@@ -166,10 +166,8 @@ def init_engine(
 
     if async_url.startswith("sqlite+aiosqlite"):
         engine_kwargs["connect_args"] = {**connect_args, "timeout": 30}
-    elif is_lambda or uses_test_database:
-        # Lambda should rely on RDS Proxy / short-lived connections rather than
-        # pooled connections that survive across warm invocations.
-        # Pytest's TestClient and helper fixtures also span multiple event loops;
+    elif use_null_pool or uses_test_database:
+        # Pytest's TestClient and helper fixtures span multiple event loops;
         # asyncpg pooled connections cannot be safely reused across those loops.
         engine_kwargs["poolclass"] = NullPool
     else:

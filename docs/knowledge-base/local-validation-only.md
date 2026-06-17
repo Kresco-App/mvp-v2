@@ -11,8 +11,7 @@ Do not spend implementation-loop time trying to fix production deployment.
 Do not attempt:
 
 - GitHub Actions deployment.
-- Vercel deployment.
-- AWS Lambda/Zappa deployment.
+- Cloud Run deployment.
 - Production environment variable setup.
 - Production database migrations.
 - Production smoke tests.
@@ -71,8 +70,7 @@ Do not treat deployment failure as failure of the product implementation loop.
 For long-running goals, use this rule:
 
 ```text
-Deployment/CI/CD is paused.
+Deployment/CI/CD is handled by the GCP workflows in this branch.
 Validate locally.
-If deployment-related work appears, document it and continue with local implementation.
-Do not end the loop because production deployment is blocked.
+If deployment-related work appears, keep it aligned with Cloud Run, Cloud SQL or AlloyDB, Firebase, Secret Manager, and Cloud Storage.
 ```

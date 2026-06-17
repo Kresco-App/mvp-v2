@@ -49,7 +49,7 @@ def test_launch_gate_fails_current_repo_until_all_rows_and_score_are_ready():
 
     assert result.passed is False
     assert "SEC-SECRETS-001" in incomplete_ids
-    assert "MEDIA-S3-001" in incomplete_ids
+    assert "MEDIA-GCS-001" in incomplete_ids
     assert any("below target" in error for error in result.errors)
 
 
@@ -129,7 +129,6 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
         assert "enforce_production_launch_gate" in workflow
         assert "Dark production deploy only: this workflow does not route domains or user traffic." in workflow
         assert "inputs.enforce_production_launch_gate == true" in workflow
-        assert "zappa " not in workflow
         assert "vercel " not in workflow
 
     assert "Deploy Backend to Cloud Run" in backend_workflow

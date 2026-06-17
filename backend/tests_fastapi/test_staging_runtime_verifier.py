@@ -1,36 +1,16 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = REPO_ROOT / "scripts" / "check_staging_runtime.py"
-RENDERER_PATH = REPO_ROOT / "backend" / "scripts" / "render_zappa_settings.py"
-VALID_RENDER_ENV = {
-    "KRESCO_RUNTIME_SECRET_ID": "arn:aws:secretsmanager:eu-west-3:123456789012:secret:kresco/staging/runtime",
-    "KRESCO_RELEASE_SHA": "0123456789abcdef0123456789abcdef01234567",
-    "FRONTEND_URL": "https://staging.kresco.ma",
-    "CORS_ALLOWED_ORIGINS": "https://staging.kresco.ma",
-    "ZAPPA_SUBNET_IDS": "subnet-11111111,subnet-22222222",
-    "ZAPPA_SECURITY_GROUP_IDS": "sg-11111111",
-}
 
 
 def _load_verifier_module():
     spec = importlib.util.spec_from_file_location("check_staging_runtime_for_tests", VERIFIER_PATH)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_renderer_module():
-    spec = importlib.util.spec_from_file_location("render_zappa_settings_for_ops_tests", RENDERER_PATH)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -347,9 +327,6 @@ def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
     assert "--activation-policy ALWAYS" in workflow
     assert "--activation-policy NEVER" in workflow
     assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in workflow
-    assert "zappa " not in workflow
-    assert "AWS_" not in workflow
-
 
 def test_provider_diagnostics_workflow_uses_runtime_verifier():
     workflow = (REPO_ROOT / ".github" / "workflows" / "staging-provider-diagnostics.yml").read_text(encoding="utf-8")
@@ -369,59 +346,3 @@ def test_frontend_deploy_workflow_smokes_deployed_url():
     assert "npm run validate:production-env" in workflow
     assert "NEXT_PUBLIC_FIREBASE_API_KEY" in workflow
     assert "vercel " not in workflow
-
-
-def test_target_database_url_policy_rejects_non_rds_proxy_shapes():
-    renderer = _load_renderer_module()
-
-    invalid_urls = [
-        "",
-        "sqlite+aiosqlite:///./db.sqlite3",
-        "postgresql+asyncpg://user:pass@localhost:5432/kresco?sslmode=verify-full",
-        "postgresql+asyncpg://user:pass@127.0.0.1:5432/kresco?sslmode=verify-full",
-        "postgresql+asyncpg://user:pass@db.example.com:5432/kresco?sslmode=require",
-    ]
-
-    for database_url in invalid_urls:
-        try:
-            renderer.validate_database_url_policy(database_url)
-        except renderer.ZappaRenderError:
-            continue
-        raise AssertionError(f"DATABASE_URL policy accepted invalid URL: {database_url!r}")
-
-    renderer.validate_database_url_policy(
-        "postgresql+asyncpg://user:pass@kresco-staging-proxy.proxy-c123.eu-west-3.rds.amazonaws.com:5432/kresco"
-        "?sslmode=verify-full"
-    )
-
-
-def test_render_zappa_settings_rejects_lambda_runtime_drift(tmp_path):
-    renderer = _load_renderer_module()
-    settings_path = REPO_ROOT / "backend" / "zappa_settings.json"
-    zappa_settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    zappa_settings["staging"]["memory_size"] = 512
-    zappa_path = tmp_path / "zappa_settings.json"
-    zappa_path.write_text(json.dumps(zappa_settings), encoding="utf-8")
-
-    try:
-        renderer.render_zappa_settings(zappa_path, VALID_RENDER_ENV, stage="staging")
-    except renderer.ZappaRenderError as exc:
-        assert "memory_size must be at least 1024" in str(exc)
-        return
-    raise AssertionError("render_zappa_settings accepted staging Lambda memory drift")
-
-
-def test_render_zappa_settings_requires_realtime_outbox_schedule(tmp_path):
-    renderer = _load_renderer_module()
-    settings_path = REPO_ROOT / "backend" / "zappa_settings.json"
-    zappa_settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    zappa_settings["staging"]["events"] = []
-    zappa_path = tmp_path / "zappa_settings.json"
-    zappa_path.write_text(json.dumps(zappa_settings), encoding="utf-8")
-
-    try:
-        renderer.render_zappa_settings(zappa_path, VALID_RENDER_ENV, stage="staging")
-    except renderer.ZappaRenderError as exc:
-        assert "events must include the realtime outbox EventBridge schedule" in str(exc)
-        return
-    raise AssertionError("render_zappa_settings accepted missing realtime outbox schedule")

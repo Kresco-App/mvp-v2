@@ -298,8 +298,8 @@ describe('Next proxy auth boundary', () => {
       const csp = buildContentSecurityPolicy('test-nonce')
 
       // Same-origin model: with no explicit API URL we must NOT silently whitelist
-      // the cross-site staging Lambda (that path also breaks SameSite=Lax cookie auth).
-      expect(cspDirective(csp, 'connect-src')).not.toContain('execute-api.eu-west-3.amazonaws.com')
+      // the cross-site staging backend (that path also breaks SameSite=Lax cookie auth).
+      expect(cspDirective(csp, 'connect-src')).not.toContain('https://staging-api.invalid')
       expect(cspDirective(csp, 'connect-src')).toContain("'self'")
     } finally {
       vi.unstubAllEnvs()

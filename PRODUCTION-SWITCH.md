@@ -78,18 +78,19 @@ Checklist:
 
 ## Database TLS Verification
 
-Before switching production to PostgreSQL/RDS, use full certificate and hostname verification.
+Before switching production to managed Postgres, use full certificate and hostname verification.
 
 Checklist:
 
-- Bundle the Amazon RDS CA PEM with the backend deployment, for example `backend/certs/rds-global-bundle.pem`.
-- Set `PGSSLROOTCERT` in the deployed backend environment to the deployed absolute path, for example `/var/task/certs/rds-global-bundle.pem`.
-- Set production `DATABASE_URL` to use the real RDS/RDS Proxy hostname and `sslmode=verify-full`.
+- Set `PGSSLROOTCERT=certifi` in the deployed backend environment.
+- Set production `DATABASE_URL` to use the managed Postgres endpoint or Cloud SQL socket and `sslmode=verify-full` when using TCP.
+- Set `DATABASE_CONNECTION_STRATEGY=cloud_sql` or `DATABASE_CONNECTION_STRATEGY=alloydb`.
 - Do not use an IP address in `DATABASE_URL`; `verify-full` requires the hostname to match the certificate.
 
 Expected production shape:
 
 ```text
-DATABASE_URL=postgresql://USER:PASSWORD@your-db.xxxxxx.eu-north-1.rds.amazonaws.com:5432/kresco?sslmode=verify-full
-PGSSLROOTCERT=/var/task/certs/rds-global-bundle.pem
+DATABASE_URL=postgresql+asyncpg://USER:PASSWORD@/kresco?host=/cloudsql/PROJECT:REGION:INSTANCE
+DATABASE_CONNECTION_STRATEGY=cloud_sql
+PGSSLROOTCERT=certifi
 ```

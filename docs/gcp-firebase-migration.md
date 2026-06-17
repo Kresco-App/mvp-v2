@@ -1,6 +1,6 @@
 # GCP/Firebase Migration Branch
 
-This branch intentionally targets a breaking replatform. `master` remains the rollback path for the current AWS/Vercel/S3/Ably deployment model.
+This branch intentionally targets a breaking replatform. It is the GCP/Firebase baseline and does not keep an alternate deployment path.
 
 ## Target Runtime
 
@@ -69,7 +69,7 @@ cd backend; python -m pytest backend/tests_fastapi/test_image_uploads.py backend
 6. Deploy backend to Cloud Run staging.
 7. Deploy frontend to Cloud Run staging.
 8. Move media uploads to Cloud Storage and verify `gs://` references.
-9. Add Firebase Auth token verification, preserve legacy Google provider IDs, and map Firebase UID to Postgres users.
+9. Add Firebase Auth token verification and map Firebase UID to Postgres users.
 10. Replace frontend Ably subscriptions with Firestore listeners through the provider-neutral realtime facade.
 11. Run staging smoke tests for auth, course access, payments, media upload/read, and realtime.
 

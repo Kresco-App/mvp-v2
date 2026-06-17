@@ -16,12 +16,14 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run start -- --hostname 127.0.0.1 --port 3100',
+    command: 'node .next/standalone/server.js',
     url: 'http://127.0.0.1:3100',
     timeout: 120_000,
     reuseExistingServer: false,
     env: {
       ...process.env,
+      HOSTNAME: '127.0.0.1',
+      PORT: '3100',
       JWT_SECRET_KEY: jwtSecretKey,
       NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api/',
       NEXT_PUBLIC_ABLY_ENABLED: 'false',

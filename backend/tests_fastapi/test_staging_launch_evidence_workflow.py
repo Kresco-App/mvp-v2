@@ -35,7 +35,6 @@ def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
     assert "urllib.request.urlopen" in workflow
     assert "actions/upload-artifact@v4" in workflow
     assert "if-no-files-found: error" in workflow
-    assert "aws-actions/configure-aws-credentials" not in workflow
     assert "check_s3_media_posture.py" not in workflow
     assert "check_staging_ops_posture.py" not in workflow
 
