@@ -169,13 +169,13 @@ export default function ProfessorDashboardPage() {
                     <div className="rounded-[14px] bg-[#f7f7f9] px-4 py-4 text-[13px] font-bold text-[#71717b]">Loading requests...</div>
                   ) : pending.length > 0 ? (
                     pending.slice(0, 3).map((request) => (
-                      <div key={request.id} className="flex items-center justify-between gap-3 rounded-[14px] bg-[#f7f7f9] px-4 py-3">
+                      <Link key={request.id} href="/professor/changes" className="flex items-center justify-between gap-3 rounded-[14px] bg-[#f7f7f9] px-4 py-3 no-underline">
                         <div className="min-w-0">
-                          <p className="m-0 text-[14px] font-black text-[#3f3f46]">{request.target_type.replace('_', ' ')}</p>
-                          <p className="m-0 mt-1 text-[12px] font-bold text-[#71717b]">Admin review required</p>
+                          <p className="m-0 truncate text-[14px] font-black text-[#3f3f46]">{request.summary || `Demande #${request.id}`}</p>
+                          <p className="m-0 mt-1 text-[12px] font-bold text-[#71717b]">{request.operation_count} opération(s) · {request.offering_title}</p>
                         </div>
-                        <span className="rounded-[10px] bg-[#f0f0ff] px-3 py-1 text-[11px] font-black text-[#453dee]">{request.status}</span>
-                      </div>
+                        <span className="shrink-0 rounded-[10px] bg-[#fff7ed] px-3 py-1 text-[11px] font-black text-[#f5900b]">{request.pending_count} en attente</span>
+                      </Link>
                     ))
                   ) : (
                     <div className="grid place-items-center rounded-[14px] bg-[#f7f7f9] px-4 py-6 text-center">
