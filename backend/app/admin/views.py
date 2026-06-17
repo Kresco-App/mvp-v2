@@ -124,7 +124,7 @@ class UserAdmin(PowerModelView, model=User):
 
     # Roles that grant elevated access — anything outside the safe baseline set
     # is considered privileged and may not be assigned by non-superusers.
-    _NON_PRIVILEGED_ROLES: frozenset[str | None] = frozenset({"student", "", None})
+    _NON_PRIVILEGED_ROLES: frozenset[str | None] = frozenset({"student", "professor", "", None})
 
     async def on_model_change(self, data: dict, model: User, is_created: bool, request) -> None:
         # Always resolve the acting admin first — applies to both create and edit.
@@ -776,7 +776,6 @@ PROTECTED_FORM_COLUMNS_BY_MODEL = {
         "is_superuser",
         "password",
         "password_changed_at",
-        "role",
     },
 }
 
