@@ -1,10 +1,15 @@
 from fastapi import HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.models.professor import ProfessorChangeRequest
+from app.models.professor import CourseOffering, ProfessorChangeOperation, ProfessorChangeRequest
 from app.models.users import User
-from app.schemas.professor import ProfessorChangeRequestIn, ProfessorChangeRequestOut
+from app.schemas.professor import (
+    ProfessorChangeRequestIn,
+    ProfessorChangeRequestOut,
+    ProfessorChangeRequestSummaryOut,
+)
 from app.services.professor_audit import enforce_professor_mutation_rate_limit, record_professor_audit
 from app.services.professor_change_request_targets import (
     ALLOWED_CHANGE_TARGETS,
@@ -20,10 +25,10 @@ async def list_professor_change_requests(
     db: AsyncSession,
     professor: User,
     *,
-    status: str = "pending",
+    status: str = "",
     limit: int = 50,
     offset: int = 0,
-) -> list[ProfessorChangeRequestOut]:
+) -> list[ProfessorChangeRequestSummaryOut]:
     limit = min(max(limit, 1), MAX_CHANGE_REQUESTS_LIMIT)
     offset = max(offset, 0)
     offerings = await professor_offerings(db, professor)
@@ -32,15 +37,63 @@ async def list_professor_change_requests(
         return []
     if status in {"", "pending"}:
         await close_dangling_change_requests(db, offering_ids=allowed_ids)
+
     stmt = (
         select(ProfessorChangeRequest)
+        .options(selectinload(ProfessorChangeRequest.course_offering).selectinload(CourseOffering.subject))
         .where(ProfessorChangeRequest.course_offering_id.in_(allowed_ids))
         .order_by(ProfessorChangeRequest.created_at.desc())
     )
     if status:
         stmt = stmt.where(ProfessorChangeRequest.status == status)
-    result = await db.execute(stmt.offset(offset).limit(limit))
-    return [ProfessorChangeRequestOut.model_validate(item) for item in result.scalars().all()]
+    requests = (await db.execute(stmt.offset(offset).limit(limit))).scalars().unique().all()
+    if not requests:
+        return []
+
+    request_ids = [cr.id for cr in requests]
+    counts_rows = (
+        await db.execute(
+            select(
+                ProfessorChangeOperation.change_request_id,
+                func.count(ProfessorChangeOperation.id),
+                func.sum(case((ProfessorChangeOperation.status == "pending", 1), else_=0)),
+                func.sum(case((ProfessorChangeOperation.status == "applied", 1), else_=0)),
+                func.sum(case((ProfessorChangeOperation.status == "rejected", 1), else_=0)),
+            )
+            .where(ProfessorChangeOperation.change_request_id.in_(request_ids))
+            .group_by(ProfessorChangeOperation.change_request_id)
+        )
+    ).all()
+    counts = {
+        row[0]: (int(row[1] or 0), int(row[2] or 0), int(row[3] or 0), int(row[4] or 0))
+        for row in counts_rows
+    }
+
+    items: list[ProfessorChangeRequestSummaryOut] = []
+    for cr in requests:
+        offering_title = ""
+        if cr.course_offering is not None:
+            offering_title = cr.course_offering.title or (
+                cr.course_offering.subject.title if cr.course_offering.subject else ""
+            )
+        total, pending, applied, rejected = counts.get(cr.id, (0, 0, 0, 0))
+        items.append(
+            ProfessorChangeRequestSummaryOut(
+                id=cr.id,
+                course_offering_id=cr.course_offering_id,
+                offering_title=offering_title,
+                summary=cr.summary or "",
+                status=cr.status,
+                operation_count=total,
+                pending_count=pending,
+                applied_count=applied,
+                rejected_count=rejected,
+                admin_note=cr.admin_note or "",
+                created_at=cr.created_at,
+                reviewed_at=cr.reviewed_at,
+            )
+        )
+    return items
 
 
 async def create_professor_change_request(

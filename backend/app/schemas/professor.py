@@ -208,11 +208,183 @@ class ProfessorChangeRequestIn(StrictInputModel):
         return validate_bounded_json_object(value, bounds=PROFESSOR_CHANGE_REQUEST_JSON_BOUNDS)
 
 
+# ── Professor Studio ────────────────────────────────────────────────────────
+
+STUDIO_OP_TYPES = {"create", "update_fields", "update_content", "delete", "reorder"}
+STUDIO_ENTITY_TYPES = {"chapter", "lesson", "tab"}
+
+
+class StudioTabOut(BaseModel):
+    id: int
+    label: str
+    tab_type: str
+    status: str
+    order: int
+    content: str = ""
+    resource_url: str = ""
+    renderer_key: str = ""
+    config_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class StudioLessonOut(BaseModel):
+    id: int
+    title: str
+    description: str = ""
+    item_type: str
+    status: str
+    order: int
+    is_free_preview: bool = False
+    required_tier: str = ""
+    duration_seconds: int = 0
+    # Primary VdoCipher video id for the lesson (the player resolves the stream
+    # from this). Empty when the lesson has no hosted video.
+    video_id: str = ""
+    tabs: list[StudioTabOut] = Field(default_factory=list)
+
+
+class StudioChapterOut(BaseModel):
+    id: int
+    title: str
+    description: str = ""
+    status: str
+    order: int
+    is_free_preview: bool = False
+    required_tier: str = ""
+    lessons: list[StudioLessonOut] = Field(default_factory=list)
+
+
+class StudioTreeOut(BaseModel):
+    course_offering_id: int
+    offering_title: str
+    subject_title: str
+    chapters: list[StudioChapterOut] = Field(default_factory=list)
+    has_pending_request: bool = False
+    pending_request_id: Optional[int] = None
+    # Ids of existing items that are referenced by a still-pending change
+    # request, so the studio can flag them "En attente de validation".
+    pending_chapter_ids: list[int] = Field(default_factory=list)
+    pending_lesson_ids: list[int] = Field(default_factory=list)
+    pending_tab_ids: list[int] = Field(default_factory=list)
+
+
+class StudioOperationIn(StrictInputModel):
+    op_type: ShortText
+    entity_type: ShortText
+    # Real id of an existing item (None for create ops).
+    target_id: Optional[int] = None
+    # Temporary id assigned by the studio for items created in this batch.
+    client_ref: ShortText = ""
+    # Parent reference: a real id (int as str) or a sibling create op's client_ref.
+    parent_ref: ShortText = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("op_type")
+    @classmethod
+    def validate_op_type(cls, value: str) -> str:
+        if value not in STUDIO_OP_TYPES:
+            raise ValueError(f"Unsupported op_type: {value}")
+        return value
+
+    @field_validator("entity_type")
+    @classmethod
+    def validate_entity_type(cls, value: str) -> str:
+        if value not in STUDIO_ENTITY_TYPES:
+            raise ValueError(f"Unsupported entity_type: {value}")
+        return value
+
+    @field_validator("payload", "snapshot")
+    @classmethod
+    def validate_op_json(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_bounded_json_object(value, bounds=PROFESSOR_CHANGE_REQUEST_JSON_BOUNDS)
+
+
+class StudioSubmitIn(StrictInputModel):
+    course_offering_id: int
+    summary: LongText = ""
+    operations: list[StudioOperationIn] = Field(default_factory=list, max_length=200)
+
+
+class ProfessorChangeOperationOut(BaseModel):
+    id: int
+    seq: int
+    op_type: str
+    entity_type: str
+    target_id: Optional[int] = None
+    client_ref: str = ""
+    parent_ref: str = ""
+    payload_json: dict[str, Any] = Field(default_factory=dict)
+    snapshot_json: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    applied_target_id: Optional[int] = None
+    error_detail: str = ""
+
+    model_config = {"from_attributes": True}
+
+
+class ProfessorChangeRequestDetailOut(ProfessorChangeRequestOut):
+    summary: str = ""
+    professor_name: str = ""
+    professor_email: str = ""
+    offering_title: str = ""
+    operations: list[ProfessorChangeOperationOut] = Field(default_factory=list)
+
+
+class ProfessorChangeRequestSummaryOut(BaseModel):
+    id: int
+    course_offering_id: int
+    offering_title: str = ""
+    summary: str = ""
+    status: str
+    operation_count: int = 0
+    pending_count: int = 0
+    applied_count: int = 0
+    rejected_count: int = 0
+    admin_note: str = ""
+    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AdminChangeRequestListItemOut(BaseModel):
+    id: int
+    course_offering_id: int
+    offering_title: str = ""
+    professor_name: str = ""
+    professor_email: str = ""
+    summary: str = ""
+    status: str
+    operation_count: int = 0
+    pending_count: int = 0
+    created_at: datetime
+    reviewed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AdminOperationDecisionIn(StrictInputModel):
+    operation_id: int
+    decision: ShortText  # approve | reject
+
+    @field_validator("decision")
+    @classmethod
+    def validate_decision(cls, value: str) -> str:
+        if value not in {"approve", "reject"}:
+            raise ValueError("decision must be 'approve' or 'reject'")
+        return value
+
+
+class AdminReviewIn(StrictInputModel):
+    decisions: list[AdminOperationDecisionIn] = Field(default_factory=list, max_length=200)
+    admin_note: LongText = ""
+
+
 class ProfessorDashboardOut(BaseModel):
     offerings: list[CourseOfferingOut]
     active_offering: Optional[CourseOfferingOut]
     upcoming_live_sessions: list[ProfessorLiveSessionOut]
-    pending_change_requests: list[ProfessorChangeRequestOut]
+    pending_change_requests: list[ProfessorChangeRequestSummaryOut]
     chat_unread_count: int
     chat_pinned_count: int
 

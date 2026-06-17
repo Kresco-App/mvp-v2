@@ -57,6 +57,7 @@ class ProfessorChangeRequest(Base):
     change_type: Mapped[str] = mapped_column(String(60), default="update_fields")
     proposed_patch_json: Mapped[dict] = mapped_column(JSON, default=dict)
     current_snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[str] = mapped_column(Text, default="", server_default="")
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     admin_user_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     admin_note: Mapped[str] = mapped_column(Text, default="")
@@ -67,6 +68,48 @@ class ProfessorChangeRequest(Base):
     course_offering = relationship("CourseOffering")
     professor = relationship("User", foreign_keys=[professor_user_id])
     admin = relationship("User", foreign_keys=[admin_user_id])
+    operations: Mapped[list["ProfessorChangeOperation"]] = relationship(
+        "ProfessorChangeOperation",
+        back_populates="change_request",
+        order_by="ProfessorChangeOperation.seq",
+        cascade="all, delete-orphan",
+    )
+
+
+class ProfessorChangeOperation(Base):
+    """A single studio edit inside a batched professor change request.
+
+    Each operation carries its own review status so an admin can approve some
+    edits while rejecting others (per-op approval). ``client_ref`` lets the
+    studio reference items it just created within the same batch (e.g. add a
+    tab to a lesson that does not have a real id yet); the apply engine resolves
+    these refs to real ids in ``seq`` order.
+    """
+
+    __tablename__ = "professor_change_operations"
+    __table_args__ = (
+        Index("ix_professor_change_operations_request_seq", "change_request_id", "seq"),
+        Index("ix_professor_change_operations_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    change_request_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("professor_change_requests.id", ondelete="CASCADE"), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer, default=0)
+    op_type: Mapped[str] = mapped_column(String(30))  # create | update_fields | update_content | delete | reorder
+    entity_type: Mapped[str] = mapped_column(String(30))  # chapter | lesson | tab
+    target_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    client_ref: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    parent_ref: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending", index=True)
+    applied_target_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error_detail: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    change_request = relationship("ProfessorChangeRequest", back_populates="operations")
 
 
 class LiveSession(Base):
