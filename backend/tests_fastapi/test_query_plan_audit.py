@@ -50,6 +50,7 @@ def test_query_plan_audit_detects_missing_required_indexes():
     assert "topic_sections.ix_topic_sections_topic_order(topic_id, order, id)" in missing
     assert any(item.startswith("topic_items.ix_topic_items_workspace_order") for item in missing)
     assert any(item.startswith("topic_item_progress.ix_topic_item_progress_user_item_status") for item in missing)
+    assert any(item.startswith("topic_item_progress.ix_topic_item_progress_user_topic_status") for item in missing)
 
 
 def test_query_plan_audit_normalizes_database_url_before_engine_creation(monkeypatch):
@@ -122,7 +123,10 @@ def test_query_plan_audit_checks_distinct_progress_hot_paths():
     card_progress = checks["topic card progress"]
     assert "topic_id = 1" not in card_progress.sql
     assert "status = 'completed'" in card_progress.sql
-    assert card_progress.expected_indexes == ("ix_topic_item_progress_user_item_status",)
+    assert card_progress.expected_indexes == (
+        "ix_topic_item_progress_user_item_status",
+        "ix_topic_item_progress_user_topic_status",
+    )
 
 
 def test_query_plan_audit_rejects_sequential_scans(monkeypatch):
@@ -142,11 +146,13 @@ def test_query_plan_audit_rejects_sequential_scans(monkeypatch):
 
 def test_hot_path_index_migration_declares_required_indexes():
     audit = _load_query_plan_audit_module()
+    initial_migration = (BACKEND_ROOT / "alembic" / "versions" / "0010_add_scalability_indexes.py").read_text(encoding="utf-8")
     composite_migration = (BACKEND_ROOT / "alembic" / "versions" / "0028_hot_path_composite_indexes.py").read_text(encoding="utf-8")
     filter_migration = (BACKEND_ROOT / "alembic" / "versions" / "0039_hot_filter_indexes.py").read_text(encoding="utf-8")
     progress_migration = (BACKEND_ROOT / "alembic" / "versions" / "0044_topic_item_progress_user_item_status_index.py").read_text(encoding="utf-8")
-    migration_text = composite_migration + "\n" + filter_migration + "\n" + progress_migration
+    migration_text = initial_migration + "\n" + composite_migration + "\n" + filter_migration + "\n" + progress_migration
 
+    assert 'down_revision: Union[str, None] = "0009"' in initial_migration
     assert 'down_revision: Union[str, None] = "0027"' in composite_migration
     assert 'down_revision: Union[str, None] = "0038"' in filter_migration
     assert 'down_revision: Union[str, None] = "0043"' in progress_migration
@@ -162,6 +168,7 @@ def test_topic_item_progress_model_includes_user_item_status_index():
     indexes = {index.name: tuple(column.name for column in index.columns) for index in table.indexes}
 
     assert indexes["ix_topic_item_progress_user_item_status"] == ("user_id", "topic_item_id", "status")
+    assert indexes["ix_topic_item_progress_user_topic_status"] == ("user_id", "topic_id", "status")
     assert indexes["ix_topic_item_progress_topic_item_id"] == ("topic_item_id",)
 
 
