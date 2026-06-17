@@ -25,14 +25,15 @@ async def list_professor_change_requests(
     db: AsyncSession,
     professor: User,
     *,
-    status: str = "",
+    status: str = "pending",
     limit: int = 50,
     offset: int = 0,
+    offerings: list[CourseOffering] | None = None,
 ) -> list[ProfessorChangeRequestSummaryOut]:
     limit = min(max(limit, 1), MAX_CHANGE_REQUESTS_LIMIT)
     offset = max(offset, 0)
-    offerings = await professor_offerings(db, professor)
-    allowed_ids = [offering.id for offering in offerings]
+    allowed_offerings = offerings if offerings is not None else await professor_offerings(db, professor)
+    allowed_ids = [offering.id for offering in allowed_offerings]
     if not allowed_ids:
         return []
     if status in {"", "pending"}:

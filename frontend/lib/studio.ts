@@ -1,5 +1,4 @@
-import { deleteJson, getJson, postJson } from './apiClient'
-import api from './axios'
+import { deleteJson, getJson, postJson, putJson } from './apiClient'
 
 // ── Server tree types (mirror app/schemas/professor.py) ─────────────────────
 
@@ -131,8 +130,7 @@ export async function getStudioChangeRequest(id: number) {
 }
 
 export async function updateStudioChanges(id: number, payload: StudioSubmitPayload) {
-  const { data } = await api.put<ChangeRequestDetail>(`/professor/studio/change-requests/${id}`, payload)
-  return data
+  return putJson<ChangeRequestDetail, StudioSubmitPayload>(`/professor/studio/change-requests/${id}`, payload)
 }
 
 export async function withdrawStudioChange(id: number) {

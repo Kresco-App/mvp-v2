@@ -2250,7 +2250,7 @@ def test_professor_output_serializers_stay_out_of_router():
     assert "row_number()" in inspect.getsource(professor_queries.conversation_last_sender_role)
     assert ".distinct(" not in inspect.getsource(professor_queries.conversation_last_sender_role)
     assert "ProfessorDashboardOut(" in query_source
-    assert "select(ProfessorChangeRequest)" in query_source
+    assert "select(ProfessorChangeRequest)" in inspect.getsource(professor_change_requests)
     assert "async def require_professor_live_session" in query_source
     assert "async def messages_for_conversation" in query_source
     assert "async def student_teacher_threads" in query_source

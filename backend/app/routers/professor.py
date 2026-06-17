@@ -547,7 +547,7 @@ async def end_live_session(
 
 @router.get("/change-requests", response_model=list[ProfessorChangeRequestSummaryOut])
 async def list_change_requests(
-    status: str = "",
+    status: str = "pending",
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),

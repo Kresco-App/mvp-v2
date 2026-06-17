@@ -88,13 +88,14 @@ class ProfessorChangeOperation(Base):
 
     __tablename__ = "professor_change_operations"
     __table_args__ = (
+        Index("ix_professor_change_operations_change_request_id", "change_request_id"),
         Index("ix_professor_change_operations_request_seq", "change_request_id", "seq"),
         Index("ix_professor_change_operations_status", "status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     change_request_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("professor_change_requests.id", ondelete="CASCADE"), index=True
+        BigInteger, ForeignKey("professor_change_requests.id", ondelete="CASCADE")
     )
     seq: Mapped[int] = mapped_column(Integer, default=0)
     op_type: Mapped[str] = mapped_column(String(30))  # create | update_fields | update_content | delete | reorder
@@ -104,7 +105,7 @@ class ProfessorChangeOperation(Base):
     parent_ref: Mapped[str] = mapped_column(String(64), default="", server_default="")
     payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
     snapshot_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
     applied_target_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error_detail: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

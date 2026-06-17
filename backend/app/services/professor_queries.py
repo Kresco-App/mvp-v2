@@ -32,7 +32,6 @@ from app.services.professor_chat_access import (
     professor_chat_access_denied_reason,
     professor_chat_offering_mismatch_reason,
 )
-from app.services.professor_change_request_targets import close_dangling_change_requests
 from app.services.professor_serializers import (
     chat_datetime,
     conversation_out,
@@ -159,7 +158,6 @@ async def professor_dashboard(db: AsyncSession, professor: User) -> ProfessorDas
     chat_pinned_count = 0
 
     if offering_ids:
-        await close_dangling_change_requests(db, offering_ids=offering_ids)
         live_result = await db.execute(
             select(LiveSession)
             .where(
@@ -185,7 +183,7 @@ async def professor_dashboard(db: AsyncSession, professor: User) -> ProfessorDas
     from app.services.professor_change_requests import list_professor_change_requests
 
     pending_summaries = (
-        await list_professor_change_requests(db, professor, status="pending", limit=5)
+        await list_professor_change_requests(db, professor, status="pending", limit=5, offerings=offerings)
         if offering_ids
         else []
     )

@@ -14,7 +14,6 @@ import {
   BookOpen, ChevronRight, CirclePlus, Clock3, Layers, Loader2, PlusCircle, SendHorizonal, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import Link from 'next/link'
 import { listProfessorOfferings, type CourseOffering } from '@/lib/professor'
 import {
   emptyChapter, emptyLesson, emptyTab, getStudioChangeRequest, getStudioTree, submitStudioChanges,
@@ -153,7 +152,11 @@ export default function StudioBoard() {
   // ── Mutators ───────────────────────────────────────────────────────────────
   const toggle = (set: Set<string>, key: string) => {
     const next = new Set(set)
-    next.has(key) ? next.delete(key) : next.add(key)
+    if (next.has(key)) {
+      next.delete(key)
+    } else {
+      next.add(key)
+    }
     return next
   }
 

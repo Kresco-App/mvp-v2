@@ -1,5 +1,4 @@
 import {
-  isNewKey,
   type StudioChapter,
   type StudioLesson,
   type StudioOperation,
