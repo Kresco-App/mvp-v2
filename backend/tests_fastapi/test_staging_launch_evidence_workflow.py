@@ -10,6 +10,9 @@ EXPECTED_ARTIFACTS = (
     "frontend-cloud-run.json",
     "cloud-sql.json",
     "artifact-registry.json",
+    "media-runtime-config.json",
+    "media-bucket.json",
+    "media-bucket-iam.json",
     "runtime-smoke.json",
     "evidence-manifest.json",
 )
@@ -33,6 +36,9 @@ def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
     assert "gcloud run services describe \"$BACKEND_SERVICE\"" in workflow
     assert "gcloud sql instances describe \"$CLOUD_SQL_INSTANCE\"" in workflow
     assert "gcloud artifacts repositories describe kresco-containers" in workflow
+    assert "gcloud storage buckets describe \"gs://$media_bucket\"" in workflow
+    assert "gcloud storage buckets get-iam-policy \"gs://$media_bucket\"" in workflow
+    assert ".MEDIA_GCS_BUCKET // .media_gcs_bucket // empty" in workflow
     assert "urllib.request.urlopen" in workflow
     assert "actions/upload-artifact@v4" in workflow
     assert "if: always()" in workflow
@@ -73,3 +79,20 @@ def test_staging_launch_evidence_checks_cost_controls():
     artifact_block = _step_block(workflow, "Collect Artifact Registry cleanup posture")
     assert "delete-old-images" in artifact_block
     assert "keep-latest-10" in artifact_block
+
+
+def test_staging_launch_evidence_checks_private_media_bucket_posture():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    media_block = _step_block(workflow, "Collect private media bucket posture")
+
+    assert "gcloud secrets versions access latest" in media_block
+    assert "MEDIA_GCS_BUCKET is missing from kresco-runtime" in media_block
+    assert "media-runtime-config.json" in media_block
+    assert "media-bucket.json" in media_block
+    assert "media-bucket-iam.json" in media_block
+    assert 'uniform_access.get("enabled") is not True' in media_block
+    assert 'publicAccessPrevention") != "enforced"' in media_block
+    assert 'bucket.get("lifecycle", {}).get("rule")' in media_block
+    assert "MEDIA_GCS_PREFIX must be configured" in media_block
+    assert "allUsers" in media_block
+    assert "allAuthenticatedUsers" in media_block

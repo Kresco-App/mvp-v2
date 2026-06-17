@@ -115,6 +115,53 @@ jobs:
               raise SystemExit("Artifact Registry cleanup policies delete-old-images and keep-latest-10 are required.")
           PY
 
+      - name: Collect private media bucket posture
+        run: |
+          set -euo pipefail
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest \
+            --project "$PROJECT_ID" \
+            --secret kresco-runtime > "$runtime_json"
+          media_bucket="$(jq -r '.MEDIA_GCS_BUCKET // .media_gcs_bucket // empty' "$runtime_json")"
+          media_prefix="$(jq -r '.MEDIA_GCS_PREFIX // .media_gcs_prefix // "media"' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -z "$media_bucket" ]; then
+            echo "::error::MEDIA_GCS_BUCKET is missing from kresco-runtime."
+            exit 1
+          fi
+          printf '{"bucket_configured":true,"prefix_configured":%s}\n' "$([ -n "$media_prefix" ] && echo true || echo false)" > "$EVIDENCE_DIR/media-runtime-config.json"
+          gcloud storage buckets describe "gs://$media_bucket" \
+            --format=json > "$EVIDENCE_DIR/media-bucket.json"
+          gcloud storage buckets get-iam-policy "gs://$media_bucket" \
+            --format=json > "$EVIDENCE_DIR/media-bucket-iam.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          bucket = json.loads((evidence_dir / "media-bucket.json").read_text())
+          iam = json.loads((evidence_dir / "media-bucket-iam.json").read_text())
+          runtime = json.loads((evidence_dir / "media-runtime-config.json").read_text())
+          errors = []
+          iam_config = bucket.get("iamConfiguration", {})
+          uniform_access = iam_config.get("uniformBucketLevelAccess", {})
+          if uniform_access.get("enabled") is not True:
+              errors.append("media bucket must enable uniform bucket-level access")
+          if iam_config.get("publicAccessPrevention") != "enforced":
+              errors.append("media bucket publicAccessPrevention must be enforced")
+          if not bucket.get("lifecycle", {}).get("rule"):
+              errors.append("media bucket lifecycle rules are required")
+          if runtime.get("prefix_configured") is not True:
+              errors.append("MEDIA_GCS_PREFIX must be configured")
+          public_members = {"allUsers", "allAuthenticatedUsers"}
+          for binding in iam.get("bindings", []):
+              if public_members.intersection(set(binding.get("members", []))):
+                  errors.append(f"media bucket IAM must not grant {binding.get('role')} to public principals")
+          if errors:
+              raise SystemExit("; ".join(errors))
+          PY
+
       - name: Collect runtime smoke evidence
         run: |
           set -euo pipefail
