@@ -179,6 +179,9 @@ def test_ci_and_deploy_workflows_report_test_coverage():
         assert workflow_path in backend_ci
     assert '"codex/**"' not in backend_ci
     assert '"codex/**"' not in frontend_ci
+    assert "timeout-minutes: 8" in frontend_ci
+    assert "npx playwright install chromium" in frontend_ci
+    assert "--with-deps chromium" not in frontend_ci
     assert "npm run test:coverage" in frontend_ci
     assert "image: postgres:16" in frontend_ci
     assert "KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e" in frontend_ci
