@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import app.models  # noqa: F401
 from sqlalchemy import func, select
@@ -15,7 +16,36 @@ from app.models.professor import (
     ProfessorChatMessage,
 )
 from app.models.users import User
+from scripts import seed_staging_demo as seed_module
 from scripts.seed_staging_demo import seed_staging_demo
+
+
+def test_resolve_seed_database_config_prefers_direct_database_url(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///direct_kresco_staging.sqlite3")
+    monkeypatch.setenv("PGSSLROOTCERT", "system")
+
+    assert seed_module.resolve_seed_database_config() == (
+        "sqlite+aiosqlite:///direct_kresco_staging.sqlite3",
+        "system",
+    )
+
+
+def test_resolve_seed_database_config_falls_back_to_runtime_settings(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("PGSSLROOTCERT", raising=False)
+    monkeypatch.setattr(
+        seed_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            database_url="sqlite+aiosqlite:///settings_kresco_staging.sqlite3",
+            pgsslrootcert="certifi",
+        ),
+    )
+
+    assert seed_module.resolve_seed_database_config() == (
+        "sqlite+aiosqlite:///settings_kresco_staging.sqlite3",
+        "certifi",
+    )
 
 
 def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):

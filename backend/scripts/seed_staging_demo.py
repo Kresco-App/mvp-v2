@@ -15,6 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 import app.models  # noqa: F401
+from app.config import get_settings
 from app.database import _build_async_url
 from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.professor import (
@@ -318,9 +319,23 @@ async def upsert_live_and_chat_surface(
     await db.flush()
 
 
-async def seed_staging_demo(database_url: str, *, allow_confirmed: bool = False) -> None:
+def resolve_seed_database_config() -> tuple[str, str | None]:
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url:
+        return database_url, os.environ.get("PGSSLROOTCERT")
+
+    settings = get_settings()
+    return settings.database_url, settings.pgsslrootcert
+
+
+async def seed_staging_demo(
+    database_url: str,
+    *,
+    pgsslrootcert: str | None = None,
+    allow_confirmed: bool = False,
+) -> None:
     require_staging_seed_allowed(database_url, allow_confirmed=allow_confirmed)
-    async_url, connect_args = _build_async_url(database_url)
+    async_url, connect_args = _build_async_url(database_url, pgsslrootcert)
     engine = create_async_engine(async_url, poolclass=NullPool, connect_args=connect_args)
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
@@ -391,10 +406,10 @@ async def seed_staging_demo(database_url: str, *, allow_confirmed: bool = False)
 
 
 def main() -> None:
-    database_url = os.environ.get("DATABASE_URL", "")
+    database_url, pgsslrootcert = resolve_seed_database_config()
     if not database_url:
         raise RuntimeError("DATABASE_URL is required.")
-    asyncio.run(seed_staging_demo(database_url))
+    asyncio.run(seed_staging_demo(database_url, pgsslrootcert=pgsslrootcert))
 
 
 if __name__ == "__main__":
