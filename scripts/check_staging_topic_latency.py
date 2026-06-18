@@ -306,7 +306,7 @@ def _contract_result(missing_inputs: tuple[str, ...]) -> TopicLatencyResult:
     required_inputs = (
         "STAGING_BACKEND_URL or --backend-url",
         "STAGING_TOPIC_ID or --topic-id",
-        "STAGING_AUTH_TOKEN or --auth-token",
+        "STAGING_TOPIC_AUTH_TOKEN or --auth-token",
         "STAGING_TOPIC_SEARCH_QUERY or --search-query",
     )
     detail = ", ".join(missing_inputs) if missing_inputs else "contract mode requested"
@@ -379,7 +379,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--backend-url", default=os.environ.get("STAGING_BACKEND_URL", ""))
     parser.add_argument("--topic-id", default=os.environ.get("STAGING_TOPIC_ID", ""))
-    parser.add_argument("--auth-token", default=os.environ.get("STAGING_AUTH_TOKEN", ""))
+    parser.add_argument(
+        "--auth-token",
+        default=os.environ.get("STAGING_TOPIC_AUTH_TOKEN", os.environ.get("STAGING_AUTH_TOKEN", "")),
+    )
     parser.add_argument("--auth-header", default=os.environ.get("STAGING_AUTH_HEADER", "Authorization"))
     parser.add_argument("--auth-scheme", default=os.environ.get("STAGING_AUTH_SCHEME", "Bearer"))
     parser.add_argument("--search-query", default=os.environ.get("STAGING_TOPIC_SEARCH_QUERY", "revision"))

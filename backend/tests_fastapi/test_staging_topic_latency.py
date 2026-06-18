@@ -96,6 +96,7 @@ def test_topic_latency_fails_closed_contract_mode_without_inputs():
     assert result.passed is False
     assert result.mode == "contract"
     assert "STAGING_BACKEND_URL or --backend-url" in result.required_inputs
+    assert "STAGING_TOPIC_AUTH_TOKEN or --auth-token" in result.required_inputs
     assert called is False
 
 
