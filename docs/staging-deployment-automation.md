@@ -37,10 +37,8 @@ Environment: `staging`
 
 Required vars:
 
-```text
-GCP_WORKLOAD_IDENTITY_PROVIDER=projects/760338563763/locations/global/workloadIdentityPools/github-kresco/providers/github
-GCP_DEPLOY_SERVICE_ACCOUNT=github-deployer@kresco-staging.iam.gserviceaccount.com
-```
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`: staging GitHub workload identity provider resource name.
+- `GCP_DEPLOY_SERVICE_ACCOUNT`: staging deploy service account email.
 
 Optional secrets for full auth smoke:
 
