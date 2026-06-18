@@ -208,6 +208,29 @@ def test_staging_runtime_verifier_fails_payment_configuration_errors():
     }
 
 
+def test_staging_runtime_verifier_operations_scope_ignores_provider_only_errors():
+    verifier = _load_verifier_module()
+
+    result = verifier.validate_runtime_payloads(
+        _ready_payload(),
+        _diagnostics_payload_with_payment_config_error(),
+        {"ok": True, "claimed": 0, "published": 0, "retry": 0, "dead": 0},
+        scope="operations",
+    )
+
+    assert result.passed is True
+    assert result.errors == ()
+    assert result.payment_check == {
+        "status": "error",
+        "cmi_client_id_configured": False,
+        "cmi_store_key_configured": False,
+        "cmi_payment_url_configured": False,
+        "cmi_ok_url_configured": False,
+        "cmi_fail_url_configured": False,
+        "cmi_callback_url_configured": False,
+    }
+
+
 def test_staging_runtime_verifier_still_fails_diagnostics_errors():
     verifier = _load_verifier_module()
     diagnostics = _diagnostics_payload()
@@ -230,6 +253,29 @@ def test_staging_runtime_verifier_still_fails_diagnostics_errors():
         "firebase_project_id_configured": True,
         "firebase_web_api_key_configured": False,
     }
+
+
+def test_staging_runtime_verifier_operations_scope_still_fails_core_errors():
+    verifier = _load_verifier_module()
+    diagnostics = _diagnostics_payload()
+    diagnostics["status"] = "not_ready"
+    diagnostics["errors"] = ["configuration"]
+    diagnostics["checks"]["configuration"] = {
+        "status": "error",
+        "environment": "staging",
+        "production_like": True,
+        "error_count": 1,
+        "errors": ["DATABASE_URL must include sslmode=verify-full in production environments."],
+    }
+
+    result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics, scope="operations")
+
+    assert result.passed is False
+    assert "diagnostics.status must be ready (blocking errors: configuration)." in result.errors
+    assert (
+        "configuration.errors contains blocking errors: "
+        "DATABASE_URL must include sslmode=verify-full in production environments."
+    ) in result.errors
 
 
 def test_staging_runtime_verifier_rejects_not_ready_without_named_errors():

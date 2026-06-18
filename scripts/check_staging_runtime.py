@@ -15,6 +15,15 @@ from urllib.request import Request, urlopen
 DEFAULT_RETRIES = 12
 DEFAULT_DELAY_SECONDS = 5
 DEFAULT_TIMEOUT_SECONDS = 10
+FULL_SCOPE = "full"
+OPERATIONS_SCOPE = "operations"
+SUPPORTED_SCOPES = {FULL_SCOPE, OPERATIONS_SCOPE}
+OPERATIONS_NONBLOCKING_DIAGNOSTIC_ERRORS = {"payment", "video"}
+OPERATIONS_NONBLOCKING_CONFIGURATION_MARKERS = (
+    "CMI_",
+    "VDOCIPHER_",
+    "KRESCO_RATE_LIMIT_STORAGE_URI",
+)
 SENSITIVE_PAYLOAD_KEY_RE = re.compile(r"(SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|API[_-]?KEY|AUTH)", re.I)
 SECRET_SHAPED_PATTERNS = (
     re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"),
@@ -59,7 +68,10 @@ def validate_runtime_payloads(
     readiness: dict[str, Any],
     diagnostics: dict[str, Any],
     outbox_result: dict[str, Any] | None = None,
+    *,
+    scope: str = FULL_SCOPE,
 ) -> RuntimeVerificationResult:
+    scope = _normalize_scope(scope)
     errors: list[str] = []
 
     if readiness.get("status") != "ready":
@@ -71,16 +83,21 @@ def validate_runtime_payloads(
         errors.append("diagnostics.checks must be an object.")
         checks = {}
 
-    configuration = _configuration_check(checks, errors)
+    configuration = _configuration_check(checks, errors, scope=scope)
     if diagnostics.get("status") != "ready":
-        if diagnostics_errors:
-            joined = ", ".join(diagnostics_errors)
+        blocking_diagnostics_errors = _blocking_diagnostics_errors(
+            diagnostics_errors,
+            configuration=configuration,
+            scope=scope,
+        )
+        if blocking_diagnostics_errors:
+            joined = ", ".join(blocking_diagnostics_errors)
             errors.append(f"diagnostics.status must be ready (blocking errors: {joined}).")
-        else:
+        elif not diagnostics_errors:
             errors.append("diagnostics.status must be ready.")
 
     _require(configuration.get("production_like") is True, "configuration.production_like must be true.", errors)
-    blocking_configuration_errors = _blocking_configuration_errors(configuration)
+    blocking_configuration_errors = _blocking_configuration_errors(configuration, scope=scope)
     if blocking_configuration_errors:
         joined = "; ".join(blocking_configuration_errors)
         errors.append(f"configuration.errors contains blocking errors: {joined}")
@@ -117,22 +134,24 @@ def validate_runtime_payloads(
     _require(outbox_counts.get("status") == "ok", "realtime.outbox.status must be ok.", errors)
     _require(_int_value(outbox_counts, "dead") == 0, "realtime.outbox.dead must be zero.", errors)
 
-    video = _check(checks, "video", errors)
-    _require(video.get("api_secret_configured") is True, "video.api_secret_configured must be true.", errors)
-    _require(video.get("api_base_url_https") is True, "video.api_base_url_https must be true.", errors)
-    _require(video.get("live_create_url_https") is True, "video.live_create_url_https must be true.", errors)
+    video = _provider_check(checks, "video", errors, scope=scope)
+    if scope == FULL_SCOPE:
+        _require(video.get("api_secret_configured") is True, "video.api_secret_configured must be true.", errors)
+        _require(video.get("api_base_url_https") is True, "video.api_base_url_https must be true.", errors)
+        _require(video.get("live_create_url_https") is True, "video.live_create_url_https must be true.", errors)
 
     auth = _check(checks, "auth", errors)
     _require(auth.get("firebase_project_id_configured") is True, "auth.firebase_project_id_configured must be true.", errors)
     _require(auth.get("firebase_web_api_key_configured") is True, "auth.firebase_web_api_key_configured must be true.", errors)
 
-    payment = _payment_check(checks, errors)
-    _require(payment.get("cmi_client_id_configured") is True, "payment.cmi_client_id_configured must be true.", errors)
-    _require(payment.get("cmi_store_key_configured") is True, "payment.cmi_store_key_configured must be true.", errors)
-    _require(payment.get("cmi_payment_url_configured") is True, "payment.cmi_payment_url_configured must be true.", errors)
-    _require(payment.get("cmi_ok_url_configured") is True, "payment.cmi_ok_url_configured must be true.", errors)
-    _require(payment.get("cmi_fail_url_configured") is True, "payment.cmi_fail_url_configured must be true.", errors)
-    _require(payment.get("cmi_callback_url_configured") is True, "payment.cmi_callback_url_configured must be true.", errors)
+    payment = _payment_check(checks, errors, scope=scope)
+    if scope == FULL_SCOPE:
+        _require(payment.get("cmi_client_id_configured") is True, "payment.cmi_client_id_configured must be true.", errors)
+        _require(payment.get("cmi_store_key_configured") is True, "payment.cmi_store_key_configured must be true.", errors)
+        _require(payment.get("cmi_payment_url_configured") is True, "payment.cmi_payment_url_configured must be true.", errors)
+        _require(payment.get("cmi_ok_url_configured") is True, "payment.cmi_ok_url_configured must be true.", errors)
+        _require(payment.get("cmi_fail_url_configured") is True, "payment.cmi_fail_url_configured must be true.", errors)
+        _require(payment.get("cmi_callback_url_configured") is True, "payment.cmi_callback_url_configured must be true.", errors)
 
     if outbox_result is not None:
         _require(outbox_result.get("ok") is True, "outbox drain endpoint must return ok=true.", errors)
@@ -165,22 +184,34 @@ def _check(checks: dict[str, Any], name: str, errors: list[str]) -> dict[str, An
     return check
 
 
-def _configuration_check(checks: dict[str, Any], errors: list[str]) -> dict[str, Any]:
+def _configuration_check(checks: dict[str, Any], errors: list[str], *, scope: str) -> dict[str, Any]:
     check = checks.get("configuration")
     if not isinstance(check, dict):
         errors.append("diagnostics.checks.configuration must be an object.")
         return {}
-    if check.get("status") != "ok" and _blocking_configuration_errors(check):
+    if check.get("status") != "ok" and _blocking_configuration_errors(check, scope=scope):
         errors.append("diagnostics.checks.configuration.status must be ok for blocking configuration errors.")
     return check
 
 
-def _payment_check(checks: dict[str, Any], errors: list[str]) -> dict[str, Any]:
+def _provider_check(checks: dict[str, Any], name: str, errors: list[str], *, scope: str) -> dict[str, Any]:
+    check = checks.get(name)
+    if not isinstance(check, dict):
+        if scope == FULL_SCOPE:
+            errors.append(f"diagnostics.checks.{name} must be an object.")
+        return {}
+    if scope == FULL_SCOPE and check.get("status") != "ok":
+        errors.append(f"diagnostics.checks.{name}.status must be ok.")
+    return check
+
+
+def _payment_check(checks: dict[str, Any], errors: list[str], *, scope: str) -> dict[str, Any]:
     check = checks.get("payment")
     if not isinstance(check, dict):
-        errors.append("diagnostics.checks.payment must be an object.")
+        if scope == FULL_SCOPE:
+            errors.append("diagnostics.checks.payment must be an object.")
         return {}
-    if check.get("status") != "ok":
+    if scope == FULL_SCOPE and check.get("status") != "ok":
         errors.append("diagnostics.checks.payment.status must be ok.")
     return check
 
@@ -199,13 +230,47 @@ def _configuration_errors(configuration: dict[str, Any]) -> tuple[str, ...]:
     return tuple(str(error) for error in raw_errors)
 
 
-def _blocking_configuration_errors(configuration: dict[str, Any]) -> tuple[str, ...]:
+def _blocking_configuration_errors(configuration: dict[str, Any], *, scope: str = FULL_SCOPE) -> tuple[str, ...]:
     errors = _configuration_errors(configuration)
     if not errors:
         if configuration.get("status") != "ok" or _int_value(configuration, "error_count") > 0:
             return ("configuration status/error_count is not ok but no error details were provided.",)
         return ()
+    if scope == OPERATIONS_SCOPE:
+        errors = tuple(
+            error
+            for error in errors
+            if not any(marker in error for marker in OPERATIONS_NONBLOCKING_CONFIGURATION_MARKERS)
+        )
     return errors
+
+
+def _blocking_diagnostics_errors(
+    diagnostics_errors: tuple[str, ...],
+    *,
+    configuration: dict[str, Any],
+    scope: str,
+) -> tuple[str, ...]:
+    if scope != OPERATIONS_SCOPE:
+        return diagnostics_errors
+
+    blocking: list[str] = []
+    for error in diagnostics_errors:
+        normalized = error.strip()
+        if normalized in OPERATIONS_NONBLOCKING_DIAGNOSTIC_ERRORS:
+            continue
+        if normalized == "configuration" and not _blocking_configuration_errors(configuration, scope=scope):
+            continue
+        blocking.append(error)
+    return tuple(blocking)
+
+
+def _normalize_scope(scope: str) -> str:
+    normalized = scope.strip().lower()
+    if normalized not in SUPPORTED_SCOPES:
+        supported = ", ".join(sorted(SUPPORTED_SCOPES))
+        raise ValueError(f"Unsupported runtime verification scope '{scope}'. Expected one of: {supported}.")
+    return normalized
 
 
 def _check_summary(check: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any] | None:
@@ -303,6 +368,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES)
     parser.add_argument("--delay-seconds", type=int, default=DEFAULT_DELAY_SECONDS)
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--scope", choices=sorted(SUPPORTED_SCOPES), default=FULL_SCOPE)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -348,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
         readiness,
         diagnostics,
         outbox_result,
+        scope=args.scope,
     )
     if args.json:
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True))

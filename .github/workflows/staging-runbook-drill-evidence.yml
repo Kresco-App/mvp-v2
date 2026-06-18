@@ -140,6 +140,7 @@ jobs:
             "${backend_url%/}/ready" \
             --internal-secret "$internal_secret" \
             --skip-outbox-drain \
+            --scope operations \
             --json > "$EVIDENCE_DIR/runtime-diagnostics.json"
           status=$?
           set -e

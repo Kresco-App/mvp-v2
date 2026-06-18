@@ -33,6 +33,7 @@ def test_staging_runbook_drill_workflow_collects_gcp_evidence():
     assert "gcloud sql backups list" in workflow
     assert "python scripts/check_staging_runtime.py" in workflow
     assert "--skip-outbox-drain" in workflow
+    assert "--scope operations" in workflow
     assert "python scripts/check_staging_runbook_drill_evidence.py \"$EVIDENCE_DIR\"" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
     assert "name: staging-runbook-drill" in workflow
