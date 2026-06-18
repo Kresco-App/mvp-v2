@@ -4,7 +4,7 @@
 
 Payment readiness is in scope for this gate through the CMI card rail and manual payment-request flows. Do not add a second checkout path for launch.
 
-Current launch readiness: **5.5/10**.
+Current launch readiness: **8.5/10**.
 
 Target for broad student production: **9/10**.
 

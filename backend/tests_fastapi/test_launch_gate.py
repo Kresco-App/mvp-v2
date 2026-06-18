@@ -50,8 +50,7 @@ def test_launch_gate_fails_current_repo_until_all_rows_and_score_are_ready():
     incomplete_ids = {row.gate_id for row in result.incomplete_rows}
 
     assert result.passed is False
-    assert "SEC-SECRETS-001" in incomplete_ids
-    assert "OPS-STAGE-001" in incomplete_ids
+    assert incomplete_ids == {"SEC-SECRETS-001"}
     assert any("below target" in error for error in result.errors)
 
 
