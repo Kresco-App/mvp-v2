@@ -1275,6 +1275,16 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   overscroll-behavior: contain;
 }
 
+.figma-profile-edit-preview {
+  position: relative;
+  overflow: hidden;
+}
+
+.figma-profile-edit-cover,
+.figma-profile-edit-avatar {
+  pointer-events: none;
+}
+
 .figma-profile-edit-head,
 .figma-profile-edit-head > div,
 .figma-profile-edit-field,

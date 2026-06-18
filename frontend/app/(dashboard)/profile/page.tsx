@@ -171,7 +171,13 @@ function pickImageFile() {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'image/png,image/jpeg,image/webp,image/gif'
-    input.onchange = () => resolve(input.files?.[0] ?? null)
+    input.hidden = true
+    input.onchange = () => {
+      const file = input.files?.[0] ?? null
+      input.remove()
+      resolve(file)
+    }
+    document.body.append(input)
     input.click()
   })
 }
