@@ -16,6 +16,7 @@ import {
 } from './authSession'
 import type { AuthUser } from './authSession'
 import { getBackendUrl } from './apiConfig'
+import { signOutFirebaseAuth } from './firebaseAuth'
 
 type AuthUserPatch = Partial<AuthUser> & Record<string, unknown>
 
@@ -86,6 +87,7 @@ async function requestServerLogout() {
 }
 
 async function clearClientAuthState(set: (state: Partial<AuthStoreState>) => void) {
+  await signOutFirebaseAuth().catch(() => undefined)
   clearStoredAuthSession()
   await mutate(() => true, undefined, { revalidate: false })
   set({ token: null, user: null, logoutError: null, isLoggingOut: false })

@@ -30,7 +30,7 @@ async def build_production_diagnostics(
         "storage": _storage_check(settings),
         "realtime": await _realtime_check(db, settings),
         "video": _video_check(settings),
-        "email": _email_check(settings),
+        "auth": _auth_check(settings),
         "payment": await _payment_check(settings, include_provider_reachability=include_provider_reachability),
     }
     errors = [name for name, check in checks.items() if check.get("status") != "ok"]
@@ -183,11 +183,13 @@ def _video_check(settings: Settings) -> dict[str, Any]:
     }
 
 
-def _email_check(settings: Settings) -> dict[str, Any]:
-    configured = bool(settings.resend_api_key.strip())
+def _auth_check(settings: Settings) -> dict[str, Any]:
+    project_configured = bool(settings.firebase_project_id.strip())
+    web_api_key_configured = bool(settings.firebase_web_api_key.strip())
     return {
-        "status": "ok" if configured else "error",
-        "resend_api_key_configured": configured,
+        "status": "ok" if project_configured and web_api_key_configured else "error",
+        "firebase_project_id_configured": project_configured,
+        "firebase_web_api_key_configured": web_api_key_configured,
     }
 
 

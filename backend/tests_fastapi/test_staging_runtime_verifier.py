@@ -64,7 +64,11 @@ def _diagnostics_payload():
                 "api_base_url_https": True,
                 "live_create_url_https": True,
             },
-            "email": {"status": "ok", "resend_api_key_configured": True},
+            "auth": {
+                "status": "ok",
+                "firebase_project_id_configured": True,
+                "firebase_web_api_key_configured": True,
+            },
             "payment": {
                 "status": "ok",
                 "cmi_client_id_configured": True,
@@ -140,7 +144,11 @@ def test_staging_runtime_verifier_accepts_ready_runtime_payloads():
         "api_base_url_https": True,
         "live_create_url_https": True,
     }
-    assert result.email_check == {"status": "ok", "resend_api_key_configured": True}
+    assert result.auth_check == {
+        "status": "ok",
+        "firebase_project_id_configured": True,
+        "firebase_web_api_key_configured": True,
+    }
     assert result.storage_check == {
         "status": "ok",
         "backend": "gcs",
@@ -204,16 +212,24 @@ def test_staging_runtime_verifier_still_fails_diagnostics_errors():
     verifier = _load_verifier_module()
     diagnostics = _diagnostics_payload()
     diagnostics["status"] = "not_ready"
-    diagnostics["errors"] = ["email"]
-    diagnostics["checks"]["email"] = {"status": "error", "resend_api_key_configured": False}
+    diagnostics["errors"] = ["auth"]
+    diagnostics["checks"]["auth"] = {
+        "status": "error",
+        "firebase_project_id_configured": True,
+        "firebase_web_api_key_configured": False,
+    }
 
     result = verifier.validate_runtime_payloads(_ready_payload(), diagnostics)
 
     assert result.passed is False
-    assert "diagnostics.status must be ready (blocking errors: email)." in result.errors
-    assert "diagnostics.checks.email.status must be ok." in result.errors
-    assert "email.resend_api_key_configured must be true." in result.errors
-    assert result.email_check == {"status": "error", "resend_api_key_configured": False}
+    assert "diagnostics.status must be ready (blocking errors: auth)." in result.errors
+    assert "diagnostics.checks.auth.status must be ok." in result.errors
+    assert "auth.firebase_web_api_key_configured must be true." in result.errors
+    assert result.auth_check == {
+        "status": "error",
+        "firebase_project_id_configured": True,
+        "firebase_web_api_key_configured": False,
+    }
 
 
 def test_staging_runtime_verifier_rejects_not_ready_without_named_errors():

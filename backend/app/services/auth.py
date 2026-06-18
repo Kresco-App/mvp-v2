@@ -9,6 +9,12 @@ from app.config import Settings
 AUTH_COOKIE_NAME = "kresco_token"
 AUTH_ROLE_COOKIE_NAME = "kresco_user_role"
 FIREBASE_AUTH_APP_NAME_PREFIX = "kresco-auth-"
+FIREBASE_PROVIDER_GOOGLE = "google.com"
+FIREBASE_PROVIDER_PASSWORD = "password"
+SUPPORTED_FIREBASE_SIGN_IN_PROVIDERS = {
+    FIREBASE_PROVIDER_GOOGLE,
+    FIREBASE_PROVIDER_PASSWORD,
+}
 
 
 @dataclass(frozen=True)
@@ -112,33 +118,53 @@ def _firebase_string_claim(payload: dict, *names: str) -> str:
     return ""
 
 
-def _firebase_google_subject(payload: dict) -> str:
+def _firebase_claim(payload: dict) -> dict:
     firebase_claim = payload.get("firebase")
     if not isinstance(firebase_claim, dict):
         raise jwt.InvalidTokenError("Firebase provider claim is missing")
-    if firebase_claim.get("sign_in_provider") != "google.com":
-        raise jwt.InvalidTokenError("Firebase credential is not a Google sign-in")
+    return firebase_claim
 
+
+def _firebase_sign_in_provider(firebase_claim: dict) -> str:
+    provider = firebase_claim.get("sign_in_provider")
+    if not isinstance(provider, str) or not provider.strip():
+        raise jwt.InvalidTokenError("Firebase sign-in provider is missing")
+    provider = provider.strip()
+    if provider not in SUPPORTED_FIREBASE_SIGN_IN_PROVIDERS:
+        raise jwt.InvalidTokenError("Firebase sign-in provider is not supported")
+    return provider
+
+
+def _firebase_provider_identity(firebase_claim: dict, provider: str) -> str | None:
     identities = firebase_claim.get("identities")
-    google_identities = identities.get("google.com") if isinstance(identities, dict) else None
-    if isinstance(google_identities, list):
-        for identity in google_identities:
+    provider_identities = identities.get(provider) if isinstance(identities, dict) else None
+    if isinstance(provider_identities, list):
+        for identity in provider_identities:
             if isinstance(identity, str) and identity.strip():
                 return identity.strip()
-    raise jwt.InvalidTokenError("Firebase Google identity is missing")
+    return None
 
 
-def _google_login_payload_from_firebase(payload: dict) -> dict:
+def _firebase_session_payload_from_firebase(payload: dict) -> dict:
     firebase_uid = _firebase_string_claim(payload, "uid", "user_id", "sub")
     if not firebase_uid:
         raise jwt.InvalidTokenError("Firebase UID is missing")
+
+    firebase_claim = _firebase_claim(payload)
+    provider = _firebase_sign_in_provider(firebase_claim)
+    provider_identity = _firebase_provider_identity(firebase_claim, provider)
+    google_id = provider_identity if provider == FIREBASE_PROVIDER_GOOGLE else None
+    if provider == FIREBASE_PROVIDER_GOOGLE and not google_id:
+        raise jwt.InvalidTokenError("Firebase Google identity is missing")
+
     return {
         "email": payload.get("email"),
         "email_verified": payload.get("email_verified"),
         "name": payload.get("name") or "",
         "picture": payload.get("picture") or "",
-        "sub": _firebase_google_subject(payload),
         "firebase_uid": firebase_uid,
+        "provider": provider,
+        "google_id": google_id,
     }
 
 
@@ -151,4 +177,4 @@ async def verify_firebase_token(credential: str, project_id: str) -> dict:
 
     app = _firebase_auth_app(project_id)
     payload = await asyncio.to_thread(firebase_auth.verify_id_token, credential, app=app)
-    return _google_login_payload_from_firebase(payload)
+    return _firebase_session_payload_from_firebase(payload)

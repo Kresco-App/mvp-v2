@@ -46,7 +46,7 @@ def test_daily_quest_templates_match_expanded_quest_contract():
 async def _seed_xp_user(email: str) -> int:
     session_factory = get_session_factory()
     async with session_factory() as db:
-        user = User(email=email, full_name="XP User", is_active=True, is_email_verified=True, password="!")
+        user = User(email=email, full_name="XP User", is_active=True, is_email_verified=True)
         db.add(user)
         await db.commit()
         await db.refresh(user)
@@ -63,7 +63,6 @@ async def _seed_xp_staff(email: str, *, is_superuser: bool = False) -> int:
             is_email_verified=True,
             is_staff=True,
             is_superuser=is_superuser,
-            password="!",
         )
         db.add(user)
         await db.commit()

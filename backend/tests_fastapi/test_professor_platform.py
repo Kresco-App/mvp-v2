@@ -27,7 +27,6 @@ from app.models.notifications import Notification
 from app.models.professor import CourseOffering, LiveSession, ProfessorChangeRequest, ProfessorChatConversation, ProfessorChatMessage, ProgramTrack, RealtimeOutbox
 from app.models.users import User, UserSubjectEntitlement
 from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
-from app.security.passwords import hash_password
 from app.services.auth import AUTH_COOKIE_NAME, create_token
 from app.services.media_storage import LocalMediaStorage
 
@@ -48,7 +47,6 @@ async def _seed_professor_platform(test_settings):
             tier="basic",
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         other_professor = User(
             email=f"other-professor-platform-{suffix}@example.com",
@@ -57,7 +55,6 @@ async def _seed_professor_platform(test_settings):
             tier="basic",
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         vip_student = User(
             email=f"vip-student-platform-{suffix}@example.com",
@@ -68,7 +65,6 @@ async def _seed_professor_platform(test_settings):
             filiere=filiere,
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         basic_student = User(
             email=f"basic-student-platform-{suffix}@example.com",
@@ -79,7 +75,6 @@ async def _seed_professor_platform(test_settings):
             filiere=filiere,
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         wrong_track_student = User(
             email=f"wrong-track-platform-{suffix}@example.com",
@@ -90,7 +85,6 @@ async def _seed_professor_platform(test_settings):
             filiere="Sciences Physiques",
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         subject = Subject(title=f"Mathematics {suffix}", description="", is_published=True, order=1)
         physics = Subject(title=f"Physics {suffix}", description="", is_published=True, order=2)
@@ -180,7 +174,6 @@ async def _seed_unassigned_professor(test_settings):
             tier="basic",
             is_active=True,
             is_email_verified=True,
-            password=hash_password("strong-pass-123"),
         )
         db.add(professor)
         await db.commit()
@@ -291,12 +284,24 @@ def test_professor_dashboard_uses_unread_projection_instead_of_conversation_sum(
     assert "sum(ProfessorChatConversation.unread_for_professor)" not in source
 
 
-def test_professor_requires_active_offering_for_login_and_area(app_client, run_db, test_settings):
+def test_professor_requires_active_offering_for_login_and_area(app_client, run_db, test_settings, monkeypatch):
     seeded = run_db(_seed_unassigned_professor(test_settings))
+    monkeypatch.setattr(
+        "app.routers.users.verify_firebase_token",
+        lambda *_: {
+            "email": seeded["email"],
+            "email_verified": True,
+            "firebase_uid": "unassigned-professor-firebase-uid",
+            "provider": "password",
+            "google_id": None,
+            "name": "Unassigned Professor",
+            "picture": "",
+        },
+    )
 
     login = app_client.post(
-        "/api/auth/login",
-        json={"email": seeded["email"], "password": "strong-pass-123"},
+        "/api/auth/firebase-session",
+        json={"credential": "unassigned-professor-firebase-token"},
     )
     assert login.status_code == 403
     assert login.json()["detail"] == "Active course offering assignment required"
@@ -1322,7 +1327,6 @@ def test_live_session_notifications_use_single_offering_realtime_event(app_clien
                     filiere=seeded["filiere"],
                     is_active=True,
                     is_email_verified=True,
-                    password="!",
                 ))
             wrong_subject_vip = User(
                 email=f"live-fanout-wrong-subject-{seeded['offering_id']}@example.com",
@@ -1333,7 +1337,6 @@ def test_live_session_notifications_use_single_offering_realtime_event(app_clien
                 filiere=seeded["filiere"],
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             db.add(wrong_subject_vip)
             await db.flush()
@@ -2410,7 +2413,6 @@ def test_professor_chat_conversations_are_bounded_and_offset_paginated(app_clien
                     filiere=seeded["filiere"],
                     is_active=True,
                     is_email_verified=True,
-                    password="!",
                 )
                 db.add(student)
                 await db.flush()

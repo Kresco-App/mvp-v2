@@ -133,7 +133,6 @@ async def _seed_reportable_live_interactions(test_settings) -> dict[str, int | s
             tier="basic",
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         reporter = User(
             email=f"live-report-student-{suffix}@example.com",
@@ -144,7 +143,6 @@ async def _seed_reportable_live_interactions(test_settings) -> dict[str, int | s
             filiere=filiere,
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         other_student = User(
             email=f"live-report-other-{suffix}@example.com",
@@ -155,7 +153,6 @@ async def _seed_reportable_live_interactions(test_settings) -> dict[str, int | s
             filiere=filiere,
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         wrong_track_student = User(
             email=f"live-report-wrong-track-{suffix}@example.com",
@@ -166,7 +163,6 @@ async def _seed_reportable_live_interactions(test_settings) -> dict[str, int | s
             filiere="Sciences Physiques",
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         subject = Subject(title=f"Live Report Physics {suffix}", is_published=True, order=88)
         track = ProgramTrack(niveau="2BAC", filiere=filiere, title=f"2BAC {filiere}")
@@ -302,7 +298,6 @@ async def _seed_report_support_staff(test_settings, *, email_prefix: str) -> tup
             is_active=True,
             is_email_verified=True,
             is_staff=True,
-            password="!",
         )
         support_staff = User(
             email=f"{email_prefix}-support-{suffix}@example.com",
@@ -310,7 +305,6 @@ async def _seed_report_support_staff(test_settings, *, email_prefix: str) -> tup
             is_active=True,
             is_email_verified=True,
             is_staff=True,
-            password="!",
         )
         db.add_all([plain_staff, support_staff])
         await db.flush()
@@ -513,7 +507,6 @@ def test_admin_report_queue_requires_permission_filters_and_audits_updates(app_c
                 full_name="Reporter",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             plain_staff = User(
                 email="content-report-plain-staff@example.com",
@@ -521,7 +514,6 @@ def test_admin_report_queue_requires_permission_filters_and_audits_updates(app_c
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             support_staff = User(
                 email="content-report-support-staff@example.com",
@@ -529,7 +521,6 @@ def test_admin_report_queue_requires_permission_filters_and_audits_updates(app_c
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             assignee = User(
                 email="content-report-assignee@example.com",
@@ -537,7 +528,6 @@ def test_admin_report_queue_requires_permission_filters_and_audits_updates(app_c
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add_all([reporter, plain_staff, support_staff, assignee])
             await db.flush()
@@ -646,7 +636,6 @@ def test_admin_report_assignment_requires_active_verified_staff(app_client, run_
                 full_name="Reporter",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             support_staff = User(
                 email="content-report-assignment-support@example.com",
@@ -654,14 +643,12 @@ def test_admin_report_assignment_requires_active_verified_staff(app_client, run_
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             student = User(
                 email="content-report-assignment-student@example.com",
                 full_name="Student",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             db.add_all([reporter, support_staff, student])
             await db.flush()
@@ -736,7 +723,6 @@ def test_admin_comment_moderation_actions_hide_restore_and_soft_delete_reported_
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             support_staff = User(
                 email="comment-moderation-support@example.com",
@@ -744,7 +730,6 @@ def test_admin_comment_moderation_actions_hide_restore_and_soft_delete_reported_
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add_all([plain_staff, support_staff])
             await db.flush()
@@ -901,7 +886,6 @@ def test_admin_comment_moderation_rejects_invalid_or_closed_reports_and_no_actio
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add(support_staff)
             await db.flush()

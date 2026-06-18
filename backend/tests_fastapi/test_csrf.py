@@ -2,23 +2,23 @@ from sqlalchemy import select
 
 from app.database import get_session_factory
 from app.models.users import User
-from app.security.passwords import hash_password
-from app.services.auth import AUTH_COOKIE_NAME
-from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
+from app.services.auth import AUTH_COOKIE_NAME, create_token
+from app.security.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrf_token_for_user
 
 
-async def _seed_password_user(email: str):
+async def _seed_session_user(email: str):
     session_factory = get_session_factory()
     async with session_factory() as db:
         user = User(
             email=email,
             full_name="CSRF User",
-            password=hash_password("strong-pass-123"),
             is_active=True,
             is_email_verified=True,
         )
         db.add(user)
         await db.commit()
+        await db.refresh(user)
+        return user
 
 
 async def _full_name(email: str) -> str:
@@ -28,22 +28,19 @@ async def _full_name(email: str) -> str:
         return result.scalar_one()
 
 
-def _login_cookie_session(app_client, run_db, email: str):
-    run_db(_seed_password_user(email))
-    response = app_client.post(
-        "/api/auth/login",
-        json={"email": email, "password": "strong-pass-123"},
-    )
-    assert response.status_code == 200
+def _login_cookie_session(app_client, run_db, test_settings, email: str):
+    user = run_db(_seed_session_user(email))
+    auth_token = create_token(user, test_settings)
+    csrf_token = csrf_token_for_user(user, test_settings)
+    app_client.cookies.set(AUTH_COOKIE_NAME, auth_token, domain="testserver.local", path="/")
+    app_client.cookies.set(CSRF_COOKIE_NAME, csrf_token, domain="testserver.local", path="/")
     assert app_client.cookies.get(AUTH_COOKIE_NAME)
-    csrf_token = app_client.cookies.get(CSRF_COOKIE_NAME)
-    assert csrf_token
-    assert response.json()["csrf_token"] == csrf_token
+    assert app_client.cookies.get(CSRF_COOKIE_NAME) == csrf_token
     return csrf_token
 
 
-def test_cookie_write_requires_csrf_header(app_client, run_db):
-    _login_cookie_session(app_client, run_db, "csrf-missing@example.com")
+def test_cookie_write_requires_csrf_header(app_client, run_db, test_settings):
+    _login_cookie_session(app_client, run_db, test_settings, "csrf-missing@example.com")
 
     response = app_client.patch(
         "/api/profile/me",
@@ -56,8 +53,8 @@ def test_cookie_write_requires_csrf_header(app_client, run_db):
     assert run_db(_full_name("csrf-missing@example.com")) == "CSRF User"
 
 
-def test_cookie_write_rejects_untrusted_origin_even_with_token(app_client, run_db):
-    csrf_token = _login_cookie_session(app_client, run_db, "csrf-origin@example.com")
+def test_cookie_write_rejects_untrusted_origin_even_with_token(app_client, run_db, test_settings):
+    csrf_token = _login_cookie_session(app_client, run_db, test_settings, "csrf-origin@example.com")
 
     response = app_client.patch(
         "/api/profile/me",
@@ -73,8 +70,8 @@ def test_cookie_write_rejects_untrusted_origin_even_with_token(app_client, run_d
     assert run_db(_full_name("csrf-origin@example.com")) == "CSRF User"
 
 
-def test_cookie_write_accepts_trusted_origin_and_matching_csrf_token(app_client, run_db):
-    csrf_token = _login_cookie_session(app_client, run_db, "csrf-valid@example.com")
+def test_cookie_write_accepts_trusted_origin_and_matching_csrf_token(app_client, run_db, test_settings):
+    csrf_token = _login_cookie_session(app_client, run_db, test_settings, "csrf-valid@example.com")
 
     response = app_client.patch(
         "/api/profile/me",
@@ -92,8 +89,8 @@ def test_cookie_write_accepts_trusted_origin_and_matching_csrf_token(app_client,
 
 def test_pre_auth_auth_endpoints_reject_untrusted_origin(app_client):
     response = app_client.post(
-        "/api/auth/login",
-        json={"email": "missing@example.com", "password": "strong-pass-123"},
+        "/api/auth/firebase-session",
+        json={"credential": "invalid-token"},
         headers={"Origin": "https://attacker.example"},
     )
 
@@ -103,16 +100,16 @@ def test_pre_auth_auth_endpoints_reject_untrusted_origin(app_client):
 
 def test_pre_auth_auth_endpoints_accept_trusted_origin_without_csrf_token(app_client):
     response = app_client.post(
-        "/api/auth/login",
-        json={"email": "missing@example.com", "password": "strong-pass-123"},
+        "/api/auth/firebase-session",
+        json={"credential": "invalid-token"},
         headers={"Origin": "http://localhost:3000"},
     )
 
     assert response.status_code == 401
 
 
-def test_csrf_refresh_endpoint_returns_token_for_cookie_session(app_client, run_db):
-    _login_cookie_session(app_client, run_db, "csrf-refresh@example.com")
+def test_csrf_refresh_endpoint_returns_token_for_cookie_session(app_client, run_db, test_settings):
+    _login_cookie_session(app_client, run_db, test_settings, "csrf-refresh@example.com")
 
     response = app_client.get("/api/auth/csrf")
 
@@ -134,8 +131,8 @@ def test_bearer_write_does_not_require_csrf_token(app_client, auth_token):
     assert response.json()["full_name"] == "Bearer User"
 
 
-def test_cmi_callback_path_is_csrf_exempt_for_cookie_sessions(app_client, run_db):
-    _login_cookie_session(app_client, run_db, "csrf-webhook@example.com")
+def test_cmi_callback_path_is_csrf_exempt_for_cookie_sessions(app_client, run_db, test_settings):
+    _login_cookie_session(app_client, run_db, test_settings, "csrf-webhook@example.com")
 
     response = app_client.post(
         "/api/payments/cmi/callback",

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { loginAsSeededUser } from './auth'
 
 test.describe('Purchase flow (provider-neutral manual payment)', () => {
   test('creates a pending CashPlus request from pricing', async ({ page }) => {
@@ -39,18 +40,3 @@ test.describe('Purchase flow (provider-neutral manual payment)', () => {
     await expect(page.getByText(/justificatif recu/i)).toBeVisible()
   })
 })
-
-async function loginAsSeededUser(page: Page, email: string, password = 'kresco123') {
-  await page.goto('/')
-  await page.getByRole('button', { name: /se connecter/i }).click()
-  await page.locator('#login-email').fill(email)
-  await page.locator('#login-password').fill(password)
-
-  const loginResponse = page.waitForResponse((response) => (
-    response.url().includes('/api/auth/login')
-      && response.request().method() === 'POST'
-  ))
-  await page.locator('form').filter({ has: page.locator('#login-email') }).getByRole('button', { name: /^Se connecter$/ }).click()
-  const response = await loginResponse
-  expect(response.status()).toBe(200)
-}

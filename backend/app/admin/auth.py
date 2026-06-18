@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import HTTPException, Request
+import jwt
+from fastapi import Request
 from sqlalchemy import select
 from sqladmin.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
@@ -13,7 +14,7 @@ from app.models.admin_audit import AdminAuditLog
 from app.config import Settings
 from app.security.csrf import AdminCSRFMiddleware
 from app.models.users import User, UserPermission
-from app.services.auth_account import authenticate_password_login
+from app.services.auth import AUTH_COOKIE_NAME, decode_token
 from app.services.auth_users import get_user_by_email
 
 ADMIN_SESSION_AUTHENTICATED = "admin_authenticated"
@@ -65,10 +66,6 @@ async def _write_admin_auth_audit(
         await db.commit()
 
 
-async def _skip_professor_offering_check(_db, _user) -> None:
-    return None
-
-
 async def _has_sqladmin_access(db, user: User) -> bool:
     if user.is_superuser:
         return True
@@ -84,8 +81,47 @@ async def _has_sqladmin_access(db, user: User) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+def _store_admin_session(request: Request, user: User) -> None:
+    request.session[ADMIN_SESSION_AUTHENTICATED] = True
+    request.session[ADMIN_SESSION_USER_ID] = user.id
+    request.session[ADMIN_SESSION_TOKEN_VERSION] = user.auth_token_version or 0
+
+
+async def _firebase_backed_admin_user(request: Request, settings: Settings) -> tuple[User | None, str]:
+    token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        return None, "firebase_session_required"
+    try:
+        token_payload = decode_token(token, settings)
+    except jwt.PyJWTError:
+        return None, "invalid_firebase_session"
+
+    session_factory = get_session_factory()
+    if session_factory is None:
+        return None, "database_unavailable"
+
+    async with session_factory() as db:
+        result = await db.execute(
+            select(User).where(
+                User.id == token_payload.user_id,
+                User.is_active == True,  # noqa: E712
+            )
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            return None, "user_not_found"
+        if (user.auth_token_version or 0) != token_payload.token_version:
+            return user, "token_revoked"
+        if not user.is_email_verified or not user.is_staff:
+            return user, "invalid_credentials_or_staff_boundary"
+        if not await _has_sqladmin_access(db, user):
+            return user, "sqladmin_access_required"
+        return user, ""
+
+
 class StaffAdminAuth(AuthenticationBackend):
     def __init__(self, settings: Settings) -> None:
+        self.settings = settings
         self.middlewares = [
             Middleware(
                 SessionMiddleware,
@@ -100,82 +136,49 @@ class StaffAdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         form = await request.form()
         email = str(form.get("username") or "").strip().lower()
-        password = str(form.get("password") or "")
-
-        if not email or not password:
+        user, reason = await _firebase_backed_admin_user(request, self.settings)
+        if user is None and email:
+            session_factory = get_session_factory()
+            if session_factory is not None:
+                async with session_factory() as db:
+                    user = await get_user_by_email(db, email)
+        if user is None:
             await _write_admin_auth_audit(
                 request,
                 action="admin_login",
                 email=email,
                 success=False,
-                reason="missing_credentials",
+                reason=reason,
             )
             return False
-
-        session_factory = get_session_factory()
-        if session_factory is None:
-            await _write_admin_auth_audit(
-                request,
-                action="admin_login",
-                email=email,
-                success=False,
-                reason="database_unavailable",
-            )
-            return False
-
-        async with session_factory() as db:
-            user_for_audit = await get_user_by_email(db, email)
-            try:
-                user = await authenticate_password_login(
-                    db,
-                    email=email,
-                    password=password,
-                    require_professor_active_offering_fn=_skip_professor_offering_check,
-                )
-            except HTTPException:
-                await _write_admin_auth_audit(
-                    request,
-                    action="admin_login",
-                    user=user_for_audit,
-                    email=email,
-                    success=False,
-                    reason="invalid_credentials_or_staff_boundary",
-                )
-                return False
-            if not user.is_staff:
-                await _write_admin_auth_audit(
-                    request,
-                    action="admin_login",
-                    user=user,
-                    email=email,
-                    success=False,
-                    reason="invalid_credentials_or_staff_boundary",
-                )
-                return False
-            if not await _has_sqladmin_access(db, user):
-                await _write_admin_auth_audit(
-                    request,
-                    action="admin_login",
-                    user=user,
-                    email=email,
-                    success=False,
-                    reason="sqladmin_access_required",
-                )
-                return False
-
-            user.last_login = datetime.now(timezone.utc)
-            await db.commit()
-            request.session[ADMIN_SESSION_AUTHENTICATED] = True
-            request.session[ADMIN_SESSION_USER_ID] = user.id
-            request.session[ADMIN_SESSION_TOKEN_VERSION] = user.auth_token_version or 0
+        if reason:
             await _write_admin_auth_audit(
                 request,
                 action="admin_login",
                 user=user,
-                email=email,
-                success=True,
+                email=email or user.email,
+                success=False,
+                reason=reason,
             )
-            return True
+            return False
+
+        session_factory = get_session_factory()
+        if session_factory is not None:
+            async with session_factory() as db:
+                db_user = await db.get(User, int(user.id))
+                if db_user is not None:
+                    db_user.last_login = datetime.now(timezone.utc)
+                    await db.commit()
+
+        _store_admin_session(request, user)
+        await _write_admin_auth_audit(
+            request,
+            action="admin_login",
+            user=user,
+            email=email or user.email,
+            success=True,
+        )
+        return True
 
     async def logout(self, request: Request) -> bool:
         user = await self._session_user(request)
@@ -191,10 +194,16 @@ class StaffAdminAuth(AuthenticationBackend):
 
     async def authenticate(self, request: Request) -> bool:
         user = await self._session_user(request)
-        if user is None:
-            request.session.clear()
-            return False
-        return True
+        if user is not None:
+            return True
+
+        user, reason = await _firebase_backed_admin_user(request, self.settings)
+        if user is not None and not reason:
+            _store_admin_session(request, user)
+            return True
+
+        request.session.clear()
+        return False
 
     async def _session_user(self, request: Request) -> User | None:
         if not request.session.get(ADMIN_SESSION_AUTHENTICATED):

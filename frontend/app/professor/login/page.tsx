@@ -7,6 +7,7 @@ import GuestGuard from '@/components/GuestGuard'
 import KrescoWordmark from '@/components/KrescoWordmark'
 import { postJson } from '@/lib/apiClient'
 import { AUTH_ROUTES, isProfessorUser } from '@/lib/authPolicy'
+import { getFirebaseEmailPasswordIdToken, isFirebaseEmailNotVerifiedError } from '@/lib/firebaseAuth'
 import { useAuthStore } from '@/lib/store'
 import { localizedCopy } from '@/lib/localization'
 
@@ -35,15 +36,20 @@ export default function ProfessorLoginPage() {
     setError('')
     setLoading(true)
     try {
-      const data = await postJson<LoginResponse>('/auth/login', { email, password })
+      const credential = await getFirebaseEmailPasswordIdToken(email.trim().toLowerCase(), password)
+      const data = await postJson<LoginResponse>('/auth/firebase-session', { credential })
       if (!isProfessorUser(data.user)) {
-        logout()
+        await logout()
         setError('This login is only for professor accounts.')
         return
       }
       login(data.user, data.csrf_token)
       router.replace(AUTH_ROUTES.professorHome)
     } catch (caught) {
+      if (isFirebaseEmailNotVerifiedError(caught)) {
+        setError('Verify your email before signing in.')
+        return
+      }
       setError(errorMessage(caught, 'Could not sign in.'))
     } finally {
       setLoading(false)

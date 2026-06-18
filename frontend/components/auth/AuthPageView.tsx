@@ -221,7 +221,7 @@ export function AuthPageView(controller: AuthPageController) {
                     <label htmlFor="signup-password" className={labelClass}>{localizedCopy.auth.password}</label>
                     <div className="relative">
                       <input id="signup-password" aria-label={localizedCopy.auth.password} type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-                        placeholder={localizedCopy.auth.passwordMinPlaceholder} required minLength={6}
+                        placeholder={localizedCopy.auth.passwordMinPlaceholder} required minLength={8}
                         className={cx(inputClass, 'pr-11')} />
                       <button type="button" aria-label={showPassword ? localizedCopy.auth.hidePassword : localizedCopy.auth.showPassword} onClick={() => setShowPassword(v => !v)}
                         className="absolute right-3.5 top-1/2 flex -translate-y-1/2 border-0 bg-transparent text-[var(--auth-text-muted)]">

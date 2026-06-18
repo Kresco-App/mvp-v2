@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { authenticateSeededUser, loginAsSeededUser } from './auth'
 
 const frontendPort = Number(process.env.KRESCO_E2E_FRONTEND_PORT ?? 3101)
 const backendPort = Number(process.env.KRESCO_E2E_BACKEND_PORT ?? 8010)
@@ -100,32 +101,8 @@ async function firstAccessibleTopic(page: Page) {
   return topic
 }
 
-async function loginAsSeededUser(page: Page, email: string, password = 'kresco123') {
-  await page.goto('/')
-  await page.getByRole('button', { name: /se connecter/i }).click()
-  await page.locator('#login-email').fill(email)
-  await page.locator('#login-password').fill(password)
-
-  const loginResponse = page.waitForResponse((response) => (
-    response.url().includes('/api/auth/login')
-      && response.request().method() === 'POST'
-  ))
-  await page.locator('form').filter({ has: page.locator('#login-email') }).getByRole('button', { name: /^Se connecter$/ }).click()
-  const response = await loginResponse
-  expect(response.status()).toBe(200)
-}
-
-async function loginViaBackend(page: Page, email: string, password = 'kresco123') {
-  const response = await page.request.post(apiUrl('/api/auth/login'), {
-    data: { email, password },
-  })
-  expect(response.status()).toBe(200)
-  const body = await response.json() as { user: Record<string, unknown>; csrf_token?: string }
-  await page.addInitScript(({ user, csrfToken }) => {
-    window.localStorage.setItem('kresco_user', JSON.stringify(user))
-    if (csrfToken) window.sessionStorage.setItem('kresco_csrf', csrfToken)
-  }, { user: body.user, csrfToken: body.csrf_token })
-  return body
+async function loginViaBackend(page: Page, email: string) {
+  return authenticateSeededUser(page, email)
 }
 
 function responsePath(response: { url(): string }) {

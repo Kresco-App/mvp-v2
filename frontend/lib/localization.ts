@@ -18,7 +18,7 @@ export const localizedCopy = {
     email: 'Email',
     emailPlaceholder: 'vous@exemple.com',
     password: 'Mot de passe',
-    passwordMinPlaceholder: 'Min. 6 caracteres',
+    passwordMinPlaceholder: 'Min. 8 caracteres',
     passwordPlaceholder: 'Votre mot de passe',
     showPassword: 'Afficher le mot de passe',
     hidePassword: 'Masquer le mot de passe',

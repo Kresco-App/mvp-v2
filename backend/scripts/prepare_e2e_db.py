@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -17,9 +18,20 @@ if str(BACKEND_ROOT) not in sys.path:
 
 import app.models  # noqa: F401
 from app.database import _build_async_url
+from app.models.users import User
 from scripts.e2e_seed import seed_e2e_database
 
 DEFAULT_E2E_DATABASE_URL = "sqlite+aiosqlite:///./e2e.sqlite3"
+E2E_AUTH_MANIFEST_PATH = BACKEND_ROOT / "e2e_auth_manifest.json"
+E2E_AUTH_EMAILS = (
+    "professor@example.com",
+    "physics.professor@example.com",
+    "vip@example.com",
+    "platinum@example.com",
+    "basic@example.com",
+    "student@example.com",
+    "admin@example.com",
+)
 
 
 def _sqlite_file_path(database_url: str) -> Path | None:
@@ -79,8 +91,42 @@ async def _seed_e2e_db(database_url: str) -> None:
     session_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     async with session_factory() as db:
         await seed_e2e_database(db, destructive_confirmed=True)
+        await _write_auth_manifest(db)
 
     await engine.dispose()
+
+
+async def _write_auth_manifest(db: AsyncSession) -> None:
+    rows = (
+        await db.execute(
+            select(User).where(User.email.in_(E2E_AUTH_EMAILS))
+        )
+    ).scalars().all()
+    users_by_email = {user.email: user for user in rows}
+    missing = [email for email in E2E_AUTH_EMAILS if email not in users_by_email]
+    if missing:
+        raise RuntimeError(f"E2E auth manifest is missing seeded users: {', '.join(missing)}")
+
+    payload = {
+        "users": {
+            email: {
+                "id": int(user.id),
+                "email": user.email,
+                "full_name": user.full_name,
+                "role": user.role,
+                "tier": user.tier,
+                "is_staff": bool(user.is_staff),
+                "is_superuser": bool(user.is_superuser),
+                "is_pro": bool(user.is_pro),
+                "niveau": user.niveau,
+                "filiere": user.filiere,
+                "is_email_verified": bool(user.is_email_verified),
+                "auth_token_version": int(user.auth_token_version or 0),
+            }
+            for email, user in users_by_email.items()
+        }
+    }
+    E2E_AUTH_MANIFEST_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def prepare_e2e_db(database_url: str) -> None:

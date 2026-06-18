@@ -5,8 +5,6 @@ from sqlalchemy import select
 from app.database import get_session_factory
 from app.models.gamification import UserXP, XPTransaction
 from app.models.users import User
-from app.security.passwords import hash_password
-from app.services.email import generate_verification_token
 from app.services.xp import XP_DAILY_CAPS, XP_REWARDS, award_daily_login_xp
 
 
@@ -18,7 +16,6 @@ async def _seed_login_user(email: str) -> int:
             full_name="Daily Login",
             is_active=True,
             is_email_verified=True,
-            password=hash_password("strong-pass-123"),
         )
         db.add(user)
         await db.commit()
@@ -103,17 +100,34 @@ def test_daily_login_xp_touches_activity_when_daily_cap_exhausted(app_client, ru
     assert run_db(_xp_state(user_id)) == (0, 1, login_day)
 
 
-def test_password_login_awards_daily_login_once(app_client, run_db):
+def _firebase_password_payload(email: str, firebase_uid: str) -> dict:
+    return {
+        "email": email,
+        "email_verified": True,
+        "firebase_uid": firebase_uid,
+        "provider": "password",
+        "google_id": None,
+        "name": "Daily Login",
+        "picture": "",
+    }
+
+
+def test_firebase_password_session_awards_daily_login_once(app_client, run_db, monkeypatch):
+    email = "daily-login-route@example.com"
     user_id = run_db(_seed_login_user("daily-login-route@example.com"))
+    monkeypatch.setattr(
+        "app.routers.users.verify_firebase_token",
+        lambda *_: _firebase_password_payload(email, "daily-login-route-firebase-uid"),
+    )
 
     first = app_client.post(
-        "/api/auth/login",
-        json={"email": "daily-login-route@example.com", "password": "strong-pass-123"},
+        "/api/auth/firebase-session",
+        json={"credential": "valid-firebase-credential"},
     )
     app_client.cookies.clear()
     second = app_client.post(
-        "/api/auth/login",
-        json={"email": "daily-login-route@example.com", "password": "strong-pass-123"},
+        "/api/auth/firebase-session",
+        json={"credential": "valid-firebase-credential"},
     )
 
     assert first.status_code == 200
@@ -121,7 +135,7 @@ def test_password_login_awards_daily_login_once(app_client, run_db):
     assert run_db(_xp_rows(user_id)) == [("daily_login", XP_REWARDS["daily_login"])]
 
 
-def test_email_verification_session_awards_daily_login(app_client, run_db, test_settings):
+def test_unverified_firebase_session_does_not_award_daily_login(app_client, run_db, monkeypatch):
     async def _seed_unverified():
         session_factory = get_session_factory()
         async with session_factory() as db:
@@ -130,7 +144,6 @@ def test_email_verification_session_awards_daily_login(app_client, run_db, test_
                 full_name="Daily Verify",
                 is_active=True,
                 is_email_verified=False,
-                password=hash_password("strong-pass-123"),
             )
             db.add(user)
             await db.commit()
@@ -138,13 +151,18 @@ def test_email_verification_session_awards_daily_login(app_client, run_db, test_
             return user.id
 
     user_id = run_db(_seed_unverified())
-    token = generate_verification_token("daily-login-verify@example.com", test_settings)
+    monkeypatch.setattr(
+        "app.routers.users.verify_firebase_token",
+        lambda *_: {
+            **_firebase_password_payload("daily-login-verify@example.com", "daily-login-verify-firebase-uid"),
+            "email_verified": False,
+        },
+    )
 
-    response = app_client.post("/api/auth/verify-email", json={"token": token})
+    response = app_client.post("/api/auth/firebase-session", json={"credential": "unverified-firebase-credential"})
 
-    assert response.status_code == 200
-    assert response.cookies.get("kresco_token")
-    assert run_db(_xp_rows(user_id)) == [("daily_login", XP_REWARDS["daily_login"])]
+    assert response.status_code == 403
+    assert run_db(_xp_rows(user_id)) == []
 
 
 def test_google_login_session_awards_daily_login(app_client, run_db, monkeypatch):
@@ -156,14 +174,16 @@ def test_google_login_session_awards_daily_login(app_client, run_db, monkeypatch
         return {
             "email": email,
             "email_verified": True,
-            "sub": "google-daily-login",
+            "firebase_uid": "firebase-google-daily-login",
+            "provider": "google.com",
+            "google_id": "google-daily-login",
             "name": "Daily Google",
             "picture": "",
         }
 
     monkeypatch.setattr("app.routers.users.verify_firebase_token", _verify_firebase_token)
 
-    response = app_client.post("/api/google-login", json={"credential": "valid-google-credential"})
+    response = app_client.post("/api/auth/firebase-session", json={"credential": "valid-google-credential"})
 
     assert response.status_code == 200
     user_id = run_db(_user_id_by_email(email))

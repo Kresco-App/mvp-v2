@@ -14,7 +14,7 @@ def test_api_responses_emit_private_no_store_cache_headers(app_client, auth_toke
 
 def test_global_request_body_limit_rejects_large_payload_before_route(app_client, test_settings):
     response = app_client.post(
-        "/api/auth/login",
+        "/api/auth/firebase-session",
         content=b"x" * (int(test_settings.max_request_body_bytes) + 1),
         headers={"content-type": "application/octet-stream"},
     )

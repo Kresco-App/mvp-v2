@@ -39,8 +39,7 @@ Use a local workaround:
 
 - Missing VdoCipher: use demo video records or a mock video provider adapter.
 - Missing CMI: use mock payment-request and callback state.
-- Missing Resend: log/mock email sends.
-- Missing Google OAuth: use mock/dev login if available.
+- Missing Firebase Auth provider/action-link config: use the Firebase emulator or mock action-code flows.
 - Missing AI provider: use mock AI response provider.
 - Missing live/chat provider: build shell/data model only.
 

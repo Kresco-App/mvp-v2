@@ -37,7 +37,6 @@ def test_professor_mutation_rate_limit_groups_dynamic_route_instances(run_db):
                 role="professor",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             db.add(professor)
             await db.flush()

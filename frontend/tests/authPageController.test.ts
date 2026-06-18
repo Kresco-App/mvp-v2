@@ -36,6 +36,13 @@ const mocks = vi.hoisted(() => {
     routerReplace: vi.fn(),
     patchJson: vi.fn(),
     postJson: vi.fn(),
+    createFirebaseEmailUser: vi.fn(),
+    getFirebaseEmailPasswordIdToken: vi.fn(),
+    getFirebaseGoogleIdToken: vi.fn(),
+    isFirebaseEmailNotVerifiedError: vi.fn(),
+    isFirebaseGoogleAuthConfigured: vi.fn(),
+    resendFirebaseEmailVerification: vi.fn(),
+    sendFirebasePasswordReset: vi.fn(),
     toastError: vi.fn(),
     toastSuccess: vi.fn(),
   }
@@ -56,6 +63,16 @@ vi.mock('sonner', () => ({
 vi.mock('@/lib/apiClient', () => ({
   patchJson: mocks.patchJson,
   postJson: mocks.postJson,
+}))
+
+vi.mock('@/lib/firebaseAuth', () => ({
+  createFirebaseEmailUser: mocks.createFirebaseEmailUser,
+  getFirebaseEmailPasswordIdToken: mocks.getFirebaseEmailPasswordIdToken,
+  getFirebaseGoogleIdToken: mocks.getFirebaseGoogleIdToken,
+  isFirebaseEmailNotVerifiedError: mocks.isFirebaseEmailNotVerifiedError,
+  isFirebaseGoogleAuthConfigured: mocks.isFirebaseGoogleAuthConfigured,
+  resendFirebaseEmailVerification: mocks.resendFirebaseEmailVerification,
+  sendFirebasePasswordReset: mocks.sendFirebasePasswordReset,
 }))
 
 vi.mock('@/lib/store', () => ({
@@ -85,6 +102,13 @@ beforeEach(() => {
   })
   mocks.patchJson.mockResolvedValue({ data: { niveau: '2bac', filiere: 'Sciences Math B' } })
   mocks.postJson.mockResolvedValue({ data: {} })
+  mocks.createFirebaseEmailUser.mockResolvedValue('student@example.com')
+  mocks.getFirebaseEmailPasswordIdToken.mockResolvedValue('firebase-id-token')
+  mocks.getFirebaseGoogleIdToken.mockResolvedValue('firebase-google-token')
+  mocks.isFirebaseEmailNotVerifiedError.mockReturnValue(false)
+  mocks.isFirebaseGoogleAuthConfigured.mockReturnValue(true)
+  mocks.resendFirebaseEmailVerification.mockResolvedValue(undefined)
+  mocks.sendFirebasePasswordReset.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -173,10 +197,8 @@ describe('auth page onboarding state', () => {
     })
   })
 
-  it('keeps the forgot-password form open when the backend rejects the request', async () => {
-    mocks.postJson.mockRejectedValue({
-      response: { data: { detail: 'Forgot password unavailable' } },
-    })
+  it('keeps the forgot-password form open when Firebase rejects the request', async () => {
+    mocks.sendFirebasePasswordReset.mockRejectedValue(new Error('Firebase reset unavailable'))
 
     renderController()
 
@@ -198,7 +220,7 @@ describe('auth page onboarding state', () => {
       expect(latestController?.loading).toBe(false)
     })
     expect(latestController?.authMode).toBe('forgot')
-    expect(mocks.toastError).toHaveBeenCalledWith('Forgot password unavailable')
+    expect(mocks.toastError).toHaveBeenCalledWith('Firebase reset unavailable')
   })
 
   it('keeps onboarding loading active until navigation starts after a successful save', async () => {

@@ -3,10 +3,10 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
-from app.schemas.limits import EmailText, PasswordText, ProfileMediaReferenceText, ShortText, StrictInputModel, TokenText
+from app.schemas.limits import ProfileMediaReferenceText, ShortText, StrictInputModel, TokenText
 
 
-class GoogleLoginIn(StrictInputModel):
+class FirebaseSessionIn(StrictInputModel):
     credential: TokenText
 
 
@@ -37,11 +37,6 @@ class CsrfOut(BaseModel):
     csrf_token: str
 
 
-class SignupPendingOut(BaseModel):
-    message: str
-    email: str
-
-
 class MessageOut(BaseModel):
     message: str
 
@@ -65,31 +60,3 @@ class UserUpdateIn(StrictInputModel):
 
 class ProfileMediaOut(BaseModel):
     url: str
-
-
-class SignupIn(StrictInputModel):
-    email: EmailText
-    password: PasswordText
-    full_name: ShortText
-
-
-class LoginIn(StrictInputModel):
-    email: EmailText
-    password: PasswordText
-
-
-class VerifyEmailIn(StrictInputModel):
-    token: TokenText
-
-
-class ResendVerificationIn(StrictInputModel):
-    email: EmailText
-
-
-class ForgotPasswordIn(StrictInputModel):
-    email: EmailText
-
-
-class ResetPasswordIn(StrictInputModel):
-    token: TokenText
-    password: PasswordText

@@ -115,10 +115,9 @@ def _ready_config_service_status(settings: Settings) -> dict[str, str]:
     return {
         "database": "ok" if db_ok else "misconfigured",
         "gcp": "ok" if _present(settings.gcp_project_id) and _present(settings.gcp_region) else "missing",
-        "firebase": "ok" if _present(settings.firebase_project_id) else "missing",
+        "firebase": "ok" if _present(settings.firebase_project_id) and _present(settings.firebase_web_api_key) else "missing",
         "gcs": "ok" if _present(settings.media_gcs_bucket) else "missing",
         "vdocipher": "ok" if _present(settings.vdocipher_api_secret) else "missing",
-        "smtp": "ok" if _present(settings.resend_api_key) else "missing",
         "payment": "ok" if _present(settings.cmi_client_id) and _present(settings.cmi_store_key) else "missing",
     }
 

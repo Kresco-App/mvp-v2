@@ -37,4 +37,5 @@ media/
 *.sqlite3
 *.sqlite3.backup-*
 *.db
+backend/e2e_auth_manifest.json
 .codex-quiz-dom.png

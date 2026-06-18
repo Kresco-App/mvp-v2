@@ -4,7 +4,7 @@ Do not record secret values in this file. Record only provider, secret name, own
 
 ## Required Before Production Unfreeze
 
-1. Inventory every deployed secret in GitHub Environments, Google Secret Manager, Firebase, CMI, Resend, VdoCipher, Upstash, and the managed Postgres provider.
+1. Inventory every deployed secret in GitHub Environments, Google Secret Manager, Firebase, CMI, VdoCipher, Upstash, and the managed Postgres provider.
 2. Rotate any credential that was ever present in a local ignored `.env`, shell history, chat transcript, screenshot, or pasted debugging output.
 3. Revoke the old value after the new value is installed and staging diagnostics pass.
 4. Confirm backend runtime secrets are stored in Google Secret Manager JSON and only referenced by `KRESCO_GCP_RUNTIME_SECRET_NAME`.
@@ -27,10 +27,10 @@ Do not record secret values in this file. Record only provider, secret name, own
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_DEPLOY_SERVICE_ACCOUNT` | GitHub Environment / Google IAM | deploy | TBD | TBD | TBD | TBD |
 | `MEDIA_GCS_BUCKET` policy and lifecycle | Google Cloud Storage | staging | TBD | TBD | TBD | TBD |
 | `MEDIA_GCS_BUCKET` policy and lifecycle | Google Cloud Storage | production | TBD | TBD | TBD | TBD |
-| `RESEND_API_KEY` | Google Secret Manager / Resend | staging | TBD | TBD | TBD | TBD |
-| `RESEND_API_KEY` | Google Secret Manager / Resend | production | TBD | TBD | TBD | TBD |
 | `FIREBASE_WEB_API_KEY` | Firebase / Google Secret Manager | staging | TBD | TBD | TBD | TBD |
 | `FIREBASE_WEB_API_KEY` | Firebase / Google Secret Manager | production | TBD | TBD | TBD | TBD |
+| Firebase Auth provider and action-link configuration | Firebase Console | staging | TBD | TBD | TBD | TBD |
+| Firebase Auth provider and action-link configuration | Firebase Console | production | TBD | TBD | TBD | TBD |
 | `VDOCIPHER_API_SECRET` / `VDOCIPHER_LIVE_CREATE_URL` | Google Secret Manager / VdoCipher | staging | TBD | TBD | TBD | TBD |
 | `VDOCIPHER_API_SECRET` / `VDOCIPHER_LIVE_CREATE_URL` | Google Secret Manager / VdoCipher | production | TBD | TBD | TBD | TBD |
 

@@ -19,9 +19,7 @@ from app.database import _build_async_url
 from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.professor import CourseOffering, ProgramTrack
 from app.models.users import User, UserSubjectEntitlement
-from app.security.passwords import hash_password
 
-DEMO_PASSWORD = "kresco123"
 REQUIRED_CONFIRMATION = "true"
 STAGING_MARKERS = ("kresco_staging", "staging")
 
@@ -63,8 +61,6 @@ async def upsert_user(
     user.is_email_verified = True
     user.is_staff = is_staff
     user.is_superuser = is_superuser
-    user.password = hash_password(DEMO_PASSWORD)
-    user.password_changed_at = datetime.now(timezone.utc)
     user.auth_token_version = (user.auth_token_version or 0) + 1
     await db.flush()
     return user

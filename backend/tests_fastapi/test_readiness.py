@@ -24,7 +24,7 @@ def test_ready_checks_database_and_configuration(app_client):
     assert body["status"] == "ready"
     assert body["checks"]["configuration"] == "ok"
     assert body["checks"]["database"] == "ok"
-    assert set(body["checks"]["config_services"].keys()) == {"database", "gcp", "firebase", "gcs", "vdocipher", "smtp", "payment"}
+    assert set(body["checks"]["config_services"].keys()) == {"database", "gcp", "firebase", "gcs", "vdocipher", "payment"}
 
 
 def test_ready_reports_database_failure_without_exception_details(app_client):
@@ -41,7 +41,7 @@ def test_ready_reports_database_failure_without_exception_details(app_client):
     assert body["errors"] == ["database"]
     assert body["checks"]["configuration"] == "ok"
     assert body["checks"]["database"] == "error"
-    assert set(body["checks"]["config_services"].keys()) == {"database", "gcp", "firebase", "gcs", "vdocipher", "smtp", "payment"}
+    assert set(body["checks"]["config_services"].keys()) == {"database", "gcp", "firebase", "gcs", "vdocipher", "payment"}
 
 
 def test_internal_diagnostics_requires_worker_secret(app_client, test_settings):
@@ -108,9 +108,10 @@ def test_internal_diagnostics_reports_ready_launch_gate(app_client, run_db, test
         "api_base_url_https": True,
         "live_create_url_https": True,
     }
-    assert body["checks"]["email"] == {
+    assert body["checks"]["auth"] == {
         "status": "ok",
-        "resend_api_key_configured": True,
+        "firebase_project_id_configured": True,
+        "firebase_web_api_key_configured": True,
     }
     assert body["checks"]["payment"] == {
         "status": "ok",
@@ -135,7 +136,7 @@ def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_d
     test_settings.vdocipher_api_secret = ""
     test_settings.vdocipher_api_base_url = "http://video.example.com/api"
     test_settings.vdocipher_live_create_url = ""
-    test_settings.resend_api_key = ""
+    test_settings.firebase_web_api_key = ""
     try:
         response = app_client.get(
             "/api/internal/diagnostics",
@@ -149,7 +150,7 @@ def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_d
     body = response.json()
     assert response.status_code == 200
     assert body["status"] == "not_ready"
-    assert {"migrations", "storage", "realtime", "video", "email"}.issubset(set(body["errors"]))
+    assert {"migrations", "storage", "realtime", "video", "auth"}.issubset(set(body["errors"]))
     assert body["checks"]["migrations"]["current_heads"] == ["0000"]
     assert body["checks"]["migrations"]["expected_heads"] == expected_migration_heads()
     assert body["checks"]["database"]["strategy"] == "direct"
@@ -159,7 +160,8 @@ def test_internal_diagnostics_exposes_broken_launch_gate_state(app_client, run_d
     assert body["checks"]["realtime"]["outbox"]["dead"] == 1
     assert body["checks"]["video"]["api_secret_configured"] is False
     assert body["checks"]["video"]["api_base_url_https"] is False
-    assert body["checks"]["email"]["resend_api_key_configured"] is False
+    assert body["checks"]["auth"]["firebase_project_id_configured"] is False
+    assert body["checks"]["auth"]["firebase_web_api_key_configured"] is False
 
 
 class BrokenEngine:
@@ -189,7 +191,7 @@ DIAGNOSTICS_SETTING_FIELDS = (
     "vdocipher_api_secret",
     "vdocipher_api_base_url",
     "vdocipher_live_create_url",
-    "resend_api_key",
+    "firebase_web_api_key",
     "cmi_client_id",
     "cmi_store_key",
     "cmi_payment_url",
@@ -222,7 +224,7 @@ def _set_ready_diagnostics_settings(settings):
     settings.vdocipher_api_secret = "vdocipher-secret"
     settings.vdocipher_api_base_url = "https://video.example.com/api"
     settings.vdocipher_live_create_url = "https://video.example.com/live"
-    settings.resend_api_key = "re_test"
+    settings.firebase_web_api_key = "firebase-web-api-key"
     settings.cmi_client_id = "cmi-client"
     settings.cmi_store_key = "cmi-store-key"
     settings.cmi_payment_url = "https://test.cmi.co.ma/payment"

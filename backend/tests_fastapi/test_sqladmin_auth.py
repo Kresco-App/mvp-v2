@@ -11,11 +11,10 @@ from app.database import get_session_factory
 from app.models.admin_audit import AdminAuditLog
 from app.security.csrf import ADMIN_CSRF_COOKIE_NAME, ADMIN_CSRF_FIELD_NAME
 from app.models.users import User, UserPermission
-from app.security.passwords import hash_password
+from app.services.auth import AUTH_COOKIE_NAME, create_token
 
 
 TRUSTED_ORIGIN = "http://testserver"
-STAFF_PASSWORD = "strong-admin-pass-123"
 
 
 def _admin_column_keys(values) -> set[str]:
@@ -35,7 +34,6 @@ async def _seed_admin_auth_users(prefix: str) -> dict[str, int | str]:
             is_active=True,
             is_email_verified=True,
             is_staff=True,
-            password=hash_password(STAFF_PASSWORD),
         )
         student = User(
             email=f"{prefix}-student@example.com",
@@ -43,7 +41,6 @@ async def _seed_admin_auth_users(prefix: str) -> dict[str, int | str]:
             is_active=True,
             is_email_verified=True,
             is_staff=False,
-            password=hash_password(STAFF_PASSWORD),
         )
         db.add_all([staff, student])
         await db.flush()
@@ -77,23 +74,33 @@ async def _latest_admin_audit(action: str, email: str = "") -> AdminAuditLog | N
         return result.scalars().first()
 
 
-def _admin_login(client, email: str, password: str = STAFF_PASSWORD):
+def _set_firebase_session_cookie(client, user_id: int | str, settings):
+    client.cookies.set(AUTH_COOKIE_NAME, create_token(int(user_id), settings))
+
+
+def _admin_login(client, user_id: int | str, settings, *, email: str = ""):
     login_form = client.get("/admin/login")
     assert login_form.status_code == 200
     csrf_token = client.cookies.get(ADMIN_CSRF_COOKIE_NAME)
     assert csrf_token
+    _set_firebase_session_cookie(client, user_id, settings)
     return client.post(
         "/admin/login",
-        data={"username": email, "password": password, ADMIN_CSRF_FIELD_NAME: csrf_token},
+        data={"username": email, ADMIN_CSRF_FIELD_NAME: csrf_token},
         headers={"Origin": TRUSTED_ORIGIN},
         follow_redirects=False,
     )
 
 
-def test_sqladmin_login_requires_database_staff_user_and_audits(app_client, run_db):
+def test_sqladmin_login_requires_database_staff_user_and_audits(app_client, run_db, test_settings):
     users = run_db(_seed_admin_auth_users("sqladmin-login"))
 
-    student_response = _admin_login(app_client, str(users["student_email"]))
+    student_response = _admin_login(
+        app_client,
+        users["student_id"],
+        test_settings,
+        email=str(users["student_email"]),
+    )
     assert student_response.status_code == 400
 
     failed_audit = run_db(_latest_admin_audit("admin_login", str(users["student_email"])))
@@ -101,7 +108,12 @@ def test_sqladmin_login_requires_database_staff_user_and_audits(app_client, run_
     assert failed_audit.changed_data["success"] is False
     assert failed_audit.changed_data["reason"] == "invalid_credentials_or_staff_boundary"
 
-    response = _admin_login(app_client, str(users["staff_email"]))
+    response = _admin_login(
+        app_client,
+        users["staff_id"],
+        test_settings,
+        email=str(users["staff_email"]),
+    )
     assert response.status_code == 302
     assert response.headers["location"].endswith("/admin/")
 
@@ -114,16 +126,26 @@ def test_sqladmin_login_requires_database_staff_user_and_audits(app_client, run_
     assert admin_home.status_code == 200
 
 
-def test_sqladmin_login_delegates_password_authentication_to_account_service():
+def test_sqladmin_login_uses_firebase_backed_cookie_session():
     source = inspect.getsource(admin_auth.StaffAdminAuth.login)
 
-    assert "authenticate_password_login(" in source
+    assert "_firebase_backed_admin_user(" in source
+    assert "authenticate_password_login(" not in source
     assert "verify_password(" not in source
     assert "verify_password_async(" not in source
-    assert "is_unusable_password(" not in source
+    assert "app.security.passwords" not in source
 
 
-def test_sqladmin_login_requires_superuser_or_sqladmin_access(app_client, run_db):
+def test_sqladmin_bootstraps_from_firebase_backed_session_cookie(app_client, run_db, test_settings):
+    users = run_db(_seed_admin_auth_users("sqladmin-bootstrap"))
+    _set_firebase_session_cookie(app_client, users["staff_id"], test_settings)
+
+    response = app_client.get("/admin/", follow_redirects=False)
+
+    assert response.status_code == 200
+
+
+def test_sqladmin_login_requires_superuser_or_sqladmin_access(app_client, run_db, test_settings):
     async def _seed():
         session_factory = get_session_factory()
         async with session_factory() as db:  # type: AsyncSession
@@ -133,7 +155,6 @@ def test_sqladmin_login_requires_superuser_or_sqladmin_access(app_client, run_db
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password=hash_password(STAFF_PASSWORD),
             )
             permitted_staff = User(
                 email="sqladmin-boundary-permitted@example.com",
@@ -141,7 +162,6 @@ def test_sqladmin_login_requires_superuser_or_sqladmin_access(app_client, run_db
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password=hash_password(STAFF_PASSWORD),
             )
             superuser = User(
                 email="sqladmin-boundary-superuser@example.com",
@@ -150,7 +170,6 @@ def test_sqladmin_login_requires_superuser_or_sqladmin_access(app_client, run_db
                 is_email_verified=True,
                 is_staff=True,
                 is_superuser=True,
-                password=hash_password(STAFF_PASSWORD),
             )
             db.add_all([plain_staff, permitted_staff, superuser])
             await db.flush()
@@ -165,24 +184,42 @@ def test_sqladmin_login_requires_superuser_or_sqladmin_access(app_client, run_db
             )
             await db.commit()
             return {
+                "plain_id": plain_staff.id,
                 "plain_email": plain_staff.email,
+                "permitted_id": permitted_staff.id,
                 "permitted_email": permitted_staff.email,
+                "superuser_id": superuser.id,
                 "superuser_email": superuser.email,
             }
 
     users = run_db(_seed())
 
-    plain_response = _admin_login(app_client, str(users["plain_email"]))
+    plain_response = _admin_login(
+        app_client,
+        users["plain_id"],
+        test_settings,
+        email=str(users["plain_email"]),
+    )
     assert plain_response.status_code == 400
     failed_audit = run_db(_latest_admin_audit("admin_login", str(users["plain_email"])))
     assert failed_audit is not None
     assert failed_audit.changed_data["reason"] == "sqladmin_access_required"
 
-    permitted_response = _admin_login(app_client, str(users["permitted_email"]))
+    permitted_response = _admin_login(
+        app_client,
+        users["permitted_id"],
+        test_settings,
+        email=str(users["permitted_email"]),
+    )
     assert permitted_response.status_code == 302
     app_client.cookies.clear()
 
-    superuser_response = _admin_login(app_client, str(users["superuser_email"]))
+    superuser_response = _admin_login(
+        app_client,
+        users["superuser_id"],
+        test_settings,
+        email=str(users["superuser_email"]),
+    )
     assert superuser_response.status_code == 302
 
 
@@ -190,10 +227,7 @@ def test_sqladmin_hides_sensitive_columns_from_read_and_export_surfaces():
     sensitive_live_session_keys = {"provider_payload_json", "stream_ingest_url", "stream_key"}
     sensitive_user_keys = {
         "auth_token_version",
-        "email_token_version",
         "google_id",
-        "password",
-        "password_changed_at",
     }
 
     for view, sensitive_keys in (
@@ -211,12 +245,13 @@ def test_sqladmin_hides_sensitive_columns_from_read_and_export_surfaces():
         assert set(view.form_excluded_columns) >= sensitive_keys
 
 
-def test_sqladmin_rejects_untrusted_origin_before_login(app_client, run_db):
+def test_sqladmin_rejects_untrusted_origin_before_login(app_client, run_db, test_settings):
     users = run_db(_seed_admin_auth_users("sqladmin-origin"))
+    _set_firebase_session_cookie(app_client, users["staff_id"], test_settings)
 
     response = app_client.post(
         "/admin/login",
-        data={"username": users["staff_email"], "password": STAFF_PASSWORD},
+        data={"username": users["staff_email"]},
         headers={"Origin": "https://evil.example"},
         follow_redirects=False,
     )
@@ -225,8 +260,9 @@ def test_sqladmin_rejects_untrusted_origin_before_login(app_client, run_db):
     assert response.json()["detail"] == "CSRF origin is not trusted"
 
 
-def test_sqladmin_login_requires_admin_csrf_token(app_client, run_db):
+def test_sqladmin_login_requires_admin_csrf_token(app_client, run_db, test_settings):
     users = run_db(_seed_admin_auth_users("sqladmin-csrf"))
+    _set_firebase_session_cookie(app_client, users["staff_id"], test_settings)
 
     login_form = app_client.get("/admin/login")
     assert login_form.status_code == 200
@@ -234,7 +270,7 @@ def test_sqladmin_login_requires_admin_csrf_token(app_client, run_db):
 
     response = app_client.post(
         "/admin/login",
-        data={"username": users["staff_email"], "password": STAFF_PASSWORD},
+        data={"username": users["staff_email"]},
         headers={"Origin": TRUSTED_ORIGIN},
         follow_redirects=False,
     )
@@ -243,10 +279,15 @@ def test_sqladmin_login_requires_admin_csrf_token(app_client, run_db):
     assert response.json()["detail"] == "Admin CSRF token is required"
 
 
-def test_sqladmin_session_revokes_when_staff_status_changes(app_client, run_db):
+def test_sqladmin_session_revokes_when_staff_status_changes(app_client, run_db, test_settings):
     users = run_db(_seed_admin_auth_users("sqladmin-revoke"))
 
-    login = _admin_login(app_client, str(users["staff_email"]))
+    login = _admin_login(
+        app_client,
+        users["staff_id"],
+        test_settings,
+        email=str(users["staff_email"]),
+    )
     assert login.status_code == 302
     assert app_client.get("/admin/").status_code == 200
 
@@ -264,10 +305,15 @@ def test_sqladmin_session_revokes_when_staff_status_changes(app_client, run_db):
     assert "/admin/login" in response.headers["location"]
 
 
-def test_sqladmin_session_revokes_when_sqladmin_permission_changes(app_client, run_db):
+def test_sqladmin_session_revokes_when_sqladmin_permission_changes(app_client, run_db, test_settings):
     users = run_db(_seed_admin_auth_users("sqladmin-permission-revoke"))
 
-    login = _admin_login(app_client, str(users["staff_email"]))
+    login = _admin_login(
+        app_client,
+        users["staff_id"],
+        test_settings,
+        email=str(users["staff_email"]),
+    )
     assert login.status_code == 302
     assert app_client.get("/admin/").status_code == 200
 
@@ -366,7 +412,6 @@ async def _seed_priv_esc_users(prefix: str) -> dict:
             is_email_verified=True,
             is_staff=True,
             is_superuser=True,
-            password=hash_password(STAFF_PASSWORD),
         )
         staff = User(
             email=f"{prefix}-staff@example.com",
@@ -375,7 +420,6 @@ async def _seed_priv_esc_users(prefix: str) -> dict:
             is_email_verified=True,
             is_staff=True,
             is_superuser=False,
-            password=hash_password(STAFF_PASSWORD),
         )
         student = User(
             email=f"{prefix}-student@example.com",
@@ -385,7 +429,6 @@ async def _seed_priv_esc_users(prefix: str) -> dict:
             is_staff=False,
             is_superuser=False,
             role="student",
-            password=hash_password(STAFF_PASSWORD),
         )
         db.add_all([superuser, staff, student])
         await db.commit()

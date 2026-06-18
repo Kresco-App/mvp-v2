@@ -2,52 +2,45 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useAuthStore } from '@/lib/store'
-import { postJson } from '@/lib/apiClient'
 import KrescoLogo from '@/components/KrescoLogo'
 import { localizedCopy } from '@/lib/localization'
-import { apiDataErrorMessage } from '@/lib/apiData'
-
-type VerifyEmailResponse = {
-  user: Parameters<ReturnType<typeof useAuthStore.getState>['login']>[0]
-  csrf_token?: string
-}
+import { applyFirebaseEmailVerification } from '@/lib/firebaseAuth'
 
 function VerifyEmailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const login = useAuthStore((state) => state.login)
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
 
   useEffect(() => {
     let cancelled = false
     let redirectTimer: ReturnType<typeof setTimeout> | null = null
-    const token = searchParams.get('token')
-    if (!token) {
+    const oobCode = searchParams.get('oobCode') || searchParams.get('code')
+    if (!oobCode) {
       setStatus('error')
-      setErrorMsg('Lien de v\u00e9rification invalide.')
-      return
+      setErrorMsg(localizedCopy.auth.verifyEmailInvalidBody)
+      return () => {
+        cancelled = true
+      }
     }
 
-    postJson<VerifyEmailResponse>('/auth/verify-email', { token })
-      .then((data) => {
+    applyFirebaseEmailVerification(oobCode)
+      .then(() => {
         if (cancelled) return
-        login(data.user, data.csrf_token)
         setStatus('success')
-        redirectTimer = setTimeout(() => router.replace('/'), 1800)
+        redirectTimer = setTimeout(() => router.replace('/'), 2500)
       })
-      .catch((err: any) => {
+      .catch(() => {
         if (cancelled) return
         setStatus('error')
-        setErrorMsg(apiDataErrorMessage(err, 'Lien invalide ou expir\u00e9.'))
+        setErrorMsg(localizedCopy.auth.verifyEmailInvalidBody)
       })
 
     return () => {
       cancelled = true
       if (redirectTimer) clearTimeout(redirectTimer)
     }
-  }, [searchParams, login, router])
+  }, [searchParams, router])
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--auth-bg)] p-6">
@@ -69,7 +62,7 @@ function VerifyEmailContent() {
               </svg>
             </div>
             <h1 className="mb-2 text-[22px] font-bold text-[var(--auth-text)]">{localizedCopy.auth.verifyEmailVerifiedTitle}</h1>
-            <p className="text-[14px] text-[var(--auth-text-muted)]">Redirection en cours...</p>
+            <p className="text-[14px] text-[var(--auth-text-muted)]">{localizedCopy.auth.verifyEmailVerifiedBody}</p>
           </>
         )}
 

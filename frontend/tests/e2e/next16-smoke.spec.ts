@@ -930,7 +930,7 @@ test('public auth and reset-password routes hydrate', async ({ page }) => {
   await expect(page.getByRole('heading', { name: /Bienvenue sur Kresco/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Local demo login/i })).toHaveCount(0)
 
-  await page.goto('/auth/reset-password?token=smoke-token')
+  await page.goto('/auth/reset-password?oobCode=smoke-code')
   await expect(page.getByRole('heading', { name: /Nouveau mot de passe/i })).toBeVisible()
   await expect(page.locator('input[type="password"]').first()).toBeVisible()
   await expect(page.locator('input[type="password"]').nth(1)).toBeVisible()

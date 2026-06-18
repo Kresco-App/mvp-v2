@@ -18,27 +18,12 @@ from app.schemas.professor import (
     StudentStartConversationIn,
 )
 from app.schemas.quizzes import QuizSubmitIn
-from app.schemas.users import (
-    ForgotPasswordIn,
-    GoogleLoginIn,
-    LoginIn,
-    ResendVerificationIn,
-    ResetPasswordIn,
-    SignupIn,
-    UserUpdateIn,
-    VerifyEmailIn,
-)
+from app.schemas.users import FirebaseSessionIn, UserUpdateIn
 
 
 LIMITED_STRING_FIELDS = {
-    GoogleLoginIn: ("credential",),
+    FirebaseSessionIn: ("credential",),
     UserUpdateIn: ("full_name", "avatar_url", "banner_url", "niveau", "filiere"),
-    SignupIn: ("email", "password", "full_name"),
-    LoginIn: ("email", "password"),
-    VerifyEmailIn: ("token",),
-    ResendVerificationIn: ("email",),
-    ForgotPasswordIn: ("email",),
-    ResetPasswordIn: ("token", "password"),
     NoteCreateIn: ("body",),
     SavedItemCreateIn: ("target_type", "label", "note"),
     CommentCreateIn: ("body",),
@@ -101,9 +86,7 @@ def test_request_schema_string_fields_have_max_length_constraints():
 @pytest.mark.parametrize(
     ("model", "payload"),
     [
-        (SignupIn, {"email": "a" * 255, "password": "strong-pass-123", "full_name": "Student"}),
-        (SignupIn, {"email": "student@example.com", "password": "x" * 129, "full_name": "Student"}),
-        (GoogleLoginIn, {"credential": "x" * 8193}),
+        (FirebaseSessionIn, {"credential": "x" * 8193}),
         (NoteCreateIn, {"body": "x" * 10001}),
         (CommentCreateIn, {"topic_item_id": 1, "body": "x" * 10001}),
         (SavedItemCreateIn, {"target_type": "x" * 256, "target_id": 1}),
@@ -143,33 +126,6 @@ def test_request_schema_string_fields_have_max_length_constraints():
 def test_oversized_request_schema_strings_are_rejected(model, payload):
     with pytest.raises(ValidationError):
         model(**payload)
-
-
-@pytest.mark.parametrize(
-    ("model", "payload"),
-    [
-        (SignupIn, {"email": "not-an-email", "password": "strong-pass-123", "full_name": "Student"}),
-        (LoginIn, {"email": "a@", "password": "strong-pass-123"}),
-        (ResendVerificationIn, {"email": "@example.com"}),
-        (ForgotPasswordIn, {"email": "student.example.com"}),
-    ],
-)
-def test_auth_request_email_fields_reject_invalid_email_formats(model, payload):
-    with pytest.raises(ValidationError):
-        model(**payload)
-
-
-@pytest.mark.parametrize(
-    ("model", "payload"),
-    [
-        (SignupIn, {"email": "student@example.com", "password": "strong-pass-123", "full_name": "Student"}),
-        (LoginIn, {"email": "student@example.com", "password": "strong-pass-123"}),
-        (ResendVerificationIn, {"email": "student@example.com"}),
-        (ForgotPasswordIn, {"email": "student@example.com"}),
-    ],
-)
-def test_auth_request_email_fields_accept_valid_email_formats(model, payload):
-    assert model(**payload).email == "student@example.com"
 
 
 def test_schema_limits_accept_bounded_professor_change_request_json():
@@ -231,14 +187,8 @@ def test_schema_limits_reject_nested_or_oversized_professor_change_request_json(
 @pytest.mark.parametrize(
     ("model", "payload"),
     [
-        (GoogleLoginIn, {"credential": "credential"}),
+        (FirebaseSessionIn, {"credential": "credential"}),
         (UserUpdateIn, {"full_name": "Student"}),
-        (SignupIn, {"email": "student@example.com", "password": "strong-pass-123", "full_name": "Student"}),
-        (LoginIn, {"email": "student@example.com", "password": "strong-pass-123"}),
-        (VerifyEmailIn, {"token": "token"}),
-        (ResendVerificationIn, {"email": "student@example.com"}),
-        (ForgotPasswordIn, {"email": "student@example.com"}),
-        (ResetPasswordIn, {"token": "token", "password": "strong-pass-123"}),
         (NoteCreateIn, {"body": "Note"}),
         (SavedItemCreateIn, {"target_type": "topic", "target_id": 1}),
         (CanvasDocumentPutIn, {"target_type": "topic_item", "target_id": 1, "scene_json": {"elements": []}}),

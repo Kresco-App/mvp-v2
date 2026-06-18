@@ -38,7 +38,6 @@ def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
         vdocipher_api_base_url="",
         vdocipher_live_create_url="",
         frontend_url="http://localhost:3000",
-        resend_api_key="",
         debug=True,
     )
 
@@ -123,7 +122,6 @@ def auth_token(test_settings: Settings, run_db):
                 is_email_verified=True,
                 is_active=True,
                 is_pro=is_pro,
-                password="!",
             )
             db.add(user)
             await db.commit()

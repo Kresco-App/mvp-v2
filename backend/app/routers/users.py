@@ -1,7 +1,7 @@
 import inspect
 import os
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -9,30 +9,18 @@ from app.dependencies import get_current_user, get_db, require_professor_active_
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.users import (
-    AuthSessionOut, CsrfOut, ForgotPasswordIn, GoogleLoginIn, LoginIn, MessageOut, ResendVerificationIn,
-    ProfileMediaOut, ResetPasswordIn, SignupIn, SignupPendingOut, UserOut, UserUpdateIn,
-    VerifyEmailIn,
+    AuthSessionOut,
+    CsrfOut,
+    FirebaseSessionIn,
+    MessageOut,
+    ProfileMediaOut,
+    UserOut,
+    UserUpdateIn,
 )
 from app.security.csrf import clear_csrf_cookie, set_csrf_cookie
 from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_firebase_token
-from app.services.auth_account import (
-    authenticate_password_login,
-    reset_password_account,
-    revoke_cookie_session_if_valid,
-    verify_email_account,
-)
-from app.services.auth_email_dispatch import (
-    EMAIL_PURPOSE_PASSWORD_RESET,
-    EMAIL_PURPOSE_VERIFICATION,
-    deliver_password_reset_email_dispatch,
-    deliver_verification_email_dispatch,
-    prepare_password_reset_dispatch,
-    prepare_resend_verification_dispatch,
-    prepare_signup_verification_dispatch,
-)
-from app.services.auth_google import complete_google_login
-from app.services.auth_signup import create_or_reclaim_signup_user
-from app.services.email import send_reset_email, send_verification_email
+from app.services.auth_firebase import complete_firebase_session
+from app.services.auth_sessions import revoke_cookie_session_if_valid
 from app.services.media_storage import get_media_storage, media_url
 from app.services.user_profile import (
     update_profile_state,
@@ -44,11 +32,9 @@ from app.services.xp import award_daily_login_xp
 router = APIRouter(tags=["Auth & Users"])
 
 AUTH_LOGIN_RATE_LIMIT = os.environ.get("KRESCO_AUTH_LOGIN_RATE_LIMIT", "5/minute")
-AUTH_SENSITIVE_RATE_LIMIT = os.environ.get("KRESCO_AUTH_SENSITIVE_RATE_LIMIT", "3/minute")
 AUTH_SESSION_RATE_LIMIT = os.environ.get("KRESCO_AUTH_SESSION_RATE_LIMIT", "20/minute")
 PROFILE_MUTATION_RATE_LIMIT = os.environ.get("KRESCO_PROFILE_MUTATION_RATE_LIMIT", "20/minute")
 PROFILE_MEDIA_RATE_LIMIT = os.environ.get("KRESCO_PROFILE_MEDIA_RATE_LIMIT", "10/minute")
-MIN_PASSWORD_LENGTH = 8
 
 
 def _auth_cookie_secure(settings: Settings) -> bool:
@@ -122,127 +108,55 @@ async def _auth_session_out(
     return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
 
 
-@router.post("/google-login", response_model=AuthSessionOut)
-@limiter.limit(AUTH_LOGIN_RATE_LIMIT)
-async def google_login(
-    request: Request,
-    body: GoogleLoginIn,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    del request
+async def _firebase_session_user(
+    db: AsyncSession,
+    *,
+    credential: str,
+    settings: Settings,
+) -> User:
     if not settings.firebase_project_id.strip():
         raise HTTPException(status_code=503, detail="Firebase authentication is not configured")
 
     try:
-        verification = verify_firebase_token(body.credential, settings.firebase_project_id)
+        verification = verify_firebase_token(credential, settings.firebase_project_id)
         payload = await verification if inspect.isawaitable(verification) else verification
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(status_code=401, detail="Invalid Google credential")
+        raise HTTPException(status_code=401, detail="Invalid Firebase credential")
 
-    user = await complete_google_login(
+    return await complete_firebase_session(
         db,
         payload=payload,
         require_professor_active_offering_fn=require_professor_active_offering,
     )
 
-    return await _auth_session_out(db, response=response, user=user, settings=settings)
 
-
-@router.post("/auth/signup", response_model=SignupPendingOut, status_code=202)
-@limiter.limit("3/minute")
-async def signup(
+@router.post("/auth/firebase-session", response_model=AuthSessionOut)
+@limiter.limit(AUTH_LOGIN_RATE_LIMIT)
+async def firebase_session(
     request: Request,
-    body: SignupIn,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    if len(body.password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 8 caracteres")
-
-    email = body.email.lower().strip()
-    user = await create_or_reclaim_signup_user(
-        db,
-        email=email,
-        full_name=body.full_name,
-        plain_password=body.password,
-    )
-
-    if dispatch := await prepare_signup_verification_dispatch(
-        db,
-        email=email,
-        full_name=body.full_name,
-        token_version=user.email_token_version or 0,
-        settings=settings,
-    ):
-        background_tasks.add_task(
-            deliver_verification_email_dispatch,
-            dispatch,
-            settings,
-            send_verification_email,
-            flow="signup_verification",
-        )
-
-    return SignupPendingOut(
-        message="Un email de verification a ete envoye a votre adresse.",
-        email=email,
-    )
-
-
-@router.post("/auth/verify-email", response_model=AuthSessionOut)
-@limiter.limit(AUTH_SENSITIVE_RATE_LIMIT)
-async def verify_email(
-    request: Request,
-    body: VerifyEmailIn,
+    body: FirebaseSessionIn,
     response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     del request
-    user = await verify_email_account(db, token=body.token, settings=settings)
+    user = await _firebase_session_user(db, credential=body.credential, settings=settings)
     return await _auth_session_out(db, response=response, user=user, settings=settings)
 
 
-@router.post("/auth/resend-verification", response_model=MessageOut)
-@limiter.limit("3/minute")
-async def resend_verification(
-    request: Request,
-    body: ResendVerificationIn,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    email = body.email.lower().strip()
-    if dispatch := await prepare_resend_verification_dispatch(db, email=email, settings=settings):
-        background_tasks.add_task(
-            deliver_verification_email_dispatch,
-            dispatch,
-            settings,
-            send_verification_email,
-            flow="resend_verification",
-        )
-
-    # Always return success to avoid email enumeration
-    return MessageOut(message="Si ce compte existe et n'est pas verifie, un email a ete envoye.")
-
-
-@router.post("/auth/login", response_model=AuthSessionOut)
+@router.post("/google-login", response_model=AuthSessionOut)
 @limiter.limit(AUTH_LOGIN_RATE_LIMIT)
-async def login(
+async def google_login(
     request: Request,
-    body: LoginIn,
+    body: FirebaseSessionIn,
     response: Response,
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    user = await authenticate_password_login(
-        db,
-        email=body.email,
-        password=body.password,
-        require_professor_active_offering_fn=require_professor_active_offering,
-    )
+    del request
+    user = await _firebase_session_user(db, credential=body.credential, settings=settings)
     return await _auth_session_out(db, response=response, user=user, settings=settings)
 
 
@@ -270,45 +184,6 @@ async def csrf_token(
     settings: Settings = Depends(get_settings),
 ):
     return CsrfOut(csrf_token=set_csrf_cookie(response, user, settings))
-
-
-@router.post("/auth/forgot-password", response_model=MessageOut)
-@limiter.limit("3/minute")
-async def forgot_password(
-    request: Request,
-    body: ForgotPasswordIn,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    email = body.email.lower().strip()
-    if dispatch := await prepare_password_reset_dispatch(db, email=email, settings=settings):
-        background_tasks.add_task(
-            deliver_password_reset_email_dispatch,
-            dispatch,
-            settings,
-            send_reset_email,
-            flow="forgot_password",
-        )
-
-    # Always return success to avoid email enumeration
-    return MessageOut(message="Si ce compte existe, vous recevrez un email de reinitialisation.")
-
-
-@router.post("/auth/reset-password", response_model=MessageOut)
-@limiter.limit(AUTH_SENSITIVE_RATE_LIMIT)
-async def reset_password(
-    request: Request,
-    body: ResetPasswordIn,
-    db: AsyncSession = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    del request
-    if len(body.password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 8 caracteres")
-
-    await reset_password_account(db, token=body.token, password=body.password, settings=settings)
-    return MessageOut(message="Mot de passe reinitialise avec succes.")
 
 
 @router.get("/profile/me", response_model=UserOut)

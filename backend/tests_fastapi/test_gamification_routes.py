@@ -254,28 +254,24 @@ def test_season_leaderboard_uses_signed_xp_window_and_search(
                 full_name="Season Leader",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             tied = User(
                 email="season-tied@example.com",
                 full_name="Season Tied",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             inactive = User(
                 email="season-inactive@example.com",
                 full_name="Season Inactive",
                 is_active=False,
                 is_email_verified=True,
-                password="!",
             )
             other_leader = User(
                 email="season-other-leader@example.com",
                 full_name="Other Leader",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             db.add_all([leader, tied, inactive, other_leader])
             await db.flush()

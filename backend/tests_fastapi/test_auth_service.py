@@ -43,8 +43,8 @@ def test_create_token_rejects_invalid_token_versions(test_settings):
             create_token(1, test_settings, token_version=version)
 
 
-def test_firebase_payload_maps_to_google_login_payload():
-    payload = auth_module._google_login_payload_from_firebase({
+def test_firebase_session_payload_maps_google_provider():
+    payload = auth_module._firebase_session_payload_from_firebase({
         "email": "firebase-user@example.com",
         "email_verified": True,
         "uid": "firebase-uid-123",
@@ -60,19 +60,43 @@ def test_firebase_payload_maps_to_google_login_payload():
         "email": "firebase-user@example.com",
         "email_verified": True,
         "firebase_uid": "firebase-uid-123",
-        "sub": "google-sub-123",
+        "provider": "google.com",
+        "google_id": "google-sub-123",
         "name": "Firebase User",
         "picture": "https://example.com/avatar.png",
     }
 
 
-def test_firebase_payload_rejects_non_google_provider():
+def test_firebase_session_payload_maps_password_provider():
+    payload = auth_module._firebase_session_payload_from_firebase({
+        "email": "firebase-user@example.com",
+        "email_verified": True,
+        "uid": "firebase-uid-123",
+        "name": "Firebase User",
+        "firebase": {
+            "sign_in_provider": "password",
+            "identities": {"email": ["firebase-user@example.com"]},
+        },
+    })
+
+    assert payload == {
+        "email": "firebase-user@example.com",
+        "email_verified": True,
+        "firebase_uid": "firebase-uid-123",
+        "provider": "password",
+        "google_id": None,
+        "name": "Firebase User",
+        "picture": "",
+    }
+
+
+def test_firebase_payload_rejects_unsupported_provider():
     with pytest.raises(jwt.InvalidTokenError):
-        auth_module._google_login_payload_from_firebase({
+        auth_module._firebase_session_payload_from_firebase({
             "email": "firebase-user@example.com",
             "email_verified": True,
             "uid": "firebase-uid-123",
-            "firebase": {"sign_in_provider": "password"},
+            "firebase": {"sign_in_provider": "facebook.com"},
         })
 
 

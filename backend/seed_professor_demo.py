@@ -7,12 +7,14 @@ Usage:
   set KRESCO_CONFIRM_DESTRUCTIVE_SEED=seed_professor_demo.py:sqlite+aiosqlite:///./professor_demo.sqlite3
   python seed_professor_demo.py
 
-Demo accounts:
-  professor@example.com / kresco123
-  physics.professor@example.com / kresco123
-  vip@example.com / kresco123
-  platinum@example.com / kresco123
-  basic@example.com / kresco123
+Demo identities:
+  professor@example.com
+  physics.professor@example.com
+  vip@example.com
+  platinum@example.com
+  basic@example.com
+
+Create matching Firebase Auth users for interactive browser login.
 """
 
 import asyncio
@@ -36,11 +38,9 @@ from app.models.professor import (
     ProfessorChatMessage,
     ProgramTrack,
 )
-from app.security.passwords import hash_password
 from app.models.users import User
 from seed_safety import require_destructive_seed_database_url, require_destructive_seed_session
 
-DEMO_PASSWORD = "kresco123"
 DEMO_DATABASE_URL = "sqlite+aiosqlite:///./professor_demo.sqlite3"
 
 
@@ -60,10 +60,11 @@ async def main() -> None:
     await reset_engine()
     print("Professor demo data is ready.")
     print(f"Database: {database_url}")
-    print(f"Professor: professor@example.com / {DEMO_PASSWORD}")
-    print(f"VIP student: vip@example.com / {DEMO_PASSWORD}")
-    print(f"Platinum student: platinum@example.com / {DEMO_PASSWORD}")
-    print(f"Basic student: basic@example.com / {DEMO_PASSWORD}")
+    print("Create matching Firebase Auth users for these demo identities:")
+    print("Professor: professor@example.com")
+    print("VIP student: vip@example.com")
+    print("Platinum student: platinum@example.com")
+    print("Basic student: basic@example.com")
 
 
 async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool = False) -> None:
@@ -208,7 +209,6 @@ async def upsert_user(
     user.is_email_verified = True
     user.is_staff = False
     user.is_superuser = False
-    user.password = hash_password(DEMO_PASSWORD)
     await db.flush()
     return user
 

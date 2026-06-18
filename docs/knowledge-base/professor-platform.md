@@ -98,7 +98,7 @@ Security baseline:
 - Require verified email for professor accounts.
 - Consider 2FA for professor accounts after MVP.
 
-Professor login should support email/password first. Google sign-in can be allowed only when an admin explicitly links the Google email/account to an existing professor account. Do not grant professor status from a domain match or self-service Google signup.
+Professor login should use Firebase Auth email/password first, with the backend issuing an app session only after verifying the Firebase ID token and an existing professor assignment. Google sign-in can be allowed only when an admin explicitly links the Google email/account to an existing professor account. Do not grant professor status from a domain match or self-service Google signup.
 
 Professor accounts are admin-created only for MVP. There should be no public professor self-registration or "request professor access" flow. Because the expected professor count is small, manual provisioning is safer and operationally acceptable.
 
@@ -399,13 +399,13 @@ set KRESCO_CONFIRM_DESTRUCTIVE_SEED=seed_professor_demo.py:sqlite+aiosqlite:///.
 python seed_professor_demo.py
 ```
 
-Seeded accounts:
+Seeded database identities. Interactive login requires matching Firebase Auth users or a test-session helper:
 
-- `professor@kresco.local` / `kresco123`
-- `physics.professor@kresco.local` / `kresco123`
-- `vip@kresco.local` / `kresco123`
-- `platinum@kresco.local` / `kresco123`
-- `basic@kresco.local` / `kresco123`
+- `professor@example.com`
+- `physics.professor@example.com`
+- `vip@example.com`
+- `platinum@example.com`
+- `basic@example.com`
 
 The seed fills live sessions in `scheduled`, `live`, `completed`, and `cancelled` states; pending, approved, and rejected change requests; pinned and unread professor chat threads; and a locked basic-student chat state.
 

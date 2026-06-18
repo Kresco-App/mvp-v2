@@ -22,7 +22,6 @@ SENSITIVE_ENV_NAMES = {
     "KRESCO_INTERNAL_SECRET",
     "KRESCO_RATE_LIMIT_STORAGE_URI",
     "REALTIME_OUTBOX_SECRET",
-    "RESEND_API_KEY",
     "VDOCIPHER_API_SECRET",
     "VDOCIPHER_LIVE_CREATE_URL",
 }
@@ -35,7 +34,6 @@ REQUIRED_ROTATION_RECORD_IDENTIFIERS = (
     "KRESCO_RATE_LIMIT_STORAGE_URI",
     "MEDIA_GCS_BUCKET",
     "REALTIME_OUTBOX_SECRET",
-    "RESEND_API_KEY",
     "VDOCIPHER_API_SECRET",
     "VDOCIPHER_LIVE_CREATE_URL",
 )
@@ -136,8 +134,6 @@ REQUIRED_ROTATION_RECORDS = (
     RequiredRotationRecord("GCP_WORKLOAD_IDENTITY_PROVIDER / GCP_DEPLOY_SERVICE_ACCOUNT", "deploy"),
     RequiredRotationRecord("MEDIA_GCS_BUCKET policy and lifecycle", "staging"),
     RequiredRotationRecord("MEDIA_GCS_BUCKET policy and lifecycle", "production"),
-    RequiredRotationRecord("RESEND_API_KEY", "staging"),
-    RequiredRotationRecord("RESEND_API_KEY", "production"),
     RequiredRotationRecord("FIREBASE_WEB_API_KEY", "staging"),
     RequiredRotationRecord("FIREBASE_WEB_API_KEY", "production"),
     RequiredRotationRecord("VDOCIPHER_API_SECRET / VDOCIPHER_LIVE_CREATE_URL", "staging"),

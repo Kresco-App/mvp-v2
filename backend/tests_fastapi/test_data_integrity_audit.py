@@ -95,8 +95,8 @@ def test_data_integrity_audit_does_not_report_xp_keys_shared_across_users(run_db
     async def _seed_and_audit():
         session_factory = get_session_factory()
         async with session_factory() as db:
-            user_one = User(email="audit-one@example.com", role="student", password="x", is_active=True)
-            user_two = User(email="audit-two@example.com", role="student", password="x", is_active=True)
+            user_one = User(email="audit-one@example.com", role="student", is_active=True)
+            user_two = User(email="audit-two@example.com", role="student", is_active=True)
             db.add_all([user_one, user_two])
             await db.flush()
             await db.execute(
@@ -124,7 +124,7 @@ def test_data_integrity_audit_reports_xp_daily_cap_violations(run_db):
     async def _seed_and_audit():
         session_factory = get_session_factory()
         async with session_factory() as db:
-            user = User(email="audit-xp-cap@example.com", role="student", password="x", is_active=True)
+            user = User(email="audit-xp-cap@example.com", role="student", is_active=True)
             db.add(user)
             await db.flush()
             await db.execute(
@@ -171,7 +171,7 @@ def test_data_integrity_audit_reports_xp_daily_cap_usage_drift(run_db):
     async def _seed_and_audit():
         session_factory = get_session_factory()
         async with session_factory() as db:
-            user = User(email="audit-xp-cap-usage@example.com", role="student", password="x", is_active=True)
+            user = User(email="audit-xp-cap-usage@example.com", role="student", is_active=True)
             db.add(user)
             await db.flush()
             db.add(

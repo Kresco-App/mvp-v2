@@ -309,7 +309,6 @@ async def _seed_user(email: str, *, is_pro: bool = False) -> int:
             is_active=True,
             is_email_verified=True,
             is_pro=is_pro,
-            password="!",
         )
         db.add(user)
         await db.commit()
@@ -327,7 +326,6 @@ async def _seed_staff_user(email: str, *, is_superuser: bool = False) -> int:
             is_email_verified=True,
             is_staff=True,
             is_superuser=is_superuser,
-            password="!",
         )
         db.add(user)
         await db.commit()

@@ -1229,11 +1229,6 @@ requests==2.34.2 \
     #   cachecontrol
     #   google-api-core
     #   google-cloud-storage
-    #   resend
-resend==2.30.1 \
-    --hash=sha256:45da25b86940307e130f8a44d2bac889574362400843e9cd98b49b79a7b3db63 \
-    --hash=sha256:a529a019e83be285d855ecf135475dc6a6b9fa1c24f9b710686988e021a535ec
-    # via -r backend/requirements.in
 six==1.17.0 \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
     --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
@@ -1330,7 +1325,6 @@ typing-extensions==4.15.0 \
     #   limits
     #   pydantic
     #   pydantic-core
-    #   resend
     #   sqlalchemy
     #   typing-inspection
 typing-inspection==0.4.2 \

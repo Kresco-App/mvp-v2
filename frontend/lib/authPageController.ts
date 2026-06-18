@@ -8,7 +8,15 @@ import { resolveAuthSuccess } from '@/lib/authPolicy'
 import { isStoredAuthSnapshot } from '@/lib/authSession'
 import { useAuthStore } from '@/lib/store'
 import { apiDataErrorMessage } from '@/lib/apiData'
-import { getFirebaseGoogleIdToken, isFirebaseGoogleAuthConfigured } from '@/lib/firebaseAuth'
+import {
+  createFirebaseEmailUser,
+  getFirebaseEmailPasswordIdToken,
+  getFirebaseGoogleIdToken,
+  isFirebaseEmailNotVerifiedError,
+  isFirebaseGoogleAuthConfigured,
+  resendFirebaseEmailVerification,
+  sendFirebasePasswordReset,
+} from '@/lib/firebaseAuth'
 
 export type AuthStep = 'auth' | 'niveau' | 'filiere'
 export type AuthMode = 'options' | 'login' | 'signup' | 'verify-pending' | 'forgot' | 'forgot-sent'
@@ -145,7 +153,7 @@ function useAuthForm({
     setLoading(true)
     try {
       const credential = await getFirebaseGoogleIdToken()
-      const data = await postJson<any>('/google-login', { credential })
+      const data = await postJson<any>('/auth/firebase-session', { credential })
       login(data.user, data.csrf_token)
       toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
       onAuthResolution(data.user)
@@ -166,12 +174,12 @@ function useAuthForm({
   async function handleSignup(e: FormEvent) {
     e.preventDefault()
     if (!fullName.trim()) return toast.error('Entrez votre nom complet')
-    if (password.length < 6) return toast.error('Mot de passe trop court (min. 6 caracteres)')
+    if (password.length < 8) return toast.error('Mot de passe trop court (min. 8 caracteres)')
     setLoading(true)
     try {
       const normalizedEmail = normalizeEmailInput(email)
-      const data = await postJson<any>('/auth/signup', { email: normalizedEmail, password, full_name: fullName })
-      setPendingEmail(normalizeEmailInput(data.email))
+      const firebaseEmail = await createFirebaseEmailUser(normalizedEmail, password, fullName)
+      setPendingEmail(normalizeEmailInput(firebaseEmail))
       setAuthMode('verify-pending')
       toast.success('Email de verification envoye !')
     } catch (err: any) {
@@ -186,13 +194,14 @@ function useAuthForm({
     setLoading(true)
     try {
       const normalizedEmail = normalizeEmailInput(email)
-      const data = await postJson<any>('/auth/login', { email: normalizedEmail, password })
+      const credential = await getFirebaseEmailPasswordIdToken(normalizedEmail, password)
+      const data = await postJson<any>('/auth/firebase-session', { credential })
       login(data.user, data.csrf_token)
       toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
       onAuthResolution(data.user)
     } catch (err: any) {
-      if (isUnverifiedEmailLoginError(err)) {
-        setPendingEmail(normalizeEmailInput(email))
+      if (isFirebaseEmailNotVerifiedError(err) || isUnverifiedEmailLoginError(err)) {
+        setPendingEmail(normalizeEmailInput(isFirebaseEmailNotVerifiedError(err) ? err.email : email))
         setAuthMode('verify-pending')
         toast.error('Verifiez votre email avant de vous connecter.')
       } else {
@@ -207,7 +216,7 @@ function useAuthForm({
     e.preventDefault()
     setLoading(true)
     try {
-      await postJson('/auth/forgot-password', { email: normalizeEmailInput(email) })
+      await sendFirebasePasswordReset(normalizeEmailInput(email))
       setAuthMode('forgot-sent')
     } catch (err) {
       toast.error(apiDataErrorMessage(err, 'Impossible d\'envoyer le lien de reinitialisation.'))
@@ -218,9 +227,13 @@ function useAuthForm({
 
   async function handleResend() {
     if (!pendingEmail) return
+    if (!password) {
+      toast.error("Entrez votre mot de passe pour renvoyer l'email.")
+      return
+    }
     setLoading(true)
     try {
-      await postJson('/auth/resend-verification', { email: normalizeEmailInput(pendingEmail) })
+      await resendFirebaseEmailVerification(normalizeEmailInput(pendingEmail), password)
       toast.success('Email renvoye !')
     } catch {
       toast.error('Impossible d\'envoyer l\'email.')

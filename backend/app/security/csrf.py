@@ -21,15 +21,13 @@ ADMIN_CSRF_COOKIE_NAME = "kresco_admin_csrf"
 ADMIN_CSRF_FIELD_NAME = "kresco_admin_csrf"
 ADMIN_CSRF_SESSION_KEY = "admin_csrf_token"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
-UNAUTHENTICATED_AUTH_PATHS = {
+FIREBASE_SESSION_AUTH_PATHS = {
     "/api/google-login",
-    "/api/auth/signup",
-    "/api/auth/verify-email",
-    "/api/auth/resend-verification",
-    "/api/auth/login",
+    "/api/auth/firebase-session",
+}
+UNAUTHENTICATED_AUTH_PATHS = {
+    *FIREBASE_SESSION_AUTH_PATHS,
     "/api/auth/logout",
-    "/api/auth/forgot-password",
-    "/api/auth/reset-password",
     "/api/client-errors",
 }
 SIGNED_WEBHOOK_PATHS = {

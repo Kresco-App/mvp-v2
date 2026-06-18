@@ -22,7 +22,6 @@ REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("vdocipher_api_secret", "VDOCIPHER_API_SECRET"),
     ("vdocipher_api_base_url", "VDOCIPHER_API_BASE_URL"),
     ("vdocipher_live_create_url", "VDOCIPHER_LIVE_CREATE_URL"),
-    ("resend_api_key", "RESEND_API_KEY"),
 )
 CMI_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("cmi_client_id", "CMI_CLIENT_ID"),
@@ -80,7 +79,6 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
     "KRESCO_AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
     "DEBUG": "debug",
-    "RESEND_API_KEY": "resend_api_key",
     "KRESCO_RATE_LIMIT_STORAGE_URI": "rate_limit_storage_uri",
     "REALTIME_OUTBOX_SECRET": "realtime_outbox_secret",
     "MEDIA_STORAGE_BACKEND": "media_storage_backend",
@@ -187,7 +185,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("rate_limit_storage_uri", "KRESCO_RATE_LIMIT_STORAGE_URI"),
     )
     debug: bool = Field(default=False, validation_alias=AliasChoices("debug", "DEBUG"))
-    resend_api_key: str = Field(default="", validation_alias=AliasChoices("resend_api_key", "RESEND_API_KEY"))
     realtime_outbox_secret: str = Field(
         default="",
         validation_alias=AliasChoices("realtime_outbox_secret", "REALTIME_OUTBOX_SECRET"),
@@ -268,7 +265,6 @@ class Settings(BaseSettings):
             "firebase_web_api_key",
             "vdocipher_api_secret",
             "vdocipher_live_create_url",
-            "resend_api_key",
         }
         for field_name, env_name in REQUIRED_PRODUCTION_FIELDS:
             if self.dark_production_mode and field_name in provider_fields:

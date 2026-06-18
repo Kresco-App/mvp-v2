@@ -428,7 +428,6 @@ def test_create_topic_returns_created_card_for_unpublished_subject(app_client, r
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             subject = Subject(title="Draft Subject", description="", is_published=False)
             db.add_all([staff, subject])
@@ -462,7 +461,6 @@ def test_create_topic_resolves_slug_collisions_without_looped_lookup(app_client,
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             subject = Subject(title="Collision Subject", description="", is_published=False)
             db.add_all([staff, subject])
@@ -502,7 +500,6 @@ def test_global_course_catalog_mutations_are_staff_only(app_client, run_db, test
                 is_active=True,
                 is_email_verified=True,
                 role="professor",
-                password="!",
             )
             staff = User(
                 email="catalog-mutation-staff@example.com",
@@ -510,7 +507,6 @@ def test_global_course_catalog_mutations_are_staff_only(app_client, run_db, test
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             unverified_staff = User(
                 email="catalog-mutation-unverified-staff@example.com",
@@ -518,7 +514,6 @@ def test_global_course_catalog_mutations_are_staff_only(app_client, run_db, test
                 is_active=True,
                 is_email_verified=False,
                 is_staff=True,
-                password="!",
             )
             subject = Subject(title="Staff Only Catalog Subject", description="", is_published=True)
             db.add_all([professor, staff, unverified_staff, subject])

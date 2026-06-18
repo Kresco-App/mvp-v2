@@ -35,7 +35,7 @@ class RuntimeVerificationResult:
     storage_check: dict[str, Any] | None = None
     realtime_check: dict[str, Any] | None = None
     video_check: dict[str, Any] | None = None
-    email_check: dict[str, Any] | None = None
+    auth_check: dict[str, Any] | None = None
     payment_check: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,7 +50,7 @@ class RuntimeVerificationResult:
             "storage_check": self.storage_check,
             "realtime_check": self.realtime_check,
             "video_check": self.video_check,
-            "email_check": self.email_check,
+            "auth_check": self.auth_check,
             "payment_check": self.payment_check,
         }
 
@@ -122,8 +122,9 @@ def validate_runtime_payloads(
     _require(video.get("api_base_url_https") is True, "video.api_base_url_https must be true.", errors)
     _require(video.get("live_create_url_https") is True, "video.live_create_url_https must be true.", errors)
 
-    email = _check(checks, "email", errors)
-    _require(email.get("resend_api_key_configured") is True, "email.resend_api_key_configured must be true.", errors)
+    auth = _check(checks, "auth", errors)
+    _require(auth.get("firebase_project_id_configured") is True, "auth.firebase_project_id_configured must be true.", errors)
+    _require(auth.get("firebase_web_api_key_configured") is True, "auth.firebase_web_api_key_configured must be true.", errors)
 
     payment = _payment_check(checks, errors)
     _require(payment.get("cmi_client_id_configured") is True, "payment.cmi_client_id_configured must be true.", errors)
@@ -149,7 +150,7 @@ def validate_runtime_payloads(
         storage_check=_storage_summary(storage),
         realtime_check=_realtime_summary(realtime),
         video_check=_video_summary(video),
-        email_check=_email_summary(email),
+        auth_check=_auth_summary(auth),
         payment_check=_payment_summary(payment),
     )
 
@@ -260,10 +261,10 @@ def _video_summary(video: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
-def _email_summary(email: dict[str, Any]) -> dict[str, Any] | None:
+def _auth_summary(auth: dict[str, Any]) -> dict[str, Any] | None:
     return _check_summary(
-        email,
-        ("status", "resend_api_key_configured"),
+        auth,
+        ("status", "firebase_project_id_configured", "firebase_web_api_key_configured"),
     )
 
 

@@ -185,7 +185,6 @@ def test_calendar_non_live_events_ignore_live_session_join_rows(app_client, auth
                 role="professor",
                 is_email_verified=True,
                 is_active=True,
-                password="!",
             )
             db.add_all([subject, track, professor])
             await db.flush()
@@ -280,7 +279,6 @@ def test_calendar_events_scope_other_role_users_and_hide_live_join_url(app_clien
                 role="professor",
                 is_email_verified=True,
                 is_active=True,
-                password="!",
             )
             other_user = User(
                 email="calendar-other-user@example.com",
@@ -288,7 +286,6 @@ def test_calendar_events_scope_other_role_users_and_hide_live_join_url(app_clien
                 role="other",
                 is_email_verified=True,
                 is_active=True,
-                password="!",
                 niveau="",
                 filiere="",
             )
@@ -371,7 +368,6 @@ def test_calendar_live_events_require_live_access_and_professor_ownership(app_cl
                 role="professor",
                 is_email_verified=True,
                 is_active=True,
-                password="!",
             )
             inactive_professor = User(
                 email=f"calendar-live-inactive-{suffix}@example.com",
@@ -379,7 +375,6 @@ def test_calendar_live_events_require_live_access_and_professor_ownership(app_cl
                 role="professor",
                 is_email_verified=True,
                 is_active=True,
-                password="!",
             )
             vip_student = User(
                 email=f"calendar-live-vip-{suffix}@example.com",
@@ -390,7 +385,6 @@ def test_calendar_live_events_require_live_access_and_professor_ownership(app_cl
                 filiere=track.filiere,
                 is_email_verified=True,
                 is_active=True,
-                password="!",
             )
             basic_student = User(
                 email=f"calendar-live-basic-{suffix}@example.com",
@@ -401,7 +395,6 @@ def test_calendar_live_events_require_live_access_and_professor_ownership(app_cl
                 filiere=track.filiere,
                 is_email_verified=True,
                 is_active=True,
-                password="!",
             )
             db.add_all([subject, track, professor, inactive_professor, vip_student, basic_student])
             await db.flush()

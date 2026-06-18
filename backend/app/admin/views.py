@@ -116,7 +116,7 @@ class UserAdmin(PowerModelView, model=User):
     column_list = [User.id, User.email, User.full_name, User.role, User.tier, User.is_pro, User.niveau, User.filiere, User.is_active, User.is_email_verified, User.created_at]
     column_searchable_list = [User.email, User.full_name]
     column_sortable_list = [User.created_at, User.is_pro, User.role, User.tier]
-    form_excluded_columns = ["password", "last_login",
+    form_excluded_columns = ["last_login",
                              "xp", "xp_transactions", "daily_quests", "comments", "notifications",
                              "subject_entitlements"]
     can_create = True
@@ -854,10 +854,7 @@ TRACKING_COLUMN_NAMES = {
 
 SENSITIVE_COLUMN_NAMES = {
     "auth_token_version",
-    "email_token_version",
     "google_id",
-    "password",
-    "password_changed_at",
     "provider_payload_json",
     "stream_ingest_url",
     "stream_key",
@@ -889,8 +886,6 @@ PROTECTED_FORM_COLUMNS_BY_MODEL = {
         "auth_token_version",
         "is_staff",
         "is_superuser",
-        "password",
-        "password_changed_at",
     },
 }
 

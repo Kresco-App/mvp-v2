@@ -34,7 +34,7 @@ KRESCO_RATE_LIMIT_STORAGE_URI=<shared-rate-limit-uri>
 REALTIME_OUTBOX_SECRET=<32+ chars>
 ```
 
-Provider credentials for VdoCipher, CMI, and Resend stay backend-only and should live inside the Secret Manager JSON, not frontend env vars.
+Provider credentials for VdoCipher and CMI stay backend-only and should live inside the Secret Manager JSON, not frontend env vars.
 
 ## Required Frontend Runtime Env
 
@@ -50,6 +50,8 @@ NEXT_PUBLIC_FIRESTORE_DATABASE=(default)
 NEXT_PUBLIC_REALTIME_PROVIDER=firestore
 NEXT_PUBLIC_RELEASE_SHA=<git-sha>
 ```
+
+Firebase Auth must have the Google and Email/Password sign-in providers enabled. Authorized domains and email action handling must point at the deployed frontend so verification and password-reset links return to `/auth/verify-email` and `/auth/reset-password`.
 
 ## Local Validation
 
@@ -69,7 +71,7 @@ cd backend; python -m pytest backend/tests_fastapi/test_image_uploads.py backend
 6. Deploy backend to Cloud Run staging.
 7. Deploy frontend to Cloud Run staging.
 8. Move media uploads to Cloud Storage and verify `gs://` references.
-9. Add Firebase Auth token verification and map Firebase UID to Postgres users.
+9. Enable Firebase Auth Google and Email/Password providers, then verify backend token exchange maps Firebase UID to Postgres users.
 10. Verify frontend Firestore listeners through the realtime facade.
 11. Run staging smoke tests for auth, course access, payments, media upload/read, and realtime.
 

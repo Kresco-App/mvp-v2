@@ -3,11 +3,10 @@
 import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { postJson } from '@/lib/apiClient'
-import { apiDataErrorMessage } from '@/lib/apiData'
 import KrescoLogo from '@/components/KrescoLogo'
 import { Eye, EyeOff } from 'lucide-react'
 import { localizedCopy } from '@/lib/localization'
+import { confirmFirebasePasswordReset } from '@/lib/firebaseAuth'
 
 const pageClass = 'flex min-h-screen flex-col items-center justify-center bg-[var(--auth-bg)] p-6'
 const panelClass = 'flex w-full max-w-[380px] flex-col items-center'
@@ -24,27 +23,27 @@ function ResetPasswordContent() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
 
-  const token = searchParams.get('token') || ''
+  const oobCode = searchParams.get('oobCode') || searchParams.get('code') || ''
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (password.length < 6) return toast.error(localizedCopy.auth.passwordMinPlaceholder)
+    if (password.length < 8) return toast.error(localizedCopy.auth.passwordMinPlaceholder)
     if (password !== confirm) return toast.error(localizedCopy.auth.resetPasswordMismatch)
-    if (!token) return toast.error(localizedCopy.auth.resetPasswordInvalidLinkTitle)
+    if (!oobCode) return toast.error(localizedCopy.auth.resetPasswordInvalidLinkTitle)
 
     setLoading(true)
     try {
-      await postJson('/auth/reset-password', { token, password })
+      await confirmFirebasePasswordReset(oobCode, password)
       setDone(true)
       setTimeout(() => router.replace('/'), 2500)
-    } catch (err: any) {
-      toast.error(apiDataErrorMessage(err, localizedCopy.auth.resetPasswordInvalidLinkBody))
+    } catch {
+      toast.error(localizedCopy.auth.resetPasswordInvalidLinkBody)
     } finally {
       setLoading(false)
     }
   }
 
-  if (!token) {
+  if (!oobCode) {
     return (
       <div className={pageClass}>
         <div className="w-full max-w-[380px] text-center">
@@ -95,9 +94,9 @@ function ResetPasswordContent() {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    placeholder={'Min. 6 caract\u00e8res'}
+                    placeholder={'Min. 8 caracteres'}
                     required
-                    minLength={6}
+                    minLength={8}
                     className={`${inputClass} pr-11`}
                   />
                   <button

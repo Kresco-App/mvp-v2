@@ -49,7 +49,6 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
                 full_name="Student",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             staff = User(
                 email="admin-overview-staff@example.com",
@@ -57,7 +56,6 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             unverified_staff = User(
                 email="admin-overview-unverified-staff@example.com",
@@ -65,7 +63,6 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
                 is_active=True,
                 is_email_verified=False,
                 is_staff=True,
-                password="!",
             )
             subject = Subject(title="Admin Physics", is_published=True, order=99)
             db.add_all([student, staff, unverified_staff, subject])
@@ -204,7 +201,6 @@ def test_admin_permission_management_requires_roles_manage(app_client, run_db, t
                 full_name="Student",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             staff = User(
                 email="permission-plain-staff@example.com",
@@ -212,7 +208,6 @@ def test_admin_permission_management_requires_roles_manage(app_client, run_db, t
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             manager = User(
                 email="permission-manager@example.com",
@@ -220,7 +215,6 @@ def test_admin_permission_management_requires_roles_manage(app_client, run_db, t
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add_all([student, staff, manager])
             await db.flush()
@@ -286,7 +280,6 @@ def test_admin_permission_grant_revoke_and_reactivate(app_client, run_db, test_s
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             target = User(
                 email="permission-cycle-target@example.com",
@@ -294,7 +287,6 @@ def test_admin_permission_grant_revoke_and_reactivate(app_client, run_db, test_s
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add_all([manager, target])
             await db.flush()
@@ -398,14 +390,12 @@ def test_admin_permission_grants_require_active_verified_staff_targets(app_clien
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             student = User(
                 email="permission-target-student@example.com",
                 full_name="Student",
                 is_active=True,
                 is_email_verified=True,
-                password="!",
             )
             inactive_staff = User(
                 email="permission-target-inactive@example.com",
@@ -413,7 +403,6 @@ def test_admin_permission_grants_require_active_verified_staff_targets(app_clien
                 is_active=False,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             unverified_staff = User(
                 email="permission-target-unverified@example.com",
@@ -421,7 +410,6 @@ def test_admin_permission_grants_require_active_verified_staff_targets(app_clien
                 is_active=True,
                 is_email_verified=False,
                 is_staff=True,
-                password="!",
             )
             db.add_all([manager, student, inactive_staff, unverified_staff])
             await db.flush()
@@ -471,7 +459,6 @@ def test_admin_permission_grant_recovers_from_duplicate_race(monkeypatch, app_cl
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             target = User(
                 email="permission-race-target@example.com",
@@ -479,7 +466,6 @@ def test_admin_permission_grant_recovers_from_duplicate_race(monkeypatch, app_cl
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add_all([manager, target])
             await db.flush()
@@ -537,7 +523,6 @@ def test_admin_permission_manager_cannot_grant_permissions_to_self(app_client, r
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add(manager)
             await db.flush()
@@ -575,7 +560,6 @@ def test_admin_permission_manager_cannot_revoke_own_roles_manage(app_client, run
                 is_active=True,
                 is_email_verified=True,
                 is_staff=True,
-                password="!",
             )
             db.add(manager)
             await db.flush()
@@ -740,8 +724,6 @@ def test_power_admin_views_are_searchable_filterable_and_safe():
         "auth_token_version",
         "is_staff",
         "is_superuser",
-        "password",
-        "password_changed_at",
     }.issubset(set(UserAdmin.form_excluded_columns))
     assert "role" in UserAdmin.form_overrides
     assert "admin" not in UserAdmin._NON_PRIVILEGED_ROLES

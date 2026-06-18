@@ -108,13 +108,11 @@ async def seed_integrity_audit_fixture(db: AsyncSession) -> IntegrityAuditFixtur
     user_one = User(
         email=f"integrity-audit-{suffix}-one@example.invalid",
         role="student",
-        password="x",
         is_active=True,
     )
     user_two = User(
         email=f"integrity-audit-{suffix}-two@example.invalid",
         role="student",
-        password="x",
         is_active=True,
     )
     subject = Subject(title=f"Integrity audit fixture {suffix}", description="")

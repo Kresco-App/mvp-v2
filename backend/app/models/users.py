@@ -42,11 +42,7 @@ class User(Base):
     is_staff: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     auth_token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    email_token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     professor_unread_chat_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
-    password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    # Django AbstractBaseUser columns kept for the existing Postgres user table.
-    password: Mapped[str] = mapped_column(String(128), default="!")
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -60,25 +56,6 @@ class User(Base):
     comments: Mapped[list["Comment"]] = relationship("Comment", back_populates="user", foreign_keys="Comment.user_id")
     notifications: Mapped[list["Notification"]] = relationship("Notification", back_populates="user")
     subject_entitlements: Mapped[list["UserSubjectEntitlement"]] = relationship("UserSubjectEntitlement", back_populates="user")
-
-
-class EmailDispatchThrottle(Base):
-    __tablename__ = "email_dispatch_throttles"
-    __table_args__ = (
-        UniqueConstraint("email", "purpose", name="uq_email_dispatch_throttles_email_purpose"),
-        Index("ix_email_dispatch_throttles_purpose_updated", "purpose", "updated_at"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    email: Mapped[str] = mapped_column(String(254), nullable=False, index=True)
-    purpose: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
-    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    sent_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
-    last_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
 
 
 class UserSubjectEntitlement(Base):

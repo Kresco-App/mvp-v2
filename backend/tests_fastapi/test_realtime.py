@@ -36,7 +36,6 @@ async def _seed_live_session_for_realtime(
             role="professor",
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         student = User(
             email=f"realtime-live-student-{suffix}@example.com",
@@ -48,7 +47,6 @@ async def _seed_live_session_for_realtime(
             filiere=filiere,
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         subject = Subject(title=f"Realtime Mathematics {suffix}", is_published=True)
         track = ProgramTrack(niveau="2BAC", filiere=filiere, title=f"2BAC {filiere}")
@@ -149,7 +147,6 @@ async def _seed_live_session_limit_scope_regression(test_settings):
             role="professor",
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         student = User(
             email=f"realtime-scope-student-{suffix}@example.com",
@@ -160,7 +157,6 @@ async def _seed_live_session_limit_scope_regression(test_settings):
             filiere=filiere,
             is_active=True,
             is_email_verified=True,
-            password="!",
         )
         allowed_subject = Subject(title=f"Allowed Live {suffix}", is_published=True)
         locked_subject = Subject(title=f"Locked Live {suffix}", is_published=True)

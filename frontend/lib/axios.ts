@@ -19,12 +19,7 @@ const api: AxiosInstance = axios.create({
 const UNSAFE_METHODS = new Set(['post', 'put', 'patch', 'delete'])
 const CSRF_EXEMPT_PATHS = new Set([
   '/google-login',
-  '/auth/signup',
-  '/auth/verify-email',
-  '/auth/resend-verification',
-  '/auth/login',
-  '/auth/forgot-password',
-  '/auth/reset-password',
+  '/auth/firebase-session',
   '/auth/logout',
 ])
 let csrfRefreshPromise: Promise<string | null> | null = null
