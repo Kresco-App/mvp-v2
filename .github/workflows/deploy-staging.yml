@@ -20,7 +20,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: staging-deploy
+  group: staging-cloud-sql-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:

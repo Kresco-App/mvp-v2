@@ -11,6 +11,8 @@ def test_staging_live_chat_load_workflow_collects_redacted_artifact():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "\n  workflow_dispatch:" in workflow
+    assert "group: staging-cloud-sql-${{ github.repository }}" in workflow
+    assert "cancel-in-progress: false" in workflow
     assert "environment: staging" in workflow
     assert "set -x" not in workflow
     assert "google-github-actions/auth@v2" in workflow
@@ -28,6 +30,8 @@ def test_staging_live_chat_load_workflow_collects_redacted_artifact():
     assert "--name staging-live-chat-load" in workflow
     assert "--output \"$EVIDENCE_DIR/live-chat-load.json\"" in workflow
     assert "--require-json" in workflow
+    assert "[ -z \"$staging_live_chat_auth_token\" ]" in workflow
+    assert "--contract" in workflow
     assert "python scripts/check_staging_live_chat_load.py" in workflow
     assert "--backend-url \"$backend_url\"" in workflow
     assert "--auth-token \"$staging_live_chat_auth_token\"" in workflow

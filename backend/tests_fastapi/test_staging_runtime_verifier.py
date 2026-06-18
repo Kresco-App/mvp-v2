@@ -408,6 +408,7 @@ def test_provider_diagnostics_workflow_uses_runtime_verifier():
     diagnostics_step = workflow[workflow.index("- name: Run staging provider diagnostics"):]
 
     assert "actions/checkout@v4" in workflow
+    assert "group: staging-cloud-sql-${{ github.repository }}" in workflow
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
     assert "EVIDENCE_DIR: artifacts/staging-provider-diagnostics" in workflow
     assert "mkdir -p \"$EVIDENCE_DIR\"" in workflow
@@ -435,6 +436,7 @@ def test_recover_staging_realtime_outbox_workflow_uses_runtime_secret_and_cloud_
     workflow = (REPO_ROOT / ".github" / "workflows" / "recover-staging-realtime-outbox.yml").read_text(encoding="utf-8")
     recovery_step = workflow[workflow.index("- name: Requeue and drain staging realtime outbox"):]
 
+    assert "group: staging-cloud-sql-${{ github.repository }}" in workflow
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
     assert "--activation-policy ALWAYS" in recovery_step
     assert "--activation-policy NEVER" in recovery_step

@@ -17,6 +17,8 @@ def test_staging_runbook_drill_workflow_collects_gcp_evidence():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert "\n  workflow_dispatch:" in workflow
+    assert "group: staging-cloud-sql-${{ github.repository }}" in workflow
+    assert "cancel-in-progress: false" in workflow
     assert "environment: staging" in workflow
     assert "set -x" not in workflow
     assert "google-github-actions/auth@v2" in workflow

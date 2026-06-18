@@ -9,6 +9,8 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
 
     assert "name: Deploy Staging" in workflow
     assert "\n  push:" in workflow
+    assert "group: staging-cloud-sql-${{ github.repository }}" in workflow
+    assert "cancel-in-progress: false" in workflow
     assert "      - master" in workflow
     assert "uses: ./.github/workflows/ci-backend.yml" in workflow
     assert "uses: ./.github/workflows/ci-frontend.yml" in workflow

@@ -26,6 +26,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: staging-cloud-sql-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   drill:
     runs-on: ubuntu-latest

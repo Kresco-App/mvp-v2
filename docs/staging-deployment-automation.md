@@ -49,6 +49,19 @@ STAGING_AUTH_SMOKE_PASSWORD=<Firebase test user password>
 
 If the auth smoke secrets are absent, the workflow still checks the deployed Firebase session boundary by proving the retired local password routes are gone.
 
+Additional staging evidence workflows use the same Cloud SQL concurrency group as staging deploys, so SQL-backed probes do not race each other while the instance is starting or stopping.
+
+Required for topic latency evidence:
+
+- `STAGING_TOPIC_ID` GitHub Environment var.
+- `STAGING_TOPIC_SEARCH_QUERY` GitHub Environment var.
+- `STAGING_TOPIC_AUTH_TOKEN` GitHub Environment secret for a staging student with access to that topic.
+
+Required for live/chat load evidence:
+
+- `STAGING_LIVE_CHAT_AUTH_TOKEN` GitHub Environment secret for a staging student with live/chat access.
+- Optional `STAGING_LIVE_SESSION_ID` and `STAGING_CHAT_CONVERSATION_ID` GitHub Environment vars. If absent, the checker discovers IDs from the student's accessible lists.
+
 ## Verified Staging Access
 
 These were verified from the workstation on 2026-06-18:
