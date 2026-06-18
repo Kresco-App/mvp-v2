@@ -24,8 +24,9 @@ def _load_module():
 class FakeResponse:
     status = 200
 
-    def __init__(self, payload: Any) -> None:
+    def __init__(self, payload: Any, headers: dict[str, str] | None = None) -> None:
         self._payload = payload
+        self.headers = FakeHeaders(headers or {})
 
     def __enter__(self):
         return self
@@ -35,6 +36,17 @@ class FakeResponse:
 
     def read(self) -> bytes:
         return json.dumps(self._payload).encode("utf-8")
+
+
+class FakeHeaders:
+    def __init__(self, headers: dict[str, str]) -> None:
+        self._headers = headers
+
+    def get_all(self, name: str, default: list[str] | None = None) -> list[str]:
+        value = self._headers.get(name)
+        if value is None:
+            return [] if default is None else default
+        return [value]
 
 
 def test_live_chat_load_measures_student_live_and_chat_paths_with_mocked_http():
@@ -129,6 +141,27 @@ def test_live_chat_load_fails_closed_without_required_inputs():
     assert "STAGING_BACKEND_URL or --backend-url" in result.required_inputs
     assert "STAGING_AUTH_SMOKE_EMAIL/PASSWORD plus FIREBASE_API_KEY, or --auth-token" in result.required_inputs
     assert called is False
+
+
+def test_live_chat_load_exchanges_firebase_id_token_for_app_session_cookie():
+    load = _load_module()
+    requests = []
+
+    def opener(request, timeout):
+        del timeout
+        requests.append(request)
+        return FakeResponse({}, headers={"Set-Cookie": "kresco_token=app-session-token; Path=/; HttpOnly"})
+
+    token = load._exchange_firebase_session_token(
+        backend_url="https://api.example.com/staging",
+        firebase_id_token="firebase-id-token",
+        timeout_seconds=5,
+        opener=opener,
+    )
+
+    assert token == "app-session-token"
+    assert requests[0].full_url == "https://api.example.com/staging/api/auth/firebase-session"
+    assert json.loads(requests[0].data.decode("utf-8")) == {"credential": "firebase-id-token"}
 
 
 def test_live_chat_load_rejects_local_or_non_https_backend_before_http():

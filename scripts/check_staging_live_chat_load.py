@@ -7,6 +7,7 @@ import statistics
 import sys
 import time
 from dataclasses import dataclass
+from http.cookies import SimpleCookie
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -493,6 +494,49 @@ def _mint_firebase_id_token(
     return id_token
 
 
+def _exchange_firebase_session_token(
+    *,
+    backend_url: str,
+    firebase_id_token: str,
+    timeout_seconds: int,
+    opener: OpenUrl = urlopen,
+) -> str:
+    if not backend_url.strip():
+        raise ValueError("backend URL is required to exchange Firebase credentials.")
+    if not firebase_id_token.strip():
+        raise ValueError("Firebase ID token is required to exchange an app session.")
+
+    session_url = build_backend_url(backend_url, "/api/auth/firebase-session")
+    request = Request(
+        session_url,
+        data=json.dumps({"credential": firebase_id_token}).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "kresco-staging-live-chat-load/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with opener(request, timeout=timeout_seconds) as response:
+            response.read()
+            set_cookie_headers = response.headers.get_all("Set-Cookie", [])
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Firebase session exchange returned {exc.code}: {_safe_body_summary(body)}") from exc
+    except URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"Firebase session exchange failed: {reason}") from exc
+
+    for header in set_cookie_headers:
+        cookie = SimpleCookie()
+        cookie.load(header)
+        morsel = cookie.get("kresco_token")
+        if morsel is not None and morsel.value:
+            return morsel.value
+    raise RuntimeError("Firebase session exchange did not return an app session cookie.")
+
+
 def _redact_json(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -535,10 +579,15 @@ def main(argv: list[str] | None = None) -> int:
         args.firebase_api_key.strip() or args.auth_email.strip() or args.auth_password
     ):
         try:
-            auth_token = _mint_firebase_id_token(
+            firebase_id_token = _mint_firebase_id_token(
                 firebase_api_key=args.firebase_api_key,
                 auth_email=args.auth_email,
                 auth_password=args.auth_password,
+                timeout_seconds=args.timeout_seconds,
+            )
+            auth_token = _exchange_firebase_session_token(
+                backend_url=args.backend_url,
+                firebase_id_token=firebase_id_token,
                 timeout_seconds=args.timeout_seconds,
             )
         except Exception as exc:
