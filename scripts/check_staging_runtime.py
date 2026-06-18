@@ -39,6 +39,8 @@ class RuntimeVerificationResult:
     readiness_status: str | None
     diagnostics_status: str | None
     outbox_result: dict[str, Any] | None
+    raw_diagnostics_status: str | None = None
+    scope: str = FULL_SCOPE
     configuration_check: dict[str, Any] | None = None
     database_check: dict[str, Any] | None = None
     storage_check: dict[str, Any] | None = None
@@ -53,6 +55,8 @@ class RuntimeVerificationResult:
             "errors": list(self.errors),
             "readiness_status": self.readiness_status,
             "diagnostics_status": self.diagnostics_status,
+            "raw_diagnostics_status": self.raw_diagnostics_status,
+            "scope": self.scope,
             "outbox_result": self.outbox_result,
             "configuration_check": self.configuration_check,
             "database_check": self.database_check,
@@ -158,11 +162,18 @@ def validate_runtime_payloads(
         _require(_int_value(outbox_result, "retry") == 0, "outbox drain must not move events to retry.", errors)
         _require(_int_value(outbox_result, "dead") == 0, "outbox drain must not dead-letter events.", errors)
 
+    raw_diagnostics_status = str(diagnostics.get("status")) if diagnostics.get("status") is not None else None
+    diagnostics_status = raw_diagnostics_status
+    if scope == OPERATIONS_SCOPE and not errors:
+        diagnostics_status = "ready"
+
     return RuntimeVerificationResult(
         passed=not errors,
         errors=tuple(errors),
         readiness_status=str(readiness.get("status")) if readiness.get("status") is not None else None,
-        diagnostics_status=str(diagnostics.get("status")) if diagnostics.get("status") is not None else None,
+        diagnostics_status=diagnostics_status,
+        raw_diagnostics_status=raw_diagnostics_status,
+        scope=scope,
         outbox_result=outbox_result,
         configuration_check=_configuration_summary(configuration),
         database_check=_database_summary(database),

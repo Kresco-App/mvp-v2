@@ -220,6 +220,9 @@ def test_staging_runtime_verifier_operations_scope_ignores_provider_only_errors(
 
     assert result.passed is True
     assert result.errors == ()
+    assert result.scope == "operations"
+    assert result.diagnostics_status == "ready"
+    assert result.raw_diagnostics_status == "not_ready"
     assert result.payment_check == {
         "status": "error",
         "cmi_client_id_configured": False,
