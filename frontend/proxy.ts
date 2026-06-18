@@ -67,18 +67,34 @@ function getContentSecurityPolicyTemplate() {
   const apiOrigin = absoluteOrigin(process.env.NEXT_PUBLIC_API_BASE_URL) ?? (apiBase || null)
   const apiNetworkOrigin = absoluteOrigin(apiBase)
   const firebaseOrigin = firebaseAuthOrigin()
+  const allowDevOverlayStyles = process.env.NODE_ENV === 'development'
   const devConnectSources = isDevelopment
     ? ['http://localhost:*', 'http://127.0.0.1:*', 'ws://localhost:*', 'ws://127.0.0.1:*']
     : []
   const devImageSources = isDevelopment ? ['http://localhost:*', 'http://127.0.0.1:*'] : []
   const devScriptSources = isDevelopment ? ["'unsafe-eval'"] : []
+  const devStyleSources = allowDevOverlayStyles ? ["'unsafe-inline'"] : []
+  const styleElemIntegritySources = allowDevOverlayStyles
+    ? []
+    : [
+      "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='",
+      "'sha256-CIxDM5jnsGiKqXs2v7NKCY5MzdR9gu6TtiMJrDw29AY='",
+    ]
+  const styleAttrSource = allowDevOverlayStyles ? "'unsafe-inline'" : "'none'"
+  const styleSources = uniqueSources(["'self'", 'https://accounts.google.com', ...devStyleSources])
+  const styleElemSources = uniqueSources([
+    "'self'",
+    ...styleElemIntegritySources,
+    'https://accounts.google.com',
+    ...devStyleSources,
+  ])
 
   const value = normalizeCsp([
     "default-src 'self'",
-    `script-src 'self' 'nonce-${CSP_NONCE_PLACEHOLDER}' https://accounts.google.com https://player.vdocipher.com ${devScriptSources.join(' ')}`,
-    "style-src 'self' https://accounts.google.com",
-    "style-src-elem 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=' 'sha256-CIxDM5jnsGiKqXs2v7NKCY5MzdR9gu6TtiMJrDw29AY=' https://accounts.google.com",
-    "style-src-attr 'none'",
+    `script-src 'self' 'nonce-${CSP_NONCE_PLACEHOLDER}' https://accounts.google.com https://apis.google.com https://player.vdocipher.com ${devScriptSources.join(' ')}`,
+    `style-src ${styleSources.join(' ')}`,
+    `style-src-elem ${styleElemSources.join(' ')}`,
+    `style-src-attr ${styleAttrSource}`,
     `connect-src ${uniqueSources([
       "'self'",
       apiOrigin ?? '',

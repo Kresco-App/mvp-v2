@@ -181,6 +181,7 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'script-src')).not.toContain("'strict-dynamic'")
     expect(cspDirective(csp, 'script-src')).toMatch(/'nonce-[^']+'/)
     expect(cspDirective(csp, 'script-src')).toContain('https://accounts.google.com')
+    expect(cspDirective(csp, 'script-src')).toContain('https://apis.google.com')
     expect(cspDirective(csp, 'script-src')).toContain('https://player.vdocipher.com')
     expect(cspDirective(csp, 'script-src')).not.toContain("'unsafe-inline'")
     expect(cspDirective(csp, 'style-src')).toContain('https://accounts.google.com')
@@ -300,6 +301,33 @@ describe('Next proxy auth boundary', () => {
       // the cross-site staging backend (that path also breaks SameSite=Lax cookie auth).
       expect(cspDirective(csp, 'connect-src')).not.toContain('https://staging-api.invalid')
       expect(cspDirective(csp, 'connect-src')).toContain("'self'")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('allows Next development overlay styles only in development CSP', () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    try {
+      const csp = buildContentSecurityPolicy('test-nonce')
+
+      expect(cspDirective(csp, 'style-src')).toContain("'unsafe-inline'")
+      expect(cspDirective(csp, 'style-src-elem')).toContain("'unsafe-inline'")
+      expect(cspDirective(csp, 'style-src-elem')).not.toContain("'sha256-")
+      expect(cspDirective(csp, 'style-src-attr')).toBe("style-src-attr 'unsafe-inline'")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('keeps production CSP style directives strict', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      const csp = buildContentSecurityPolicy('test-nonce')
+
+      expect(cspDirective(csp, 'style-src')).not.toContain("'unsafe-inline'")
+      expect(cspDirective(csp, 'style-src-elem')).not.toContain("'unsafe-inline'")
+      expect(cspDirective(csp, 'style-src-attr')).toBe("style-src-attr 'none'")
     } finally {
       vi.unstubAllEnvs()
     }
