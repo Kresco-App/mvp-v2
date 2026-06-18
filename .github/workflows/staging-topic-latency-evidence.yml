@@ -43,6 +43,18 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Resolve Firebase public API key
+        run: |
+          set -euo pipefail
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          firebase_api_key="$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY // empty' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -n "$firebase_api_key" ]; then
+            echo "::add-mask::$firebase_api_key"
+          fi
+          echo "FIREBASE_API_KEY=$firebase_api_key" >> "$GITHUB_ENV"
+
       - name: Prepare evidence directory
         run: mkdir -p "$EVIDENCE_DIR"
 
@@ -50,10 +62,11 @@ jobs:
         env:
           staging_topic_id: ${{ vars.STAGING_TOPIC_ID }}
           staging_topic_search_query: ${{ vars.STAGING_TOPIC_SEARCH_QUERY }}
-          staging_topic_auth_token: ${{ secrets.STAGING_TOPIC_AUTH_TOKEN }}
+          STAGING_AUTH_SMOKE_EMAIL: ${{ secrets.STAGING_AUTH_SMOKE_EMAIL }}
+          STAGING_AUTH_SMOKE_PASSWORD: ${{ secrets.STAGING_AUTH_SMOKE_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "$staging_topic_id" ] || [ -z "$staging_topic_auth_token" ] || [ -z "$staging_topic_search_query" ]; then
+          if [ -z "$staging_topic_id" ] || [ -z "$STAGING_AUTH_SMOKE_EMAIL" ] || [ -z "$STAGING_AUTH_SMOKE_PASSWORD" ] || [ -z "$staging_topic_search_query" ] || [ -z "$FIREBASE_API_KEY" ]; then
             python scripts/run_evidence_command.py \
               --name staging-topic-latency \
               --output "$EVIDENCE_DIR/topic-latency.json" \
@@ -62,7 +75,9 @@ jobs:
               python scripts/check_staging_topic_latency.py \
                 --backend-url "https://staging-preflight.invalid" \
                 --topic-id "$staging_topic_id" \
-                --auth-token "$staging_topic_auth_token" \
+                --firebase-api-key "$FIREBASE_API_KEY" \
+                --auth-email "$STAGING_AUTH_SMOKE_EMAIL" \
+                --auth-password "$STAGING_AUTH_SMOKE_PASSWORD" \
                 --search-query "$staging_topic_search_query" \
                 --contract \
                 --json
@@ -102,7 +117,9 @@ jobs:
             python scripts/check_staging_topic_latency.py \
               --backend-url "$backend_url" \
               --topic-id "$staging_topic_id" \
-              --auth-token "$staging_topic_auth_token" \
+              --firebase-api-key "$FIREBASE_API_KEY" \
+              --auth-email "$STAGING_AUTH_SMOKE_EMAIL" \
+              --auth-password "$STAGING_AUTH_SMOKE_PASSWORD" \
               --search-query "$staging_topic_search_query" \
               --samples "${{ inputs.samples }}" \
               --warmups "${{ inputs.warmups }}" \

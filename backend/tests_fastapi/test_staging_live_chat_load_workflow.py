@@ -19,6 +19,9 @@ def test_staging_live_chat_load_workflow_collects_redacted_artifact():
     assert "workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow
     assert "service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" in workflow
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "Resolve Firebase public API key" in workflow
+    assert "gcloud secrets versions access latest" in workflow
+    assert "FIREBASE_API_KEY=$firebase_api_key" in workflow
     assert 'gcloud sql instances patch "$CLOUD_SQL_INSTANCE"' in workflow
     assert "--activation-policy ALWAYS" in workflow
     assert "--activation-policy NEVER" in workflow
@@ -30,14 +33,18 @@ def test_staging_live_chat_load_workflow_collects_redacted_artifact():
     assert "--name staging-live-chat-load" in workflow
     assert "--output \"$EVIDENCE_DIR/live-chat-load.json\"" in workflow
     assert "--require-json" in workflow
-    assert "[ -z \"$staging_live_chat_auth_token\" ]" in workflow
+    assert "[ -z \"$STAGING_AUTH_SMOKE_EMAIL\" ] || [ -z \"$STAGING_AUTH_SMOKE_PASSWORD\" ] || [ -z \"$FIREBASE_API_KEY\" ]" in workflow
     assert "--contract" in workflow
     assert "python scripts/check_staging_live_chat_load.py" in workflow
     assert "--backend-url \"$backend_url\"" in workflow
-    assert "--auth-token \"$staging_live_chat_auth_token\"" in workflow
+    assert "--firebase-api-key \"$FIREBASE_API_KEY\"" in workflow
+    assert "--auth-email \"$STAGING_AUTH_SMOKE_EMAIL\"" in workflow
+    assert "--auth-password \"$STAGING_AUTH_SMOKE_PASSWORD\"" in workflow
     assert "--live-session-id \"$staging_live_session_id\"" in workflow
     assert "--conversation-id \"$staging_chat_conversation_id\"" in workflow
-    assert "secrets.STAGING_LIVE_CHAT_AUTH_TOKEN" in workflow
+    assert "secrets.STAGING_AUTH_SMOKE_EMAIL" in workflow
+    assert "secrets.STAGING_AUTH_SMOKE_PASSWORD" in workflow
+    assert "STAGING_LIVE_CHAT_AUTH_TOKEN" not in workflow
     assert "vars.STAGING_LIVE_SESSION_ID" in workflow
     assert "vars.STAGING_CHAT_CONVERSATION_ID" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
@@ -50,5 +57,5 @@ def test_staging_live_chat_load_workflow_keeps_secret_out_of_job_env():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     job_env_block = workflow.split("\n    steps:", maxsplit=1)[0]
 
-    assert "secrets.STAGING_LIVE_CHAT_AUTH_TOKEN" not in job_env_block
-    assert "staging_live_chat_auth_token" not in job_env_block
+    assert "secrets.STAGING_AUTH_SMOKE_EMAIL" not in job_env_block
+    assert "secrets.STAGING_AUTH_SMOKE_PASSWORD" not in job_env_block

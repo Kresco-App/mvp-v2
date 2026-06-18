@@ -373,12 +373,7 @@ def _missing_inputs(*, backend_url: str, auth_token: str) -> tuple[str, ...]:
 
 
 def _contract_result(missing_inputs: tuple[str, ...]) -> LiveChatLoadResult:
-    required_inputs = (
-        "STAGING_BACKEND_URL or --backend-url",
-        "STAGING_LIVE_CHAT_AUTH_TOKEN or --auth-token",
-        "Optional: STAGING_LIVE_SESSION_ID or --live-session-id",
-        "Optional: STAGING_CHAT_CONVERSATION_ID or --conversation-id",
-    )
+    required_inputs = _required_inputs()
     detail = ", ".join(missing_inputs) if missing_inputs else "contract mode requested"
     return LiveChatLoadResult(
         passed=False,
@@ -386,6 +381,25 @@ def _contract_result(missing_inputs: tuple[str, ...]) -> LiveChatLoadResult:
         errors=(f"Staging live/chat load evidence was not collected; missing inputs: {detail}.",),
         probes=(),
         required_inputs=required_inputs,
+    )
+
+
+def _required_inputs() -> tuple[str, ...]:
+    return (
+        "STAGING_BACKEND_URL or --backend-url",
+        "STAGING_AUTH_SMOKE_EMAIL/PASSWORD plus FIREBASE_API_KEY, or --auth-token",
+        "Optional: STAGING_LIVE_SESSION_ID or --live-session-id",
+        "Optional: STAGING_CHAT_CONVERSATION_ID or --conversation-id",
+    )
+
+
+def _auth_contract_error(message: str) -> LiveChatLoadResult:
+    return LiveChatLoadResult(
+        passed=False,
+        mode="contract",
+        errors=(message,),
+        probes=(),
+        required_inputs=_required_inputs(),
     )
 
 
@@ -427,6 +441,58 @@ def _backend_url_errors(backend_url: str) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def _mint_firebase_id_token(
+    *,
+    firebase_api_key: str,
+    auth_email: str,
+    auth_password: str,
+    timeout_seconds: int,
+    opener: OpenUrl = urlopen,
+) -> str:
+    missing: list[str] = []
+    if not firebase_api_key.strip():
+        missing.append("FIREBASE_API_KEY")
+    if not auth_email.strip():
+        missing.append("STAGING_AUTH_SMOKE_EMAIL")
+    if not auth_password:
+        missing.append("STAGING_AUTH_SMOKE_PASSWORD")
+    if missing:
+        raise ValueError("Firebase password sign-in needs " + ", ".join(missing) + ".")
+
+    sign_in_url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?" + urlencode(
+        {"key": firebase_api_key.strip()}
+    )
+    request = Request(
+        sign_in_url,
+        data=json.dumps({
+            "email": auth_email.strip(),
+            "password": auth_password,
+            "returnSecureToken": True,
+        }).encode("utf-8"),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "kresco-staging-live-chat-load/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with opener(request, timeout=timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Firebase password sign-in returned {exc.code}: {_safe_body_summary(body)}") from exc
+    except URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"Firebase password sign-in failed: {reason}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("Firebase password sign-in response must be an object.")
+    id_token = payload.get("idToken")
+    if not isinstance(id_token, str) or not id_token:
+        raise RuntimeError("Firebase password sign-in did not return an ID token.")
+    return id_token
+
+
 def _redact_json(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -449,6 +515,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--backend-url", default=os.environ.get("STAGING_BACKEND_URL", ""))
     parser.add_argument("--auth-token", default=os.environ.get("STAGING_LIVE_CHAT_AUTH_TOKEN", ""))
+    parser.add_argument("--firebase-api-key", default=os.environ.get("FIREBASE_API_KEY", ""))
+    parser.add_argument("--auth-email", default=os.environ.get("STAGING_AUTH_SMOKE_EMAIL", ""))
+    parser.add_argument("--auth-password", default=os.environ.get("STAGING_AUTH_SMOKE_PASSWORD", ""))
     parser.add_argument("--auth-header", default=os.environ.get("STAGING_AUTH_HEADER", "Authorization"))
     parser.add_argument("--auth-scheme", default=os.environ.get("STAGING_AUTH_SCHEME", "Bearer"))
     parser.add_argument("--live-session-id", default=os.environ.get("STAGING_LIVE_SESSION_ID", ""))
@@ -461,9 +530,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Print redacted machine-readable evidence.")
     args = parser.parse_args(argv)
 
+    auth_token = args.auth_token.strip()
+    if not args.contract and not auth_token and (
+        args.firebase_api_key.strip() or args.auth_email.strip() or args.auth_password
+    ):
+        try:
+            auth_token = _mint_firebase_id_token(
+                firebase_api_key=args.firebase_api_key,
+                auth_email=args.auth_email,
+                auth_password=args.auth_password,
+                timeout_seconds=args.timeout_seconds,
+            )
+        except Exception as exc:
+            result = _auth_contract_error(str(exc))
+            if args.json:
+                print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            else:
+                _print_human_result(result)
+            return 1
+
     result = measure_live_chat_load(
         backend_url=args.backend_url,
-        auth_token=args.auth_token,
+        auth_token=auth_token,
         auth_header=args.auth_header,
         auth_scheme=args.auth_scheme,
         live_session_id=args.live_session_id,

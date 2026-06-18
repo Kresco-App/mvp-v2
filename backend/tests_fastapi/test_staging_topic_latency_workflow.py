@@ -19,6 +19,9 @@ def test_staging_topic_latency_workflow_collects_redacted_artifact():
     assert "workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow
     assert "service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" in workflow
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "Resolve Firebase public API key" in workflow
+    assert "gcloud secrets versions access latest" in workflow
+    assert "FIREBASE_API_KEY=$firebase_api_key" in workflow
     assert 'gcloud sql instances patch "$CLOUD_SQL_INSTANCE"' in workflow
     assert "--activation-policy ALWAYS" in workflow
     assert "--activation-policy NEVER" in workflow
@@ -30,14 +33,18 @@ def test_staging_topic_latency_workflow_collects_redacted_artifact():
     assert "--name staging-topic-latency" in workflow
     assert "--output \"$EVIDENCE_DIR/topic-latency.json\"" in workflow
     assert "--require-json" in workflow
-    assert "[ -z \"$staging_topic_id\" ] || [ -z \"$staging_topic_auth_token\" ] || [ -z \"$staging_topic_search_query\" ]" in workflow
+    assert "[ -z \"$staging_topic_id\" ] || [ -z \"$STAGING_AUTH_SMOKE_EMAIL\" ] || [ -z \"$STAGING_AUTH_SMOKE_PASSWORD\" ] || [ -z \"$staging_topic_search_query\" ] || [ -z \"$FIREBASE_API_KEY\" ]" in workflow
     assert "--contract" in workflow
     assert "python scripts/check_staging_topic_latency.py" in workflow
     assert "--backend-url \"$backend_url\"" in workflow
     assert "--topic-id \"$staging_topic_id\"" in workflow
-    assert "--auth-token \"$staging_topic_auth_token\"" in workflow
+    assert "--firebase-api-key \"$FIREBASE_API_KEY\"" in workflow
+    assert "--auth-email \"$STAGING_AUTH_SMOKE_EMAIL\"" in workflow
+    assert "--auth-password \"$STAGING_AUTH_SMOKE_PASSWORD\"" in workflow
     assert "--search-query \"$staging_topic_search_query\"" in workflow
-    assert "secrets.STAGING_TOPIC_AUTH_TOKEN" in workflow
+    assert "secrets.STAGING_AUTH_SMOKE_EMAIL" in workflow
+    assert "secrets.STAGING_AUTH_SMOKE_PASSWORD" in workflow
+    assert "STAGING_TOPIC_AUTH_TOKEN" not in workflow
     assert "vars.STAGING_TOPIC_ID" in workflow
     assert "vars.STAGING_TOPIC_SEARCH_QUERY" in workflow
     assert "uses: actions/upload-artifact@v4" in workflow
@@ -50,5 +57,5 @@ def test_staging_topic_latency_workflow_keeps_secret_out_of_job_env():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     job_env_block = workflow.split("\n    steps:", maxsplit=1)[0]
 
-    assert "secrets.STAGING_TOPIC_AUTH_TOKEN" not in job_env_block
-    assert "staging_topic_auth_token" not in job_env_block
+    assert "secrets.STAGING_AUTH_SMOKE_EMAIL" not in job_env_block
+    assert "secrets.STAGING_AUTH_SMOKE_PASSWORD" not in job_env_block

@@ -43,17 +43,30 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Resolve Firebase public API key
+        run: |
+          set -euo pipefail
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          firebase_api_key="$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY // empty' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -n "$firebase_api_key" ]; then
+            echo "::add-mask::$firebase_api_key"
+          fi
+          echo "FIREBASE_API_KEY=$firebase_api_key" >> "$GITHUB_ENV"
+
       - name: Prepare evidence directory
         run: mkdir -p "$EVIDENCE_DIR"
 
       - name: Collect live chat load evidence
         env:
-          staging_live_chat_auth_token: ${{ secrets.STAGING_LIVE_CHAT_AUTH_TOKEN }}
+          STAGING_AUTH_SMOKE_EMAIL: ${{ secrets.STAGING_AUTH_SMOKE_EMAIL }}
+          STAGING_AUTH_SMOKE_PASSWORD: ${{ secrets.STAGING_AUTH_SMOKE_PASSWORD }}
           staging_live_session_id: ${{ vars.STAGING_LIVE_SESSION_ID }}
           staging_chat_conversation_id: ${{ vars.STAGING_CHAT_CONVERSATION_ID }}
         run: |
           set -euo pipefail
-          if [ -z "$staging_live_chat_auth_token" ]; then
+          if [ -z "$STAGING_AUTH_SMOKE_EMAIL" ] || [ -z "$STAGING_AUTH_SMOKE_PASSWORD" ] || [ -z "$FIREBASE_API_KEY" ]; then
             python scripts/run_evidence_command.py \
               --name staging-live-chat-load \
               --output "$EVIDENCE_DIR/live-chat-load.json" \
@@ -61,7 +74,9 @@ jobs:
               -- \
               python scripts/check_staging_live_chat_load.py \
                 --backend-url "https://staging-preflight.invalid" \
-                --auth-token "$staging_live_chat_auth_token" \
+                --firebase-api-key "$FIREBASE_API_KEY" \
+                --auth-email "$STAGING_AUTH_SMOKE_EMAIL" \
+                --auth-password "$STAGING_AUTH_SMOKE_PASSWORD" \
                 --live-session-id "$staging_live_session_id" \
                 --conversation-id "$staging_chat_conversation_id" \
                 --contract \
@@ -101,7 +116,9 @@ jobs:
             -- \
             python scripts/check_staging_live_chat_load.py \
               --backend-url "$backend_url" \
-              --auth-token "$staging_live_chat_auth_token" \
+              --firebase-api-key "$FIREBASE_API_KEY" \
+              --auth-email "$STAGING_AUTH_SMOKE_EMAIL" \
+              --auth-password "$STAGING_AUTH_SMOKE_PASSWORD" \
               --live-session-id "$staging_live_session_id" \
               --conversation-id "$staging_chat_conversation_id" \
               --samples "${{ inputs.samples }}" \

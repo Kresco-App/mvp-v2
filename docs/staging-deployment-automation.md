@@ -55,11 +55,11 @@ Required for topic latency evidence:
 
 - `STAGING_TOPIC_ID` GitHub Environment var.
 - `STAGING_TOPIC_SEARCH_QUERY` GitHub Environment var.
-- `STAGING_TOPIC_AUTH_TOKEN` GitHub Environment secret for a staging student with access to that topic.
+- `STAGING_AUTH_SMOKE_EMAIL` and `STAGING_AUTH_SMOKE_PASSWORD` GitHub Environment secrets for a Firebase staging student with access to that topic. The workflow mints a fresh Firebase ID token at runtime; do not store expiring ID tokens as secrets.
 
 Required for live/chat load evidence:
 
-- `STAGING_LIVE_CHAT_AUTH_TOKEN` GitHub Environment secret for a staging student with live/chat access.
+- `STAGING_AUTH_SMOKE_EMAIL` and `STAGING_AUTH_SMOKE_PASSWORD` GitHub Environment secrets for a Firebase staging student with live/chat access.
 - Optional `STAGING_LIVE_SESSION_ID` and `STAGING_CHAT_CONVERSATION_ID` GitHub Environment vars. If absent, the checker discovers IDs from the student's accessible lists.
 
 ## Verified Staging Access

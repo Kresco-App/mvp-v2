@@ -127,6 +127,7 @@ def test_live_chat_load_fails_closed_without_required_inputs():
     assert result.passed is False
     assert result.mode == "contract"
     assert "STAGING_BACKEND_URL or --backend-url" in result.required_inputs
+    assert "STAGING_AUTH_SMOKE_EMAIL/PASSWORD plus FIREBASE_API_KEY, or --auth-token" in result.required_inputs
     assert called is False
 
 
