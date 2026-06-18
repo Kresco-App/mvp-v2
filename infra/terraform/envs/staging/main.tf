@@ -66,6 +66,7 @@ module "github_oidc" {
     "roles/artifactregistry.writer",
     "roles/cloudbuild.builds.editor",
     "roles/cloudsql.admin",
+    "roles/datastore.user",
     "roles/iam.serviceAccountUser",
     "roles/run.admin",
     "roles/secretmanager.admin",

@@ -24,6 +24,7 @@ jobs:
       PROJECT_ID: kresco-staging
       REGION: europe-southwest1
       BACKEND_SERVICE: kresco-backend-staging
+      CLOUD_SQL_INSTANCE: kresco-staging-postgres
       EVIDENCE_DIR: artifacts/staging-live-chat-load
     steps:
       - name: Checkout code
@@ -48,6 +49,29 @@ jobs:
           staging_chat_conversation_id: ${{ vars.STAGING_CHAT_CONVERSATION_ID }}
         run: |
           set -euo pipefail
+          cleanup() {
+            gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+              --project "$PROJECT_ID" \
+              --activation-policy NEVER \
+              --quiet || true
+          }
+          trap cleanup EXIT
+          gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --activation-policy ALWAYS \
+            --quiet
+          for attempt in {1..90}; do
+            state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project "$PROJECT_ID" --format='value(state)')"
+            if [ "$state" = "RUNNABLE" ]; then
+              break
+            fi
+            echo "Waiting for Cloud SQL instance $CLOUD_SQL_INSTANCE to become RUNNABLE; current state=$state"
+            sleep 10
+          done
+          if [ "$state" != "RUNNABLE" ]; then
+            echo "::error::Cloud SQL instance $CLOUD_SQL_INSTANCE did not become RUNNABLE within 15 minutes."
+            exit 1
+          fi
           backend_url="$(gcloud run services describe "$BACKEND_SERVICE" \
             --project "$PROJECT_ID" \
             --region "$REGION" \

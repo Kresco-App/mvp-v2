@@ -57,6 +57,7 @@ These were verified from the workstation on 2026-06-18:
 - Staging GitHub Environment contains the GCP OIDC var names.
 - `github-deployer@kresco-staging.iam.gserviceaccount.com` can be impersonated.
 - The deploy service account can read `gs://kresco-staging-private-media` bucket posture.
+- The deploy service account has `roles/datastore.user` for the Firestore realtime evidence probe.
 - Identity Toolkit API is enabled.
 - Firebase Email/Password and Google providers are enabled.
 - Firebase authorized domains include localhost, Firebase default domains, the staging Cloud Run frontend URL, and `staging.kresco.ma`.
@@ -113,5 +114,6 @@ Mark staging automation complete only after all of this is true:
 7. If `STAGING_AUTH_SMOKE_EMAIL/PASSWORD` are configured, Firebase password sign-in and `/api/auth/firebase-session` both pass.
 8. Cloud SQL is back to `STOPPED` with `activationPolicy=NEVER` after migrations.
 9. Media bucket evidence can read bucket posture and IAM posture.
-10. Terraform `fmt` and `validate` pass for the scaffold.
-11. CMI/VdoCipher/production rows remain explicitly pending until real provider evidence exists.
+10. Firestore realtime fanout evidence can write, read, and delete a synthetic staging probe document.
+11. Terraform `fmt` and `validate` pass for the scaffold.
+12. CMI/VdoCipher/production rows remain explicitly pending until real provider evidence exists.

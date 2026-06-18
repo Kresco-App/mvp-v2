@@ -16,6 +16,12 @@ def test_staging_topic_latency_workflow_collects_redacted_artifact():
     assert "google-github-actions/auth@v2" in workflow
     assert "workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow
     assert "service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" in workflow
+    assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert 'gcloud sql instances patch "$CLOUD_SQL_INSTANCE"' in workflow
+    assert "--activation-policy ALWAYS" in workflow
+    assert "--activation-policy NEVER" in workflow
+    assert 'trap cleanup EXIT' in workflow
+    assert 'state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE"' in workflow
     assert "gcloud run services describe \"$BACKEND_SERVICE\"" in workflow
     assert "--format='value(status.url)'" in workflow
     assert "python scripts/run_evidence_command.py" in workflow
