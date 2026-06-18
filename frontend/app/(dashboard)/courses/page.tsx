@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { motion, useReducedMotion } from 'framer-motion'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { apiDataErrorMessage } from '@/lib/apiData'
@@ -29,11 +30,13 @@ type TopicView = TopicCard & {
 }
 
 const MAX_TOPICS_PER_SECTION = 72
+const courseEase = [0.2, 0.8, 0.2, 1] as const
 
 export default function CoursesPage() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const reduceMotion = useReducedMotion()
   const searchKey = searchParams.toString()
   const routeFilters = useMemo(() => parseCourseFilters(new URLSearchParams(searchKey)), [searchKey])
   const { topics, loading, error } = useCourseTopicsData()
@@ -104,14 +107,33 @@ export default function CoursesPage() {
   }, [topicViews, query, subjectFilter, statusFilter])
 
   const groupedSections = useMemo(() => groupTopicsBySubject(filtered), [filtered])
+  const revealInitial = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }
+  const revealAnimate = reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }
+  const cardInitial = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }
+  const cardAnimate = reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }
 
   return (
     <>
-      <main className="pt-[44px]">
-          <div className="mb-[64px] flex h-[18px] items-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">
+      <motion.main
+        className="pt-[44px]"
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
+        animate={revealAnimate}
+        transition={{ duration: 0.18, ease: courseEase }}
+      >
+          <motion.div
+            className="mb-[64px] flex h-[18px] items-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]"
+            initial={revealInitial}
+            animate={revealAnimate}
+            transition={{ duration: 0.18, delay: 0.02, ease: courseEase }}
+          >
             <span>Sciences Math A</span>
-          </div>
+          </motion.div>
 
+          <motion.div
+            initial={revealInitial}
+            animate={revealAnimate}
+            transition={{ duration: 0.2, delay: 0.05, ease: courseEase }}
+          >
           <FigmaCourseSearchControls
             query={query}
             subject={subjectFilter}
@@ -121,34 +143,59 @@ export default function CoursesPage() {
             onSubjectChange={(value) => updateFilters({ subject: value })}
             onStatusChange={(value) => updateFilters({ status: value })}
           />
+          </motion.div>
 
           {loading ? (
-            <div>
+            <motion.div
+              initial={revealInitial}
+              animate={revealAnimate}
+              transition={{ duration: 0.2, delay: 0.08, ease: courseEase }}
+            >
               <SubjectDividerSkeleton />
               <div className="figma-course-grid">
                 {Array.from({ length: 6 }).map((_, index) => (
-                  <FigmaCourseCardSkeleton key={index} />
+                  <motion.div
+                    key={index}
+                    initial={cardInitial}
+                    animate={cardAnimate}
+                    transition={{ duration: 0.2, delay: 0.08 + Math.min(index * 0.025, 0.15), ease: courseEase }}
+                    className="w-full max-w-[344.33px]"
+                  >
+                    <FigmaCourseCardSkeleton />
+                  </motion.div>
                 ))}
               </div>
-            </div>
+            </motion.div>
           ) : groupedSections.length > 0 ? (
             <div className="grid gap-[54px]">
-              {groupedSections.map((section) => (
-                <section key={section.key}>
+              {groupedSections.map((section, sectionIndex) => (
+                <motion.section
+                  key={section.key}
+                  initial={revealInitial}
+                  animate={revealAnimate}
+                  transition={{ duration: 0.2, delay: 0.08 + Math.min(sectionIndex * 0.035, 0.14), ease: courseEase }}
+                >
                   <SubjectDivider title={section.title} subtitle={section.subtitle} />
                   <div className="figma-course-grid">
                     {section.topics.slice(0, MAX_TOPICS_PER_SECTION).map((topic, index) => (
-                      <FigmaSubjectCourseCard
+                      <motion.div
                         key={topic.id}
-                        index={index}
-                        eyebrow={topic.subject_label}
-                        title={topic.title}
-                        description={topic.description}
-                        progress={topic.progress_pct}
-                        state={topic.state}
-                        href={`/topics/${topic.id}`}
-                        onClick={topic.can_access === false ? () => setPreviewTopic(topic) : undefined}
-                      />
+                        initial={cardInitial}
+                        animate={cardAnimate}
+                        transition={{ duration: 0.2, delay: Math.min(index * 0.018, 0.18), ease: courseEase }}
+                        className="w-full max-w-[344.33px]"
+                      >
+                        <FigmaSubjectCourseCard
+                          index={index}
+                          eyebrow={topic.subject_label}
+                          title={topic.title}
+                          description={topic.description}
+                          progress={topic.progress_pct}
+                          state={topic.state}
+                          href={`/topics/${topic.id}`}
+                          onClick={topic.can_access === false ? () => setPreviewTopic(topic) : undefined}
+                        />
+                      </motion.div>
                     ))}
                   </div>
                   {section.topics.length > MAX_TOPICS_PER_SECTION && (
@@ -156,11 +203,16 @@ export default function CoursesPage() {
                       Showing the first {MAX_TOPICS_PER_SECTION} matching topics. Narrow the search to see a smaller list.
                     </p>
                   )}
-                </section>
+                </motion.section>
               ))}
             </div>
           ) : (
-            <section className="grid min-h-[327.5px] max-w-[1060.99px] place-items-center rounded-[16px] border-2 border-dashed border-[#e4e4e7] bg-white px-8 text-center">
+            <motion.section
+              className="grid min-h-[327.5px] max-w-[1060.99px] place-items-center rounded-[16px] border-2 border-dashed border-[#e4e4e7] bg-white px-8 text-center"
+              initial={revealInitial}
+              animate={revealAnimate}
+              transition={{ duration: 0.2, delay: 0.08, ease: courseEase }}
+            >
               <div>
                 <p className="m-0 text-[18px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">No courses found</p>
                 <p className="m-0 mt-2 text-[15px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">Try another search or subject filter.</p>
@@ -172,9 +224,9 @@ export default function CoursesPage() {
                   Reset filters
                 </button>
               </div>
-            </section>
+            </motion.section>
           )}
-      </main>
+      </motion.main>
 
       {previewTopic && <LockedTopicPreview topic={previewTopic} onClose={() => setPreviewTopic(null)} />}
     </>

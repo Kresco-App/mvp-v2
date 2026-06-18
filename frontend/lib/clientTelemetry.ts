@@ -3,6 +3,7 @@ import { getBackendUrl } from '@/lib/apiConfig'
 type ClientErrorSource =
   | 'react-error-boundary'
   | 'next-segment-error'
+  | 'next-global-error'
   | 'window-error'
   | 'unhandled-rejection'
 

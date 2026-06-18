@@ -36,10 +36,13 @@ import {
   type PermanentSidebarSection,
   type PermanentSidebarStrikeDay,
 } from '@/lib/permanentSidebarViewModel'
-import { FigmaSidebarSkeleton } from './skeletons'
+import { SkeletonBlock } from './skeletons'
 
 const sidebarCalendarSlideTransition = { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] } as const
 const sidebarCalendarDayTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.72 } as const
+const sidebarSectionTransition = { duration: 0.18, ease: [0.2, 0.8, 0.2, 1] } as const
+const sidebarSummaryCache = new Map<string, PermanentSidebarData>()
+const sidebarSummaryRequests = new Map<string, Promise<PermanentSidebarData>>()
 
 export type PermanentSidebarProps = {
   data?: PermanentSidebarData
@@ -82,8 +85,10 @@ export function PermanentSidebar({
   sections = permanentSidebarDefaultSections,
   className = '',
 }: PermanentSidebarProps) {
-  const [loadedData, setLoadedData] = useState<PermanentSidebarData | null>(null)
-  const [loading, setLoading] = useState(autoLoad)
+  const [loadedData, setLoadedData] = useState<PermanentSidebarData | null>(() => (
+    autoLoad ? sidebarSummaryCache.get(dataEndpoint) ?? null : null
+  ))
+  const [loading, setLoading] = useState(autoLoad && !sidebarSummaryCache.has(dataEndpoint))
 
   useEffect(() => {
     if (!autoLoad) {
@@ -92,27 +97,13 @@ export function PermanentSidebar({
     }
 
     let alive = true
-    setLoading(true)
+    const cachedData = sidebarSummaryCache.get(dataEndpoint) ?? null
+    if (cachedData) setLoadedData(cachedData)
+    setLoading(!cachedData)
 
-    getJson<PermanentSidebarData>(dataEndpoint)
+    loadPermanentSidebarData(dataEndpoint)
       .then((summaryData) => {
-        if (alive) setLoadedData(toClientSidebarData(summaryData))
-      })
-      .catch(() => {
-        return Promise.allSettled([
-          getJson<FigmaDailyQuest[]>('/progress/daily-quests'),
-          getJson<PermanentSidebarLeaderboardEntry[]>('/progress/leaderboard', { params: { limit: 10 } }),
-          getJson<{ streak_days?: number }>('/progress/xp'),
-        ]).then(([questResult, leaderboardResult, xpResult]) => {
-          if (!alive) return
-          setLoadedData({
-            calendarDays: buildPermanentSidebarCalendarDays(),
-            quests: questResult.status === 'fulfilled' ? questResult.value : [],
-            leaderboardEntries: leaderboardResult.status === 'fulfilled' ? leaderboardResult.value : [],
-            strikeDays: xpResult.status === 'fulfilled' ? buildStrikeDays(xpResult.value?.streak_days ?? 0) : permanentSidebarStrikeDefaults,
-            liveEvents: [],
-          })
-        })
+        if (alive) setLoadedData(summaryData)
       })
       .finally(() => {
         if (alive) setLoading(false)
@@ -143,7 +134,11 @@ export function PermanentSidebar({
       try {
         const result = await postJson<{ xp_awarded?: number }>(`/progress/daily-quests/${quest.id}/claim`)
         const refreshed = await getJson<FigmaDailyQuest[]>('/progress/daily-quests')
-        setLoadedData((prev) => (prev ? { ...prev, quests: refreshed } : prev))
+        setLoadedData((prev) => {
+          const next = { ...(prev ?? sidebarSummaryCache.get(dataEndpoint) ?? {}), quests: refreshed }
+          sidebarSummaryCache.set(dataEndpoint, next)
+          return next
+        })
         toast.success(
           result?.xp_awarded ? `Récompense réclamée : +${result.xp_awarded} XP` : 'Récompense réclamée !',
         )
@@ -153,7 +148,7 @@ export function PermanentSidebar({
         setClaimingQuestId(null)
       }
     },
-    [claimingQuestId],
+    [claimingQuestId, dataEndpoint],
   )
 
   const sidebarData = data ?? loadedData
@@ -164,29 +159,202 @@ export function PermanentSidebar({
   const visibleQuests = useMemo(() => normalizeQuests(quests ?? sidebarData?.quests ?? []), [quests, sidebarData?.quests])
   const sourceLeaderboard = leaderboardEntries ?? sidebarData?.leaderboardEntries ?? []
   const visibleLeaderboard = sourceLeaderboard.length > 0 ? sourceLeaderboard.slice(0, 10) : permanentSidebarLeaderboardDefaults
-  const visibleSections = new Set(sections)
-
-  if (loading && !data && !chronoUnits && !calendarDays && !liveEvents && !strikeDays && !quests && !leaderboardEntries) {
-    return <FigmaSidebarSkeleton sectionTypes={sections} />
-  }
+  const hasDirectSectionData = {
+    chrono: Boolean(chronoUnits),
+    calendar: Boolean(calendarDays || liveEvents),
+    strike: Boolean(strikeDays),
+    quests: Boolean(quests),
+    leaderboard: Boolean(leaderboardEntries),
+  } satisfies Record<PermanentSidebarSection, boolean>
+  const shouldSkeletonSection = (section: PermanentSidebarSection) => (
+    loading && !sidebarData && !hasDirectSectionData[section] && (section === 'quests' || section === 'leaderboard')
+  )
 
   return (
-    <aside className={`flex w-[351px] shrink-0 flex-col items-start gap-[14px] pb-[120px] pt-11 max-[1180px]:hidden ${className}`} aria-label="Permanent sidebar">
-      {visibleSections.has('chrono') && <ChronoCard units={visibleChronoUnits} />}
-      {visibleSections.has('calendar') && (
-        <CalendarCard
-          days={visibleCalendarDays}
-          events={visibleLiveEvents}
-          liveHref={liveHref}
-          windowSize={calendarWindowSize}
-          onDaySelect={onCalendarDaySelect}
-          onWindowChange={onCalendarWindowChange}
-        />
-      )}
-      {visibleSections.has('strike') && <WeeklyStrikeCard days={visibleStrikeDays} onDaySelect={onStrikeDaySelect} />}
-      {visibleSections.has('quests') && <DailyQuestPanel quests={visibleQuests} onQuestSelect={onQuestSelect ?? handleQuestClaim} />}
-      {visibleSections.has('leaderboard') && <LeaderboardPanel entries={visibleLeaderboard} href={leaderboardHref} />}
+    <aside className={`flex w-[351px] shrink-0 flex-col items-start gap-[14px] pb-[120px] pt-11 max-[1180px]:hidden ${className}`} aria-label="Permanent sidebar" aria-busy={loading}>
+      {sections.map((section, index) => (
+        <SidebarSectionSlot key={section} index={index} loading={shouldSkeletonSection(section)} section={section}>
+          {section === 'chrono' && <ChronoCard units={visibleChronoUnits} />}
+          {section === 'calendar' && (
+            <CalendarCard
+              days={visibleCalendarDays}
+              events={visibleLiveEvents}
+              liveHref={liveHref}
+              windowSize={calendarWindowSize}
+              onDaySelect={onCalendarDaySelect}
+              onWindowChange={onCalendarWindowChange}
+            />
+          )}
+          {section === 'strike' && <WeeklyStrikeCard days={visibleStrikeDays} onDaySelect={onStrikeDaySelect} />}
+          {section === 'quests' && <DailyQuestPanel quests={visibleQuests} onQuestSelect={onQuestSelect ?? handleQuestClaim} />}
+          {section === 'leaderboard' && <LeaderboardPanel entries={visibleLeaderboard} href={leaderboardHref} />}
+        </SidebarSectionSlot>
+      ))}
     </aside>
+  )
+}
+
+function loadPermanentSidebarData(dataEndpoint: string) {
+  const existing = sidebarSummaryRequests.get(dataEndpoint)
+  if (existing) return existing
+
+  const request = fetchPermanentSidebarData(dataEndpoint)
+    .then((summaryData) => {
+      sidebarSummaryCache.set(dataEndpoint, summaryData)
+      return summaryData
+    })
+    .finally(() => {
+      sidebarSummaryRequests.delete(dataEndpoint)
+    })
+
+  sidebarSummaryRequests.set(dataEndpoint, request)
+  return request
+}
+
+async function fetchPermanentSidebarData(dataEndpoint: string): Promise<PermanentSidebarData> {
+  try {
+    return toClientSidebarData(await getJson<PermanentSidebarData>(dataEndpoint))
+  } catch {
+    const [questResult, leaderboardResult, xpResult] = await Promise.allSettled([
+      getJson<FigmaDailyQuest[]>('/progress/daily-quests'),
+      getJson<PermanentSidebarLeaderboardEntry[]>('/progress/leaderboard', { params: { limit: 10 } }),
+      getJson<{ streak_days?: number }>('/progress/xp'),
+    ])
+
+    return {
+      calendarDays: buildPermanentSidebarCalendarDays(),
+      quests: questResult.status === 'fulfilled' ? questResult.value : [],
+      leaderboardEntries: leaderboardResult.status === 'fulfilled' ? leaderboardResult.value : [],
+      strikeDays: xpResult.status === 'fulfilled' ? buildStrikeDays(xpResult.value?.streak_days ?? 0) : permanentSidebarStrikeDefaults,
+      liveEvents: [],
+    }
+  }
+}
+
+function SidebarSectionSlot({
+  children,
+  index,
+  loading,
+  section,
+}: {
+  children: ReactNode
+  index: number
+  loading: boolean
+  section: PermanentSidebarSection
+}) {
+  const reduceMotion = useReducedMotion()
+
+  return (
+    <AnimatePresence mode="popLayout" initial={false}>
+      <motion.div
+        key={`${section}-${loading ? 'loading' : 'ready'}`}
+        layout
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
+        animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+        exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+        transition={{ ...sidebarSectionTransition, delay: loading ? 0 : Math.min(index * 0.035, 0.14) }}
+      >
+        {loading ? <PermanentSidebarSectionSkeleton section={section} /> : children}
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+function PermanentSidebarSectionSkeleton({ section }: { section: PermanentSidebarSection }) {
+  return (
+    <section
+      className={`kresco-skeleton-card w-[351px] rounded-2xl border-2 bg-white px-[18px] pb-6 pt-[18px] ${sidebarCardHeightClass(sidebarSkeletonHeight(section))}`}
+      aria-label={`Loading ${section}`}
+    >
+      <SkeletonBlock className="h-[16px] w-28 rounded-[6px]" />
+      <SkeletonBlock className="mt-2 h-[13px] w-44 rounded-[6px]" />
+      <div className="mt-7 grid gap-3">
+        {section === 'leaderboard' ? (
+          <SidebarRowsSkeleton rows={8} avatar="square" />
+        ) : section === 'quests' ? (
+          <SidebarRowsSkeleton rows={3} avatar="round" />
+        ) : section === 'calendar' ? (
+          <CalendarSidebarSkeletonBody />
+        ) : section === 'strike' ? (
+          <StrikeSidebarSkeletonBody />
+        ) : (
+          <ChronoSidebarSkeletonBody />
+        )}
+      </div>
+    </section>
+  )
+}
+
+function sidebarSkeletonHeight(section: PermanentSidebarSection) {
+  if (section === 'calendar') return 415
+  if (section === 'quests') return 305
+  if (section === 'leaderboard') return 663
+  return 157
+}
+
+function SidebarRowsSkeleton({ rows, avatar }: { rows: number; avatar: 'round' | 'square' }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, rowIndex) => (
+        <div className="grid grid-cols-[32px_1fr] gap-4" key={rowIndex}>
+          <SkeletonBlock className={`h-8 w-8 ${avatar === 'round' ? 'rounded-full' : 'rounded-[10px]'}`} />
+          <div>
+            <SkeletonBlock className="h-[13px] w-[78%] rounded-[6px]" />
+            <SkeletonBlock className="mt-3 h-[12px] w-full rounded-[4px]" />
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function ChronoSidebarSkeletonBody() {
+  return (
+    <div className="grid grid-cols-5 gap-1.5">
+      {Array.from({ length: 5 }).map((_, itemIndex) => (
+        <SkeletonBlock className="h-[54px] rounded-lg" key={itemIndex} />
+      ))}
+    </div>
+  )
+}
+
+function StrikeSidebarSkeletonBody() {
+  return (
+    <div className="grid grid-cols-7 gap-1.5">
+      {Array.from({ length: 7 }).map((_, itemIndex) => (
+        <div className="grid justify-items-center gap-2" key={itemIndex}>
+          <SkeletonBlock className="h-[13px] w-7 rounded-[6px]" />
+          <SkeletonBlock className="h-7 w-7 rounded-full" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CalendarSidebarSkeletonBody() {
+  return (
+    <div>
+      <div className="flex h-12 items-center gap-2">
+        <SkeletonBlock className="h-8 w-8 shrink-0 rounded-[10.5px]" />
+        <div className="grid min-w-0 flex-1 grid-cols-5 gap-1.5">
+          {Array.from({ length: 5 }).map((_, itemIndex) => (
+            <SkeletonBlock className="h-12 rounded-lg" key={itemIndex} />
+          ))}
+        </div>
+        <SkeletonBlock className="h-8 w-8 shrink-0 rounded-[10.5px]" />
+      </div>
+      <div className="mt-8 grid gap-2">
+        {Array.from({ length: 2 }).map((_, eventIndex) => (
+          <div className="grid min-h-[62px] grid-cols-[1fr_auto] items-center gap-3 rounded-lg bg-[#f7f8fb] px-3" key={eventIndex}>
+            <span className="grid min-w-0 gap-2">
+              <SkeletonBlock className="h-[14px] w-[72%] rounded-[6px]" />
+              <SkeletonBlock className="h-[12px] w-[44%] rounded-[6px]" />
+            </span>
+            <SkeletonBlock className="h-[12px] w-16 rounded-[6px]" />
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

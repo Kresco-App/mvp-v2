@@ -210,6 +210,78 @@ describe('professor chat SWR data', () => {
     expect(studentSource).toContain('studentProfessorChatUrlStateToSearchParams')
     expect(studentSource).toContain('applyChatUrlState({ conversationId: conversationId ?? null, offeringId: courseOfferingId })')
   })
+
+  it('keeps student chat timestamps visually attached to their message bubble', () => {
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+
+    expect(studentSource).toContain('<span className={`mt-1 block text-[11px] font-bold text-[#a1a1aa]')
+    expect(studentSource).not.toContain('<motion.span layout className={`mt-1 block text-[11px] font-bold text-[#a1a1aa]')
+  })
+
+  it('keeps message action menus from stacking with their trigger button', () => {
+    const professorSource = readFileSync(join(process.cwd(), 'app', 'professor', 'chat', 'page.tsx'), 'utf8')
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+
+    for (const source of [professorSource, studentSource]) {
+      expect(source).toContain('const isMessageMenuOpen = messageMenuId === message.id')
+      expect(source).toContain('data-chat-message-actions')
+      expect(source).toContain("target.closest('[data-chat-message-actions]')")
+      expect(source).toContain('top-0 z-10 grid min-w-28')
+      expect(source).not.toContain('right-0 top-9 z-10 grid min-w-28')
+    }
+  })
+
+  it('keeps professor switching from animating the whole student chat pane sideways', () => {
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+    const chatShellStart = studentSource.indexOf('{chatProfessor ? (')
+    const chatShellEnd = studentSource.indexOf('<div className="w-full max-w-[720px] shrink-0">', chatShellStart)
+    const chatShellOpening = studentSource.slice(chatShellStart, chatShellEnd)
+
+    expect(chatShellStart).toBeGreaterThan(-1)
+    expect(chatShellEnd).toBeGreaterThan(chatShellStart)
+    expect(chatShellOpening).not.toContain('initial={{ opacity: 0 }}')
+    expect(chatShellOpening).not.toContain('animate={{ opacity: 1 }}')
+    expect(chatShellOpening).not.toContain('x:')
+    expect(chatShellOpening).not.toContain('threadSwitchTransition')
+  })
+
+  it('keeps professor switching to a non-motion opacity fade on the student chatbox only', () => {
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+    const chatboxStart = studentSource.indexOf('onSubmit={active ? send : startConversationFromComposer}')
+    const chatboxOpening = studentSource.slice(chatboxStart, studentSource.indexOf('>', chatboxStart))
+
+    expect(chatboxStart).toBeGreaterThan(-1)
+    expect(chatboxOpening).toContain('transition-opacity duration-150 ease-out')
+    expect(studentSource).toContain('const [chatboxVisible, setChatboxVisible] = useState(true)')
+    expect(studentSource).toContain('setChatboxVisible(false)')
+    expect(studentSource).toContain('window.requestAnimationFrame(() => setChatboxVisible(true))')
+    expect(studentSource).not.toContain('key={chatboxKey}')
+    expect(chatboxOpening).not.toContain('<motion.form')
+    expect(chatboxOpening).not.toContain('initial={{ opacity: 0 }}')
+    expect(chatboxOpening).not.toContain('animate={{ opacity: 1 }}')
+    expect(chatboxOpening).not.toContain('layout')
+    expect(chatboxOpening).not.toMatch(/[,{]\s*y\s*:/)
+    expect(chatboxOpening).not.toMatch(/[,{]\s*x\s*:/)
+  })
+
+  it('keeps a subtle top fade on the student message scroller', () => {
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+
+    expect(studentSource).toContain('className="relative mt-6 min-h-0 w-full max-w-[720px] flex-1"')
+    expect(studentSource).toContain('pointer-events-none absolute inset-x-0 top-0 z-20 h-12 bg-gradient-to-b from-white via-white/80 to-transparent')
+    expect(studentSource).toContain('ref={messagesScrollerRef} className="h-full overflow-y-auto overflow-x-hidden pr-1"')
+  })
+
+  it('uses direct message scroller positioning when switching chats', () => {
+    const professorSource = readFileSync(join(process.cwd(), 'app', 'professor', 'chat', 'page.tsx'), 'utf8')
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+
+    for (const source of [professorSource, studentSource]) {
+      expect(source).toContain('scroller.scrollTop = scroller.scrollHeight')
+      expect(source).toContain('olderPaginationSnapshotRef.current = null')
+      expect(source).not.toContain('scrollIntoView')
+    }
+  })
 })
 
 function ChatHarness() {

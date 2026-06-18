@@ -64,6 +64,7 @@ export default function StudentProfessorChatPage() {
   const [retryingMessageIds, setRetryingMessageIds] = useState<Set<number>>(new Set())
   const [visibleMessageCounts, setVisibleMessageCounts] = useState<Record<number, number>>({})
   const [sentMessageStableKeys, setSentMessageStableKeys] = useState<Record<number, number>>({})
+  const [chatboxVisible, setChatboxVisible] = useState(true)
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -140,8 +141,18 @@ export default function StudentProfessorChatPage() {
   }, [messagesError])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages, messagesLoading])
+    if (messageMenuId === null) return
+
+    function closeMessageMenuOnOutsidePointer(event: PointerEvent) {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (target.closest('[data-chat-message-actions]')) return
+      setMessageMenuId(null)
+    }
+
+    document.addEventListener('pointerdown', closeMessageMenuOnOutsidePointer)
+    return () => document.removeEventListener('pointerdown', closeMessageMenuOnOutsidePointer)
+  }, [messageMenuId])
 
   useEffect(() => {
     return () => {
@@ -193,11 +204,17 @@ export default function StudentProfessorChatPage() {
   const chatProfessor = active?.professor ?? selectedThread?.professor ?? null
   const composerOfferingId = active?.course_offering_id ?? selectedThread?.course_offering_id ?? selectedOfferingId
   const pendingConversationId = !active && selectedThread?.conversation?.id ? selectedThread.conversation.id : null
-  const chatShellKey = active
+  const chatboxKey = active
     ? `conversation-${active.id}`
     : selectedThread
       ? `new-conversation-${selectedThread.course_offering_id}`
       : 'new-conversation'
+
+  useLayoutEffect(() => {
+    setChatboxVisible(false)
+    const frame = window.requestAnimationFrame(() => setChatboxVisible(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [chatboxKey])
 
   const prefetchThreadMessages = useCallback((conversationId?: number | null) => {
     if (!conversationId || conversationId === activeId || prefetchedConversationIdsRef.current.has(conversationId)) return
@@ -217,14 +234,18 @@ export default function StudentProfessorChatPage() {
   }, [activeId, mutateSWRCache])
 
   useLayoutEffect(() => {
-    const snapshot = olderPaginationSnapshotRef.current
     const scroller = messagesScrollerRef.current
-    if (!snapshot || !scroller) return
+    if (!scroller) return
 
+    const snapshot = olderPaginationSnapshotRef.current
+    if (!snapshot) {
+      scroller.scrollTop = scroller.scrollHeight
+      return
+    }
     const scrollDelta = scroller.scrollHeight - snapshot.scrollHeight
     scroller.scrollTop = snapshot.scrollTop + scrollDelta
     olderPaginationSnapshotRef.current = null
-  }, [activeId, messageWindow.messages.length])
+  }, [activeId, messagesLoading, messageWindow.messages.length])
 
   useEffect(() => {
     if (!status || statusLoading) return
@@ -557,19 +578,16 @@ export default function StudentProfessorChatPage() {
           <section className="flex h-full min-w-0 flex-1 flex-col items-center">
             <AnimatePresence mode="wait" initial={false}>
               {chatProfessor ? (
-                <motion.div
-                  key={chatShellKey}
+                <div
                   className="flex h-full w-full flex-col items-center"
-                  initial={{ opacity: 0, x: 18 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -14 }}
-                  transition={threadSwitchTransition}
                 >
                 <div className="w-full max-w-[720px] shrink-0">
                   <h1 className="m-0 text-[24px] font-black leading-[1.4] tracking-[0.24px] text-[#3f3f46]">{chatProfessor.full_name}</h1>
                 </div>
-                <div ref={messagesScrollerRef} className="mt-6 w-full max-w-[720px] flex-1 overflow-y-auto overflow-x-hidden scroll-smooth pr-1">
-                  <div className="flex min-h-full flex-col justify-end gap-3">
+                <div className="relative mt-6 min-h-0 w-full max-w-[720px] flex-1">
+                  <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-12 bg-gradient-to-b from-white via-white/80 to-transparent" />
+                  <div ref={messagesScrollerRef} className="h-full overflow-y-auto overflow-x-hidden pr-1">
+                    <div className="flex min-h-full flex-col justify-end gap-3">
                     <AnimatePresence initial={false}>
                       {messagesRefreshing && messages.length > 0 && (
                         <motion.div
@@ -655,6 +673,7 @@ export default function StudentProfessorChatPage() {
                           const isPending = isPendingChatMessage(message)
                           const isFailed = isFailedChatMessage(message)
                           const isSavingEdit = savingEditId === message.id
+                          const isMessageMenuOpen = messageMenuId === message.id
                           const canUseMessageActions = mine && !isEditing && !isPending && !isFailed && !isSavingEdit
                           const canEdit = canUseMessageActions && canEditChatMessage(message.created_at)
                           const bubbleTone = isFailed
@@ -696,19 +715,16 @@ export default function StudentProfessorChatPage() {
                                 )}
                                 <motion.div layout transition={messageMotionTransition} className={`relative max-w-[min(72%,290px)] rounded-b-[12px] border p-3 ${bubbleTone} ${mine ? 'rounded-tl-[12px]' : 'rounded-tr-[12px]'}`}>
                                   {canUseMessageActions && (
-                                    <div className="absolute -left-11 top-1 z-10 opacity-0 transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                                      <motion.button type="button" whileTap={{ scale: 0.96 }} onClick={() => setMessageMenuId((current) => (current === message.id ? null : message.id))} className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]" aria-label="Message actions">
-                                        <MoreHorizontal size={15} />
-                                      </motion.button>
-                                      <AnimatePresence initial={false}>
-                                        {messageMenuId === message.id && (
+                                    <div data-chat-message-actions className={`absolute -left-11 top-1 z-10 h-8 w-8 transition duration-150 ${isMessageMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
+                                      <AnimatePresence mode="wait" initial={false}>
+                                        {isMessageMenuOpen ? (
                                           <motion.div
                                             key="message-menu"
                                             initial={{ opacity: 0, y: -4, scale: 0.98 }}
                                             animate={{ opacity: 1, y: 0, scale: 1 }}
                                             exit={{ opacity: 0, y: -4, scale: 0.98 }}
                                             transition={{ duration: 0.14 }}
-                                            className="absolute right-0 top-9 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]"
+                                            className="absolute right-0 top-0 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]"
                                           >
                                             {canEdit && (
                                               <button type="button" onClick={() => startEditingMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-[#52525c] hover:bg-[#f4f4f5]">
@@ -721,6 +737,17 @@ export default function StudentProfessorChatPage() {
                                               Delete
                                             </button>
                                           </motion.div>
+                                        ) : (
+                                          <motion.button
+                                            key="message-actions"
+                                            type="button"
+                                            whileTap={{ scale: 0.96 }}
+                                            onClick={() => setMessageMenuId(message.id)}
+                                            className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]"
+                                            aria-label="Message actions"
+                                          >
+                                            <MoreHorizontal size={15} />
+                                          </motion.button>
                                         )}
                                       </AnimatePresence>
                                     </div>
@@ -810,7 +837,7 @@ export default function StudentProfessorChatPage() {
                                 {mine && (showAvatar ? <Avatar name={user?.full_name || 'Student'} src={user?.avatar_url} /> : <AvatarSpacer />)}
                               </div>
                               {showTimestamp && (
-                                <motion.span layout className={`mt-1 block text-[11px] font-bold text-[#a1a1aa] ${mine ? 'mr-14' : 'ml-14'}`}>{formatMessageTime(message.created_at)}</motion.span>
+                                <span className={`mt-1 block text-[11px] font-bold text-[#a1a1aa] ${mine ? 'mr-14' : 'ml-14'}`}>{formatMessageTime(message.created_at)}</span>
                               )}
                             </motion.div>
                           )
@@ -818,9 +845,13 @@ export default function StudentProfessorChatPage() {
                       </AnimatePresence>
                     )}
                     <div ref={messagesEndRef} />
+                    </div>
                   </div>
                 </div>
-                <motion.form layout onSubmit={active ? send : startConversationFromComposer} className="mt-6 flex w-full max-w-[720px] shrink-0 flex-col gap-3 rounded-[12px] border border-[#e4e4e7] bg-[#f4f4f5] p-3">
+                <form
+                  onSubmit={active ? send : startConversationFromComposer}
+                  className={`mt-6 flex w-full max-w-[720px] shrink-0 flex-col gap-3 rounded-[12px] border border-[#e4e4e7] bg-[#f4f4f5] p-3 transition-opacity duration-150 ease-out ${chatboxVisible ? 'opacity-100' : 'opacity-0'}`}
+                >
                   <AnimatePresence initial={false}>
                     {selectedImagePreview && (
                       <motion.div
@@ -884,8 +915,8 @@ export default function StudentProfessorChatPage() {
                       {startingConversation && !active ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                     </motion.button>
                   </div>
-                </motion.form>
-                </motion.div>
+                </form>
+                </div>
               ) : (
                 <motion.div
                   key="no-professor-chat-target"

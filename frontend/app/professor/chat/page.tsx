@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Check, ChevronUp, ImageIcon, Loader2, MessageCircle, MoreHorizontal, Pencil, Pin, Search, Send, Star, Trash2, UserRoundCheck, X } from 'lucide-react'
@@ -55,11 +55,13 @@ export default function ProfessorChatPage() {
   const [savingEditId, setSavingEditId] = useState<number | null>(null)
   const [deletingMessageIds, setDeletingMessageIds] = useState<Set<number>>(new Set())
   const [visibleMessageCount, setVisibleMessageCount] = useState(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
+  const messagesScrollerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const imageInputRef = useRef<HTMLInputElement | null>(null)
   const conversationErrorRef = useRef<unknown>(null)
   const messageErrorRef = useRef<unknown>(null)
   const chatUrlStateRef = useRef(routeChatState)
+  const olderPaginationSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
 
   const {
     conversations,
@@ -147,6 +149,20 @@ export default function ProfessorChatPage() {
   }, [messageErrorMessage, messagesError])
 
   useEffect(() => {
+    if (messageMenuId === null) return
+
+    function closeMessageMenuOnOutsidePointer(event: PointerEvent) {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (target.closest('[data-chat-message-actions]')) return
+      setMessageMenuId(null)
+    }
+
+    document.addEventListener('pointerdown', closeMessageMenuOnOutsidePointer)
+    return () => document.removeEventListener('pointerdown', closeMessageMenuOnOutsidePointer)
+  }, [messageMenuId])
+
+  useEffect(() => {
     if (!user?.id) return
     const listener = () => {
       void refreshChat()
@@ -157,10 +173,6 @@ export default function ProfessorChatPage() {
       fallback: { intervalMs: 2500, poll: refreshChat },
     })
   }, [refreshChat, user?.id])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [activeId, messages])
 
   useEffect(() => {
     return () => {
@@ -174,11 +186,32 @@ export default function ProfessorChatPage() {
     [messages, visibleMessageCount],
   )
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setVisibleMessageCount(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT)
   }, [activeId])
 
+  useLayoutEffect(() => {
+    const scroller = messagesScrollerRef.current
+    if (!scroller) return
+
+    const snapshot = olderPaginationSnapshotRef.current
+    if (!snapshot) {
+      scroller.scrollTop = scroller.scrollHeight
+      return
+    }
+    const scrollDelta = scroller.scrollHeight - snapshot.scrollHeight
+    scroller.scrollTop = snapshot.scrollTop + scrollDelta
+    olderPaginationSnapshotRef.current = null
+  }, [activeId, messagesLoading, messageWindow.messages.length])
+
   const showOlderMessages = useCallback(() => {
+    const scroller = messagesScrollerRef.current
+    if (scroller) {
+      olderPaginationSnapshotRef.current = {
+        scrollHeight: scroller.scrollHeight,
+        scrollTop: scroller.scrollTop,
+      }
+    }
     setVisibleMessageCount((current) => nextVisibleChatMessageCount(current, messages.length))
   }, [messages.length])
 
@@ -404,7 +437,7 @@ export default function ProfessorChatPage() {
                     <Pin size={17} />
                   </button>
                 </div>
-                <div className="min-h-0 flex-1 overflow-auto bg-[#fbfbfc] p-5">
+                <div ref={messagesScrollerRef} className="min-h-0 flex-1 overflow-auto bg-[#fbfbfc] p-5">
                   <div className="mx-auto grid max-w-[760px] gap-2">
                     <div className="mb-2 inline-flex w-fit items-center gap-2 rounded-[12px] bg-[#fff7df] px-3 py-2 text-[12px] font-black text-[#7c5200]">
                       <Star size={14} />
@@ -451,18 +484,16 @@ export default function ProfessorChatPage() {
                       const showTimestamp = shouldShowChatTimestamp(messages, index)
                       const isEditing = editingMessageId === message.id
                       const isDeleting = deletingMessageIds.has(message.id)
+                      const isMessageMenuOpen = messageMenuId === message.id
                       const canEdit = mine && canEditChatMessage(message.created_at)
                       return (
                         <div key={message.id} className={`flex transition duration-150 ${showTimestamp ? 'mb-3' : 'mb-0'} ${mine ? 'justify-end' : 'justify-start'} ${isDeleting ? '-translate-y-1 scale-[0.98] opacity-0' : 'translate-y-0 opacity-100'}`}>
                           <div className={`group flex max-w-[72%] items-start ${mine ? 'justify-end' : 'justify-start'}`}>
                             <div className={`relative min-w-0 rounded-[16px] px-4 py-3 ${mine ? 'bg-[#453dee] text-white' : 'border-[2px] border-[#e4e4e7] bg-white text-[#3f3f46]'}`}>
                               {mine && !isEditing && (
-                                <div className="absolute right-[calc(100%+6px)] top-1 z-10 opacity-0 transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                                  <button type="button" onClick={() => setMessageMenuId((current) => (current === message.id ? null : message.id))} className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]" aria-label="Message actions">
-                                    <MoreHorizontal size={15} />
-                                  </button>
-                                  {messageMenuId === message.id && (
-                                    <div className="absolute right-0 top-9 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]">
+                                <div data-chat-message-actions className={`absolute right-[calc(100%+6px)] top-1 z-10 h-8 w-8 transition duration-150 ${isMessageMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
+                                  {isMessageMenuOpen ? (
+                                    <div className="absolute right-0 top-0 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]">
                                       {canEdit && (
                                         <button type="button" onClick={() => startEditingMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-[#52525c] hover:bg-[#f4f4f5]">
                                           <Pencil size={13} />
@@ -474,6 +505,10 @@ export default function ProfessorChatPage() {
                                         Delete
                                       </button>
                                     </div>
+                                  ) : (
+                                    <button type="button" onClick={() => setMessageMenuId(message.id)} className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]" aria-label="Message actions">
+                                      <MoreHorizontal size={15} />
+                                    </button>
                                   )}
                                 </div>
                               )}

@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion'
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
 import {
   Bell,
   BookOpen,
@@ -55,6 +55,7 @@ const topNavIndicatorTransition = { type: 'spring', stiffness: 520, damping: 44,
 export default function TopNav() {
   const pathname = usePathname()
   const router = useRouter()
+  const reduceMotion = useReducedMotion()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -65,11 +66,34 @@ export default function TopNav() {
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [deletingAll, setDeletingAll] = useState(false)
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
   const notificationsRef = useRef<HTMLDivElement | null>(null)
   const navLinks = canUseStudentProfessorChat(user) ? professorStudentLinks : links
 
   function active(href: string | null) {
     return isActiveNavHref(pathname, href, [AUTH_ROUTES.studentHome])
+  }
+
+  useEffect(() => {
+    setPendingHref(null)
+  }, [pathname])
+
+  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string, isActive: boolean) {
+    if (
+      isActive
+      || event.defaultPrevented
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+      || event.button !== 0
+    ) {
+      return
+    }
+
+    setPendingHref(href)
+    setMenuOpen(false)
+    setNotificationsOpen(false)
   }
 
   async function doLogout() {
@@ -234,19 +258,28 @@ export default function TopNav() {
               const isActive = active(href)
               const content = (
                 <>
-                  <Icon size={16} strokeWidth={2.2} />
-                  <span>{label}</span>
+                  {isActive && (
+                    <motion.span
+                      layoutId="top-nav-active-pill"
+                      transition={topNavIndicatorTransition}
+                      className="absolute inset-0 rounded-[14px] bg-[#f0f0ff] shadow-[inset_0_0_0_1px_rgba(91,96,249,0.13)]"
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <Icon size={16} strokeWidth={2.2} />
+                    <span>{label}</span>
+                  </span>
                   {isActive && (
                     <motion.span
                       layoutId="top-nav-active-indicator"
                       transition={topNavIndicatorTransition}
-                      className="absolute bottom-0 left-4 right-4 h-0.5 rounded-full bg-[#3a2fd3]"
+                      className="absolute -bottom-3 left-5 right-5 h-0.5 rounded-full bg-[#3a2fd3]"
                     />
                   )}
                 </>
               )
-              const className = `relative flex h-full shrink-0 items-center justify-center gap-2 px-4 text-[13px] font-black no-underline transition duration-200 ${
-                isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:text-[#3a2fd3]'
+              const className = `relative flex h-10 shrink-0 items-center justify-center gap-2 overflow-visible rounded-[14px] px-3.5 text-[13px] font-black no-underline outline-none transition duration-200 focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 ${
+                isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f7f7ff] hover:text-[#3a2fd3]'
               }`
               if (!href) {
                 return (
@@ -256,7 +289,7 @@ export default function TopNav() {
                 )
               }
               return (
-                <Link key={href} href={href} className={className}>
+                <Link key={href} href={href} onClick={(event) => handleNavClick(event, href, isActive)} aria-current={isActive ? 'page' : undefined} className={className}>
                   {content}
                 </Link>
               )
@@ -471,10 +504,11 @@ export default function TopNav() {
                         >
                           <Link
                             href={href}
-                            onClick={() => setMenuOpen(false)}
+                            onClick={(event) => handleNavClick(event, href, isActive)}
                             className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold no-underline transition hover:-translate-y-px ${
                               isActive ? 'bg-[#f0f0ff] text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
                             }`}
+                            aria-current={isActive ? 'page' : undefined}
                           >
                             <Icon size={15} aria-hidden="true" />
                             {label}
@@ -505,6 +539,29 @@ export default function TopNav() {
           </div>
         </div>
       </div>
+      <AnimatePresence>
+        {pendingHref && (
+          <motion.div
+            key="top-nav-loading-rail"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-0.5 overflow-hidden bg-[#eef0ff]"
+          >
+            {reduceMotion ? (
+              <span className="absolute inset-y-0 left-0 w-full rounded-full bg-[#5b60f9]" />
+            ) : (
+              <motion.span
+                className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-[#5b60f9]"
+                initial={{ x: '-120%' }}
+                animate={{ x: '320%' }}
+                transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </nav>
   )
 }
