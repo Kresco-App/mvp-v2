@@ -1,0 +1,9 @@
+project_id     = "kresco-staging"
+project_number = "760338563763"
+region         = "europe-southwest1"
+
+github_repository = "Kresco-App/mvp-v2"
+
+operator_token_creator_members = [
+  "user:hrayfitools@gmail.com",
+]

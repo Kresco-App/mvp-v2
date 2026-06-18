@@ -11,11 +11,12 @@
 
 ## Deploy
 
-1. Run the backend deploy workflow with production-dark confirmation enabled.
-2. Let the workflow build the backend image, push it to Artifact Registry, deploy the Cloud Run service, execute the migration job, and verify `/ready`.
-3. Run the frontend deploy workflow after the backend URL is known.
-4. Do not attach domains or route users during dark production.
-5. Capture `/ready` and protected `/api/internal/diagnostics` output as launch evidence.
+1. Confirm the latest `Deploy Staging` workflow on `master` passed first.
+2. Run the backend deploy workflow with production-dark confirmation enabled.
+3. Let the workflow build the backend image, push it to Artifact Registry, deploy the Cloud Run service, execute the migration job, and verify `/ready`.
+4. Run the frontend deploy workflow after the backend URL is known.
+5. Do not attach domains or route users during dark production.
+6. Capture `/ready` and protected `/api/internal/diagnostics` output as launch evidence.
 
 ## Monitoring
 

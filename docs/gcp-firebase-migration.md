@@ -74,5 +74,8 @@ cd backend; python -m pytest backend/tests_fastapi/test_image_uploads.py backend
 9. Enable Firebase Auth Google and Email/Password providers, then verify backend token exchange maps Firebase UID to Postgres users.
 10. Verify frontend Firestore listeners through the realtime facade.
 11. Run staging smoke tests for auth, course access, payments, media upload/read, and realtime.
+12. Keep `.github/workflows/deploy-staging.yml` as the staging auto-deploy path from `master`; production stays manual and gated.
 
 Production cutover is blocked until staging proves those flows.
+
+See `docs/staging-deployment-automation.md` for the current staging CI/CD and Terraform import-first workflow.

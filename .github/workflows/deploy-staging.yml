@@ -1,0 +1,152 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+      - "docs/gcp-firebase-migration.md"
+      - "docs/production-runbook.md"
+      - "docs/staging-deployment-automation.md"
+      - "infra/terraform/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  backend-ci:
+    name: Backend CI
+    uses: ./.github/workflows/ci-backend.yml
+
+  frontend-ci:
+    name: Frontend CI
+    uses: ./.github/workflows/ci-frontend.yml
+
+  deploy-backend:
+    name: Deploy Backend
+    needs:
+      - backend-ci
+      - frontend-ci
+    uses: ./.github/workflows/deploy-backend.yml
+    with:
+      environment: staging
+      run_migrations: true
+      confirm_production_dark_deploy: false
+      enforce_production_launch_gate: false
+    secrets: inherit
+
+  deploy-frontend:
+    name: Deploy Frontend
+    needs:
+      - deploy-backend
+    uses: ./.github/workflows/deploy-frontend.yml
+    with:
+      environment: staging
+      confirm_production_dark_deploy: false
+      enforce_production_launch_gate: false
+    secrets: inherit
+
+  staging-smoke:
+    name: Staging Smoke
+    needs:
+      - deploy-backend
+      - deploy-frontend
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      REGION: europe-southwest1
+      CLOUD_SQL_INSTANCE: kresco-staging-postgres
+      BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
+      FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
+      SHORT_SHA: ${{ needs.deploy-backend.outputs.short_sha }}
+      BACKEND_REVISION: ${{ needs.deploy-backend.outputs.backend_revision }}
+      FRONTEND_REVISION: ${{ needs.deploy-frontend.outputs.frontend_revision }}
+      BACKEND_IMAGE: ${{ needs.deploy-backend.outputs.backend_image }}
+      FRONTEND_IMAGE: ${{ needs.deploy-frontend.outputs.frontend_image }}
+      BACKEND_IMAGE_DIGEST: ${{ needs.deploy-backend.outputs.backend_image_digest }}
+      FRONTEND_IMAGE_DIGEST: ${{ needs.deploy-frontend.outputs.frontend_image_digest }}
+      STAGING_AUTH_SMOKE_EMAIL: ${{ secrets.STAGING_AUTH_SMOKE_EMAIL }}
+      STAGING_AUTH_SMOKE_PASSWORD: ${{ secrets.STAGING_AUTH_SMOKE_PASSWORD }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve Firebase public API key
+        run: |
+          set -euo pipefail
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          firebase_api_key="$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY // empty' "$runtime_json")"
+          rm -f "$runtime_json"
+          if [ -n "$firebase_api_key" ]; then
+            echo "::add-mask::$firebase_api_key"
+          fi
+          echo "FIREBASE_API_KEY=$firebase_api_key" >> "$GITHUB_ENV"
+
+      - name: Run staging smoke checks
+        run: |
+          set -euo pipefail
+          cleanup() {
+            gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+              --project "$PROJECT_ID" \
+              --activation-policy NEVER \
+              --quiet || true
+          }
+          trap cleanup EXIT
+          gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --activation-policy ALWAYS \
+            --quiet
+          for attempt in {1..90}; do
+            state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project "$PROJECT_ID" --format='value(state)')"
+            if [ "$state" = "RUNNABLE" ]; then
+              break
+            fi
+            echo "Waiting for Cloud SQL instance $CLOUD_SQL_INSTANCE to become RUNNABLE; current state=$state"
+            sleep 10
+          done
+          if [ "$state" != "RUNNABLE" ]; then
+            echo "::error::Cloud SQL instance $CLOUD_SQL_INSTANCE did not become RUNNABLE within 15 minutes."
+            exit 1
+          fi
+          python scripts/check_staging_deployment.py \
+            --backend-url "$BACKEND_URL" \
+            --frontend-url "$FRONTEND_URL" \
+            --expected-sha "$SHORT_SHA" \
+            --firebase-api-key "$FIREBASE_API_KEY"
+
+      - name: Write staging deployment summary
+        run: |
+          {
+            echo "### Staging deployment"
+            echo ""
+            echo "- Backend URL: $BACKEND_URL"
+            echo "- Frontend URL: $FRONTEND_URL"
+            echo "- Backend revision: $BACKEND_REVISION"
+            echo "- Frontend revision: $FRONTEND_REVISION"
+            echo "- Backend image: $BACKEND_IMAGE"
+            echo "- Frontend image: $FRONTEND_IMAGE"
+            echo "- Backend image digest: ${BACKEND_IMAGE_DIGEST:-not returned}"
+            echo "- Frontend image digest: ${FRONTEND_IMAGE_DIGEST:-not returned}"
+            echo "- Commit: $SHORT_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"

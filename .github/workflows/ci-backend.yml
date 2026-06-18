@@ -1,25 +1,8 @@
 name: Backend CI
 
 on:
+  workflow_call:
   pull_request:
-    paths:
-      - "backend/**"
-      - "scripts/**"
-      - ".gitignore"
-      - ".github/workflows/ci-backend.yml"
-      - ".github/workflows/ci-frontend.yml"
-      - ".github/workflows/deploy-backend.yml"
-      - ".github/workflows/deploy-frontend.yml"
-      - ".github/workflows/staging-provider-diagnostics.yml"
-      - ".github/workflows/staging-launch-evidence.yml"
-      - ".github/workflows/staging-topic-latency-evidence.yml"
-      - ".github/workflows/staging-live-chat-load-evidence.yml"
-      - ".github/workflows/staging-realtime-fanout-evidence.yml"
-      - ".github/workflows/staging-runbook-drill-evidence.yml"
-      - ".github/workflows/production-dark-evidence.yml"
-  push:
-    branches:
-      - master
     paths:
       - "backend/**"
       - "scripts/**"

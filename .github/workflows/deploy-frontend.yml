@@ -1,6 +1,38 @@
 name: Deploy Frontend to Cloud Run
 
 on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: string
+      confirm_production_dark_deploy:
+        description: "Required for production: confirms this is dark production only and no domains/traffic are cut over"
+        required: false
+        default: false
+        type: boolean
+      enforce_production_launch_gate:
+        description: "Set true only for full production cutover after provider rotation evidence is complete"
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      frontend_url:
+        description: "Deployed frontend Cloud Run URL"
+        value: ${{ jobs.deploy.outputs.frontend_url }}
+      frontend_image:
+        description: "Pushed frontend image reference"
+        value: ${{ jobs.deploy.outputs.frontend_image }}
+      frontend_image_digest:
+        description: "Frontend image digest when Artifact Registry returns one"
+        value: ${{ jobs.deploy.outputs.frontend_image_digest }}
+      frontend_revision:
+        description: "Latest ready frontend Cloud Run revision"
+        value: ${{ jobs.deploy.outputs.frontend_revision }}
+      short_sha:
+        description: "Short commit SHA deployed"
+        value: ${{ jobs.deploy.outputs.short_sha }}
   workflow_dispatch:
     inputs:
       environment:
@@ -30,6 +62,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment == 'production' && 'Production' || 'staging' }}
+    outputs:
+      frontend_url: ${{ steps.frontend_outputs.outputs.frontend_url }}
+      frontend_image: ${{ steps.frontend_outputs.outputs.frontend_image }}
+      frontend_image_digest: ${{ steps.frontend_outputs.outputs.frontend_image_digest }}
+      frontend_revision: ${{ steps.frontend_outputs.outputs.frontend_revision }}
+      short_sha: ${{ steps.frontend_outputs.outputs.short_sha }}
     env:
       REGION: europe-southwest1
 
@@ -151,6 +189,8 @@ jobs:
             -t "$image" \
             frontend
           docker push "$image"
+          digest="$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --format='value(image_summary.digest)' 2>/dev/null || true)"
+          echo "FRONTEND_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
 
       - name: Deploy frontend service
         run: |
@@ -164,9 +204,11 @@ jobs:
             --quiet
 
       - name: Verify frontend surface
+        id: frontend_outputs
         run: |
           set -euo pipefail
           url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          revision="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.latestReadyRevisionName)')"
           python - <<'PY'
           import os
           import urllib.request
@@ -181,6 +223,11 @@ jobs:
               raise SystemExit("Frontend release marker mismatch.")
           print(f"Frontend smoke passed for {url}")
           PY
+          echo "frontend_url=$url" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=$FRONTEND_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "frontend_image_digest=$FRONTEND_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "frontend_revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
         env:
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
 

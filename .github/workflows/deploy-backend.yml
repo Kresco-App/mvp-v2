@@ -1,6 +1,43 @@
 name: Deploy Backend to Cloud Run
 
 on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: string
+      run_migrations:
+        description: "Start Cloud SQL, run Alembic job, then stop Cloud SQL again"
+        required: false
+        default: true
+        type: boolean
+      confirm_production_dark_deploy:
+        description: "Required for production: confirms this is dark production only and no domains/traffic are cut over"
+        required: false
+        default: false
+        type: boolean
+      enforce_production_launch_gate:
+        description: "Set true only for full production cutover after provider rotation evidence is complete"
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      backend_url:
+        description: "Deployed backend Cloud Run URL"
+        value: ${{ jobs.deploy.outputs.backend_url }}
+      backend_image:
+        description: "Pushed backend image reference"
+        value: ${{ jobs.deploy.outputs.backend_image }}
+      backend_image_digest:
+        description: "Backend image digest when Artifact Registry returns one"
+        value: ${{ jobs.deploy.outputs.backend_image_digest }}
+      backend_revision:
+        description: "Latest ready backend Cloud Run revision"
+        value: ${{ jobs.deploy.outputs.backend_revision }}
+      short_sha:
+        description: "Short commit SHA deployed"
+        value: ${{ jobs.deploy.outputs.short_sha }}
   workflow_dispatch:
     inputs:
       environment:
@@ -35,6 +72,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment == 'production' && 'Production' || 'staging' }}
+    outputs:
+      backend_url: ${{ steps.backend_outputs.outputs.backend_url }}
+      backend_image: ${{ steps.backend_outputs.outputs.backend_image }}
+      backend_image_digest: ${{ steps.backend_outputs.outputs.backend_image_digest }}
+      backend_revision: ${{ steps.backend_outputs.outputs.backend_revision }}
+      short_sha: ${{ steps.backend_outputs.outputs.short_sha }}
     env:
       REGION: europe-southwest1
       SHORT_SHA: ${{ github.sha }}
@@ -119,6 +162,8 @@ jobs:
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           docker build --pull -t "$image" backend
           docker push "$image"
+          digest="$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --format='value(image_summary.digest)' 2>/dev/null || true)"
+          echo "BACKEND_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
 
       - name: Deploy backend service
         run: |
@@ -192,9 +237,11 @@ jobs:
           PY
 
       - name: Verify backend release health
+        id: backend_outputs
         run: |
           set -euo pipefail
           url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          revision="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.latestReadyRevisionName)')"
           export BACKEND_URL="$url"
           python - <<'PY'
           import json
@@ -209,3 +256,8 @@ jobs:
               raise SystemExit(f"Release mismatch: {body.get('release_sha')} != {os.environ['SHORT_SHA']}")
           print(f"Backend release health passed for {base_url}")
           PY
+          echo "backend_url=$url" >> "$GITHUB_OUTPUT"
+          echo "backend_image=$BACKEND_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "backend_image_digest=$BACKEND_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "backend_revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"

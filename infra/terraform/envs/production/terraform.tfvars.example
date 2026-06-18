@@ -1,0 +1,5 @@
+project_id     = "kresco-prod"
+project_number = "<production-project-number>"
+region         = "europe-southwest1"
+
+github_repository = "Kresco-App/mvp-v2"
