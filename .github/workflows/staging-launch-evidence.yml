@@ -191,12 +191,26 @@ jobs:
           runtime = json.loads((evidence_dir / "media-runtime-config.json").read_text())
           errors = []
           iam_config = bucket.get("iamConfiguration", {})
-          uniform_access = iam_config.get("uniformBucketLevelAccess", {})
-          if uniform_access.get("enabled") is not True:
+          uniform_access = iam_config.get("uniformBucketLevelAccess", {}) if isinstance(iam_config, dict) else {}
+          uniform_access_enabled = (
+              bucket.get("uniform_bucket_level_access") is True
+              or (isinstance(uniform_access, dict) and uniform_access.get("enabled") is True)
+          )
+          public_access_enforced = (
+              bucket.get("public_access_prevention") == "enforced"
+              or (isinstance(iam_config, dict) and iam_config.get("publicAccessPrevention") == "enforced")
+          )
+          lifecycle = bucket.get("lifecycle")
+          lifecycle_config = bucket.get("lifecycle_config")
+          lifecycle_rules_present = (
+              (isinstance(lifecycle, dict) and bool(lifecycle.get("rule")))
+              or (isinstance(lifecycle_config, dict) and bool(lifecycle_config.get("rule")))
+          )
+          if not uniform_access_enabled:
               errors.append("media bucket must enable uniform bucket-level access")
-          if iam_config.get("publicAccessPrevention") != "enforced":
+          if not public_access_enforced:
               errors.append("media bucket publicAccessPrevention must be enforced")
-          if not bucket.get("lifecycle", {}).get("rule"):
+          if not lifecycle_rules_present:
               errors.append("media bucket lifecycle rules are required")
           if runtime.get("prefix_configured") is not True:
               errors.append("MEDIA_GCS_PREFIX must be configured")

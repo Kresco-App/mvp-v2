@@ -101,6 +101,26 @@ def _write_complete_evidence(evidence_dir: Path) -> None:
     )
 
 
+def _write_complete_gcloud_storage_evidence(evidence_dir: Path) -> None:
+    _write_complete_evidence(evidence_dir)
+    _write_json(
+        evidence_dir / "media-bucket.json",
+        {
+            "name": "kresco-staging-private-media",
+            "public_access_prevention": "enforced",
+            "uniform_bucket_level_access": True,
+            "lifecycle_config": {
+                "rule": [
+                    {
+                        "action": {"type": "Delete"},
+                        "condition": {"age": 30, "matchesPrefix": ["staging/"]},
+                    }
+                ]
+            },
+        },
+    )
+
+
 def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
@@ -173,9 +193,11 @@ def test_staging_launch_evidence_checks_private_media_bucket_posture():
     assert "unable_to_read_media_bucket_iam" in media_block
     assert "storage.buckets.get" in media_block
     assert "storage.buckets.getIamPolicy" in media_block
-    assert 'uniform_access.get("enabled") is not True' in media_block
-    assert 'publicAccessPrevention") != "enforced"' in media_block
-    assert 'bucket.get("lifecycle", {}).get("rule")' in media_block
+    assert "uniform_bucket_level_access" in media_block
+    assert "public_access_prevention" in media_block
+    assert "lifecycle_config" in media_block
+    assert "uniformBucketLevelAccess" in media_block
+    assert "publicAccessPrevention" in media_block
     assert "MEDIA_GCS_PREFIX must be configured" in media_block
     assert "allUsers" in media_block
     assert "allAuthenticatedUsers" in media_block
@@ -193,6 +215,16 @@ def test_staging_launch_evidence_verifier_accepts_complete_artifacts(tmp_path):
     assert result.errors == ()
     assert manifest["passed"] is True
     assert all(check["passed"] for check in manifest["checks"].values())
+
+
+def test_staging_launch_evidence_verifier_accepts_gcloud_storage_bucket_schema(tmp_path):
+    verifier = _load_evidence_verifier_module()
+    _write_complete_gcloud_storage_evidence(tmp_path)
+
+    result = verifier.evaluate_evidence(tmp_path)
+
+    assert result.passed is True
+    assert result.errors == ()
 
 
 def test_staging_launch_evidence_verifier_reports_media_permission_artifact(tmp_path):

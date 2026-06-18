@@ -125,13 +125,11 @@ def _check_media_bucket(evidence_dir: Path) -> EvidenceCheck:
     bucket = _read_json(evidence_dir / "media-bucket.json", errors, label="media bucket")
     iam = _read_json(evidence_dir / "media-bucket-iam.json", errors, label="media bucket IAM")
     if isinstance(bucket, dict):
-        iam_config = bucket.get("iamConfiguration", {})
-        uniform_access = iam_config.get("uniformBucketLevelAccess", {})
-        if uniform_access.get("enabled") is not True:
+        if not _bucket_uniform_access_enabled(bucket):
             errors.append("Media bucket must enable uniform bucket-level access.")
-        if iam_config.get("publicAccessPrevention") != "enforced":
+        if not _bucket_public_access_prevention_enforced(bucket):
             errors.append("Media bucket publicAccessPrevention must be enforced.")
-        if not bucket.get("lifecycle", {}).get("rule"):
+        if not _bucket_has_lifecycle_rules(bucket):
             errors.append("Media bucket lifecycle rules are required.")
     if isinstance(iam, dict):
         for binding in iam.get("bindings", []):
@@ -187,6 +185,31 @@ def _media_error_message(error: dict[str, Any], *, fallback: str) -> str:
     if permission:
         return f"Media bucket posture failed: {name}; required_permission={permission}."
     return f"Media bucket posture failed: {name}."
+
+
+def _bucket_uniform_access_enabled(bucket: dict[str, Any]) -> bool:
+    if bucket.get("uniform_bucket_level_access") is True:
+        return True
+    iam_config = bucket.get("iamConfiguration", {})
+    if not isinstance(iam_config, dict):
+        return False
+    uniform_access = iam_config.get("uniformBucketLevelAccess", {})
+    return isinstance(uniform_access, dict) and uniform_access.get("enabled") is True
+
+
+def _bucket_public_access_prevention_enforced(bucket: dict[str, Any]) -> bool:
+    if bucket.get("public_access_prevention") == "enforced":
+        return True
+    iam_config = bucket.get("iamConfiguration", {})
+    return isinstance(iam_config, dict) and iam_config.get("publicAccessPrevention") == "enforced"
+
+
+def _bucket_has_lifecycle_rules(bucket: dict[str, Any]) -> bool:
+    lifecycle = bucket.get("lifecycle")
+    if isinstance(lifecycle, dict) and lifecycle.get("rule"):
+        return True
+    lifecycle_config = bucket.get("lifecycle_config")
+    return isinstance(lifecycle_config, dict) and bool(lifecycle_config.get("rule"))
 
 
 def _result(name: str, errors: list[str]) -> EvidenceCheck:
