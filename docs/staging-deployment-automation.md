@@ -71,6 +71,7 @@ These were verified from the workstation on 2026-06-18:
 - `github-deployer@kresco-staging.iam.gserviceaccount.com` can be impersonated.
 - The deploy service account can read `gs://kresco-staging-private-media` bucket posture.
 - The deploy service account has `roles/datastore.user` for the Firestore realtime evidence probe.
+- The deploy service account has `roles/firebaseauth.admin` for Firebase Auth user/config verification automation.
 - Identity Toolkit API is enabled.
 - Firebase Email/Password and Google providers are enabled.
 - Firebase authorized domains include localhost, Firebase default domains, the staging Cloud Run frontend URL, and `staging.kresco.ma`.

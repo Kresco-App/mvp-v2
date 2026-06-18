@@ -1,0 +1,94 @@
+import asyncio
+
+import app.models  # noqa: F401
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from app.models.base import Base
+from app.models.courses import Topic
+from app.models.professor import (
+    LiveSession,
+    LiveSessionCheckpoint,
+    LiveSessionInteraction,
+    ProfessorChatConversation,
+    ProfessorChatMessage,
+)
+from app.models.users import User
+from scripts.seed_staging_demo import seed_staging_demo
+
+
+def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'kresco_staging_seed.sqlite3'}"
+
+    async def exercise():
+        engine = create_async_engine(database_url, poolclass=NullPool)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await engine.dispose()
+
+        await seed_staging_demo(database_url, allow_confirmed=True)
+        await seed_staging_demo(database_url, allow_confirmed=True)
+
+        engine = create_async_engine(database_url, poolclass=NullPool)
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as db:
+            vip = await db.scalar(select(User).where(User.email == "vip@example.com"))
+            topic = await db.scalar(select(Topic).where(Topic.slug == "staging-demo-limits-continuity"))
+            live_session = await db.scalar(
+                select(LiveSession).where(LiveSession.title == "Staging demo live session")
+            )
+            conversation = await db.scalar(
+                select(ProfessorChatConversation).where(
+                    ProfessorChatConversation.student_user_id == vip.id,
+                    ProfessorChatConversation.course_offering_id == live_session.course_offering_id,
+                )
+            )
+            counts = {
+                "live_sessions": await db.scalar(
+                    select(func.count()).select_from(LiveSession).where(
+                        LiveSession.title == "Staging demo live session"
+                    )
+                ),
+                "checkpoints": await db.scalar(
+                    select(func.count()).select_from(LiveSessionCheckpoint).where(
+                        LiveSessionCheckpoint.live_session_id == live_session.id,
+                        LiveSessionCheckpoint.title == "Staging demo checkpoint",
+                    )
+                ),
+                "interactions": await db.scalar(
+                    select(func.count()).select_from(LiveSessionInteraction).where(
+                        LiveSessionInteraction.live_session_id == live_session.id,
+                        LiveSessionInteraction.body == "Staging demo live question",
+                    )
+                ),
+                "conversations": await db.scalar(
+                    select(func.count()).select_from(ProfessorChatConversation).where(
+                        ProfessorChatConversation.student_user_id == vip.id,
+                        ProfessorChatConversation.course_offering_id == live_session.course_offering_id,
+                    )
+                ),
+                "messages": await db.scalar(
+                    select(func.count()).select_from(ProfessorChatMessage).where(
+                        ProfessorChatMessage.conversation_id == conversation.id,
+                        ProfessorChatMessage.body == "Staging demo professor chat message",
+                    )
+                ),
+            }
+        await engine.dispose()
+        return vip, topic, live_session, conversation, counts
+
+    vip, topic, live_session, conversation, counts = asyncio.run(exercise())
+
+    assert vip.tier == "vip"
+    assert topic.title == "Limits and Continuity"
+    assert live_session.status == "live"
+    assert live_session.join_url == f"/live/{live_session.id}"
+    assert conversation.status == "open"
+    assert counts == {
+        "live_sessions": 1,
+        "checkpoints": 1,
+        "interactions": 1,
+        "conversations": 1,
+        "messages": 1,
+    }

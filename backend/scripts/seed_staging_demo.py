@@ -17,7 +17,15 @@ if str(BACKEND_ROOT) not in sys.path:
 import app.models  # noqa: F401
 from app.database import _build_async_url
 from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
-from app.models.professor import CourseOffering, ProgramTrack
+from app.models.professor import (
+    CourseOffering,
+    LiveSession,
+    LiveSessionCheckpoint,
+    LiveSessionInteraction,
+    ProfessorChatConversation,
+    ProfessorChatMessage,
+    ProgramTrack,
+)
 from app.models.users import User, UserSubjectEntitlement
 
 REQUIRED_CONFIRMATION = "true"
@@ -189,6 +197,127 @@ async def upsert_topic_surface(db: AsyncSession, subject: Subject, offering: Cou
     await db.flush()
 
 
+async def upsert_live_and_chat_surface(
+    db: AsyncSession,
+    *,
+    offering: CourseOffering,
+    professor: User,
+    student: User,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    live_session = await db.scalar(
+        select(LiveSession).where(
+            LiveSession.course_offering_id == offering.id,
+            LiveSession.title == "Staging demo live session",
+        )
+    )
+    if live_session is None:
+        live_session = LiveSession(
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            title="Staging demo live session",
+            starts_at=now - timedelta(minutes=10),
+            ends_at=now + timedelta(hours=1),
+        )
+        db.add(live_session)
+    live_session.professor_user_id = professor.id
+    live_session.description = "Staging demo live session for authenticated load evidence."
+    live_session.starts_at = now - timedelta(minutes=10)
+    live_session.ends_at = now + timedelta(hours=1)
+    live_session.status = "live"
+    live_session.vdocipher_live_id = "demo-staging-live-session"
+    live_session.stream_ingest_url = "rtmp://example.invalid/kresco-staging"
+    live_session.stream_key = "staging-demo-stream-key"
+    live_session.provider_payload_json = {"source": "staging_demo_seed"}
+    await db.flush()
+    live_session.join_url = f"/live/{live_session.id}"
+
+    checkpoint = await db.scalar(
+        select(LiveSessionCheckpoint).where(
+            LiveSessionCheckpoint.live_session_id == live_session.id,
+            LiveSessionCheckpoint.title == "Staging demo checkpoint",
+        )
+    )
+    if checkpoint is None:
+        checkpoint = LiveSessionCheckpoint(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            title="Staging demo checkpoint",
+        )
+        db.add(checkpoint)
+    checkpoint.course_offering_id = offering.id
+    checkpoint.professor_user_id = professor.id
+    checkpoint.prompt = "Confirm the limit exists."
+    checkpoint.checkpoint_type = "prompt"
+    checkpoint.status = "active"
+
+    interaction = await db.scalar(
+        select(LiveSessionInteraction).where(
+            LiveSessionInteraction.live_session_id == live_session.id,
+            LiveSessionInteraction.student_user_id == student.id,
+            LiveSessionInteraction.body == "Staging demo live question",
+        )
+    )
+    if interaction is None:
+        interaction = LiveSessionInteraction(
+            live_session_id=live_session.id,
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=student.id,
+            body="Staging demo live question",
+        )
+        db.add(interaction)
+    interaction.course_offering_id = offering.id
+    interaction.professor_user_id = professor.id
+    interaction.kind = "question"
+    interaction.status = "answered"
+    interaction.answer = "Use the continuity definition around the point."
+    interaction.answered_by_user_id = professor.id
+    interaction.answered_at = now
+    interaction.deleted_at = None
+
+    conversation = await db.scalar(
+        select(ProfessorChatConversation).where(
+            ProfessorChatConversation.course_offering_id == offering.id,
+            ProfessorChatConversation.student_user_id == student.id,
+        )
+    )
+    if conversation is None:
+        conversation = ProfessorChatConversation(
+            course_offering_id=offering.id,
+            professor_user_id=professor.id,
+            student_user_id=student.id,
+        )
+        db.add(conversation)
+    conversation.professor_user_id = professor.id
+    conversation.status = "open"
+    conversation.last_message_preview = "Staging demo professor chat message"
+    conversation.unread_for_professor = 0
+    conversation.unread_for_student = 0
+    conversation.is_pinned_by_professor = True
+    conversation.last_message_at = now
+    await db.flush()
+
+    message = await db.scalar(
+        select(ProfessorChatMessage).where(
+            ProfessorChatMessage.conversation_id == conversation.id,
+            ProfessorChatMessage.body == "Staging demo professor chat message",
+        )
+    )
+    if message is None:
+        message = ProfessorChatMessage(
+            conversation_id=conversation.id,
+            sender_user_id=student.id,
+            body="Staging demo professor chat message",
+        )
+        db.add(message)
+    message.sender_user_id = student.id
+    message.status = "sent"
+    message.read_at = now
+    await db.flush()
+
+
 async def seed_staging_demo(database_url: str, *, allow_confirmed: bool = False) -> None:
     require_staging_seed_allowed(database_url, allow_confirmed=allow_confirmed)
     async_url, connect_args = _build_async_url(database_url)
@@ -197,6 +326,16 @@ async def seed_staging_demo(database_url: str, *, allow_confirmed: bool = False)
 
     async with session_factory() as db:
         professor = await upsert_user(db, "professor@example.com", "Pr Ahmed Kamil", role="professor", tier="basic")
+        vip_student = await upsert_user(
+            db,
+            "vip@example.com",
+            "Sara Benali",
+            role="student",
+            tier="vip",
+            niveau="2BAC",
+            filiere="Sciences Math B",
+            is_pro=True,
+        )
         users = [
             await upsert_user(
                 db,
@@ -208,16 +347,7 @@ async def seed_staging_demo(database_url: str, *, allow_confirmed: bool = False)
                 filiere="Sciences Math B",
                 is_pro=True,
             ),
-            await upsert_user(
-                db,
-                "vip@example.com",
-                "Sara Benali",
-                role="student",
-                tier="vip",
-                niveau="2BAC",
-                filiere="Sciences Math B",
-                is_pro=True,
-            ),
+            vip_student,
             await upsert_user(
                 db,
                 "platinum@example.com",
@@ -253,6 +383,7 @@ async def seed_staging_demo(database_url: str, *, allow_confirmed: bool = False)
         for user in [professor, *users]:
             await ensure_entitlement(db, user, subject)
         await upsert_topic_surface(db, subject, offering)
+        await upsert_live_and_chat_surface(db, offering=offering, professor=professor, student=vip_student)
         await db.commit()
 
     await engine.dispose()

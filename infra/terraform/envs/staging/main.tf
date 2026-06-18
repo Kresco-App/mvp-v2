@@ -67,6 +67,7 @@ module "github_oidc" {
     "roles/cloudbuild.builds.editor",
     "roles/cloudsql.admin",
     "roles/datastore.user",
+    "roles/firebaseauth.admin",
     "roles/iam.serviceAccountUser",
     "roles/run.admin",
     "roles/secretmanager.admin",
