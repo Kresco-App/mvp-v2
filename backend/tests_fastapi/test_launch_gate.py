@@ -51,7 +51,7 @@ def test_launch_gate_fails_current_repo_until_all_rows_and_score_are_ready():
 
     assert result.passed is False
     assert "SEC-SECRETS-001" in incomplete_ids
-    assert "MEDIA-GCS-001" in incomplete_ids
+    assert "OPS-STAGE-001" in incomplete_ids
     assert any("below target" in error for error in result.errors)
 
 
