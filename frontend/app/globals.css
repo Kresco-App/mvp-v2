@@ -157,6 +157,11 @@
 
 * { box-sizing: border-box; }
 
+html {
+  scrollbar-gutter: stable;
+  scroll-behavior: smooth;
+}
+
 body {
   --font-rounded: var(--font-sf-rounded), "Kresco SF Rounded", "SF Pro Rounded", "Helvetica Rounded", "Arial Rounded MT Bold", var(--font-sunghyun-sans);
   font-family: var(--font-rounded), system-ui, -apple-system, sans-serif;
@@ -166,6 +171,49 @@ body {
   background: var(--surface-page);
   color: var(--text-primary);
   transition: background-color 180ms ease, color 180ms ease;
+  text-rendering: optimizeLegibility;
+}
+
+:where(a, button, [role="button"], input, select, textarea, summary, .figma-button, .card, .card-hover, .figma-card, .figma-card-soft) {
+  transition-duration: 170ms;
+  transition-property: background-color, border-color, box-shadow, color, filter, opacity, transform;
+  transition-timing-function: cubic-bezier(.2,.8,.2,1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :where(a[href], button, [role="button"], summary, .figma-button):where(:not(:disabled):not([aria-disabled="true"])):hover {
+    transform: translateY(-1px);
+  }
+
+  :where(.card, .figma-card, .figma-card-soft):hover {
+    transform: translateY(-1px);
+  }
+}
+
+:where(a[href], button, [role="button"], summary, .figma-button):where(:not(:disabled):not([aria-disabled="true"])):active {
+  transform: translateY(0) scale(.985);
+}
+
+:where(input, select, textarea):focus-visible {
+  transition-duration: 140ms;
+}
+
+.kresco-whiteboard-editor :where(a, button, [role="button"], input, select, textarea, summary) {
+  transition-property: none;
+  transform: none;
+}
+
+.kresco-drag-surface,
+[data-kresco-drag-surface="true"] {
+  transition-property: background-color, border-color, box-shadow, color, opacity;
+  transform: none;
+}
+
+.kresco-drag-surface:hover,
+.kresco-drag-surface:active,
+[data-kresco-drag-surface="true"]:hover,
+[data-kresco-drag-surface="true"]:active {
+  transform: none;
 }
 
 /* ─── Light-mode Tailwind overrides ────────────────────────────── */

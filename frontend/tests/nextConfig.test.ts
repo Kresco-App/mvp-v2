@@ -163,6 +163,13 @@ describe('Next production config boundaries', () => {
     ]))
   })
 
+  it('keeps the root layout request-bound so strict CSP nonces hydrate pages', () => {
+    const source = readFileSync(join(FRONTEND_ROOT, 'app', 'layout.tsx'), 'utf8')
+
+    expect(source).toContain("from 'next/headers'")
+    expect(source).toContain('await headers()')
+  })
+
   it('keeps heavy visualization and icon imports modular', () => {
     const packageJson = JSON.parse(readFileSync(join(FRONTEND_ROOT, 'package.json'), 'utf8'))
 

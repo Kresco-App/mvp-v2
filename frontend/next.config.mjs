@@ -59,6 +59,9 @@ const nextConfig = {
   output: 'standalone',
   experimental: {
     optimizePackageImports,
+    sri: {
+      algorithm: 'sha256',
+    },
   },
   images: {
     remotePatterns: buildImageRemotePatterns(),

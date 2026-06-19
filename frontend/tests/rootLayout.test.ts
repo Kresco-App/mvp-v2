@@ -3,11 +3,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('Root layout rendering mode', () => {
-  it('does not force every route into dynamic rendering', () => {
+  it('reads request headers for CSP nonce support without using connection()', () => {
     const source = readFileSync(join(process.cwd(), 'app', 'layout.tsx'), 'utf8')
 
     expect(source).not.toContain("from 'next/server'")
+    expect(source).toContain("from 'next/headers'")
     expect(source).not.toContain('connection()')
+    expect(source).toContain('await headers()')
   })
 
   it('defines production-shareable metadata instead of a bare title', () => {

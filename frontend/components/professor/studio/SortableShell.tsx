@@ -21,7 +21,8 @@ export default function SortableShell({
       <button
         type="button"
         aria-label="Glisser pour réordonner"
-        className={`grid h-7 w-7 shrink-0 cursor-grab touch-none place-items-center rounded-[8px] text-[#a1a1aa] transition hover:bg-[#f4f4f5] hover:text-[#52525c] active:cursor-grabbing ${handleClassName}`}
+        data-kresco-drag-surface="true"
+        className={`kresco-drag-surface grid h-7 w-7 shrink-0 cursor-grab touch-none place-items-center rounded-[8px] text-[#a1a1aa] transition hover:bg-[#f4f4f5] hover:text-[#52525c] active:cursor-grabbing ${handleClassName}`}
         {...attributes}
         {...listeners}
       >

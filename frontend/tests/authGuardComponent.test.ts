@@ -85,6 +85,20 @@ afterEach(() => {
 })
 
 describe('AuthGuard component behavior', () => {
+  it('uses a stable skeleton while protected route access is pending', async () => {
+    getMyProfileMock.mockReturnValueOnce(new Promise(() => undefined) as never)
+
+    const { container } = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Student child')),
+    )
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('.kresco-skeleton').length).toBeGreaterThanOrEqual(3)
+    })
+    expect(container.querySelector('.animate-spin')).toBeNull()
+    expect(container.textContent).not.toContain('Student child')
+  })
+
   it('requires server profile verification before rendering a stored student session', async () => {
     localStorage.setItem(KRESCO_TOKEN_KEY, 'stale-local-token')
     localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))

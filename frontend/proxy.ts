@@ -7,8 +7,6 @@ import { getApiOrigin } from '@/lib/apiConfig'
 import { isJwtExpired, KRESCO_CSRF_COOKIE, KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE_COOKIE } from '@/lib/authSession'
 
 const CSP_HEADER = 'Content-Security-Policy'
-const CSP_NONCE_PLACEHOLDER = '__KRESCO_CSP_NONCE__'
-
 let cachedCspTemplate: { key: string; value: string } | null = null
 
 type ProxyAuthUser = {
@@ -44,8 +42,9 @@ function uniqueSources(sources: string[]) {
   return Array.from(new Set(sources.filter(Boolean)))
 }
 
-export function buildContentSecurityPolicy(nonce: string) {
-  return getContentSecurityPolicyTemplate().replace(CSP_NONCE_PLACEHOLDER, nonce)
+export function buildContentSecurityPolicy(nonce?: string | null) {
+  const nonceSource = nonce ? `'nonce-${nonce}'` : ''
+  return getContentSecurityPolicyTemplate(nonceSource)
 }
 
 function cspTemplateCacheKey() {
@@ -56,8 +55,8 @@ function cspTemplateCacheKey() {
   ].join('\0')
 }
 
-function getContentSecurityPolicyTemplate() {
-  const key = cspTemplateCacheKey()
+function getContentSecurityPolicyTemplate(nonceSource: string) {
+  const key = `${cspTemplateCacheKey()}\0${nonceSource}`
   if (cachedCspTemplate?.key === key) {
     return cachedCspTemplate.value
   }
@@ -74,6 +73,14 @@ function getContentSecurityPolicyTemplate() {
   const devImageSources = isDevelopment ? ['http://localhost:*', 'http://127.0.0.1:*'] : []
   const devScriptSources = isDevelopment ? ["'unsafe-eval'"] : []
   const devStyleSources = allowDevOverlayStyles ? ["'unsafe-inline'"] : []
+  const scriptSources = uniqueSources([
+    "'self'",
+    nonceSource,
+    'https://accounts.google.com',
+    'https://apis.google.com',
+    'https://player.vdocipher.com',
+    ...devScriptSources,
+  ])
   const styleElemIntegritySources = allowDevOverlayStyles
     ? []
     : [
@@ -91,7 +98,7 @@ function getContentSecurityPolicyTemplate() {
 
   const value = normalizeCsp([
     "default-src 'self'",
-    `script-src 'self' 'nonce-${CSP_NONCE_PLACEHOLDER}' https://accounts.google.com https://apis.google.com https://player.vdocipher.com ${devScriptSources.join(' ')}`,
+    `script-src ${scriptSources.join(' ')}`,
     `style-src ${styleSources.join(' ')}`,
     `style-src-elem ${styleElemSources.join(' ')}`,
     `style-src-attr ${styleAttrSource}`,
@@ -117,6 +124,7 @@ function getContentSecurityPolicyTemplate() {
       'https://images.unsplash.com',
       'https://lh3.googleusercontent.com',
       'https://*.googleusercontent.com',
+      'https://www.google.com',
       'https://i.ytimg.com',
       'https://*.ytimg.com',
       ...devImageSources,
@@ -156,10 +164,10 @@ function withSecurityHeaders(response: NextResponse, csp: string) {
 }
 
 export function proxy(request: NextRequest) {
-  const nonce = randomBytes(16).toString('base64')
+  const nonce = process.env.KRESCO_CSP_NONCE === 'false' ? null : randomBytes(16).toString('base64')
   const csp = buildContentSecurityPolicy(nonce)
   const requestHeaders = new Headers(request.headers)
-  requestHeaders.set('x-nonce', nonce)
+  if (nonce) requestHeaders.set('x-nonce', nonce)
   requestHeaders.set(CSP_HEADER, csp)
 
   const token = request.cookies.get(KRESCO_TOKEN_COOKIE)?.value

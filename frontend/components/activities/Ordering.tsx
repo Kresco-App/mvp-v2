@@ -50,9 +50,10 @@ export default function Ordering({ question, items: initialItems, correctOrder, 
             <div
               key={item.id}
               draggable={!submitted}
+              data-kresco-drag-surface="true"
               onDragStart={() => handleDragStart(index)}
               onDragOver={e => handleDragOver(e, index)}
-              className={`flex items-center gap-4 p-4 rounded-xl border-2 transition select-none ${
+              className={`kresco-drag-surface flex items-center gap-4 p-4 rounded-xl border-2 transition select-none ${
                 !submitted ? 'border-slate-700 hover:border-indigo-500/40 cursor-grab active:cursor-grabbing bg-slate-800/50' :
                 isCorrectPos ? 'border-green-500/50 bg-green-500/10' : 'border-red-500/50 bg-red-500/10'
               }`}

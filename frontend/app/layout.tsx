@@ -110,8 +110,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   await headers()
 
   return (
-    <html lang="fr" data-release={releaseSha}>
-      <body className={`${sfProRounded.variable} ${sunghyunSans.variable} antialiased`}>
+    <html lang="fr" data-release={releaseSha} className={`${sfProRounded.variable} ${sunghyunSans.variable}`}>
+      <body className="antialiased">
         <ApiDataProvider>
           {children}
         </ApiDataProvider>

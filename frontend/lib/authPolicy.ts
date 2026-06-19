@@ -17,6 +17,7 @@ export const AUTH_ROUTES = {
   landing: '/',
   studentOnboarding: '/onboarding',
   studentHome: '/home',
+  adminHome: '/admin',
   studentProfessorChat: '/professor-chat',
   professorHome: '/professor',
   professorChat: '/professor/chat',
@@ -71,6 +72,7 @@ export function getStudentOnboardingStep(user: AuthUserLike | null | undefined):
 }
 
 export function getAuthenticatedDestination(user: AuthUserLike | null | undefined) {
+  if (isStaffUser(user)) return AUTH_ROUTES.adminHome
   return isProfessorUser(user) ? AUTH_ROUTES.professorHome : AUTH_ROUTES.studentHome
 }
 
@@ -109,6 +111,10 @@ export function getStudentOnboardingDestination(pathname = '') {
 
 export function resolveAuthSuccess(user: AuthUserLike | null | undefined, nextDestination?: string | null) {
   const safeNextDestination = getSafePostLoginDestination(nextDestination, user)
+
+  if (isStaffUser(user)) {
+    return { action: 'redirect' as const, destination: safeNextDestination ?? AUTH_ROUTES.adminHome }
+  }
 
   if (isProfessorUser(user)) {
     return { action: 'redirect' as const, destination: safeNextDestination ?? AUTH_ROUTES.professorHome }

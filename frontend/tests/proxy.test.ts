@@ -203,6 +203,7 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'form-action')).toBe("form-action 'self' https://cmi.co.ma https://*.cmi.co.ma")
     expect(cspDirective(csp, 'img-src')).toContain('https://images.unsplash.com')
     expect(cspDirective(csp, 'img-src')).toContain('https://*.googleusercontent.com')
+    expect(cspDirective(csp, 'img-src')).toContain('https://www.google.com')
     expect(cspDirective(csp, 'img-src')).toContain('https://i.ytimg.com')
     expect(csp).toContain("object-src 'none'")
     expect(csp).toContain("frame-ancestors 'none'")

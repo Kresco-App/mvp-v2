@@ -740,7 +740,8 @@ function DragToken({
             : '0 4px 12px rgba(24, 24, 27, 0.04)',
       }}
       transition={{ type: 'spring', stiffness: 520, damping: 36 }}
-      className={`relative ${dragging ? 'z-30' : 'z-[1]'} flex min-h-[44px] cursor-grab select-none items-center gap-2 rounded-[12px] border px-3 py-2 text-left text-[12px] font-black active:cursor-grabbing ${
+      data-kresco-drag-surface="true"
+      className={`kresco-drag-surface relative ${dragging ? 'z-30' : 'z-[1]'} flex min-h-[44px] cursor-grab select-none items-center gap-2 rounded-[12px] border px-3 py-2 text-left text-[12px] font-black active:cursor-grabbing ${
         assigned
           ? correct
             ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'
@@ -904,7 +905,8 @@ function HotspotQuestion({ question }: { question: Extract<QuizPrimitiveQuestion
           onPointerCancel={() => setDragging(false)}
           onKeyDown={nudge}
           onDoubleClick={validate}
-          className={`absolute inset-0 z-10 h-full w-full border-0 bg-transparent p-0 outline-none focus-visible:ring-4 focus-visible:ring-[#cfd3ff] ${
+          data-kresco-drag-surface="true"
+          className={`kresco-drag-surface absolute inset-0 z-10 h-full w-full border-0 bg-transparent p-0 outline-none focus-visible:ring-4 focus-visible:ring-[#cfd3ff] ${
             dragging ? 'cursor-grabbing' : 'cursor-grab active:cursor-grabbing'
           }`}
           aria-label="Move answer circle"

@@ -834,6 +834,29 @@ async function mockApi(page: Page) {
       return
     }
 
+    if (path === '/interactions/canvas') {
+      await route.fulfill({
+        json: {
+          id: 91,
+          target_type: 'topic_item',
+          target_id: 101,
+          topic_id: 42,
+          topic_item_id: 101,
+          scene_json: {
+            type: 'excalidraw',
+            version: 1,
+            source: 'smoke',
+            elements: [],
+            appState: { viewBackgroundColor: '#ffffff' },
+            files: {},
+          },
+          scene_version: 1,
+          updated_at: '2026-06-18T12:00:00Z',
+        },
+      })
+      return
+    }
+
     if (path === '/courses/topic-items/101/stream') {
       await route.fulfill({
         json: {
@@ -857,7 +880,7 @@ function collectCriticalBrowserErrors(page: Page) {
     const text = message.text()
     if (
       message.type() === 'error' &&
-      /hydration|did not match|server rendered|client rendered|Minified React error|Content Security Policy|Refused to (?:apply|execute|load)|violates the following Content Security Policy/i.test(text)
+      /hydration|did not match|server rendered|client rendered|Minified React error|Maximum update depth exceeded|Content Security Policy|Refused to (?:apply|execute|load)|violates the following Content Security Policy/i.test(text)
     ) {
       errors.push(text)
     }
@@ -966,6 +989,9 @@ test('topic workspace hydrates with mocked course data', async ({ page }) => {
   await expect(page.getByText('Mock course content for continuity and limits.')).toBeVisible()
   await page.getByRole('button', { name: /Lab/i }).click()
   await expect(page.getByText('Periodicite des ondes')).toBeVisible()
+  await page.locator('button[aria-label="Notes"]').click()
+  await expect(page.getByText('Lesson whiteboard')).toBeVisible()
+  await expect(page.locator('.kresco-whiteboard-editor')).toBeVisible()
 
   browserErrors.assertClean()
 })

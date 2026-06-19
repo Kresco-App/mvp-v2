@@ -101,6 +101,13 @@ describe('auth redirect decisions', () => {
     })
   })
 
+  it('redirects signed-in staff off landing to the admin workspace', () => {
+    expect(getAuthRedirect('/', makeToken({ exp: 1_700_000_001, role: 'admin', is_staff: true }), () => false)).toEqual({
+      action: 'redirect',
+      destination: '/admin',
+    })
+  })
+
   it('uses JWT claims, not writable role cookies, for sensitive route redirects', () => {
     const studentToken = makeToken({ exp: 1_700_000_001, role: 'student', is_staff: false })
     const professorToken = makeToken({ exp: 1_700_000_001, role: 'professor', is_staff: false })
@@ -152,6 +159,20 @@ describe('auth policy decisions', () => {
     })
     expect(getUnauthorizedDestination('/professor/chat')).toBe(AUTH_ROUTES.professorLogin)
     expect(getUnauthorizedDestination('/home')).toBe(AUTH_ROUTES.landing)
+  })
+
+  it('routes staff users to admin before student onboarding', () => {
+    const staff = { role: 'admin', is_staff: true, niveau: '', filiere: '' }
+
+    expect(getAuthenticatedDestination(staff)).toBe(AUTH_ROUTES.adminHome)
+    expect(resolveAuthSuccess(staff)).toEqual({
+      action: 'redirect',
+      destination: AUTH_ROUTES.adminHome,
+    })
+    expect(resolveAuthSuccess(staff, '/admin/reviews')).toEqual({
+      action: 'redirect',
+      destination: '/admin/reviews',
+    })
   })
 
   it('sanitizes post-login next destinations', () => {

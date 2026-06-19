@@ -67,10 +67,11 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
             key={item.id}
             type="button"
             draggable
+            data-kresco-drag-surface="true"
             onDragStart={() => setDragItem(item.id)}
             onClick={() => setDragItem(item.id)}
             aria-pressed={dragItem === item.id}
-            className={`bg-indigo-500/15 text-indigo-300 text-sm font-medium px-4 py-2.5 rounded-xl cursor-grab active:cursor-grabbing hover:bg-indigo-500/25 transition select-none border text-left ${
+            className={`kresco-drag-surface bg-indigo-500/15 text-indigo-300 text-sm font-medium px-4 py-2.5 rounded-xl cursor-grab active:cursor-grabbing hover:bg-indigo-500/25 transition select-none border text-left ${
               dragItem === item.id ? 'border-indigo-300 ring-2 ring-indigo-400/40' : 'border-indigo-500/30'
             }`}
           >
