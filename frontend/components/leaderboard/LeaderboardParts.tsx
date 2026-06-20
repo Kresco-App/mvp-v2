@@ -19,6 +19,7 @@ export interface LeaderboardEntry {
   full_name: string
   avatar_url: string
   total_xp: number
+  season_xp?: number
   level: number
   is_current_user: boolean
   leagueKey?: LeagueKey
@@ -114,15 +115,15 @@ export function LeaderboardRowsSkeleton() {
 
 export function ZoneDivider({ zone }: { zone: 'promotion' | 'demotion' }) {
   const isPromotion = zone === 'promotion'
-  const label = isPromotion ? 'PROMOTION ZONE' : 'DEMOTION ZONE'
+  const label = isPromotion ? 'ZONE DE PROMOTION' : 'ZONE DE RELEGATION'
   const color = isPromotion ? '#10b981' : '#ef4444'
   const Icon = isPromotion ? ArrowUp : ArrowDown
 
   return (
-    <div className="flex items-center justify-center gap-[14px] border-y border-[color:var(--border)] px-2 py-[14px]">
-      <Icon size={20} color={color} />
-      <span className={`text-[28px] font-extrabold ${leagueTextClass(color)}`}>{label}</span>
-      <Icon size={20} color={color} />
+    <div className="flex items-center justify-center gap-2 border-y border-[color:var(--border)] px-3 py-3 sm:gap-[14px] sm:py-[14px]">
+      <Icon size={20} color={color} className="shrink-0" />
+      <span className={`text-center text-base font-extrabold sm:text-[28px] ${leagueTextClass(color)}`}>{label}</span>
+      <Icon size={20} color={color} className="shrink-0" />
     </div>
   )
 }
@@ -131,13 +132,17 @@ export function LeagueMarker({ league, active }: { league: ReturnType<typeof get
   const [imageFailed, setImageFailed] = useState(false)
 
   return (
-    <div className={`flex items-center justify-center rounded-full ${active ? 'h-[106px] w-[106px]' : 'h-[74px] w-[74px]'} ${leagueRingClasses(league.color, active)}`}>
+    <div
+      aria-current={active ? 'true' : undefined}
+      className={`flex shrink-0 items-center justify-center rounded-full transition-transform duration-150 ${active ? 'h-20 w-20 sm:h-[92px] sm:w-[92px]' : 'h-14 w-14 sm:h-16 sm:w-16'} ${leagueRingClasses(league.color, active)}`}
+      title={league.majorLabel}
+    >
       {!imageFailed ? (
         <Image
           src={league.emblemAsset}
           alt={league.label}
-          width={active ? 76 : 48}
-          height={active ? 76 : 48}
+          width={active ? 64 : 42}
+          height={active ? 64 : 42}
           className="object-contain"
           onError={() => setImageFailed(true)}
         />
@@ -178,18 +183,43 @@ export const LeaderboardRow = memo(function LeaderboardRow({ entry, compact = fa
   )
 })
 
-export const LeaderboardListRow = memo(function LeaderboardListRow({ entry, isLast }: { entry: LeaderboardEntry; isLast: boolean }) {
+export const LeaderboardListRow = memo(function LeaderboardListRow({
+  entry,
+  isLast,
+  rankMode = 'division',
+  scoreMode = 'total',
+  zone,
+}: {
+  entry: LeaderboardEntry
+  isLast: boolean
+  rankMode?: 'division' | 'global' | 'raw'
+  scoreMode?: 'total' | 'season'
+  zone?: Zone
+}) {
+  const rankValue = rankMode === 'global' || rankMode === 'raw' ? entry.rank : entry.divisionLocalRank ?? entry.rank
+  const scoreValue = scoreMode === 'season' ? entry.season_xp ?? entry.total_xp : entry.total_xp
+  const scoreLabel = scoreMode === 'season' ? 'WEEK XP' : 'XP'
+  const metaLabel = scoreMode === 'season'
+    ? `Semaine en cours - Niveau ${entry.level}`
+    : `${entry.leagueLabel} - Niveau ${entry.level}`
+  const zoneClass = entry.is_current_user
+    ? 'border-l-[color:var(--primary)] bg-[color:var(--primary-soft)]'
+    : zone === 'promotion'
+      ? 'border-l-emerald-500 bg-emerald-50/70 hover:bg-emerald-50'
+      : zone === 'demotion'
+        ? 'border-l-red-500 bg-red-50/70 hover:bg-red-50'
+        : 'border-l-transparent bg-transparent hover:bg-[color:var(--surface-hover)]'
+
   return (
     <div
       className={[
-        'flex items-center gap-[14px] px-5 py-3',
+        'flex items-center gap-3 px-4 py-3 transition-colors duration-150 sm:gap-[14px] sm:px-5',
         !isLast ? 'border-b border-[color:var(--border)]' : 'border-b-0',
-        entry.is_current_user
-          ? 'border-l-[3px] border-l-[color:var(--primary)] bg-[color:var(--primary-soft)]'
-          : 'border-l-[3px] border-l-transparent bg-transparent',
+        'border-l-[3px]',
+        zoneClass,
       ].join(' ')}
     >
-      <RankBadge rank={entry.divisionLocalRank ?? entry.rank} />
+      <RankBadge rank={rankValue} />
       <AvatarBubble entry={entry} />
       <div className="min-w-0 flex-1">
         <p className={`m-0 mb-[2px] truncate text-[15px] font-bold ${entry.is_current_user ? 'text-[color:var(--primary)]' : 'text-[color:var(--text-primary)]'}`}>
@@ -197,15 +227,15 @@ export const LeaderboardListRow = memo(function LeaderboardListRow({ entry, isLa
           {entry.is_current_user && <span className="ml-1.5 text-[11px] font-medium">(vous)</span>}
         </p>
         <p className="m-0 text-xs text-[color:var(--text-tertiary)]">
-          {entry.leagueLabel}{' \u2022 '}Niveau {entry.level}
+          {metaLabel}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <Zap size={13} color="#f59e0b" fill="#f59e0b" />
         <span className="text-sm font-bold text-amber-500">
-          {entry.total_xp.toLocaleString()}
+          {scoreValue.toLocaleString()}
         </span>
-        <span className="text-[11px] text-[color:var(--text-tertiary)]">XP</span>
+        <span className="text-[11px] text-[color:var(--text-tertiary)]">{scoreLabel}</span>
       </div>
     </div>
   )
@@ -213,22 +243,22 @@ export const LeaderboardListRow = memo(function LeaderboardListRow({ entry, isLa
 
 function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
   if (rank === 1) return (
-    <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[rgba(245,158,11,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
+    <div aria-label={`Rang ${rank}`} className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[rgba(245,158,11,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
       <Crown size={small ? 13 : 16} color="#f59e0b" />
     </div>
   )
   if (rank === 2) return (
-    <div className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(148,163,184,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
+    <div aria-label={`Rang ${rank}`} className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(148,163,184,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
       <Medal size={small ? 13 : 16} color="#94a3b8" />
     </div>
   )
   if (rank === 3) return (
-    <div className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(217,119,6,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
+    <div aria-label={`Rang ${rank}`} className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(217,119,6,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
       <Medal size={small ? 13 : 16} color="#d97706" />
     </div>
   )
   return (
-    <div className={`flex shrink-0 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-hover)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
+    <div aria-label={`Rang ${rank}`} className={`flex shrink-0 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-hover)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
       <span className={small ? 'text-[10px] font-bold text-[color:var(--text-tertiary)]' : 'text-[11px] font-bold text-[color:var(--text-tertiary)]'}>{rank}</span>
     </div>
   )
