@@ -322,6 +322,30 @@ describe('ExerciseBankPage', () => {
     })
   })
 
+  it('explains and disables private notes for a free preview without subject access', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/subjects') return [{ id: 2, title: 'Physique', chapter_count: 2, lesson_count: 9 }]
+      if (url.startsWith('/exercises/subjects/2')) {
+        return { subject_id: 2, topic_id: null, total: 1, items: [exerciseListItem({ is_free_preview: true, access_reason: 'free_preview' })] }
+      }
+      if (url === '/exercises/10') {
+        return exerciseDetail({ is_free_preview: true, access_reason: 'free_preview', can_save_notes: false })
+      }
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExerciseBankPage()
+    await waitFor(() => expect(container.textContent).toContain('Linear equation'))
+    await clickButton(container, "s'exercer")
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Unlock this subject to write and save private revision notes.')
+    })
+    const notesInput = container.querySelector('textarea[aria-label="Exercise private notes"]') as HTMLTextAreaElement | null
+    expect(notesInput?.disabled).toBe(true)
+    expect(mocks.apiPatch).not.toHaveBeenCalled()
+  })
+
   it('keeps dirty notes when the user cancels leaving the detail view', async () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const { container } = renderExerciseBankPage()
@@ -590,6 +614,7 @@ function exerciseDetail(overrides: Record<string, unknown> = {}) {
     last_revealed_at: null,
     self_grade_history: [],
     notes: '',
+    can_save_notes: true,
     metadata_json: {},
     ...overrides,
   }

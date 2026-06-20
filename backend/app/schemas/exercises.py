@@ -52,6 +52,7 @@ class ExerciseDetailOut(ExerciseListItemOut):
     last_revealed_at: datetime | None = None
     self_grade_history: list[dict[str, Any]] = []
     notes: str = ""
+    can_save_notes: bool = False
     metadata_json: dict[str, Any] = {}
 
 

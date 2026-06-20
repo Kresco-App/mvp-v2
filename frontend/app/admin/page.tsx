@@ -7,7 +7,10 @@ import {
   Activity,
   ArrowRight,
   Banknote,
+  BookOpen,
+  CheckCircle2,
   ClipboardCheck,
+  Clock3,
   Database,
   FileQuestion,
   FileText,
@@ -15,6 +18,7 @@ import {
   KeyRound,
   LibraryBig,
   MessageSquareText,
+  MousePointerClick,
   ShieldAlert,
   TrendingUp,
   Users,
@@ -45,7 +49,6 @@ import {
   type LoadState,
 } from '@/lib/adminOverview'
 
-const card = adminPanelClass
 const READINESS_WIDTH_CLASSES = [
   'w-[4%]',
   'w-[5%]',
@@ -130,20 +133,20 @@ function KpiTile({
   return (
     <div className={adminMetricTileClass}>
       <div className="flex items-center gap-2.5">
-        <span className="grid h-9 w-9 place-items-center rounded-[11px] bg-[#f0f0ff] text-[#5b60f9]"><Icon size={17} /></span>
-        <span className="text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</span>
+        <span className="grid h-9 w-9 place-items-center rounded-[11px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]"><Icon size={17} /></span>
+        <span className="text-[12px] font-black uppercase tracking-[0.04em] text-[color:var(--text-tertiary)]">{label}</span>
       </div>
-      <p className="m-0 mt-3 text-[26px] font-black leading-none text-[#3f3f46]">{loading ? '-' : value}</p>
-      {hint && <p className="m-0 mt-1 text-[12px] font-bold text-[#a1a1aa]">{hint}</p>}
+      <p className="m-0 mt-3 text-[26px] font-black leading-none text-[color:var(--text-primary)]">{loading ? '-' : value}</p>
+      {hint && <p className="m-0 mt-1 text-[12px] font-bold text-[color:var(--text-tertiary)]">{hint}</p>}
     </div>
   )
 }
 
 function MiniMetric({ label, value, tone = 'default' }: { label: string; value: ReactNode; tone?: 'default' | 'warn' | 'good' }) {
-  const toneClass = tone === 'warn' ? 'text-[#f5900b]' : tone === 'good' ? 'text-[#16a34a]' : 'text-[#3f3f46]'
+  const toneClass = tone === 'warn' ? 'text-[color:var(--warning)]' : tone === 'good' ? 'text-[color:var(--success)]' : 'text-[color:var(--text-primary)]'
   return (
     <div className={`${adminSubtlePanelClass} px-3 py-2.5`}>
-      <p className="m-0 text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
+      <p className="m-0 text-[11px] font-black uppercase tracking-[0.04em] text-[color:var(--text-tertiary)]">{label}</p>
       <p className={`m-0 mt-1 text-[18px] font-black leading-none ${toneClass}`}>{value}</p>
     </div>
   )
@@ -161,7 +164,7 @@ function BarList({
   const max = Math.max(...data.map((item) => item.value), 1)
   return (
     <div>
-      {title && <p className="m-0 mb-2 text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{title}</p>}
+      {title && <p className="m-0 mb-2 text-[12px] font-black uppercase tracking-[0.04em] text-[color:var(--text-tertiary)]">{title}</p>}
       {data.length ? (
         <div className="grid gap-2.5">
           {data.map((item) => {
@@ -169,18 +172,18 @@ function BarList({
             return (
               <div key={item.key}>
                 <div className="mb-1 flex items-center justify-between gap-3 text-[12.5px] font-bold">
-                  <span className="truncate text-[#52525c]">{STATUS_LABELS[item.key] ?? item.key}</span>
-                  <span className="text-[#a1a1aa]">{formatNumber(item.value)}</span>
+                  <span className="truncate text-[color:var(--text-secondary)]">{STATUS_LABELS[item.key] ?? item.key}</span>
+                  <span className="text-[color:var(--text-tertiary)]">{formatNumber(item.value)}</span>
                 </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-[#f4f4f5]">
-                  <div className="h-full rounded-full bg-[#5b60f9]" style={{ width: `${pct}%` }} />
+                <div className="h-2 overflow-hidden rounded-full bg-[color:var(--surface-hover)]">
+                  <div className="h-full rounded-full bg-[color:var(--primary)]" style={{ width: `${pct}%` }} />
                 </div>
               </div>
             )
           })}
         </div>
       ) : (
-        <p className="m-0 rounded-[12px] border border-dashed border-[#e4e4e7] px-3 py-4 text-center text-[13px] font-semibold text-[#a1a1aa]">
+        <p className="m-0 rounded-[12px] border border-dashed border-[color:var(--border)] px-3 py-4 text-center text-[13px] font-semibold text-[color:var(--text-tertiary)]">
           {emptyLabel}
         </p>
       )}
@@ -194,11 +197,11 @@ function ReadinessBar({ label, ratio }: { label: string; ratio: number }) {
   return (
     <div>
       <div className="mb-1 flex items-center justify-between text-[12.5px] font-bold">
-        <span className="text-[#52525c]">{label}</span>
-        <span className="text-[#a1a1aa]">{pct}% publié</span>
+        <span className="text-[color:var(--text-secondary)]">{label}</span>
+        <span className="text-[color:var(--text-tertiary)]">{pct}% publié</span>
       </div>
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-[#f4f4f5]">
-        <div className={`h-full rounded-full bg-[#5b60f9] ${widthClass}`} />
+      <div className="h-2 w-full overflow-hidden rounded-full bg-[color:var(--surface-hover)]">
+        <div className={`h-full rounded-full bg-[color:var(--primary)] ${widthClass}`} />
       </div>
     </div>
   )
@@ -219,22 +222,22 @@ function QueueItem({
   href?: string
   tone?: 'default' | 'warn' | 'good'
 }) {
-  const valueClass = tone === 'warn' ? 'text-[#f5900b]' : tone === 'good' ? 'text-[#16a34a]' : 'text-[#3f3f46]'
+  const valueClass = tone === 'warn' ? 'text-[color:var(--warning)]' : tone === 'good' ? 'text-[color:var(--success)]' : 'text-[color:var(--text-primary)]'
   const content = (
     <>
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#f0f0ff] text-[#5b60f9]">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
         <Icon size={17} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-black text-[#52525c]">{label}</span>
-        <span className="mt-0.5 block truncate text-[12px] font-semibold text-[#a1a1aa]">{hint}</span>
+        <span className="block text-[13px] font-black text-[color:var(--text-secondary)]">{label}</span>
+        <span className="mt-0.5 block truncate text-[12px] font-semibold text-[color:var(--text-tertiary)]">{hint}</span>
       </span>
       <span className={`shrink-0 text-[20px] font-black leading-none ${valueClass}`}>{value}</span>
-      {href && <ArrowRight size={15} className="shrink-0 text-[#d4d4d8]" />}
+      {href && <ArrowRight size={15} className="shrink-0 text-[color:var(--text-tertiary)]" />}
     </>
   )
 
-  const className = 'flex items-center gap-3 rounded-[13px] border border-[#f4f4f5] bg-[#fbfbfc] px-3 py-3 no-underline transition hover:border-[#d4d4d8] hover:bg-white'
+  const className = 'flex items-center gap-3 rounded-[13px] border border-[color:var(--border)] bg-[color:var(--surface-page)] px-3 py-3 no-underline transition hover:border-[color:var(--primary)] hover:bg-white'
   return href ? <Link href={href} className={className}>{content}</Link> : <div className={className}>{content}</div>
 }
 
@@ -308,15 +311,26 @@ export default function AdminDashboard() {
     <main className={adminPageClass}>
       <AdminPageHeader
         icon={Database}
-        eyebrow="Admin / Overview"
-        title="Operations overview"
-        description="Payments, messages, student progress, content readiness and staff work in one operator view."
-        syncLabel={overview.generated_at ? `Last sync: ${new Date(overview.generated_at).toLocaleString('fr-FR')}` : undefined}
-        action={<AdminRefreshButton loading={loading} label="Refresh" onClick={() => setNonce((n) => n + 1)} />}
+        eyebrow="Administration / Vue d’ensemble"
+        title="Centre de pilotage"
+        description="Suivez l’activité des apprenants, la santé du catalogue, les paiements et les opérations qui demandent une décision."
+        syncLabel={overview.generated_at ? `Actualisé le ${new Date(overview.generated_at).toLocaleString('fr-FR')}` : undefined}
+        action={(
+          <>
+            <span className={`inline-flex h-10 items-center gap-2 rounded-[12px] px-3.5 text-[12px] font-black ${state === 'ready' ? 'bg-[color:var(--success-soft)] text-[color:var(--success)]' : state === 'loading' ? 'bg-[color:var(--primary-soft)] text-[color:var(--primary)]' : 'bg-[color:var(--warning-soft)] text-[color:var(--warning)]'}`}>
+              {state === 'ready' ? <CheckCircle2 size={15} /> : <Activity size={15} />}
+              {state === 'ready' ? 'Plateforme opérationnelle' : state === 'loading' ? 'Synchronisation…' : 'Données partielles'}
+            </span>
+            <AdminRefreshButton loading={loading} label="Actualiser" onClick={() => setNonce((n) => n + 1)} />
+          </>
+        )}
       />
 
       {state === 'fallback' && (
         <AdminAlert>Live analytics could not be loaded. Shortcuts remain available.</AdminAlert>
+      )}
+      {state === 'forbidden' && (
+        <AdminAlert tone="danger">Votre compte staff ne dispose pas des droits nécessaires pour charger les indicateurs.</AdminAlert>
       )}
 
       <section className={`${adminPanelClass} mb-6 grid overflow-hidden sm:grid-cols-2 xl:grid-cols-6`}>
@@ -361,7 +375,7 @@ export default function AdminDashboard() {
           </div>
         </SectionCard>
 
-        <SectionCard title="Activité élèves" subtitle="Progression, quiz et engagement récents.">
+        <SectionCard title="Activité apprenants" subtitle="Progression, quiz et engagement récents.">
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
             <MiniMetric label="Actifs 7j" value={formatNumber(activeUsers)} />
             <MiniMetric label="Quiz pass" value={percent(engagement.quiz_attempt_pass_rate)} tone="good" />
@@ -373,6 +387,38 @@ export default function AdminDashboard() {
               data={recordEntries(sectionRecord(progress, 'topic_item_progress_by_status'), 5)}
               emptyLabel="Aucune progression chargée."
             />
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="mb-5 grid gap-5 xl:grid-cols-2">
+        <SectionCard title="Catalogue pédagogique" subtitle="Volume disponible pour les équipes de contenu et les apprenants.">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <MiniMetric label="Matières" value={formatNumber(totals.subjects)} />
+            <MiniMetric label="Chapitres" value={formatNumber(totals.topics)} />
+            <MiniMetric label="Contenus" value={formatNumber(totals.topic_items)} />
+            <MiniMetric label="Ressources" value={formatNumber(totals.resources)} />
+            <MiniMetric label="Quiz" value={formatNumber(totals.question_sets)} />
+            <MiniMetric label="Examens" value={formatNumber(totals.exams)} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link href="/admin/courses" className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[color:var(--primary)] px-4 text-[13px] font-black text-white no-underline"><BookOpen size={15} /> Gérer les cours</Link>
+            <a href={`${root}/exam/list`} target="_blank" rel="noreferrer" className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-white px-4 text-[13px] font-black text-[color:var(--text-secondary)] no-underline"><GraduationCap size={15} /> Gérer les examens</a>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Usage de la plateforme" subtitle="Signaux d’apprentissage et d’interaction sur la période récente.">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <MiniMetric label="Tentatives quiz" value={formatNumber(totals.quiz_attempts)} />
+            <MiniMetric label="Réponses" value={formatNumber(totals.question_attempts)} />
+            <MiniMetric label="Minutes vues" value={formatNumber(engagement.total_watch_minutes)} />
+            <MiniMetric label="Notes 7j" value={formatNumber(engagement.notes_7d)} tone={metric(engagement, 'notes_7d') ? 'good' : 'default'} />
+            <MiniMetric label="Favoris 7j" value={formatNumber(engagement.saves_7d)} tone={metric(engagement, 'saves_7d') ? 'good' : 'default'} />
+            <MiniMetric label="Commentaires 7j" value={formatNumber(engagement.comments_7d)} tone={metric(engagement, 'comments_7d') ? 'good' : 'default'} />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-[12px] font-bold text-[color:var(--text-hint)]">
+            <span className="inline-flex items-center gap-1.5"><MousePointerClick size={14} className="text-[color:var(--primary)]" /> {formatNumber(engagement.active_users_7d)} actifs sur 7 jours</span>
+            <span className="inline-flex items-center gap-1.5"><Clock3 size={14} className="text-[color:var(--primary)]" /> {percent(engagement.quiz_attempt_pass_rate)} de réussite</span>
           </div>
         </SectionCard>
       </div>

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertTriangle, ArrowUpDown, BookOpenCheck, CheckCircle2, ChevronLeft, Dumbbell, Loader2, Lock, NotebookPen, RotateCcw, Search, Star, Trophy } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ArrowUpDown, BookOpenCheck, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Dumbbell, Layers3, LibraryBig, Loader2, Lock, NotebookPen, RotateCcw, Search, SlidersHorizontal, Star, Trophy } from 'lucide-react'
 import { PermanentSidebar, type FigmaDailyQuest } from '@/components/figma'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { useCourseSubjectsData, type CourseSubject } from '@/lib/courseDiscoveryData'
@@ -34,6 +34,7 @@ const exerciseSidebarQuests: FigmaDailyQuest[] = [
   { id: 'correction', quest_type: 'quiz', title: 'Reveal and review a correction', progress: 0, target: 1 },
   { id: 'notes', quest_type: 'study_time', title: 'Save one revision note', progress: 0, target: 1 },
 ]
+const EXERCISES_PER_PAGE = 9
 
 export default function ExerciseBankPage() {
   const pathname = usePathname()
@@ -55,6 +56,7 @@ export default function ExerciseBankPage() {
   const [notesDirty, setNotesDirty] = useState(false)
   const [notesExerciseId, setNotesExerciseId] = useState<number | null>(null)
   const [mutating, setMutating] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
   const lastErrorRef = useRef('')
   const { subjects, loading: loadingSubjects, error: subjectsError, retry: retrySubjects } = useCourseSubjectsData()
   const subjectOptions = useMemo(() => subjectOptionsFromSubjects(subjects), [subjects])
@@ -84,12 +86,20 @@ export default function ExerciseBankPage() {
   const selectedSubject = subjectOptions.find((subject) => subject.id === selectedSubjectId) ?? subjectOptions[0] ?? null
   const selectedExercise = detail.exercise
   const visibleExercises = useMemo(() => sortExerciseItems(filterExerciseItems(list.items, queryInput), sortBy), [list.items, queryInput, sortBy])
+  const pageCount = Math.max(1, Math.ceil(visibleExercises.length / EXERCISES_PER_PAGE))
+  const safeCurrentPage = Math.min(currentPage, pageCount)
+  const pageStart = (safeCurrentPage - 1) * EXERCISES_PER_PAGE
+  const paginatedExercises = visibleExercises.slice(pageStart, pageStart + EXERCISES_PER_PAGE)
   const hasActiveFilters = Boolean(difficulty || selfGrade || savedOnly || queryInput.trim())
   const hasUnsavedNotes = Boolean(
     selectedExercise
       && notesDirty
       && notesDraft.trim() !== (selectedExercise.notes || '').trim(),
   )
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [difficulty, queryInput, savedOnly, selectedSubjectId, selfGrade, sortBy])
 
   useEffect(() => {
     if (!detail.exercise) return
@@ -289,17 +299,35 @@ export default function ExerciseBankPage() {
     <div className="figma-courses-container">
       <div className="figma-courses-grid">
         <main className="min-w-0 pt-[44px]">
-          <header className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">Exercise Bank</p>
-              <h1 className="m-0 mt-1 text-[34px] font-bold leading-[1.1] tracking-normal text-[#3f3f46]">Exercises</h1>
-            </div>
+          <header className="mb-7 rounded-[24px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_12px_32px_rgba(24,24,27,0.06)] sm:p-7">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div className="flex min-w-0 items-start gap-4">
+                <span className="grid size-12 shrink-0 place-items-center rounded-[16px] bg-[color:var(--primary)] text-white shadow-[0_8px_18px_rgba(69,61,238,0.22)]">
+                  <LibraryBig size={23} strokeWidth={2.5} />
+                </span>
+                <div>
+                  <p className="m-0 text-[12px] font-black uppercase tracking-[1.8px] text-[color:var(--primary)]">Exercise Bank</p>
+                  <h1 className="m-0 mt-1 text-[32px] font-black leading-[1.05] tracking-[-0.6px] text-[color:var(--text-primary)] sm:text-[38px]">
+                    {selectedExerciseId ? 'Practice workspace' : 'Build fluency, one problem at a time'}
+                  </h1>
+                  <p className="m-0 mt-2 max-w-[620px] text-[14px] font-semibold leading-6 text-[color:var(--text-hint)]">
+                    {selectedExerciseId ? 'Solve, reveal the correction, and leave a useful note for your next review.' : 'Choose a subject, narrow the set, and keep your revision status visible.'}
+                  </p>
+                </div>
+              </div>
             {selectedExerciseId && (
-              <button type="button" onClick={closeExercise} className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-4 text-sm font-black text-[#52525c] transition hover:bg-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]">
+              <button type="button" onClick={closeExercise} className="inline-flex h-11 items-center justify-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-4 text-sm font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
                 <ChevronLeft size={16} />
                 Back to list
               </button>
             )}
+            {!selectedExerciseId && (
+              <div className="grid grid-cols-2 gap-2 sm:min-w-[260px]">
+                <ExerciseMetric icon={<Layers3 size={16} />} label="Available" value={list.total} />
+                <ExerciseMetric icon={<Clock3 size={16} />} label="Filtered" value={visibleExercises.length} />
+              </div>
+            )}
+            </div>
           </header>
 
           {subjectsError && (
@@ -313,18 +341,24 @@ export default function ExerciseBankPage() {
 
           {!selectedExerciseId && (
             <>
-              <section className="mb-7" aria-label="Subjects">
-                <h2 className="m-0 text-[20px] font-bold leading-[1.2] tracking-normal text-[#3f3f46]">Subjects</h2>
-                <div className="mt-3 flex min-w-0 gap-2 overflow-x-auto pb-1">
+              <section className="mb-5" aria-label="Subjects">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="m-0 text-[11px] font-black uppercase tracking-[1.5px] text-[color:var(--primary)]">Choose a collection</p>
+                    <h2 className="m-0 mt-1 text-[20px] font-black text-[color:var(--text-primary)]">Subjects</h2>
+                  </div>
+                  <p className="m-0 text-[12px] font-bold text-[color:var(--text-tertiary)]">Scroll to see all</p>
+                </div>
+                <div className="mt-3 flex min-w-0 snap-x gap-2 overflow-x-auto pb-2">
                   {subjectOptions.map((subject) => (
                     <button
                       key={subject.id}
                       type="button"
                       onClick={() => selectSubject(subject.id)}
-                      className={`h-[50px] shrink-0 rounded-[14px] border-2 px-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] ${subject.id === selectedSubjectId ? 'border-[#5b60f9] bg-[#f4f4ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-[#f4f4f5] text-[#3f3f46] hover:bg-white'}`}
+                      className={`min-h-[58px] min-w-[160px] shrink-0 snap-start rounded-[16px] border px-4 py-2.5 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] ${subject.id === selectedSubjectId ? 'border-[color:var(--primary)] bg-[color:var(--primary-soft)] text-[color:var(--primary)] shadow-[0_5px_14px_rgba(69,61,238,0.10)]' : 'border-[color:var(--border)] bg-[color:var(--surface-card)] text-[color:var(--text-primary)] hover:border-[color:var(--primary)]'}`}
                     >
-                      <span className="block text-[14px] font-black leading-[1.1]">{subject.title}</span>
-                      <span className="mt-1 block whitespace-nowrap text-[12px] font-bold leading-[1.1] text-[#71717b]">{subject.topicCount} topics available</span>
+                      <span className="block max-w-[190px] truncate text-[14px] font-black leading-[1.15]">{subject.title}</span>
+                      <span className="mt-1.5 block whitespace-nowrap text-[11px] font-bold text-[color:var(--text-hint)]">{subject.topicCount} topics available</span>
                     </button>
                   ))}
                   {!subjectsError && subjectOptions.length === 0 && (
@@ -335,33 +369,35 @@ export default function ExerciseBankPage() {
                 </div>
               </section>
 
-              <section className="mb-8" aria-label="Exercise controls">
-                <div className="flex min-w-0 flex-wrap items-center gap-3">
-                  <label className="relative h-[44px] w-full sm:w-[260px]">
-                    <Search size={16} className="pointer-events-none absolute left-[16px] top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
+              <section className="mb-7 rounded-[18px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-3 shadow-[0_5px_18px_rgba(24,24,27,0.04)]" aria-label="Exercise controls">
+                <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
+                  <label className="relative h-[46px] min-w-0 flex-1">
+                    <Search size={16} className="pointer-events-none absolute left-[15px] top-1/2 -translate-y-1/2 text-[color:var(--text-tertiary)]" />
                     <input
                       aria-label="Search exercises"
                       value={queryInput}
                       onChange={(event) => updateSearchQuery(event.target.value)}
-                      className="h-full w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] pl-[42px] pr-[16px] text-[15px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none transition placeholder:text-[#9f9fa9] focus:border-[#d4d4d8] focus:bg-white"
-                      placeholder="Search exercises"
+                      className="h-full w-full rounded-[13px] border border-transparent bg-[color:var(--surface-input)] pl-[42px] pr-[16px] text-[15px] font-bold text-[color:var(--text-primary)] outline-none placeholder:text-[color:var(--text-tertiary)] focus:border-[color:var(--primary)] focus:bg-white focus:ring-4 focus:ring-[color:var(--primary-soft)]"
+                      placeholder="Search titles, concepts, or difficulty"
                       type="search"
                     />
                   </label>
-                  <FilterSelect label="Difficulty" value={difficulty} options={difficultyOptions} onChange={(value) => { setDifficulty(value); syncRoute({ difficulty: value, exercise: null }) }} />
-                  <FilterSelect label="Self-grade" value={selfGrade} options={selfGradeOptions} onChange={(value) => { setSelfGrade(value); syncRoute({ selfGrade: value, exercise: null }) }} />
-                  <label className="inline-flex h-[44px] w-full items-center gap-2 rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] sm:w-auto">
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                    <FilterSelect label="Difficulty" value={difficulty} options={difficultyOptions} onChange={(value) => { setDifficulty(value); syncRoute({ difficulty: value, exercise: null }) }} />
+                    <FilterSelect label="Self-grade" value={selfGrade} options={selfGradeOptions} onChange={(value) => { setSelfGrade(value); syncRoute({ selfGrade: value, exercise: null }) }} />
+                  <label className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-[13px] bg-[color:var(--surface-input)] px-3 text-[color:var(--text-tertiary)] sm:w-[160px]">
                     <ArrowUpDown size={15} />
-                    <select aria-label="Sort exercises" value={sortBy} onChange={(event) => updateSort(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none sm:flex-none">
+                    <select aria-label="Sort exercises" value={sortBy} onChange={(event) => updateSort(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold text-[color:var(--text-secondary)] outline-none">
                       {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </label>
+                  </div>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-3">
+                <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[color:var(--border)] pt-3">
                   <button
                     type="button"
                     onClick={() => { setSavedOnly(!savedOnly); syncRoute({ saved: !savedOnly, exercise: null }) }}
-                    className={`inline-flex h-[44px] w-full items-center justify-center gap-2 rounded-[14px] border px-4 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] sm:w-auto ${savedOnly ? 'border-[#f97316] bg-[#fff7ed] text-[#ea580c]' : 'border-[#e4e4e7] bg-[#f4f4f5] text-[#52525c] hover:bg-white'}`}
+                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border px-3.5 text-[13px] font-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] ${savedOnly ? 'border-[color:var(--warning)] bg-[color:var(--warning-soft)] text-[color:var(--warning)]' : 'border-[color:var(--border)] bg-white text-[color:var(--text-secondary)] hover:border-[color:var(--primary)]'}`}
                   >
                     <Star size={15} fill={savedOnly ? 'currentColor' : 'none'} />
                     Saved
@@ -369,7 +405,7 @@ export default function ExerciseBankPage() {
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="inline-flex h-[44px] w-full items-center justify-center gap-2 rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-4 text-sm font-black text-[#52525c] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] sm:w-auto"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-white px-3.5 text-[13px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]"
                   >
                     <RotateCcw size={15} />
                     Reset
@@ -377,9 +413,12 @@ export default function ExerciseBankPage() {
                 </div>
               </section>
 
-              <section className="mb-5 border-b-2 border-[#e4e4e7] pb-4">
-                <h2 className="m-0 text-[24px] font-bold leading-[1.25] tracking-normal text-[#3f3f46]">{selectedSubject?.title ?? 'Exercises'}</h2>
-                <p className="m-0 mt-1 text-[15px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">
+              <section className="mb-5 flex flex-col gap-2 border-b border-[color:var(--border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="m-0 text-[11px] font-black uppercase tracking-[1.5px] text-[color:var(--primary)]">Current set</p>
+                  <h2 className="m-0 mt-1 text-[24px] font-black leading-tight text-[color:var(--text-primary)]">{selectedSubject?.title ?? 'Exercises'}</h2>
+                </div>
+                <p className="m-0 text-[13px] font-bold text-[color:var(--text-tertiary)]">
                   {visibleExercises.length} exercise(s) in the current filtered list.
                 </p>
               </section>
@@ -403,12 +442,12 @@ export default function ExerciseBankPage() {
               ) : showListSkeleton ? (
                 <ExerciseGridSkeleton />
               ) : (
-                <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Exercise list">
-                  {visibleExercises.map((exercise, index) => (
+                <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Exercise list">
+                  {paginatedExercises.map((exercise, index) => (
                     <ExerciseCard
                       key={exercise.id}
                       exercise={exercise}
-                      index={index + 1}
+                      index={pageStart + index + 1}
                       subjectTitle={selectedSubject?.title}
                       onOpen={() => openExercise(exercise.id)}
                     />
@@ -418,6 +457,15 @@ export default function ExerciseBankPage() {
                       subjectTitle={selectedSubject?.title}
                       hasActiveFilters={hasActiveFilters}
                       onResetFilters={resetFilters}
+                    />
+                  )}
+                  {visibleExercises.length > EXERCISES_PER_PAGE && (
+                    <ExercisePagination
+                      currentPage={safeCurrentPage}
+                      pageCount={pageCount}
+                      pageStart={pageStart}
+                      total={visibleExercises.length}
+                      onPageChange={setCurrentPage}
                     />
                   )}
                 </section>
@@ -465,34 +513,34 @@ function ExerciseCard({
   const topic = topicLabel(exercise)
 
   return (
-    <article className="kresco-enter flex h-[188px] w-full flex-col rounded-[12px] border-2 border-[#e4e4e7] bg-white p-4 shadow-[0_3px_0_#d9dadd] transition hover:-translate-y-0.5 hover:border-[#d4d4d8]">
+    <article className="kresco-enter group relative flex min-h-[250px] w-full flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] hover:-translate-y-1 hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)]">
+      <div className="absolute inset-x-0 top-0 h-1 bg-[color:var(--primary-soft)]"><span className={`block h-full ${difficultyAccentClass(exercise.difficulty)}`} style={{ width: `${difficultyLevel(exercise.difficulty) * 33.333}%` }} /></div>
       <div className="flex items-start justify-between gap-3">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-[#fff7df] text-[17px] font-black leading-none text-[#f5900b]">
-          {index}
-        </span>
-        <StatusDot grade={exercise.self_grade} locked={locked} />
-      </div>
-
-      <div className="mt-3 min-w-0">
-        <p className="m-0 line-clamp-1 text-[16px] font-bold leading-[1.15] tracking-normal text-[#3f3f46]">{exercise.title || `Exercise ${index}`}</p>
-        <div className="mt-1.5 grid gap-0.5 text-[12px] font-bold leading-[1.15] tracking-[0.12px] text-[#71717b]">
-          <span className="truncate">{subjectTitle || `Subject ${exercise.subject_id}`}</span>
-          <span className="truncate">{topic}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[color:var(--primary-soft)] text-[12px] font-black text-[color:var(--primary)]">{String(index).padStart(2, '0')}</span>
+          <span className="truncate rounded-full bg-[color:var(--surface-hover)] px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.7px] text-[color:var(--text-hint)]">{topic}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {exercise.saved && <Star size={15} fill="currentColor" className="text-[color:var(--warning)]" aria-label="Saved" />}
+          <StatusDot grade={exercise.self_grade} locked={locked} />
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
-        <div>
-          <DifficultyBars difficulty={exercise.difficulty} />
-          <p className="m-0 mt-1 text-[12px] font-black capitalize leading-[1.1] text-[#52525c]">{difficultyLabel(exercise.difficulty)}</p>
-        </div>
-        <div className="text-right">
-          <p className={`m-0 text-[12px] font-black leading-[1.1] ${statusTextClass(exercise.self_grade)}`}>{status}</p>
-        </div>
+      <div className="mt-4 min-w-0">
+        <p className="m-0 text-[11px] font-black uppercase tracking-[1px] text-[color:var(--text-tertiary)]">{subjectTitle || `Subject ${exercise.subject_id}`}</p>
+        <h3 className="m-0 mt-1.5 line-clamp-2 text-[18px] font-black leading-[1.18] tracking-[-0.15px] text-[color:var(--text-primary)]">{exercise.title || `Exercise ${index}`}</h3>
+        <p className="m-0 mt-2 line-clamp-2 text-[13px] font-semibold leading-5 text-[color:var(--text-hint)]">{exercise.summary || 'A focused practice problem with a guided correction.'}</p>
       </div>
 
-      <button type="button" onClick={onOpen} className="mt-auto h-9 w-full rounded-[10px] bg-[#5b60f9] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]">
-        {cta}
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] font-black">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--surface-hover)] px-2.5 py-1.5 text-[color:var(--text-secondary)]"><Clock3 size={13} />{Math.max(1, Number(exercise.estimated_minutes || 1))} min</span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--surface-hover)] px-2.5 py-1.5 text-[color:var(--text-secondary)]"><DifficultyBars difficulty={exercise.difficulty} />{difficultyLabel(exercise.difficulty)}</span>
+        <span className={`ml-auto rounded-full px-2.5 py-1.5 ${statusPillClass(exercise.self_grade)}`}>{status}</span>
+      </div>
+
+      <button type="button" onClick={onOpen} className="mt-4 flex h-11 w-full items-center justify-between rounded-[13px] bg-[color:var(--primary)] px-4 text-[14px] font-black text-white hover:brightness-[1.04] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
+        <span>{cta}</span>
+        <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
       </button>
     </article>
   )
@@ -542,6 +590,7 @@ function ExerciseDetailView({
 
   const correctionRevealed = exercise.reveal_count > 0
   const notesChanged = notesDirty && notesDraft.trim() !== (exercise.notes || '').trim()
+  const canSaveNotes = exercise.can_save_notes
 
   return (
     <article className="grid gap-5" aria-busy={mutating}>
@@ -630,26 +679,29 @@ function ExerciseDetailView({
               </div>
             </section>
 
-            <section className="rounded-[16px] border-2 border-[#e4e4e7] bg-white p-4">
+            <section className={`rounded-[16px] border-2 p-4 ${canSaveNotes ? 'border-[#e4e4e7] bg-white' : 'border-[color:var(--border)] bg-[color:var(--surface-hover)]'}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="m-0 flex items-center gap-2 text-[18px] font-black leading-[1.1] text-[#3f3f46]">
-                    <NotebookPen size={17} className="text-[#5b60f9]" />
+                    {canSaveNotes ? <NotebookPen size={17} className="text-[#5b60f9]" /> : <Lock size={17} className="text-[color:var(--text-hint)]" />}
                     Private notes
                   </h3>
-                  <p className="m-0 mt-1 text-[13px] font-bold leading-[1.25] text-[#71717b]">Keep revision reminders for this exercise.</p>
+                  <p className="m-0 mt-1 text-[13px] font-bold leading-[1.35] text-[#71717b]">
+                    {canSaveNotes ? 'Keep revision reminders for this exercise.' : 'Unlock this subject to write and save private revision notes.'}
+                  </p>
                 </div>
-                <button type="button" disabled={mutating || !notesChanged} onClick={onSaveNotes} className="inline-flex h-9 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-3 text-xs font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-60">
+                <button type="button" disabled={!canSaveNotes || mutating || !notesChanged} onClick={onSaveNotes} className="inline-flex h-9 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-3 text-xs font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-60">
                   {mutating && <Loader2 size={14} className="animate-spin" />}
-                  {mutating ? 'Saving...' : 'Save notes'}
+                  {mutating ? 'Saving...' : canSaveNotes ? 'Save notes' : 'Locked'}
                 </button>
               </div>
               <textarea
                 aria-label="Exercise private notes"
                 value={notesDraft}
                 onChange={(event) => onNotesChange(event.target.value)}
-                className="mt-4 min-h-[170px] w-full resize-y rounded-[14px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4 text-sm font-semibold leading-6 text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
-                placeholder="Add reminders, traps, or formulas to revisit..."
+                disabled={!canSaveNotes}
+                className="mt-4 min-h-[170px] w-full resize-y rounded-[14px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4 text-sm font-semibold leading-6 text-[#3f3f46] outline-none transition focus:border-[#5b60f9] disabled:cursor-not-allowed disabled:bg-[color:var(--surface-disabled)] disabled:text-[color:var(--text-hint)]"
+                placeholder={canSaveNotes ? 'Add reminders, traps, or formulas to revisit...' : 'Private notes require access to this subject.'}
               />
             </section>
 
@@ -743,12 +795,51 @@ function LockedExercisePreview({ exercise }: { exercise: ExerciseDetail }) {
 
 function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return (
-    <label className="inline-flex h-10 w-full items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-sm font-black text-[#52525c] sm:w-auto">
-      {label}
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-sm font-black capitalize outline-none sm:flex-none">
+    <label className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-[13px] bg-[color:var(--surface-input)] px-3 text-[color:var(--text-tertiary)] sm:w-[150px]">
+      <SlidersHorizontal size={14} />
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold capitalize text-[color:var(--text-secondary)] outline-none">
         {options.map((option) => <option key={option || 'all'} value={option}>{option ? option.replace('_', ' ') : 'All'}</option>)}
       </select>
     </label>
+  )
+}
+
+function ExerciseMetric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
+  return (
+    <div className="rounded-[14px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-3">
+      <span className="flex items-center gap-1.5 text-[color:var(--primary)]">{icon}<span className="text-[10px] font-black uppercase tracking-[1px] text-[color:var(--text-tertiary)]">{label}</span></span>
+      <strong className="mt-1 block text-[22px] font-black leading-none text-[color:var(--text-primary)]">{value}</strong>
+    </div>
+  )
+}
+
+function ExercisePagination({
+  currentPage,
+  pageCount,
+  pageStart,
+  total,
+  onPageChange,
+}: {
+  currentPage: number
+  pageCount: number
+  pageStart: number
+  total: number
+  onPageChange: (page: number) => void
+}) {
+  const pageEnd = Math.min(total, pageStart + EXERCISES_PER_PAGE)
+  return (
+    <nav aria-label="Exercise pages" className="mt-2 flex flex-col gap-3 rounded-[16px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between xl:col-span-3">
+      <p className="m-0 text-[12px] font-bold text-[color:var(--text-hint)]">Showing {pageStart + 1}–{pageEnd} of {total}</p>
+      <div className="flex items-center gap-2">
+        <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} className="inline-flex h-9 items-center gap-1.5 rounded-[11px] border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-45">
+          <ChevronLeft size={14} /> Previous
+        </button>
+        <span className="px-2 text-[12px] font-black text-[color:var(--text-primary)]">{currentPage} / {pageCount}</span>
+        <button type="button" disabled={currentPage >= pageCount} onClick={() => onPageChange(currentPage + 1)} className="inline-flex h-9 items-center gap-1.5 rounded-[11px] border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-45">
+          Next <ChevronRight size={14} />
+        </button>
+      </div>
+    </nav>
   )
 }
 
@@ -799,7 +890,7 @@ function ExerciseEmptyState({
   onResetFilters: () => void
 }) {
   return (
-    <div className="rounded-[18px] border-2 border-dashed border-[#e4e4e7] bg-white p-6 sm:col-span-2 xl:col-span-4">
+    <div className="rounded-[18px] border-2 border-dashed border-[#e4e4e7] bg-white p-6 sm:col-span-2 xl:col-span-3">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="m-0 text-base font-black text-[#3f3f46]">
@@ -833,18 +924,25 @@ function ExerciseEmptyState({
 function DifficultyBars({ difficulty }: { difficulty: string }) {
   const level = difficultyLevel(difficulty)
   return (
-    <div aria-label={`Difficulty ${difficultyLabel(difficulty)}`} className="flex h-[22px] items-end gap-1">
+    <span aria-label={`Difficulty ${difficultyLabel(difficulty)}`} className="inline-flex h-[12px] items-end gap-0.5">
       {[1, 2, 3].map((bar) => (
-        <span key={bar} className={`w-2 rounded-[3px] ${difficultyBarHeight(bar)} ${bar <= level ? 'bg-[#facc15]' : 'bg-[#e4e4e7]'}`} />
+        <span key={bar} className={`w-1 rounded-[2px] ${difficultyBarHeight(bar)} ${bar <= level ? difficultyAccentClass(difficulty) : 'bg-[color:var(--border)]'}`} />
       ))}
-    </div>
+    </span>
   )
 }
 
 function difficultyBarHeight(bar: number) {
-  if (bar === 1) return 'h-[13px]'
-  if (bar === 2) return 'h-[18px]'
-  return 'h-[23px]'
+  if (bar === 1) return 'h-1.5'
+  if (bar === 2) return 'h-[9px]'
+  return 'h-3'
+}
+
+function difficultyAccentClass(difficulty: string) {
+  const normalized = difficulty.toLowerCase()
+  if (normalized === 'hard' || normalized === 'bac') return 'bg-[color:var(--danger)]'
+  if (normalized === 'medium') return 'bg-[color:var(--warning)]'
+  return 'bg-[color:var(--success)]'
 }
 
 function StatusDot({ grade, locked }: { grade: ExerciseSelfGrade; locked: boolean }) {
@@ -861,8 +959,8 @@ function RichBody({ body, empty }: { body: string; empty: string }) {
 
 function ExerciseGridSkeleton() {
   return (
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {[1, 2, 3, 4].map((item) => <div key={item} className="h-[178px] w-full rounded-[12px] bg-[#f4f4f5]" />)}
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {[1, 2, 3].map((item) => <div key={item} className="h-[250px] w-full rounded-[20px] bg-[#f4f4f5]" />)}
     </section>
   )
 }
@@ -975,13 +1073,6 @@ function statusColor(grade: ExerciseSelfGrade) {
   if (grade === 'partial') return 'bg-[#fef3c7] text-[#b45309]'
   if (grade === 'again') return 'bg-[#fee2e2] text-[#b91c1c]'
   return 'bg-[#ffe4d5] text-[#f97316]'
-}
-
-function statusTextClass(grade: ExerciseSelfGrade) {
-  if (grade === 'mastered') return 'text-[#15803d]'
-  if (grade === 'partial') return 'text-[#b45309]'
-  if (grade === 'again') return 'text-[#b91c1c]'
-  return 'text-[#3a2fd3]'
 }
 
 function statusPillClass(grade: ExerciseSelfGrade) {

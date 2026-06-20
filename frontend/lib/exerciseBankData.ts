@@ -46,6 +46,7 @@ export type ExerciseDetail = ExerciseListItem & {
   last_revealed_at: string | null
   self_grade_history: Array<Record<string, unknown>>
   notes: string
+  can_save_notes: boolean
   metadata_json: Record<string, unknown>
 }
 

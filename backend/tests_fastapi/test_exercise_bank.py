@@ -152,6 +152,7 @@ def test_exercise_detail_returns_statement_solution_and_assets_when_unlocked(app
     assert payload["solution_video_url"] == "https://video.example/solution"
     assert payload["assets"][0]["asset_type"] == "diagram"
     assert payload["self_grade_history"] == [{"grade": "partial", "source": "seed"}]
+    assert payload["can_save_notes"] is True
 
 
 def test_exercise_detail_redacts_for_fresh_user_without_subject_entitlement(app_client, auth_token, run_db):
@@ -331,6 +332,7 @@ def test_exercise_notes_require_subject_access_even_for_free_preview(app_client,
 
     assert detail.status_code == 200
     assert detail.json()["can_access"] is True
+    assert detail.json()["can_save_notes"] is False
     assert response.status_code == 403
     assert response.json()["detail"] == "subject_access_required"
     assert run_db(_user_xp_total(user_id)) == 0

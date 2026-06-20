@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { BookOpen, FileText, Lock, Search } from 'lucide-react'
+import { ArrowRight, BookOpen, CalendarDays, FileText, GraduationCap, Layers3, Lock, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { useExamBankData, type Exam, type ExamBankFilters, type ExamProblem } from '@/lib/courseDiscoveryData'
 import { SkeletonBlock } from '@/components/figma'
@@ -26,7 +26,7 @@ type SubjectExamSection = {
 }
 
 const EXAM_SEARCH_DEBOUNCE_MS = 280
-const MAX_EXAMS_RENDERED = 30
+const MAX_EXAMS_RENDERED = 72
 const MAX_PROGRESS_DOTS = 8
 const progressFilterOptions: { value: NonNullable<ExamBankFilters['progressStatus']>; label: string }[] = [
   { value: '', label: 'All progress' },
@@ -53,6 +53,7 @@ export default function ExamBankPage() {
   const [queryInput, setQueryInput] = useState(routeQuery)
   const [progressFilter, setProgressFilter] = useState<NonNullable<ExamBankFilters['progressStatus']>>(routeProgressFilter)
   const [savedFilter, setSavedFilter] = useState<SavedFilter>(routeSavedFilter)
+  const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(() => new Set())
   const lastErrorToastRef = useRef('')
 
   useEffect(() => {
@@ -114,6 +115,24 @@ export default function ExamBankPage() {
   const groupedExamSections = useMemo(() => groupExamsBySubject(visibleExams), [visibleExams])
   const isCapped = exams.length > MAX_EXAMS_RENDERED
   const showInitialLoading = loading && exams.length === 0
+  const totalProblems = visibleExams.reduce((total, exam) => total + exam.totalProblemCount, 0)
+  const completedProblems = visibleExams.reduce((total, exam) => total + exam.completedProblemCount, 0)
+  const hasActiveFilters = Boolean(queryInput.trim() || progressFilter || savedFilter !== 'all')
+
+  function resetFilters() {
+    setQueryInput('')
+    setProgressFilter('')
+    setSavedFilter('all')
+  }
+
+  function toggleSubject(subjectKey: string) {
+    setExpandedSubjects((current) => {
+      const next = new Set(current)
+      if (next.has(subjectKey)) next.delete(subjectKey)
+      else next.add(subjectKey)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!routeProblemId || exams.length === 0) return
@@ -123,48 +142,62 @@ export default function ExamBankPage() {
   }, [exams, routeProblemId, router])
 
   return (
-    <main className="pt-[44px]">
-      <header className="mb-[32px]">
-        <div className="mb-[22px]">
-          <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">Exam Bank</p>
-          <h1 className="m-0 mt-1 text-[34px] font-bold leading-[1.1] tracking-normal text-[#3f3f46]">Bac exams</h1>
-        </div>
-
-        <div className="flex min-w-0 flex-wrap items-start gap-[18px]">
-          <div className="relative w-[280px] max-w-full">
-            <Search size={16} className="pointer-events-none absolute left-[16px] top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
-            <input
-              aria-label="Search exam bank"
-              value={queryInput}
-              onChange={(event) => setQueryInput(event.target.value)}
-              className="h-[44px] w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] pl-[42px] pr-[16px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46] outline-none transition placeholder:text-[#9f9fa9] focus:border-[#d4d4d8] focus:bg-white"
-              placeholder="Search exams"
-              type="search"
-            />
+    <main className="pt-[32px] sm:pt-[44px]">
+      <header className="mb-10">
+        <section className="relative overflow-hidden rounded-[24px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-5 py-6 shadow-[0_12px_32px_rgba(24,24,27,0.06)] sm:px-7 sm:py-7">
+          <div className="pointer-events-none absolute -right-8 -top-12 text-[150px] font-black leading-none tracking-[-10px] text-[color:var(--primary-soft)]" aria-hidden="true">BAC</div>
+          <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex min-w-0 items-start gap-4">
+              <span className="grid size-12 shrink-0 place-items-center rounded-[16px] bg-[color:var(--primary)] text-white shadow-[0_8px_18px_rgba(69,61,238,0.22)]">
+                <GraduationCap size={24} strokeWidth={2.5} />
+              </span>
+              <div>
+                <p className="m-0 text-[12px] font-black uppercase tracking-[1.8px] text-[color:var(--primary)]">Exam Bank</p>
+                <h1 className="m-0 mt-1 text-[34px] font-black leading-[1.05] tracking-[-0.7px] text-[color:var(--text-primary)] sm:text-[40px]">Bac exams, built for real practice</h1>
+                <p className="m-0 mt-2 max-w-[640px] text-[14px] font-semibold leading-6 text-[color:var(--text-hint)] sm:text-[15px]">
+                  Pick a subject, work problem by problem, and return exactly where you stopped.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
+              <BankMetric icon={<CalendarDays size={16} />} label="Exams" value={visibleExams.length} />
+              <BankMetric icon={<Layers3 size={16} />} label="Problems" value={totalProblems} />
+              <BankMetric icon={<BookOpen size={16} />} label="Completed" value={completedProblems} />
+            </div>
           </div>
+        </section>
 
-          <select
-            aria-label="Filter exam bank by progress"
-            value={progressFilter}
-            onChange={(event) => setProgressFilter(validProgressFilter(event.target.value))}
-            className="h-[44px] w-[170px] max-w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none transition focus:border-[#d4d4d8] focus:bg-white"
-          >
-            {progressFilterOptions.map((option) => (
-              <option key={option.value || 'all'} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-
-          <select
-            aria-label="Filter exam bank by saved state"
-            value={savedFilter}
-            onChange={(event) => setSavedFilter(validSavedFilter(event.target.value))}
-            className="h-[44px] w-[150px] max-w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none transition focus:border-[#d4d4d8] focus:bg-white"
-          >
-            {savedFilterOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
+        <section className="mt-4 rounded-[18px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-3 shadow-[0_5px_18px_rgba(24,24,27,0.04)]" aria-label="Exam Bank filters">
+          <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search size={16} className="pointer-events-none absolute left-[15px] top-1/2 -translate-y-1/2 text-[color:var(--text-tertiary)]" />
+              <input
+                aria-label="Search exam bank"
+                value={queryInput}
+                onChange={(event) => setQueryInput(event.target.value)}
+                className="h-[46px] w-full rounded-[13px] border border-transparent bg-[color:var(--surface-input)] pl-[42px] pr-[16px] text-[15px] font-bold text-[color:var(--text-primary)] outline-none placeholder:text-[color:var(--text-tertiary)] focus:border-[color:var(--primary)] focus:bg-white focus:ring-4 focus:ring-[color:var(--primary-soft)]"
+                placeholder="Search by subject, year, or session"
+                type="search"
+              />
+            </div>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+              <label className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-[13px] bg-[color:var(--surface-input)] px-3 text-[color:var(--text-tertiary)] sm:w-[190px]">
+                <SlidersHorizontal size={15} />
+                <select aria-label="Filter exam bank by progress" value={progressFilter} onChange={(event) => setProgressFilter(validProgressFilter(event.target.value))} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold text-[color:var(--text-secondary)] outline-none">
+                  {progressFilterOptions.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <select aria-label="Filter exam bank by saved state" value={savedFilter} onChange={(event) => setSavedFilter(validSavedFilter(event.target.value))} className="h-[46px] rounded-[13px] border-0 bg-[color:var(--surface-input)] px-4 text-[14px] font-bold text-[color:var(--text-secondary)] outline-none focus:ring-4 focus:ring-[color:var(--primary-soft)] sm:w-[155px]">
+                {savedFilterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              {hasActiveFilters && (
+                <button type="button" onClick={resetFilters} className="inline-flex h-[46px] items-center justify-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-4 text-[13px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
+                  <RotateCcw size={14} /> Reset
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
       </header>
 
       {showInitialLoading ? (
@@ -202,10 +235,17 @@ export default function ExamBankPage() {
           )}
           {groupedExamSections.map((section) => (
             <section key={section.key}>
-              <SubjectDivider title={section.title} examCount={section.exams.length} />
+              <SubjectDivider
+                title={section.title}
+                examCount={section.exams.length}
+                expanded={expandedSubjects.has(section.key)}
+                onToggle={() => toggleSubject(section.key)}
+              />
               <div className="figma-course-grid">
-                {section.exams.map((exam, index) => (
-                  <ExamCard key={exam.id} exam={exam} index={index} />
+                {(expandedSubjects.has(section.key) ? section.exams : section.exams.slice(0, 3)).map((exam, index) => (
+                  <div key={exam.id} className={!expandedSubjects.has(section.key) && index > 0 ? 'max-[760px]:hidden' : ''}>
+                    <ExamCard exam={exam} index={index} />
+                  </div>
                 ))}
               </div>
             </section>
@@ -216,13 +256,30 @@ export default function ExamBankPage() {
   )
 }
 
-function SubjectDivider({ title, examCount }: { title: string; examCount: number }) {
+function SubjectDivider({ title, examCount, expanded, onToggle }: { title: string; examCount: number; expanded: boolean; onToggle: () => void }) {
   return (
-    <div className="mb-[32px]">
-      <h2 className="m-0 text-[24px] font-bold leading-[1.4] tracking-normal text-[#3f3f46]">{title}</h2>
-      <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">
-        {examCount} {examCount === 1 ? 'exam' : 'exams'}
-      </p>
+    <div className="mb-5 flex items-end gap-4 border-b border-[color:var(--border)] pb-4">
+      <div className="min-w-0">
+        <p className="m-0 text-[11px] font-black uppercase tracking-[1.5px] text-[color:var(--primary)]">Subject collection</p>
+        <h2 className="m-0 mt-1 truncate text-[24px] font-black leading-tight tracking-[-0.3px] text-[color:var(--text-primary)]">{title}</h2>
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <span className="rounded-full bg-[color:var(--surface-hover)] px-3 py-1.5 text-[12px] font-black text-[color:var(--text-hint)]">{examCount} {examCount === 1 ? 'exam' : 'exams'}</span>
+        {examCount > 3 && (
+          <button type="button" onClick={onToggle} className="h-8 rounded-full border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--primary)] hover:border-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
+            {expanded ? 'Show latest' : `View all ${examCount}`}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BankMetric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
+  return (
+    <div className="rounded-[14px] border border-[color:var(--border)] bg-white/90 px-3 py-3 backdrop-blur-sm">
+      <span className="flex items-center gap-1.5 text-[color:var(--primary)]">{icon}<span className="text-[10px] font-black uppercase tracking-[1px] text-[color:var(--text-tertiary)]">{label}</span></span>
+      <strong className="mt-1 block text-[22px] font-black leading-none text-[color:var(--text-primary)]">{value}</strong>
     </div>
   )
 }
@@ -257,39 +314,41 @@ function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
   const href = exam.firstProblemId ? `/exam-bank/${exam.id}?problem=${exam.firstProblemId}` : ''
 
   return (
-    <article className={`kresco-enter group relative flex h-[300px] w-full max-w-[344.33px] flex-col overflow-hidden rounded-[16px] border-2 border-[#e4e4e7] bg-white p-[18px] shadow-[0_3.75px_0_#d9dadd] transition duration-200 hover:-translate-y-1 hover:shadow-[0_5px_0_#d9dadd] ${showLocked ? 'opacity-80' : ''}`}>
-      <div className={`absolute inset-x-0 bottom-0 h-[5px] ${sessionTone.accent}`} />
-      <div className="flex items-start justify-between gap-3">
-        <span className={`inline-flex min-h-[34px] items-center rounded-[12px] border px-[12px] text-[12px] font-black leading-[1.1] tracking-[0.12px] ${sessionTone.chip}`}>
+    <article className={`kresco-enter group relative flex min-h-[286px] w-full max-w-[344.33px] flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition hover:-translate-y-1 hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)] ${showLocked ? 'opacity-80' : ''}`}>
+      <div className={`absolute inset-y-0 left-0 w-1.5 ${sessionTone.accent}`} />
+      <div className="pointer-events-none absolute -right-2 top-7 text-[76px] font-black leading-none tracking-[-5px] text-[color:var(--surface-hover)]" aria-hidden="true">{exam.year}</div>
+      <div className="relative flex items-start justify-between gap-3">
+        <span className={`inline-flex min-h-[32px] items-center rounded-full border px-3 text-[11px] font-black uppercase tracking-[0.55px] ${sessionTone.chip}`}>
           {sessionLabel}
         </span>
-        <span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] border border-[#e4e4e7] bg-[#f4f4f5] text-[13px] font-black text-[#71717b]">
-          {index + 1}
+        <span className="grid size-8 shrink-0 place-items-center rounded-full border border-[color:var(--border)] bg-white text-[12px] font-black text-[color:var(--text-hint)]">
+          {String(index + 1).padStart(2, '0')}
         </span>
       </div>
 
-      <div className="mt-[24px] min-w-0">
-        <p className="m-0 truncate text-[18px] font-bold leading-[1.1] tracking-[0.2px] text-[#3f3f46]">{exam.subject_title}</p>
-        <h3 className="m-0 mt-1 text-[52px] font-black leading-none tracking-normal text-[#18181b]">{exam.year}</h3>
+      <div className="relative mt-6 min-w-0">
+        <p className="m-0 truncate text-[14px] font-black uppercase tracking-[0.8px] text-[color:var(--text-tertiary)]">{exam.subject_title}</p>
+        <h3 className="m-0 mt-1 text-[46px] font-black leading-none tracking-[-1.5px] text-[color:var(--text-primary)]">{exam.year}</h3>
+        <p className="m-0 mt-2 text-[13px] font-bold text-[color:var(--text-hint)]">{exam.totalProblemCount} structured {exam.totalProblemCount === 1 ? 'problem' : 'problems'}</p>
       </div>
 
-      <div className="mt-auto">
-        <div className="mb-[10px] flex items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-1.5 text-[12px] font-black leading-[1.1] tracking-[0.12px] text-[#71717b]">
+      <div className="relative mt-auto pt-5">
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-black text-[color:var(--text-secondary)]">
             <BookOpen size={14} strokeWidth={3} />
             {progressLabel}
           </span>
           {showLocked && (
-            <span className="inline-flex items-center gap-1 text-[12px] font-black text-[#9f9fa9]">
+            <span className="inline-flex items-center gap-1 text-[12px] font-black text-[color:var(--text-tertiary)]">
               <Lock size={13} strokeWidth={3} />
               Locked
             </span>
           )}
         </div>
 
-        <div className="h-[10px] w-full overflow-hidden rounded-[4.286px] bg-[#f4f4f5]" aria-label={`Progress ${exam.completedProblemCount} of ${exam.totalProblemCount || 0} problems completed`}>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-[color:var(--surface-hover)]" aria-label={`Progress ${exam.completedProblemCount} of ${exam.totalProblemCount || 0} problems completed`}>
           <span
-            className="kresco-progress-fill block h-full rounded-[4.286px] bg-[#5b60f9] shadow-[inset_0px_2.857px_2.857px_rgba(255,255,255,.4),inset_0px_-2.857px_2.857px_rgba(0,0,0,.08)]"
+            className="kresco-progress-fill block h-full rounded-full bg-[color:var(--primary)]"
             style={{ width: `${exam.progressPercent}%` }}
           />
         </div>
@@ -299,15 +358,15 @@ function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
         {href ? (
           <Link
             href={href}
-            className={`mt-[14px] flex h-[44px] w-full items-center justify-center gap-2 rounded-[12px] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white no-underline transition duration-200 group-hover:brightness-[1.03] group-hover:saturate-[1.08] ${
-              exam.completedProblemCount === exam.totalProblemCount && exam.totalProblemCount > 0 ? 'bg-[#f5900b]' : 'bg-[#5b60f9]'
+            className={`mt-3.5 flex h-[44px] w-full items-center justify-between rounded-[13px] px-4 text-[14px] font-black text-white no-underline transition duration-200 ${
+              exam.completedProblemCount === exam.totalProblemCount && exam.totalProblemCount > 0 ? 'bg-[color:var(--warning)]' : 'bg-[color:var(--primary)]'
             }`}
           >
-            <FileText size={16} strokeWidth={3} />
-            {actionLabel}
+            <span className="inline-flex items-center gap-2"><FileText size={15} strokeWidth={2.7} />{actionLabel}</span>
+            <ArrowRight size={16} strokeWidth={2.7} className="transition-transform group-hover:translate-x-0.5" />
           </Link>
         ) : (
-          <span className="mt-[14px] flex h-[44px] w-full items-center justify-center rounded-[12px] bg-[#d4d4d8] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#71717b]">
+          <span className="mt-3.5 flex h-[44px] w-full items-center justify-center rounded-[13px] bg-[color:var(--surface-hover)] px-4 text-center text-[14px] font-black text-[color:var(--text-hint)]">
             No problems yet
           </span>
         )}

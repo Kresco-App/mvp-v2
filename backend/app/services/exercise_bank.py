@@ -135,6 +135,7 @@ async def get_exercise_detail(
         exercise,
         access=_exercise_access(access_context, exercise),
         progress=_progress_for_user(exercise, int(user.id)),
+        can_save_notes=int(exercise.subject_id) in access_context.active_subject_ids,
     )
 
 
@@ -144,7 +145,7 @@ async def reveal_exercise_solution(
     *,
     exercise_id: int,
 ) -> ExerciseDetailOut:
-    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
+    exercise, access, access_context = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
     progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
     now = datetime.now(timezone.utc)
     progress.reveal_count = int(progress.reveal_count or 0) + 1
@@ -153,7 +154,12 @@ async def reveal_exercise_solution(
         progress.first_revealed_at = now
     await db.commit()
     await db.refresh(progress)
-    return exercise_detail_out(exercise, access=access, progress=progress)
+    return exercise_detail_out(
+        exercise,
+        access=access,
+        progress=progress,
+        can_save_notes=int(exercise.subject_id) in access_context.active_subject_ids,
+    )
 
 
 async def update_exercise_saved(
@@ -163,12 +169,17 @@ async def update_exercise_saved(
     exercise_id: int,
     saved: bool,
 ) -> ExerciseDetailOut:
-    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
+    exercise, access, access_context = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
     progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
     progress.saved = bool(saved)
     await db.commit()
     await db.refresh(progress)
-    return exercise_detail_out(exercise, access=access, progress=progress)
+    return exercise_detail_out(
+        exercise,
+        access=access,
+        progress=progress,
+        can_save_notes=int(exercise.subject_id) in access_context.active_subject_ids,
+    )
 
 
 async def update_exercise_notes(
@@ -178,15 +189,14 @@ async def update_exercise_notes(
     exercise_id: int,
     notes: str,
 ) -> ExerciseDetailOut:
-    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
-    access_context = await build_access_context(db, user)
+    exercise, access, access_context = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
     if int(exercise.subject_id) not in access_context.active_subject_ids:
         raise HTTPException(status_code=403, detail="subject_access_required")
     progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
     progress.notes = notes.strip()
     await db.commit()
     await db.refresh(progress)
-    return exercise_detail_out(exercise, access=access, progress=progress)
+    return exercise_detail_out(exercise, access=access, progress=progress, can_save_notes=True)
 
 
 async def update_exercise_self_grade(
@@ -196,7 +206,7 @@ async def update_exercise_self_grade(
     exercise_id: int,
     self_grade: str,
 ) -> tuple[ExerciseDetailOut, int]:
-    exercise, access = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
+    exercise, access, access_context = await _load_accessible_exercise_for_mutation(db, user, exercise_id=exercise_id)
     progress = await _get_or_create_progress(db, user_id=int(user.id), exercise_id=int(exercise.id))
     if int(progress.reveal_count or 0) <= 0:
         raise HTTPException(status_code=409, detail="Exercise correction must be revealed before self-grading")
@@ -225,7 +235,12 @@ async def update_exercise_self_grade(
         )
     await db.commit()
     await db.refresh(progress)
-    return exercise_detail_out(exercise, access=access, progress=progress), xp_awarded
+    return exercise_detail_out(
+        exercise,
+        access=access,
+        progress=progress,
+        can_save_notes=int(exercise.subject_id) in access_context.active_subject_ids,
+    ), xp_awarded
 
 
 def exercise_list_item_out(
@@ -262,6 +277,7 @@ def exercise_detail_out(
     *,
     access: AccessDecision,
     progress: UserExerciseProgress | None,
+    can_save_notes: bool = False,
 ) -> ExerciseDetailOut:
     base = exercise_list_item_out(exercise, access=access, progress=progress)
     out = ExerciseDetailOut(
@@ -275,6 +291,7 @@ def exercise_detail_out(
         last_revealed_at=progress.last_revealed_at if progress is not None else None,
         self_grade_history=list(progress.self_grade_history_json or []) if progress is not None else [],
         notes=progress.notes if progress is not None else "",
+        can_save_notes=can_save_notes,
         metadata_json=exercise.metadata_json or {} if access.can_access else {},
     )
     return out
@@ -328,7 +345,7 @@ async def _load_accessible_exercise_for_mutation(
     user: User,
     *,
     exercise_id: int,
-) -> tuple[Exercise, AccessDecision]:
+) -> tuple[Exercise, AccessDecision, AccessContext]:
     exercise = await db.scalar(
         select(Exercise)
         .join(Subject, Subject.id == Exercise.subject_id)
@@ -348,7 +365,7 @@ async def _load_accessible_exercise_for_mutation(
     access = _exercise_access(access_context, exercise)
     if not access.can_access:
         raise HTTPException(status_code=403, detail=access.locked_reason)
-    return exercise, access
+    return exercise, access, access_context
 
 
 async def _get_or_create_progress(
