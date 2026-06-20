@@ -3,8 +3,13 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import KrescoLogo from '@/components/KrescoLogo'
+import { Check, Loader2, TriangleAlert } from 'lucide-react'
 import { localizedCopy } from '@/lib/localization'
 import { applyFirebaseEmailVerification } from '@/lib/firebaseAuth'
+
+const pageClass = 'flex min-h-[100svh] flex-col items-center justify-center overflow-y-auto bg-[var(--auth-bg)] p-6'
+const panelClass = 'flex w-full max-w-[380px] flex-col items-center text-center'
+const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
 
 function VerifyEmailContent() {
   const router = useRouter()
@@ -43,45 +48,41 @@ function VerifyEmailContent() {
   }, [searchParams, router])
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--auth-bg)] p-6">
-      <div className="flex w-full max-w-[380px] flex-col items-center text-center">
+    <div className={pageClass}>
+      <div className={panelClass}>
         <KrescoLogo size={52} className="mb-6" />
 
         {status === 'loading' && (
-          <>
-            <div className="mb-5 h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--auth-card-selected-bg)] border-t-[var(--auth-primary)]" />
-            <p className="text-[15px] text-[var(--auth-text-muted)]">V&eacute;rification en cours...</p>
-          </>
+          <div role="status">
+            <Loader2 size={40} className="mx-auto mb-5 animate-spin text-[var(--auth-primary)]" aria-hidden="true" />
+            <p className="text-[15px] text-[var(--auth-text-muted)]">{localizedCopy.auth.verifyEmailChecking}</p>
+          </div>
         )}
 
         {status === 'success' && (
-          <>
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--auth-card-selected-bg)]">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                <path d="M5 13l4 4L19 7" stroke="var(--auth-primary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+          <div role="status">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--auth-card-selected-bg)]">
+              <Check size={28} color="var(--auth-primary)" aria-hidden="true" />
             </div>
             <h1 className="mb-2 text-[22px] font-bold text-[var(--auth-text)]">{localizedCopy.auth.verifyEmailVerifiedTitle}</h1>
-            <p className="text-[14px] text-[var(--auth-text-muted)]">{localizedCopy.auth.verifyEmailVerifiedBody}</p>
-          </>
+            <p className="text-[14px] leading-[1.55] text-[var(--auth-text-muted)]">{localizedCopy.auth.verifyEmailVerifiedBody}</p>
+          </div>
         )}
 
         {status === 'error' && (
-          <>
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#fff0f0]">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="#c10007" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+          <div role="alert">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#fff0f0]">
+              <TriangleAlert size={28} color="#c10007" aria-hidden="true" />
             </div>
-            <h1 className="mb-2 text-[22px] font-bold text-[var(--auth-text)]">V&eacute;rification &eacute;chou&eacute;e</h1>
-            <p className="mb-7 text-[14px] text-[var(--auth-text-muted)]">{errorMsg}</p>
+            <h1 className="mb-2 text-[22px] font-bold text-[var(--auth-text)]">{localizedCopy.auth.verifyEmailFailedTitle}</h1>
+            <p className="mb-7 text-[14px] leading-[1.55] text-[var(--auth-text-muted)]">{errorMsg}</p>
             <a
               href="/"
-              className="text-[14px] font-semibold text-[var(--auth-primary)] no-underline"
+              className={`rounded-md px-1 py-1 text-[14px] font-semibold text-[var(--auth-primary)] no-underline hover:text-[#3a2fd3] ${focusRingClass}`}
             >
               {localizedCopy.auth.backToLogin}
             </a>
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -91,8 +92,8 @@ function VerifyEmailContent() {
 export default function VerifyEmailPage() {
   return (
     <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center bg-[var(--auth-bg)]">
-        <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-[#edf1ff] border-t-[#453dee]" />
+      <div className="flex min-h-[100svh] items-center justify-center bg-[var(--auth-bg)]" role="status" aria-label={localizedCopy.auth.loading}>
+        <Loader2 size={34} className="animate-spin text-[var(--auth-primary)]" aria-hidden="true" />
       </div>
     }>
       <VerifyEmailContent />

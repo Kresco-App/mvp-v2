@@ -36,6 +36,13 @@ function getDashboardSidebarConfig(pathname: string): DashboardSidebarConfig | n
     }
   }
 
+  if (pathname === '/exam-bank') {
+    return {
+      containerClassName: 'figma-courses-container',
+      gridClassName: 'figma-courses-grid',
+    }
+  }
+
   if (pathname === '/live') {
     return {
       containerClassName: 'figma-container',

@@ -18,6 +18,15 @@ import app.models  # noqa: F401
 from app.config import get_settings
 from app.database import _build_async_url
 from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
+from app.models.exercises import (
+    EXERCISE_ASSET_DIAGRAM,
+    EXERCISE_DIFFICULTY_BAC,
+    EXERCISE_DIFFICULTY_EASY,
+    EXERCISE_DIFFICULTY_MEDIUM,
+    EXERCISE_STATUS_PUBLISHED,
+    Exercise,
+    ExerciseAsset,
+)
 from app.models.professor import (
     CourseOffering,
     LiveSession,
@@ -140,7 +149,7 @@ async def ensure_entitlement(db: AsyncSession, user: User, subject: Subject) -> 
     await db.flush()
 
 
-async def upsert_topic_surface(db: AsyncSession, subject: Subject, offering: CourseOffering) -> None:
+async def upsert_topic_surface(db: AsyncSession, subject: Subject, offering: CourseOffering) -> Topic:
     topic = await db.scalar(select(Topic).where(Topic.slug == "staging-demo-limits-continuity"))
     if topic is None:
         topic = Topic(subject_id=subject.id, slug="staging-demo-limits-continuity")
@@ -196,6 +205,98 @@ async def upsert_topic_surface(db: AsyncSession, subject: Subject, offering: Cou
 
     item.primary_tab_content_id = tab.id
     await db.flush()
+    return topic
+
+
+async def upsert_exercise_bank_fixtures(db: AsyncSession, subject: Subject, topic: Topic) -> None:
+    specs = [
+        {
+            "slug": "staging-demo-linear-equation",
+            "title": "Linear equation warmup",
+            "summary": "Solve a one-step equation and verify the result.",
+            "statement_body": "Solve $x + 1 = 2$, then substitute your answer to check it.",
+            "solution_body": "Subtract 1 from both sides: $x = 1$. Check: $1 + 1 = 2$.",
+            "difficulty": EXERCISE_DIFFICULTY_EASY,
+            "estimated_minutes": 4,
+            "order": 1,
+            "concept_slugs": ["linear-equations", "algebra-basics"],
+            "is_free_preview": True,
+        },
+        {
+            "slug": "staging-demo-factorized-limit",
+            "title": "Factorized limit check",
+            "summary": "Practice cancelling a removable discontinuity before evaluating a limit.",
+            "statement_body": "Compute $\\lim_{x\\to 1} \\frac{x^2 - 1}{x - 1}$ and explain why direct substitution fails first.",
+            "solution_body": "Factor the numerator: $x^2 - 1 = (x - 1)(x + 1)$. For $x \\ne 1$, the expression is $x + 1$, so the limit is $2$.",
+            "difficulty": EXERCISE_DIFFICULTY_MEDIUM,
+            "estimated_minutes": 8,
+            "order": 2,
+            "concept_slugs": ["limits", "factorization", "removable-discontinuity"],
+            "is_free_preview": False,
+            "asset": {
+                "url": "/figma-assets/course-card-placeholder.png",
+                "alt_text": "Placeholder graph for the removable discontinuity exercise",
+                "caption": "Demo diagram asset for Exercise Bank rendering.",
+            },
+        },
+        {
+            "slug": "staging-demo-bac-function-study",
+            "title": "Bac-style function variation",
+            "summary": "Use a derivative sign table to justify monotonicity and an extremum.",
+            "statement_body": "Let $f(x)=x^3-3x+1$. Study the sign of $f'(x)$ and identify the intervals where $f$ is increasing or decreasing.",
+            "solution_body": "$f'(x)=3x^2-3=3(x-1)(x+1)$. The derivative is positive on $(-\\infty,-1)$ and $(1,+\\infty)$, and negative on $(-1,1)$. Therefore $f$ increases, then decreases, then increases again.",
+            "difficulty": EXERCISE_DIFFICULTY_BAC,
+            "estimated_minutes": 14,
+            "order": 3,
+            "concept_slugs": ["derivatives", "variation-table", "bac-practice"],
+            "is_free_preview": False,
+        },
+    ]
+
+    for spec in specs:
+        exercise = await db.scalar(select(Exercise).where(Exercise.slug == spec["slug"]))
+        if exercise is None:
+            exercise = Exercise(subject_id=subject.id, slug=spec["slug"])
+            db.add(exercise)
+
+        exercise.subject_id = subject.id
+        exercise.topic_id = topic.id
+        exercise.title = spec["title"]
+        exercise.summary = spec["summary"]
+        exercise.statement_body = spec["statement_body"]
+        exercise.solution_body = spec["solution_body"]
+        exercise.solution_video_url = ""
+        exercise.difficulty = spec["difficulty"]
+        exercise.estimated_minutes = spec["estimated_minutes"]
+        exercise.order = spec["order"]
+        exercise.status = EXERCISE_STATUS_PUBLISHED
+        exercise.source_type = "staging_demo_seed"
+        exercise.concept_slugs = spec["concept_slugs"]
+        exercise.metadata_json = {
+            "source": "staging_demo_seed",
+            "surface": "exercise_bank",
+        }
+        exercise.is_free_preview = bool(spec["is_free_preview"])
+        await db.flush()
+
+        asset = spec.get("asset")
+        if not asset:
+            continue
+        exercise_asset = await db.scalar(
+            select(ExerciseAsset).where(
+                ExerciseAsset.exercise_id == exercise.id,
+                ExerciseAsset.url == asset["url"],
+            )
+        )
+        if exercise_asset is None:
+            exercise_asset = ExerciseAsset(exercise_id=exercise.id, url=asset["url"])
+            db.add(exercise_asset)
+        exercise_asset.asset_type = EXERCISE_ASSET_DIAGRAM
+        exercise_asset.alt_text = asset["alt_text"]
+        exercise_asset.caption = asset["caption"]
+        exercise_asset.metadata_json = {"source": "staging_demo_seed"}
+        exercise_asset.order = 1
+        await db.flush()
 
 
 async def upsert_live_and_chat_surface(
@@ -397,7 +498,8 @@ async def seed_staging_demo(
         offering = await upsert_offering(db, subject, track, professor)
         for user in [professor, *users]:
             await ensure_entitlement(db, user, subject)
-        await upsert_topic_surface(db, subject, offering)
+        topic = await upsert_topic_surface(db, subject, offering)
+        await upsert_exercise_bank_fixtures(db, subject, topic)
         await upsert_live_and_chat_surface(db, offering=offering, professor=professor, student=vip_student)
         await db.commit()
 

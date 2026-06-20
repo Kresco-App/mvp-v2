@@ -103,6 +103,7 @@ describe('AdminCourseContentEditorPage', () => {
     const { container } = renderPage()
 
     await waitFor(() => {
+      expect(container.textContent).toContain('Admin / Course content')
       expect(container.textContent).toContain('Course JSON')
       expect(container.textContent).toContain('Live preview')
       expect(container.textContent).toContain('Decay law')

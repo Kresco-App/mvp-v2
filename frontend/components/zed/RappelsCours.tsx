@@ -314,8 +314,19 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
             value={search}
             onChange={event => setSearch(event.target.value)}
             placeholder={`Rechercher dans ${subject.shortName}`}
-            className="w-full rounded-md border border-slate-200 bg-white pl-8 pr-3 py-2 text-xs text-slate-950 placeholder-slate-400 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
+            className="w-full rounded-md border border-slate-200 bg-white py-2 pl-8 pr-8 text-xs text-slate-950 placeholder-slate-400 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-100"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="absolute right-1.5 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+              aria-label="Effacer la recherche"
+              title="Effacer la recherche"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -331,7 +342,7 @@ export default function RappelsCours({ onClose, inline = false }: Props) {
                 </h3>
                 <div className="space-y-1">
                   {category.items.map(item => (
-                    <div key={`${category.title}-${item.label}`} className="grid grid-cols-[minmax(84px,0.9fr)_minmax(130px,1.2fr)] gap-x-3 gap-y-0.5 rounded-md px-2 py-1.5 hover:bg-slate-50">
+                    <div key={`${category.title}-${item.label}`} className="grid grid-cols-1 gap-x-3 gap-y-0.5 rounded-md px-2 py-1.5 hover:bg-slate-50 xl:grid-cols-[minmax(84px,0.9fr)_minmax(130px,1.2fr)]">
                       <p className="text-[11px] font-medium leading-snug text-slate-700">{item.label}</p>
                       <div className="min-w-0">
                         <p className="break-words font-mono text-[12px] font-semibold leading-snug text-slate-950">{item.formula}</p>

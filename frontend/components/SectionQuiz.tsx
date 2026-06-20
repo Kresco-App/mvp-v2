@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { XCircle, ArrowRight, Trophy, RotateCcw } from 'lucide-react'
+import { XCircle, ArrowRight, Trophy, RotateCcw, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface QuizOption {
@@ -39,7 +39,8 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   const totalQuestions = data.questions.length
-  const progressPercent = totalQuestions > 0 ? (currentIndex / totalQuestions) * 100 : 0
+  const currentQuestionNumber = currentIndex + 1
+  const progressPercent = totalQuestions > 0 ? (currentQuestionNumber / totalQuestions) * 100 : 0
 
   function handleSelect(optIndex: number) {
     if (submitting || result) return
@@ -84,8 +85,8 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
 
   if (totalQuestions === 0) {
     return (
-      <div className="max-w-xl mx-auto py-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 px-8 py-10 text-center">
+      <div className="mx-auto w-full max-w-xl px-4 py-4 sm:px-0">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 px-6 py-10 text-center sm:px-8">
           <h3 className="text-lg font-bold text-white">Aucun quiz disponible</h3>
           <p className="mt-2 text-sm leading-relaxed text-slate-400">
             Ce quiz ne contient aucune question pour le moment.
@@ -100,9 +101,9 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
   if (result) {
     const { passed: finalPassed, score: finalScore, correctCount, totalCount } = result
     return (
-      <div className="max-w-xl mx-auto py-8">
+      <div className="mx-auto w-full max-w-xl px-4 py-8 sm:px-0">
         <div className={cn(
-          'rounded-2xl p-10 text-center border',
+          'rounded-2xl border p-6 text-center sm:p-10',
           finalPassed
             ? 'bg-green-500/10 border-green-500/30'
             : 'bg-red-500/10 border-red-500/30'
@@ -132,7 +133,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           {!finalPassed && (
             <button type="button"
               onClick={handleRetry}
-              className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
               <RotateCcw size={14} />
               Reessayer
@@ -143,13 +144,21 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
     )
   }
 
+  const actionLabel = submitting
+    ? 'Validation...'
+    : submitError
+      ? "Reessayer l'envoi"
+      : currentIndex < totalQuestions - 1
+        ? 'Continuer'
+        : 'Voir le resultat'
+
   return (
-    <div className="max-w-xl mx-auto py-4">
+    <div className="mx-auto w-full max-w-xl px-4 py-4 sm:px-0">
       {/* Progress bar */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
           <span className="text-slate-400 text-sm font-medium">
-            Question {currentIndex + 1} sur {totalQuestions}
+            Question {currentQuestionNumber} sur {totalQuestions}
           </span>
           <span className="text-slate-500 text-sm">{Math.round(progressPercent)}%</span>
         </div>
@@ -170,19 +179,22 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
       </div>
 
       {/* Question */}
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 p-8">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-[0_18px_45px_rgba(15,23,42,0.22)] sm:p-8" aria-live="polite">
         <h3 className="text-white text-lg font-bold mb-8 leading-relaxed">
           {currentQuestion.text}
         </h3>
 
         {/* Options */}
-        <div className="space-y-3">
+        <div className="space-y-3" role="radiogroup" aria-label={currentQuestion.text}>
           {currentQuestion.options.map((option, optIdx) => {
             const isSelected = selectedOption === optIdx
+            const optionLetter = String.fromCharCode(65 + optIdx)
 
             let optionClasses = 'bg-slate-800/60 border-slate-700 text-slate-200 hover:bg-slate-800 hover:border-slate-600'
+            let optionBadgeClasses = 'border-slate-600 bg-slate-900/70 text-slate-400'
             if (isSelected) {
               optionClasses = 'bg-indigo-600/20 border-indigo-500 text-white ring-1 ring-indigo-500/50'
+              optionBadgeClasses = 'border-indigo-400 bg-indigo-500 text-white'
             }
 
             return (
@@ -190,14 +202,18 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
                 key={`${currentQuestion.text}-${option.text}-${optIdx}`}
                 onClick={() => handleSelect(optIdx)}
                 disabled={submitting}
-                aria-pressed={isSelected}
+                role="radio"
+                aria-checked={isSelected}
                 className={cn(
-                  'w-full text-left px-5 py-4 rounded-xl border text-sm font-medium transition-all flex items-center gap-3',
+                  'flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:px-5',
                   optionClasses,
                   submitting && 'opacity-50 cursor-not-allowed'
                 )}
               >
-                <span className="flex-1">{option.text}</span>
+                <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs font-bold transition-colors', optionBadgeClasses)} aria-hidden="true">
+                  {optionLetter}
+                </span>
+                <span className="flex-1 leading-relaxed">{option.text}</span>
               </button>
             )
           })}
@@ -209,18 +225,19 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
             className="mt-5 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
           >
             <XCircle size={16} className="mt-0.5 shrink-0 text-red-300" />
-            <p>{submitError}</p>
+            <p className="m-0">{submitError}</p>
           </div>
         )}
 
         {/* Action button */}
-        <div className="mt-8 flex justify-end">
+        <div className="mt-8 flex justify-stretch sm:justify-end">
           <button type="button"
             onClick={handleNext}
             disabled={selectedOption === null || submitting}
-            className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
+            className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
-            {submitting ? 'Validation...' : (submitError ? "Reessayer l'envoi" : (currentIndex < totalQuestions - 1 ? 'Continuer' : 'Voir le resultat'))}
+            {submitting && <Loader2 size={14} className="animate-spin" />}
+            {actionLabel}
             {!submitting && <ArrowRight size={14} />}
           </button>
         </div>

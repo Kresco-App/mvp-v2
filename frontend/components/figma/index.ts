@@ -42,6 +42,8 @@ export type {
 } from '@/lib/permanentSidebarViewModel'
 export { toProfileSubject } from '@/lib/profileViewModel'
 export type {
+  FigmaProfileBadge,
+  FigmaProfileBadgeInventory,
   FigmaProfileEditDraft,
   FigmaProfileMediaKind,
   FigmaProfileNote,

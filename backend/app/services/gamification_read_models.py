@@ -80,6 +80,7 @@ async def list_leaderboard_entries(
     limit: int = 50,
     offset: int = 0,
     search: str = "",
+    include_current: bool = False,
 ) -> list[LeaderboardEntryOut]:
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
@@ -99,17 +100,55 @@ async def list_leaderboard_entries(
 
     out = []
     for user_id, total_xp, global_rank, row_user in rows:
-        level_data = calculate_level(total_xp)
-        out.append(LeaderboardEntryOut(
-            rank=global_rank,
+        out.append(await _leaderboard_entry_out(
             user_id=user_id,
-            full_name=row_user.full_name,
-            avatar_url=await async_media_url(row_user.avatar_url, settings),
             total_xp=total_xp,
-            level=level_data["level"],
-            is_current_user=row_user.id == user.id,
+            global_rank=global_rank,
+            row_user=row_user,
+            current_user_id=user.id,
+            settings=settings,
         ))
+
+    if include_current and not search and all(entry.user_id != user.id for entry in out):
+        current_stmt = (
+            select(LeaderboardRank.user_id, LeaderboardRank.total_xp, LeaderboardRank.global_rank, User)
+            .join(User, LeaderboardRank.user_id == User.id)
+            .where(LeaderboardRank.user_id == user.id, User.is_active == True)  # noqa: E712
+        )
+        current_result = await db.execute(current_stmt)
+        current_row = current_result.one_or_none()
+        if current_row is not None:
+            current_user_id, current_total_xp, current_global_rank, current_row_user = current_row
+            out.append(await _leaderboard_entry_out(
+                user_id=current_user_id,
+                total_xp=current_total_xp,
+                global_rank=current_global_rank,
+                row_user=current_row_user,
+                current_user_id=user.id,
+                settings=settings,
+            ))
     return out
+
+
+async def _leaderboard_entry_out(
+    *,
+    user_id: int,
+    total_xp: int,
+    global_rank: int,
+    row_user: User,
+    current_user_id: int,
+    settings: Settings,
+) -> LeaderboardEntryOut:
+    level_data = calculate_level(total_xp)
+    return LeaderboardEntryOut(
+        rank=global_rank,
+        user_id=user_id,
+        full_name=row_user.full_name,
+        avatar_url=await async_media_url(row_user.avatar_url, settings),
+        total_xp=total_xp,
+        level=level_data["level"],
+        is_current_user=row_user.id == current_user_id,
+    )
 
 
 XPSeason = Literal["weekly", "monthly", "semester"]
@@ -124,6 +163,7 @@ async def build_season_leaderboard(
     limit: int = 50,
     offset: int = 0,
     search: str = "",
+    include_current: bool = False,
     as_of: datetime | None = None,
 ) -> XPSeasonLeaderboardOut:
     starts_at, ends_at = xp_season_window(season, as_of=as_of)
@@ -161,14 +201,16 @@ async def build_season_leaderboard(
         )
         .subquery()
     )
-    stmt = select(ranked)
+    base_stmt = select(ranked)
     if search:
-        stmt = stmt.where(
+        base_stmt = base_stmt.where(
             ranked.c.full_name.ilike(
                 substring_search_pattern(search),
                 escape=LIKE_ESCAPE,
             )
         )
+    total_entries = int(await db.scalar(select(func.count()).select_from(base_stmt.subquery())) or 0)
+    stmt = base_stmt
     stmt = stmt.order_by(ranked.c.rank, ranked.c.user_id).offset(offset).limit(limit)
     rows = (await db.execute(stmt)).all()
 
@@ -190,10 +232,30 @@ async def build_season_leaderboard(
             )
         )
 
+    if include_current and not search and all(entry.user_id != user.id for entry in entries):
+        current_row = (await db.execute(select(ranked).where(ranked.c.user_id == user.id))).one_or_none()
+        if current_row is not None:
+            season_xp_int = int(current_row.season_xp or 0)
+            total_xp_int = int(current_row.total_xp or 0)
+            level_data = calculate_level(total_xp_int)
+            entries.append(
+                XPSeasonLeaderboardEntryOut(
+                    rank=int(current_row.rank),
+                    user_id=int(current_row.user_id),
+                    full_name=current_row.full_name,
+                    avatar_url=await async_media_url(current_row.avatar_url, settings),
+                    season_xp=season_xp_int,
+                    total_xp=total_xp_int,
+                    level=level_data["level"],
+                    is_current_user=True,
+                )
+            )
+
     return XPSeasonLeaderboardOut(
         season=season,
         starts_at=starts_at,
         ends_at=ends_at,
+        total_entries=total_entries,
         entries=entries,
     )
 
@@ -313,6 +375,7 @@ async def build_sidebar_summary(db: AsyncSession, *, user: User, settings: Setti
         limit=10,
         offset=0,
         search="",
+        include_current=True,
     )
     live_events = await _sidebar_live_events(db, user)
 

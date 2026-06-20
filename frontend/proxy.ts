@@ -129,7 +129,7 @@ function getContentSecurityPolicyTemplate(nonceSource: string) {
       'https://*.ytimg.com',
       ...devImageSources,
     ]).join(' ')}`,
-    "font-src 'self' data:",
+    "font-src 'self' data: https://esm.sh",
     `frame-src ${uniqueSources([
       "'self'",
       'blob:',

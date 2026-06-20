@@ -1,9 +1,11 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { AlertCircle, Cloud, CloudOff, Maximize2, Minimize2, RefreshCcw, Save } from 'lucide-react'
+import { AlertCircle, Cloud, CloudOff, Maximize2, RefreshCcw, Save, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types'
 import type { TopicItem } from '@/lib/topicWorkspaceViewModel'
 import {
   canvasSceneToInitialData,
@@ -11,8 +13,32 @@ import {
   useTopicWhiteboard,
 } from '@/hooks/useTopicWhiteboard'
 
+declare global {
+  interface Window {
+    EXCALIDRAW_ASSET_PATH?: string
+  }
+}
+
+const EXCALIDRAW_ASSET_PATH = '/excalidraw/'
+// Keep in sync with @excalidraw/excalidraw FONT_FAMILY.Nunito for v0.18.x.
+const EXCALIDRAW_NUNITO_FONT_FAMILY = 6
+const EXCALIDRAW_UI_OPTIONS = {
+  tools: { image: false },
+  canvasActions: {
+    export: false,
+    loadScene: false,
+    saveToActiveFile: false,
+    saveAsImage: false,
+  },
+} as const
+type WhiteboardMode = 'compact' | 'expanded'
+type ViewportStateByMode = Record<WhiteboardMode, Record<string, unknown>>
+
 const Excalidraw = dynamic(
   async () => {
+    if (typeof window !== 'undefined') {
+      window.EXCALIDRAW_ASSET_PATH = EXCALIDRAW_ASSET_PATH
+    }
     const excalidrawModule = await import('@excalidraw/excalidraw')
     return excalidrawModule.Excalidraw
   },
@@ -32,40 +58,183 @@ export function TopicWorkspaceWhiteboard({
   item: TopicItem
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [viewportStateByMode, setViewportStateByMode] = useState<ViewportStateByMode>({
+    compact: {},
+    expanded: {},
+  })
+  const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null)
   const whiteboard = useTopicWhiteboard({
     targetType: 'topic_item',
     targetId: item.id,
   })
-  const initialData = useMemo(() => canvasSceneToInitialData(whiteboard.scene), [whiteboard.scene])
+  const { handleSceneChange } = whiteboard
+  const activeMode: WhiteboardMode = expanded ? 'expanded' : 'compact'
+  const activeViewportState = viewportStateByMode[activeMode]
+  const initialData = useMemo(() => {
+    const sceneData = canvasSceneToInitialData(whiteboard.scene)
+    return {
+      ...sceneData,
+      appState: {
+        ...withoutViewportState(sceneData.appState),
+        ...activeViewportState,
+        currentItemFontFamily: EXCALIDRAW_NUNITO_FONT_FAMILY,
+      },
+    }
+  }, [activeViewportState, whiteboard.scene])
   const statusLabel = syncStatusLabel(whiteboard.syncStatus, whiteboard.isDirty, whiteboard.lastSyncedAt)
   const statusTone = syncStatusTone(whiteboard.syncStatus)
+  const hasActiveViewportState = Object.keys(activeViewportState).length > 0
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || !('fonts' in document)) return
+    void document.fonts.load('16px Nunito')
+    void document.fonts.load('16px Excalifont')
+  }, [])
+
+  const rememberViewportState = useCallback((mode: WhiteboardMode, appState: unknown) => {
+    if (!appState || typeof appState !== 'object') return
+    const record = appState as Record<string, unknown>
+    const nextViewportState: Record<string, unknown> = {}
+    if (typeof record.scrollX === 'number') nextViewportState.scrollX = record.scrollX
+    if (typeof record.scrollY === 'number') nextViewportState.scrollY = record.scrollY
+    if (record.zoom !== undefined) nextViewportState.zoom = record.zoom
+    if (Object.keys(nextViewportState).length === 0) return
+
+    setViewportStateByMode((current) => (
+      shallowEqualRecord(current[mode], nextViewportState)
+        ? current
+        : { ...current, [mode]: nextViewportState }
+    ))
+  }, [])
+
+  const openExpanded = useCallback(() => {
+    rememberViewportState('compact', excalidrawApiRef.current?.getAppState())
+    setExpanded(true)
+  }, [rememberViewportState])
+
+  const closeExpanded = useCallback(() => {
+    rememberViewportState('expanded', excalidrawApiRef.current?.getAppState())
+    setExpanded(false)
+  }, [rememberViewportState])
+
+  useEffect(() => {
+    if (!expanded) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeExpanded()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [closeExpanded, expanded])
+
+  useEffect(() => {
+    if (!expanded) return
+    const timeout = window.setTimeout(() => {
+      const api = excalidrawApiRef.current
+      if (!api) return
+
+      api.refresh()
+      if (hasActiveViewportState) return
+
+      const elements = api.getSceneElements()
+      if (elements.length > 0) {
+        api.scrollToContent(elements, {
+          fitToViewport: true,
+          viewportZoomFactor: 0.72,
+          animate: false,
+        })
+      }
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [expanded, hasActiveViewportState, whiteboard.sceneLoadKey])
+
+  const handleCanvasChange = useCallback((elements: readonly unknown[], appState: unknown, files: unknown) => {
+    handleSceneChange(
+      elements,
+      appState as Record<string, unknown>,
+      files as Record<string, unknown>,
+    )
+  }, [handleSceneChange])
+
+  const handleExcalidrawApi = useCallback((api: ExcalidrawImperativeAPI) => {
+    excalidrawApiRef.current = api
+  }, [])
 
   const editor = (mode: 'compact' | 'expanded') => (
-    <div className="kresco-whiteboard-editor h-full min-h-0 overflow-hidden bg-[#fbfcff]">
+    <div className="kresco-whiteboard-editor relative h-full min-h-0 overflow-hidden bg-[#fbfcff] [--ui-font:var(--font-rounded),Nunito,system-ui,sans-serif]">
       <Excalidraw
         key={`${item.id}-${mode}-${whiteboard.sceneLoadKey}`}
         initialData={initialData}
-        onChange={(elements, appState, files) => {
-          whiteboard.handleSceneChange(
-            elements as readonly unknown[],
-            appState as unknown as Record<string, unknown>,
-            files as unknown as Record<string, unknown>,
-          )
-        }}
-        UIOptions={{
-          tools: { image: false },
-          canvasActions: {
-            export: false,
-            loadScene: false,
-            saveToActiveFile: false,
-            saveAsImage: false,
-          },
-        }}
+        excalidrawAPI={handleExcalidrawApi}
+        onChange={handleCanvasChange}
+        UIOptions={EXCALIDRAW_UI_OPTIONS}
         theme="light"
         name={`${item.title} whiteboard`}
+        langCode="fr-FR"
         autoFocus={mode === 'expanded'}
       />
     </div>
+  )
+  const expandedOverlay = (
+    <AnimatePresence>
+      {expanded && (
+        <motion.div
+          data-testid="whiteboard-expanded-backdrop"
+          className="fixed inset-0 z-[1000] grid place-items-center bg-[#18181b]/35 p-3 backdrop-blur-[2px] max-[640px]:p-2"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeExpanded()
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeExpanded()
+          }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.section
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${item.title} whiteboard`}
+            className="grid h-[calc(100dvh_-_24px)] max-h-[920px] w-[calc(100vw_-_24px)] max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-[18px] border border-[#dfe3ea] bg-white shadow-[0_28px_80px_rgba(24,24,27,0.28)] max-[640px]:h-[calc(100dvh_-_16px)] max-[640px]:w-[calc(100vw_-_16px)] max-[640px]:rounded-[14px]"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+          >
+            <div className="flex min-h-[46px] flex-wrap items-center justify-between gap-2 border-b border-[#edf0f4] bg-white px-4 py-2 max-[640px]:px-3">
+              <div className="min-w-0">
+                <p className="m-0 truncate text-[11px] font-bold text-[#9f9fa9]">Click outside or press Esc to return</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2 max-[640px]:w-full max-[640px]:justify-start">
+                <span role="status" aria-live="polite" className={`inline-flex h-9 items-center gap-2 rounded-[10px] px-3 text-[12px] font-black ${statusTone}`}>
+                  {statusLabel}
+                </span>
+                {whiteboard.isDirty && (
+                  <button
+                    type="button"
+                    onClick={() => void whiteboard.saveCanvas({ notify: true })}
+                    disabled={whiteboard.syncStatus === 'loading' || whiteboard.syncStatus === 'saving'}
+                    className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] max-[460px]:flex-1 max-[460px]:justify-center"
+                  >
+                    <Save size={14} />
+                    Save now
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={closeExpanded}
+                  aria-label="Close"
+                  title="Close whiteboard"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-[#d4d4d8] bg-white text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] max-[460px]:ml-auto"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            {editor('expanded')}
+          </motion.section>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 
   return (
@@ -76,8 +245,8 @@ export function TopicWorkspaceWhiteboard({
             <p className="m-0 text-[12px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">Lesson whiteboard</p>
             <h2 className="m-0 mt-1 text-[18px] font-black leading-tight text-[#3f3f46]">{item.title}</h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`inline-flex h-9 items-center gap-2 rounded-[10px] px-3 text-[12px] font-black ${statusTone}`}>
+          <div className="flex flex-wrap items-center justify-end gap-2 max-[640px]:w-full max-[640px]:justify-start">
+            <span role="status" aria-live="polite" className={`inline-flex h-9 items-center gap-2 rounded-[10px] px-3 text-[12px] font-black ${statusTone}`}>
               {whiteboard.syncStatus === 'offline' || whiteboard.syncStatus === 'error' || whiteboard.syncStatus === 'conflict'
                 ? <CloudOff size={14} />
                 : <Cloud size={14} />}
@@ -87,15 +256,15 @@ export function TopicWorkspaceWhiteboard({
               type="button"
               onClick={() => void whiteboard.saveCanvas({ notify: true })}
               disabled={whiteboard.syncStatus === 'loading' || whiteboard.syncStatus === 'saving' || !whiteboard.isDirty}
-              className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9]"
+              className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] max-[460px]:flex-1 max-[460px]:justify-center"
             >
               <Save size={14} />
               Save now
             </button>
             <button
               type="button"
-              onClick={() => setExpanded(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc]"
+              onClick={openExpanded}
+              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] max-[460px]:flex-1 max-[460px]:justify-center"
             >
               <Maximize2 size={14} />
               Expand
@@ -120,64 +289,29 @@ export function TopicWorkspaceWhiteboard({
           </div>
         )}
 
-        <div className="h-[860px] overflow-hidden rounded-[14px] border border-[#dfe3ea] bg-white shadow-[0_10px_24px_rgba(24,24,27,0.06)]">
-          {editor('compact')}
+        <div className="h-[clamp(520px,72dvh,860px)] overflow-hidden rounded-[14px] border border-[#dfe3ea] bg-white shadow-[0_10px_24px_rgba(24,24,27,0.06)] max-[640px]:h-[clamp(430px,68dvh,620px)]">
+          {!expanded && editor('compact')}
         </div>
       </section>
 
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            className="fixed inset-0 z-50 grid place-items-center bg-[#18181b]/35 p-4 backdrop-blur-[2px]"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.section
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${item.title} whiteboard`}
-              className="grid h-[88dvh] w-[min(1180px,94vw)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-[18px] border border-[#dfe3ea] bg-white shadow-[0_24px_80px_rgba(24,24,27,0.24)]"
-              initial={{ opacity: 0, scale: 0.96, y: 18 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 10 }}
-              transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0f4] px-4 py-3">
-                <div className="min-w-0">
-                  <p className="m-0 text-[11px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">Expanded whiteboard</p>
-                  <h2 className="m-0 mt-0.5 truncate text-[16px] font-black text-[#3f3f46]">{item.title}</h2>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex h-9 items-center gap-2 rounded-[10px] px-3 text-[12px] font-black ${statusTone}`}>
-                    {statusLabel}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void whiteboard.saveCanvas({ notify: true })}
-                    disabled={whiteboard.syncStatus === 'loading' || whiteboard.syncStatus === 'saving' || !whiteboard.isDirty}
-                    className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9]"
-                  >
-                    <Save size={14} />
-                    Save now
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setExpanded(false)}
-                    className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc]"
-                  >
-                    <Minimize2 size={14} />
-                    Close
-                  </button>
-                </div>
-              </div>
-              {editor('expanded')}
-            </motion.section>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {typeof document === 'undefined' ? expandedOverlay : createPortal(expandedOverlay, document.body)}
     </>
   )
+}
+
+function withoutViewportState(appState: Record<string, unknown> | null | undefined) {
+  const nextAppState = { ...(appState ?? {}) }
+  delete nextAppState.scrollX
+  delete nextAppState.scrollY
+  delete nextAppState.zoom
+  return nextAppState
+}
+
+function shallowEqualRecord(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  if (leftKeys.length !== rightKeys.length) return false
+  return leftKeys.every((key) => left[key] === right[key])
 }
 
 function syncStatusLabel(status: CanvasSyncStatus, dirty: boolean, lastSyncedAt: string | null) {

@@ -13,7 +13,13 @@ const OP_META: Record<string, { Icon: typeof Plus; className: string }> = {
   delete: { Icon: Trash2, className: 'bg-[#fef2f2] text-[#ef4444]' },
 }
 
-export default function OpsTray({ operations }: { operations: StudioOperation[] }) {
+export default function OpsTray({
+  operations,
+  onOperationSelect,
+}: {
+  operations: StudioOperation[]
+  onOperationSelect?: (operation: StudioOperation) => void
+}) {
   const [open, setOpen] = useState(true)
 
   return (
@@ -45,16 +51,25 @@ export default function OpsTray({ operations }: { operations: StudioOperation[] 
                 const meta = OP_META[op.op_type] ?? OP_META.update_fields
                 const { Icon } = meta
                 return (
-                  <li
-                    key={i}
-                    className="flex items-center gap-2.5 rounded-[10px] border border-[#f4f4f5] px-3 py-2"
-                  >
-                    <span
-                      className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] ${meta.className}`}
+                  <li key={i}>
+                    <button
+                      type="button"
+                      aria-label={`Inspect operation ${i + 1}`}
+                      onClick={() => onOperationSelect?.(op)}
+                      className="group flex w-full items-center gap-2.5 rounded-[10px] border border-[#f4f4f5] px-3 py-2 text-left transition hover:border-[#d4d4d8] hover:bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#5b60f9]/25"
                     >
-                      <Icon size={14} />
-                    </span>
-                    <span className="text-[13px] font-bold text-[#3f3f46]">{describeOperation(op)}</span>
+                      <span
+                        className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] ${meta.className}`}
+                      >
+                        <Icon size={14} />
+                      </span>
+                      <span className="min-w-0 flex-1 text-[13px] font-bold text-[#3f3f46]">{describeOperation(op)}</span>
+                      {onOperationSelect ? (
+                        <span className="text-[10px] font-black uppercase tracking-[0.08em] text-[#a1a1aa] transition group-hover:text-[#5b60f9]">
+                          Inspect
+                        </span>
+                      ) : null}
+                    </button>
                   </li>
                 )
               })}

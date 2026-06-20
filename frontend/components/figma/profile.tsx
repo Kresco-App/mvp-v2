@@ -1,17 +1,19 @@
 'use client'
 
-import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { BookCheck, Bookmark, Camera, ChevronRight, Clock3, Flame, Loader2, Pencil, Save, ShieldCheck, Star, StickyNote, Trophy, X, Zap } from 'lucide-react'
+import { Award, BookCheck, Bookmark, Camera, ChevronRight, Clock3, Flame, LayoutDashboard, Loader2, LockKeyhole, Pencil, Save, Settings, ShieldCheck, Star, StickyNote, Trophy, X, Zap } from 'lucide-react'
 import {
   DEFAULT_PROFILE_AVATAR_URL,
   DEFAULT_PROFILE_BANNER_URL,
   buildEditDraft,
+  buildProfileBadgeItems,
   buildProfileNoteHubItems,
   buildProfileSaveHubItems,
   fallbackSubjects,
   followerAvatar,
+  formatProfileBadgeStatus,
   formatWatchTime,
   getFollowers,
   getJoinedDate,
@@ -20,8 +22,12 @@ import {
   mediaUrl,
   normalizeSubjects,
   polarPoint,
+  profileBadgeSummary,
   ringPoints,
+  type FigmaProfileBadge,
+  type FigmaProfileBadgeInventory,
   type FigmaProfileEditDraft,
+  type FigmaProfileHubItem,
   type FigmaProfileMediaKind,
   type FigmaProfileNote,
   type FigmaProfileSavedItem,
@@ -42,6 +48,7 @@ export type FigmaProfileProps = {
   user: FigmaProfileUser | null
   xp: FigmaProfileXP | null
   stats?: FigmaProfileStats | null
+  badgeInventory?: FigmaProfileBadgeInventory | null
   subjects: FigmaProfileSubject[]
   sidebar: FigmaProfileSidebarData
   notes?: FigmaProfileNote[]
@@ -54,8 +61,9 @@ export type FigmaProfileProps = {
   onSelectMedia?: (kind: FigmaProfileMediaKind, draft: FigmaProfileEditDraft) => string | undefined | Promise<string | undefined>
 }
 
-const badgeTones = ['#5b60f9', '#c4d1ff', '#51a2ff', '#ff8904']
-const PROFILE_HUB_VISIBLE_ITEMS = 4
+const PROFILE_BADGE_VISIBLE_ITEMS = 6
+const PROFILE_COLLECTION_LIMIT = 100
+type ProfileViewKey = 'dashboard' | 'badges' | 'saved' | 'notes' | 'settings'
 
 function profileToneTextClass(tone: string) {
   switch (tone) {
@@ -84,10 +92,16 @@ function profileToneTextClass(tone: string) {
 
 function profileToneBgClass(tone: string) {
   switch (tone) {
+    case '#009966':
+      return 'bg-[#009966]'
     case '#c4d1ff':
       return 'bg-[#c4d1ff]'
     case '#51a2ff':
       return 'bg-[#51a2ff]'
+    case '#707fff':
+      return 'bg-[#707fff]'
+    case '#ffd61a':
+      return 'bg-[#ffd61a]'
     case '#ff8904':
       return 'bg-[#ff8904]'
     default:
@@ -99,6 +113,7 @@ export function FigmaProfile({
   user,
   xp,
   stats,
+  badgeInventory,
   subjects,
   sidebar,
   notes = [],
@@ -111,6 +126,16 @@ export function FigmaProfile({
   onSelectMedia,
 }: FigmaProfileProps) {
   const visibleSubjects = useMemo(() => normalizeSubjects(subjects), [subjects])
+  const allBadges = useMemo(
+    () => buildProfileBadgeItems(badgeInventory, xp, stats, PROFILE_COLLECTION_LIMIT),
+    [badgeInventory, stats, xp],
+  )
+  const visibleBadges = allBadges.slice(0, PROFILE_BADGE_VISIBLE_ITEMS)
+  const badgeSummary = useMemo(
+    () => profileBadgeSummary(badgeInventory, allBadges),
+    [allBadges, badgeInventory],
+  )
+  const [activeView, setActiveView] = useState<ProfileViewKey>('dashboard')
   const [editing, setEditing] = useState(false)
   const [localSaving, setLocalSaving] = useState(false)
   const [selectingMedia, setSelectingMedia] = useState<FigmaProfileMediaKind | null>(null)
@@ -212,10 +237,16 @@ export function FigmaProfile({
               <Image src={avatarUrl} alt={firstName} fill sizes="82px" unoptimized referrerPolicy="no-referrer" />
             </div>
 
-            <div className="figma-profile-badges" aria-label="Badges">
-              {badgeTones.map((tone) => (
-                <span key={tone} className={`figma-profile-badge ${profileToneBgClass(tone)}`}>
-                  <Star size={13} fill="#ffffff" strokeWidth={2.4} />
+            <div className="figma-profile-badges" aria-label={`Badges: ${badgeSummary.earnedCount} of ${badgeSummary.totalCount} earned`}>
+              {visibleBadges.map((badge, index) => (
+                <span
+                  key={badge.slug}
+                  className={`figma-profile-badge ${profileToneBgClass(profileBadgeTone(badge, index))}${badge.earned ? '' : ' is-locked'}`}
+                  title={`${badge.title}: ${formatProfileBadgeStatus(badge)}`}
+                  role="img"
+                  aria-label={`${badge.title}, ${badge.earned ? 'earned' : 'locked'}`}
+                >
+                  <ProfileBadgeGlyph badge={badge} size={13} />
                   <i />
                 </span>
               ))}
@@ -244,14 +275,41 @@ export function FigmaProfile({
             <ProfileStatCard icon="quiz" value={quizzesPassed.toLocaleString()} label="Passed quizzes" tone="#5b60f9" />
           </section>
 
-          <section className="figma-profile-subjects" aria-label="Subject progress">
-            <SubjectRadar subjects={visibleSubjects.slice(0, 6)} />
-            {visibleSubjects.map((subject) => (
-              <SubjectScoreCard subject={subject} key={subject.key} />
-            ))}
-          </section>
+          <ProfileViewNav
+            activeView={activeView}
+            badgeSummary={badgeSummary}
+            notesCount={notes.length}
+            onChange={setActiveView}
+            savesCount={saves.length}
+          />
 
-          <ProfileHub notes={notes} saves={saves} />
+          {activeView === 'dashboard' ? (
+            <>
+              <ProfileBadgePanel badges={visibleBadges} summary={badgeSummary} />
+
+              <section className="figma-profile-subjects" aria-label="Subject progress">
+                <SubjectRadar subjects={visibleSubjects.slice(0, 6)} />
+                {visibleSubjects.map((subject) => (
+                  <SubjectScoreCard subject={subject} key={subject.key} />
+                ))}
+              </section>
+            </>
+          ) : null}
+
+          {activeView === 'badges' ? <ProfileBadgePanel badges={allBadges} summary={badgeSummary} variant="collection" /> : null}
+          {activeView === 'saved' ? <ProfileSavedItemsView saves={saves} /> : null}
+          {activeView === 'notes' ? <ProfileNotesView notes={notes} /> : null}
+          {activeView === 'settings' ? (
+            <ProfileSettingsView
+              draft={baseDraft}
+              editable={editable}
+              isSaving={isSaving}
+              joined={joined}
+              onEdit={openEditor}
+              user={user}
+              username={username}
+            />
+          ) : null}
         </main>
 
         <aside className="figma-profile-rail" aria-label="Profile sidebar">
@@ -373,62 +431,284 @@ export function FigmaProfile({
   )
 }
 
-function ProfileHub({ notes, saves }: { notes: FigmaProfileNote[]; saves: FigmaProfileSavedItem[] }) {
-  const noteItems = useMemo(() => buildProfileNoteHubItems(notes, PROFILE_HUB_VISIBLE_ITEMS), [notes])
-  const saveItems = useMemo(() => buildProfileSaveHubItems(saves, PROFILE_HUB_VISIBLE_ITEMS), [saves])
+function ProfileViewNav({
+  activeView,
+  badgeSummary,
+  notesCount,
+  onChange,
+  savesCount,
+}: {
+  activeView: ProfileViewKey
+  badgeSummary: { earnedCount: number; totalCount: number }
+  notesCount: number
+  onChange: (view: ProfileViewKey) => void
+  savesCount: number
+}) {
+  const views: Array<{
+    key: ProfileViewKey
+    label: string
+    meta: string
+    icon: typeof LayoutDashboard
+  }> = [
+    { key: 'dashboard', label: 'Dashboard', meta: 'Overview', icon: LayoutDashboard },
+    { key: 'badges', label: 'Badges', meta: `${badgeSummary.earnedCount}/${badgeSummary.totalCount}`, icon: Award },
+    { key: 'saved', label: 'Saved', meta: formatHubCount(savesCount, 'item', 'items'), icon: Bookmark },
+    { key: 'notes', label: 'Notes', meta: formatHubCount(notesCount, 'note', 'notes'), icon: StickyNote },
+    { key: 'settings', label: 'Settings', meta: 'Profile', icon: Settings },
+  ]
 
   return (
-    <section className="figma-profile-hub" aria-label="Notes and saved items">
-      <ProfileHubColumn
-        icon={<StickyNote size={18} />}
-        title="Recent notes"
-        empty="Notes you save in a topic will appear here."
-        items={noteItems}
-      />
-      <ProfileHubColumn
-        icon={<Bookmark size={18} />}
-        title="Saved items"
-        empty="Saved lessons, resources, quizzes, and exam problems will appear here."
-        items={saveItems}
-      />
+    <nav className="figma-profile-view-nav" aria-label="Profile sections">
+      <div role="tablist" aria-label="Profile sections">
+        {views.map((view) => {
+          const Icon = view.icon
+          const selected = activeView === view.key
+          return (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={selected ? 'is-active' : ''}
+              key={view.key}
+              onClick={() => onChange(view.key)}
+            >
+              <Icon size={16} strokeWidth={2.4} />
+              <span>
+                <strong>{view.label}</strong>
+                <small>{view.meta}</small>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </nav>
+  )
+}
+
+function ProfileBadgePanel({
+  badges,
+  summary,
+  variant = 'preview',
+}: {
+  badges: FigmaProfileBadge[]
+  summary: { earnedCount: number; totalCount: number }
+  variant?: 'preview' | 'collection'
+}) {
+  return (
+    <section className={`figma-profile-awards${variant === 'collection' ? ' is-collection' : ''}`} aria-label="Badge progress">
+      <div className="figma-profile-awards-head">
+        <span>
+          <Award size={18} strokeWidth={2.4} />
+          Badges
+        </span>
+        <strong>{summary.earnedCount}/{summary.totalCount} earned</strong>
+      </div>
+      <div className="figma-profile-awards-list">
+        {badges.map((badge, index) => (
+          <article
+            className={`figma-profile-award${badge.earned ? '' : ' is-locked'}`}
+            key={badge.slug}
+            style={{ '--profile-badge-accent': profileBadgeTone(badge, index) } as CSSProperties}
+          >
+            <span className="figma-profile-award-icon" aria-hidden="true">
+              <ProfileBadgeGlyph badge={badge} size={19} />
+            </span>
+            <span className="figma-profile-award-copy">
+              <strong>{badge.title}</strong>
+              <small>{formatProfileBadgeStatus(badge)}</small>
+            </span>
+          </article>
+        ))}
+      </div>
     </section>
   )
 }
 
-function ProfileHubColumn({
-  icon,
-  title,
-  empty,
-  items,
-}: {
-  icon: ReactNode
-  title: string
-  empty: string
-  items: { id: string; href: string; title: string; meta: string }[]
-}) {
+function ProfileSavedItemsView({ saves }: { saves: FigmaProfileSavedItem[] }) {
+  const items = useMemo(() => buildProfileSaveHubItems(saves, PROFILE_COLLECTION_LIMIT), [saves])
+
   return (
-    <article className="figma-profile-hub-column">
-      <div className="figma-profile-hub-heading">
-        <span>{icon}</span>
-        <strong>{title}</strong>
-      </div>
+    <section className="figma-profile-collection" aria-label="Saved items viewer">
+      <ProfileCollectionHead
+        icon={<Bookmark size={18} />}
+        title="Saved items"
+        meta={formatHubCount(saves.length, 'saved item', 'saved items')}
+      />
       {items.length > 0 ? (
-        <div className="figma-profile-hub-list">
+        <div className="figma-profile-collection-list">
           {items.map((item) => (
-            <Link href={item.href} key={item.id} className="figma-profile-hub-row">
-              <span>
-                <strong>{item.title}</strong>
-                <small>{item.meta}</small>
-              </span>
-              <ChevronRight size={15} strokeWidth={2.4} />
-            </Link>
+            <ProfileCollectionLink item={item} key={item.id} />
           ))}
         </div>
       ) : (
-        <p>{empty}</p>
+        <ProfileCollectionEmpty copy="Saved lessons, resources, quizzes, and exam problems will appear here." />
       )}
+    </section>
+  )
+}
+
+function ProfileNotesView({ notes }: { notes: FigmaProfileNote[] }) {
+  const items = useMemo(() => buildProfileNoteHubItems(notes, PROFILE_COLLECTION_LIMIT), [notes])
+
+  return (
+    <section className="figma-profile-collection" aria-label="Notes aggregator">
+      <ProfileCollectionHead
+        icon={<StickyNote size={18} />}
+        title="Notes"
+        meta={formatHubCount(notes.length, 'note', 'notes')}
+      />
+      {items.length > 0 ? (
+        <div className="figma-profile-collection-list">
+          {items.map((item) => (
+            <ProfileCollectionLink item={item} key={item.id} />
+          ))}
+        </div>
+      ) : (
+        <ProfileCollectionEmpty copy="Notes you save in a topic will appear here." />
+      )}
+    </section>
+  )
+}
+
+function ProfileCollectionHead({ icon, title, meta }: { icon: ReactNode; title: string; meta: string }) {
+  return (
+    <div className="figma-profile-collection-head">
+      <span className="figma-profile-hub-icon">{icon}</span>
+      <span>
+        <strong>{title}</strong>
+        <small>{meta}</small>
+      </span>
+    </div>
+  )
+}
+
+function ProfileCollectionLink({ item }: { item: FigmaProfileHubItem }) {
+  return (
+    <Link href={item.href} className="figma-profile-collection-row">
+      <span className="figma-profile-hub-copy">
+        <strong>{item.title}</strong>
+        <small>{item.meta}</small>
+        {item.detail ? <span className="figma-profile-hub-detail">{item.detail}</span> : null}
+        {item.tags && item.tags.length > 0 ? (
+          <span className="figma-profile-hub-tags" aria-label={`Tags: ${item.tags.join(', ')}`}>
+            {item.tags.map((tag) => (
+              <span className="figma-profile-hub-tag" key={tag}>{tag}</span>
+            ))}
+          </span>
+        ) : null}
+      </span>
+      <ChevronRight size={16} strokeWidth={2.4} />
+    </Link>
+  )
+}
+
+function ProfileCollectionEmpty({ copy }: { copy: string }) {
+  return (
+    <p className="figma-profile-collection-empty">{copy}</p>
+  )
+}
+
+function ProfileSettingsView({
+  draft,
+  editable,
+  isSaving,
+  joined,
+  onEdit,
+  user,
+  username,
+}: {
+  draft: FigmaProfileEditDraft
+  editable: boolean
+  isSaving: boolean
+  joined: string
+  onEdit: () => void
+  user: FigmaProfileUser | null
+  username: string
+}) {
+  return (
+    <section className="figma-profile-settings" aria-label="Profile settings">
+      <div className="figma-profile-settings-head">
+        <span>
+          <Settings size={18} strokeWidth={2.4} />
+          Settings
+        </span>
+        {editable ? (
+          <button type="button" onClick={onEdit} disabled={isSaving}>
+            <Pencil size={15} strokeWidth={2.5} />
+            Edit profile
+          </button>
+        ) : null}
+      </div>
+      <div className="figma-profile-settings-grid">
+        <ProfileSettingField label="Display name" value={draft.full_name} />
+        <ProfileSettingField label="Username" value={username} />
+        <ProfileSettingField label="Email" value={user?.email || 'Not set'} />
+        <ProfileSettingField label="Joined" value={joined.replace(/^Joined\s+/, '')} />
+        <ProfileSettingField label="Level" value={draft.level || 'Not set'} />
+        <ProfileSettingField label="Track" value={draft.track || 'Not set'} />
+      </div>
+    </section>
+  )
+}
+
+function ProfileSettingField({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="figma-profile-setting-field">
+      <small>{label}</small>
+      <strong>{value}</strong>
     </article>
   )
+}
+
+function ProfileBadgeGlyph({ badge, size }: { badge: FigmaProfileBadge; size: number }) {
+  if (!badge.earned) return <LockKeyhole size={size} strokeWidth={2.5} />
+
+  const Icon = profileBadgeIcon(badge)
+  return <Icon size={size} fill={profileBadgeIconFill(badge)} strokeWidth={2.4} />
+}
+
+function profileBadgeIcon(badge: FigmaProfileBadge) {
+  switch (badge.category) {
+    case 'xp':
+      return Star
+    case 'streak':
+      return Flame
+    case 'exercise':
+      return BookCheck
+    case 'exam':
+      return Trophy
+    case 'revision':
+      return ShieldCheck
+    default:
+      return Award
+  }
+}
+
+function profileBadgeIconFill(badge: FigmaProfileBadge) {
+  return badge.category === 'xp' || badge.category === 'streak' ? 'currentColor' : 'none'
+}
+
+function profileBadgeTone(badge: FigmaProfileBadge, index: number) {
+  if (!badge.earned) return '#c4d1ff'
+
+  switch (badge.category) {
+    case 'xp':
+      return badge.rarity === 'rare' ? '#ffd61a' : '#5b60f9'
+    case 'streak':
+      return '#ff8904'
+    case 'exercise':
+      return '#009966'
+    case 'exam':
+      return '#51a2ff'
+    case 'revision':
+      return '#707fff'
+    default:
+      return ['#5b60f9', '#51a2ff', '#ff8904'][index % 3]
+  }
+}
+
+function formatHubCount(count: number, singular: string, plural: string) {
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`
 }
 
 function ProfileEditStyles() {
@@ -633,6 +913,224 @@ function ProfileEditStyles() {
         to { transform: rotate(360deg); }
       }
 
+      .figma-profile-view-nav {
+        width: 720px;
+        padding-top: 18px;
+      }
+
+      .figma-profile-view-nav > div {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        border: 2px solid #e4e4e7;
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 8px;
+      }
+
+      .figma-profile-view-nav button {
+        display: grid;
+        min-width: 0;
+        min-height: 58px;
+        grid-template-columns: 18px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        border-radius: 12px;
+        background: transparent;
+        color: #71717b;
+        padding: 0 10px;
+        text-align: left;
+        cursor: pointer;
+        transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+      }
+
+      .figma-profile-view-nav button:hover,
+      .figma-profile-view-nav button:focus-visible {
+        background: #f7f8fb;
+        color: #3f3f46;
+      }
+
+      .figma-profile-view-nav button:focus-visible {
+        outline: 3px solid rgba(91,96,249,0.24);
+        outline-offset: 2px;
+      }
+
+      .figma-profile-view-nav button.is-active {
+        background: #eef2ff;
+        color: #453dee;
+      }
+
+      .figma-profile-view-nav button span {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+      }
+
+      .figma-profile-view-nav button strong,
+      .figma-profile-view-nav button small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .figma-profile-view-nav button strong {
+        font-size: 12px;
+        font-weight: 900;
+        line-height: 1;
+      }
+
+      .figma-profile-view-nav button small {
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .figma-profile-badge {
+        color: #ffffff;
+        transition: transform 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+      }
+
+      .figma-profile-badge.is-locked {
+        opacity: 0.68;
+        box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 0.42);
+      }
+
+      .figma-profile-badge:hover {
+        transform: translateY(-1px);
+      }
+
+      .figma-profile-awards {
+        display: grid;
+        width: 720px;
+        gap: 12px;
+        padding-top: 18px;
+      }
+
+      .figma-profile-awards-head {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .figma-profile-awards-head span,
+      .figma-profile-awards-head strong {
+        display: inline-flex;
+        align-items: center;
+        line-height: 1;
+      }
+
+      .figma-profile-awards-head span {
+        gap: 8px;
+        color: #3f3f46;
+        font-size: 15px;
+        font-weight: 900;
+      }
+
+      .figma-profile-awards-head strong {
+        min-height: 28px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: #f4f4f5;
+        color: #52525c;
+        padding: 0 11px;
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .figma-profile-awards-list {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .figma-profile-award {
+        --profile-badge-accent: #5b60f9;
+        display: grid;
+        min-width: 0;
+        min-height: 76px;
+        grid-template-columns: 40px minmax(0, 1fr);
+        align-items: center;
+        gap: 12px;
+        border: 2px solid #e4e4e7;
+        border-radius: 14px;
+        background: #ffffff;
+        padding: 12px;
+        transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+      }
+
+      .figma-profile-award:hover {
+        border-color: color-mix(in srgb, var(--profile-badge-accent) 38%, #e4e4e7);
+        box-shadow: 0 10px 22px rgba(24,24,27,0.08);
+        transform: translateY(-1px);
+      }
+
+      .figma-profile-award.is-locked {
+        background: #fafafa;
+      }
+
+      .figma-profile-award-icon {
+        display: grid;
+        width: 40px;
+        height: 40px;
+        place-items: center;
+        border-radius: 13px;
+        background: #f4f4f5;
+        background: color-mix(in srgb, var(--profile-badge-accent) 14%, #ffffff);
+        color: var(--profile-badge-accent);
+      }
+
+      .figma-profile-award-copy {
+        min-width: 0;
+      }
+
+      .figma-profile-award-copy strong,
+      .figma-profile-award-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .figma-profile-award-copy strong {
+        color: #3f3f46;
+        font-size: 13px;
+        font-weight: 900;
+        line-height: 1.2;
+        white-space: nowrap;
+      }
+
+      .figma-profile-award-copy small {
+        display: -webkit-box;
+        margin-top: 5px;
+        color: #71717b;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.25;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .figma-profile-awards.is-collection {
+        padding-top: 18px;
+      }
+
+      .figma-profile-awards.is-collection .figma-profile-awards-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .figma-profile-awards.is-collection .figma-profile-award {
+        min-height: 92px;
+      }
+
+      .figma-profile-awards.is-collection .figma-profile-award-copy strong {
+        display: -webkit-box;
+        white-space: normal;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
       @media (max-width: 760px) {
         .figma-profile-edit-trigger {
           top: calc(clamp(132px, 28vw, 203px) + 68px);
@@ -653,111 +1151,280 @@ function ProfileEditStyles() {
           grid-template-columns: 1fr;
         }
 
+        .figma-profile-view-nav {
+          width: 100%;
+        }
+
+        .figma-profile-view-nav > div {
+          display: flex;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: thin;
+        }
+
+        .figma-profile-view-nav button {
+          min-width: 132px;
+        }
+
+        .figma-profile-awards {
+          width: 100%;
+        }
+
+        .figma-profile-collection,
+        .figma-profile-settings {
+          width: 100%;
+        }
+
+        .figma-profile-awards-list,
+        .figma-profile-awards.is-collection .figma-profile-awards-list {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
         .figma-profile-edit-actions {
           display: grid;
           grid-template-columns: 1fr;
         }
       }
 
-      .figma-profile-hub {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 18px;
-        padding-top: 18px;
-      }
-
-      .figma-profile-hub-column {
-        min-width: 0;
-        border: 2px solid #e4e4e7;
-        border-radius: 16px;
-        background: #ffffff;
-        padding: 16px;
-      }
-
-      .figma-profile-hub-heading {
-        display: flex;
-        align-items: center;
-        gap: 9px;
-        color: #3f3f46;
-      }
-
-      .figma-profile-hub-heading span {
+      .figma-profile-hub-icon {
         display: grid;
         width: 34px;
         height: 34px;
+        flex: 0 0 auto;
         place-items: center;
         border-radius: 12px;
         background: #eaf8ff;
         color: #1292cf;
       }
 
-      .figma-profile-hub-heading strong {
-        font-size: 15px;
+      .figma-profile-hub-copy {
+        display: grid;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      .figma-profile-hub-detail {
+        display: -webkit-box;
+        overflow: hidden;
+        color: #71717b;
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1.35;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .figma-profile-hub-tags {
+        display: flex;
+        min-width: 0;
+        flex-wrap: wrap;
+        gap: 5px;
+        padding-top: 2px;
+      }
+
+      .figma-profile-hub-tag {
+        display: inline-flex;
+        max-width: 116px;
+        min-height: 22px;
+        align-items: center;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #eef2ff;
+        color: #453dee;
+        padding: 0 8px;
+        font-size: 11px;
         font-weight: 900;
         line-height: 1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
-      .figma-profile-hub-list {
+      .figma-profile-collection,
+      .figma-profile-settings {
         display: grid;
-        gap: 9px;
-        padding-top: 13px;
+        width: 720px;
+        gap: 14px;
+        padding-top: 18px;
       }
 
-      .figma-profile-hub-row {
+      .figma-profile-collection-head,
+      .figma-profile-settings-head {
         display: flex;
         min-width: 0;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        border-radius: 13px;
-        background: #f7f8fb;
-        color: #3f3f46;
-        padding: 12px;
-        text-decoration: none;
-        transition: transform 160ms ease, box-shadow 160ms ease;
+        border: 2px solid #e4e4e7;
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 14px 16px;
       }
 
-      .figma-profile-hub-row:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 10px 22px rgba(24,24,27,0.08);
-      }
-
-      .figma-profile-hub-row span {
+      .figma-profile-collection-head > span:last-child,
+      .figma-profile-settings-head > span {
+        display: grid;
         min-width: 0;
+        gap: 5px;
       }
 
-      .figma-profile-hub-row strong {
-        display: block;
-        overflow: hidden;
+      .figma-profile-collection-head strong,
+      .figma-profile-settings-head span {
         color: #3f3f46;
-        font-size: 13px;
+        font-size: 15px;
         font-weight: 900;
-        line-height: 1.25;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        line-height: 1;
       }
 
-      .figma-profile-hub-row small {
-        display: block;
-        margin-top: 4px;
-        color: #71717b;
+      .figma-profile-collection-head small {
+        color: #9f9fa9;
         font-size: 11px;
         font-weight: 800;
         line-height: 1;
-        text-transform: capitalize;
       }
 
-      .figma-profile-hub-column p {
-        margin: 13px 0 0;
+      .figma-profile-collection-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .figma-profile-collection-row {
+        display: grid;
+        min-width: 0;
+        min-height: 82px;
+        grid-template-columns: minmax(0, 1fr) 18px;
+        align-items: center;
+        gap: 14px;
+        border: 2px solid #e4e4e7;
+        border-radius: 16px;
+        background: #ffffff;
+        color: #3f3f46;
+        padding: 14px 16px;
+        text-decoration: none;
+        transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+      }
+
+      .figma-profile-collection-row:hover,
+      .figma-profile-collection-row:focus-visible {
+        border-color: #c4d1ff;
+        box-shadow: 0 12px 24px rgba(24,24,27,0.08);
+        transform: translateY(-1px);
+      }
+
+      .figma-profile-collection-row:focus-visible {
+        outline: 3px solid rgba(91,96,249,0.24);
+        outline-offset: 2px;
+      }
+
+      .figma-profile-collection-row > svg {
+        color: #9f9fa9;
+      }
+
+      .figma-profile-collection-empty {
+        margin: 0;
+        border: 2px dashed #e4e4e7;
+        border-radius: 16px;
+        background: #fafafa;
         color: #71717b;
+        padding: 18px;
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 800;
         line-height: 1.35;
       }
 
-      @media (max-width: 980px) {
-        .figma-profile-hub {
+      .figma-profile-settings-head span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .figma-profile-settings-head button {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        border: 0;
+        border-radius: 12px;
+        background: #453dee;
+        color: #ffffff;
+        padding: 0 13px;
+        font-size: 12px;
+        font-weight: 900;
+        cursor: pointer;
+      }
+
+      .figma-profile-settings-head button:disabled {
+        cursor: not-allowed;
+        opacity: 0.62;
+      }
+
+      .figma-profile-settings-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .figma-profile-setting-field {
+        display: grid;
+        min-width: 0;
+        gap: 8px;
+        border: 2px solid #e4e4e7;
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 15px;
+      }
+
+      .figma-profile-setting-field small,
+      .figma-profile-setting-field strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .figma-profile-setting-field small {
+        color: #9f9fa9;
+        font-size: 11px;
+        font-weight: 900;
+        line-height: 1;
+        text-transform: uppercase;
+      }
+
+      .figma-profile-setting-field strong {
+        color: #3f3f46;
+        font-size: 14px;
+        font-weight: 900;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+      }
+
+      @media (max-width: 520px) {
+        .figma-profile-awards-head {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .figma-profile-awards-list {
           grid-template-columns: 1fr;
+        }
+
+        .figma-profile-awards.is-collection .figma-profile-awards-list,
+        .figma-profile-settings-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .figma-profile-collection,
+        .figma-profile-settings {
+          width: 100%;
+        }
+
+        .figma-profile-collection-head,
+        .figma-profile-settings-head {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .figma-profile-settings-head button {
+          width: 100%;
         }
       }
     `}</style>

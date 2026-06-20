@@ -24,6 +24,18 @@ vi.mock('@/lib/notifications', () => ({
   markNotificationRead: vi.fn(),
 }))
 
+vi.mock('@/lib/professor', () => ({
+  getStudentProfessorChat: vi.fn().mockResolvedValue({
+    eligible: true,
+    reason: '',
+    offerings: [],
+    conversations: [],
+    teacher_threads: [
+      { unread_count: 3 },
+    ],
+  }),
+}))
+
 vi.mock('@/components/KrescoWordmark', () => ({
   default: () => React.createElement('span', null, 'Kresco'),
 }))
@@ -72,11 +84,37 @@ describe('TopNav accessibility', () => {
     expect(notificationsButton?.getAttribute('aria-expanded')).toBe('false')
     expect(accountButton).not.toBeNull()
     expect(accountButton?.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[title="Notes"]')).toBeNull()
     expect(svgIcons.length).toBeGreaterThan(0)
     expect(svgIcons.every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(true)
+  })
+
+  it('moves eligible student professor chat into a badged utility icon', async () => {
+    useAuthStore.setState({
+      token: null,
+      user: { id: 1, role: 'student', tier: 'vip', full_name: 'VIP Student' },
+      isHydrated: true,
+    })
+
+    await act(async () => {
+      mountedRoot?.render(React.createElement(TopNav))
+    })
+
+    await vi.waitFor(() => {
+      expect(findLink('Professor Chat, 3 unread')).not.toBeNull()
+    })
+
+    const professorChatLink = findLink('Professor Chat, 3 unread')
+    expect(professorChatLink?.getAttribute('href')).toBe('/professor-chat')
+    expect(professorChatLink?.textContent).toContain('3')
+    expect(document.querySelector('[title="Notes"]')).toBeNull()
   })
 })
 
 function findButton(label: string) {
   return Array.from(document.querySelectorAll('button')).find((button) => button.getAttribute('aria-label') === label) ?? null
+}
+
+function findLink(label: string) {
+  return Array.from(document.querySelectorAll('a')).find((link) => link.getAttribute('aria-label') === label) ?? null
 }

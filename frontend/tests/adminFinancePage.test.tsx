@@ -91,7 +91,7 @@ beforeEach(() => {
       provider: 'cashplus',
       event_id: 'manual-approval-42',
       event_type: 'manual.approved',
-      status: 'processed',
+      status: 'failed',
       payload: { reason: 'Finance confirmation' },
       received_at: '2026-06-15T00:01:00Z',
       processed_at: '2026-06-15T00:01:00Z',
@@ -107,7 +107,7 @@ beforeEach(() => {
       row_count: 2,
       matched_count: 1,
       mismatch_count: 1,
-      unmatched_count: 0,
+      unmatched_count: 1,
       duplicate_count: 0,
       error_count: 0,
       created_by_user_id: 1,
@@ -156,6 +156,13 @@ describe('AdminFinancePage', () => {
 
     await waitFor(() => {
       expect(container.textContent).toContain('KRESCO-CASH-42')
+      expect(container.textContent).toContain('Payment status')
+      expect(container.textContent).toContain('Rail mix')
+      expect(container.textContent).toContain('Audit health')
+      expect(container.textContent).toContain('Provider failed')
+      expect(container.textContent).toContain('Import mismatch')
+      expect(container.textContent).toContain('Unmatched')
+      expect(container.textContent).toContain('Paid revenue')
       expect(container.textContent).toContain('proofs: 1')
       expect(container.textContent).toContain('Finance audit trail')
       expect(container.textContent).toContain('payment_confirmed')

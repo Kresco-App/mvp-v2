@@ -69,17 +69,20 @@ describe('core learning component rendering', () => {
     }))
 
     expect(container.textContent).toContain('Question 1 sur 2')
+    expect(progressValue(container)).toBe('50')
     expect(buttonByText(container, 'Continuer')?.hasAttribute('disabled')).toBe(true)
 
     act(() => {
       buttonByText(container, 'B')?.click()
     })
     expect(buttonByText(container, 'Continuer')?.hasAttribute('disabled')).toBe(false)
+    expect(buttonByText(container, 'B')?.getAttribute('aria-checked')).toBe('true')
 
     act(() => {
       buttonByText(container, 'Continuer')?.click()
     })
     expect(container.textContent).toContain('Question 2 sur 2')
+    expect(progressValue(container)).toBe('100')
 
     act(() => {
       buttonByText(container, 'C')?.click()
@@ -289,6 +292,10 @@ function buttonByText(container: HTMLElement, text: string) {
   return Array.from(container.querySelectorAll('button')).find((button) => (
     button.textContent?.includes(text)
   )) ?? null
+}
+
+function progressValue(container: HTMLElement) {
+  return container.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')
 }
 
 async function flushPromises() {

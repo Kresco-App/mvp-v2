@@ -30,6 +30,7 @@ class CommentOut(BaseModel):
     topic_item_id: int | None = None
     exercise_id: int | None = None
     body: LongText
+    rating: int | None = None
     status: str = "visible"
     author: CommentAuthorOut
     parent_id: Optional[int] = None
@@ -157,6 +158,7 @@ class CommentCreateIn(StrictInputModel):
     body: LongText
     topic_item_id: int
     parent_id: Optional[int] = None
+    rating: int | None = Field(default=None, ge=1, le=5)
 
 
 class ExerciseCommentCreateIn(StrictInputModel):

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
-import { FileText, Pin, Scissors, Trash2, Upload, X } from 'lucide-react'
+import { FileText, Loader2, Pin, Scissors, Trash2, Upload, X } from 'lucide-react'
 
 interface PinnedSnippet {
   id: string
@@ -334,6 +334,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [status, setStatus] = useState('Importez un enonce ou un cours PDF')
+  const [isImporting, setIsImporting] = useState(false)
   const [isSnipping, setIsSnipping] = useState(false)
   const [snipStart, setSnipStart] = useState<{ x: number; y: number } | null>(null)
   const [snipRect, setSnipRect] = useState<SnipRect | null>(null)
@@ -341,11 +342,16 @@ export default function PdfViewer({ onPinSnippet }: Props) {
   const [snippetPageNumber, setSnippetPageNumber] = useState(1)
   const [extractedPages, setExtractedPages] = useState<PdfPageText[]>([])
   const [snipPreview, setSnipPreview] = useState<SnipPreview | null>(null)
+  const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState<string | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const objectUrlRef = useRef<string | null>(null)
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null)
   const activeDocument = documents.find((item) => item.id === activeDocumentId) ?? null
+
+  useEffect(() => {
+    setPendingDeleteDocumentId(null)
+  }, [activeDocumentId])
 
   useEffect(() => {
     let cancelled = false
@@ -481,22 +487,25 @@ export default function PdfViewer({ onPinSnippet }: Props) {
       return
     }
 
-    if (!(await hasPdfMagicBytes(file))) {
-      setStatus('Le fichier ne semble pas etre un PDF valide')
-      e.target.value = ''
-      return
-    }
-
-    const document: LocalDocument = {
-      id: `doc_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      name: file.name,
-      type: file.type || 'application/pdf',
-      size: file.size,
-      updatedAt: Date.now(),
-      blob: file,
-    }
+    setIsImporting(true)
+    setStatus('Verification du PDF')
 
     try {
+      if (!(await hasPdfMagicBytes(file))) {
+        setStatus('Le fichier ne semble pas etre un PDF valide')
+        return
+      }
+
+      const document: LocalDocument = {
+        id: `doc_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        name: file.name,
+        type: file.type || 'application/pdf',
+        size: file.size,
+        updatedAt: Date.now(),
+        blob: file,
+      }
+
+      setStatus('Sauvegarde du PDF hors ligne')
       await saveDocument(document)
       setDocuments(prev => [document, ...prev])
       setActiveDocumentId(document.id)
@@ -504,6 +513,7 @@ export default function PdfViewer({ onPinSnippet }: Props) {
     } catch {
       setStatus('Impossible de sauvegarder ce document hors ligne')
     } finally {
+      setIsImporting(false)
       e.target.value = ''
     }
   }
@@ -524,6 +534,8 @@ export default function PdfViewer({ onPinSnippet }: Props) {
       setStatus('Document supprime du stockage local')
     } catch {
       setStatus('Impossible de supprimer ce document')
+    } finally {
+      setPendingDeleteDocumentId(null)
     }
   }
 
@@ -673,10 +685,13 @@ export default function PdfViewer({ onPinSnippet }: Props) {
             </div>
           )}
 
-          <label className="mt-5 inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-within:ring-2 focus-within:ring-indigo-200">
-            <Upload size={16} />
-            Importer un PDF
-            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Importer un PDF" />
+          <label
+            className={`mt-5 inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-within:ring-2 focus-within:ring-indigo-200 ${isImporting ? 'pointer-events-none opacity-75' : 'cursor-pointer'}`}
+            aria-disabled={isImporting}
+          >
+            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+            {isImporting ? 'Import en cours...' : 'Importer un PDF'}
+            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} disabled={isImporting} className="hidden" aria-label="Importer un PDF" />
           </label>
         </div>
       </div>
@@ -685,8 +700,8 @@ export default function PdfViewer({ onPinSnippet }: Props) {
 
   return (
     <div className="flex h-full flex-col bg-slate-100 text-slate-900">
-      <div className="flex min-h-12 flex-shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 shadow-sm">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="flex min-h-12 flex-shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex min-w-[12rem] flex-1 items-center gap-2">
           <FileText size={17} className="flex-shrink-0 text-indigo-600" />
           {documents.length > 0 && (
             <select
@@ -709,7 +724,12 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           )}
         </div>
 
-        <div className="flex flex-shrink-0 items-center gap-1">
+        <div className="order-last flex min-h-6 w-full items-center gap-1 rounded-md bg-slate-50 px-2 text-xs font-medium text-slate-500 sm:order-none sm:w-auto sm:max-w-[38%]">
+          {isImporting && <Loader2 size={12} className="shrink-0 animate-spin text-indigo-500" />}
+          <span role="status" aria-live="polite" className="truncate">{status}</span>
+        </div>
+
+        <div className="flex max-w-full flex-shrink-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
           <button type="button"
             onClick={handlePinText}
@@ -763,15 +783,27 @@ export default function PdfViewer({ onPinSnippet }: Props) {
           )}
 
           <label className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-within:ring-2 focus-within:ring-indigo-100" title="Changer de PDF">
-            <Upload size={14} />
-            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} className="hidden" aria-label="Changer de PDF" />
+            {isImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            <input type="file" accept=".pdf,application/pdf" onChange={handleFileUpload} disabled={isImporting} className="hidden" aria-label="Changer de PDF" />
           </label>
 
           {activeDocumentId && (
             <button type="button"
-              onClick={() => removeDocument(activeDocumentId)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-red-100 bg-white text-red-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-              title="Supprimer du stockage local"
+              onClick={() => {
+                if (pendingDeleteDocumentId === activeDocumentId) {
+                  void removeDocument(activeDocumentId)
+                  return
+                }
+                setPendingDeleteDocumentId(activeDocumentId)
+                setStatus('Cliquez encore pour supprimer ce PDF local')
+              }}
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-md border transition ${
+                pendingDeleteDocumentId === activeDocumentId
+                  ? 'border-red-200 bg-red-50 text-red-700'
+                  : 'border-red-100 bg-white text-red-500 hover:border-red-200 hover:bg-red-50 hover:text-red-700'
+              }`}
+              title={pendingDeleteDocumentId === activeDocumentId ? 'Confirmer la suppression' : 'Supprimer du stockage local'}
+              aria-label={pendingDeleteDocumentId === activeDocumentId ? 'Confirmer la suppression du PDF local' : 'Supprimer du stockage local'}
             >
               <Trash2 size={14} />
             </button>

@@ -4,11 +4,13 @@ import {
   EMPTY_OVERVIEW,
   FALLBACK_CRUD,
   filterCrudCatalog,
+  formatMoneyCentimes,
   formatNumber,
   groupByDomain,
   numberValue,
   percent,
   publishedRatio,
+  recordEntries,
   sumValues,
 } from '@/lib/adminOverview'
 
@@ -38,8 +40,16 @@ describe('admin overview utilities', () => {
     expect(numberValue(Number.NaN)).toBe(0)
     expect(numberValue('42')).toBe(0)
     expect(formatNumber(1234)).toBe('1,234')
+    expect(formatMoneyCentimes(123400)).toBe('1,234 MAD')
     expect(percent(12.345)).toBe('12.3%')
     expect(sumValues({ a: 1, b: 2, c: 'ignored' })).toBe(3)
+  })
+
+  it('normalizes chart records into sorted numeric entries', () => {
+    expect(recordEntries({ paid: 4, failed: 1, empty: 0, ignored: '2' })).toEqual([
+      { key: 'paid', value: 4 },
+      { key: 'failed', value: 1 },
+    ])
   })
 
   it('computes readiness ratios from published, active, and scheduled statuses', () => {

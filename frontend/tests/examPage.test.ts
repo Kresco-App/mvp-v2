@@ -39,7 +39,7 @@ vi.mock('@/lib/examData', () => ({
     quiz: {
       id: 7,
       title: 'Timer exam',
-      pass_score: 80,
+      pass_score: 70,
       questions: [
         {
           id: 101,
@@ -71,7 +71,7 @@ beforeEach(() => {
   document.body.innerHTML = ''
   localStorage.clear()
   mocks.apiPost.mockResolvedValue({
-    data: { score: 100, passed: true, correct: 1, total: 1, pass_score: 80, xp_earned: 0 },
+    data: { score: 100, passed: true, correct: 1, total: 1, pass_score: 70, xp_earned: 0 },
   })
 })
 
@@ -117,6 +117,22 @@ describe('ExamPage timer', () => {
 
     expect(container.textContent).toContain('44:59')
     expect(container.textContent).toContain('1/1 repondu(s)')
+  })
+
+  it('uses the discovered pass score in instructions and results', async () => {
+    const { container } = renderExamPage()
+
+    expect(container.textContent).toContain('Minimum 70% pour reussir')
+
+    clickButton(container, 'Commencer')
+    clickButton(container, 'First option')
+    clickButton(container, 'Soumettre')
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(container.textContent).toContain('Seuil de reussite : 70%')
   })
 
   it('restores answers and remaining wall-clock time after a remount', async () => {

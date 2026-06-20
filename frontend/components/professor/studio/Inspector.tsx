@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { FlaskConical, Trash2, MoveRight, Wand2 } from 'lucide-react'
+import { Copy, FlaskConical, Trash2, MoveRight, Wand2 } from 'lucide-react'
 import type { WorkChapter, WorkLesson, WorkTab } from '@/lib/studio'
-import { findSimulator } from '@/lib/simulatorCatalog'
+import { defaultConfigFor, findSimulator, type SimulatorParam } from '@/lib/simulatorCatalog'
 import SimulatorLibrary from './SimulatorLibrary'
 
 const labelClass = 'mb-1.5 block text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]'
@@ -69,17 +69,65 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 const TEXT_TAB_TYPES = new Set(['course', 'summary', 'text'])
 
+function SimulatorParamField({
+  param,
+  value,
+  onChange,
+}: {
+  param: SimulatorParam
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  const fieldValue = value ?? param.default
+
+  if (param.type === 'number') {
+    return (
+      <Field label={`${param.label}${param.unit ? ` (${param.unit})` : ''}`}>
+        <input
+          className={inputClass}
+          min={param.min}
+          max={param.max}
+          step={param.step}
+          type="number"
+          value={Number(fieldValue)}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+      </Field>
+    )
+  }
+
+  if (param.type === 'select') {
+    return (
+      <Field label={param.label}>
+        <select className={selectClass} value={String(fieldValue)} onChange={(e) => onChange(e.target.value)}>
+          {param.options.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </Field>
+    )
+  }
+
+  return (
+    <Field label={param.label}>
+      <input className={inputClass} value={String(fieldValue)} onChange={(e) => onChange(e.target.value)} />
+    </Field>
+  )
+}
+
 export default function Inspector({
   selection,
   chapters,
   onChange,
   onRemove,
+  onDuplicate,
   onMove,
 }: {
   selection: Selection
   chapters: WorkChapter[]
   onChange: (patch: Record<string, unknown>) => void
   onRemove: () => void
+  onDuplicate: () => void
   onMove: (targetParentKey: string) => void
 }) {
   const [libOpen, setLibOpen] = useState(false)
@@ -99,6 +147,7 @@ export default function Inspector({
 
   const { type, node } = selection
   const typeLabel = type === 'chapter' ? 'Chapitre' : type === 'lesson' ? 'Leçon' : 'Onglet'
+  const selectedSimulator = type === 'tab' && node.tab_type === 'lab' ? findSimulator(node.renderer_key) : undefined
 
   return (
     <div className="flex h-full flex-col">
@@ -107,14 +156,26 @@ export default function Inspector({
           <p className="text-[11px] font-black uppercase tracking-[0.06em] text-[#5b60f9]">{typeLabel}</p>
           <p className="text-[15px] font-black text-[#3f3f46]">Propriétés</p>
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="grid h-9 w-9 place-items-center rounded-[12px] border-[2px] border-[#fecaca] bg-white text-[#ef4444] transition hover:bg-red-50"
-          title="Supprimer"
-        >
-          <Trash2 size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onDuplicate}
+            className="grid h-9 w-9 place-items-center rounded-[12px] border-[2px] border-[#e4e4e7] bg-white text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+            title="Dupliquer"
+            aria-label="Dupliquer la selection"
+          >
+            <Copy size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="grid h-9 w-9 place-items-center rounded-[12px] border-[2px] border-[#fecaca] bg-white text-[#ef4444] transition hover:bg-red-50"
+            title="Supprimer"
+            aria-label="Supprimer la selection"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-5">
@@ -258,6 +319,23 @@ export default function Inspector({
               </button>
             </Field>
 
+            {selectedSimulator && selectedSimulator.params.length > 0 && (
+              <div className="grid gap-3 rounded-[12px] border-[2px] border-[#e4e4e7] bg-[#fbfbfc] p-3">
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-[0.06em] text-[#5b60f9]">Parametres du simulateur</p>
+                  <p className="mt-0.5 text-[12px] font-semibold leading-snug text-[#a1a1aa]">{selectedSimulator.description}</p>
+                </div>
+                {selectedSimulator.params.map((param) => (
+                  <SimulatorParamField
+                    key={param.key}
+                    param={param}
+                    value={node.config[param.key]}
+                    onChange={(value) => onChange({ config: { ...node.config, [param.key]: value } })}
+                  />
+                ))}
+              </div>
+            )}
+
             <Field label="Consigne (optionnel)">
               <textarea
                 className={`${inputClass} min-h-[70px] resize-y leading-relaxed`}
@@ -319,7 +397,7 @@ export default function Inspector({
           open={libOpen}
           currentKey={node.renderer_key}
           onClose={() => setLibOpen(false)}
-          onSelect={(key) => onChange({ renderer_key: key, tab_type: 'lab' })}
+          onSelect={(key) => onChange({ renderer_key: key, tab_type: 'lab', config: defaultConfigFor(key) })}
         />
       )}
     </div>

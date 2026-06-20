@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
-  ArrowLeft,
   BookOpen,
   CheckCircle2,
   Clock3,
@@ -19,6 +18,7 @@ import {
   ImageIcon,
   LayoutGrid,
   ListChecks,
+  Loader2,
   PanelTop,
   Pilcrow,
   Plus,
@@ -39,6 +39,13 @@ import {
   type CourseContentBlock,
   type CourseDocument,
 } from '@/components/topic-workspace/CourseContentRenderer'
+import {
+  AdminAlert,
+  AdminPageHeader,
+  adminButtonClass,
+  adminPageClass,
+  adminPanelClass,
+} from '@/components/admin/AdminDesign'
 import { getJson } from '@/lib/apiClient'
 
 type TopicWorkspace = {
@@ -92,6 +99,9 @@ type CourseBlockTemplateGroup = {
 }
 
 const editorIndent = 2
+const card = adminPanelClass
+const secondaryButton = `${adminButtonClass} no-underline`
+const primaryButton = 'inline-flex h-10 items-center gap-1.5 rounded-[12px] bg-[#5b60f9] px-4 text-[12px] font-black text-white transition hover:bg-[#4b50e8]'
 
 const blockTemplateGroups: CourseBlockTemplateGroup[] = [
   {
@@ -297,7 +307,6 @@ const blockTemplateGroups: CourseBlockTemplateGroup[] = [
 ]
 
 export default function AdminCourseContentEditorPage() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const topicId = Number(searchParams.get('topicId') ?? 0)
   const itemId = Number(searchParams.get('itemId') ?? 0)
@@ -406,100 +415,118 @@ export default function AdminCourseContentEditorPage() {
 
   if (loading) {
     return (
-      <main className="grid min-h-screen place-items-center bg-slate-950">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      <main className={adminPageClass}>
+        <div className={`${card} grid min-h-[360px] place-items-center`}>
+          <div className="text-center">
+            <Loader2 size={28} className="mx-auto animate-spin text-[#5b60f9]" />
+            <p className="m-0 mt-3 text-[13px] font-black text-[#52525c]">Chargement de l&apos;éditeur Course</p>
+            <p className="m-0 mt-1 text-[12px] font-semibold text-[#a1a1aa]">Workspace, item actif et brouillon local.</p>
+          </div>
+        </div>
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="flex flex-wrap items-center gap-4 border-b border-slate-800 bg-slate-900 px-6 py-4">
-        <button type="button" onClick={() => router.push(backHref)} className="text-slate-400 transition hover:text-white" aria-label="Back to course admin">
-          <ArrowLeft size={18} />
-        </button>
-        <div className="min-w-0">
-          <p className="m-0 text-xs font-semibold text-slate-500">{workspace?.subject_title ?? 'Course content'}</p>
-          <h1 className="m-0 truncate text-sm font-semibold text-white">{activeItem?.title ?? 'Course document editor'}</h1>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <Link href={backHref} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800">
+    <main className={adminPageClass}>
+      <AdminPageHeader
+        icon={BookOpen}
+        eyebrow="Admin / Course content"
+        title={activeItem?.title ?? 'Course document editor'}
+        description={`${workspace?.subject_title ?? 'Course content'} · éditeur JSON local avec aperçu étudiant.`}
+        action={(
+          <>
+          <Link href={backHref} className={secondaryButton}>
             Course list
           </Link>
-          <button type="button" onClick={resetFromWorkspace} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800">
+          <button type="button" onClick={resetFromWorkspace} className={secondaryButton}>
             <RefreshCw size={13} />
             Reset
           </button>
-          <button type="button" onClick={saveLocalDraft} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-indigo-700">
+          <button type="button" onClick={saveLocalDraft} className={primaryButton}>
             <Save size={13} />
             Save local draft
           </button>
-        </div>
-      </header>
+          </>
+        )}
+      />
 
-      <div className="mx-auto grid max-w-[1500px] gap-6 px-6 py-6 lg:grid-cols-[minmax(360px,520px)_1fr]">
+      {loadError && (
+        <AdminAlert tone="danger">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+          <span>{loadError}</span>
+        </AdminAlert>
+      )}
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(360px,520px)_1fr]">
         <section className="min-w-0">
           <BlockSelectorPanel canInsert={Boolean(parsed.document && !parsed.error && !loadError)} onInsert={insertBlockTemplate} />
 
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="m-0 text-sm font-semibold text-white">Course JSON</h2>
-              <p className="m-0 mt-1 text-xs text-slate-500">Local draft editor for generated Course documents.</p>
+          <div className={`${card} p-5`}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Course JSON</h2>
+                <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Brouillon local du document Course généré.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={useStarterTemplate} className={secondaryButton}>
+                  Template
+                </button>
+                <button type="button" onClick={() => { void copyJson() }} className={secondaryButton}>
+                  <Copy size={12} />
+                  Copy
+                </button>
+                <button type="button" onClick={downloadJson} className={secondaryButton}>
+                  <Download size={12} />
+                  Download
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={useStarterTemplate} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-slate-500 hover:bg-slate-800">
-                Template
-              </button>
-              <button type="button" onClick={() => { void copyJson() }} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-slate-500 hover:bg-slate-800">
-                <Copy size={12} />
-                Copy
-              </button>
-              <button type="button" onClick={downloadJson} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-slate-500 hover:bg-slate-800">
-                <Download size={12} />
-                Download
-              </button>
-            </div>
+
+            {loadError ? (
+              <div className="rounded-[14px] border border-dashed border-[#e4e4e7] bg-[#fbfbfc] p-5 text-[13px] font-semibold text-[#a1a1aa]">
+                Corrigez l&apos;URL ou revenez à la liste des cours pour choisir un item valide.
+              </div>
+            ) : (
+              <textarea
+                aria-label="Course document JSON"
+                spellCheck={false}
+                value={sourceJson}
+                onChange={(event) => setSourceJson(event.target.value)}
+                className="h-[calc(100vh-335px)] min-h-[420px] w-full resize-y rounded-[14px] border-[2px] border-[#e4e4e7] bg-white p-4 font-mono text-[12px] leading-6 text-[#3f3f46] outline-none transition placeholder:text-[#c0c0c7] focus:border-[#5b60f9]"
+              />
+            )}
+
+            <ValidationPanel parsed={parsed} />
           </div>
-
-          {loadError ? (
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-5 text-sm font-semibold text-red-100">{loadError}</div>
-          ) : (
-            <textarea
-              aria-label="Course document JSON"
-              spellCheck={false}
-              value={sourceJson}
-              onChange={(event) => setSourceJson(event.target.value)}
-              className="h-[calc(100vh-260px)] min-h-[420px] w-full resize-y rounded-2xl border border-slate-800 bg-slate-950 p-4 font-mono text-[12px] leading-6 text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-indigo-500"
-            />
-          )}
-
-          <ValidationPanel parsed={parsed} />
         </section>
 
         <section className="min-w-0">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="m-0 flex items-center gap-2 text-sm font-semibold text-white">
-                <Eye size={15} className="text-indigo-300" />
-                Live preview
-              </h2>
-              <p className="m-0 mt-1 text-xs text-slate-500">This uses the same renderer as the student Course tab.</p>
-            </div>
-            <StatusBadge parsed={parsed} />
-          </div>
-
-          <div className="h-[calc(100vh-185px)] min-h-[520px] overflow-auto rounded-2xl border border-slate-800 bg-white p-6 text-slate-950">
-            {canPreview && parsed.document ? (
-              <CourseContentRenderer document={parsed.document} />
-            ) : (
-              <div className="grid min-h-[320px] place-items-center text-center">
-                <div>
-                  <FileCode2 size={32} className="mx-auto mb-3 text-slate-300" />
-                  <p className="m-0 text-sm font-black text-slate-700">Preview unavailable</p>
-                  <p className="m-0 mt-2 text-xs font-semibold text-slate-500">Fix the JSON or validation issue to render the Course document.</p>
-                </div>
+          <div className={`${card} p-5`}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="m-0 flex items-center gap-2 text-[16px] font-black text-[#3f3f46]">
+                  <Eye size={16} className="text-[#5b60f9]" />
+                  Live preview
+                </h2>
+                <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Même renderer que l&apos;onglet Course côté élève.</p>
               </div>
-            )}
+              <StatusBadge parsed={parsed} />
+            </div>
+
+            <div className="h-[calc(100vh-245px)] min-h-[520px] overflow-auto rounded-[14px] border-[2px] border-[#e4e4e7] bg-white p-6 text-[#18181b]">
+              {canPreview && parsed.document ? (
+                <CourseContentRenderer document={parsed.document} />
+              ) : (
+                <div className="grid min-h-[320px] place-items-center text-center">
+                  <div>
+                    <FileCode2 size={32} className="mx-auto mb-3 text-[#d4d4d8]" />
+                    <p className="m-0 text-[14px] font-black text-[#3f3f46]">Preview unavailable</p>
+                    <p className="m-0 mt-2 text-[12px] font-semibold text-[#a1a1aa]">Fix the JSON or validation issue to render the Course document.</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </div>
@@ -515,36 +542,38 @@ function BlockSelectorPanel({
   onInsert: (template: CourseBlockTemplate) => void
 }) {
   return (
-    <section className="mb-5 rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <section className={`${card} mb-5 p-5`}>
+      <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="m-0 text-sm font-semibold text-white">Block selector</h2>
-          <p className="m-0 mt-1 text-xs text-slate-500">{blockTemplateGroups.reduce((total, group) => total + group.templates.length, 0)} variants</p>
+          <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Block selector</h2>
+          <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">{blockTemplateGroups.reduce((total, group) => total + group.templates.length, 0)} variants prêts à insérer.</p>
         </div>
-        <Plus size={16} className="text-indigo-400" />
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] bg-[#f0f0ff] text-[#5b60f9]">
+          <Plus size={16} />
+        </span>
       </div>
       <div className="grid gap-4">
         {blockTemplateGroups.map((group) => (
           <div key={group.label}>
-            <p className="m-0 mb-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">{group.label}</p>
+            <p className="m-0 mb-2 text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{group.label}</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {group.templates.map((template) => {
                 const Icon = template.icon
                 return (
                   <button
                     aria-label={`Insert ${template.label} block`}
-                    className="group flex min-h-[58px] items-start gap-3 rounded-xl border border-slate-800 bg-slate-950 px-3 py-3 text-left transition hover:border-indigo-400 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="group flex min-h-[58px] items-start gap-3 rounded-[12px] border border-[#f4f4f5] bg-[#fbfbfc] px-3 py-3 text-left transition hover:border-[#5b60f9] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canInsert}
                     key={template.id}
                     type="button"
                     onClick={() => onInsert(template)}
                   >
-                    <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg bg-indigo-600/10 text-indigo-400 transition group-hover:bg-indigo-600 group-hover:text-white">
+                    <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-[10px] bg-[#f0f0ff] text-[#5b60f9] transition group-hover:bg-[#5b60f9] group-hover:text-white">
                       <Icon size={15} />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-xs font-black text-white">{template.label}</span>
-                      <span className="mt-0.5 block text-[11px] font-semibold leading-4 text-slate-500">{template.description}</span>
+                      <span className="block text-[12px] font-black text-[#3f3f46]">{template.label}</span>
+                      <span className="mt-0.5 block text-[11px] font-semibold leading-4 text-[#a1a1aa]">{template.description}</span>
                     </span>
                   </button>
                 )
@@ -560,7 +589,7 @@ function BlockSelectorPanel({
 function ValidationPanel({ parsed }: { parsed: ParsedEditorDocument }) {
   if (parsed.error) {
     return (
-      <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800">
+      <div className="mt-3 flex items-start gap-2 rounded-[12px] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-[12px] font-bold text-[#b91c1c]">
         <TriangleAlert size={15} className="mt-0.5 flex-shrink-0" />
         <span>{parsed.error}</span>
       </div>
@@ -569,14 +598,14 @@ function ValidationPanel({ parsed }: { parsed: ParsedEditorDocument }) {
 
   if (parsed.warnings.length > 0) {
     return (
-      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800">
+      <div className="mt-3 rounded-[12px] border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-[12px] font-bold text-[#92660b]">
         {parsed.warnings.map((warning) => <p className="m-0" key={warning}>{warning}</p>)}
       </div>
     )
   }
 
   return (
-    <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800">
+    <div className="mt-3 flex items-center gap-2 rounded-[12px] border border-[#bbf7d0] bg-[#f0fdf4] px-4 py-3 text-[12px] font-bold text-[#15803d]">
       <CheckCircle2 size={15} />
       Course document is valid for local preview.
     </div>
@@ -585,12 +614,12 @@ function ValidationPanel({ parsed }: { parsed: ParsedEditorDocument }) {
 
 function StatusBadge({ parsed }: { parsed: ParsedEditorDocument }) {
   if (parsed.error) {
-    return <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">Invalid</span>
+    return <span className="rounded-full bg-[#fef2f2] px-3 py-1 text-[12px] font-black text-[#b91c1c]">Invalid</span>
   }
   if (parsed.warnings.length > 0) {
-    return <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Valid with warnings</span>
+    return <span className="rounded-full bg-[#fffbeb] px-3 py-1 text-[12px] font-black text-[#92660b]">Valid with warnings</span>
   }
-  return <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">Valid</span>
+  return <span className="rounded-full bg-[#f0fdf4] px-3 py-1 text-[12px] font-black text-[#15803d]">Valid</span>
 }
 
 function parseCourseDocumentJson(source: string): ParsedEditorDocument {

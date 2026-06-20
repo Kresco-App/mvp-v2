@@ -8,6 +8,7 @@ from sqlalchemy.pool import NullPool
 
 from app.models.base import Base
 from app.models.courses import Topic
+from app.models.exercises import Exercise, ExerciseAsset
 from app.models.professor import (
     LiveSession,
     LiveSessionCheckpoint,
@@ -65,6 +66,13 @@ def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
         async with session_factory() as db:
             vip = await db.scalar(select(User).where(User.email == "vip@example.com"))
             topic = await db.scalar(select(Topic).where(Topic.slug == "staging-demo-limits-continuity"))
+            exercises = (
+                await db.execute(
+                    select(Exercise)
+                    .where(Exercise.subject_id == topic.subject_id)
+                    .order_by(Exercise.order)
+                )
+            ).scalars().all()
             live_session = await db.scalar(
                 select(LiveSession).where(LiveSession.title == "Staging demo live session")
             )
@@ -104,14 +112,27 @@ def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
                         ProfessorChatMessage.body == "Staging demo professor chat message",
                     )
                 ),
+                "exercise_assets": await db.scalar(
+                    select(func.count()).select_from(ExerciseAsset).where(
+                        ExerciseAsset.exercise_id.in_([exercise.id for exercise in exercises])
+                    )
+                ),
             }
         await engine.dispose()
-        return vip, topic, live_session, conversation, counts
+        return vip, topic, exercises, live_session, conversation, counts
 
-    vip, topic, live_session, conversation, counts = asyncio.run(exercise())
+    vip, topic, exercises, live_session, conversation, counts = asyncio.run(exercise())
 
     assert vip.tier == "vip"
     assert topic.title == "Limits and Continuity"
+    assert [exercise.title for exercise in exercises] == [
+        "Linear equation warmup",
+        "Factorized limit check",
+        "Bac-style function variation",
+    ]
+    assert [exercise.difficulty for exercise in exercises] == ["easy", "medium", "bac"]
+    assert exercises[0].is_free_preview is True
+    assert exercises[1].concept_slugs == ["limits", "factorization", "removable-discontinuity"]
     assert live_session.status == "live"
     assert live_session.join_url == f"/live/{live_session.id}"
     assert conversation.status == "open"
@@ -121,4 +142,5 @@ def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
         "interactions": 1,
         "conversations": 1,
         "messages": 1,
+        "exercise_assets": 1,
     }

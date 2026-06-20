@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { BookOpenCheck, ChevronLeft, Dumbbell, Lock, RotateCcw, Star, Trophy } from 'lucide-react'
+import { AlertTriangle, ArrowUpDown, BookOpenCheck, CheckCircle2, ChevronLeft, Dumbbell, Loader2, Lock, NotebookPen, RotateCcw, Search, Star, Trophy } from 'lucide-react'
+import { PermanentSidebar, type FigmaDailyQuest } from '@/components/figma'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { useCourseSubjectsData, type CourseSubject } from '@/lib/courseDiscoveryData'
 import {
@@ -21,6 +22,18 @@ import {
 
 const difficultyOptions = ['', 'easy', 'medium', 'hard', 'bac']
 const selfGradeOptions = ['', 'not_started', 'again', 'partial', 'mastered']
+type ExerciseSortKey = 'recommended' | 'needs_work' | 'difficulty' | 'time'
+const sortOptions: { value: ExerciseSortKey; label: string }[] = [
+  { value: 'recommended', label: 'Recommended' },
+  { value: 'needs_work', label: 'Needs work' },
+  { value: 'difficulty', label: 'Difficulty' },
+  { value: 'time', label: 'Shortest' },
+]
+const exerciseSidebarQuests: FigmaDailyQuest[] = [
+  { id: 'attempt', quest_type: 'exercise', title: 'Finish one exercise workspace', progress: 0, target: 1 },
+  { id: 'correction', quest_type: 'quiz', title: 'Reveal and review a correction', progress: 0, target: 1 },
+  { id: 'notes', quest_type: 'study_time', title: 'Save one revision note', progress: 0, target: 1 },
+]
 
 export default function ExerciseBankPage() {
   const pathname = usePathname()
@@ -29,17 +42,21 @@ export default function ExerciseBankPage() {
   const searchKey = searchParams.toString()
   const routeSubjectId = numberParam(searchParams.get('subject'))
   const routeExerciseId = numberParam(searchParams.get('exercise'))
+  const routeQuery = searchParams.get('q')?.trim() || ''
+  const routeSort = validExerciseSort(searchParams.get('sort'))
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(routeSubjectId)
   const [selectedExerciseId, setSelectedExerciseId] = useState<number | null>(routeExerciseId)
   const [difficulty, setDifficulty] = useState(searchParams.get('difficulty') || '')
   const [selfGrade, setSelfGrade] = useState(searchParams.get('self_grade') || '')
   const [savedOnly, setSavedOnly] = useState(searchParams.get('saved') === 'true')
+  const [queryInput, setQueryInput] = useState(routeQuery)
+  const [sortBy, setSortBy] = useState<ExerciseSortKey>(routeSort)
   const [notesDraft, setNotesDraft] = useState('')
   const [notesDirty, setNotesDirty] = useState(false)
   const [notesExerciseId, setNotesExerciseId] = useState<number | null>(null)
   const [mutating, setMutating] = useState(false)
   const lastErrorRef = useRef('')
-  const { subjects, loading: loadingSubjects, error: subjectsError } = useCourseSubjectsData()
+  const { subjects, loading: loadingSubjects, error: subjectsError, retry: retrySubjects } = useCourseSubjectsData()
   const subjectOptions = useMemo(() => subjectOptionsFromSubjects(subjects), [subjects])
 
   useEffect(() => {
@@ -48,7 +65,9 @@ export default function ExerciseBankPage() {
     setDifficulty(searchParams.get('difficulty') || '')
     setSelfGrade(searchParams.get('self_grade') || '')
     setSavedOnly(searchParams.get('saved') === 'true')
-  }, [routeSubjectId, routeExerciseId, searchKey, searchParams])
+    setQueryInput(routeQuery)
+    setSortBy(routeSort)
+  }, [routeExerciseId, routeQuery, routeSort, routeSubjectId, searchKey, searchParams])
 
   useEffect(() => {
     if (selectedSubjectId || subjectOptions.length === 0) return
@@ -63,6 +82,14 @@ export default function ExerciseBankPage() {
   const list = useExerciseBankData(selectedSubjectId, filters)
   const detail = useExerciseDetail(selectedExerciseId)
   const selectedSubject = subjectOptions.find((subject) => subject.id === selectedSubjectId) ?? subjectOptions[0] ?? null
+  const selectedExercise = detail.exercise
+  const visibleExercises = useMemo(() => sortExerciseItems(filterExerciseItems(list.items, queryInput), sortBy), [list.items, queryInput, sortBy])
+  const hasActiveFilters = Boolean(difficulty || selfGrade || savedOnly || queryInput.trim())
+  const hasUnsavedNotes = Boolean(
+    selectedExercise
+      && notesDirty
+      && notesDraft.trim() !== (selectedExercise.notes || '').trim(),
+  )
 
   useEffect(() => {
     if (!detail.exercise) return
@@ -87,6 +114,18 @@ export default function ExerciseBankPage() {
     toast.error(message)
   }, [detail.error, list.error, subjectsError])
 
+  useEffect(() => {
+    if (!hasUnsavedNotes) return
+
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedNotes])
+
   function syncRoute(next: Partial<RouteState>) {
     const state: RouteState = {
       subject: selectedSubjectId,
@@ -94,6 +133,8 @@ export default function ExerciseBankPage() {
       difficulty,
       selfGrade,
       saved: savedOnly,
+      query: queryInput,
+      sort: sortBy,
       ...next,
     }
     const params = new URLSearchParams()
@@ -102,24 +143,62 @@ export default function ExerciseBankPage() {
     if (state.difficulty) params.set('difficulty', state.difficulty)
     if (state.selfGrade) params.set('self_grade', state.selfGrade)
     if (state.saved) params.set('saved', 'true')
+    if (state.query.trim()) params.set('q', state.query.trim())
+    if (state.sort !== 'recommended') params.set('sort', state.sort)
     const query = params.toString()
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
   function selectSubject(subjectId: number) {
+    if (!confirmDiscardNotes()) return
     setSelectedSubjectId(subjectId)
     setSelectedExerciseId(null)
+    clearNotesDraft()
     syncRoute({ subject: subjectId, exercise: null })
   }
 
   function openExercise(exerciseId: number) {
+    if (!confirmDiscardNotes()) return
     setSelectedExerciseId(exerciseId)
     syncRoute({ exercise: exerciseId })
   }
 
   function closeExercise() {
+    if (!confirmDiscardNotes()) return
     setSelectedExerciseId(null)
+    clearNotesDraft()
     syncRoute({ exercise: null })
+  }
+
+  function resetFilters() {
+    setDifficulty('')
+    setSelfGrade('')
+    setSavedOnly(false)
+    setQueryInput('')
+    setSortBy('recommended')
+    syncRoute({ difficulty: '', selfGrade: '', saved: false, query: '', sort: 'recommended', exercise: null })
+  }
+
+  function updateSearchQuery(value: string) {
+    setQueryInput(value)
+    syncRoute({ query: value, exercise: null })
+  }
+
+  function updateSort(value: string) {
+    const nextSort = validExerciseSort(value)
+    setSortBy(nextSort)
+    syncRoute({ sort: nextSort, exercise: null })
+  }
+
+  function clearNotesDraft() {
+    setNotesDraft('')
+    setNotesDirty(false)
+    setNotesExerciseId(null)
+  }
+
+  function confirmDiscardNotes() {
+    if (!hasUnsavedNotes) return true
+    return window.confirm('You have unsaved notes for this exercise. Discard them?')
   }
 
   async function revealSelectedExercise() {
@@ -204,126 +283,215 @@ export default function ExerciseBankPage() {
   }
 
   const showListSkeleton = (loadingSubjects || list.loading) && list.items.length === 0
-  const selectedExercise = detail.exercise
+  const showListError = Boolean(list.error && list.items.length === 0)
 
   return (
-    <main className="figma-container">
-      <header className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[#fff7df] text-[#f5900b]">
-            <Dumbbell size={26} />
-          </div>
-          <h1 className="figma-title m-0 text-[34px]">Exercise Bank</h1>
-          <p className="figma-subtle m-0 mt-1 text-sm">Subject practice with hidden corrections, self-grades, and retry filters.</p>
-        </div>
-        {selectedExerciseId && (
-          <button type="button" onClick={closeExercise} className="inline-flex h-11 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-4 text-sm font-black text-[#52525c] transition hover:bg-[#f4f4f5]">
-            <ChevronLeft size={16} />
-            Back to list
-          </button>
-        )}
-      </header>
-
-      <section aria-label="Subjects" className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {subjectOptions.map((subject) => (
-          <button
-            key={subject.id}
-            type="button"
-            onClick={() => selectSubject(subject.id)}
-            className={`min-h-[88px] rounded-[14px] border-2 p-4 text-left transition ${subject.id === selectedSubjectId ? 'border-[#5b60f9] bg-[#f4f4ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#3f3f46] hover:-translate-y-0.5 hover:border-[#d4d4d8]'}`}
-          >
-            <span className="block text-sm font-black">{subject.title}</span>
-            <span className="mt-2 block text-xs font-bold text-[#71717b]">{subject.topicCount} topics available</span>
-          </button>
-        ))}
-        {subjectOptions.length === 0 && (
-          <div className="rounded-[14px] border-2 border-dashed border-[#e4e4e7] bg-white p-4 text-sm font-bold text-[#71717b]">
-            No published subjects are available yet.
-          </div>
-        )}
-      </section>
-
-      {!selectedExerciseId && (
-        <>
-          <section className="mb-6 flex flex-wrap items-center gap-3" aria-label="Exercise filters">
-            <FilterSelect label="Difficulty" value={difficulty} options={difficultyOptions} onChange={(value) => { setDifficulty(value); syncRoute({ difficulty: value, exercise: null }) }} />
-            <FilterSelect label="Self-grade" value={selfGrade} options={selfGradeOptions} onChange={(value) => { setSelfGrade(value); syncRoute({ selfGrade: value, exercise: null }) }} />
-            <button
-              type="button"
-              onClick={() => { setSavedOnly(!savedOnly); syncRoute({ saved: !savedOnly, exercise: null }) }}
-              className={`inline-flex h-10 items-center gap-2 rounded-full border-2 px-4 text-sm font-black transition ${savedOnly ? 'border-[#f97316] bg-[#fff7ed] text-[#ea580c]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:bg-[#f4f4f5]'}`}
-            >
-              <Star size={15} fill={savedOnly ? 'currentColor' : 'none'} />
-              Saved
-            </button>
-            <button
-              type="button"
-              onClick={() => { setDifficulty(''); setSelfGrade(''); setSavedOnly(false); syncRoute({ difficulty: '', selfGrade: '', saved: false, exercise: null }) }}
-              className="inline-flex h-10 items-center gap-2 rounded-full border-2 border-[#e4e4e7] bg-white px-4 text-sm font-black text-[#52525c] transition hover:bg-[#f4f4f5]"
-            >
-              <RotateCcw size={15} />
-              Reset
-            </button>
-          </section>
-
-          <section className="mb-4 flex items-center justify-between gap-4">
+    <div className="figma-courses-container">
+      <div className="figma-courses-grid">
+        <main className="min-w-0 pt-[44px]">
+          <header className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 className="m-0 text-[22px] font-black text-[#3f3f46]">{selectedSubject?.title ?? 'Exercises'}</h2>
-              <p className="m-0 mt-1 text-sm font-bold text-[#9f9fa9]">{list.total} exercise(s) in the current filtered list.</p>
+              <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">Exercise Bank</p>
+              <h1 className="m-0 mt-1 text-[34px] font-bold leading-[1.1] tracking-normal text-[#3f3f46]">Exercises</h1>
             </div>
-          </section>
+            {selectedExerciseId && (
+              <button type="button" onClick={closeExercise} className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-4 text-sm font-black text-[#52525c] transition hover:bg-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]">
+                <ChevronLeft size={16} />
+                Back to list
+              </button>
+            )}
+          </header>
 
-          {showListSkeleton ? (
-            <ExerciseGridSkeleton />
-          ) : (
-            <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4" aria-label="Exercise list">
-              {list.items.map((exercise, index) => (
-                <ExerciseCard key={exercise.id} exercise={exercise} index={index + 1} onOpen={() => openExercise(exercise.id)} />
-              ))}
-              {list.items.length === 0 && (
-                <div className="rounded-[16px] border-2 border-dashed border-[#e4e4e7] bg-white p-6 text-sm font-bold text-[#71717b] sm:col-span-2 xl:col-span-4">
-                  No exercises match these filters.
-                </div>
-              )}
-            </section>
+          {subjectsError && (
+            <RetryableState
+              className="mb-5"
+              title="Could not load subjects"
+              message={apiDataErrorMessage(subjectsError, 'Subject list is temporarily unavailable.')}
+              onRetry={() => void retrySubjects()}
+            />
           )}
-        </>
-      )}
 
-      {selectedExerciseId && (
-        <ExerciseDetailView
-          exercise={selectedExercise}
-          loading={detail.loading && !selectedExercise}
-          mutating={mutating}
-          notesDraft={notesDraft}
-          notesDirty={notesDirty}
-          onReveal={revealSelectedExercise}
-          onToggleSaved={toggleSelectedExerciseSaved}
-          onNotesChange={(value) => { setNotesDraft(value); setNotesDirty(true) }}
-          onSaveNotes={saveSelectedExerciseNotes}
-          onGrade={gradeSelectedExercise}
-        />
-      )}
-    </main>
+          {!selectedExerciseId && (
+            <>
+              <section className="mb-7" aria-label="Subjects">
+                <h2 className="m-0 text-[20px] font-bold leading-[1.2] tracking-normal text-[#3f3f46]">Subjects</h2>
+                <div className="mt-3 flex min-w-0 gap-2 overflow-x-auto pb-1">
+                  {subjectOptions.map((subject) => (
+                    <button
+                      key={subject.id}
+                      type="button"
+                      onClick={() => selectSubject(subject.id)}
+                      className={`h-[50px] shrink-0 rounded-[14px] border-2 px-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] ${subject.id === selectedSubjectId ? 'border-[#5b60f9] bg-[#f4f4ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-[#f4f4f5] text-[#3f3f46] hover:bg-white'}`}
+                    >
+                      <span className="block text-[14px] font-black leading-[1.1]">{subject.title}</span>
+                      <span className="mt-1 block whitespace-nowrap text-[12px] font-bold leading-[1.1] text-[#71717b]">{subject.topicCount} topics available</span>
+                    </button>
+                  ))}
+                  {!subjectsError && subjectOptions.length === 0 && (
+                    <div className="rounded-[14px] border-2 border-dashed border-[#e4e4e7] bg-[#f4f4f5] px-4 py-3 text-sm font-bold text-[#71717b]">
+                      No published subjects are available yet.
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="mb-8" aria-label="Exercise controls">
+                <div className="flex min-w-0 flex-wrap items-center gap-3">
+                  <label className="relative h-[44px] w-full sm:w-[260px]">
+                    <Search size={16} className="pointer-events-none absolute left-[16px] top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
+                    <input
+                      aria-label="Search exercises"
+                      value={queryInput}
+                      onChange={(event) => updateSearchQuery(event.target.value)}
+                      className="h-full w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] pl-[42px] pr-[16px] text-[15px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none transition placeholder:text-[#9f9fa9] focus:border-[#d4d4d8] focus:bg-white"
+                      placeholder="Search exercises"
+                      type="search"
+                    />
+                  </label>
+                  <FilterSelect label="Difficulty" value={difficulty} options={difficultyOptions} onChange={(value) => { setDifficulty(value); syncRoute({ difficulty: value, exercise: null }) }} />
+                  <FilterSelect label="Self-grade" value={selfGrade} options={selfGradeOptions} onChange={(value) => { setSelfGrade(value); syncRoute({ selfGrade: value, exercise: null }) }} />
+                  <label className="inline-flex h-[44px] w-full items-center gap-2 rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] sm:w-auto">
+                    <ArrowUpDown size={15} />
+                    <select aria-label="Sort exercises" value={sortBy} onChange={(event) => updateSort(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none sm:flex-none">
+                      {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => { setSavedOnly(!savedOnly); syncRoute({ saved: !savedOnly, exercise: null }) }}
+                    className={`inline-flex h-[44px] w-full items-center justify-center gap-2 rounded-[14px] border px-4 text-sm font-black transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] sm:w-auto ${savedOnly ? 'border-[#f97316] bg-[#fff7ed] text-[#ea580c]' : 'border-[#e4e4e7] bg-[#f4f4f5] text-[#52525c] hover:bg-white'}`}
+                  >
+                    <Star size={15} fill={savedOnly ? 'currentColor' : 'none'} />
+                    Saved
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="inline-flex h-[44px] w-full items-center justify-center gap-2 rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-4 text-sm font-black text-[#52525c] transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] sm:w-auto"
+                  >
+                    <RotateCcw size={15} />
+                    Reset
+                  </button>
+                </div>
+              </section>
+
+              <section className="mb-5 border-b-2 border-[#e4e4e7] pb-4">
+                <h2 className="m-0 text-[24px] font-bold leading-[1.25] tracking-normal text-[#3f3f46]">{selectedSubject?.title ?? 'Exercises'}</h2>
+                <p className="m-0 mt-1 text-[15px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">
+                  {visibleExercises.length} exercise(s) in the current filtered list.
+                </p>
+              </section>
+
+              {list.error && list.items.length > 0 && (
+                <RetryableState
+                  className="mb-5"
+                  title="Results may be out of date"
+                  message={apiDataErrorMessage(list.error, 'Could not refresh this exercise list.')}
+                  onRetry={() => void list.retry()}
+                  compact
+                />
+              )}
+
+              {showListError ? (
+                <RetryableState
+                  title="Could not load exercises"
+                  message={apiDataErrorMessage(list.error, 'The exercise list is temporarily unavailable.')}
+                  onRetry={() => void list.retry()}
+                />
+              ) : showListSkeleton ? (
+                <ExerciseGridSkeleton />
+              ) : (
+                <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Exercise list">
+                  {visibleExercises.map((exercise, index) => (
+                    <ExerciseCard
+                      key={exercise.id}
+                      exercise={exercise}
+                      index={index + 1}
+                      subjectTitle={selectedSubject?.title}
+                      onOpen={() => openExercise(exercise.id)}
+                    />
+                  ))}
+                  {visibleExercises.length === 0 && (
+                    <ExerciseEmptyState
+                      subjectTitle={selectedSubject?.title}
+                      hasActiveFilters={hasActiveFilters}
+                      onResetFilters={resetFilters}
+                    />
+                  )}
+                </section>
+              )}
+            </>
+          )}
+
+          {selectedExerciseId && (
+            <ExerciseDetailView
+              exercise={selectedExercise}
+              loading={detail.loading && !selectedExercise}
+              error={detail.error}
+              mutating={mutating}
+              notesDraft={notesDraft}
+              notesDirty={notesDirty}
+              onReveal={revealSelectedExercise}
+              onToggleSaved={toggleSelectedExerciseSaved}
+              onNotesChange={(value) => { setNotesDraft(value); setNotesDirty(true) }}
+              onSaveNotes={saveSelectedExerciseNotes}
+              onGrade={gradeSelectedExercise}
+              onRetry={() => void detail.retry()}
+            />
+          )}
+        </main>
+        <PermanentSidebar autoLoad={false} quests={exerciseSidebarQuests} sections={['quests', 'leaderboard']} />
+      </div>
+    </div>
   )
 }
 
-function ExerciseCard({ exercise, index, onOpen }: { exercise: ExerciseListItem; index: number; onOpen: () => void }) {
+function ExerciseCard({
+  exercise,
+  index,
+  onOpen,
+  subjectTitle,
+}: {
+  exercise: ExerciseListItem
+  index: number
+  onOpen: () => void
+  subjectTitle?: string
+}) {
   const locked = exercise.can_access === false
   const cta = locked ? 'Preview' : exercise.self_grade === 'not_started' ? "s'exercer" : exercise.self_grade === 'mastered' ? 'revoir' : 'continuer'
+  const status = gradeLabel(exercise.self_grade)
+  const topic = topicLabel(exercise)
 
   return (
-    <article className="relative min-h-[230px] rounded-[24px] bg-white p-5 shadow-[8px_12px_0_rgba(24,24,27,0.08)]">
-      <StatusDot grade={exercise.self_grade} locked={locked} />
-      <div className="flex min-h-[144px] flex-col items-center justify-center text-center">
-        <p className="m-0 max-w-full truncate text-[16px] font-bold text-[#18181b]">{exercise.title || `Exercise ${index}`}</p>
-        <p className="m-0 mt-1 text-[52px] font-black leading-none text-[#27272a]">{index}</p>
-        <DifficultyBars difficulty={exercise.difficulty} />
-        <p className="m-0 mt-1 text-xs font-bold capitalize text-[#52525c]">{difficultyLabel(exercise.difficulty)}</p>
-        <p className="m-0 mt-2 text-xs font-black text-[#5b60f9]">{gradeLabel(exercise.self_grade)}</p>
-        {exercise.saved && <p className="m-0 mt-1 inline-flex items-center gap-1 text-xs font-black text-[#b76b00]"><Star size={12} fill="currentColor" /> Saved</p>}
+    <article className="kresco-enter flex h-[188px] w-full flex-col rounded-[12px] border-2 border-[#e4e4e7] bg-white p-4 shadow-[0_3px_0_#d9dadd] transition hover:-translate-y-0.5 hover:border-[#d4d4d8]">
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-[#fff7df] text-[17px] font-black leading-none text-[#f5900b]">
+          {index}
+        </span>
+        <StatusDot grade={exercise.self_grade} locked={locked} />
       </div>
-      <button type="button" onClick={onOpen} className="mt-3 h-10 w-full rounded-full border-2 border-[#f97316] bg-white text-sm font-black text-[#f97316] transition hover:bg-[#fff7ed]">
+
+      <div className="mt-3 min-w-0">
+        <p className="m-0 line-clamp-1 text-[16px] font-bold leading-[1.15] tracking-normal text-[#3f3f46]">{exercise.title || `Exercise ${index}`}</p>
+        <div className="mt-1.5 grid gap-0.5 text-[12px] font-bold leading-[1.15] tracking-[0.12px] text-[#71717b]">
+          <span className="truncate">{subjectTitle || `Subject ${exercise.subject_id}`}</span>
+          <span className="truncate">{topic}</span>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3">
+        <div>
+          <DifficultyBars difficulty={exercise.difficulty} />
+          <p className="m-0 mt-1 text-[12px] font-black capitalize leading-[1.1] text-[#52525c]">{difficultyLabel(exercise.difficulty)}</p>
+        </div>
+        <div className="text-right">
+          <p className={`m-0 text-[12px] font-black leading-[1.1] ${statusTextClass(exercise.self_grade)}`}>{status}</p>
+        </div>
+      </div>
+
+      <button type="button" onClick={onOpen} className="mt-auto h-9 w-full rounded-[10px] bg-[#5b60f9] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]">
         {cta}
       </button>
     </article>
@@ -333,6 +501,7 @@ function ExerciseCard({ exercise, index, onOpen }: { exercise: ExerciseListItem;
 function ExerciseDetailView({
   exercise,
   loading,
+  error,
   mutating,
   notesDraft,
   notesDirty,
@@ -341,9 +510,11 @@ function ExerciseDetailView({
   onNotesChange,
   onSaveNotes,
   onGrade,
+  onRetry,
 }: {
   exercise: ExerciseDetail | null
   loading: boolean
+  error: unknown
   mutating: boolean
   notesDraft: string
   notesDirty: boolean
@@ -352,114 +523,208 @@ function ExerciseDetailView({
   onNotesChange: (value: string) => void
   onSaveNotes: () => void
   onGrade: (grade: Exclude<ExerciseSelfGrade, 'not_started'>) => void
+  onRetry: () => void | Promise<unknown>
 }) {
   if (loading) return <ExerciseDetailSkeleton />
+  if (error && !exercise) {
+    return (
+      <RetryableState
+        title="Could not load this exercise"
+        message={apiDataErrorMessage(error, 'Exercise detail is temporarily unavailable.')}
+        onRetry={onRetry}
+      />
+    )
+  }
   if (!exercise) {
     return <div className="rounded-[16px] border-2 border-[#e4e4e7] bg-white p-6 text-sm font-bold text-[#71717b]">Exercise not found.</div>
   }
   if (exercise.can_access === false) return <LockedExercisePreview exercise={exercise} />
 
   const correctionRevealed = exercise.reveal_count > 0
+  const notesChanged = notesDirty && notesDraft.trim() !== (exercise.notes || '').trim()
 
   return (
-    <article className="grid gap-5">
-      <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="m-0 text-sm font-black capitalize text-[#f97316]">{difficultyLabel(exercise.difficulty)}</p>
-            <h2 className="m-0 mt-2 text-[28px] font-black leading-tight text-[#27272a]">{exercise.title}</h2>
-            <p className="m-0 mt-2 text-sm font-bold text-[#71717b]">{exercise.summary}</p>
+    <article className="grid gap-5" aria-busy={mutating}>
+      {Boolean(error) && (
+        <RetryableState
+          title="Exercise refresh failed"
+          message={apiDataErrorMessage(error, 'Could not refresh this exercise.')}
+          onRetry={onRetry}
+          compact
+        />
+      )}
+      <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-[18px] shadow-[0_3.75px_0_#d9dadd]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="m-0 text-[14px] font-black capitalize leading-[1.1] tracking-[0.18px] text-[#f5900b]">{difficultyLabel(exercise.difficulty)} workspace</p>
+            <h2 className="m-0 mt-2 text-[28px] font-bold leading-[1.15] tracking-normal text-[#3f3f46]">{exercise.title}</h2>
+            <p className="m-0 mt-2 max-w-[650px] text-[15px] font-bold leading-[1.35] tracking-[0.18px] text-[#71717b]">{exercise.summary}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex h-9 items-center rounded-full bg-[#f4f4f5] px-3 text-xs font-black text-[#52525c]">{gradeLabel(exercise.self_grade)}</span>
-            <button type="button" disabled={mutating} onClick={onToggleSaved} className="inline-flex h-9 items-center gap-2 rounded-full border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#52525c] transition hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:opacity-60">
-              <Star size={14} fill={exercise.saved ? 'currentColor' : 'none'} />
-              {exercise.saved ? 'Saved' : 'Save'}
+            <span className={`inline-flex h-9 items-center rounded-[8px] px-3 text-xs font-black ${statusPillClass(exercise.self_grade)}`}>{gradeLabel(exercise.self_grade)}</span>
+            <button type="button" disabled={mutating} onClick={onToggleSaved} className="inline-flex h-9 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#52525c] transition hover:bg-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-60">
+              {mutating ? <Loader2 size={14} className="animate-spin" /> : <Star size={14} fill={exercise.saved ? 'currentColor' : 'none'} />}
+              {mutating ? 'Saving...' : exercise.saved ? 'Saved' : 'Save'}
             </button>
           </div>
         </div>
-        <RichBody body={exercise.statement_body} empty="No statement body is available yet." />
-        {exercise.assets.length > 0 && (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {exercise.assets.map((asset) => (
-              <figure key={asset.id} className="m-0 rounded-[14px] border border-[#e4e4e7] bg-[#fafafa] p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={asset.url} alt={asset.alt_text || asset.caption || 'Exercise asset'} className="max-h-[280px] w-full rounded-[10px] object-contain" />
-                {asset.caption && <figcaption className="mt-2 text-xs font-bold text-[#71717b]">{asset.caption}</figcaption>}
-              </figure>
-            ))}
-          </div>
-        )}
-      </section>
 
-      <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="m-0 text-[22px] font-black text-[#27272a]">Private notes</h3>
-            <p className="m-0 mt-1 text-sm font-bold text-[#71717b]">Keep revision reminders for this exercise.</p>
-          </div>
-          <button type="button" disabled={mutating || !notesDirty || notesDraft.trim() === (exercise.notes || '').trim()} onClick={onSaveNotes} className="h-10 rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60">
-            Save notes
-          </button>
-        </div>
-        <textarea
-          aria-label="Exercise private notes"
-          value={notesDraft}
-          onChange={(event) => onNotesChange(event.target.value)}
-          className="mt-4 min-h-[120px] w-full resize-y rounded-[14px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4 text-sm font-semibold leading-6 text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
-          placeholder="Add reminders, traps, or formulas to revisit..."
-        />
-      </section>
+        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid min-w-0 gap-5">
+            <WorkspacePanel
+              icon={<Dumbbell size={18} />}
+              title="Statement"
+              subtitle={`${Math.max(1, Number(exercise.estimated_minutes || 1))} min practice block`}
+            >
+              <RichBody body={exercise.statement_body} empty="No statement body is available yet." />
+              {exercise.assets.length > 0 && (
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  {exercise.assets.map((asset) => (
+                    <figure key={asset.id} className="m-0 rounded-[14px] border border-[#e4e4e7] bg-[#fafafa] p-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={asset.url} alt={asset.alt_text || asset.caption || 'Exercise asset'} className="max-h-[280px] w-full rounded-[10px] object-contain" />
+                      {asset.caption && <figcaption className="mt-2 text-xs font-bold text-[#71717b]">{asset.caption}</figcaption>}
+                    </figure>
+                  ))}
+                </div>
+              )}
+            </WorkspacePanel>
 
-      <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="m-0 text-[22px] font-black text-[#27272a]">Correction</h3>
-            <p className="m-0 mt-1 text-sm font-bold text-[#71717b]">{correctionRevealed ? 'Read the correction, then self-grade honestly.' : 'Try the exercise first, then reveal the correction.'}</p>
-          </div>
-          {!correctionRevealed && (
-            <button type="button" disabled={mutating} onClick={onReveal} className="h-11 rounded-[12px] bg-[#f97316] px-5 text-sm font-black text-white transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60">
-              Reveal correction
-            </button>
-          )}
-        </div>
-
-        {correctionRevealed ? (
-          <>
-            <RichBody body={exercise.solution_body} empty="No written correction body is available yet." />
-            {exercise.solution_video_url && (
-              <Link href={exercise.solution_video_url} className="mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#eef2ff] px-4 text-sm font-black text-[#3a2fd3]">
-                <BookOpenCheck size={16} />
-                Video correction
-              </Link>
-            )}
-            <div className="mt-6 flex flex-wrap gap-3">
-              {(['again', 'partial', 'mastered'] as const).map((grade) => (
-                <button
-                  key={grade}
-                  type="button"
-                  disabled={mutating}
-                  onClick={() => onGrade(grade)}
-                  className={`h-10 rounded-full border-2 px-4 text-sm font-black capitalize transition disabled:cursor-not-allowed disabled:opacity-60 ${exercise.self_grade === grade ? 'border-[#5b60f9] bg-[#f4f4ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:bg-[#f4f4f5]'}`}
-                >
-                  {gradeLabel(grade)}
+            <WorkspacePanel
+              icon={<BookOpenCheck size={18} />}
+              title="Correction"
+              subtitle={correctionRevealed ? 'Read the correction, then self-grade honestly.' : 'Try the exercise first, then reveal the correction.'}
+              action={!correctionRevealed ? (
+                <button type="button" disabled={mutating} onClick={onReveal} className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#f5900b] px-4 text-sm font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fed7aa] disabled:cursor-not-allowed disabled:opacity-60">
+                  {mutating && <Loader2 size={14} className="animate-spin" />}
+                  {mutating ? 'Revealing...' : 'Reveal correction'}
                 </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="mt-5 rounded-[14px] border-2 border-dashed border-[#e4e4e7] bg-[#fafafa] p-5 text-sm font-bold text-[#71717b]">
-            Correction is hidden until you reveal it.
+              ) : null}
+            >
+              {correctionRevealed ? (
+                <>
+                  <RichBody body={exercise.solution_body} empty="No written correction body is available yet." />
+                  {exercise.solution_video_url && (
+                    <Link href={exercise.solution_video_url} className="mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#eef2ff] px-4 text-sm font-black text-[#3a2fd3]">
+                      <BookOpenCheck size={16} />
+                      Video correction
+                    </Link>
+                  )}
+                </>
+              ) : (
+                <div className="mt-5 rounded-[14px] border-2 border-dashed border-[#e4e4e7] bg-[#fafafa] p-5 text-sm font-bold leading-6 text-[#71717b]">
+                  Correction is hidden until you reveal it.
+                </div>
+              )}
+            </WorkspacePanel>
           </div>
-        )}
+
+          <aside className="grid content-start gap-4">
+            <section className="rounded-[16px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4">
+              <h3 className="m-0 text-[18px] font-black leading-[1.1] text-[#3f3f46]">Workspace</h3>
+              <div className="mt-4 grid gap-3">
+                <WorkspaceStep done title="Attempt" />
+                <WorkspaceStep done={correctionRevealed} title="Correction revealed" />
+                <WorkspaceStep done={exercise.self_grade !== 'not_started'} title="Self-grade saved" />
+                <WorkspaceStep done={!notesChanged && Boolean((exercise.notes || notesDraft).trim())} title="Notes saved" />
+              </div>
+            </section>
+
+            <section className="rounded-[16px] border-2 border-[#e4e4e7] bg-white p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="m-0 flex items-center gap-2 text-[18px] font-black leading-[1.1] text-[#3f3f46]">
+                    <NotebookPen size={17} className="text-[#5b60f9]" />
+                    Private notes
+                  </h3>
+                  <p className="m-0 mt-1 text-[13px] font-bold leading-[1.25] text-[#71717b]">Keep revision reminders for this exercise.</p>
+                </div>
+                <button type="button" disabled={mutating || !notesChanged} onClick={onSaveNotes} className="inline-flex h-9 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-3 text-xs font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-60">
+                  {mutating && <Loader2 size={14} className="animate-spin" />}
+                  {mutating ? 'Saving...' : 'Save notes'}
+                </button>
+              </div>
+              <textarea
+                aria-label="Exercise private notes"
+                value={notesDraft}
+                onChange={(event) => onNotesChange(event.target.value)}
+                className="mt-4 min-h-[170px] w-full resize-y rounded-[14px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4 text-sm font-semibold leading-6 text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
+                placeholder="Add reminders, traps, or formulas to revisit..."
+              />
+            </section>
+
+            <section className="rounded-[16px] border-2 border-[#e4e4e7] bg-white p-4">
+              <h3 className="m-0 text-[18px] font-black leading-[1.1] text-[#3f3f46]">Self-grade</h3>
+              <p className="m-0 mt-1 text-[13px] font-bold leading-[1.25] text-[#71717b]">
+                {correctionRevealed ? 'Choose the revision status after checking your work.' : 'Reveal the correction before grading.'}
+              </p>
+              <div className="mt-4 grid gap-2">
+                {(['again', 'partial', 'mastered'] as const).map((grade) => (
+                  <button
+                    key={grade}
+                    type="button"
+                    disabled={mutating || !correctionRevealed}
+                    onClick={() => onGrade(grade)}
+                    className={`h-10 rounded-[12px] border-2 px-4 text-sm font-black capitalize transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-55 ${exercise.self_grade === grade ? 'border-[#5b60f9] bg-[#f4f4ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:bg-[#f4f4f5]'}`}
+                  >
+                    {gradeLabel(grade)}
+                  </button>
+                ))}
+              </div>
+            </section>
+          </aside>
+        </div>
       </section>
     </article>
   )
 }
 
+function WorkspacePanel({
+  action,
+  children,
+  icon,
+  subtitle,
+  title,
+}: {
+  action?: ReactNode
+  children: ReactNode
+  icon: ReactNode
+  subtitle: string
+  title: string
+}) {
+  return (
+    <section className="rounded-[16px] border-2 border-[#e4e4e7] bg-white p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#f4f4ff] text-[#5b60f9]">
+            {icon}
+          </span>
+          <div className="min-w-0">
+            <h3 className="m-0 text-[20px] font-black leading-[1.1] text-[#3f3f46]">{title}</h3>
+            <p className="m-0 mt-1 text-sm font-bold leading-[1.35] text-[#71717b]">{subtitle}</p>
+          </div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function WorkspaceStep({ done, title }: { done: boolean; title: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border-2 ${done ? 'border-[#22c55e] bg-[#dcfce7] text-[#15803d]' : 'border-[#e4e4e7] bg-white text-[#9f9fa9]'}`}>
+        {done ? <CheckCircle2 size={14} /> : <span className="h-2 w-2 rounded-[2px] bg-current" />}
+      </span>
+      <span className="text-sm font-black leading-[1.2] text-[#52525c]">{title}</span>
+    </div>
+  )
+}
+
 function LockedExercisePreview({ exercise }: { exercise: ExerciseDetail }) {
   return (
-    <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
+    <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6 shadow-[0_3.75px_0_#d9dadd]">
       <div className="flex items-start gap-3">
         <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[#fff7ed] text-[#f97316]">
           <Lock size={20} />
@@ -478,21 +743,99 @@ function LockedExercisePreview({ exercise }: { exercise: ExerciseDetail }) {
 
 function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return (
-    <label className="inline-flex h-10 items-center gap-2 rounded-full border-2 border-[#e4e4e7] bg-white px-3 text-sm font-black text-[#52525c]">
+    <label className="inline-flex h-10 w-full items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-sm font-black text-[#52525c] sm:w-auto">
       {label}
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="border-0 bg-transparent text-sm font-black capitalize outline-none">
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-sm font-black capitalize outline-none sm:flex-none">
         {options.map((option) => <option key={option || 'all'} value={option}>{option ? option.replace('_', ' ') : 'All'}</option>)}
       </select>
     </label>
   )
 }
 
+function RetryableState({
+  title,
+  message,
+  onRetry,
+  compact = false,
+  className = '',
+}: {
+  title: string
+  message: string
+  onRetry: () => void | Promise<unknown>
+  compact?: boolean
+  className?: string
+}) {
+  return (
+    <div role="alert" className={`rounded-[16px] border-2 border-[#fee2e2] bg-[#fff7f7] ${compact ? 'p-4' : 'p-6'} ${className}`}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-white text-[#dc2626]">
+            <AlertTriangle size={20} />
+          </div>
+          <div className="min-w-0">
+            <p className="m-0 text-sm font-black text-[#3f3f46]">{title}</p>
+            <p className="m-0 mt-1 text-sm font-bold leading-relaxed text-[#71717b]">{message}</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => void onRetry()}
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[#fecaca] bg-white px-4 text-sm font-black text-[#b91c1c] transition hover:bg-[#fff1f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fecaca]"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ExerciseEmptyState({
+  subjectTitle,
+  hasActiveFilters,
+  onResetFilters,
+}: {
+  subjectTitle?: string
+  hasActiveFilters: boolean
+  onResetFilters: () => void
+}) {
+  return (
+    <div className="rounded-[18px] border-2 border-dashed border-[#e4e4e7] bg-white p-6 sm:col-span-2 xl:col-span-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="m-0 text-base font-black text-[#3f3f46]">
+            {hasActiveFilters ? 'No exercises match these filters.' : `No exercises are published${subjectTitle ? ` for ${subjectTitle}` : ''} yet.`}
+          </p>
+          <p className="m-0 mt-1 text-sm font-bold leading-relaxed text-[#71717b]">
+            {hasActiveFilters
+              ? 'Clear the active filters to return to the full subject list.'
+              : 'Use Courses to keep studying while this bank is being filled.'}
+          </p>
+        </div>
+        {hasActiveFilters ? (
+          <button
+            type="button"
+            onClick={onResetFilters}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
+          >
+            <RotateCcw size={15} />
+            Reset filters
+          </button>
+        ) : (
+          <Link href="/courses" className="inline-flex h-10 items-center justify-center rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]">
+            Open courses
+          </Link>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DifficultyBars({ difficulty }: { difficulty: string }) {
   const level = difficultyLevel(difficulty)
   return (
-    <div aria-label={`Difficulty ${difficultyLabel(difficulty)}`} className="mt-4 flex h-7 items-end gap-1">
+    <div aria-label={`Difficulty ${difficultyLabel(difficulty)}`} className="flex h-[22px] items-end gap-1">
       {[1, 2, 3].map((bar) => (
-        <span key={bar} className={`w-2 rounded-full ${difficultyBarHeight(bar)} ${bar <= level ? 'bg-[#facc15]' : 'bg-[#e4e4e7]'}`} />
+        <span key={bar} className={`w-2 rounded-[3px] ${difficultyBarHeight(bar)} ${bar <= level ? 'bg-[#facc15]' : 'bg-[#e4e4e7]'}`} />
       ))}
     </div>
   )
@@ -506,8 +849,8 @@ function difficultyBarHeight(bar: number) {
 
 function StatusDot({ grade, locked }: { grade: ExerciseSelfGrade; locked: boolean }) {
   return (
-    <div className={`absolute -left-2 -top-4 grid h-10 w-10 place-items-center rounded-full border-4 border-white ${locked ? 'bg-[#e4e4e7] text-[#71717b]' : statusColor(grade)}`}>
-      {locked ? <Lock size={16} /> : grade === 'mastered' ? <Trophy size={16} /> : null}
+    <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-[12px] ${locked ? 'bg-[#e4e4e7] text-[#71717b]' : statusColor(grade)}`}>
+      {locked ? <Lock size={16} /> : grade === 'mastered' ? <Trophy size={16} /> : <span className="h-2.5 w-2.5 rounded-[3px] bg-current" />}
     </div>
   )
 }
@@ -518,8 +861,8 @@ function RichBody({ body, empty }: { body: string; empty: string }) {
 
 function ExerciseGridSkeleton() {
   return (
-    <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-      {[1, 2, 3, 4].map((item) => <div key={item} className="h-[230px] rounded-[24px] bg-[#f4f4f5]" />)}
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {[1, 2, 3, 4].map((item) => <div key={item} className="h-[178px] w-full rounded-[12px] bg-[#f4f4f5]" />)}
     </section>
   )
 }
@@ -564,11 +907,88 @@ function gradeLabel(grade: ExerciseSelfGrade) {
   return 'Mastered'
 }
 
+function validExerciseSort(value: string | null): ExerciseSortKey {
+  return sortOptions.some((option) => option.value === value) ? value as ExerciseSortKey : 'recommended'
+}
+
+function filterExerciseItems(items: ExerciseListItem[], query: string) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return items
+  return items.filter((item) => exerciseSearchText(item).includes(normalizedQuery))
+}
+
+function exerciseSearchText(item: ExerciseListItem) {
+  return [
+    item.title,
+    item.summary,
+    item.difficulty,
+    (item.concept_slugs ?? []).join(' '),
+  ].join(' ').toLowerCase()
+}
+
+function topicLabel(item: ExerciseListItem) {
+  const concept = item.concept_slugs?.[0]
+  if (concept) return concept.split(/[-_]/).filter(Boolean).map(capitalizeWord).join(' ')
+  if (item.topic_id) return `Topic ${item.topic_id}`
+  return 'General'
+}
+
+function capitalizeWord(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function sortExerciseItems(items: ExerciseListItem[], sortBy: ExerciseSortKey) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const primary = compareExerciseItems(left.item, right.item, sortBy)
+      return primary || left.index - right.index
+    })
+    .map(({ item }) => item)
+}
+
+function compareExerciseItems(left: ExerciseListItem, right: ExerciseListItem, sortBy: ExerciseSortKey) {
+  if (sortBy === 'needs_work') {
+    return gradePracticeRank(left.self_grade) - gradePracticeRank(right.self_grade)
+      || Number(left.order ?? 0) - Number(right.order ?? 0)
+  }
+  if (sortBy === 'difficulty') {
+    return difficultyLevel(right.difficulty) - difficultyLevel(left.difficulty)
+      || Number(left.order ?? 0) - Number(right.order ?? 0)
+  }
+  if (sortBy === 'time') {
+    return Number(left.estimated_minutes || 0) - Number(right.estimated_minutes || 0)
+      || Number(left.order ?? 0) - Number(right.order ?? 0)
+  }
+  return Number(left.order ?? 0) - Number(right.order ?? 0)
+}
+
+function gradePracticeRank(grade: ExerciseSelfGrade) {
+  if (grade === 'again') return 0
+  if (grade === 'not_started') return 1
+  if (grade === 'partial') return 2
+  return 3
+}
+
 function statusColor(grade: ExerciseSelfGrade) {
   if (grade === 'mastered') return 'bg-[#dcfce7] text-[#15803d]'
   if (grade === 'partial') return 'bg-[#fef3c7] text-[#b45309]'
   if (grade === 'again') return 'bg-[#fee2e2] text-[#b91c1c]'
   return 'bg-[#ffe4d5] text-[#f97316]'
+}
+
+function statusTextClass(grade: ExerciseSelfGrade) {
+  if (grade === 'mastered') return 'text-[#15803d]'
+  if (grade === 'partial') return 'text-[#b45309]'
+  if (grade === 'again') return 'text-[#b91c1c]'
+  return 'text-[#3a2fd3]'
+}
+
+function statusPillClass(grade: ExerciseSelfGrade) {
+  if (grade === 'mastered') return 'bg-[#dcfce7] text-[#15803d]'
+  if (grade === 'partial') return 'bg-[#fef3c7] text-[#b45309]'
+  if (grade === 'again') return 'bg-[#fee2e2] text-[#b91c1c]'
+  return 'bg-[#eef2ff] text-[#3a2fd3]'
 }
 
 type RouteState = {
@@ -577,4 +997,6 @@ type RouteState = {
   difficulty: string
   selfGrade: string
   saved: boolean
+  query: string
+  sort: ExerciseSortKey
 }

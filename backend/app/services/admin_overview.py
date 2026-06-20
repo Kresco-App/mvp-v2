@@ -19,7 +19,21 @@ from app.models.gamification import (
 )
 from app.models.interactions import Comment, SavedItem, UserNote
 from app.models.notifications import Notification
+from app.models.payments import (
+    FinanceLedgerEntry,
+    PaymentProviderEvent,
+    PaymentReconciliationImport,
+    PaymentTransaction,
+    RefundRequest,
+)
+from app.models.professor import (
+    LiveSession,
+    LiveSessionInteraction,
+    ProfessorChatConversation,
+    ProfessorChatMessage,
+)
 from app.models.quizzes import Question, QuestionSet
+from app.models.reports import ContentReport
 from app.models.users import User, UserSubjectEntitlement
 from app.schemas.admin import AdminCrudActionsOut, AdminCrudCatalogItemOut, AdminOverviewOut
 from app.services.access import FEATURES_BY_TIER, TIER_RANK
@@ -54,6 +68,16 @@ MODEL_DOMAINS = {
     "Comment": "notes-saves-comments",
     "Notification": "notifications",
     "AdminAuditLog": "admin-audit",
+    "PaymentTransaction": "finance",
+    "PaymentProviderEvent": "finance",
+    "PaymentReconciliationImport": "finance",
+    "FinanceLedgerEntry": "finance",
+    "RefundRequest": "finance",
+    "ProfessorChatConversation": "messages",
+    "ProfessorChatMessage": "messages",
+    "LiveSession": "messages",
+    "LiveSessionInteraction": "messages",
+    "ContentReport": "support",
 }
 
 COUNT_MODELS: tuple[tuple[str, type[Any]], ...] = (
@@ -77,6 +101,16 @@ COUNT_MODELS: tuple[tuple[str, type[Any]], ...] = (
     ("topic_item_progress_records", TopicItemProgress),
     ("xp_transactions", XPTransaction),
     ("question_attempts", QuestionAttempt),
+    ("payment_transactions", PaymentTransaction),
+    ("payment_provider_events", PaymentProviderEvent),
+    ("payment_reconciliation_imports", PaymentReconciliationImport),
+    ("finance_ledger_entries", FinanceLedgerEntry),
+    ("refund_requests", RefundRequest),
+    ("professor_chat_conversations", ProfessorChatConversation),
+    ("professor_chat_messages", ProfessorChatMessage),
+    ("live_sessions", LiveSession),
+    ("live_session_interactions", LiveSessionInteraction),
+    ("content_reports", ContentReport),
 )
 
 STATUS_BREAKDOWN_MODELS: tuple[tuple[str, type[Any], Any], ...] = (
@@ -623,6 +657,136 @@ async def build_admin_overview(db: AsyncSession) -> AdminOverviewOut:
         "created_7d": notifications_created_7d,
     }
 
+    finance_breakdowns = await _breakdowns(db, (
+        ("transactions_by_status", PaymentTransaction, PaymentTransaction.status),
+        ("transactions_by_provider", PaymentTransaction, PaymentTransaction.provider),
+        ("transactions_by_rail", PaymentTransaction, PaymentTransaction.rail),
+        ("provider_events_by_status", PaymentProviderEvent, PaymentProviderEvent.status),
+        ("reconciliation_imports_by_status", PaymentReconciliationImport, PaymentReconciliationImport.status),
+        ("refund_requests_by_status", RefundRequest, RefundRequest.status),
+    ))
+    (
+        paid_revenue_centimes,
+        paid_revenue_7d_centimes,
+        pending_manual_review,
+        pending_provider,
+        failed_or_mismatch,
+        provider_events_7d,
+        failed_provider_events,
+        open_refund_requests,
+        ledger_entries_7d,
+    ) = await _gather_reads(
+        lambda session: _sum(session, PaymentTransaction.amount_centimes, PaymentTransaction.status == "paid"),
+        lambda session: _sum(
+            session,
+            PaymentTransaction.amount_centimes,
+            PaymentTransaction.status == "paid",
+            PaymentTransaction.updated_at >= recent_since,
+        ),
+        lambda session: _count(session, PaymentTransaction, PaymentTransaction.status == "pending_manual_review"),
+        lambda session: _count(session, PaymentTransaction, PaymentTransaction.status == "pending_provider"),
+        lambda session: _count(
+            session,
+            PaymentTransaction,
+            PaymentTransaction.status.in_(("failed", "mismatch")),
+        ),
+        lambda session: _count(session, PaymentProviderEvent, PaymentProviderEvent.received_at >= recent_since),
+        lambda session: _count(session, PaymentProviderEvent, PaymentProviderEvent.status == "failed"),
+        lambda session: _count(
+            session,
+            RefundRequest,
+            RefundRequest.status.in_(("requested", "approved_pending_execution")),
+        ),
+        lambda session: _count(session, FinanceLedgerEntry, FinanceLedgerEntry.created_at >= recent_since),
+    )
+    finance = {
+        "transactions_total": totals["payment_transactions"],
+        "transactions_by_status": finance_breakdowns["transactions_by_status"],
+        "transactions_by_provider": finance_breakdowns["transactions_by_provider"],
+        "transactions_by_rail": finance_breakdowns["transactions_by_rail"],
+        "provider_events_total": totals["payment_provider_events"],
+        "provider_events_by_status": finance_breakdowns["provider_events_by_status"],
+        "provider_events_7d": provider_events_7d,
+        "failed_provider_events": failed_provider_events,
+        "reconciliation_imports_by_status": finance_breakdowns["reconciliation_imports_by_status"],
+        "refund_requests_by_status": finance_breakdowns["refund_requests_by_status"],
+        "paid_revenue_centimes": paid_revenue_centimes,
+        "paid_revenue_7d_centimes": paid_revenue_7d_centimes,
+        "pending_manual_review": pending_manual_review,
+        "pending_provider": pending_provider,
+        "failed_or_mismatch": failed_or_mismatch,
+        "open_refund_requests": open_refund_requests,
+        "ledger_entries_7d": ledger_entries_7d,
+        "success_rate_percent": _pass_rate(
+            finance_breakdowns["transactions_by_status"].get("paid", 0),
+            totals["payment_transactions"],
+        ),
+    }
+
+    communications_breakdowns = await _breakdowns(db, (
+        ("chat_conversations_by_status", ProfessorChatConversation, ProfessorChatConversation.status),
+        ("chat_messages_by_status", ProfessorChatMessage, ProfessorChatMessage.status),
+        ("live_sessions_by_status", LiveSession, LiveSession.status),
+        ("live_interactions_by_status", LiveSessionInteraction, LiveSessionInteraction.status),
+        ("live_interactions_by_kind", LiveSessionInteraction, LiveSessionInteraction.kind),
+        ("reports_by_status", ContentReport, ContentReport.status),
+        ("reports_by_priority", ContentReport, ContentReport.priority),
+        ("reports_by_target_type", ContentReport, ContentReport.target_type),
+    ))
+    (
+        chat_messages_7d,
+        chat_unread_for_professors,
+        chat_unread_for_students,
+        open_chat_conversations,
+        live_sessions_live,
+        upcoming_live_sessions,
+        pending_live_interactions,
+        open_reports,
+        urgent_open_reports,
+        reports_created_7d,
+    ) = await _gather_reads(
+        lambda session: _count(session, ProfessorChatMessage, ProfessorChatMessage.created_at >= recent_since),
+        lambda session: _sum(session, ProfessorChatConversation.unread_for_professor),
+        lambda session: _sum(session, ProfessorChatConversation.unread_for_student),
+        lambda session: _count(session, ProfessorChatConversation, ProfessorChatConversation.status == "open"),
+        lambda session: _count(session, LiveSession, LiveSession.status == "live"),
+        lambda session: _count(session, LiveSession, LiveSession.starts_at >= now),
+        lambda session: _count(session, LiveSessionInteraction, LiveSessionInteraction.status == "pending"),
+        lambda session: _count(session, ContentReport, ContentReport.status.in_(("open", "in_review"))),
+        lambda session: _count(
+            session,
+            ContentReport,
+            ContentReport.status.in_(("open", "in_review")),
+            ContentReport.priority == "urgent",
+        ),
+        lambda session: _count(session, ContentReport, ContentReport.created_at >= recent_since),
+    )
+    communications = {
+        "chat_conversations_total": totals["professor_chat_conversations"],
+        "chat_messages_total": totals["professor_chat_messages"],
+        "chat_conversations_by_status": communications_breakdowns["chat_conversations_by_status"],
+        "chat_messages_by_status": communications_breakdowns["chat_messages_by_status"],
+        "chat_messages_7d": chat_messages_7d,
+        "chat_unread_for_professors": chat_unread_for_professors,
+        "chat_unread_for_students": chat_unread_for_students,
+        "open_chat_conversations": open_chat_conversations,
+        "live_sessions_total": totals["live_sessions"],
+        "live_sessions_by_status": communications_breakdowns["live_sessions_by_status"],
+        "live_sessions_live": live_sessions_live,
+        "upcoming_live_sessions": upcoming_live_sessions,
+        "live_interactions_total": totals["live_session_interactions"],
+        "live_interactions_by_status": communications_breakdowns["live_interactions_by_status"],
+        "live_interactions_by_kind": communications_breakdowns["live_interactions_by_kind"],
+        "pending_live_interactions": pending_live_interactions,
+        "reports_total": totals["content_reports"],
+        "reports_by_status": communications_breakdowns["reports_by_status"],
+        "reports_by_priority": communications_breakdowns["reports_by_priority"],
+        "reports_by_target_type": communications_breakdowns["reports_by_target_type"],
+        "open_reports": open_reports,
+        "urgent_open_reports": urgent_open_reports,
+        "reports_created_7d": reports_created_7d,
+    }
+
     admin_audit_breakdowns = await _breakdowns(db, (
         ("admin_audit_by_action", AdminAuditLog, AdminAuditLog.action),
         ("admin_audit_by_model", AdminAuditLog, AdminAuditLog.model_name),
@@ -660,6 +824,8 @@ async def build_admin_overview(db: AsyncSession) -> AdminOverviewOut:
         engagement=engagement,
         interactions=interactions,
         notifications=notifications,
+        finance=finance,
+        communications=communications,
         admin_audit=admin_audit,
         crud_catalog=_crud_catalog(),
     )

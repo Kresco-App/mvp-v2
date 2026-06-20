@@ -35,6 +35,23 @@ export type FigmaProfileStats = {
   isPro: boolean
 }
 
+export type FigmaProfileBadge = {
+  slug: string
+  title: string
+  description: string
+  category: string
+  rarity: string
+  earned: boolean
+  earned_at?: string | null
+  evidence?: Record<string, unknown>
+}
+
+export type FigmaProfileBadgeInventory = {
+  badges: FigmaProfileBadge[]
+  earned_count: number
+  total_count: number
+}
+
 export type FigmaProfileSubject = {
   key: string
   title: string
@@ -76,6 +93,8 @@ export type FigmaProfileHubItem = {
   href: string
   title: string
   meta: string
+  detail?: string
+  tags?: string[]
 }
 
 export type FigmaProfileMediaKind = 'avatar' | 'banner'
@@ -100,6 +119,51 @@ export const fallbackSubjects: FigmaProfileSubject[] = [
   { key: 'philosophy', title: 'Philosophy', score: 72, caption: 'Clear arguments are paying off', tone: '#707fff' },
   { key: 'english', title: 'English', score: 68, caption: 'Vocabulary and writing are growing', tone: '#51a2ff' },
 ]
+
+const fallbackBadgeCatalog = [
+  {
+    slug: 'xp_100',
+    title: 'Premiers 100 XP',
+    description: 'Atteindre 100 XP au total.',
+    category: 'xp',
+    rarity: 'common',
+  },
+  {
+    slug: 'xp_500',
+    title: 'Rythme solide',
+    description: 'Atteindre 500 XP au total.',
+    category: 'xp',
+    rarity: 'rare',
+  },
+  {
+    slug: 'streak_7',
+    title: 'Semaine active',
+    description: "Maintenir 7 jours d'activite.",
+    category: 'streak',
+    rarity: 'rare',
+  },
+  {
+    slug: 'first_exercise_mastered',
+    title: 'Premier exercice maitrise',
+    description: 'Marquer un exercice comme maitrise.',
+    category: 'exercise',
+    rarity: 'common',
+  },
+  {
+    slug: 'first_exam_completed',
+    title: 'Premiere capsule Bac terminee',
+    description: "Terminer une capsule de probleme d'examen.",
+    category: 'exam',
+    rarity: 'rare',
+  },
+  {
+    slug: 'first_mistake_corrected',
+    title: 'Erreur corrigee',
+    description: 'Corriger une question precedemment ratee.',
+    category: 'revision',
+    rarity: 'rare',
+  },
+] satisfies Array<Omit<FigmaProfileBadge, 'earned'>>
 
 export function normalizeSubjects(subjects: FigmaProfileSubject[]) {
   if (subjects.length === 0) return fallbackSubjects.slice(0, 6)
@@ -166,6 +230,38 @@ export function formatWatchTime(minutes: number) {
   return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`
 }
 
+export function buildProfileBadgeItems(
+  inventory: FigmaProfileBadgeInventory | null | undefined,
+  xp: FigmaProfileXP | null | undefined,
+  stats: FigmaProfileStats | null | undefined,
+  limit = 6,
+): FigmaProfileBadge[] {
+  const source = inventory?.badges?.length ? inventory.badges : buildFallbackBadges(xp, stats)
+  return source
+    .map(normalizeProfileBadge)
+    .sort((left, right) => Number(right.earned) - Number(left.earned))
+    .slice(0, limit)
+}
+
+export function profileBadgeSummary(
+  inventory: FigmaProfileBadgeInventory | null | undefined,
+  badges: FigmaProfileBadge[],
+) {
+  const fallbackEarned = badges.filter((badge) => badge.earned).length
+  const fallbackTotal = badges.length
+  const totalCount = positiveIntOrFallback(inventory?.total_count, fallbackTotal)
+  const earnedCount = Math.min(positiveIntOrFallback(inventory?.earned_count, fallbackEarned), totalCount)
+  return { earnedCount, totalCount: Math.max(totalCount, fallbackTotal) }
+}
+
+export function formatProfileBadgeStatus(badge: FigmaProfileBadge) {
+  if (badge.earned) {
+    const earnedAt = formatProfileHubDate(badge.earned_at ?? undefined)
+    return earnedAt === 'Recent' ? 'Earned' : `Earned ${earnedAt}`
+  }
+  return badge.description || 'Locked'
+}
+
 export function buildProfileNoteHubItems(notes: FigmaProfileNote[], limit: number): FigmaProfileHubItem[] {
   return notes.slice(0, limit).map((note) => ({
     id: `note-${note.id}`,
@@ -176,12 +272,20 @@ export function buildProfileNoteHubItems(notes: FigmaProfileNote[], limit: numbe
 }
 
 export function buildProfileSaveHubItems(saves: FigmaProfileSavedItem[], limit: number): FigmaProfileHubItem[] {
-  return saves.slice(0, limit).map((save) => ({
-    id: `save-${save.id}`,
-    href: profileSavedItemHref(save),
-    title: save.label || `${profileTargetLabel(save.target_type)} #${save.target_id}`,
-    meta: profileTargetLabel(save.target_type),
-  }))
+  return saves.slice(0, limit).map((save) => {
+    const targetLabel = profileTargetLabel(save.target_type)
+    const detail = typeof save.note === 'string' ? save.note.trim() : ''
+    const tags = normalizeProfileSaveTags(save.tags).slice(0, 3)
+
+    return {
+      id: `save-${save.id}`,
+      href: profileSavedItemHref(save),
+      title: save.label?.trim() || `${targetLabel} #${save.target_id}`,
+      meta: formatProfileSaveMeta(save),
+      ...(detail ? { detail } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
+    }
+  })
 }
 
 export function profileSavedItemHref(save: FigmaProfileSavedItem) {
@@ -236,7 +340,41 @@ export function formatProfileHubDate(value?: string) {
 }
 
 export function profileTargetLabel(targetType: string) {
-  return targetType.replace(/_/g, ' ')
+  const normalized = targetType.trim().toLowerCase()
+  const labels: Record<string, string> = {
+    exam_problem: 'Exam problem',
+    question: 'Question',
+    quiz: 'Quiz',
+    resource: 'Resource',
+    tab_content: 'Lesson section',
+    topic: 'Topic',
+    topic_item: 'Lesson',
+  }
+
+  if (!normalized) return 'Saved item'
+  return labels[normalized] ?? normalized.replace(/_/g, ' ')
+}
+
+export function formatProfileSaveMeta(save: FigmaProfileSavedItem) {
+  const targetLabel = profileTargetLabel(save.target_type)
+  const savedAt = formatProfileHubDate(save.created_at)
+  return save.created_at && savedAt !== 'Recent' ? `${targetLabel} - ${savedAt}` : targetLabel
+}
+
+export function normalizeProfileSaveTags(tags?: string[]) {
+  const normalizedTags: string[] = []
+  const seen = new Set<string>()
+
+  for (const value of tags ?? []) {
+    const tag = value.trim().replace(/\s+/g, ' ')
+    if (!tag) continue
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    normalizedTags.push(tag.slice(0, 32))
+  }
+
+  return normalizedTags
 }
 
 export function followerAvatar(index: number) {
@@ -260,6 +398,44 @@ function appendQuery(href: string, params: Record<string, number | string | null
 
 function withQuery(path: string, params: Record<string, number | string | null | undefined>) {
   return appendQuery(path, params)
+}
+
+function buildFallbackBadges(
+  xp: FigmaProfileXP | null | undefined,
+  stats: FigmaProfileStats | null | undefined,
+) {
+  const totalXp = Math.max(0, xp?.total_xp ?? 0)
+  const streakDays = Math.max(0, xp?.streak_days ?? 0)
+  const itemsCompleted = Math.max(0, stats?.itemsCompleted ?? 0)
+  const quizzesPassed = Math.max(0, stats?.quizzesPassed ?? 0)
+
+  return fallbackBadgeCatalog.map((badge) => ({
+    ...badge,
+    earned:
+      (badge.slug === 'xp_100' && totalXp >= 100) ||
+      (badge.slug === 'xp_500' && totalXp >= 500) ||
+      (badge.slug === 'streak_7' && streakDays >= 7) ||
+      (badge.slug === 'first_exercise_mastered' && itemsCompleted > 0) ||
+      (badge.slug === 'first_exam_completed' && itemsCompleted >= 5) ||
+      (badge.slug === 'first_mistake_corrected' && quizzesPassed > 0),
+  }))
+}
+
+function normalizeProfileBadge(badge: FigmaProfileBadge): FigmaProfileBadge {
+  return {
+    slug: badge.slug || 'badge',
+    title: badge.title || 'Learning badge',
+    description: badge.description || 'Keep learning to unlock this badge.',
+    category: badge.category || 'progress',
+    rarity: badge.rarity || 'common',
+    earned: Boolean(badge.earned),
+    earned_at: badge.earned_at ?? null,
+    evidence: badge.evidence ?? {},
+  }
+}
+
+function positiveIntOrFallback(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : fallback
 }
 
 export function mediaUrl(value?: string) {

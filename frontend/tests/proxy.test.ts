@@ -194,6 +194,7 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'connect-src')).toContain('https://identitytoolkit.googleapis.com')
     expect(cspDirective(csp, 'connect-src')).toContain('https://securetoken.googleapis.com')
     expect(cspDirective(csp, 'connect-src')).toContain('https://firestore.googleapis.com')
+    expect(cspDirective(csp, 'font-src')).toBe("font-src 'self' data: https://esm.sh")
     expect(cspDirective(csp, 'frame-src')).toContain('https://*.firebaseapp.com')
     expect(cspDirective(csp, 'frame-src')).toContain('https://*.web.app')
     expect(cspDirective(csp, 'frame-src')).toContain('https://www.youtube-nocookie.com')

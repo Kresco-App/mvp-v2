@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams } from 'next/navigation'
-import { BellRing, Check, Eye, HelpCircle, MessageCircle, MessageSquare, Play, RotateCcw, Square } from 'lucide-react'
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { BellRing, Check, Copy, Eye, HelpCircle, MessageCircle, MessageSquare, Play, RotateCcw, Search, Square, X } from 'lucide-react'
 import { toast } from 'sonner'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { apiDataErrorMessage } from '@/lib/apiData'
@@ -30,13 +30,34 @@ import {
   type LiveSessionStreamCredentials,
 } from '@/lib/professor'
 
+type QuestionQueueFilter = 'all' | 'pending' | 'answered'
+type LiveControlPanel = 'question' | 'message'
+
+const QUESTION_QUEUE_FILTERS: Array<{ value: QuestionQueueFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'answered', label: 'Answered' },
+]
+const QUESTION_QUEUE_FILTER_VALUES = new Set<QuestionQueueFilter>(QUESTION_QUEUE_FILTERS.map((filter) => filter.value))
+const LIVE_CONTROL_PANEL_VALUES = new Set<LiveControlPanel>(['question', 'message'])
+
 export default function ProfessorLiveControlRoomPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const searchKey = searchParams.toString()
+  const routePanel = useMemo(() => normalizeLiveControlPanel(new URLSearchParams(searchKey).get('panel')), [searchKey])
+  const routeQuestionFilter = useMemo(() => normalizeQuestionQueueFilter(new URLSearchParams(searchKey).get('filter')), [searchKey])
+  const routeRoomSearch = useMemo(() => new URLSearchParams(searchKey).get('q')?.trim() ?? '', [searchKey])
   const [busyId, setBusyId] = useState<number | null>(null)
   const [sessionBusy, setSessionBusy] = useState(false)
   const [revealingCredentials, setRevealingCredentials] = useState(false)
   const [streamCredentials, setStreamCredentials] = useState<LiveSessionStreamCredentials | null>(null)
-  const [activePanel, setActivePanel] = useState<'question' | 'message'>('question')
+  const [activePanel, setActivePanel] = useState<LiveControlPanel>(routePanel)
+  const [questionFilter, setQuestionFilter] = useState<QuestionQueueFilter>(routeQuestionFilter)
+  const [roomSearch, setRoomSearch] = useState(routeRoomSearch)
+  const [answerDrafts, setAnswerDrafts] = useState<Record<number, string>>({})
   const {
     sessionId: numericSessionId,
     session,
@@ -58,12 +79,14 @@ export default function ProfessorLiveControlRoomPage() {
   }, [embed, error, loading, numericSessionId, session])
 
   useEffect(() => {
-    if (!session?.has_stream_credentials) setStreamCredentials(null)
-  }, [session?.has_stream_credentials])
-
-  useEffect(() => {
     if (error) toast.error(apiDataErrorMessage(error, 'Could not load the live control room.'))
   }, [error])
+
+  useEffect(() => {
+    setActivePanel((current) => (current === routePanel ? current : routePanel))
+    setQuestionFilter((current) => (current === routeQuestionFilter ? current : routeQuestionFilter))
+    setRoomSearch((current) => (current === routeRoomSearch ? current : routeRoomSearch))
+  }, [numericSessionId, routePanel, routeQuestionFilter, routeRoomSearch])
 
   const realtimeFallbackPoll = useCallback(async () => {
     if (!numericSessionId) return
@@ -87,12 +110,35 @@ export default function ProfessorLiveControlRoomPage() {
 
   const chatMessages = useMemo(() => liveMessages(interactions), [interactions])
   const questions = useMemo(() => liveQuestions(interactions), [interactions])
-  const activeItems = activePanel === 'question' ? questions : chatMessages
+  const filteredQuestions = useMemo(() => (
+    questionFilter === 'all' ? questions : questions.filter((item) => item.status === questionFilter)
+  ), [questionFilter, questions])
+  const normalizedRoomSearch = roomSearch.trim().toLowerCase()
+  const visibleQuestions = useMemo(() => (
+    normalizedRoomSearch
+      ? filteredQuestions.filter((item) => liveRoomInteractionMatchesSearch(item, normalizedRoomSearch))
+      : filteredQuestions
+  ), [filteredQuestions, normalizedRoomSearch])
+  const visibleChatMessages = useMemo(() => (
+    normalizedRoomSearch
+      ? chatMessages.filter((item) => liveRoomInteractionMatchesSearch(item, normalizedRoomSearch))
+      : chatMessages
+  ), [chatMessages, normalizedRoomSearch])
+  const hasRoomSearch = normalizedRoomSearch.length > 0
+  const activeItems = activePanel === 'question' ? visibleQuestions : visibleChatMessages
+  const activePanelSourceCount = activePanel === 'question' ? filteredQuestions.length : chatMessages.length
   const pendingCount = questions.filter((item) => item.status === 'pending').length
+  const answeredCount = questions.filter((item) => item.status === 'answered').length
   const messageCount = chatMessages.length
   const isLive = session?.status === 'live'
   const isCompleted = session?.status === 'completed'
   const isCancelled = session?.status === 'cancelled'
+  const hasStreamCredentials = Boolean(session?.has_stream_credentials)
+  const playerReady = Boolean(embed?.embed_url)
+
+  useEffect(() => {
+    if (!hasStreamCredentials) setStreamCredentials(null)
+  }, [hasStreamCredentials])
 
   async function runSessionAction(action: () => Promise<unknown>, success: string) {
     if (loadError) return
@@ -120,11 +166,42 @@ export default function ProfessorLiveControlRoomPage() {
         await mutateSessions()
       }
       toast.success(success)
+      return true
     } catch (error) {
       toast.error(apiDataErrorMessage(error, 'Action failed.'))
+      return false
     } finally {
       setBusyId(null)
     }
+  }
+
+  function answerDraftFor(interaction: LiveSessionInteraction) {
+    return answerDrafts[interaction.id] ?? interaction.answer ?? ''
+  }
+
+  function updateAnswerDraft(interactionId: number, value: string) {
+    setAnswerDrafts((current) => ({ ...current, [interactionId]: value }))
+  }
+
+  async function saveQuestionAnswer(interaction: LiveSessionInteraction) {
+    const answer = answerDraftFor(interaction).trim()
+    if (!answer) {
+      toast.error('Write an answer before saving.')
+      return
+    }
+
+    const saved = await runInteractionAction(
+      interaction.id,
+      () => patchProfessorLiveInteraction(interaction.id, { answer, status: 'answered' }),
+      'Answer saved.',
+    )
+    if (!saved) return
+
+    setAnswerDrafts((current) => {
+      const next = { ...current }
+      delete next[interaction.id]
+      return next
+    })
   }
 
   async function revealCredentials() {
@@ -138,6 +215,66 @@ export default function ProfessorLiveControlRoomPage() {
     } finally {
       setRevealingCredentials(false)
     }
+  }
+
+  async function copyControlCredential(label: string, value: string) {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      toast.error(`No ${label.toLowerCase()} saved.`)
+      return
+    }
+    if (!navigator.clipboard?.writeText) {
+      toast.error('Clipboard is not available.')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(trimmed)
+      toast.success(`${label} copied.`)
+    } catch {
+      toast.error(`Could not copy ${label}.`)
+    }
+  }
+
+  function replaceControlRoomUrlState(nextPanel: LiveControlPanel, nextFilter: QuestionQueueFilter, nextSearch: string) {
+    const params = new URLSearchParams(searchKey)
+    const normalizedPanel = normalizeLiveControlPanel(nextPanel)
+    const normalizedFilter = normalizeQuestionQueueFilter(nextFilter)
+    const normalizedSearch = nextSearch.trim()
+    if (normalizedPanel === 'question') params.delete('panel')
+    else params.set('panel', normalizedPanel)
+    if (normalizedFilter === 'pending') params.delete('filter')
+    else params.set('filter', normalizedFilter)
+    if (normalizedSearch) params.set('q', normalizedSearch)
+    else params.delete('q')
+    const queryString = params.toString()
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
+  }
+
+  function selectControlPanel(nextPanel: LiveControlPanel) {
+    setActivePanel(nextPanel)
+    replaceControlRoomUrlState(nextPanel, questionFilter, roomSearch)
+  }
+
+  function selectQuestionFilter(nextFilter: QuestionQueueFilter) {
+    const normalizedFilter = normalizeQuestionQueueFilter(nextFilter)
+    setQuestionFilter(normalizedFilter)
+    replaceControlRoomUrlState(activePanel, normalizedFilter, roomSearch)
+  }
+
+  function updateRoomSearch(value: string) {
+    setRoomSearch(value)
+    replaceControlRoomUrlState(activePanel, questionFilter, value)
+  }
+
+  function clearRoomSearch() {
+    updateRoomSearch('')
+  }
+
+  function reviewQuestionQueue() {
+    const nextFilter = pendingCount > 0 ? 'pending' : 'all'
+    setActivePanel('question')
+    setQuestionFilter(nextFilter)
+    replaceControlRoomUrlState('question', nextFilter, roomSearch)
   }
 
   return (
@@ -186,20 +323,30 @@ export default function ProfessorLiveControlRoomPage() {
           </section>
         )}
 
-        <section className="grid h-[calc(100vh-165px)] min-h-[720px] gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="grid min-h-0 grid-rows-[210px_minmax(0,1fr)] gap-5">
-            {session?.has_stream_credentials && (
+        {!loadError && (
+          <section className="mb-3 flex flex-wrap items-center gap-2 rounded-[14px] border border-[#e4e4e7] bg-white px-3 py-2" aria-label="Live control summary">
+            <LiveControlStatusPill label="Broadcast" value={session?.status ?? 'Loading'} tone={isLive ? 'attention' : 'neutral'} />
+            <LiveControlStatusPill label="Player" value={playerReady ? 'Ready' : 'Missing'} tone={playerReady ? 'success' : 'attention'} />
+            <LiveControlStatusPill label="Stream" value={hasStreamCredentials ? 'Credentials' : 'Manual'} tone={hasStreamCredentials ? 'success' : 'neutral'} />
+            <LiveControlStatusPill label="Questions" value={`${pendingCount} pending`} tone={pendingCount > 0 ? 'attention' : 'success'} />
+            <span className="ml-auto text-[12px] font-bold text-[#71717b]">{answeredCount} answered / {messageCount} chat</span>
+            <button type="button" onClick={reviewQuestionQueue} className="h-8 rounded-[10px] border border-[#453dee] bg-[#453dee] px-3 text-[11px] font-black text-white">
+              Review questions
+            </button>
+            <button type="button" onClick={() => selectControlPanel('message')} className="h-8 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[11px] font-black text-[#52525c] transition hover:border-[#453dee] hover:text-[#453dee]">
+              Open chat
+            </button>
+          </section>
+        )}
+
+        <section className="grid gap-5 xl:h-[calc(100vh-145px)] xl:min-h-[720px] xl:grid-cols-[minmax(0,1fr)_390px]">
+          <div className={`grid min-h-0 gap-5 ${hasStreamCredentials ? 'xl:grid-rows-[210px_minmax(0,1fr)]' : 'xl:grid-rows-[minmax(0,1fr)]'}`}>
+            {hasStreamCredentials && (
               <div className="grid content-start gap-3 rounded-[18px] border-2 border-[#e4e4e7] bg-white p-5 md:grid-cols-2">
                 {streamCredentials ? (
                   <>
-                    <div className="min-w-0">
-                      <p className="m-0 text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">OBS URL</p>
-                      <p className="m-0 mt-1 truncate text-[13px] font-bold text-[#3f3f46]">{streamCredentials.stream_ingest_url || 'No OBS URL saved'}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="m-0 text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">Stream key</p>
-                      <p className="m-0 mt-1 truncate text-[13px] font-bold text-[#3f3f46]">{streamCredentials.stream_key || 'No stream key saved'}</p>
-                    </div>
+                    <LiveControlCredentialRow label="OBS URL" value={streamCredentials.stream_ingest_url} onCopy={copyControlCredential} />
+                    <LiveControlCredentialRow label="Stream key" value={streamCredentials.stream_key} onCopy={copyControlCredential} />
                   </>
                 ) : (
                   <div className="min-w-0">
@@ -212,8 +359,7 @@ export default function ProfessorLiveControlRoomPage() {
                 )}
               </div>
             )}
-            {!session?.has_stream_credentials ? <div /> : null}
-            <div className="relative min-h-0 overflow-hidden rounded-[18px] border-2 border-[#e4e4e7] bg-[#050505]">
+            <div className="relative min-h-[260px] overflow-hidden rounded-[18px] border-2 border-[#e4e4e7] bg-[#050505] sm:min-h-[360px] xl:min-h-0">
               {loading ? (
                 <div className="absolute inset-0 grid place-items-center text-[14px] font-black text-white">Opening player...</div>
               ) : embed?.embed_url ? (
@@ -232,7 +378,7 @@ export default function ProfessorLiveControlRoomPage() {
             </div>
           </div>
 
-          <aside className="flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border-2 border-[#e4e4e7] bg-white">
+          <aside className="flex min-h-[520px] flex-col overflow-hidden rounded-[18px] border-2 border-[#e4e4e7] bg-white xl:h-full xl:min-h-0">
             <div className="border-b border-[#e4e4e7] p-2">
               <div className="mb-2 flex items-center justify-between px-3 pt-2">
                 <div>
@@ -250,14 +396,52 @@ export default function ProfessorLiveControlRoomPage() {
                     key={kind}
                     className={`h-11 rounded-[12px] text-[13px] font-black transition ${activePanel === kind ? 'border-2 border-[#18181b] bg-[#453dee] text-white shadow-[0_2px_0_#18181b]' : 'border-2 border-transparent text-[#71717b] hover:bg-[#f7f8fb]'}`}
                     type="button"
-                    onClick={() => {
-                      setActivePanel(kind)
-                    }}
+                    onClick={() => selectControlPanel(kind)}
                   >
                     {label} {count > 0 ? count : ''}
                   </button>
                 ))}
               </div>
+              {activePanel === 'question' && (
+                <div className="mt-2 grid grid-cols-3 gap-1.5" aria-label="Question queue filters">
+                  {QUESTION_QUEUE_FILTERS.map((filter) => (
+                    <button
+                      key={filter.value}
+                      type="button"
+                      onClick={() => selectQuestionFilter(filter.value)}
+                      aria-pressed={questionFilter === filter.value}
+                      className={`h-8 rounded-[10px] text-[11px] font-black transition ${questionFilter === filter.value ? 'bg-[#18181b] text-white' : 'border border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#453dee] hover:text-[#453dee]'}`}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <section className="mt-2 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] p-2" aria-label="Search live room interactions">
+                <label className="flex min-h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 text-[#71717b] focus-within:border-[#453dee] focus-within:ring-2 focus-within:ring-[#453dee]/10">
+                  <Search size={13} className="shrink-0 text-[#9f9fa9]" />
+                  <input
+                    aria-label="Search live room"
+                    value={roomSearch}
+                    onChange={(event) => updateRoomSearch(event.target.value)}
+                    className="h-8 min-w-0 flex-1 border-0 bg-transparent text-[12px] font-bold text-[#3f3f46] outline-none placeholder:text-[#a1a1aa]"
+                    placeholder="Search student, message, answer"
+                  />
+                  {hasRoomSearch && (
+                    <button
+                      type="button"
+                      aria-label="Clear live room search"
+                      onClick={clearRoomSearch}
+                      className="grid size-6 shrink-0 place-items-center rounded-full text-[#9f9fa9] transition hover:bg-[#f4f4f5] hover:text-[#52525c]"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </label>
+                <p className="m-0 mt-1.5 px-1 text-[10px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">
+                  {activeItems.length} of {activePanelSourceCount} visible
+                </p>
+              </section>
             </div>
 
             {loading ? (
@@ -267,49 +451,99 @@ export default function ProfessorLiveControlRoomPage() {
             ) : activeItems.length === 0 ? (
               <div className="grid min-h-[420px] flex-1 place-items-center px-6 text-center">
                 <div>
-                  {activePanel === 'question' ? <HelpCircle className="mx-auto text-[#9f9fa9]" size={34} /> : <MessageCircle className="mx-auto text-[#9f9fa9]" size={34} />}
-                  <h3 className="m-0 mt-4 text-[20px] font-black text-[#3f3f46]">{activePanel === 'question' ? 'No questions yet' : 'No chat yet'}</h3>
+                  {hasRoomSearch ? <Search className="mx-auto text-[#9f9fa9]" size={34} /> : activePanel === 'question' ? <HelpCircle className="mx-auto text-[#9f9fa9]" size={34} /> : <MessageCircle className="mx-auto text-[#9f9fa9]" size={34} />}
+                  <h3 className="m-0 mt-4 text-[20px] font-black text-[#3f3f46]">
+                    {hasRoomSearch ? 'No matching live room items' : activePanel === 'question' ? emptyQuestionTitle(questionFilter) : 'No chat yet'}
+                  </h3>
                   <p className="m-0 mt-2 text-[14px] font-bold leading-6 text-[#71717b]">
-                    {activePanel === 'question' ? 'Student questions will queue here for moderation.' : 'Student chat messages will appear here in order.'}
+                    {hasRoomSearch ? 'Clear the search to return to the live room feed.' : activePanel === 'question' ? emptyQuestionDetail(questionFilter) : 'Student chat messages will appear here in order.'}
                   </p>
+                  {hasRoomSearch ? (
+                    <button
+                      type="button"
+                      onClick={clearRoomSearch}
+                      className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[12px] font-black text-[#453dee] transition hover:border-[#453dee]"
+                    >
+                      Clear live room search
+                    </button>
+                  ) : activePanel === 'question' && questionFilter !== 'all' && questions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => selectQuestionFilter('all')}
+                      className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[12px] font-black text-[#453dee] transition hover:border-[#453dee]"
+                    >
+                      Show all questions
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto">
-                {activeItems.map((interaction) => (
-                  <article key={interaction.id} className="border-b border-[#f0f0f2] px-4 py-5">
-                    <div className="flex items-start gap-3">
-                      <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f4f4ff] text-[11px] font-black text-[#453dee]">
-                        {liveInteractionInitials(interaction.student_name)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-1 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="m-0 truncate text-[13px] font-black text-[#3f3f46]">{interaction.student_name || 'Student'}</p>
-                            <p className="m-0 mt-1 text-[11px] font-bold text-[#9f9fa9]">{formatShortTime(interaction.created_at)}</p>
+                {activeItems.map((interaction) => {
+                  const savedAnswer = interaction.answer.trim()
+                  const draftAnswer = answerDraftFor(interaction)
+                  return (
+                    <article key={interaction.id} className="border-b border-[#f0f0f2] px-4 py-5">
+                      <div className="flex items-start gap-3">
+                        <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f4f4ff] text-[11px] font-black text-[#453dee]">
+                          {liveInteractionInitials(interaction.student_name)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="m-0 truncate text-[13px] font-black text-[#3f3f46]">{interaction.student_name || 'Student'}</p>
+                              <p className="m-0 mt-1 text-[11px] font-bold text-[#9f9fa9]">{formatShortTime(interaction.created_at)}</p>
+                            </div>
+                            {activePanel === 'question' && (
+                              <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${interaction.status === 'answered' ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#fef3c7] text-[#a16207]'}`}>{interaction.status}</span>
+                            )}
                           </div>
-                          {activePanel === 'question' && (
-                            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${interaction.status === 'answered' ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#fef3c7] text-[#a16207]'}`}>{interaction.status}</span>
+                          <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-6 text-[#52525c]">{interaction.body}</p>
+                          {activePanel === 'question' && savedAnswer && (
+                            <div className="mt-3 rounded-[12px] border border-[#bbf7d0] bg-[#f0fdf4] px-3 py-2" aria-label={`Saved answer ${interaction.id}`}>
+                              <p className="m-0 text-[10px] font-black uppercase tracking-[0.1em] text-[#047857]">Saved answer</p>
+                              <p className="m-0 mt-1 whitespace-pre-wrap break-words text-[13px] font-bold leading-5 text-[#166534]">{savedAnswer}</p>
+                            </div>
+                          )}
+                          {activePanel === 'question' && interaction.status !== 'answered' && (
+                            <div className="mt-3 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] p-3" aria-label={`Answer question ${interaction.id}`}>
+                              <label htmlFor={`live-answer-${interaction.id}`} className="text-[11px] font-black uppercase tracking-[0.08em] text-[#71717b]">
+                                Answer this question
+                              </label>
+                              <textarea
+                                id={`live-answer-${interaction.id}`}
+                                value={draftAnswer}
+                                onChange={(event) => updateAnswerDraft(interaction.id, event.target.value)}
+                                className="mt-2 min-h-20 w-full resize-none rounded-[10px] border border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-bold leading-5 text-[#3f3f46] outline-none transition focus:border-[#453dee] focus:ring-2 focus:ring-[#453dee]/10"
+                                placeholder="Type the answer you will give on stream..."
+                              />
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <button
+                                  className="professor-control-button border-[#453dee] bg-[#453dee] text-white disabled:opacity-50"
+                                  disabled={busyId === interaction.id || !draftAnswer.trim()}
+                                  type="button"
+                                  onClick={() => void saveQuestionAnswer(interaction)}
+                                >
+                                  <MessageSquare size={14} />
+                                  Save answer
+                                </button>
+                                <button
+                                  className="professor-control-button border-[#e4e4e7] bg-white text-[#52525c]"
+                                  disabled={busyId === interaction.id}
+                                  type="button"
+                                  onClick={() => runInteractionAction(interaction.id, () => patchProfessorLiveInteraction(interaction.id, { status: 'answered' }), 'Question marked answered.')}
+                                >
+                                  <Check size={14} />
+                                  Set as answered
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </div>
-                        <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-6 text-[#52525c]">{interaction.body}</p>
-                        {activePanel === 'question' && interaction.status !== 'answered' && (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <button
-                              className="professor-control-button border-[#453dee] bg-[#453dee] text-white"
-                              disabled={busyId === interaction.id}
-                              type="button"
-                              onClick={() => runInteractionAction(interaction.id, () => patchProfessorLiveInteraction(interaction.id, { status: 'answered' }), 'Question marked answered.')}
-                            >
-                              <Check size={14} />
-                              Set as answered
-                            </button>
-                          </div>
-                        )}
                       </div>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  )
+                })}
               </div>
             )}
           </aside>
@@ -318,4 +552,90 @@ export default function ProfessorLiveControlRoomPage() {
 
     </ProfessorShell>
   )
+}
+
+function LiveControlCredentialRow({
+  label,
+  value,
+  onCopy,
+}: {
+  label: string
+  value: string
+  onCopy: (label: string, value: string) => Promise<void>
+}) {
+  const hasValue = value.trim().length > 0
+  return (
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_34px] items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] px-3 py-2" aria-label={`Control room ${label}`}>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">{label}</span>
+        <span className="mt-1 block truncate text-[13px] font-bold text-[#3f3f46]">{hasValue ? value : `No ${label.toLowerCase()} saved`}</span>
+      </span>
+      <button
+        type="button"
+        disabled={!hasValue}
+        onClick={() => void onCopy(label, value)}
+        aria-label={`Copy control room ${label}`}
+        className="grid size-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] transition hover:border-[#453dee] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        <Copy size={13} />
+      </button>
+    </div>
+  )
+}
+
+function LiveControlStatusPill({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string
+  value: number | string
+  tone?: 'neutral' | 'attention' | 'success'
+}) {
+  const toneClass = tone === 'attention'
+    ? 'bg-[#fff7ed] text-[#9a3412]'
+    : tone === 'success'
+      ? 'bg-[#f0fdf4] text-[#166534]'
+      : 'bg-[#f4f4f5] text-[#52525c]'
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-black ${toneClass}`}>
+      <span className="uppercase tracking-[0.08em] opacity-70">{label}</span>
+      <span>{value}</span>
+    </span>
+  )
+}
+
+function normalizeLiveControlPanel(value: string | null | undefined): LiveControlPanel {
+  return value && LIVE_CONTROL_PANEL_VALUES.has(value as LiveControlPanel) ? value as LiveControlPanel : 'question'
+}
+
+function normalizeQuestionQueueFilter(value: string | null | undefined): QuestionQueueFilter {
+  return value && QUESTION_QUEUE_FILTER_VALUES.has(value as QuestionQueueFilter) ? value as QuestionQueueFilter : 'pending'
+}
+
+function liveRoomInteractionMatchesSearch(interaction: LiveSessionInteraction, query: string) {
+  const searchable = [
+    interaction.student_name,
+    interaction.kind,
+    interaction.body,
+    interaction.status,
+    interaction.answer,
+    interaction.created_at,
+    formatShortTime(interaction.created_at),
+  ].join(' ').toLowerCase()
+
+  return searchable.includes(query)
+}
+
+function emptyQuestionTitle(filter: QuestionQueueFilter) {
+  if (filter === 'pending') return 'No pending questions'
+  if (filter === 'answered') return 'No answered questions'
+  return 'No questions yet'
+}
+
+function emptyQuestionDetail(filter: QuestionQueueFilter) {
+  if (filter === 'pending') return 'Answered questions stay available in the queue filter.'
+  if (filter === 'answered') return 'Mark questions answered during class and they will collect here.'
+  return 'Student questions will queue here for moderation.'
 }

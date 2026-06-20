@@ -9,6 +9,7 @@ import type { FigmaRailItem, FigmaRailSection } from './types'
 
 export type CourseContentRailProps = {
   size?: 'compact' | 'workspace'
+  heading?: string
   completed?: number
   total?: number
   value?: number
@@ -27,6 +28,7 @@ const defaultSections: FigmaRailSection[] = [
 
 export function CourseContentRail({
   size = 'compact',
+  heading = 'Course content',
   completed = 2,
   total = 30,
   value = 7,
@@ -43,7 +45,7 @@ export function CourseContentRail({
       data-figma-course-rail
       aria-label="Course content"
     >
-      <CourseProgressHeader completed={completed} total={total} value={value} size={size} />
+      <CourseProgressHeader completed={completed} total={total} value={value} size={size} heading={heading} />
       {toolbar}
       <div className="grid gap-[22px]">
         {sections.map((section) => (
@@ -68,11 +70,13 @@ export function CourseProgressHeader({
   total = 30,
   value = 7,
   size = 'compact',
+  heading = 'Course content',
 }: {
   completed?: number
   total?: number
   value?: number
   size?: 'compact' | 'workspace'
+  heading?: string
 }) {
   const isWorkspace = size === 'workspace'
 
@@ -83,7 +87,7 @@ export function CourseProgressHeader({
           isWorkspace ? 'text-[24px] tracking-normal' : 'text-[16px] tracking-[0.24px]'
         }`}
       >
-        Course content
+        {heading}
       </strong>
       <div
         className={`flex justify-between gap-4 font-bold leading-none text-[#70727d] ${

@@ -45,7 +45,7 @@ let mountedRoot: { root: Root; container: HTMLDivElement } | null = null
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
-  searchParams.forEach((_value, key) => searchParams.delete(key))
+  Array.from(searchParams.keys()).forEach((key) => searchParams.delete(key))
   mocks.apiGet.mockImplementation(async (url: string) => {
     if (url === '/courses/subjects') {
       return [
@@ -95,9 +95,43 @@ afterEach(() => {
     mountedRoot.container.remove()
   }
   mountedRoot = null
+  vi.restoreAllMocks()
 })
 
 describe('ExerciseBankPage', () => {
+  it('shows a retryable subject error instead of an empty subject state', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/subjects') throw new Error('subject catalog offline')
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Could not load subjects')
+      expect(container.textContent).toContain('subject catalog offline')
+    })
+    expect(container.textContent).not.toContain('No published subjects are available yet.')
+  })
+
+  it('shows a retryable exercise list error instead of an empty filtered state', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/subjects') {
+        return [{ id: 2, title: 'Physique', chapter_count: 1, lesson_count: 4 }]
+      }
+      if (url.startsWith('/exercises/subjects/2')) throw new Error('exercise list offline')
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Could not load exercises')
+      expect(container.textContent).toContain('exercise list offline')
+    })
+    expect(container.textContent).not.toContain('No exercises match these filters.')
+  })
+
   it('offers subjects from the subject catalog even when they have no published topics', async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       if (url === '/courses/subjects') {
@@ -122,6 +156,91 @@ describe('ExerciseBankPage', () => {
       expect(container.textContent).toContain('Subject-only exercise')
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/exercises/subjects/5?limit=50')
+  })
+
+  it('offers reset from an empty filtered list', async () => {
+    searchParams.set('subject', '2')
+    searchParams.set('difficulty', 'hard')
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/subjects') {
+        return [{ id: 2, title: 'Physique', chapter_count: 1, lesson_count: 4 }]
+      }
+      if (url === '/exercises/subjects/2?limit=50&difficulty=hard') {
+        return {
+          subject_id: 2,
+          topic_id: null,
+          total: 0,
+          items: [],
+        }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('No exercises match these filters.')
+      expect(container.textContent).toContain('Reset filters')
+    })
+
+    await clickButton(container, 'Reset filters')
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/exercise-bank?subject=2', { scroll: false })
+  })
+
+  it('sorts and searches exercise cards locally', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/subjects') return [{ id: 2, title: 'Physique', chapter_count: 1, lesson_count: 4 }]
+      if (url === '/exercises/subjects/2?limit=50') {
+        return {
+          subject_id: 2,
+          topic_id: null,
+          total: 3,
+          items: [
+            exerciseListItem({ id: 10, title: 'Slow algebra', estimated_minutes: 12, order: 1 }),
+            exerciseListItem({ id: 11, title: 'Bac function', slug: 'bac-function', difficulty: 'bac', estimated_minutes: 6, order: 2 }),
+            exerciseListItem({ id: 12, title: 'Fast geometry', slug: 'fast-geometry', difficulty: 'easy', estimated_minutes: 4, order: 3 }),
+          ],
+        }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Slow algebra')
+      expect(container.textContent).toContain('Bac function')
+      expect(container.textContent).toContain('Fast geometry')
+    })
+
+    const sortSelect = container.querySelector('select[aria-label="Sort exercises"]') as HTMLSelectElement | null
+    await act(async () => {
+      setSelectValue(sortSelect!, 'time')
+      sortSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      const text = container.textContent ?? ''
+      expect(text.indexOf('Fast geometry')).toBeLessThan(text.indexOf('Bac function'))
+      expect(text.indexOf('Bac function')).toBeLessThan(text.indexOf('Slow algebra'))
+    })
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/exercise-bank?subject=2&sort=time', { scroll: false })
+
+    const searchInput = container.querySelector('input[aria-label="Search exercises"]') as HTMLInputElement | null
+    await act(async () => {
+      setInputValue(searchInput!, 'function')
+      searchInput!.dispatchEvent(new Event('input', { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('1 exercise(s) in the current filtered list.')
+      expect(container.textContent).toContain('Bac function')
+      expect(container.textContent).not.toContain('Slow algebra')
+      expect(container.textContent).not.toContain('Fast geometry')
+    })
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/exercise-bank?subject=2&q=function&sort=time', { scroll: false })
   })
 
   it('loads exercises, syncs filters, reveals correction, and saves self-grade', async () => {
@@ -201,6 +320,38 @@ describe('ExerciseBankPage', () => {
       const notesInput = container.querySelector('textarea[aria-label="Exercise private notes"]') as HTMLTextAreaElement | null
       expect(notesInput?.value).toBe('Server note after refresh.')
     })
+  })
+
+  it('keeps dirty notes when the user cancels leaving the detail view', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Linear equation')
+    })
+    await clickButton(container, "s'exercer")
+    await waitFor(() => {
+      expect(container.textContent).toContain('Solve $x+1=2$.')
+    })
+
+    const notesInput = container.querySelector('textarea[aria-label="Exercise private notes"]') as HTMLTextAreaElement | null
+    await act(async () => {
+      setTextareaValue(notesInput!, 'Do not lose this note.')
+      notesInput!.dispatchEvent(new Event('input', { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    await clickButton(container, 'Back to list')
+    expect(confirmSpy).toHaveBeenCalledWith('You have unsaved notes for this exercise. Discard them?')
+    expect(container.textContent).toContain('Private notes')
+    expect(notesInput?.value).toBe('Do not lose this note.')
+
+    confirmSpy.mockReturnValue(true)
+    await clickButton(container, 'Back to list')
+    await waitFor(() => {
+      expect(container.textContent).toContain('2 exercise(s) in the current filtered list.')
+    })
+    expect(container.textContent).not.toContain('Private notes')
   })
 
   it('does not render a previous exercise detail while a newly selected exercise is loading', async () => {
@@ -374,6 +525,11 @@ async function clickButton(container: HTMLElement, name: string, index = 0) {
 function setSelectValue(select: HTMLSelectElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
   setter?.call(select, value)
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  setter?.call(input, value)
 }
 
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {

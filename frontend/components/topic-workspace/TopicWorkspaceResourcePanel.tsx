@@ -13,6 +13,8 @@ import {
 } from '@/lib/topicWorkspaceViewModel'
 import { resolvedTabContentId } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
 
+const RESOURCE_FORMAT_LABEL = 'PDF'
+
 function downloadTopicWorkspaceFile(url: string, name: string) {
   const anchor = document.createElement('a')
   anchor.href = url
@@ -81,7 +83,7 @@ export function TopicWorkspaceResourcePanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="m-0 text-sm font-black text-[#3f3f46]">{resource.title}</p>
-          <p className="m-0 mt-1 text-xs font-bold uppercase tracking-[0.08em] text-[#71717b]">{resource.resource_type}</p>
+          <p aria-label="Resource format" className="m-0 mt-1 text-xs font-bold uppercase tracking-[0.08em] text-[#71717b]">{RESOURCE_FORMAT_LABEL}</p>
         </div>
         {resourceUrlAvailable && (
           <div className="flex flex-wrap gap-2">

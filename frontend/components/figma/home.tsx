@@ -197,8 +197,8 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
 
   return (
     <Link href={href} className="group block w-full max-w-[480px] no-underline">
-      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-end justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] pt-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)]">
-        <div className="min-w-0 flex-1 self-stretch pr-[18px]">
+      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-center justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)]">
+        <div className="min-w-0 flex-1 self-stretch pt-[16px] pr-[18px]">
           <h3 className="m-0 line-clamp-1 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">{topic.title}</h3>
           <p className="m-0 mt-[4px] line-clamp-2 max-w-[300px] text-[14px] font-semibold leading-[1.1] tracking-[0.21px] text-[#71717b]">
             {topic.description || topic.subject_title}
@@ -213,11 +213,11 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
         <div className="relative h-[96px] w-[132px] shrink-0 overflow-hidden transition-transform duration-300 group-hover:scale-[1.025]">
           <div className={`absolute inset-0 ${isMathCard ? 'bg-[#eef1ff]' : 'bg-[#e6f9ef]'}`} />
           {isMathCard ? (
-            <div className="absolute bottom-[-4px] left-[9px] right-[-8px] top-[7px]">
+            <div className="absolute bottom-[8px] left-[9px] right-[-8px] top-[8px]">
               <Image alt="" className="block max-w-none object-fill" fill sizes="132px" src="/figma-assets/home-continue-book.svg" />
             </div>
           ) : (
-            <div className="absolute bottom-[-2px] right-[8px] grid h-[84px] w-[84px] place-items-center rounded-full bg-[#40cf5b] text-[#2387d9]">
+            <div className="absolute right-[16px] top-1/2 grid h-[84px] w-[84px] -translate-y-1/2 place-items-center rounded-full bg-[#40cf5b] text-[#2387d9]">
               <Globe2 size={54} strokeWidth={2.4} />
             </div>
           )}

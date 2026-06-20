@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PROFILE_AVATAR_URL,
   DEFAULT_PROFILE_BANNER_URL,
+  buildProfileBadgeItems,
   buildProfileNoteHubItems,
   buildProfileSaveHubItems,
   buildEditDraft,
   canonicalSubject,
   clampScore,
+  formatProfileBadgeStatus,
   formatProfileHubDate,
   formatWatchTime,
   getFollowers,
@@ -15,7 +17,9 @@ import {
   getLeagueLabel,
   getUsername,
   mediaUrl,
+  normalizeProfileSaveTags,
   normalizeSubjects,
+  profileBadgeSummary,
   profileNoteHref,
   profileSavedItemHref,
   profileTargetLabel,
@@ -93,6 +97,35 @@ describe('profile view model helpers', () => {
     expect(scoreCaption('math', 88)).toBe('Strong progress, keep the rhythm')
   })
 
+  it('builds profile badge display state from inventory and fallback progress', () => {
+    const inventory = {
+      earned_count: 2,
+      total_count: 3,
+      badges: [
+        { slug: 'xp_100', title: '100 XP', description: 'Reach 100 XP', category: 'xp', rarity: 'common', earned: true, earned_at: '2026-05-26T10:00:00Z' },
+        { slug: 'xp_500', title: '500 XP', description: 'Reach 500 XP', category: 'xp', rarity: 'rare', earned: false },
+        { slug: 'streak_7', title: 'Weekly streak', description: 'Keep a weekly streak', category: 'streak', rarity: 'rare', earned: true },
+      ],
+    }
+
+    const badges = buildProfileBadgeItems(inventory, null, null, 3)
+    expect(badges.map((badge) => badge.slug)).toEqual(['xp_100', 'streak_7', 'xp_500'])
+    expect(profileBadgeSummary(inventory, badges)).toEqual({ earnedCount: 2, totalCount: 3 })
+    expect(formatProfileBadgeStatus(badges[0])).toBe('Earned May 26')
+    expect(formatProfileBadgeStatus(badges[1])).toBe('Earned')
+    expect(formatProfileBadgeStatus(badges[2])).toBe('Reach 500 XP')
+
+    const fallback = buildProfileBadgeItems(
+      null,
+      { total_xp: 550, level: 4, streak_days: 2 },
+      { totalWatchMinutes: 90, quizzesPassed: 1, itemsCompleted: 1, isPro: true },
+      6,
+    )
+    expect(fallback.find((badge) => badge.slug === 'xp_500')?.earned).toBe(true)
+    expect(fallback.find((badge) => badge.slug === 'streak_7')?.earned).toBe(false)
+    expect(fallback.find((badge) => badge.slug === 'first_mistake_corrected')?.earned).toBe(true)
+  })
+
   it('builds profile note hub links and date labels', () => {
     const items = buildProfileNoteHubItems([
       { id: 1, topic_id: 12, topic_item_id: 34, tab_content_id: 8, body: 'Study this', updated_at: '2026-05-26T10:00:00Z' },
@@ -120,14 +153,31 @@ describe('profile view model helpers', () => {
 
   it('builds saved item hub display labels defensively', () => {
     const items = buildProfileSaveHubItems([
-      { id: 1, target_type: 'exam_problem', target_id: 99, label: 'Bac 2024 Problem' },
+      {
+        id: 1,
+        target_type: 'exam_problem',
+        target_id: 99,
+        label: ' Bac 2024 Problem ',
+        note: 'Review the energy balance before the final sprint.',
+        tags: [' Bac ', 'bac', 'Energy transfer', 'Long tag name that should be clipped after thirty two chars'],
+        created_at: '2026-06-01T10:00:00Z',
+      },
       { id: 2, target_type: 'topic_item', target_id: 34, topic_id: 12, topic_item_id: 34 },
     ], 2)
 
     expect(items).toEqual([
-      { id: 'save-1', href: '/exam-bank?problem=99', title: 'Bac 2024 Problem', meta: 'exam problem' },
-      { id: 'save-2', href: '/topics/12?item=34', title: 'topic item #34', meta: 'topic item' },
+      {
+        id: 'save-1',
+        href: '/exam-bank?problem=99',
+        title: 'Bac 2024 Problem',
+        meta: 'Exam problem - Jun 1',
+        detail: 'Review the energy balance before the final sprint.',
+        tags: ['Bac', 'Energy transfer', 'Long tag name that should be cli'],
+      },
+      { id: 'save-2', href: '/topics/12?item=34', title: 'Lesson #34', meta: 'Lesson' },
     ])
-    expect(profileTargetLabel('tab_content')).toBe('tab content')
+    expect(profileTargetLabel('tab_content')).toBe('Lesson section')
+    expect(profileTargetLabel('')).toBe('Saved item')
+    expect(normalizeProfileSaveTags(['  Exam prep  ', 'exam prep', '', ' Physics '])).toEqual(['Exam prep', 'Physics'])
   })
 })

@@ -140,6 +140,7 @@ class XPSeasonLeaderboardOut(BaseModel):
     season: str
     starts_at: datetime
     ends_at: datetime
+    total_entries: int = 0
     entries: list[XPSeasonLeaderboardEntryOut]
 
 

@@ -929,7 +929,7 @@ def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, au
     parent = app_client.post(
         "/api/interactions/comments",
         headers=headers,
-        json={"topic_item_id": seeded["topic_item_id"], "body": "parent"},
+        json={"topic_item_id": seeded["topic_item_id"], "body": "parent", "rating": 4},
     )
     reply = app_client.post(
         "/api/interactions/comments",
@@ -937,11 +937,20 @@ def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, au
         json={"topic_item_id": seeded["topic_item_id"], "body": "reply", "parent_id": parent.json()["id"]},
     )
     listing = app_client.get(f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}", headers=headers)
+    replies_listing = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}&parent_id={parent.json()['id']}",
+        headers=headers,
+    )
 
     assert parent.status_code == 200
     assert reply.status_code == 200
+    assert parent.json()["rating"] == 4
     assert listing.status_code == 200
+    assert listing.json()[0]["rating"] == 4
     assert listing.json()[0]["reply_count"] == 1
+    assert replies_listing.status_code == 200
+    assert [item["body"] for item in replies_listing.json()] == ["reply"]
+    assert replies_listing.json()[0]["parent_id"] == parent.json()["id"]
 
     async def _hide_reply():
         session_factory = get_session_factory()
@@ -957,6 +966,12 @@ def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, au
     )
     assert listing_after_hidden_reply.status_code == 200
     assert listing_after_hidden_reply.json()[0]["reply_count"] == 0
+    hidden_replies_listing = app_client.get(
+        f"/api/interactions/comments?topic_item_id={seeded['topic_item_id']}&parent_id={parent.json()['id']}",
+        headers=headers,
+    )
+    assert hidden_replies_listing.status_code == 200
+    assert hidden_replies_listing.json() == []
 
     async def _seed_other_item():
         session_factory = get_session_factory()
@@ -976,7 +991,12 @@ def test_comments_require_enabled_tab_and_keep_parent_inside_item(app_client, au
         headers=headers,
         json={"topic_item_id": other_item_id, "body": "bad", "parent_id": parent.json()["id"]},
     )
+    bad_reply_listing = app_client.get(
+        f"/api/interactions/comments?topic_item_id={other_item_id}&parent_id={parent.json()['id']}",
+        headers=headers,
+    )
     assert bad_reply.status_code == 400
+    assert bad_reply_listing.status_code == 400
 
 
 def test_interaction_lists_are_paginated_and_query_bounded(app_client, auth_token, query_counter, run_db):

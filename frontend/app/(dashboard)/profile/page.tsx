@@ -21,6 +21,7 @@ export default function ProfilePage() {
     profile,
     xp,
     stats,
+    badgeInventory,
     profileSubjects,
     notes,
     saves,
@@ -142,6 +143,7 @@ export default function ProfilePage() {
         user={profile ?? user}
         xp={xp}
         stats={stats}
+        badgeInventory={badgeInventory}
         subjects={profileSubjects}
         notes={notes}
         saves={saves}

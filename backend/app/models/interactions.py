@@ -28,6 +28,7 @@ class Comment(Base):
         Index("ix_comments_exercise_created", "exercise_id", "created_at"),
         Index("ix_comments_status_created", "status", "created_at"),
         CheckConstraint("status IN ('visible', 'hidden', 'deleted')", name="ck_comments_status"),
+        CheckConstraint("rating IS NULL OR (rating >= 1 AND rating <= 5)", name="ck_comments_rating_range"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -35,6 +36,7 @@ class Comment(Base):
     topic_item_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("topic_items.id", ondelete="CASCADE"), nullable=True, index=True)
     exercise_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("exercises.id", ondelete="CASCADE"), nullable=True, index=True)
     body: Mapped[str] = mapped_column(Text)
+    rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="visible", server_default="visible")
     moderated_by_user_id: Mapped[Optional[int]] = mapped_column(
         BigInteger,

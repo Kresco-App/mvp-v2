@@ -81,6 +81,50 @@ def test_xp_history_leaderboard_and_quests_are_bounded(app_client, auth_token, q
     assert quest_queries.count <= 8
 
 
+def test_leaderboard_include_current_appends_user_outside_window(app_client, auth_token, run_db):
+    token, current_user_id = auth_token(email="leaderboard-current-outside@example.com", is_pro=True)
+
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            current = await db.get(User, current_user_id)
+            current.full_name = "Current Outside"
+            db.add(LeaderboardRank(user_id=current_user_id, total_xp=2300, global_rank=27))
+
+            for rank in range(1, 12):
+                peer = User(
+                    email=f"leaderboard-peer-{rank}@example.com",
+                    full_name=f"Leaderboard Peer {rank}",
+                    is_active=True,
+                    is_email_verified=True,
+                )
+                db.add(peer)
+                await db.flush()
+                db.add(LeaderboardRank(user_id=peer.id, total_xp=5000 - rank * 100, global_rank=rank))
+
+            await db.commit()
+
+    run_db(_seed())
+    headers = {"Authorization": f"Bearer {token}"}
+
+    top_only = app_client.get("/api/progress/leaderboard?limit=10", headers=headers)
+    with_current = app_client.get("/api/progress/leaderboard?limit=10&include_current=true", headers=headers)
+
+    assert top_only.status_code == 200
+    assert len(top_only.json()) == 10
+    assert not any(entry["is_current_user"] for entry in top_only.json())
+
+    assert with_current.status_code == 200
+    payload = with_current.json()
+    assert len(payload) == 11
+    assert not any(entry["is_current_user"] for entry in payload[:10])
+    assert payload[-1]["rank"] == 27
+    assert payload[-1]["user_id"] == current_user_id
+    assert payload[-1]["full_name"] == "Current Outside"
+    assert payload[-1]["total_xp"] == 2300
+    assert payload[-1]["is_current_user"] is True
+
+
 def test_badge_inventory_syncs_backend_owned_achievements(app_client, auth_token, run_db):
     token, user_id = auth_token(email="badges-earned@example.com", is_pro=True)
 
@@ -348,6 +392,10 @@ def test_season_leaderboard_uses_signed_xp_window_and_search(
         "/api/progress/leaderboard/seasons?season=weekly&search=UniqueTarget",
         headers=headers,
     )
+    include_current_response = app_client.get(
+        "/api/progress/leaderboard/seasons?season=weekly&limit=1&include_current=true",
+        headers=headers,
+    )
     invalid_response = app_client.get(
         "/api/progress/leaderboard/seasons?season=yearly",
         headers=headers,
@@ -357,6 +405,7 @@ def test_season_leaderboard_uses_signed_xp_window_and_search(
     payload = response.json()
     assert payload["season"] == "weekly"
     assert payload["starts_at"] == week_start.isoformat().replace("+00:00", "Z")
+    assert payload["total_entries"] == 3
     entries_by_id = {entry["user_id"]: entry for entry in payload["entries"]}
     assert list(entries_by_id) == [leader_id, current_user_id, tied_id]
     assert inactive_id not in entries_by_id
@@ -378,6 +427,13 @@ def test_season_leaderboard_uses_signed_xp_window_and_search(
     search_entries = search_response.json()["entries"]
     assert [entry["user_id"] for entry in search_entries] == [current_user_id]
     assert search_entries[0]["rank"] == 3
+    assert include_current_response.status_code == 200
+    include_current_payload = include_current_response.json()
+    assert include_current_payload["total_entries"] >= 4
+    include_current_entries = include_current_payload["entries"]
+    assert len(include_current_entries) == 2
+    assert include_current_entries[-1]["user_id"] == current_user_id
+    assert include_current_entries[-1]["rank"] == 3
     assert invalid_response.status_code == 422
 
 

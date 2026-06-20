@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { Component, type ReactNode } from 'react'
 import { AnimatedContentRenderer } from '@/components/animated/registry'
 import { Latex } from '@/components/animated/shared/Latex'
 import type { AnimatedJsonValue, AnimatedLessonConfig } from '@/components/animated/types'
@@ -318,7 +318,7 @@ export function CourseContentRenderer({
   }
 
   return (
-    <div className={`grid max-w-[900px] gap-6 ${className}`} data-course-content-document={document.id ?? ''}>
+    <div className={`grid w-full max-w-[1057px] gap-6 ${className}`} data-course-content-document={document.id ?? ''}>
       {document.blocks.map((block, index) => (
         <CourseBlockRenderer block={block} key={block.id || `${block.type}-${index}`} />
       ))}
@@ -482,7 +482,7 @@ function CourseComponentBlockRenderer({ block }: { block: CourseComponentBlock }
 
   if (!allowedCourseComponentKeys.has(rendererKey)) {
     return (
-      <div className="rounded-[14px] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-[13px] font-bold text-[#991b1b]">
+      <div role="alert" className="min-w-0 break-words rounded-[14px] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-[13px] font-bold text-[#991b1b]">
         Unknown Course component key: <code>{rawKey || 'missing'}</code>
       </div>
     )
@@ -496,46 +496,151 @@ function CourseComponentBlockRenderer({ block }: { block: CourseComponentBlock }
   }
 
   return (
-    <ComponentDisplay display={block.display ?? 'inline'}>
-      <AnimatedContentRenderer rendererKey={rendererKey} config={config} />
+    <ComponentDisplay
+      description={block.description}
+      display={block.display ?? 'inline'}
+      rendererKey={rendererKey}
+      title={block.title}
+    >
+      <CourseComponentErrorBoundary rendererKey={rendererKey} title={block.title}>
+        <AnimatedContentRenderer rendererKey={rendererKey} config={config} className="min-w-0" />
+      </CourseComponentErrorBoundary>
     </ComponentDisplay>
   )
 }
 
 function ComponentDisplay({
+  description,
   display,
+  rendererKey,
+  title,
   children,
 }: {
+  description?: string
   display: CourseBlockDisplay
+  rendererKey: string
+  title?: string
   children: ReactNode
 }) {
-  if (display === 'inline') return <section>{children}</section>
+  const cleanTitle = typeof title === 'string' ? title.trim() : ''
+  const cleanDescription = typeof description === 'string' ? description.trim() : ''
+  const header = cleanTitle || cleanDescription
+    ? (
+      <div className="mb-4 min-w-0 border-b border-[#f4f4f5] pb-3">
+        {cleanTitle && <h3 className="m-0 text-[17px] font-black leading-tight text-[#27272a]">{cleanTitle}</h3>}
+        {cleanDescription && (
+          <p className="m-0 mt-1 max-w-[760px] text-[13px] font-semibold leading-6 text-[#71717b]">
+            {cleanDescription}
+          </p>
+        )}
+      </div>
+    )
+    : null
+  const content = (
+    <>
+      {header}
+      <div className="min-w-0 overflow-x-auto overscroll-x-contain pb-1">
+        {children}
+      </div>
+    </>
+  )
+  const ariaLabel = cleanTitle || `${componentTitleFromRendererKey(rendererKey)} interactive component`
+  const baseClass = 'min-w-0 scroll-mt-24'
+
+  if (display === 'inline') {
+    return (
+      <section aria-label={ariaLabel} className={`${baseClass} w-full`} data-course-component-key={rendererKey} data-course-component-display={display}>
+        {content}
+      </section>
+    )
+  }
   if (display === 'compact') {
     return (
-      <section className="max-w-[680px] rounded-[14px] border border-[#e4e4e7] bg-white p-4">
-        {children}
+      <section aria-label={ariaLabel} className={`${baseClass} w-full max-w-[680px] rounded-[14px] border border-[#e4e4e7] bg-white p-4`} data-course-component-key={rendererKey} data-course-component-display={display}>
+        {content}
       </section>
     )
   }
   if (display === 'full_width') {
     return (
-      <section className="w-full rounded-[16px] bg-white py-2">
-        {children}
+      <section aria-label={ariaLabel} className={`${baseClass} w-full max-w-[1057px] rounded-[16px] bg-white py-2`} data-course-component-key={rendererKey} data-course-component-display={display}>
+        {content}
       </section>
     )
   }
   if (display === 'hero') {
     return (
-      <section className="rounded-[18px] border border-[#ddd6fe] bg-[#f5f3ff] p-5">
-        {children}
+      <section aria-label={ariaLabel} className={`${baseClass} rounded-[18px] border border-[#ddd6fe] bg-[#f5f3ff] p-5`} data-course-component-key={rendererKey} data-course-component-display={display}>
+        {content}
       </section>
     )
   }
   return (
-    <section className="rounded-[16px] border border-[#e4e4e7] bg-white p-5 shadow-sm">
-      {children}
+    <section aria-label={ariaLabel} className={`${baseClass} rounded-[16px] border border-[#e4e4e7] bg-white p-5 shadow-sm`} data-course-component-key={rendererKey} data-course-component-display={display}>
+      {content}
     </section>
   )
+}
+
+type CourseComponentErrorBoundaryProps = {
+  children: ReactNode
+  rendererKey: string
+  title?: string
+}
+
+class CourseComponentErrorBoundary extends Component<CourseComponentErrorBoundaryProps, { hasError: boolean }> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidUpdate(previousProps: CourseComponentErrorBoundaryProps) {
+    if (previousProps.rendererKey !== this.props.rendererKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <CourseComponentErrorFallback
+          rendererKey={this.props.rendererKey}
+          title={this.props.title}
+        />
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+function CourseComponentErrorFallback({
+  rendererKey,
+  title,
+}: {
+  rendererKey: string
+  title?: string
+}) {
+  const label = title?.trim() || componentTitleFromRendererKey(rendererKey)
+
+  return (
+    <div role="alert" className="min-w-0 rounded-[14px] border border-[#fecaca] bg-[#fef2f2] px-4 py-4 text-[#991b1b]">
+      <p className="m-0 text-[13px] font-black uppercase tracking-[0.08em]">Interactive component unavailable</p>
+      <p className="m-0 mt-2 text-[14px] font-semibold leading-6">
+        {label} could not load. The rest of the lesson remains available.
+      </p>
+      <p className="m-0 mt-2 break-words text-[12px] font-bold text-[#b91c1c]">
+        Component: <code>{rendererKey}</code>
+      </p>
+    </div>
+  )
+}
+
+function componentTitleFromRendererKey(value: string) {
+  const words = value.split('_').filter(Boolean)
+  if (!words.length) return 'Course'
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }
 
 function ImageBlock({ block }: { block: CourseImageBlock }) {

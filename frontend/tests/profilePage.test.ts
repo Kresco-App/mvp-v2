@@ -50,6 +50,7 @@ type MockProfileProps = {
   user?: MockProfileUser | null
   xp?: { total_xp?: number } | null
   stats?: { itemsCompleted?: number } | null
+  badgeInventory?: { badges?: unknown[]; earned_count?: number; total_count?: number } | null
   subjects: unknown[]
   notes: unknown[]
   saves: unknown[]
@@ -66,6 +67,7 @@ vi.mock('@/components/figma', () => ({
     React.createElement('p', null, `Avatar ${props.user?.avatar_url ?? 'none'}`),
     React.createElement('p', null, `XP ${props.xp?.total_xp ?? 'none'}`),
     React.createElement('p', null, `Lessons ${props.stats?.itemsCompleted ?? 'none'}`),
+    React.createElement('p', null, `Badges ${props.badgeInventory?.earned_count ?? 0}/${props.badgeInventory?.total_count ?? 0}`),
     React.createElement('p', null, `Subjects ${props.subjects.length}`),
     React.createElement('p', null, `Notes ${props.notes.length}`),
     React.createElement('p', null, `Saves ${props.saves.length}`),
@@ -151,6 +153,14 @@ const endpointData: Record<string, unknown> = {
     items_completed: 7,
     is_pro: true,
   },
+  '/progress/badges': {
+    earned_count: 2,
+    total_count: 6,
+    badges: [
+      { slug: 'xp_100', title: 'Premiers 100 XP', description: 'Atteindre 100 XP au total.', category: 'xp', rarity: 'common', earned: true },
+      { slug: 'xp_500', title: 'Rythme solide', description: 'Atteindre 500 XP au total.', category: 'xp', rarity: 'rare', earned: true },
+    ],
+  },
   '/courses/subjects': [
     { id: 1, title: 'Math', progress_pct: 80 },
   ],
@@ -202,12 +212,14 @@ describe('Profile page SWR data behavior', () => {
       expect(container.textContent).toContain('Profile shell Kresco Student')
       expect(container.textContent).toContain('XP 1234')
       expect(container.textContent).toContain('Lessons 7')
+      expect(container.textContent).toContain('Badges 2/6')
       expect(container.textContent).toContain('Subjects 1')
       expect(container.textContent).toContain('Notes 1')
       expect(container.textContent).toContain('Saves 1')
       expect(container.textContent).toContain('Sidebar leaders 1')
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/profile/me')
+    expect(mocks.apiGet).toHaveBeenCalledWith('/progress/badges')
     expect(mocks.apiGet).toHaveBeenCalledWith('/progress/sidebar-summary')
     expect(useAuthStore.getState().user?.full_name).toBe('Kresco Student')
   })

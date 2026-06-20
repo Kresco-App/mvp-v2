@@ -1,13 +1,19 @@
 'use client'
 
-import { useState } from 'react'
-import { ArrowLeft, Copy } from 'lucide-react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { ArrowLeft, CheckCircle2, ClipboardCheck, Code2, Copy, Loader2, Plus, Settings2, Sparkles, TriangleAlert } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+import {
+  AdminPageHeader,
+  adminButtonClass,
+  adminMetricStripThreeClass,
+  adminMetricTileClass,
+  adminPageClass,
+  adminPanelClass,
+} from '@/components/admin/AdminDesign'
+import { cn } from '@/lib/utils'
 
 type ActivityType =
   | 'multiple_choice'
@@ -18,318 +24,492 @@ type ActivityType =
   | 'drag_and_drop'
   | 'simulator'
 
-const ACTIVITY_TYPES: { id: ActivityType; label: string; desc: string }[] = [
-  { id: 'multiple_choice', label: 'QCM', desc: 'Question à choix multiples' },
-  { id: 'true_false', label: 'Vrai / Faux', desc: 'Affirmation vraie ou fausse' },
-  { id: 'fill_in_blank', label: 'Compléter', desc: 'Remplir un blanc dans une phrase' },
-  { id: 'matching', label: 'Association', desc: 'Relier deux colonnes' },
-  { id: 'ordering', label: 'Ordre', desc: 'Remettre dans le bon ordre' },
-  { id: 'drag_and_drop', label: 'Glisser-Déposer', desc: 'Placer dans des zones' },
-  { id: 'simulator', label: 'Simulateur', desc: 'Simulateur interactif' },
+type ActivityTypeMeta = {
+  id: ActivityType
+  label: string
+  desc: string
+  outputLabel: string
+}
+
+type OptionRow = { id: string; text: string; is_correct: boolean }
+type PairRow = { id: string; left: string; right: string }
+type OrderRow = { id: string; label: string }
+type DragItemRow = { id: string; label: string }
+type DropZoneRow = { id: string; label: string; correctItemId: string }
+
+type ValidationResult = {
+  missing: string[]
+  readyFields: number
+  totalFields: number
+}
+
+const ACTIVITY_TYPES: ActivityTypeMeta[] = [
+  { id: 'multiple_choice', label: 'QCM', desc: 'Question à choix multiples', outputLabel: 'multiple_choice' },
+  { id: 'true_false', label: 'Vrai / Faux', desc: 'Affirmation vraie ou fausse', outputLabel: 'true_false' },
+  { id: 'fill_in_blank', label: 'Compléter', desc: 'Phrase avec un blanc', outputLabel: 'fill_in_blank' },
+  { id: 'matching', label: 'Association', desc: 'Relier deux colonnes', outputLabel: 'matching' },
+  { id: 'ordering', label: 'Ordre', desc: 'Remettre dans le bon ordre', outputLabel: 'ordering' },
+  { id: 'drag_and_drop', label: 'Glisser-déposer', desc: 'Placer dans des zones', outputLabel: 'drag_and_drop' },
+  { id: 'simulator', label: 'Simulateur', desc: 'Configuration interactive', outputLabel: 'simulator' },
 ]
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+function clean(value: string) {
+  return value.trim()
+}
 
 export default function ActivityBuilderPage() {
   const router = useRouter()
   const [selectedType, setSelectedType] = useState<ActivityType>('multiple_choice')
   const [output, setOutput] = useState<string | null>(null)
+  const [copying, setCopying] = useState(false)
 
-  // MCQ state
   const [mcqQuestion, setMcqQuestion] = useState('')
-  const [mcqOptions, setMcqOptions] = useState([
+  const [mcqOptions, setMcqOptions] = useState<OptionRow[]>([
     { id: 'option-1', text: '', is_correct: true },
     { id: 'option-2', text: '', is_correct: false },
     { id: 'option-3', text: '', is_correct: false },
     { id: 'option-4', text: '', is_correct: false },
   ])
 
-  // True/False state
   const [tfStatement, setTfStatement] = useState('')
   const [tfAnswer, setTfAnswer] = useState(true)
   const [tfExplanation, setTfExplanation] = useState('')
 
-  // Fill in blank state
   const [fibSentence, setFibSentence] = useState('')
   const [fibAnswer, setFibAnswer] = useState('')
   const [fibHint, setFibHint] = useState('')
 
-  // Matching state
   const [matchQuestion, setMatchQuestion] = useState('')
-  const [matchPairs, setMatchPairs] = useState([
+  const [matchPairs, setMatchPairs] = useState<PairRow[]>([
     { id: 'a', left: '', right: '' },
     { id: 'b', left: '', right: '' },
   ])
 
-  // Ordering state
   const [orderQuestion, setOrderQuestion] = useState('')
-  const [orderItems, setOrderItems] = useState([
+  const [orderItems, setOrderItems] = useState<OrderRow[]>([
     { id: '1', label: '' },
     { id: '2', label: '' },
     { id: '3', label: '' },
   ])
 
-  // Drag & Drop state
   const [ddQuestion, setDdQuestion] = useState('')
-  const [ddItems, setDdItems] = useState([
+  const [ddItems, setDdItems] = useState<DragItemRow[]>([
     { id: 'item1', label: '' },
     { id: 'item2', label: '' },
   ])
-  const [ddZones, setDdZones] = useState([
+  const [ddZones, setDdZones] = useState<DropZoneRow[]>([
     { id: 'zone1', label: '', correctItemId: 'item1' },
     { id: 'zone2', label: '', correctItemId: 'item2' },
   ])
 
-  // Simulator state
   const [simType, setSimType] = useState<'wave' | 'prism' | 'diffraction'>('wave')
   const [simTitle, setSimTitle] = useState('')
 
-  function buildActivityData(): any {
+  const selectedMeta = ACTIVITY_TYPES.find((type) => type.id === selectedType) ?? ACTIVITY_TYPES[0]
+  const validation = useMemo(validateActivity, [
+    ddItems,
+    ddQuestion,
+    ddZones,
+    fibAnswer,
+    fibSentence,
+    matchPairs,
+    matchQuestion,
+    mcqOptions,
+    mcqQuestion,
+    orderItems,
+    orderQuestion,
+    selectedType,
+    simTitle,
+    tfStatement,
+  ])
+  const completion = validation.totalFields > 0 ? Math.round((validation.readyFields / validation.totalFields) * 100) : 0
+
+  function validateActivity(): ValidationResult {
+    switch (selectedType) {
+      case 'multiple_choice': {
+        const completeOptions = mcqOptions.filter((option) => clean(option.text))
+        const missing = [
+          !clean(mcqQuestion) && 'Question',
+          completeOptions.length < 2 && 'Au moins 2 options',
+          !completeOptions.some((option) => option.is_correct) && 'Bonne réponse',
+        ].filter(Boolean) as string[]
+        return { missing, readyFields: [mcqQuestion, ...mcqOptions.map((option) => option.text)].filter(clean).length, totalFields: 5 }
+      }
+      case 'true_false': {
+        return { missing: clean(tfStatement) ? [] : ['Affirmation'], readyFields: clean(tfStatement) ? 1 : 0, totalFields: 1 }
+      }
+      case 'fill_in_blank': {
+        const missing = [
+          !clean(fibSentence) && 'Phrase',
+          !fibSentence.includes('{{blank}}') && 'Marqueur {{blank}}',
+          !clean(fibAnswer) && 'Réponse attendue',
+        ].filter(Boolean) as string[]
+        return { missing, readyFields: [fibSentence, fibAnswer].filter(clean).length, totalFields: 2 }
+      }
+      case 'matching': {
+        const completePairs = matchPairs.filter((pair) => clean(pair.left) && clean(pair.right))
+        const missing = [
+          !clean(matchQuestion) && 'Question',
+          completePairs.length < 2 && 'Au moins 2 paires complètes',
+        ].filter(Boolean) as string[]
+        return { missing, readyFields: (clean(matchQuestion) ? 1 : 0) + completePairs.length, totalFields: 1 + matchPairs.length }
+      }
+      case 'ordering': {
+        const completeItems = orderItems.filter((item) => clean(item.label))
+        const missing = [
+          !clean(orderQuestion) && 'Question',
+          completeItems.length < 2 && 'Au moins 2 étapes',
+        ].filter(Boolean) as string[]
+        return { missing, readyFields: (clean(orderQuestion) ? 1 : 0) + completeItems.length, totalFields: 1 + orderItems.length }
+      }
+      case 'drag_and_drop': {
+        const completeItems = ddItems.filter((item) => clean(item.label))
+        const completeZones = ddZones.filter((zone) => clean(zone.label) && zone.correctItemId)
+        const missing = [
+          !clean(ddQuestion) && 'Question',
+          completeItems.length < 2 && 'Au moins 2 éléments',
+          completeZones.length < 2 && 'Au moins 2 zones',
+        ].filter(Boolean) as string[]
+        return {
+          missing,
+          readyFields: (clean(ddQuestion) ? 1 : 0) + completeItems.length + completeZones.length,
+          totalFields: 1 + ddItems.length + ddZones.length,
+        }
+      }
+      case 'simulator':
+        return { missing: [], readyFields: clean(simTitle) ? 2 : 1, totalFields: 2 }
+    }
+  }
+
+  function buildActivityData() {
     switch (selectedType) {
       case 'multiple_choice':
         return {
-          question: mcqQuestion,
-          options: mcqOptions.map(({ text, is_correct }) => ({ text, is_correct })),
+          question: clean(mcqQuestion),
+          options: mcqOptions.filter((option) => clean(option.text)).map(({ text, is_correct }) => ({ text: clean(text), is_correct })),
         }
       case 'true_false':
-        return { statement: tfStatement, correct: tfAnswer, explanation: tfExplanation || undefined }
+        return { statement: clean(tfStatement), correct: tfAnswer, explanation: clean(tfExplanation) || undefined }
       case 'fill_in_blank':
-        return { sentence: fibSentence, answer: fibAnswer, hint: fibHint || undefined }
+        return { sentence: clean(fibSentence), answer: clean(fibAnswer), hint: clean(fibHint) || undefined }
       case 'matching':
-        return { question: matchQuestion, pairs: matchPairs }
+        return { question: clean(matchQuestion), pairs: matchPairs.filter((pair) => clean(pair.left) && clean(pair.right)) }
       case 'ordering':
         return {
-          question: orderQuestion,
-          items: orderItems,
-          correctOrder: orderItems.map(i => i.id),
+          question: clean(orderQuestion),
+          items: orderItems.filter((item) => clean(item.label)),
+          correctOrder: orderItems.filter((item) => clean(item.label)).map((item) => item.id),
         }
       case 'drag_and_drop':
-        return { question: ddQuestion, items: ddItems, zones: ddZones }
+        return {
+          question: clean(ddQuestion),
+          items: ddItems.filter((item) => clean(item.label)),
+          zones: ddZones.filter((zone) => clean(zone.label) && zone.correctItemId),
+        }
       case 'simulator':
-        return { simulator_type: simType, title: simTitle || undefined }
+        return { simulator_type: simType, title: clean(simTitle) || undefined }
     }
   }
 
   function handleGenerate() {
-    const data = buildActivityData()
+    if (validation.missing.length > 0) {
+      toast.error(`Champs à compléter: ${validation.missing.join(', ')}`)
+      setOutput(null)
+      return
+    }
     const json = JSON.stringify({
       section_type: 'activity',
       activity_type: selectedType,
-      activity_data: data,
+      activity_data: buildActivityData(),
     }, null, 2)
     setOutput(json)
+    toast.success('Activity JSON prêt.')
   }
 
-  function handleCopy() {
-    if (!output) return
-    navigator.clipboard.writeText(output)
-    toast.success('Copié dans le presse-papiers !')
+  async function handleCopy() {
+    if (!output || copying) return
+    setCopying(true)
+    try {
+      await navigator.clipboard.writeText(output)
+      toast.success('JSON copié dans le presse-papiers.')
+    } catch {
+      toast.error('Impossible de copier le JSON.')
+    } finally {
+      setCopying(false)
+    }
+  }
+
+  function resetOutputOnTypeChange(type: ActivityType) {
+    setSelectedType(type)
+    setOutput(null)
   }
 
   return (
-    <>
-      <div className="min-h-screen bg-slate-950">
-        {/* Top bar */}
-        <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-4">
-          <button type="button" onClick={() => router.push('/admin')} className="text-slate-400 hover:text-white transition">
+    <div className={adminPageClass}>
+      <AdminPageHeader
+        icon={Sparkles}
+        eyebrow="Admin / Cours"
+        title="Créateur d’activités"
+        description="Préparez un payload contrôlé avant de le coller dans les contenus de cours."
+        action={(
+          <>
+          <button
+            type="button"
+            onClick={() => router.push('/admin/courses')}
+            title="Retour aux cours"
+            className={`${adminButtonClass} px-3`}
+          >
             <ArrowLeft size={18} />
+            Cours
           </button>
-          <h1 className="text-white font-semibold">Créateur d&apos;activités</h1>
-        </div>
+        <button
+          type="button"
+          onClick={handleGenerate}
+          className="inline-flex h-11 items-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-[13px] font-black text-white transition hover:bg-[#4b50e8]"
+        >
+          <Code2 size={15} />
+          Générer le JSON
+        </button>
+          </>
+        )}
+      />
 
-        <div className="max-w-4xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left: builder */}
-          <div className="space-y-6">
-            {/* Type selector */}
-            <div>
-              <h2 className="text-white font-semibold mb-3">Type d&apos;activité</h2>
-              <div className="grid grid-cols-2 gap-2">
-                {ACTIVITY_TYPES.map(t => (
-                  <button type="button"
-                    key={t.id}
-                    onClick={() => { setSelectedType(t.id); setOutput(null) }}
-                    className={cn(
-                      'text-left px-4 py-3 rounded-xl border text-sm transition',
-                      selectedType === t.id
-                        ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300'
-                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                    )}
-                  >
-                    <p className="font-semibold">{t.label}</p>
-                    <p className="text-xs opacity-70 mt-0.5">{t.desc}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
+      <div className={adminMetricStripThreeClass}>
+        <StatusTile label="Type" value={selectedMeta.label} hint={selectedMeta.outputLabel} />
+        <StatusTile label="Préparation" value={`${completion}%`} hint={`${validation.readyFields}/${validation.totalFields} champs utiles`} />
+        <StatusTile label="Sortie" value={output ? 'Prête' : 'À générer'} hint={output ? 'copiable' : 'aucun JSON actif'} tone={output ? 'good' : 'default'} />
+      </div>
 
-            {/* Builder form */}
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 space-y-4">
-              <h3 className="text-white font-semibold">Configuration</h3>
-
-              {selectedType === 'multiple_choice' && (
-                <MCQBuilder
-                  question={mcqQuestion}
-                  options={mcqOptions}
-                  onQuestionChange={setMcqQuestion}
-                  onOptionsChange={setMcqOptions}
-                />
-              )}
-
-              {selectedType === 'true_false' && (
-                <TrueFalseBuilder
-                  statement={tfStatement}
-                  answer={tfAnswer}
-                  explanation={tfExplanation}
-                  onStatementChange={setTfStatement}
-                  onAnswerChange={setTfAnswer}
-                  onExplanationChange={setTfExplanation}
-                />
-              )}
-
-              {selectedType === 'fill_in_blank' && (
-                <FillBlankBuilder
-                  sentence={fibSentence}
-                  answer={fibAnswer}
-                  hint={fibHint}
-                  onSentenceChange={setFibSentence}
-                  onAnswerChange={setFibAnswer}
-                  onHintChange={setFibHint}
-                />
-              )}
-
-              {selectedType === 'matching' && (
-                <MatchingBuilder
-                  question={matchQuestion}
-                  pairs={matchPairs}
-                  onQuestionChange={setMatchQuestion}
-                  onPairsChange={setMatchPairs}
-                />
-              )}
-
-              {selectedType === 'ordering' && (
-                <OrderingBuilder
-                  question={orderQuestion}
-                  items={orderItems}
-                  onQuestionChange={setOrderQuestion}
-                  onItemsChange={setOrderItems}
-                />
-              )}
-
-              {selectedType === 'drag_and_drop' && (
-                <DragDropBuilder
-                  question={ddQuestion}
-                  items={ddItems}
-                  zones={ddZones}
-                  onQuestionChange={setDdQuestion}
-                  onItemsChange={setDdItems}
-                  onZonesChange={setDdZones}
-                />
-              )}
-
-              {selectedType === 'simulator' && (
-                <SimulatorBuilder
-                  simType={simType}
-                  title={simTitle}
-                  onTypeChange={setSimType}
-                  onTitleChange={setSimTitle}
-                />
-              )}
-
-              <button type="button"
-                onClick={handleGenerate}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition mt-2"
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_minmax(0,1fr)_420px]">
+        <section className={adminPanelClass}>
+          <div className="border-b border-[#f4f4f5] px-4 py-3">
+            <p className="m-0 text-[14px] font-black text-[#3f3f46]">Type d’activité</p>
+            <p className="m-0 text-[12px] font-semibold text-[#a1a1aa]">Le format de sortie reste compatible avec les sections `activity`.</p>
+          </div>
+          <div className="grid gap-2 p-3">
+            {ACTIVITY_TYPES.map((type) => (
+              <button
+                type="button"
+                key={type.id}
+                onClick={() => resetOutputOnTypeChange(type.id)}
+                className={cn(
+                  'rounded-[14px] border-[2px] px-4 py-3 text-left transition',
+                  selectedType === type.id
+                    ? 'border-[#5b60f9] bg-[#f0f0ff] text-[#3a2fd3]'
+                    : 'border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#c7c7cc]',
+                )}
               >
-                Générer le JSON
+                <span className="block text-[14px] font-black">{type.label}</span>
+                <span className="mt-0.5 block text-[12.5px] font-semibold text-[#a1a1aa]">{type.desc}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className={adminPanelClass}>
+          <div className="border-b border-[#f4f4f5] px-5 py-4">
+            <div className="flex items-center gap-2">
+              <Settings2 size={17} className="text-[#5b60f9]" />
+              <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Configuration</h2>
+            </div>
+            <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">{selectedMeta.desc}</p>
+          </div>
+          <div className="grid gap-4 px-5 py-4">
+            {selectedType === 'multiple_choice' && (
+              <MCQBuilder question={mcqQuestion} options={mcqOptions} onQuestionChange={setMcqQuestion} onOptionsChange={setMcqOptions} />
+            )}
+            {selectedType === 'true_false' && (
+              <TrueFalseBuilder
+                statement={tfStatement}
+                answer={tfAnswer}
+                explanation={tfExplanation}
+                onStatementChange={setTfStatement}
+                onAnswerChange={setTfAnswer}
+                onExplanationChange={setTfExplanation}
+              />
+            )}
+            {selectedType === 'fill_in_blank' && (
+              <FillBlankBuilder sentence={fibSentence} answer={fibAnswer} hint={fibHint} onSentenceChange={setFibSentence} onAnswerChange={setFibAnswer} onHintChange={setFibHint} />
+            )}
+            {selectedType === 'matching' && (
+              <MatchingBuilder question={matchQuestion} pairs={matchPairs} onQuestionChange={setMatchQuestion} onPairsChange={setMatchPairs} />
+            )}
+            {selectedType === 'ordering' && (
+              <OrderingBuilder question={orderQuestion} items={orderItems} onQuestionChange={setOrderQuestion} onItemsChange={setOrderItems} />
+            )}
+            {selectedType === 'drag_and_drop' && (
+              <DragDropBuilder
+                question={ddQuestion}
+                items={ddItems}
+                zones={ddZones}
+                onQuestionChange={setDdQuestion}
+                onItemsChange={setDdItems}
+                onZonesChange={setDdZones}
+              />
+            )}
+            {selectedType === 'simulator' && (
+              <SimulatorBuilder simType={simType} title={simTitle} onTypeChange={setSimType} onTitleChange={setSimTitle} />
+            )}
+          </div>
+        </section>
+
+        <section className={adminPanelClass}>
+          <div className="border-b border-[#f4f4f5] px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <ClipboardCheck size={17} className="text-[#5b60f9]" />
+                  <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Contrôle et sortie</h2>
+                </div>
+                <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">Validez les champs avant copie vers le contenu.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopy}
+                disabled={!output || copying}
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {copying ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
+                Copier
               </button>
             </div>
           </div>
 
-          {/* Right: JSON output */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-white font-semibold">JSON généré</h2>
-              {output && (
-                <button type="button"
-                  onClick={handleCopy}
-                  className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition"
-                >
-                  <Copy size={13} /> Copier
-                </button>
-              )}
-            </div>
-
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 min-h-[300px]">
+          <div className="grid gap-4 px-5 py-4">
+            <ValidationPanel missing={validation.missing} />
+            <div className="min-h-[300px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-[#fbfbfc] p-4">
               {output ? (
-                <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap overflow-auto">{output}</pre>
+                <pre className="m-0 max-h-[420px] overflow-auto whitespace-pre-wrap font-mono text-[12px] leading-5 text-[#3f3f46]">{output}</pre>
               ) : (
-                <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
-                  Configurez l&apos;activité et cliquez &quot;Générer&quot;
+                <div className="grid min-h-[250px] place-items-center text-center">
+                  <div>
+                    <Code2 size={28} className="mx-auto text-[#d4d4d8]" />
+                    <p className="m-0 mt-2 text-[14px] font-black text-[#52525c]">Aucun JSON généré</p>
+                    <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">Complétez les champs requis puis générez la sortie.</p>
+                  </div>
                 </div>
               )}
             </div>
-
             {output && (
-              <div className="bg-slate-800/60 rounded-xl p-4 text-xs text-slate-400 space-y-1">
-                <p className="text-slate-300 font-semibold mb-2">Comment utiliser :</p>
-                <p>1. Dans l&apos;admin, créez un <code className="text-indigo-300">TopicItem</code></p>
-                <p>2. <code className="text-indigo-300">section_type</code> = <code className="text-green-400">activity</code></p>
-                <p>3. <code className="text-indigo-300">activity_type</code> = <code className="text-green-400">{selectedType}</code></p>
-                <p>4. Collez le contenu de <code className="text-indigo-300">activity_data</code> dans le champ JSON</p>
+              <div className="rounded-[14px] border border-[#f4f4f5] bg-[#fbfbfc] px-4 py-3 text-[12.5px] font-semibold text-[#71717b]">
+                Utilisation: créez ou ouvrez un item de cours, choisissez une section `activity`, puis collez ce JSON dans la configuration de l’activité.
               </div>
             )}
           </div>
-        </div>
+        </section>
       </div>
-    </>
+    </div>
   )
 }
 
-// ─── Sub-builders ─────────────────────────────────────────────────────────────
+function StatusTile({
+  label,
+  value,
+  hint,
+  tone = 'default',
+}: {
+  label: string
+  value: string
+  hint: string
+  tone?: 'default' | 'good'
+}) {
+  return (
+    <div className={adminMetricTileClass}>
+      <p className="m-0 text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
+      <p className={cn('m-0 mt-1 text-[22px] font-black leading-none', tone === 'good' ? 'text-[#16a34a]' : 'text-[#3f3f46]')}>{value}</p>
+      <p className="m-0 mt-1 text-[12px] font-bold text-[#a1a1aa]">{hint}</p>
+    </div>
+  )
+}
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function ValidationPanel({ missing }: { missing: string[] }) {
+  if (!missing.length) {
+    return (
+      <div className="flex items-center gap-2 rounded-[14px] border-[2px] border-[#bbf7d0] bg-[#f6fef9] px-4 py-3 text-[13px] font-black text-[#16a34a]">
+        <CheckCircle2 size={16} />
+        Prêt à générer
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-[14px] border-[2px] border-[#fed7aa] bg-[#fff7ed] px-4 py-3">
+      <p className="m-0 flex items-center gap-2 text-[13px] font-black text-[#c2410c]">
+        <TriangleAlert size={16} />
+        Champs requis
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {missing.map((item) => (
+          <span key={item} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.04em] text-[#c2410c]">
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <label className="block text-slate-400 text-xs font-medium mb-1.5">{label}</label>
+      <label className="mb-1.5 block text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</label>
       {children}
     </div>
   )
 }
 
-function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function TextInput({ value, onChange, placeholder, ariaLabel }: { value: string; onChange: (value: string) => void; placeholder?: string; ariaLabel?: string }) {
   return (
     <input
-      aria-label={placeholder ?? 'Text input'}
+      aria-label={ariaLabel ?? placeholder ?? 'Text input'}
       value={value}
-      onChange={e => onChange(e.target.value)}
+      onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+      className="h-10 w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-semibold text-[#3f3f46] outline-none transition placeholder:text-[#d4d4d8] focus:border-[#5b60f9]"
     />
   )
 }
 
-function MCQBuilder({ question, options, onQuestionChange, onOptionsChange }: any) {
+function AddButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} className="inline-flex items-center gap-1.5 text-[12px] font-black text-[#5b60f9] transition hover:text-[#3a2fd3]">
+      <Plus size={13} />
+      {children}
+    </button>
+  )
+}
+
+function MCQBuilder({
+  question,
+  options,
+  onQuestionChange,
+  onOptionsChange,
+}: {
+  question: string
+  options: OptionRow[]
+  onQuestionChange: (value: string) => void
+  onOptionsChange: (value: OptionRow[]) => void
+}) {
   return (
     <>
       <Field label="Question">
-        <TextInput value={question} onChange={onQuestionChange} placeholder="Quelle est la formule de la célérité ?" />
+        <TextInput ariaLabel="MCQ question" value={question} onChange={onQuestionChange} placeholder="Quelle est la formule de la célérité ?" />
       </Field>
-      <Field label="Options (cochez la bonne réponse)">
-        <div className="space-y-2">
-          {options.map((opt: any, i: number) => (
-            <div key={opt.id} className="flex items-center gap-2">
+      <Field label="Options">
+        <div className="grid gap-2">
+          {options.map((option, index) => (
+            <div key={option.id} className="flex items-center gap-2">
               <input
-                aria-label={`Bonne réponse option ${i + 1}`}
+                aria-label={`Bonne réponse option ${index + 1}`}
                 type="radio"
-                checked={opt.is_correct}
-                onChange={() => onOptionsChange(options.map((o: any, j: number) => ({ ...o, is_correct: j === i })))}
-                className="text-indigo-500"
+                checked={option.is_correct}
+                onChange={() => onOptionsChange(options.map((row, rowIndex) => ({ ...row, is_correct: rowIndex === index })))}
+                className="h-4 w-4 accent-[#5b60f9]"
               />
-              <input
-                aria-label={`Option ${i + 1}`}
-                value={opt.text}
-                onChange={e => onOptionsChange(options.map((o: any, j: number) => j === i ? { ...o, text: e.target.value } : o))}
-                placeholder={`Option ${i + 1}`}
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+              <TextInput
+                ariaLabel={`Option ${index + 1}`}
+                value={option.text}
+                onChange={(value) => onOptionsChange(options.map((row, rowIndex) => (rowIndex === index ? { ...row, text: value } : row)))}
+                placeholder={`Option ${index + 1}`}
               />
             </div>
           ))}
@@ -339,162 +519,210 @@ function MCQBuilder({ question, options, onQuestionChange, onOptionsChange }: an
   )
 }
 
-function TrueFalseBuilder({ statement, answer, explanation, onStatementChange, onAnswerChange, onExplanationChange }: any) {
+function TrueFalseBuilder({
+  statement,
+  answer,
+  explanation,
+  onStatementChange,
+  onAnswerChange,
+  onExplanationChange,
+}: {
+  statement: string
+  answer: boolean
+  explanation: string
+  onStatementChange: (value: string) => void
+  onAnswerChange: (value: boolean) => void
+  onExplanationChange: (value: string) => void
+}) {
   return (
     <>
       <Field label="Affirmation">
-        <TextInput value={statement} onChange={onStatementChange} placeholder="Une onde mécanique peut se propager dans le vide." />
+        <TextInput ariaLabel="True false statement" value={statement} onChange={onStatementChange} placeholder="Une onde mécanique peut se propager dans le vide." />
       </Field>
       <Field label="Réponse correcte">
-        <div className="flex gap-3">
-          {[true, false].map(v => (
-            <button type="button"
-              key={String(v)}
-              onClick={() => onAnswerChange(v)}
+        <div className="grid grid-cols-2 gap-2">
+          {[true, false].map((value) => (
+            <button
+              type="button"
+              key={String(value)}
+              onClick={() => onAnswerChange(value)}
               className={cn(
-                'flex-1 py-2 rounded-lg text-sm font-semibold transition',
-                answer === v
-                  ? v ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-                  : 'bg-slate-800 text-slate-400 hover:text-white'
+                'h-10 rounded-[12px] border-[2px] text-[13px] font-black transition',
+                answer === value
+                  ? value ? 'border-[#16a34a] bg-[#16a34a] text-white' : 'border-[#ef4444] bg-[#ef4444] text-white'
+                  : 'border-[#e4e4e7] text-[#52525c] hover:border-[#c7c7cc]',
               )}
             >
-              {v ? 'Vrai' : 'Faux'}
+              {value ? 'Vrai' : 'Faux'}
             </button>
           ))}
         </div>
       </Field>
-      <Field label="Explication (optionnel)">
-        <TextInput value={explanation} onChange={onExplanationChange} placeholder="Parce que…" />
+      <Field label="Explication optionnelle">
+        <TextInput ariaLabel="True false explanation" value={explanation} onChange={onExplanationChange} placeholder="Parce que..." />
       </Field>
     </>
   )
 }
 
-function FillBlankBuilder({ sentence, answer, hint, onSentenceChange, onAnswerChange, onHintChange }: any) {
+function FillBlankBuilder({
+  sentence,
+  answer,
+  hint,
+  onSentenceChange,
+  onAnswerChange,
+  onHintChange,
+}: {
+  sentence: string
+  answer: string
+  hint: string
+  onSentenceChange: (value: string) => void
+  onAnswerChange: (value: string) => void
+  onHintChange: (value: string) => void
+}) {
   return (
     <>
-      <Field label="Phrase (utilisez {{blank}} pour le trou)">
-        <TextInput value={sentence} onChange={onSentenceChange} placeholder="La célérité est v = λ × {{blank}}" />
+      <Field label="Phrase">
+        <TextInput ariaLabel="Fill blank sentence" value={sentence} onChange={onSentenceChange} placeholder="La célérité est v = λ × {{blank}}" />
       </Field>
       <Field label="Réponse attendue">
-        <TextInput value={answer} onChange={onAnswerChange} placeholder="f" />
+        <TextInput ariaLabel="Fill blank answer" value={answer} onChange={onAnswerChange} placeholder="f" />
       </Field>
-      <Field label="Indice (optionnel)">
-        <TextInput value={hint} onChange={onHintChange} placeholder="fréquence" />
+      <Field label="Indice optionnel">
+        <TextInput ariaLabel="Fill blank hint" value={hint} onChange={onHintChange} placeholder="fréquence" />
       </Field>
     </>
   )
 }
 
-function MatchingBuilder({ question, pairs, onQuestionChange, onPairsChange }: any) {
+function MatchingBuilder({
+  question,
+  pairs,
+  onQuestionChange,
+  onPairsChange,
+}: {
+  question: string
+  pairs: PairRow[]
+  onQuestionChange: (value: string) => void
+  onPairsChange: (value: PairRow[]) => void
+}) {
   return (
     <>
       <Field label="Question">
-        <TextInput value={question} onChange={onQuestionChange} placeholder="Associez chaque onde à sa caractéristique" />
+        <TextInput ariaLabel="Matching question" value={question} onChange={onQuestionChange} placeholder="Associez chaque onde à sa caractéristique" />
       </Field>
       <Field label="Paires">
-        <div className="space-y-2">
-          {pairs.map((p: any, i: number) => (
-            <div key={p.id} className="flex items-center gap-2">
-              <input
-                aria-label={`Gauche paire ${i + 1}`}
-                value={p.left}
-                onChange={e => onPairsChange(pairs.map((x: any, j: number) => j === i ? { ...x, left: e.target.value } : x))}
+        <div className="grid gap-2">
+          {pairs.map((pair, index) => (
+            <div key={pair.id} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+              <TextInput
+                ariaLabel={`Gauche paire ${index + 1}`}
+                value={pair.left}
+                onChange={(value) => onPairsChange(pairs.map((row, rowIndex) => (rowIndex === index ? { ...row, left: value } : row)))}
                 placeholder="Gauche"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
               />
-              <span className="text-slate-400">↔</span>
-              <input
-                aria-label={`Droite paire ${i + 1}`}
-                value={p.right}
-                onChange={e => onPairsChange(pairs.map((x: any, j: number) => j === i ? { ...x, right: e.target.value } : x))}
+              <span className="text-[12px] font-black text-[#a1a1aa]">→</span>
+              <TextInput
+                ariaLabel={`Droite paire ${index + 1}`}
+                value={pair.right}
+                onChange={(value) => onPairsChange(pairs.map((row, rowIndex) => (rowIndex === index ? { ...row, right: value } : row)))}
                 placeholder="Droite"
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
               />
             </div>
           ))}
-          <button type="button"
-            onClick={() => onPairsChange([...pairs, { id: String.fromCharCode(97 + pairs.length), left: '', right: '' }])}
-            className="text-indigo-400 hover:text-indigo-300 text-xs transition"
-          >
-            + Ajouter une paire
-          </button>
+          <AddButton onClick={() => onPairsChange([...pairs, { id: String.fromCharCode(97 + pairs.length), left: '', right: '' }])}>Ajouter une paire</AddButton>
         </div>
       </Field>
     </>
   )
 }
 
-function OrderingBuilder({ question, items, onQuestionChange, onItemsChange }: any) {
+function OrderingBuilder({
+  question,
+  items,
+  onQuestionChange,
+  onItemsChange,
+}: {
+  question: string
+  items: OrderRow[]
+  onQuestionChange: (value: string) => void
+  onItemsChange: (value: OrderRow[]) => void
+}) {
   return (
     <>
       <Field label="Question">
-        <TextInput value={question} onChange={onQuestionChange} placeholder="Remettez les étapes dans l'ordre" />
+        <TextInput ariaLabel="Ordering question" value={question} onChange={onQuestionChange} placeholder="Remettez les étapes dans l'ordre" />
       </Field>
-      <Field label="Éléments (dans le bon ordre)">
-        <div className="space-y-2">
-          {items.map((item: any, i: number) => (
-            <div key={item.id} className="flex items-center gap-2">
-              <span className="text-slate-400 text-xs font-mono w-4">{i + 1}</span>
-              <input
-                aria-label={`Élément ${i + 1}`}
+      <Field label="Éléments dans le bon ordre">
+        <div className="grid gap-2">
+          {items.map((item, index) => (
+            <div key={item.id} className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-center gap-2">
+              <span className="text-[12px] font-black text-[#a1a1aa]">{index + 1}</span>
+              <TextInput
+                ariaLabel={`Élément ${index + 1}`}
                 value={item.label}
-                onChange={e => onItemsChange(items.map((x: any, j: number) => j === i ? { ...x, label: e.target.value } : x))}
-                placeholder={`Étape ${i + 1}`}
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                onChange={(value) => onItemsChange(items.map((row, rowIndex) => (rowIndex === index ? { ...row, label: value } : row)))}
+                placeholder={`Étape ${index + 1}`}
               />
             </div>
           ))}
-          <button type="button"
-            onClick={() => onItemsChange([...items, { id: String(items.length + 1), label: '' }])}
-            className="text-indigo-400 hover:text-indigo-300 text-xs transition"
-          >
-            + Ajouter un élément
-          </button>
+          <AddButton onClick={() => onItemsChange([...items, { id: String(items.length + 1), label: '' }])}>Ajouter un élément</AddButton>
         </div>
       </Field>
     </>
   )
 }
 
-function DragDropBuilder({ question, items, zones, onQuestionChange, onItemsChange, onZonesChange }: any) {
+function DragDropBuilder({
+  question,
+  items,
+  zones,
+  onQuestionChange,
+  onItemsChange,
+  onZonesChange,
+}: {
+  question: string
+  items: DragItemRow[]
+  zones: DropZoneRow[]
+  onQuestionChange: (value: string) => void
+  onItemsChange: (value: DragItemRow[]) => void
+  onZonesChange: (value: DropZoneRow[]) => void
+}) {
   return (
     <>
       <Field label="Question">
-        <TextInput value={question} onChange={onQuestionChange} placeholder="Glissez chaque élément dans la bonne zone" />
+        <TextInput ariaLabel="Drag drop question" value={question} onChange={onQuestionChange} placeholder="Glissez chaque élément dans la bonne zone" />
       </Field>
       <Field label="Éléments">
-        <div className="space-y-1.5">
-          {items.map((item: any, i: number) => (
-            <input
-              aria-label={`Élément ${item.id}`}
+        <div className="grid gap-2">
+          {items.map((item, index) => (
+            <TextInput
+              ariaLabel={`Élément ${item.id}`}
               key={item.id}
               value={item.label}
-              onChange={e => onItemsChange(items.map((x: any, j: number) => j === i ? { ...x, label: e.target.value } : x))}
+              onChange={(value) => onItemsChange(items.map((row, rowIndex) => (rowIndex === index ? { ...row, label: value } : row)))}
               placeholder={`Élément ${item.id}`}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
             />
           ))}
         </div>
       </Field>
       <Field label="Zones">
-        <div className="space-y-1.5">
-          {zones.map((zone: any, i: number) => (
-            <div key={zone.id} className="flex gap-2">
-              <input
-                aria-label={`Zone ${i + 1}`}
+        <div className="grid gap-2">
+          {zones.map((zone, index) => (
+            <div key={zone.id} className="grid grid-cols-[minmax(0,1fr)_8rem] gap-2">
+              <TextInput
+                ariaLabel={`Zone ${index + 1}`}
                 value={zone.label}
-                onChange={e => onZonesChange(zones.map((x: any, j: number) => j === i ? { ...x, label: e.target.value } : x))}
+                onChange={(value) => onZonesChange(zones.map((row, rowIndex) => (rowIndex === index ? { ...row, label: value } : row)))}
                 placeholder={`Zone ${zone.id}`}
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
               />
               <select
-                aria-label={`Bonne réponse zone ${i + 1}`}
+                aria-label={`Bonne réponse zone ${index + 1}`}
                 value={zone.correctItemId}
-                onChange={e => onZonesChange(zones.map((x: any, j: number) => j === i ? { ...x, correctItemId: e.target.value } : x))}
-                className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                onChange={(event) => onZonesChange(zones.map((row, rowIndex) => (rowIndex === index ? { ...row, correctItemId: event.target.value } : row)))}
+                className="h-10 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-2 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
               >
-                {items.map((it: any) => <option key={it.id} value={it.id}>{it.id}</option>)}
+                {items.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
               </select>
             </div>
           ))}
@@ -504,22 +732,33 @@ function DragDropBuilder({ question, items, zones, onQuestionChange, onItemsChan
   )
 }
 
-function SimulatorBuilder({ simType, title, onTypeChange, onTitleChange }: any) {
+function SimulatorBuilder({
+  simType,
+  title,
+  onTypeChange,
+  onTitleChange,
+}: {
+  simType: 'wave' | 'prism' | 'diffraction'
+  title: string
+  onTypeChange: (value: 'wave' | 'prism' | 'diffraction') => void
+  onTitleChange: (value: string) => void
+}) {
   return (
     <>
       <Field label="Type de simulateur">
         <select
+          aria-label="Simulator type"
           value={simType}
-          onChange={e => onTypeChange(e.target.value)}
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          onChange={(event) => onTypeChange(event.target.value as 'wave' | 'prism' | 'diffraction')}
+          className="h-10 w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
         >
           <option value="wave">Onde transversale</option>
           <option value="prism">Prisme (dispersion)</option>
           <option value="diffraction">Diffraction (fente)</option>
         </select>
       </Field>
-      <Field label="Titre (optionnel)">
-        <TextInput value={title} onChange={onTitleChange} placeholder="Simulateur d'onde" />
+      <Field label="Titre optionnel">
+        <TextInput ariaLabel="Simulator title" value={title} onChange={onTitleChange} placeholder="Simulateur d'onde" />
       </Field>
     </>
   )

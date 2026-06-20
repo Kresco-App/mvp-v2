@@ -40,6 +40,7 @@ import {
 } from '@/lib/studentProfessorChatData'
 
 const threadSwitchTransition = { type: 'spring', stiffness: 420, damping: 38, mass: 0.8 } as const
+const chatFrameTransition = { duration: 0.16, ease: 'easeOut' } as const
 const messageMotionTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.72 } as const
 
 export default function StudentProfessorChatPage() {
@@ -64,7 +65,6 @@ export default function StudentProfessorChatPage() {
   const [retryingMessageIds, setRetryingMessageIds] = useState<Set<number>>(new Set())
   const [visibleMessageCounts, setVisibleMessageCounts] = useState<Record<number, number>>({})
   const [sentMessageStableKeys, setSentMessageStableKeys] = useState<Record<number, number>>({})
-  const [chatboxVisible, setChatboxVisible] = useState(true)
   const messagesScrollerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -75,7 +75,7 @@ export default function StudentProfessorChatPage() {
   const optimisticMessageIdRef = useRef(-1)
   const optimisticImageFilesRef = useRef(new Map<number, File>())
   const optimisticAttachmentUrlsRef = useRef(new Set<string>())
-  const olderPaginationSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+  const olderPaginationSnapshotRef = useRef<{ frameKey: string; scrollHeight: number; scrollTop: number } | null>(null)
   const prefetchedConversationIdsRef = useRef(new Set<number>())
   const {
     status,
@@ -204,17 +204,11 @@ export default function StudentProfessorChatPage() {
   const chatProfessor = active?.professor ?? selectedThread?.professor ?? null
   const composerOfferingId = active?.course_offering_id ?? selectedThread?.course_offering_id ?? selectedOfferingId
   const pendingConversationId = !active && selectedThread?.conversation?.id ? selectedThread.conversation.id : null
-  const chatboxKey = active
+  const chatFrameKey = active
     ? `conversation-${active.id}`
     : selectedThread
       ? `new-conversation-${selectedThread.course_offering_id}`
       : 'new-conversation'
-
-  useLayoutEffect(() => {
-    setChatboxVisible(false)
-    const frame = window.requestAnimationFrame(() => setChatboxVisible(true))
-    return () => window.cancelAnimationFrame(frame)
-  }, [chatboxKey])
 
   const prefetchThreadMessages = useCallback((conversationId?: number | null) => {
     if (!conversationId || conversationId === activeId || prefetchedConversationIdsRef.current.has(conversationId)) return
@@ -238,14 +232,15 @@ export default function StudentProfessorChatPage() {
     if (!scroller) return
 
     const snapshot = olderPaginationSnapshotRef.current
-    if (!snapshot) {
+    if (!snapshot || snapshot.frameKey !== chatFrameKey) {
       scroller.scrollTop = scroller.scrollHeight
+      olderPaginationSnapshotRef.current = null
       return
     }
     const scrollDelta = scroller.scrollHeight - snapshot.scrollHeight
     scroller.scrollTop = snapshot.scrollTop + scrollDelta
     olderPaginationSnapshotRef.current = null
-  }, [activeId, messagesLoading, messageWindow.messages.length])
+  }, [chatFrameKey, messagesLoading, messageWindow.messages.length])
 
   useEffect(() => {
     if (!status || statusLoading) return
@@ -284,6 +279,7 @@ export default function StudentProfessorChatPage() {
     const scroller = messagesScrollerRef.current
     if (scroller) {
       olderPaginationSnapshotRef.current = {
+        frameKey: chatFrameKey,
         scrollHeight: scroller.scrollHeight,
         scrollTop: scroller.scrollTop,
       }
@@ -295,7 +291,7 @@ export default function StudentProfessorChatPage() {
         messages.length,
       ),
     }))
-  }, [activeId, messages.length])
+  }, [activeId, chatFrameKey, messages.length])
 
   async function createConversationFromBody(body: string) {
     if (!composerOfferingId || !body || startingConversation || pendingConversationId) return null
@@ -338,6 +334,7 @@ export default function StudentProfessorChatPage() {
 
   function selectThread(courseOfferingId: number, conversationId?: number | null) {
     prefetchThreadMessages(conversationId)
+    olderPaginationSnapshotRef.current = null
     setMessageMenuId(null)
     setEditingMessageId(null)
     if (!conversationId) clearSelectedImage()
@@ -574,16 +571,60 @@ export default function StudentProfessorChatPage() {
           <p className="m-0 mt-2 max-w-[520px] text-[14px] font-bold leading-[1.4] text-[#71717b]">{status?.reason || 'VIP or Platinum access is required.'}</p>
         </section>
       ) : (
-        <section className="mx-auto flex h-[calc(100vh-72px)] min-h-[720px] w-full max-w-[1180px] items-start justify-center gap-3 py-11">
+        <section className="mx-auto flex min-h-[calc(100svh-72px)] w-full max-w-[1180px] items-start justify-center gap-3 py-6 lg:h-[calc(100vh-72px)] lg:min-h-[720px] lg:py-11">
           <section className="flex h-full min-w-0 flex-1 flex-col items-center">
             <AnimatePresence mode="wait" initial={false}>
               {chatProfessor ? (
                 <div
                   className="flex h-full w-full flex-col items-center"
                 >
+                <div className="relative min-h-[460px] w-full flex-1">
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                      key={chatFrameKey}
+                      className="absolute inset-0 flex min-h-0 w-full flex-col items-center"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={chatFrameTransition}
+                    >
                 <div className="w-full max-w-[720px] shrink-0">
                   <h1 className="m-0 text-[24px] font-black leading-[1.4] tracking-[0.24px] text-[#3f3f46]">{chatProfessor.full_name}</h1>
                 </div>
+                {threadOptions.length > 1 && (
+                  <div className="mt-4 w-full max-w-[720px] lg:hidden" aria-label="Teacher conversations">
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {threadOptions.map((thread) => {
+                        const isSelected = thread.conversation?.id === activeId || (!activeId && selectedOfferingId === thread.course_offering_id)
+                        const preview = threadPreview(thread)
+
+                        return (
+                          <button
+                            key={thread.course_offering_id}
+                            type="button"
+                            onFocus={() => prefetchThreadMessages(thread.conversation?.id)}
+                            onClick={() => selectThread(thread.course_offering_id, thread.conversation?.id)}
+                            aria-pressed={isSelected}
+                            aria-label={teacherThreadButtonLabel(thread)}
+                            className={`grid min-w-[220px] max-w-[min(78vw,280px)] grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#c7c8ff] ${isSelected ? 'border-[#d9d9e2] bg-[#fafafa]' : 'border-[#e4e4e7] bg-white hover:bg-[#f7f7f8]'}`}
+                          >
+                            <Avatar name={thread.professor.full_name} src={thread.professor.avatar_url} />
+                            <span className="min-w-0">
+                              <strong className="block truncate text-[14px] font-black leading-[1.15] tracking-[0.08px] text-[#3f3f46]">{thread.professor.full_name}</strong>
+                              <span className="mt-0.5 block truncate text-[12px] font-black leading-[1.15] text-[#71717b]">{thread.subject_title}</span>
+                              <span className="mt-1 block truncate text-[12px] font-bold leading-[1.2] text-[#a1a1aa]">{preview || 'No messages yet'}</span>
+                            </span>
+                            {thread.unread_count > 0 && (
+                              <span className="grid h-5 min-w-5 place-items-center self-start rounded-full bg-[#f5900b] px-1.5 text-[10px] font-black text-white">
+                                {thread.unread_count > 9 ? '9+' : thread.unread_count}
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="relative mt-6 min-h-0 w-full max-w-[720px] flex-1">
                   <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 z-20 h-12 bg-gradient-to-b from-white via-white/80 to-transparent" />
                   <div ref={messagesScrollerRef} className="h-full overflow-y-auto overflow-x-hidden pr-1">
@@ -713,7 +754,7 @@ export default function StudentProfessorChatPage() {
                                     )}
                                   </AnimatePresence>
                                 )}
-                                <motion.div layout transition={messageMotionTransition} className={`relative max-w-[min(72%,290px)] rounded-b-[12px] border p-3 ${bubbleTone} ${mine ? 'rounded-tl-[12px]' : 'rounded-tr-[12px]'}`}>
+                                <motion.div layout transition={messageMotionTransition} className={`relative max-w-[min(78%,520px)] rounded-b-[12px] border p-3 sm:max-w-[min(72%,520px)] ${bubbleTone} ${mine ? 'rounded-tl-[12px]' : 'rounded-tr-[12px]'}`}>
                                   {canUseMessageActions && (
                                     <div data-chat-message-actions className={`absolute -left-11 top-1 z-10 h-8 w-8 transition duration-150 ${isMessageMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
                                       <AnimatePresence mode="wait" initial={false}>
@@ -790,7 +831,7 @@ export default function StudentProfessorChatPage() {
                                         exit={{ opacity: 0, y: -6 }}
                                         transition={{ duration: 0.16 }}
                                       >
-                                        {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#71717b]">{message.body}</p>}
+                                        {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.35] text-[#71717b]">{message.body}</p>}
                                         {message.attachment_url && (
                                           <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[10px] border border-[#e4e4e7]' : 'block overflow-hidden rounded-[10px] border border-[#e4e4e7]'}>
                                             <Image
@@ -814,14 +855,14 @@ export default function StudentProfessorChatPage() {
                                         animate={{ opacity: 1, height: 'auto', y: 0 }}
                                         exit={{ opacity: 0, height: 0, y: -4 }}
                                         transition={{ duration: 0.16 }}
-                                        className={`mt-2 flex items-center justify-between gap-2 overflow-hidden border-t pt-2 ${isFailed ? 'border-[#fecaca]' : 'border-[#e4e4e7]'}`}
+                                        className={`mt-2 flex flex-wrap items-center justify-between gap-2 overflow-hidden border-t pt-2 ${isFailed ? 'border-[#fecaca]' : 'border-[#e4e4e7]'}`}
                                       >
                                         <span className={`inline-flex min-w-0 items-center gap-1.5 text-[11px] font-black ${isFailed ? 'text-[#dc2626]' : 'text-[#a1a1aa]'}`}>
                                           {!isFailed && <Loader2 size={11} className="shrink-0 animate-spin" />}
                                           <span className="truncate">{stateLabel}</span>
                                         </span>
                                         {isFailed && (
-                                          <span className="flex shrink-0 items-center gap-1">
+                                          <span className="ml-auto flex shrink-0 items-center gap-1">
                                             <button type="button" onClick={() => void retryFailedMessage(message)} className="h-7 rounded-[8px] border border-[#fecaca] bg-white px-2 text-[11px] font-black text-[#dc2626] transition hover:-translate-y-px">
                                               Retry
                                             </button>
@@ -848,9 +889,12 @@ export default function StudentProfessorChatPage() {
                     </div>
                   </div>
                 </div>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
                 <form
                   onSubmit={active ? send : startConversationFromComposer}
-                  className={`mt-6 flex w-full max-w-[720px] shrink-0 flex-col gap-3 rounded-[12px] border border-[#e4e4e7] bg-[#f4f4f5] p-3 transition-opacity duration-150 ease-out ${chatboxVisible ? 'opacity-100' : 'opacity-0'}`}
+                  className="mt-6 flex w-full max-w-[720px] shrink-0 flex-col gap-3 rounded-[12px] border border-[#e4e4e7] bg-[#f4f4f5] p-3"
                 >
                   <AnimatePresence initial={false}>
                     {selectedImagePreview && (
@@ -1189,4 +1233,10 @@ function threadPreview(thread: ReturnType<typeof teacherThreads>[number]) {
   if (!thread.conversation || (!thread.last_message_preview && !thread.last_message_sender_role)) return ''
   const sender = thread.last_message_sender_role === 'student' ? 'You' : 'Professor'
   return `${sender}: ${thread.last_message_preview || 'Image'}`
+}
+
+function teacherThreadButtonLabel(thread: ReturnType<typeof teacherThreads>[number]) {
+  const preview = threadPreview(thread)
+  const unread = thread.unread_count > 0 ? `${thread.unread_count > 9 ? '9 plus' : thread.unread_count} unread. ` : ''
+  return `${thread.professor.full_name}. ${thread.subject_title}. ${unread}${preview || 'No messages yet'}`
 }

@@ -29,6 +29,8 @@ export type AdminOverview = {
   engagement: OverviewSection
   interactions: OverviewSection
   notifications: OverviewSection
+  finance: OverviewSection
+  communications: OverviewSection
   admin_audit?: OverviewSection
   crud_catalog: CrudCatalogItem[]
 }
@@ -45,6 +47,9 @@ export const DOMAIN_LABELS: Record<string, string> = {
   'progress-xp': 'Progress and XP',
   engagement: 'Engagement',
   'notes-saves-comments': 'Community data',
+  finance: 'Finance',
+  messages: 'Messages',
+  support: 'Support',
   calendar: 'Calendar',
   notifications: 'Notifications',
   'admin-audit': 'Admin audit',
@@ -90,6 +95,8 @@ export const EMPTY_OVERVIEW: AdminOverview = {
   engagement: {},
   interactions: {},
   notifications: {},
+  finance: {},
+  communications: {},
   admin_audit: {},
   crud_catalog: FALLBACK_CRUD,
 }
@@ -138,6 +145,20 @@ export function publishedRatio(statuses?: Record<string, number>): number {
   if (!total) return 0
   const ready = numberValue(statuses?.published) + numberValue(statuses?.active) + numberValue(statuses?.scheduled)
   return Math.round((ready / total) * 100)
+}
+
+export function formatMoneyCentimes(value: unknown): string {
+  return `${(numberValue(value) / 100).toLocaleString('en-US', {
+    maximumFractionDigits: 0,
+  })} MAD`
+}
+
+export function recordEntries(record?: Record<string, unknown>, limit = 6) {
+  return Object.entries(record ?? {})
+    .map(([key, value]) => ({ key, value: numberValue(value) }))
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit)
 }
 
 export function groupByDomain(items: CrudCatalogItem[]) {

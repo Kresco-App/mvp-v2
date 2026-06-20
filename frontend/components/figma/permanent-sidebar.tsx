@@ -158,7 +158,7 @@ export function PermanentSidebar({
   const visibleStrikeDays = strikeDays ?? sidebarData?.strikeDays ?? permanentSidebarStrikeDefaults
   const visibleQuests = useMemo(() => normalizeQuests(quests ?? sidebarData?.quests ?? []), [quests, sidebarData?.quests])
   const sourceLeaderboard = leaderboardEntries ?? sidebarData?.leaderboardEntries ?? []
-  const visibleLeaderboard = sourceLeaderboard.length > 0 ? sourceLeaderboard.slice(0, 10) : permanentSidebarLeaderboardDefaults
+  const visibleLeaderboard = sourceLeaderboard.length > 0 ? sourceLeaderboard : permanentSidebarLeaderboardDefaults
   const hasDirectSectionData = {
     chrono: Boolean(chronoUnits),
     calendar: Boolean(calendarDays || liveEvents),
@@ -217,7 +217,7 @@ async function fetchPermanentSidebarData(dataEndpoint: string): Promise<Permanen
   } catch {
     const [questResult, leaderboardResult, xpResult] = await Promise.allSettled([
       getJson<FigmaDailyQuest[]>('/progress/daily-quests'),
-      getJson<PermanentSidebarLeaderboardEntry[]>('/progress/leaderboard', { params: { limit: 10 } }),
+      getJson<PermanentSidebarLeaderboardEntry[]>('/progress/leaderboard', { params: { limit: 10, include_current: true } }),
       getJson<{ streak_days?: number }>('/progress/xp'),
     ])
 
@@ -288,7 +288,7 @@ function PermanentSidebarSectionSkeleton({ section }: { section: PermanentSideba
 function sidebarSkeletonHeight(section: PermanentSidebarSection) {
   if (section === 'calendar') return 415
   if (section === 'quests') return 305
-  if (section === 'leaderboard') return 663
+  if (section === 'leaderboard') return 455
   return 157
 }
 
@@ -380,7 +380,12 @@ export function PermanentSidebarCard({
 function sidebarCardHeightClass(height: number) {
   if (height === 157) return 'h-[157px]'
   if (height === 305) return 'h-[305px]'
+  if (height === 330) return 'h-[330px]'
+  if (height === 360) return 'h-[360px]'
+  if (height === 390) return 'h-[390px]'
   if (height === 415) return 'h-[415px]'
+  if (height === 430) return 'h-[430px]'
+  if (height === 455) return 'min-h-[455px]'
   if (height === 663) return 'h-[663px]'
   return 'min-h-[157px]'
 }
@@ -633,7 +638,7 @@ export function DailyQuestPanel({
 export function LeaderboardPanel({
   entries = permanentSidebarLeaderboardDefaults,
   title = 'Leaderboard',
-  subtitle = 'Compete against your pairs',
+  subtitle = 'Top global preview',
   href = '/classement',
 }: {
   entries?: PermanentSidebarLeaderboardEntry[]
@@ -641,22 +646,70 @@ export function LeaderboardPanel({
   subtitle?: string
   href?: string
 }) {
+  const globalEntries = useMemo(() => sortLeaderboardEntries(entries), [entries])
+  const visibleEntries = globalEntries.filter((entry) => entry.rank <= 5).slice(0, 5)
+  const currentEntry = globalEntries.find((entry) => entry.is_current_user)
+  const pinnedCurrent = currentEntry && !visibleEntries.some((entry) => entry.user_id === currentEntry.user_id) ? currentEntry : null
+
   return (
-    <PermanentSidebarCard title={title} subtitle={subtitle} height={663}>
-      <div className="mt-8 grid w-full gap-4">
-        {entries.slice(0, 10).map((entry, index) => (
-          <Link className="grid h-10 w-full grid-cols-[27px_40px_1fr] items-start gap-4 rounded-xl no-underline transition duration-150 hover:translate-x-0.5 hover:bg-[#f7f8fb]" href={entry.href || href} key={`${entry.user_id}-${entry.rank}-${index}`}>
-            <RankMarker rank={entry.rank || index + 1} />
-            <LeaderboardAvatar entry={entry} index={index} />
-            <div className="grid min-w-0 gap-0.5">
-              <strong className="truncate text-[16px] font-bold leading-[0.95] tracking-[0.24px] text-[#3f3f46]">{entry.full_name}</strong>
-              <span className="whitespace-nowrap text-[14px] font-semibold leading-[1.1] tracking-[0.21px] text-[#71717b]">{entry.total_xp.toLocaleString()} point</span>
+    <PermanentSidebarCard title={title} subtitle={subtitle} height={pinnedCurrent ? 390 : 330}>
+      <div className="mt-5 grid w-full gap-2.5">
+        <div className="grid w-full gap-2.5">
+          {visibleEntries.map((entry, index) => (
+            <LeaderboardPanelRow
+              entry={entry}
+              href={href}
+              index={index}
+              key={`${entry.user_id}-${entry.rank}-${index}`}
+            />
+          ))}
+        </div>
+
+        {pinnedCurrent && (
+          <div className="border-t border-[#e4e4e7] pt-2">
+            <div className="mb-1 flex items-center justify-between text-[10px] font-black uppercase tracking-[0.15px] text-[#71717b]">
+              <span>Your global rank</span>
+              <span>Global</span>
             </div>
-          </Link>
-        ))}
+            <LeaderboardPanelRow entry={pinnedCurrent} href={href} index={5} pinned />
+          </div>
+        )}
       </div>
     </PermanentSidebarCard>
   )
+}
+
+function LeaderboardPanelRow({
+  entry,
+  href,
+  index,
+  pinned = false,
+}: {
+  entry: PermanentSidebarLeaderboardEntry
+  href: string
+  index: number
+  pinned?: boolean
+}) {
+  const zoneClass = entry.is_current_user ? 'bg-[#edf1ff] text-[#453dee]' : 'bg-white text-[#3f3f46]'
+  const currentClass = entry.is_current_user ? 'shadow-[inset_3px_0_0_#453dee] ring-1 ring-[#dfe5ff]' : ''
+
+  return (
+    <Link
+      className={`grid h-[38px] w-full grid-cols-[25px_34px_minmax(0,1fr)] items-center gap-3 rounded-xl px-1.5 py-0 no-underline transition duration-150 hover:translate-x-0.5 hover:bg-[#f7f8fb] ${zoneClass} ${currentClass || (pinned ? 'shadow-[inset_3px_0_0_#453dee]' : '')}`}
+      href={entry.href || href}
+    >
+      <RankMarker rank={entry.rank || index + 1} />
+      <LeaderboardAvatar entry={entry} index={index} small />
+      <div className="grid min-w-0 gap-0.5">
+        <strong className="truncate text-[14px] font-bold leading-[0.95] tracking-[0.18px]">{entry.full_name}{entry.is_current_user ? ' (you)' : ''}</strong>
+        <span className="whitespace-nowrap text-[12px] font-semibold leading-[1.05] tracking-[0.16px] text-[#71717b]">{entry.total_xp.toLocaleString()} point</span>
+      </div>
+    </Link>
+  )
+}
+
+function sortLeaderboardEntries(entries: PermanentSidebarLeaderboardEntry[]) {
+  return [...entries].sort((a, b) => (a.rank || 0) - (b.rank || 0) || a.user_id - b.user_id)
 }
 
 export function RankMarker({ rank }: { rank: number }) {
@@ -667,21 +720,22 @@ export function RankMarker({ rank }: { rank: number }) {
       3: 'bg-[#e6b16f] text-[#a65f00] shadow-[inset_0_0_0_4px_#f0c48c]',
     } as const
     return (
-      <span className={`mt-[6.5px] grid h-[27px] w-[24.254px] place-items-center rounded-md text-[16.2px] font-black leading-[1.1] tracking-[0.243px] ${styles[rank as 1 | 2 | 3]}`}>
+      <span className={`grid h-[25px] w-[23px] place-items-center rounded-md text-[14px] font-black leading-none tracking-[0.18px] ${styles[rank as 1 | 2 | 3]}`}>
         {rank}
       </span>
     )
   }
 
-  return <span className="grid h-[27px] w-[27px] place-items-center text-[16.2px] font-bold leading-[1.1] tracking-[0.243px] text-[#9f9fa9]">{rank}</span>
+  return <span className="grid h-[25px] w-[25px] place-items-center text-[14px] font-bold leading-none tracking-[0.18px] text-[#9f9fa9]">{rank}</span>
 }
 
-export function LeaderboardAvatar({ entry, index }: { entry: PermanentSidebarLeaderboardEntry; index: number }) {
+export function LeaderboardAvatar({ entry, index, small = false }: { entry: PermanentSidebarLeaderboardEntry; index: number; small?: boolean }) {
   const src = getLeaderboardAvatarSrc(entry, index)
+  const size = small ? 34 : 40
 
   return (
-    <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[12.727px] bg-[#e4e4e7]">
-      <Image className="h-10 w-10 object-cover" src={src} alt="" width={40} height={40} unoptimized referrerPolicy="no-referrer" />
+    <span className={`${small ? 'h-[34px] w-[34px] rounded-[11px]' : 'h-10 w-10 rounded-[12.727px]'} grid shrink-0 place-items-center overflow-hidden bg-[#e4e4e7]`}>
+      <Image className="h-full w-full object-cover" src={src} alt="" width={size} height={size} unoptimized referrerPolicy="no-referrer" />
     </span>
   )
 }

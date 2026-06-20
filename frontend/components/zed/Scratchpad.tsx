@@ -201,7 +201,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet, storageKey
 
       {/* Pinned snippets from PDF */}
       {pinnedSnippets.length > 0 && (
-        <div className="space-y-2 border-b border-stone-200 bg-amber-50/50 px-4 py-3">
+        <div className="max-h-64 shrink-0 space-y-2 overflow-y-auto border-b border-stone-200 bg-amber-50/50 px-4 py-3 md:max-h-[38%]">
           <div className="flex items-center justify-between">
             <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">
               <Pin size={12} />
@@ -230,7 +230,7 @@ export default function Scratchpad({ pinnedSnippets, onRemoveSnippet, storageKey
                 )}
                 <button type="button"
                   onClick={() => onRemoveSnippet(snippet.id)}
-                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-400 opacity-0 shadow-sm ring-1 ring-stone-200 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus:opacity-100"
+                  className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-400 opacity-100 shadow-sm ring-1 ring-stone-200 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                   title="Retirer l'epingle"
                   aria-label="Retirer l'epingle"
                 >

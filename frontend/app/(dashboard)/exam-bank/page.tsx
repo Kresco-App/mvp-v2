@@ -1,23 +1,33 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { BookOpen, CalendarDays, CheckCircle2, ChevronLeft, FileText, Lock, Play, Search, Star, Trophy, Video } from 'lucide-react'
+import { BookOpen, FileText, Lock, Search } from 'lucide-react'
 import { apiDataErrorMessage } from '@/lib/apiData'
-import { recordExamProblemProgress, useExamBankData, useExamProblemDetail, type Exam, type ExamBankFilters, type ExamProblem, type ExamProblemDetail, type ExamProblemPart } from '@/lib/courseDiscoveryData'
+import { useExamBankData, type Exam, type ExamBankFilters, type ExamProblem } from '@/lib/courseDiscoveryData'
 import { SkeletonBlock } from '@/components/figma'
 
 const skeletonAnimationDelayClasses = ['[animation-delay:0ms]', '[animation-delay:60ms]', '[animation-delay:120ms]'] as const
 
 type VisibleExam = Exam & {
   totalProblemCount: number
+  completedProblemCount: number
+  openedProblemCount: number
+  progressPercent: number
+  firstProblemId: number | null
+}
+
+type SubjectExamSection = {
+  key: string
+  title: string
+  exams: VisibleExam[]
 }
 
 const EXAM_SEARCH_DEBOUNCE_MS = 280
 const MAX_EXAMS_RENDERED = 30
-const MAX_PROBLEMS_PER_EXAM = 12
+const MAX_PROGRESS_DOTS = 8
 const progressFilterOptions: { value: NonNullable<ExamBankFilters['progressStatus']>; label: string }[] = [
   { value: '', label: 'All progress' },
   { value: 'not_started', label: 'Not started' },
@@ -43,11 +53,6 @@ export default function ExamBankPage() {
   const [queryInput, setQueryInput] = useState(routeQuery)
   const [progressFilter, setProgressFilter] = useState<NonNullable<ExamBankFilters['progressStatus']>>(routeProgressFilter)
   const [savedFilter, setSavedFilter] = useState<SavedFilter>(routeSavedFilter)
-  const [selectedProblemId, setSelectedProblemId] = useState<number | null>(routeProblemId)
-  const routeProblemVersionRef = useRef<number | null>(routeProblemId)
-  const [detailRequestVersion, setDetailRequestVersion] = useState(routeProblemId ? 1 : 0)
-  const openedProgressRef = useRef<Set<number>>(new Set())
-  const [progressMutating, setProgressMutating] = useState(false)
   const lastErrorToastRef = useRef('')
 
   useEffect(() => {
@@ -67,49 +72,32 @@ export default function ExamBankPage() {
     progressStatus: progressFilter,
     saved: savedFilter === 'saved' ? true : savedFilter === 'unsaved' ? false : undefined,
   }), [progressFilter, savedFilter])
-  const { exams, loading, error, retry: retryExamList } = useExamBankData(query, examFilters)
-  const detail = useExamProblemDetail(selectedProblemId, detailRequestVersion)
+  const { exams, loading, error } = useExamBankData(query, examFilters)
 
   useEffect(() => {
-    setSelectedProblemId(routeProblemId)
-    if (routeProblemVersionRef.current === routeProblemId) return
-    routeProblemVersionRef.current = routeProblemId
-    if (routeProblemId) setDetailRequestVersion((value) => value + 1)
-  }, [routeProblemId])
-
-  useEffect(() => {
-    const activeError = error || detail.error
-    if (!activeError) {
+    if (!error) {
       lastErrorToastRef.current = ''
       return
     }
-    const message = apiDataErrorMessage(activeError, 'Could not load Exam Bank.')
+    const message = apiDataErrorMessage(error, 'Could not load Exam Bank.')
     if (message === lastErrorToastRef.current) return
     lastErrorToastRef.current = message
     toast.error(message)
-  }, [detail.error, error])
+  }, [error])
 
   useEffect(() => {
     const params = new URLSearchParams(searchKey)
     const trimmedQuery = query.trim()
 
-    if (trimmedQuery) {
-      params.set('q', trimmedQuery)
-    } else {
-      params.delete('q')
-    }
-    if (progressFilter) {
-      params.set('progress_status', progressFilter)
-    } else {
-      params.delete('progress_status')
-    }
-    if (savedFilter === 'saved') {
-      params.set('saved', 'true')
-    } else if (savedFilter === 'unsaved') {
-      params.set('saved', 'false')
-    } else {
-      params.delete('saved')
-    }
+    if (trimmedQuery) params.set('q', trimmedQuery)
+    else params.delete('q')
+
+    if (progressFilter) params.set('progress_status', progressFilter)
+    else params.delete('progress_status')
+
+    if (savedFilter === 'saved') params.set('saved', 'true')
+    else if (savedFilter === 'unsaved') params.set('saved', 'false')
+    else params.delete('saved')
 
     const nextSearchKey = params.toString()
     const nextUrl = nextSearchKey ? `${pathname}?${nextSearchKey}` : pathname
@@ -121,434 +109,317 @@ export default function ExamBankPage() {
   }, [pathname, progressFilter, query, router, savedFilter, searchKey])
 
   const visibleExams = useMemo<VisibleExam[]>(() => {
-    return exams.slice(0, MAX_EXAMS_RENDERED).map((exam) => ({
-      ...exam,
-      problems: exam.problems.slice(0, MAX_PROBLEMS_PER_EXAM),
-      totalProblemCount: exam.problems.length,
-    }))
+    return exams.slice(0, MAX_EXAMS_RENDERED).map(toVisibleExam).sort(compareVisibleExams)
   }, [exams])
-  const isCapped = exams.length > MAX_EXAMS_RENDERED || exams.some((exam) => exam.problems.length > MAX_PROBLEMS_PER_EXAM)
+  const groupedExamSections = useMemo(() => groupExamsBySubject(visibleExams), [visibleExams])
+  const isCapped = exams.length > MAX_EXAMS_RENDERED
   const showInitialLoading = loading && exams.length === 0
 
-  const updateProblemProgress = useCallback(async (
-    problem: ExamProblemDetail,
-    body: { status?: 'opened' | 'completed'; saved?: boolean },
-    options: { silent?: boolean } = {},
-  ) => {
-    setProgressMutating(true)
-    try {
-      const progress = await recordExamProblemProgress(problem.id, body)
-      await detail.retry({
-        ...problem,
-        progress_status: progress.status,
-        saved: progress.saved,
-      }, { revalidate: false })
-      if (!options.silent || body.status === 'opened' || progressFilter) void retryExamList()
-      if (!options.silent) toast.success('Progress saved')
-    } catch (progressError) {
-      if (!options.silent) toast.error(apiDataErrorMessage(progressError, 'Could not save exam progress.'))
-    } finally {
-      setProgressMutating(false)
-    }
-  }, [detail, progressFilter, retryExamList])
-
   useEffect(() => {
-    const problem = detail.problem
-    if (!problem || problem.can_access === false || openedProgressRef.current.has(problem.id)) return
-    openedProgressRef.current.add(problem.id)
-    void updateProblemProgress(problem, { status: 'opened' }, { silent: true })
-  }, [detail.problem, updateProblemProgress])
-
-  function openProblem(problemId: number) {
-    setSelectedProblemId(problemId)
-    routeProblemVersionRef.current = problemId
-    setDetailRequestVersion((value) => value + 1)
-    const params = new URLSearchParams(searchKey)
-    params.set('problem', String(problemId))
-    const nextSearchKey = params.toString()
-    router.replace(nextSearchKey ? `${pathname}?${nextSearchKey}` : pathname, { scroll: false })
-  }
-
-  function closeProblem() {
-    setSelectedProblemId(null)
-    routeProblemVersionRef.current = null
-    const params = new URLSearchParams(searchKey)
-    params.delete('problem')
-    const nextSearchKey = params.toString()
-    router.replace(nextSearchKey ? `${pathname}?${nextSearchKey}` : pathname, { scroll: false })
-  }
+    if (!routeProblemId || exams.length === 0) return
+    const parentExam = exams.find((exam) => exam.problems.some((problem) => problem.id === routeProblemId))
+    if (!parentExam) return
+    router.replace(`/exam-bank/${parentExam.id}?problem=${routeProblemId}`, { scroll: false })
+  }, [exams, routeProblemId, router])
 
   return (
-    <div className="figma-container">
-      <header className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <div className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[#fff7df] text-[#f5900b]">
-            <Trophy size={26} />
-          </div>
-          <h1 className="figma-title m-0 text-[34px]">Exam Bank</h1>
-          <p className="figma-subtle m-0 mt-1 text-sm">National exam problems with written and video correction status.</p>
+    <main className="pt-[44px]">
+      <header className="mb-[32px]">
+        <div className="mb-[22px]">
+          <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">Exam Bank</p>
+          <h1 className="m-0 mt-1 text-[34px] font-bold leading-[1.1] tracking-normal text-[#3f3f46]">Bac exams</h1>
         </div>
-        {selectedProblemId ? (
-          <button type="button" onClick={closeProblem} className="inline-flex h-11 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-4 text-sm font-black text-[#52525c] transition hover:bg-[#f4f4f5]">
-            <ChevronLeft size={16} />
-            Back to exam list
-          </button>
-        ) : (
-          <div className="relative w-full lg:w-[380px]">
-            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#a1a1aa]" />
-            <input aria-label="Search exam bank" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} className="figma-input w-full pl-11" placeholder="Search year, topic, concept..." />
+
+        <div className="flex min-w-0 flex-wrap items-start gap-[18px]">
+          <div className="relative w-[280px] max-w-full">
+            <Search size={16} className="pointer-events-none absolute left-[16px] top-1/2 -translate-y-1/2 text-[#9f9fa9]" />
+            <input
+              aria-label="Search exam bank"
+              value={queryInput}
+              onChange={(event) => setQueryInput(event.target.value)}
+              className="h-[44px] w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] pl-[42px] pr-[16px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46] outline-none transition placeholder:text-[#9f9fa9] focus:border-[#d4d4d8] focus:bg-white"
+              placeholder="Search exams"
+              type="search"
+            />
           </div>
-        )}
+
+          <select
+            aria-label="Filter exam bank by progress"
+            value={progressFilter}
+            onChange={(event) => setProgressFilter(validProgressFilter(event.target.value))}
+            className="h-[44px] w-[170px] max-w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none transition focus:border-[#d4d4d8] focus:bg-white"
+          >
+            {progressFilterOptions.map((option) => (
+              <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+
+          <select
+            aria-label="Filter exam bank by saved state"
+            value={savedFilter}
+            onChange={(event) => setSavedFilter(validSavedFilter(event.target.value))}
+            className="h-[44px] w-[150px] max-w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[14px] font-bold leading-[1.1] tracking-[0.18px] text-[#3f3f46] outline-none transition focus:border-[#d4d4d8] focus:bg-white"
+          >
+            {savedFilterOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
       </header>
 
-      {!selectedProblemId && (
-        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-[18px] border border-[#e4e4e7] bg-white p-3">
-          <label className="inline-flex items-center gap-2 text-xs font-black text-[#71717b]">
-            <FileText size={14} />
-            <select
-              aria-label="Filter exam bank by progress"
-              value={progressFilter}
-              onChange={(event) => setProgressFilter(validProgressFilter(event.target.value))}
-              className="h-10 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
-            >
-              {progressFilterOptions.map((option) => (
-                <option key={option.value || 'all'} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="inline-flex items-center gap-2 text-xs font-black text-[#71717b]">
-            <Star size={14} fill={savedFilter === 'saved' ? 'currentColor' : 'none'} />
-            <select
-              aria-label="Filter exam bank by saved state"
-              value={savedFilter}
-              onChange={(event) => setSavedFilter(validSavedFilter(event.target.value))}
-              className="h-10 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
-            >
-              {savedFilterOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-
-      {selectedProblemId ? (
-        <ExamProblemDetailView
-          problem={detail.problem}
-          loading={detail.loading && !detail.problem}
-          mutating={progressMutating}
-          onToggleSaved={(problem) => updateProblemProgress(problem, { saved: !problem.saved })}
-          onComplete={(problem) => updateProblemProgress(problem, { status: 'completed' })}
-        />
-      ) : showInitialLoading ? (
-        <div className="grid gap-5">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <section key={index} className={`figma-card kresco-enter overflow-hidden ${skeletonAnimationDelayClasses[index]}`}>
-              <div className="border-b border-[#e4e4e7] p-5">
-                <SkeletonBlock className="h-3 w-40 rounded-md" />
-                <SkeletonBlock className="mt-3 h-5 w-72 max-w-full rounded-md" />
-              </div>
-              <div className="grid gap-4 p-5 lg:grid-cols-2">
-                {Array.from({ length: 2 }).map((_, problemIndex) => (
-                  <article key={problemIndex} className="rounded-2xl border border-[#e4e4e7] bg-[#fbfcff] p-5">
-                    <SkeletonBlock className="h-4 w-[58%] rounded-md" />
-                    <SkeletonBlock className="mt-3 h-3 w-full rounded-md" />
-                    <SkeletonBlock className="mt-2 h-3 w-[72%] rounded-md" />
-                    <div className="mt-5 flex gap-2">
-                      <SkeletonBlock className="h-8 w-20 rounded-xl" />
-                      <SkeletonBlock className="h-8 w-24 rounded-xl" />
-                    </div>
-                  </article>
+      {showInitialLoading ? (
+        <div className="grid gap-[54px]">
+          {Array.from({ length: 2 }).map((_, sectionIndex) => (
+            <section key={sectionIndex}>
+              <SubjectDividerSkeleton />
+              <div className="figma-course-grid">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <ExamCardSkeleton key={index} index={index} />
                 ))}
               </div>
             </section>
           ))}
         </div>
       ) : (
-        <div className="grid gap-6">
+        <div className="grid gap-[54px]">
           {loading && (
             <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">
               Updating results...
             </p>
           )}
           {!loading && visibleExams.length === 0 && (
-            <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">
-              No exam problems match this search.
-            </p>
+            <section className="grid min-h-[327.5px] max-w-[1060.99px] place-items-center rounded-[16px] border-2 border-dashed border-[#e4e4e7] bg-white px-8 text-center">
+              <div>
+                <p className="m-0 text-[18px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">No exams found</p>
+                <p className="m-0 mt-2 text-[15px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">Try another search or progress filter.</p>
+              </div>
+            </section>
           )}
           {isCapped && (
             <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">
-              Showing the first {Math.min(exams.length, MAX_EXAMS_RENDERED)} exam groups and up to {MAX_PROBLEMS_PER_EXAM} problems per group. Use search to narrow the list.
+              Showing the first {Math.min(exams.length, MAX_EXAMS_RENDERED)} exams. Use search to narrow the list.
             </p>
           )}
-          {visibleExams.map((exam) => (
-            <section key={exam.id} className="figma-card overflow-hidden">
-              <div className="flex flex-col gap-3 border-b border-[#e4e4e7] bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="mb-2 flex flex-wrap items-center gap-3 text-xs font-black text-[#71717b]">
-                    <span className="inline-flex items-center gap-1"><BookOpen size={14} /> {exam.subject_title}</span>
-                    <span className="inline-flex items-center gap-1"><CalendarDays size={14} /> {exam.year}</span>
-                  </div>
-                  <h2 className="m-0 text-lg font-black text-[#3f3f46]">{exam.title}</h2>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {exam.can_access === false && (
-                    <span className="inline-flex h-9 items-center gap-2 rounded-[12px] bg-[#f4f4f5] px-3 text-xs font-black text-[#71717b]">
-                      <Lock size={14} />
-                      {lockedExamReason(exam.locked_reason)}
-                    </span>
-                  )}
-                  <span className="rounded-2xl bg-[#eaf8ff] px-4 py-2 text-xs font-black text-[#1292cf]">{exam.totalProblemCount} problem(s)</span>
-                </div>
-              </div>
-              {exam.can_access === false && <LockedExamPreview exam={exam} />}
-              <div className="grid gap-4 p-5 lg:grid-cols-2">
-                {exam.problems.map((problem) => (
-                  <article key={problem.id} className={`rounded-2xl border border-[#e4e4e7] bg-[#fbfcff] p-5 ${problem.can_access === false ? 'opacity-85' : ''}`}>
-                    <div className="mb-4 flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="m-0 text-base font-black text-[#3f3f46]">{problem.title}</h3>
-                        <p className="m-0 mt-2 line-clamp-3 text-sm font-semibold leading-relaxed text-[#71717b]">{problem.statement}</p>
-                      </div>
-                      <span className="rounded-xl bg-[#fff7df] px-3 py-1 text-[11px] font-black text-[#b76b00]">{problem.difficulty}</span>
-                    </div>
-                    <div className="mb-5 flex flex-wrap gap-2">
-                      <span className="inline-flex h-8 items-center rounded-[12px] bg-white px-3 text-[11px] font-black text-[#71717b] shadow-sm">
-                        {problem.progress_status === 'completed' ? 'Completed' : problem.progress_status === 'opened' ? 'Opened' : 'Not started'}
-                      </span>
-                      {problem.saved && (
-                        <span className="inline-flex h-8 items-center gap-1 rounded-[12px] bg-[#fff7df] px-3 text-[11px] font-black text-[#b76b00] shadow-sm">
-                          <Star size={12} fill="currentColor" />
-                          Saved
-                        </span>
-                      )}
-                      {problem.concept_slugs.slice(0, 5).map((concept) => (
-                        <span key={concept} className="rounded-xl bg-white px-3 py-1.5 text-[11px] font-black text-[#71717b] shadow-sm">{concept}</span>
-                      ))}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => openProblem(problem.id)} className="figma-button">
-                        <FileText size={14} />
-                        Open problem
-                      </button>
-                      {problem.topic_id && problem.can_access !== false && (
-                        <Link href={`/topics/${problem.topic_id}`} className="figma-button">
-                          <Play size={14} />
-                          Open topic
-                        </Link>
-                      )}
-                      {problem.can_access === false && (
-                        <>
-                          <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-[#f4f4f5] px-4 text-xs font-black text-[#71717b]">
-                            <Lock size={14} />
-                            {lockedExamReason(problem.locked_reason)}{lockMetadata(problem) ? ` - ${lockMetadata(problem)}` : ''}
-                          </span>
-                          <Link href="/pricing" className="inline-flex h-11 items-center rounded-[14px] bg-[#5b60f9] px-4 text-xs font-black text-white transition hover:brightness-[1.03]">
-                            Unlock options
-                          </Link>
-                        </>
-                      )}
-                      <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-white px-4 text-xs font-black text-[#71717b]">
-                        <FileText size={14} />
-                        Written
-                      </span>
-                      {problem.video_resource && (
-                        <span className="inline-flex h-11 items-center gap-2 rounded-[14px] bg-white px-4 text-xs font-black text-[#71717b]">
-                          <CheckCircle2 size={14} />
-                          Video
-                        </span>
-                      )}
-                    </div>
-                  </article>
+          {groupedExamSections.map((section) => (
+            <section key={section.key}>
+              <SubjectDivider title={section.title} examCount={section.exams.length} />
+              <div className="figma-course-grid">
+                {section.exams.map((exam, index) => (
+                  <ExamCard key={exam.id} exam={exam} index={index} />
                 ))}
               </div>
-              {exam.totalProblemCount > exam.problems.length && (
-                <p className="m-0 border-t border-[#e4e4e7] bg-white px-5 py-3 text-xs font-black text-[#9f9fa9]">
-                  {exam.totalProblemCount - exam.problems.length} more problem(s) hidden in this group. Search by concept, topic, or year to narrow the result.
-                </p>
-              )}
             </section>
           ))}
         </div>
       )}
-    </div>
+    </main>
   )
 }
 
-function LockedExamPreview({ exam }: { exam: VisibleExam }) {
-  const metadata = lockMetadata(exam)
-
+function SubjectDivider({ title, examCount }: { title: string; examCount: number }) {
   return (
-    <div className="border-b border-[#e4e4e7] bg-[#fafafa] px-5 py-4">
-      <p className="m-0 text-sm font-black leading-relaxed text-[#52525c]">
-        Locked preview: {exam.subject_title} {exam.year} {exam.session}. {exam.totalProblemCount} problem(s) are listed so you can inspect the exam structure before unlocking.
+    <div className="mb-[32px]">
+      <h2 className="m-0 text-[24px] font-bold leading-[1.4] tracking-normal text-[#3f3f46]">{title}</h2>
+      <p className="m-0 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">
+        {examCount} {examCount === 1 ? 'exam' : 'exams'}
       </p>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        {metadata && <p className="m-0 text-xs font-black capitalize text-[#9f9fa9]">{metadata}</p>}
-        <Link href="/pricing" className="inline-flex h-9 items-center rounded-[12px] bg-[#5b60f9] px-4 text-xs font-black text-white transition hover:brightness-[1.03]">
-          View unlock options
-        </Link>
-      </div>
     </div>
   )
 }
 
-function ExamProblemDetailView({
-  problem,
-  loading,
-  mutating,
-  onToggleSaved,
-  onComplete,
-}: {
-  problem: ExamProblemDetail | null
-  loading: boolean
-  mutating: boolean
-  onToggleSaved: (problem: ExamProblemDetail) => void
-  onComplete: (problem: ExamProblemDetail) => void
-}) {
-  if (loading) {
-    return (
-      <div className="grid gap-5">
-        <SkeletonBlock className="h-32 rounded-[18px]" />
-        <SkeletonBlock className="h-48 rounded-[18px]" />
-      </div>
-    )
-  }
-  if (!problem) {
-    return <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">Exam problem not found.</p>
-  }
-  if (problem.can_access === false) {
-    return (
-      <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
-        <div className="flex items-start gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[#fff7ed] text-[#f97316]">
-            <Lock size={20} />
-          </div>
-          <div>
-            <p className="m-0 text-sm font-black text-[#71717b]">{problem.subject_title} · {problem.year} · {problem.session}</p>
-            <h2 className="m-0 mt-2 text-[28px] font-black leading-tight text-[#27272a]">{problem.title}</h2>
-            <p className="m-0 mt-2 text-sm font-bold text-[#71717b]">Unlock this subject to access the enonce, part capsules, written corrections, and video corrections.</p>
-          </div>
-        </div>
-        <Link href="/pricing" className="mt-6 inline-flex h-11 items-center rounded-[12px] bg-[#5b60f9] px-5 text-sm font-black text-white">
-          View unlock options
-        </Link>
-      </section>
-    )
-  }
-
+function SubjectDividerSkeleton() {
   return (
-    <article className="grid gap-5">
-      <section className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
-        <p className="m-0 text-sm font-black text-[#71717b]">{problem.subject_title} · {problem.year} · {problem.session}</p>
-        <h2 className="m-0 mt-2 text-[30px] font-black leading-tight text-[#27272a]">{problem.title}</h2>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span className="inline-flex h-10 items-center rounded-[12px] bg-[#f4f4f5] px-4 text-xs font-black text-[#52525c]">
-            {problem.progress_status === 'completed' ? 'Completed' : problem.progress_status === 'opened' ? 'Opened' : 'Not started'}
-          </span>
-          <button type="button" disabled={mutating} onClick={() => onToggleSaved(problem)} className="inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-4 text-xs font-black text-[#52525c] transition hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:opacity-60">
-            <Star size={14} fill={problem.saved ? 'currentColor' : 'none'} />
-            {problem.saved ? 'Saved' : 'Save'}
-          </button>
-          <button type="button" disabled={mutating || problem.progress_status === 'completed'} onClick={() => onComplete(problem)} className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-xs font-black text-white transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60">
-            <CheckCircle2 size={14} />
-            Mark completed
-          </button>
-        </div>
-        <RichTextBlock body={problem.statement} empty="No main problem enonce is available yet." />
-        {problem.written_solution && (
-          <div className="mt-5">
-            <h3 className="m-0 text-lg font-black text-[#27272a]">Written correction</h3>
-            <RichTextBlock body={problem.written_solution} empty="" />
-          </div>
-        )}
-      </section>
+    <div className="mb-[32px]">
+      <SkeletonBlock className="h-8 w-48 rounded-[10px]" />
+      <SkeletonBlock className="mt-2 h-5 w-36 rounded-[8px]" />
+    </div>
+  )
+}
 
-      <section className="grid gap-4">
-        {problem.parts.length > 0 ? problem.parts.map((part) => <ExamPartCapsule key={part.id} part={part} />) : (
-          <p className="m-0 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-sm font-bold text-[#71717b]">No published parts are attached to this problem yet.</p>
-        )}
-      </section>
+function ExamCardSkeleton({ index }: { index: number }) {
+  return (
+    <article className={`kresco-enter relative h-[300px] w-full max-w-[344.33px] overflow-hidden rounded-[16px] border-2 border-[#e4e4e7] bg-white p-[18px] shadow-[0_3.75px_0_#d9dadd] ${skeletonAnimationDelayClasses[index % skeletonAnimationDelayClasses.length]}`}>
+      <SkeletonBlock className="h-9 w-32 rounded-[12px]" />
+      <SkeletonBlock className="mt-8 h-6 w-44 rounded-[8px]" />
+      <SkeletonBlock className="mt-3 h-14 w-28 rounded-[12px]" />
+      <SkeletonBlock className="mt-7 h-3 w-full rounded-[5px]" />
+      <SkeletonBlock className="mt-4 h-11 w-full rounded-[12px]" />
     </article>
   )
 }
 
-function ExamPartCapsule({ part }: { part: ExamProblemPart }) {
-  if (part.can_access === false) {
-    return (
-      <article className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
-        <div className="flex items-start gap-3">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] bg-[#fff7ed] text-[#f97316]">
-            <Lock size={18} />
-          </div>
-          <div>
-            <p className="m-0 text-xs font-black uppercase tracking-[0.16px] text-[#f97316]">{part.part_label || `Part ${part.order}`}</p>
-            <h3 className="m-0 mt-1 text-[22px] font-black text-[#27272a]">{part.title}</h3>
-            <p className="m-0 mt-2 text-sm font-bold text-[#71717b]">{lockedExamReason(part.locked_reason)}. Unlock this subject to access this part enonce and correction.</p>
-          </div>
-        </div>
-        <Link href="/pricing" className="mt-5 inline-flex h-10 items-center rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white">
-          Unlock options
-        </Link>
-      </article>
-    )
-  }
-  const videoUrl = part.correction_video_url || part.video_resource?.url || ''
+function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
+  const sessionLabel = examSessionLabel(exam.session)
+  const sessionTone = examSessionTone(exam.session)
+  const actionLabel = examActionLabel(exam)
+  const progressLabel = `${exam.completedProblemCount}/${exam.totalProblemCount || 0} complete`
+  const showLocked = exam.can_access === false
+  const href = exam.firstProblemId ? `/exam-bank/${exam.id}?problem=${exam.firstProblemId}` : ''
 
   return (
-    <article className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="m-0 text-xs font-black uppercase tracking-[0.16px] text-[#f97316]">{part.part_label || `Part ${part.order}`}</p>
-          <h3 className="m-0 mt-1 text-[22px] font-black text-[#27272a]">{part.title}</h3>
-        </div>
-        <span className="rounded-xl bg-[#fff7df] px-3 py-1 text-[11px] font-black text-[#b76b00]">{part.difficulty}</span>
+    <article className={`kresco-enter group relative flex h-[300px] w-full max-w-[344.33px] flex-col overflow-hidden rounded-[16px] border-2 border-[#e4e4e7] bg-white p-[18px] shadow-[0_3.75px_0_#d9dadd] transition duration-200 hover:-translate-y-1 hover:shadow-[0_5px_0_#d9dadd] ${showLocked ? 'opacity-80' : ''}`}>
+      <div className={`absolute inset-x-0 bottom-0 h-[5px] ${sessionTone.accent}`} />
+      <div className="flex items-start justify-between gap-3">
+        <span className={`inline-flex min-h-[34px] items-center rounded-[12px] border px-[12px] text-[12px] font-black leading-[1.1] tracking-[0.12px] ${sessionTone.chip}`}>
+          {sessionLabel}
+        </span>
+        <span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] border border-[#e4e4e7] bg-[#f4f4f5] text-[13px] font-black text-[#71717b]">
+          {index + 1}
+        </span>
       </div>
 
-      {(videoUrl || part.video_resource) && (
-        <div className="mt-5 rounded-[14px] border border-[#e4e4e7] bg-[#fbfcff] p-4">
-          <p className="m-0 inline-flex items-center gap-2 text-sm font-black text-[#3f3f46]">
-            <Video size={16} />
-            Video correction
-          </p>
-          {videoUrl ? (
-            <Link href={videoUrl} className="mt-3 inline-flex h-10 items-center rounded-[12px] bg-[#eef2ff] px-4 text-sm font-black text-[#3a2fd3]">
-              Open video
-            </Link>
-          ) : (
-            <p className="m-0 mt-2 text-sm font-bold text-[#71717b]">{part.video_resource?.title || 'Video resource attached'}</p>
+      <div className="mt-[24px] min-w-0">
+        <p className="m-0 truncate text-[18px] font-bold leading-[1.1] tracking-[0.2px] text-[#3f3f46]">{exam.subject_title}</p>
+        <h3 className="m-0 mt-1 text-[52px] font-black leading-none tracking-normal text-[#18181b]">{exam.year}</h3>
+      </div>
+
+      <div className="mt-auto">
+        <div className="mb-[10px] flex items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-1.5 text-[12px] font-black leading-[1.1] tracking-[0.12px] text-[#71717b]">
+            <BookOpen size={14} strokeWidth={3} />
+            {progressLabel}
+          </span>
+          {showLocked && (
+            <span className="inline-flex items-center gap-1 text-[12px] font-black text-[#9f9fa9]">
+              <Lock size={13} strokeWidth={3} />
+              Locked
+            </span>
           )}
         </div>
-      )}
 
-      <RichTextBlock body={part.statement_body} empty="No enonce is available for this part yet." />
-      {part.written_solution_body && (
-        <div className="mt-5">
-          <h4 className="m-0 text-base font-black text-[#27272a]">Written correction</h4>
-          <RichTextBlock body={part.written_solution_body} empty="" />
+        <div className="h-[10px] w-full overflow-hidden rounded-[4.286px] bg-[#f4f4f5]" aria-label={`Progress ${exam.completedProblemCount} of ${exam.totalProblemCount || 0} problems completed`}>
+          <span
+            className="kresco-progress-fill block h-full rounded-[4.286px] bg-[#5b60f9] shadow-[inset_0px_2.857px_2.857px_rgba(255,255,255,.4),inset_0px_-2.857px_2.857px_rgba(0,0,0,.08)]"
+            style={{ width: `${exam.progressPercent}%` }}
+          />
         </div>
-      )}
+
+        <ExamProblemDots problems={exam.problems} />
+
+        {href ? (
+          <Link
+            href={href}
+            className={`mt-[14px] flex h-[44px] w-full items-center justify-center gap-2 rounded-[12px] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white no-underline transition duration-200 group-hover:brightness-[1.03] group-hover:saturate-[1.08] ${
+              exam.completedProblemCount === exam.totalProblemCount && exam.totalProblemCount > 0 ? 'bg-[#f5900b]' : 'bg-[#5b60f9]'
+            }`}
+          >
+            <FileText size={16} strokeWidth={3} />
+            {actionLabel}
+          </Link>
+        ) : (
+          <span className="mt-[14px] flex h-[44px] w-full items-center justify-center rounded-[12px] bg-[#d4d4d8] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#71717b]">
+            No problems yet
+          </span>
+        )}
+      </div>
     </article>
   )
 }
 
-function RichTextBlock({ body, empty }: { body: string; empty: string }) {
-  return <div className="mt-4 whitespace-pre-wrap rounded-[14px] bg-[#fafafa] p-5 text-[15px] font-semibold leading-7 text-[#3f3f46]">{body?.trim() || empty}</div>
+function ExamProblemDots({ problems }: { problems: ExamProblem[] }) {
+  if (problems.length === 0) {
+    return (
+      <div className="mt-[10px] flex h-[12px] items-center">
+        <span className="text-[11px] font-black text-[#9f9fa9]">No problems published yet</span>
+      </div>
+    )
+  }
+
+  const visibleProblems = problems.slice(0, MAX_PROGRESS_DOTS)
+  const hiddenCount = problems.length - visibleProblems.length
+
+  return (
+    <div className="mt-[10px] flex h-[12px] items-center gap-[6px]" aria-label="Problem completion status">
+      {visibleProblems.map((problem) => (
+        <span
+          key={problem.id}
+          className={`size-[10px] rounded-full ${problemStatusDotClass(problem.progress_status)}`}
+          title={`${problem.title}: ${problem.progress_status === 'completed' ? 'completed' : problem.progress_status === 'opened' ? 'opened' : 'not started'}`}
+        />
+      ))}
+      {hiddenCount > 0 && <span className="text-[11px] font-black leading-none text-[#9f9fa9]">+{hiddenCount}</span>}
+    </div>
+  )
 }
 
-function lockedExamReason(reason?: string) {
-  if (reason === 'pro_required') return 'Pro required'
-  if (reason === 'vip_required') return 'VIP required'
-  if (reason === 'subject_access_required') return 'Subject locked'
-  if (reason?.startsWith('feature_required:')) return 'Feature locked'
-  return 'Locked'
+function toVisibleExam(exam: Exam): VisibleExam {
+  const totalProblemCount = exam.problems.length
+  const completedProblemCount = exam.problems.filter((problem) => problem.progress_status === 'completed').length
+  const openedProblemCount = exam.problems.filter((problem) => problem.progress_status === 'opened').length
+  const firstProblemId = exam.problems.find((problem) => problem.can_access !== false)?.id ?? exam.problems[0]?.id ?? null
+
+  return {
+    ...exam,
+    totalProblemCount,
+    completedProblemCount,
+    openedProblemCount,
+    progressPercent: totalProblemCount > 0 ? Math.round((completedProblemCount / totalProblemCount) * 100) : 0,
+    firstProblemId,
+  }
 }
 
-function lockMetadata(item: Pick<Exam | ExamProblem, 'required_tier' | 'required_feature_key' | 'required_subject_id'>) {
-  if (item.required_tier) return `${item.required_tier.toUpperCase()} tier`
-  if (item.required_feature_key) return item.required_feature_key.replace(/_/g, ' ')
-  if (item.required_subject_id) return `subject access #${item.required_subject_id}`
-  return ''
+function groupExamsBySubject(exams: VisibleExam[]): SubjectExamSection[] {
+  const sections = new Map<string, SubjectExamSection>()
+
+  for (const exam of exams) {
+    const key = exam.subject_title.trim().toLowerCase() || `subject-${exam.subject_id}`
+    const section = sections.get(key) ?? {
+      key,
+      title: exam.subject_title || 'Subject',
+      exams: [],
+    }
+    section.exams.push(exam)
+    sections.set(key, section)
+  }
+
+  return Array.from(sections.values())
+}
+
+function compareVisibleExams(a: VisibleExam, b: VisibleExam) {
+  const subjectCompare = a.subject_title.localeCompare(b.subject_title)
+  if (subjectCompare !== 0) return subjectCompare
+  if (a.year !== b.year) return b.year - a.year
+  return sessionSortRank(a.session) - sessionSortRank(b.session)
+}
+
+function examActionLabel(exam: VisibleExam) {
+  if (exam.totalProblemCount === 0) return 'No problems yet'
+  if (exam.completedProblemCount > 0 || exam.openedProblemCount > 0) return 'Continue'
+  return 'Start'
+}
+
+function examSessionLabel(session: string) {
+  const normalized = session.toLowerCase()
+  if (normalized.includes('rattrap') || normalized.includes('retake')) return 'Rattrapage'
+  if (normalized.includes('normal') || normalized.includes('main') || normalized.includes('regular')) return 'Session normale'
+  return session || 'Session'
+}
+
+function examSessionTone(session: string) {
+  const normalized = session.toLowerCase()
+  if (normalized.includes('rattrap') || normalized.includes('retake')) {
+    return {
+      chip: 'border-[#ffd6dc] bg-[#fff1f2] text-[#e5484d]',
+      accent: 'bg-[#ff8a94]',
+    }
+  }
+  return {
+    chip: 'border-[#d9f7ee] bg-[#ecfdf5] text-[#0f9f83]',
+    accent: 'bg-[#78dbc8]',
+  }
+}
+
+function sessionSortRank(session: string) {
+  const normalized = session.toLowerCase()
+  if (normalized.includes('normal') || normalized.includes('main') || normalized.includes('regular')) return 0
+  if (normalized.includes('rattrap') || normalized.includes('retake')) return 1
+  return 2
+}
+
+function problemStatusDotClass(status?: string) {
+  if (status === 'completed') return 'bg-[#f5900b]'
+  if (status === 'opened') return 'bg-[#5b60f9]'
+  return 'bg-[#e4e4e7]'
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number) {

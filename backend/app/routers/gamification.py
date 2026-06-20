@@ -50,6 +50,7 @@ async def get_leaderboard(
     limit: int = 50,
     offset: int = 0,
     search: str = "",
+    include_current: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -61,6 +62,7 @@ async def get_leaderboard(
         limit=limit,
         offset=offset,
         search=search,
+        include_current=include_current,
     )
 
 
@@ -70,6 +72,7 @@ async def get_season_leaderboard(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=1000),
     search: str = Query(default="", max_length=100),
+    include_current: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
@@ -82,6 +85,7 @@ async def get_season_leaderboard(
         limit=limit,
         offset=offset,
         search=search,
+        include_current=include_current,
     )
 
 

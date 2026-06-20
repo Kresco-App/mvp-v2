@@ -66,6 +66,11 @@ export default function SimulatorLibrary({
 
   const focusedSim = findSimulator(focused)
 
+  function selectSimulator(key: string) {
+    onSelect(key)
+    onClose()
+  }
+
   return (
     <AnimatePresence>
       {open && (
@@ -107,6 +112,16 @@ export default function SimulatorLibrary({
               </button>
             </div>
 
+            <div className="relative border-b border-[#f4f4f5] px-5 py-2.5 sm:hidden">
+              <Search size={15} className="absolute left-8 top-1/2 -translate-y-1/2 text-[#a1a1aa]" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Rechercher..."
+                className="w-full rounded-[10px] border-[2px] border-[#e4e4e7] py-2 pl-9 pr-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+              />
+            </div>
+
             {/* Category chips */}
             <div className="flex flex-wrap gap-1.5 border-b border-[#f4f4f5] px-5 py-2.5">
               {(['Tous', ...SIMULATOR_CATEGORIES] as const).map((cat) => (
@@ -131,25 +146,40 @@ export default function SimulatorLibrary({
                     const isFocused = sim.key === focused
                     const isCurrent = sim.key === currentKey
                     return (
-                      <button
+                      <article
                         key={sim.key}
-                        type="button"
-                        onClick={() => setFocused(sim.key)}
-                        onDoubleClick={() => { onSelect(sim.key); onClose() }}
-                        className={`flex flex-col gap-1 rounded-[14px] border-[2px] bg-white px-3.5 py-3 text-left transition ${
+                        className={`rounded-[14px] border-[2px] bg-white px-3.5 py-3 transition ${
                           isFocused ? 'border-[#5b60f9] ring-2 ring-[#5b60f9]/15' : 'border-[#e4e4e7] hover:border-[#c7c7cc]'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
-                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${accentDotClass(sim.accent)}`} />
-                          <span className="truncate text-[13.5px] font-black text-[#3f3f46]">{sim.title}</span>
-                          {isCurrent && <Check size={14} className="ml-auto shrink-0 text-[#16a34a]" />}
+                        <button
+                          type="button"
+                          onClick={() => setFocused(sim.key)}
+                          onDoubleClick={() => selectSimulator(sim.key)}
+                          aria-pressed={isFocused}
+                          className="flex w-full flex-col gap-1 text-left outline-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${accentDotClass(sim.accent)}`} />
+                            <span className="truncate text-[13.5px] font-black text-[#3f3f46]">{sim.title}</span>
+                            {isCurrent && <Check size={14} className="ml-auto shrink-0 text-[#16a34a]" />}
+                          </div>
+                          <span className="text-[12px] font-semibold leading-snug text-[#a1a1aa]">{sim.description}</span>
+                        </button>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span className="w-fit rounded-full bg-[#f4f4f5] px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-[#71717b]">
+                            {sim.category}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => selectSimulator(sim.key)}
+                            aria-label={`Choisir ${sim.title}`}
+                            className="shrink-0 rounded-[9px] bg-[#5b60f9] px-2.5 py-1 text-[11px] font-black text-white transition hover:bg-[#4a4fe0] focus:outline-none focus:ring-2 focus:ring-[#5b60f9]/25"
+                          >
+                            {isCurrent ? 'Actif' : 'Choisir'}
+                          </button>
                         </div>
-                        <span className="text-[12px] font-semibold leading-snug text-[#a1a1aa]">{sim.description}</span>
-                        <span className="mt-0.5 w-fit rounded-full bg-[#f4f4f5] px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-[#71717b]">
-                          {sim.category}
-                        </span>
-                      </button>
+                      </article>
                     )
                   })}
                   {results.length === 0 && (
@@ -179,7 +209,7 @@ export default function SimulatorLibrary({
                   <button
                     type="button"
                     disabled={!focusedSim}
-                    onClick={() => { if (focusedSim) { onSelect(focusedSim.key); onClose() } }}
+                    onClick={() => { if (focusedSim) selectSimulator(focusedSim.key) }}
                     className="w-full rounded-[12px] bg-[#5b60f9] py-2.5 text-[14px] font-black text-white transition hover:bg-[#4a4fe0] disabled:bg-[#d4d4d8]"
                   >
                     Choisir ce simulateur

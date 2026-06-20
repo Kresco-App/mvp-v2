@@ -149,96 +149,47 @@ describe('exam bank page', () => {
     })
   })
 
-  it('opens a problem detail view with part enonce and correction data', async () => {
-    mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/exam-bank?q=waves') return examListResponse()
-      if (url === '/exam-bank/problems/11') return examProblemDetail()
-      throw new Error(`unexpected GET ${url}`)
-    })
+  it('renders compact exam cards grouped by subject with session and progress', async () => {
     const { container } = renderExamBankPage()
 
     await act(async () => {
       await flushPromises()
     })
 
-    await clickButton(container, 'Open problem')
-
-    await waitFor(() => {
-      expect(container.textContent).toContain('Problem 1')
-      expect(container.textContent).toContain('Part A')
-      expect(container.textContent).toContain('Study the wave graph.')
-      expect(container.textContent).toContain('Use the period from the graph.')
-      expect(container.textContent).toContain('Resource video part')
-      expect(container.textContent).toContain('Locked part')
-      expect(container.textContent).toContain('Subject locked. Unlock this subject')
-      expect(container.textContent).toContain('Open video')
-    })
-    expect(container.textContent).not.toContain('Hidden locked part body')
-    expect(container.querySelector('a[href="https://video.example/resource-correction"]')).not.toBeNull()
-    expect(mocks.routerReplace).toHaveBeenCalledWith('/exam-bank?q=waves&problem=11', { scroll: false })
-    expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank/problems/11')
-    expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { status: 'opened' })
-
-    await clickButton(container, 'Save')
-    await waitFor(() => {
-      expect(container.textContent).toContain('Saved')
-    })
-    expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { saved: true })
-
-    await clickButton(container, 'Mark completed')
-    await waitFor(() => {
-      expect(container.textContent).toContain('Completed')
-    })
-    expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { status: 'completed' })
+    expect(container.textContent).toContain('Bac exams')
+    expect(container.textContent).toContain('Anglais')
+    expect(container.textContent).toContain('Mathematics')
+    expect(container.textContent).toContain('Physics')
+    expect(container.textContent).toContain('2 exams')
+    expect(container.textContent).toContain('2024')
+    expect(container.textContent).toContain('Session normale')
+    expect(container.textContent).toContain('Rattrapage')
+    expect(container.textContent).toContain('1/4 complete')
+    expect(container.textContent).toContain('2/4 complete')
+    expect(container.querySelector('[aria-label="Problem completion status"]')).not.toBeNull()
+    expect(container.textContent).not.toContain('Solve it.')
   })
 
-  it('hides cached unlocked detail while the same problem detail revalidates', async () => {
-    let detailCalls = 0
-    mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/exam-bank?q=waves') return examListResponse()
-      if (url === '/exam-bank/problems/11') {
-        detailCalls += 1
-        if (detailCalls === 1) return examProblemDetail({ statement: 'Unlocked cached statement.' })
-        return new Promise(() => undefined)
-      }
-      throw new Error(`unexpected GET ${url}`)
-    })
+  it('links exam cards to the first problem in the workspace route', async () => {
     const { container } = renderExamBankPage()
 
     await act(async () => {
       await flushPromises()
     })
-    await clickButton(container, 'Open problem')
-    await waitFor(() => {
-      expect(container.textContent).toContain('Unlocked cached statement.')
-    })
-    await clickButton(container, 'Back to exam list')
-    await clickButton(container, 'Open problem')
 
-    expect(container.textContent).not.toContain('Unlocked cached statement.')
-    expect(detailCalls).toBe(2)
+    const link = Array.from(container.querySelectorAll('a')).find((item) => item.getAttribute('href') === '/exam-bank/1?problem=11')
+    expect(link?.getAttribute('href')).toBe('/exam-bank/1?problem=11')
+    expect(mocks.apiGet).not.toHaveBeenCalledWith('/exam-bank/problems/11')
+    expect(mocks.apiPost).not.toHaveBeenCalled()
   })
 
-  it('revalidates the list after auto-opening a problem from a not-started filter', async () => {
-    searchParams.set('progress_status', 'not_started')
-    mocks.apiGet.mockImplementation(async (url: string) => {
-      if (url === '/exam-bank?q=waves&progress_status=not_started') return examListResponse()
-      if (url === '/exam-bank/problems/11') return examProblemDetail()
-      throw new Error(`unexpected GET ${url}`)
-    })
-    const { container } = renderExamBankPage()
+  it('redirects legacy problem query links into the workspace route', async () => {
+    searchParams.delete('q')
+    searchParams.set('problem', '11')
+    renderExamBankPage()
 
-    await act(async () => {
-      await flushPromises()
-    })
-    await clickButton(container, 'Open problem')
     await waitFor(() => {
-      expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { status: 'opened' })
-    })
-
-    expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank?q=waves&progress_status=not_started')
-    await waitFor(() => {
-      expect(mocks.apiGet.mock.calls.filter(([url]) => url === '/exam-bank?q=waves&progress_status=not_started')).toHaveLength(2)
+      expect(mocks.routerReplace).toHaveBeenCalledWith('/exam-bank/1?problem=11', { scroll: false })
     })
   })
 })
@@ -278,15 +229,6 @@ async function flushPromises() {
   await Promise.resolve()
 }
 
-async function clickButton(container: HTMLElement, name: string) {
-  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes(name))
-  if (!button) throw new Error(`button not found: ${name}`)
-  await act(async () => {
-    button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    await flushPromises()
-  })
-}
-
 async function waitFor(assertion: () => void) {
   let lastError: unknown
   for (let index = 0; index < 30; index += 1) {
@@ -307,115 +249,75 @@ function examListResponse() {
   return {
     subject_id: null,
     topic_id: null,
-    items: [examResult()],
-    total: 1,
+    items: [
+      examResult(),
+      examResult({
+        id: 2,
+        subject_id: 2,
+        subject_title: 'Mathematics',
+        title: '2023 Retake',
+        year: 2023,
+        session: 'Rattrapage',
+        problemOffset: 20,
+        problemStatuses: ['completed', 'completed', 'opened', 'not_started'],
+      }),
+      examResult({
+        id: 3,
+        subject_id: 3,
+        subject_title: 'Physics',
+        title: '2025 Normal',
+        year: 2025,
+        session: 'Session normale',
+        problemOffset: 30,
+        problemStatuses: ['opened', 'not_started', 'not_started', 'not_started'],
+      }),
+      examResult({
+        id: 4,
+        subject_id: 4,
+        subject_title: 'Anglais',
+        title: '2025 Normal',
+        year: 2025,
+        session: 'Session normale',
+        problemOffset: 40,
+        problemStatuses: ['not_started'],
+      }),
+    ],
+    total: 4,
   }
 }
 
-function examResult() {
+function examResult(overrides: {
+  id?: number
+  subject_id?: number
+  subject_title?: string
+  title?: string
+  year?: number
+  session?: string
+  problemOffset?: number
+  problemStatuses?: string[]
+} = {}) {
+  const problemOffset = overrides.problemOffset ?? 10
+  const problemStatuses = overrides.problemStatuses ?? ['completed', 'opened', 'not_started', 'not_started']
+
   return {
-    id: 1,
-    subject_id: 2,
-    subject_title: 'Mathematics',
-    title: '2024 Exam',
-    year: 2024,
-    session: 'Main',
+    id: overrides.id ?? 1,
+    subject_id: overrides.subject_id ?? 2,
+    subject_title: overrides.subject_title ?? 'Mathematics',
+    title: overrides.title ?? '2024 Exam',
+    year: overrides.year ?? 2024,
+    session: overrides.session ?? 'Main',
     statement_url: '/statements/1.pdf',
-    problems: [
-      {
-        id: 11,
-        title: 'Problem 1',
-        statement: 'Solve it.',
-        written_solution: '',
-        written_solution_url: '',
-        difficulty: 'Medium',
-        concept_slugs: ['algebra'],
-        progress_status: 'not_started',
-        saved: false,
-      },
-    ],
+    problems: problemStatuses.map((status, index) => ({
+      id: problemOffset + index + 1,
+      title: `Problem ${index + 1}`,
+      statement: index === 0 ? 'Solve it.' : `Problem ${index + 1} statement.`,
+      written_solution: '',
+      written_solution_url: '',
+      difficulty: 'Medium',
+      concept_slugs: ['algebra'],
+      progress_status: status,
+      saved: index === 1,
+    })),
   }
 }
 
-function examProblemDetail(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 11,
-    exam_id: 1,
-    topic_id: 5,
-    title: 'Problem 1',
-    statement: 'Solve it.',
-    written_solution: 'Main correction.',
-    written_solution_url: '',
-    difficulty: 'Medium',
-    concept_slugs: ['waves'],
-    exam_title: '2024 Exam',
-    subject_title: 'Mathematics',
-    year: 2024,
-    session: 'Main',
-    can_access: true,
-    progress_status: 'not_started',
-    saved: false,
-    parts: [
-      {
-        id: 101,
-        exam_problem_id: 11,
-        topic_id: 5,
-        video_resource_id: null,
-        part_label: 'Part A',
-        title: 'Wave reading',
-        statement_body: 'Study the wave graph.',
-        written_solution_body: 'Use the period from the graph.',
-        written_solution_url: '',
-        correction_video_url: 'https://video.example/correction',
-        order: 1,
-        difficulty: 'bac',
-        concept_slugs: ['waves'],
-        metadata_json: {},
-        can_access: true,
-      },
-      {
-        id: 102,
-        exam_problem_id: 11,
-        topic_id: 5,
-        video_resource_id: 44,
-        part_label: 'Part B',
-        title: 'Resource video part',
-        statement_body: 'Use the attached video resource.',
-        written_solution_body: '',
-        written_solution_url: '',
-        correction_video_url: '',
-        order: 2,
-        difficulty: 'bac',
-        concept_slugs: ['waves'],
-        metadata_json: {},
-        can_access: true,
-        video_resource: {
-          id: 44,
-          title: 'Resource correction video',
-          provider: 'external',
-          provider_resource_id: 'resource-video',
-          url: 'https://video.example/resource-correction',
-        },
-      },
-      {
-        id: 103,
-        exam_problem_id: 11,
-        topic_id: 5,
-        video_resource_id: null,
-        part_label: 'Part C',
-        title: 'Locked part',
-        statement_body: 'Hidden locked part body',
-        written_solution_body: 'Hidden locked solution',
-        written_solution_url: '',
-        correction_video_url: '',
-        order: 3,
-        difficulty: 'bac',
-        concept_slugs: ['waves'],
-        metadata_json: {},
-        can_access: false,
-        locked_reason: 'subject_access_required',
-      },
-    ],
-    ...overrides,
-  }
-}

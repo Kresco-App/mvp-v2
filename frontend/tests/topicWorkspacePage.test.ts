@@ -15,10 +15,13 @@ import {
 } from './factories/topicWorkspace'
 
 const mocks = vi.hoisted(() => ({
+  deleteJson: vi.fn(),
+  getJson: vi.fn(),
   mutateWorkspace: vi.fn(),
   postJson: vi.fn(),
   replace: vi.fn(),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
   videoComplete: null as null | (() => void | Promise<void>),
 }))
 
@@ -38,7 +41,7 @@ vi.mock('framer-motion', () => ({
 vi.mock('sonner', () => ({
   toast: {
     error: mocks.toastError,
-    success: vi.fn(),
+    success: mocks.toastSuccess,
     info: vi.fn(),
   },
 }))
@@ -90,6 +93,8 @@ vi.mock('@/components/RouteErrorState', () => ({
 }))
 
 vi.mock('@/lib/apiClient', () => ({
+  deleteJson: mocks.deleteJson,
+  getJson: mocks.getJson,
   postJson: mocks.postJson,
 }))
 
@@ -191,6 +196,15 @@ beforeEach(() => {
   document.body.innerHTML = ''
   currentWorkspace = providerVideoWorkspace
   mocks.videoComplete = null
+  mocks.getJson.mockResolvedValue([])
+  mocks.postJson.mockResolvedValue({
+    id: 77,
+    target_type: 'topic_item',
+    target_id: providerActiveItem.id,
+    note: '',
+    tags: [],
+  })
+  mocks.deleteJson.mockResolvedValue({ ok: true, id: 77 })
 })
 
 afterEach(() => {
@@ -328,6 +342,100 @@ describe('TopicWorkspacePage primary playback', () => {
     expect(container.querySelector('[data-testid="video-frame-state"]')?.textContent).toContain('Course content stays available below')
     expect(container.querySelector('[data-testid="youtube-frame"]')).toBeNull()
   })
+
+  it('keeps saved item details compact and uses fixed tag choices', async () => {
+    const { container } = renderPage()
+
+    await act(async () => {
+      await flushPromises()
+    })
+    await act(async () => {
+      buttonByText(container, 'Save')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+
+    expect(mocks.postJson).toHaveBeenCalledWith('/interactions/saves', {
+      target_type: 'topic_item',
+      target_id: providerActiveItem.id,
+      topic_id: providerVideoWorkspace.id,
+      topic_item_id: providerActiveItem.id,
+      label: providerActiveItem.title,
+    })
+    expect(container.textContent).toContain('Saved')
+    expect(container.textContent).not.toContain('Tags separated by commas')
+
+    await act(async () => {
+      buttonByText(container, 'Details')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.textContent).toContain('Optional save details')
+    expect(container.querySelector('input[aria-label="Saved item tags"]')).toBeNull()
+    expect(buttonByText(container, 'Relevant')).toBeDefined()
+
+    const note = container.querySelector('textarea[aria-label="Saved item note"]') as HTMLTextAreaElement
+    await act(async () => {
+      setTextareaValue(note, 'Recheck this before the exam')
+      note.dispatchEvent(new Event('input', { bubbles: true }))
+      buttonByText(container, 'Relevant')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    mocks.postJson.mockResolvedValueOnce({
+      id: 77,
+      target_type: 'topic_item',
+      target_id: providerActiveItem.id,
+      note: 'Recheck this before the exam',
+      tags: ['Relevant'],
+    })
+
+    await act(async () => {
+      buttonByText(container, 'Update')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+
+    expect(mocks.postJson).toHaveBeenLastCalledWith('/interactions/saves', {
+      target_type: 'topic_item',
+      target_id: providerActiveItem.id,
+      topic_id: providerVideoWorkspace.id,
+      topic_item_id: providerActiveItem.id,
+      label: providerActiveItem.title,
+      note: 'Recheck this before the exam',
+      tags: ['Relevant'],
+    })
+    expect(mocks.toastSuccess).toHaveBeenLastCalledWith('Save details updated.')
+  })
+
+  it('shows an existing saved state and can unsave from the topic page', async () => {
+    mocks.getJson.mockResolvedValueOnce([
+      {
+        id: 88,
+        target_type: 'topic_item',
+        target_id: providerActiveItem.id,
+        note: '',
+        tags: [],
+      },
+    ])
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      expect(buttonByText(container, 'Saved')).toBeDefined()
+      expect(buttonByText(container, 'Details')).toBeDefined()
+    })
+    expect(buttonByText(container, 'Remove save')).toBeUndefined()
+
+    await act(async () => {
+      buttonByText(container, 'Details')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    await act(async () => {
+      buttonByText(container, 'Remove save')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+
+    expect(mocks.deleteJson).toHaveBeenCalledWith('/interactions/saves/88')
+    expect(mocks.toastSuccess).toHaveBeenLastCalledWith('Removed from saved.')
+    expect(buttonByText(container, 'Save')).toBeDefined()
+    expect(buttonByText(container, 'Remove save')).toBeUndefined()
+  })
 })
 
 function renderPage() {
@@ -377,4 +485,29 @@ function workspaceWithActiveItem(overrides: Partial<TopicItem>): TopicWorkspace 
 
 function buttonByText(container: HTMLElement, text: string) {
   return Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes(text))
+}
+
+async function flushPromises() {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+function setTextareaValue(element: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+  setter?.call(element, value)
+}
+
+async function waitFor(assertion: () => void) {
+  let lastError: unknown
+  for (let index = 0; index < 30; index += 1) {
+    try {
+      assertion()
+      return
+    } catch (error) {
+      lastError = error
+      await act(async () => {
+        await flushPromises()
+      })
+    }
+  }
+  throw lastError
 }

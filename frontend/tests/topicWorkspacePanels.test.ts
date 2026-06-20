@@ -32,7 +32,12 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@/components/animated/registry', () => ({
-  AnimatedContentRenderer: () => React.createElement('div', null, 'animated'),
+  AnimatedContentRenderer: ({ rendererKey }: { rendererKey: string }) => {
+    if (rendererKey === 'decay_simulator') {
+      throw new Error('Renderer failed in test')
+    }
+    return React.createElement('div', null, 'animated')
+  },
 }))
 
 vi.mock('@/components/topic-workspace/TopicWorkspaceWhiteboard', () => ({
@@ -143,9 +148,19 @@ describe('TopicWorkspacePanels', () => {
   it('previews and opens resource tabs even when the backend open endpoint is unavailable', async () => {
     mocks.postJson.mockRejectedValue({ response: { status: 404 } })
 
-    const { container } = renderPanel(resourceTab, baseItem)
+    const resourceTypedAsVideo: TabContent = {
+      ...resourceTab,
+      resource: {
+        ...resourceTab.resource!,
+        resource_type: 'video',
+      },
+    }
+
+    const { container } = renderPanel(resourceTypedAsVideo, baseItem)
 
     expect(container.textContent).toContain('Worksheet PDF')
+    expect(container.querySelector('[aria-label="Resource format"]')?.textContent).toBe('PDF')
+    expect(container.textContent).not.toContain('VIDEO')
     expect(container.textContent).toContain('Open')
     expect(container.textContent).toContain('Preview')
     expect(container.textContent).toContain('Download')
@@ -171,21 +186,14 @@ describe('TopicWorkspacePanels', () => {
 
     expect(container.querySelector('[data-testid="lesson-whiteboard"]')?.textContent).toContain(baseItem.title)
     expect(container.querySelector('textarea[aria-label="Topic note"]')).toBeNull()
+    expect(mocks.getJson).not.toHaveBeenCalledWith('/interactions/notes', expect.anything())
   })
 
   it('wraps long unbroken comment bodies inside the comments panel', async () => {
     const longBody = 'https://example.com/' + 'a'.repeat(140)
-    mocks.getJson.mockResolvedValue([{
-      id: 7,
-      topic_item_id: 101,
+    mocks.getJson.mockResolvedValue([commentFixture({
       body: longBody,
-      author: {
-        id: 3,
-        full_name: 'Sara Benali',
-        avatar_url: '',
-      },
-      created_at: '2026-06-01T09:00:00Z',
-    }])
+    })])
 
     const { container } = renderPanel(commentsTab, baseItem)
 
@@ -195,6 +203,134 @@ describe('TopicWorkspacePanels', () => {
 
     const commentBody = Array.from(container.querySelectorAll('p')).find((paragraph) => paragraph.textContent === longBody)
     expect(commentBody?.className).toContain('break-words')
+  })
+
+  it('shows ratings, reactions, and expandable replies in the comments panel', async () => {
+    const parentComment = commentFixture({ id: 7, body: 'This explanation helped.', reply_count: 1 })
+    const reply = commentFixture({ id: 8, parent_id: 7, body: 'Same here.', author: { id: 4, full_name: 'Youssef El Idrissi', avatar_url: '' } })
+    mocks.getJson.mockImplementation((_url: string, options?: { params?: { parent_id?: number } }) => {
+      if (options?.params?.parent_id === 7) return Promise.resolve([reply])
+      return Promise.resolve([parentComment])
+    })
+
+    const { container } = renderPanel(commentsTab, baseItem)
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('This explanation helped.')
+    })
+
+    expect(container.querySelector('section[aria-label="Comments"]')).not.toBeNull()
+    expect(container.querySelector('textarea[aria-label="Write a comment"]')).not.toBeNull()
+    expect(container.querySelector('button[aria-label="Rate 4 out of 5"]')).not.toBeNull()
+
+    act(() => {
+      container.querySelector('button[aria-label="Rate 4 out of 5"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(container.querySelector('button[aria-label="Rate 4 out of 5"]')?.getAttribute('aria-checked')).toBe('true')
+
+    act(() => {
+      buttonByText(container, 'Like')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(buttonByText(container, 'Like')?.getAttribute('aria-pressed')).toBe('true')
+
+    await act(async () => {
+      buttonByText(container, 'View 1 reply')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Same here.')
+    })
+    expect(mocks.getJson).toHaveBeenCalledWith('/interactions/comments', expect.objectContaining({
+      params: expect.objectContaining({ topic_item_id: 101, parent_id: 7 }),
+    }))
+  })
+
+  it('posts a comment with a selected rating', async () => {
+    mocks.getJson.mockResolvedValue([])
+    mocks.postJson.mockImplementation((_url: string, payload: { body: string; rating?: number; topic_item_id: number }) => Promise.resolve(commentFixture({
+      id: 9,
+      body: payload.body,
+      rating: payload.rating,
+      topic_item_id: payload.topic_item_id,
+    })))
+
+    const { container } = renderPanel(commentsTab, baseItem)
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('No comments yet')
+    })
+
+    const commentInput = container.querySelector('textarea[aria-label="Write a comment"]') as HTMLTextAreaElement | null
+    expect(commentInput).not.toBeNull()
+
+    await act(async () => {
+      container.querySelector('button[aria-label="Rate 5 out of 5"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      setTextareaValue(commentInput!, 'Great pacing and examples.')
+      commentInput!.dispatchEvent(new Event('input', { bubbles: true }))
+      await flushPromises()
+    })
+
+    await act(async () => {
+      buttonByText(container, 'Post')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+
+    expect(mocks.postJson).toHaveBeenCalledWith('/interactions/comments', {
+      topic_item_id: 101,
+      body: 'Great pacing and examples.',
+      rating: 5,
+    })
+    await waitFor(() => {
+      expect(container.textContent).toContain('Great pacing and examples.')
+      expect(container.textContent).toContain('5/5')
+    })
+  })
+
+  it('posts replies with the parent comment id', async () => {
+    const parentComment = commentFixture({ id: 7, body: 'Can someone explain the last step?' })
+    mocks.getJson.mockResolvedValue([parentComment])
+    mocks.postJson.mockImplementation((_url: string, payload: { body: string; parent_id?: number; topic_item_id: number }) => Promise.resolve(commentFixture({
+      id: 10,
+      body: payload.body,
+      parent_id: payload.parent_id ?? null,
+      topic_item_id: payload.topic_item_id,
+      author: { id: 5, full_name: 'Reply Author', avatar_url: '' },
+    })))
+
+    const { container } = renderPanel(commentsTab, baseItem)
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Can someone explain the last step?')
+    })
+
+    act(() => {
+      buttonByText(container, 'Reply')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const replyInput = container.querySelector('textarea[aria-label="Reply to Sara Benali"]') as HTMLTextAreaElement | null
+    expect(replyInput).not.toBeNull()
+
+    await act(async () => {
+      setTextareaValue(replyInput!, 'Use the continuity condition first.')
+      replyInput!.dispatchEvent(new Event('input', { bubbles: true }))
+      await flushPromises()
+    })
+
+    await act(async () => {
+      buttonByText(container, 'Post reply')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPromises()
+    })
+
+    expect(mocks.postJson).toHaveBeenCalledWith('/interactions/comments', {
+      topic_item_id: 101,
+      parent_id: 7,
+      body: 'Use the continuity condition first.',
+    })
+    await waitFor(() => {
+      expect(container.textContent).toContain('Use the continuity condition first.')
+      expect(container.textContent).toContain('Hide replies')
+    })
   })
 
   it('renders typed Course document blocks instead of the plain Course fallback', () => {
@@ -234,7 +370,15 @@ describe('TopicWorkspacePanels', () => {
       config_json: {
         schema_version: 1,
         blocks: [
-          { id: 'decay-graph', type: 'component', key: 'decay_law_graph', display: 'inline', props: { show_half_life: true } },
+          {
+            id: 'decay-graph',
+            type: 'component',
+            key: 'decay_law_graph',
+            display: 'inline',
+            title: 'Decay graph',
+            description: 'Interactive model under the lesson video.',
+            props: { show_half_life: true },
+          },
         ],
       },
     })
@@ -242,6 +386,37 @@ describe('TopicWorkspacePanels', () => {
     const { container } = renderPanel(courseTab, baseItem)
 
     expect(container.textContent).toContain('animated')
+    expect(container.textContent).toContain('Decay graph')
+    expect(container.textContent).toContain('Interactive model under the lesson video.')
+    expect(container.querySelector('[data-course-component-key="decay_law_graph"]')).not.toBeNull()
+    expect(container.querySelector('[data-course-component-display="inline"]')).not.toBeNull()
+  })
+
+  it('keeps Course component renderer failures local to the animated block', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const courseTab = buildTabContent({
+        id: 25,
+        label: 'Course',
+        tab_type: 'course',
+        config_json: {
+          schema_version: 1,
+          blocks: [
+            { id: 'decay-sim', type: 'component', key: 'decay_simulator', display: 'panel', title: 'Decay simulator' },
+            { id: 'after-error', type: 'paragraph', text: 'Lesson text remains readable.' },
+          ],
+        },
+      })
+
+      const { container } = renderPanel(courseTab, baseItem)
+
+      expect(container.textContent).toContain('Interactive component unavailable')
+      expect(container.textContent).toContain('Decay simulator could not load')
+      expect(container.textContent).toContain('Component: decay_simulator')
+      expect(container.textContent).toContain('Lesson text remains readable.')
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('rejects non-course component keys inside Course documents', () => {
@@ -301,17 +476,18 @@ function renderPanel(tab: TabContent, item: TopicItem) {
   document.body.appendChild(container)
   const root = createRoot(container)
   mountedRoot = { root, container }
+  const onNoteSaved = vi.fn()
 
   act(() => {
     root.render(React.createElement(TabPanel, {
       tab,
       item,
       topicId: 42,
-      onNoteSaved: vi.fn(),
+      onNoteSaved,
     }))
   })
 
-  return { container, root }
+  return { container, root, onNoteSaved }
 }
 
 function buttonByText(container: HTMLElement, text: string) {
@@ -323,6 +499,28 @@ function buttonByText(container: HTMLElement, text: string) {
 async function flushPromises() {
   await Promise.resolve()
   await Promise.resolve()
+}
+
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+  setter?.call(textarea, value)
+}
+
+function commentFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 7,
+    topic_item_id: 101,
+    parent_id: null,
+    reply_count: 0,
+    body: 'Jai confondu le guide dans Mathematiques; le quiz aide a reperer le piege.',
+    author: {
+      id: 3,
+      full_name: 'Sara Benali',
+      avatar_url: '',
+    },
+    created_at: '2026-06-01T09:00:00Z',
+    ...overrides,
+  }
 }
 
 async function waitFor(assertion: () => void) {

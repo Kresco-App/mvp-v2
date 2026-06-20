@@ -30,6 +30,14 @@ const EDGE_PADDING = 12
 const DEFAULT_WIDTH = 384
 const DEFAULT_HEIGHT = 520
 
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+}
+
 function clampPosition(x: number, y: number, el: HTMLDivElement | null) {
   if (typeof window === 'undefined') return { x, y }
 
@@ -124,15 +132,19 @@ export default function ScientificCalculator({ onClose }: Props) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!containerRef.current?.isConnected) return
+      if (isEditableKeyboardTarget(e.target) || e.altKey || e.ctrlKey || e.metaKey) return
       if (e.key === 'Enter') {
+        e.preventDefault()
         handleButton('=')
         return
       }
       if (e.key === 'Backspace') {
+        e.preventDefault()
         handleButton('<-')
         return
       }
       if ('0123456789+-*/.()^'.includes(e.key)) {
+        e.preventDefault()
         setDisplay(d => d + e.key)
       }
     }
@@ -178,7 +190,7 @@ export default function ScientificCalculator({ onClose }: Props) {
           <div className="mb-2 min-h-[20px] truncate text-right text-sm text-slate-500">
             {calcHistory[0] ? `${calcHistory[0].expr} =` : ''}
           </div>
-          <div className="min-h-[48px] truncate text-right font-mono text-4xl font-light tracking-normal text-slate-950">
+          <div className="min-h-[48px] truncate text-right font-mono text-4xl font-light tracking-normal text-slate-950" role="status" aria-live="polite" aria-label="Affichage calculatrice">
             {display || '0'}
           </div>
         </div>

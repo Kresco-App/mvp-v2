@@ -15,7 +15,7 @@ import {
   StickyNote,
   type LucideIcon,
 } from 'lucide-react'
-import { postJson } from '@/lib/apiClient'
+import { deleteJson, getJson, postJson } from '@/lib/apiClient'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { useWorkspaceTree } from '@/lib/topicWorkspaceTree'
 import {
@@ -45,6 +45,15 @@ const workspaceTabIcons: Record<WorkspaceTabSlot, LucideIcon> = {
   comments: MessageSquare,
 }
 const QUIZ_ITEM_TYPES = new Set(['quiz', 'checkpoint_quiz', 'quiz_set', 'question_set'])
+const SAVE_TAG_OPTIONS = ['Relevant', 'Review later', 'Exam prep', 'Formula', 'Difficult']
+
+type TopicItemSave = {
+  id: number
+  target_type: string
+  target_id: number
+  note?: string
+  tags?: string[]
+}
 
 export default function TopicWorkspacePage() {
   const { topicId } = useParams<{ topicId: string }>()
@@ -57,7 +66,8 @@ export default function TopicWorkspacePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [saveDetailsOpen, setSaveDetailsOpen] = useState(false)
   const [saveNote, setSaveNote] = useState('')
-  const [saveTags, setSaveTags] = useState('')
+  const [selectedSaveTags, setSelectedSaveTags] = useState<string[]>([])
+  const [saveByItemId, setSaveByItemId] = useState<Record<number, TopicItemSave | null>>({})
   const actionInFlightRef = useRef(false)
   const lastWorkspaceErrorToastRef = useRef('')
   const {
@@ -110,6 +120,42 @@ export default function TopicWorkspacePage() {
   }, [activeItem, activePrimaryTab, isActiveItemLocked])
   const activeDurationLabel = activeItem ? formatTopicItemDuration(activeItem.duration_seconds) : ''
   const canMarkActiveItemComplete = activeItem ? canUseGenericCompletion(activeItem) : false
+  const activeItemId = activeItem?.id ?? null
+  const activeSaveStatusKnown = activeItem ? Object.prototype.hasOwnProperty.call(saveByItemId, activeItem.id) : false
+  const activeSave = activeItem && activeSaveStatusKnown ? saveByItemId[activeItem.id] : null
+  const isActiveItemSaved = Boolean(activeSave)
+
+  useEffect(() => {
+    if (!activeItem || activeItem.can_access === false || activeSaveStatusKnown) return
+    let cancelled = false
+    const itemId = activeItem.id
+
+    void getJson<TopicItemSave[]>(`/interactions/saves?topic_item_id=${itemId}&limit=20`)
+      .then((saves) => {
+        if (cancelled) return
+        const itemSave = saves.find((save) => save.target_type === 'topic_item' && save.target_id === itemId) ?? null
+        setSaveByItemId((current) => (
+          Object.prototype.hasOwnProperty.call(current, itemId)
+            ? current
+            : { ...current, [itemId]: itemSave }
+        ))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSaveByItemId((current) => ({ ...current, [itemId]: null }))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeItem, activeSaveStatusKnown])
+
+  useEffect(() => {
+    if (activeItemId === null) return
+    setSaveDetailsOpen(false)
+    setSaveNote(activeSave?.note ?? '')
+    setSelectedSaveTags((activeSave?.tags ?? []).filter((tag) => SAVE_TAG_OPTIONS.includes(tag)))
+  }, [activeItemId, activeSave?.id, activeSave?.note, activeSave?.tags])
 
   const selectItem = useCallback(async (item: TopicItem) => {
     selectWorkspaceItem(item)
@@ -175,15 +221,18 @@ export default function TopicWorkspacePage() {
     actionInFlightRef.current = true
     setIsSubmitting(true)
     try {
-      await postJson('/interactions/saves', {
+      const save = await postJson<TopicItemSave>('/interactions/saves', {
         target_type: 'topic_item',
         target_id: activeItem.id,
         topic_id: workspace.id,
         topic_item_id: activeItem.id,
         label: activeItem.title,
-        ...(options.includeDetails ? { note: saveNote, tags: parseSaveTags(saveTags) } : {}),
+        ...(options.includeDetails ? { note: saveNote, tags: selectedSaveTags } : {}),
       })
-      setSaveDetailsOpen(true)
+      setSaveByItemId((current) => ({ ...current, [activeItem.id]: save }))
+      setSaveNote(save.note ?? '')
+      setSelectedSaveTags((save.tags ?? []).filter((tag) => SAVE_TAG_OPTIONS.includes(tag)))
+      setSaveDetailsOpen(false)
       toast.success(options.includeDetails ? 'Save details updated.' : 'Saved.')
     } catch {
       toast.error('Could not save item.')
@@ -191,7 +240,34 @@ export default function TopicWorkspacePage() {
       actionInFlightRef.current = false
       setIsSubmitting(false)
     }
-  }, [activeItem, saveNote, saveTags, workspace])
+  }, [activeItem, saveNote, selectedSaveTags, workspace])
+
+  const unsaveActive = useCallback(async () => {
+    if (!activeItem || !activeSave || actionInFlightRef.current) return
+    actionInFlightRef.current = true
+    setIsSubmitting(true)
+    try {
+      await deleteJson(`/interactions/saves/${activeSave.id}`)
+      setSaveByItemId((current) => ({ ...current, [activeItem.id]: null }))
+      setSaveDetailsOpen(false)
+      setSaveNote('')
+      setSelectedSaveTags([])
+      toast.success('Removed from saved.')
+    } catch {
+      toast.error('Could not remove saved item.')
+    } finally {
+      actionInFlightRef.current = false
+      setIsSubmitting(false)
+    }
+  }, [activeItem, activeSave])
+
+  const toggleSaveTag = useCallback((tag: string) => {
+    setSelectedSaveTags((current) => (
+      current.includes(tag)
+        ? current.filter((item) => item !== tag)
+        : [...current, tag].slice(0, 3)
+    ))
+  }, [])
 
   const primaryContent = useMemo(() => {
     if (!activeItem) return null
@@ -348,55 +424,85 @@ export default function TopicWorkspacePage() {
                 <button
                   type="button"
                   onClick={() => void saveActive()}
-                  disabled={isSubmitting}
-                  className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46] disabled:opacity-50"
+                  disabled={isSubmitting || isActiveItemSaved}
+                  aria-pressed={isActiveItemSaved}
+                  className={`inline-flex h-10 items-center gap-2 rounded-[12px] border px-4 text-[13px] font-black transition disabled:opacity-60 ${isActiveItemSaved ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46]'}`}
                 >
-                  <Bookmark size={14} />
-                  Save
+                  <Bookmark size={14} fill={isActiveItemSaved ? 'currentColor' : 'none'} />
+                  {isActiveItemSaved ? 'Saved' : 'Save'}
                 </button>
+                {isActiveItemSaved && (
+                  <button
+                    type="button"
+                    onClick={() => setSaveDetailsOpen((open) => !open)}
+                    disabled={isSubmitting}
+                    className="inline-flex h-9 items-center rounded-[11px] border border-transparent px-2.5 text-[12px] font-black text-[#71717b] transition hover:bg-[#f8f9fc] hover:text-[#3f3f46] disabled:opacity-50"
+                  >
+                    Details
+                  </button>
+                )}
               </>
             )}
             {activeDurationLabel && (
               <span className="ml-1 text-[12px] font-bold text-[#9f9fa9]">{activeDurationLabel}</span>
             )}
           </div>
-          {saveDetailsOpen && activeItem.can_access !== false && (
-            <div className="grid gap-3 rounded-[14px] border border-[#e4e4e7] bg-white p-4">
-              <div>
-                <p className="m-0 text-[13px] font-black text-[#3f3f46]">Review pin details</p>
-                <p className="m-0 mt-1 text-[12px] font-bold text-[#9f9fa9]">Optional note and tags for finding this item later.</p>
+          {saveDetailsOpen && activeItem.can_access !== false && isActiveItemSaved && (
+            <div className="grid gap-2 rounded-[10px] border border-[#f1f1f4] bg-[#fcfcfd]/70 p-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="m-0 text-[11px] font-black text-[#85858f]">Optional save details</p>
+                <button
+                  type="button"
+                  onClick={() => setSaveDetailsOpen(false)}
+                  className="inline-flex h-6 items-center rounded-[8px] px-2 text-[11px] font-black text-[#a1a1aa] transition hover:bg-white hover:text-[#52525c]"
+                >
+                  Close
+                </button>
               </div>
               <textarea
                 aria-label="Saved item note"
                 value={saveNote}
                 onChange={(event) => setSaveNote(event.target.value)}
-                maxLength={500}
-                className="min-h-20 w-full resize-y rounded-[12px] border border-[#e4e4e7] bg-[#f8f9fc] px-3 py-2 text-[13px] font-semibold leading-5 text-[#3f3f46] outline-none focus:border-[#3a2fd3] focus:bg-white"
-                placeholder="Why are you saving this?"
+                maxLength={240}
+                rows={1}
+                className="min-h-[36px] w-full resize-none rounded-[9px] border border-[#ececf0] bg-white/80 px-2.5 py-2 text-[12px] font-semibold leading-5 text-[#3f3f46] outline-none transition placeholder:text-[#a1a1aa] focus:border-[#d8ddff] focus:bg-white focus:ring-2 focus:ring-[#f3f5ff]"
+                placeholder="Optional note"
               />
-              <input
-                aria-label="Saved item tags"
-                value={saveTags}
-                onChange={(event) => setSaveTags(event.target.value)}
-                className="h-10 rounded-[12px] border border-[#e4e4e7] bg-[#f8f9fc] px-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#3a2fd3] focus:bg-white"
-                placeholder="Tags separated by commas"
-              />
-              <div className="flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSaveDetailsOpen(false)}
-                  className="inline-flex h-9 items-center rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc]"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void saveActive({ includeDetails: true })}
-                  disabled={isSubmitting}
-                  className="inline-flex h-9 items-center rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:opacity-50"
-                >
-                  Save details
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Saved item tags">
+                  {SAVE_TAG_OPTIONS.map((tag) => {
+                    const selected = selectedSaveTags.includes(tag)
+                    return (
+                      <button
+                        type="button"
+                        key={tag}
+                        aria-pressed={selected}
+                        onClick={() => toggleSaveTag(tag)}
+                        className={`inline-flex h-6 items-center rounded-full border px-2 text-[10px] font-black transition ${selected ? 'border-[#d8ddff] bg-[#f5f6ff] text-[#453dee]' : 'border-[#ececf0] bg-transparent text-[#85858f] hover:border-[#d4d4d8] hover:bg-white hover:text-[#52525c]'}`}
+                      >
+                        {tag}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void saveActive({ includeDetails: true })}
+                    disabled={isSubmitting}
+                    className="inline-flex h-7 items-center rounded-[9px] border border-[#d8ddff] bg-white px-2.5 text-[11px] font-black text-[#3a2fd3] transition hover:bg-[#f7f7ff] disabled:opacity-50"
+                  >
+                    Update
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void unsaveActive()}
+                    disabled={isSubmitting}
+                    className="inline-flex h-7 items-center rounded-[9px] border border-transparent px-2 text-[11px] font-black text-[#a1a1aa] transition hover:bg-[#fff1f2] hover:text-[#9f1239] disabled:opacity-50"
+                  >
+                    Remove save
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -425,19 +531,4 @@ function requiresTimedCompletion(item: TopicItem) {
 
 function requiredWatchSeconds(durationSeconds: number) {
   return Math.max(1, Math.ceil(durationSeconds * 0.9))
-}
-
-function parseSaveTags(value: string) {
-  const tags: string[] = []
-  const seen = new Set<string>()
-  for (const part of value.split(',')) {
-    const tag = part.trim().replace(/\s+/g, ' ')
-    if (!tag) continue
-    const key = tag.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    tags.push(tag.slice(0, 32))
-    if (tags.length >= 8) break
-  }
-  return tags
 }

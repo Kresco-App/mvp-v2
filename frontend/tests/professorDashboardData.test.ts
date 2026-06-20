@@ -81,6 +81,16 @@ afterEach(() => {
 })
 
 describe('Professor dashboard SWR behavior', () => {
+  it('shows a loading skeleton instead of empty dashboard values during initial load', () => {
+    mocks.apiGet.mockReturnValue(new Promise(() => undefined))
+
+    const { container } = renderProfessorDashboard()
+
+    expect(container.querySelector('[aria-label="Loading professor dashboard"]')).not.toBeNull()
+    expect(container.textContent).not.toContain('No active offering')
+    expect(container.textContent).not.toContain('No upcoming live session')
+  })
+
   it('loads dashboard data through the shared SWR cache', async () => {
     const { container } = renderProfessorDashboard()
 
@@ -88,11 +98,153 @@ describe('Professor dashboard SWR behavior', () => {
       expect(container.textContent).toContain('Professor Dashboard')
       expect(container.textContent).toContain('Mathematics - 2BAC Sciences Math B')
       expect(container.textContent).toContain('Live correction: limits national exam')
-      expect(container.textContent).toContain('VIP private conversations are student-initiated only.')
-      expect(container.textContent).toContain('Unread')
-      expect(container.textContent).toContain('Pinned')
+      expect(container.textContent).toContain('Overview')
+      expect(container.textContent).toContain('Today')
+      expect(container.querySelector('[aria-label="Professor dashboard overview"]')).not.toBeNull()
+      expect(container.textContent).toContain('Live readiness')
+      expect(container.textContent).toContain('100%')
+      expect(container.textContent).toContain('1/1 ready')
+      expect(container.textContent).toContain('Readiness')
+      expect(container.textContent).toContain('2/4 ready')
+      expect(container.textContent).toContain('Stream linked')
+      expect(container.textContent).toContain('OBS not saved')
+      expect(container.textContent).toContain('Notify pending')
+      expect(container.textContent).toContain('Room ready')
+      expect(container.textContent).toContain('Unread chat')
+      expect(container.textContent).toContain('1 pinned')
+      expect(container.textContent).toContain('Review queue')
+      expect(container.textContent).toContain('1 request')
+      expect(container.textContent).toContain('Offering')
+      expect(container.textContent).toContain('90%')
+      expect(container.textContent).toContain('Healthy')
+      expect(container.textContent).toContain('Watch student replies, studio review.')
+      expect(container.textContent).toContain('3 waiting')
+      expect(container.querySelector('[aria-label="Overall professor operations health"]')).not.toBeNull()
+      expect(container.textContent).toContain('Live setup')
+      expect(container.textContent).toContain('Student replies')
+      expect(container.textContent).toContain('2 unread')
+      expect(container.textContent).toContain('Studio review')
+      expect(container.textContent).toContain('Priority queue')
+      expect(container.textContent).toContain('Lowest health signals first.')
+      expect(container.textContent).toContain('3 items')
+      expect(container.textContent).toContain('Open inbox')
+      expect(container.textContent).toContain('Open review')
+      expect(container.textContent).toContain('Open live')
+      expect(container.textContent).toContain('Live lineup')
+      expect(container.querySelector('[aria-label="Upcoming live lineup"]')).not.toBeNull()
+      expect(container.textContent).toContain('1 shown')
+      expect(container.textContent).toContain('Stream ready')
+      expect(container.textContent).toContain('Notify pending')
+      expect(container.textContent).toContain('Course ops')
+      expect(container.textContent).toContain('Pending review')
+      expect(container.textContent).toContain('Studio context')
+      expect(container.textContent).toContain('Active')
+      expect(container.querySelector('a[href="/professor/live?status=scheduled"]')).not.toBeNull()
+      expect(container.querySelector('a[href="/professor/chat?filter=unread"]')).not.toBeNull()
+      expect(container.querySelector('a[href="/professor/changes?status=pending"]')).not.toBeNull()
+      expect(container.querySelector('a[href="/professor/studio?offering=11"]')).not.toBeNull()
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/professor/dashboard')
+  })
+
+  it('sorts the live lineup before choosing the next dashboard session', async () => {
+    const fixture = dashboardFixture()
+    mocks.apiGet.mockResolvedValue({
+      data: {
+        ...fixture,
+        upcoming_live_sessions: [
+          {
+            ...fixture.upcoming_live_sessions[0],
+            id: 88,
+            title: 'Later exam clinic',
+            starts_at: '2026-06-02T14:00:00Z',
+            notification_status: 'sent',
+          },
+          {
+            ...fixture.upcoming_live_sessions[0],
+            id: 89,
+            title: 'Earlier derivative warmup',
+            starts_at: '2026-05-28T13:00:00Z',
+            notification_status: 'pending',
+          },
+        ],
+      },
+    })
+
+    const { container } = renderProfessorDashboard()
+
+    await waitFor(() => {
+      const text = container.textContent ?? ''
+      expect(text).toContain('Earlier derivative warmup')
+      expect(text).toContain('Later exam clinic')
+      expect(text.indexOf('Earlier derivative warmup')).toBeLessThan(text.indexOf('Later exam clinic'))
+      expect(text).toContain('2 shown')
+      expect(text).toContain('Notified')
+      expect(text).toContain('Notify pending')
+    })
+  })
+
+  it('turns an empty professor dashboard into clear next actions', async () => {
+    mocks.apiGet.mockResolvedValue({
+      data: {
+        ...dashboardFixture(),
+        active_offering: null,
+        upcoming_live_sessions: [],
+        pending_change_requests: [],
+        chat_unread_count: 0,
+        chat_pinned_count: 1,
+      },
+    })
+
+    const { container } = renderProfessorDashboard()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('No active offering')
+      expect(container.textContent).toContain('Schedule next live')
+      expect(container.textContent).toContain('No upcoming live session')
+      expect(container.textContent).toContain('Schedule a live session for this offering.')
+      expect(container.textContent).toContain('Live readiness')
+      expect(container.textContent).toContain('None')
+      expect(container.textContent).toContain('Schedule live')
+      expect(container.textContent).toContain('Unread chat')
+      expect(container.textContent).toContain('1 pinned')
+      expect(container.textContent).toContain('Review queue')
+      expect(container.textContent).toContain('0 requests')
+      expect(container.textContent).toContain('Offering')
+      expect(container.textContent).toContain('Choose course')
+      expect(container.textContent).toContain('59%')
+      expect(container.textContent).toContain('At risk')
+      expect(container.textContent).toContain('Watch live setup, course context.')
+      expect(container.textContent).toContain('No sessions')
+      expect(container.textContent).toContain('Missing')
+      expect(container.textContent).toContain('Course ops')
+      expect(container.textContent).toContain('No course')
+      expect(container.querySelector('a[href="/professor/chat?filter=pinned"]')).not.toBeNull()
+      expect(container.querySelector('a[href="/professor/studio"]')).not.toBeNull()
+    })
+  })
+
+  it('blocks starting a live session until stream details are attached', async () => {
+    mocks.apiGet.mockResolvedValue({
+      data: {
+        ...dashboardFixture(),
+        upcoming_live_sessions: [
+          {
+            ...dashboardFixture().upcoming_live_sessions[0],
+            vdocipher_live_id: '',
+            has_stream_credentials: false,
+          },
+        ],
+      },
+    })
+
+    const { container } = renderProfessorDashboard()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Stream missing')
+      expect(container.textContent).toContain('Add a VdoCipher live ID or generated stream credentials before starting.')
+    })
+    expect((getButton(container, 'Start live') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('keeps cached dashboard visible and revalidates after notifying students', async () => {
@@ -123,6 +275,48 @@ describe('Professor dashboard SWR behavior', () => {
     })
     expect(mocks.apiPost).toHaveBeenCalledWith('/professor/live-sessions/44/notify')
     expect(mocks.toastSuccess).toHaveBeenCalledWith('Live notification marked as sent.')
+  })
+
+  it('keeps dashboard live actions disabled while a live action is running', async () => {
+    const fixture = dashboardFixture()
+    let resolveNotify: (() => void) | null = null
+    mocks.apiGet.mockResolvedValue({ data: fixture })
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      expect(url).toBe('/professor/live-sessions/44/notify')
+      return new Promise((resolve) => {
+        resolveNotify = () => resolve({
+          data: {
+            ...fixture.upcoming_live_sessions[0],
+            notification_status: 'sent',
+          },
+        })
+      })
+    })
+
+    const { container } = renderProfessorDashboard()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Notify students')
+      expect(container.textContent).toContain('Start live')
+    })
+    await act(async () => {
+      getButton(container, 'Notify students').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Notifying...')
+    })
+    expect((getButton(container, 'Notifying...') as HTMLButtonElement).disabled).toBe(true)
+    expect((getButton(container, 'Start live') as HTMLButtonElement).disabled).toBe(true)
+
+    await act(async () => {
+      resolveNotify?.()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await waitFor(() => {
+      expect(mocks.toastSuccess).toHaveBeenCalledWith('Live notification marked as sent.')
+    })
   })
 
   it('renders a retryable dashboard error instead of a blank page', async () => {

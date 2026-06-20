@@ -50,9 +50,13 @@ afterEach(() => {
 
 describe('AdminCoursesPage shared subject discovery', () => {
   it('loads subjects through the shared SWR key and renders topic/item counts', async () => {
-    mocks.apiGet.mockResolvedValue([
-      { id: 42, title: 'Physique', chapter_count: 6, lesson_count: 18 },
-    ])
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/admin/overview') return overviewFixture
+      if (url === '/courses/subjects') return [
+        { id: 42, title: 'Physique', chapter_count: 6, lesson_count: 18 },
+      ]
+      throw new Error(`Unexpected API request: ${url}`)
+    })
 
     const { container } = renderAdminCoursesPage({
       dedupingInterval: 0,
@@ -63,13 +67,18 @@ describe('AdminCoursesPage shared subject discovery', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Physique')
       expect(container.textContent).toContain('6 topics / 18 items')
+      expect(container.textContent).toContain('Content readiness')
+      expect(container.textContent).toContain('Publishing gaps')
+      expect(container.textContent).toContain('topic items without tabs')
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/courses/subjects')
+    expect(mocks.apiGet).toHaveBeenCalledWith('/admin/overview')
   })
 
   it('shows API errors once and retries through SWR mutate', async () => {
     let calls = 0
-    mocks.apiGet.mockImplementation(async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/admin/overview') return overviewFixture
       calls += 1
       if (calls === 1) {
         throw { response: { status: 500, data: { detail: 'Controlled subjects failure' } } }
@@ -90,7 +99,7 @@ describe('AdminCoursesPage shared subject discovery', () => {
       expect(container.textContent).toContain('Math')
       expect(container.textContent).toContain('3 topics / 9 items')
     })
-    expect(mocks.apiGet).toHaveBeenCalledTimes(2)
+    expect(mocks.apiGet.mock.calls.filter(([url]) => url === '/courses/subjects')).toHaveLength(2)
   })
 
 })
@@ -137,4 +146,41 @@ async function waitFor(assertion: () => void) {
     }
   }
   throw lastError
+}
+
+const overviewFixture = {
+  generated_at: '2026-06-20T10:00:00Z',
+  totals: {},
+  content_status: {
+    topics: { published: 6 },
+    topic_items: { published: 18, draft: 2 },
+    resources: { published: 4, draft: 1 },
+  },
+  access_billing: {},
+  ops_readiness: {
+    content_gaps: {
+      topic_items_without_tabs: 2,
+      topics_without_items: 1,
+    },
+  },
+  progress_xp: {},
+  exam_bank: {},
+  calendar: {},
+  engagement: {},
+  interactions: {},
+  notifications: {},
+  finance: {},
+  communications: {},
+  admin_audit: {},
+  crud_catalog: [
+    {
+      domain: 'knowledge-base',
+      slug: 'topic-item',
+      name: 'Topic Item',
+      name_plural: 'Topic Items',
+      model: 'TopicItem',
+      admin_url: '/admin/topic-item/list',
+      actions: { create: true, read: true, update: true, delete: true },
+    },
+  ],
 }

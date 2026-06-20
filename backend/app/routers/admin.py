@@ -4,7 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_current_staff_user, get_db, require_staff_permission
 from app.models.users import User
 from app.rate_limit import limiter
-from app.schemas.admin import AdminOverviewOut
+from app.schemas.admin import (
+    AdminActivityOut,
+    AdminCommunicationsOut,
+    AdminOverviewOut,
+    AdminStudentProgressOut,
+    AdminUsersAccessOut,
+)
 from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionOut, UserPermissionRevokeIn
 from app.schemas.professor import (
     AdminChangeRequestListItemOut,
@@ -21,8 +27,12 @@ from app.schemas.reports import (
     ReportOut,
     ReportUpdateIn,
 )
+from app.services.admin_activity import build_admin_activity
 from app.services.admin_permissions import grant_user_permission, list_user_permissions, revoke_user_permission
+from app.services.admin_communications import build_admin_communications
 from app.services.admin_overview import build_admin_overview
+from app.services.admin_student_progress import build_admin_student_progress
+from app.services.admin_users import build_admin_users_access
 from app.services.admin_change_requests import (
     get_admin_change_request_detail,
     list_admin_change_requests,
@@ -53,6 +63,42 @@ async def get_admin_overview(
 ):
     del request
     return await build_admin_overview(db)
+
+
+@router.get("/activity", response_model=AdminActivityOut)
+async def get_admin_activity(
+    limit: int = Query(default=80, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await build_admin_activity(db, limit=limit)
+
+
+@router.get("/student-progress", response_model=AdminStudentProgressOut)
+async def get_admin_student_progress(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await build_admin_student_progress(db, limit=limit)
+
+
+@router.get("/communications", response_model=AdminCommunicationsOut)
+async def get_admin_communications(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await build_admin_communications(db, limit=limit)
+
+
+@router.get("/users-access", response_model=AdminUsersAccessOut)
+async def get_admin_users_access(
+    limit: int = Query(default=100, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(get_current_staff_user),
+):
+    return await build_admin_users_access(db, limit=limit)
 
 
 @router.get("/permissions", response_model=list[UserPermissionOut])

@@ -351,6 +351,38 @@ export function FigmaProfileSkeleton() {
             ))}
           </section>
 
+          <section className="w-[720px] pt-[18px] max-[760px]:w-full" aria-label="Loading profile sections">
+            <div className="grid grid-cols-5 gap-2 rounded-[16px] border-2 border-[#e4e4e7] bg-white p-2 max-[760px]:flex max-[760px]:overflow-hidden">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div className="grid min-h-[58px] min-w-0 grid-cols-[18px_1fr] items-center gap-2 rounded-[12px] px-[10px] max-[760px]:min-w-[132px]" key={index}>
+                  <SkeletonBlock className="h-4 w-4 rounded-[5px]" />
+                  <span className="grid min-w-0 gap-2">
+                    <SkeletonBlock className="h-[12px] w-[72%] rounded-[6px]" />
+                    <SkeletonBlock className="h-[11px] w-[52%] rounded-[6px]" />
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid w-[720px] gap-3 pt-[18px] max-[760px]:w-full" aria-label="Loading badge progress">
+            <div className="flex items-center justify-between gap-3">
+              <SkeletonBlock className="h-[18px] w-28 rounded-[6px]" />
+              <SkeletonBlock className="h-7 w-24 rounded-full" />
+            </div>
+            <div className="grid grid-cols-3 gap-3 max-[760px]:grid-cols-2 max-[520px]:grid-cols-1">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <article className="kresco-skeleton-card grid min-h-[76px] grid-cols-[40px_1fr] items-center gap-3 rounded-[14px] border-2 bg-white p-3" key={index}>
+                  <SkeletonBlock className="h-10 w-10 rounded-[13px]" />
+                  <span className="min-w-0">
+                    <SkeletonBlock className="h-[14px] w-[84%] rounded-[6px]" />
+                    <SkeletonBlock className="mt-2 h-[12px] w-[68%] rounded-[6px]" />
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section className="figma-profile-subjects" aria-label="Loading subject progress">
             <article className="figma-profile-radar-card kresco-skeleton-card">
               <div className="relative h-[259px] w-[320px] max-w-full">

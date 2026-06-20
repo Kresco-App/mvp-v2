@@ -47,6 +47,7 @@ describe('Firebase auth action pages', () => {
     const { container } = renderPage(React.createElement(VerifyEmailPage))
 
     await waitFor(() => {
+      expect(container.textContent).toContain('Vérification échouée')
       expect(container.textContent).toContain('invalide ou a expir')
     })
     expect(mocks.applyFirebaseEmailVerification).not.toHaveBeenCalled()

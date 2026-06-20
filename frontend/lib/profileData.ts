@@ -4,6 +4,7 @@ import { type ProfileUser } from '@/lib/profile'
 import {
   toProfileSubject,
   type FigmaProfileNote,
+  type FigmaProfileBadgeInventory,
   type FigmaProfileSavedItem,
   type FigmaProfileStats,
   type FigmaProfileSubject,
@@ -17,6 +18,7 @@ import {
 export const PROFILE_ME_KEY = '/profile/me'
 export const PROFILE_XP_KEY = '/progress/xp'
 export const PROFILE_STATS_KEY = '/progress/stats'
+export const PROFILE_BADGES_KEY = '/progress/badges'
 export const PROFILE_SUBJECTS_KEY = '/courses/subjects'
 export const PROFILE_TOPICS_KEY = '/courses/topics'
 export const PROFILE_NOTES_KEY = '/interactions/notes'
@@ -53,6 +55,7 @@ export function useProfileData() {
   const profileQuery = useSWR<ProfileUser>(PROFILE_ME_KEY)
   const xpQuery = useSWR<FigmaProfileXP>(PROFILE_XP_KEY)
   const statsQuery = useSWR<ProfileStatsResult>(PROFILE_STATS_KEY)
+  const badgesQuery = useSWR<FigmaProfileBadgeInventory>(PROFILE_BADGES_KEY)
   const subjectsQuery = useSWR<SubjectCard[]>(PROFILE_SUBJECTS_KEY)
   const topicsQuery = useSWR<TopicCard[]>(PROFILE_TOPICS_KEY)
   const notesQuery = useSWR<FigmaProfileNote[]>(PROFILE_NOTES_KEY)
@@ -62,6 +65,7 @@ export function useProfileData() {
     profileQuery,
     xpQuery,
     statsQuery,
+    badgesQuery,
     subjectsQuery,
     topicsQuery,
     notesQuery,
@@ -75,6 +79,7 @@ export function useProfileData() {
     profile: profileQuery.data ?? null,
     xp: xpQuery.data ?? null,
     stats: statsQuery.data ? toProfileStats(statsQuery.data) : null,
+    badgeInventory: badgesQuery.data ?? null,
     subjects,
     topics,
     profileSubjects: buildProfileSubjects(subjects, topics),

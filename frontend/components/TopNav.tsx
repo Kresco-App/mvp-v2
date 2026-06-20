@@ -16,7 +16,6 @@ import {
   LogOut,
   Menu,
   MessageCircle,
-  StickyNote,
   Trash2,
   Trophy,
   User,
@@ -29,6 +28,7 @@ import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/rea
 import { AUTH_ROUTES, canUseStudentProfessorChat } from '@/lib/authPolicy'
 import { isActiveNavHref } from '@/lib/navigationPolicy'
 import { deleteAllNotifications, deleteNotification, listNotifications, markAllNotificationsRead, markNotificationRead, type NotificationItem } from '@/lib/notifications'
+import { getStudentProfessorChat, type StudentProfessorChatStatus } from '@/lib/professor'
 import { useAuthStore } from '@/lib/store'
 import { useDismissable } from '@/hooks/useClickOutside'
 
@@ -43,9 +43,11 @@ const links = [
   { href: '/zed', label: 'Zed Mode', Icon: Zap },
 ]
 
+const professorChatLink = { href: AUTH_ROUTES.studentProfessorChat, label: 'Professor Chat', Icon: MessageCircle }
+
 const professorStudentLinks = [
   ...links,
-  { href: AUTH_ROUTES.studentProfessorChat, label: 'Professor Chat', Icon: MessageCircle },
+  professorChatLink,
 ]
 
 const notificationPanelTransition = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
@@ -62,13 +64,16 @@ export default function TopNav() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
+  const [professorChatUnreadCount, setProfessorChatUnreadCount] = useState(0)
   const [readingIds, setReadingIds] = useState<Set<number>>(new Set())
   const [markingAllRead, setMarkingAllRead] = useState(false)
   const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set())
   const [deletingAll, setDeletingAll] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const notificationsRef = useRef<HTMLDivElement | null>(null)
-  const navLinks = canUseStudentProfessorChat(user) ? professorStudentLinks : links
+  const canUseProfessorChat = canUseStudentProfessorChat(user)
+  const desktopNavLinks = links
+  const menuNavLinks = canUseProfessorChat ? professorStudentLinks : links
 
   function active(href: string | null) {
     return isActiveNavHref(pathname, href, [AUTH_ROUTES.studentHome])
@@ -123,20 +128,41 @@ export default function TopNav() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!user?.id) return
-    void refreshNotifications()
-  }, [refreshNotifications, user?.id])
+  const refreshProfessorChatUnread = useCallback(async () => {
+    if (!canUseProfessorChat) {
+      setProfessorChatUnreadCount(0)
+      return
+    }
+
+    try {
+      const data = await getStudentProfessorChat()
+      setProfessorChatUnreadCount(studentProfessorChatUnreadCount(data))
+    } catch {
+      setProfessorChatUnreadCount(0)
+    }
+  }, [canUseProfessorChat])
+
+  const refreshTopNavData = useCallback(async () => {
+    await Promise.allSettled([
+      refreshNotifications(),
+      refreshProfessorChatUnread(),
+    ])
+  }, [refreshNotifications, refreshProfessorChatUnread])
 
   useEffect(() => {
     if (!user?.id) return
-    const refresh = () => void refreshNotifications()
+    void refreshTopNavData()
+  }, [refreshTopNavData, user?.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const refresh = () => void refreshTopNavData()
     return subscribeKrescoRealtime({
       channelName: userNotificationsChannelName(user.id),
       onMessage: refresh,
-      fallback: { intervalMs: 5000, poll: refreshNotifications },
+      fallback: { intervalMs: 5000, poll: refreshTopNavData },
     })
-  }, [refreshNotifications, user?.id])
+  }, [refreshTopNavData, user?.id])
 
   useDismissable(notificationsRef, () => setNotificationsOpen(false), {
     enabled: notificationsOpen,
@@ -254,7 +280,7 @@ export default function TopNav() {
 
         <div className="hidden h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden md:flex">
           <LayoutGroup id="top-nav-tabs">
-            {navLinks.map(({ href, label, Icon }) => {
+            {desktopNavLinks.map(({ href, label, Icon }) => {
               const isActive = active(href)
               const content = (
                 <>
@@ -307,14 +333,36 @@ export default function TopNav() {
           >
             <Menu size={19} aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            title="Notes"
-            onClick={() => void showInfoToast('Notes are available inside each topic.')}
-            className="hidden h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition duration-150 hover:-translate-y-px hover:bg-[#f4f4f5] active:scale-95 sm:grid"
-          >
-            <StickyNote size={18} aria-hidden="true" />
-          </button>
+          {canUseProfessorChat && (
+            <Link
+              href={AUTH_ROUTES.studentProfessorChat}
+              title="Professor Chat"
+              aria-label={professorChatUnreadCount > 0 ? `Professor Chat, ${professorChatUnreadCount > 9 ? '9 plus' : professorChatUnreadCount} unread` : 'Professor Chat'}
+              onClick={(event) => handleNavClick(event, AUTH_ROUTES.studentProfessorChat, active(AUTH_ROUTES.studentProfessorChat))}
+              aria-current={active(AUTH_ROUTES.studentProfessorChat) ? 'page' : undefined}
+              className={`relative hidden h-11 w-11 place-items-center rounded-[14px] no-underline outline-none transition duration-150 hover:-translate-y-px active:scale-95 sm:grid ${
+                active(AUTH_ROUTES.studentProfessorChat)
+                  ? 'bg-[#f0f0ff] text-[#3a2fd3] shadow-[inset_0_0_0_1px_rgba(91,96,249,0.13)]'
+                  : 'text-[#52525c] hover:bg-[#f4f4f5] hover:text-[#3a2fd3]'
+              }`}
+            >
+              <MessageCircle size={18} aria-hidden="true" />
+              <AnimatePresence initial={false}>
+                {professorChatUnreadCount > 0 && (
+                  <motion.span
+                    key="professor-chat-count"
+                    initial={{ opacity: 0, scale: 0.7 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.7 }}
+                    transition={{ duration: 0.16 }}
+                    className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white"
+                  >
+                    {professorChatUnreadCount > 9 ? '9+' : professorChatUnreadCount}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </Link>
+          )}
           <div ref={notificationsRef} className="relative hidden sm:block">
             <button
               type="button"
@@ -493,7 +541,7 @@ export default function TopNav() {
                   className="absolute right-0 top-[calc(100%+10px)] w-64 origin-top-right rounded-2xl border border-[#e4e4e7] bg-white p-2 shadow-[0_18px_40px_rgba(24,24,27,0.16)]"
                 >
                   <div className="grid gap-1 border-b border-[#f4f4f5] pb-2 md:hidden">
-                    {navLinks.map(({ href, label, Icon }, index) => {
+                    {menuNavLinks.map(({ href, label, Icon }, index) => {
                       const isActive = active(href)
                       return (
                         <motion.div
@@ -571,4 +619,12 @@ function isNotFoundError(error: unknown) {
     && error !== null
     && 'response' in error
     && (error as { response?: { status?: number } }).response?.status === 404
+}
+
+function studentProfessorChatUnreadCount(status: StudentProfessorChatStatus) {
+  if (!status.eligible) return 0
+  if (status.teacher_threads?.length) {
+    return status.teacher_threads.reduce((total, thread) => total + Math.max(0, thread.unread_count), 0)
+  }
+  return status.conversations.reduce((total, conversation) => total + Math.max(0, conversation.unread_for_student), 0)
 }

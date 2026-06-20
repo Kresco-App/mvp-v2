@@ -41,6 +41,7 @@ router = APIRouter(tags=["Interactions"])
 @router.get("/comments", response_model=list[CommentOut])
 async def list_comments(
     topic_item_id: int,
+    parent_id: int | None = Query(default=None, ge=1),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -51,6 +52,7 @@ async def list_comments(
         db,
         user=_user,
         topic_item_id=topic_item_id,
+        parent_id=parent_id,
         settings=settings,
         limit=limit,
         offset=offset,

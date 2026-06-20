@@ -1,5 +1,6 @@
 import asyncio
 import ast
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -15,8 +16,24 @@ from app.admin.views import (
     UserXPAdmin,
 )
 from app.models.courses import Subject, Topic, TopicItem, TopicSection
-from app.models.gamification import QuizAttempt, TopicItemProgress
+from app.models.gamification import QuizAttempt, TopicItemProgress, UserXP
 from app.models.admin_audit import AdminAuditLog
+from app.models.payments import (
+    FinanceLedgerEntry,
+    PaymentProviderEvent,
+    PaymentReconciliationImport,
+    PaymentTransaction,
+    RefundRequest,
+)
+from app.models.professor import (
+    CourseOffering,
+    LiveSession,
+    LiveSessionInteraction,
+    ProfessorChatConversation,
+    ProfessorChatMessage,
+    ProgramTrack,
+)
+from app.models.reports import ContentReport
 from app.models.users import User, UserPermission, UserSubjectEntitlement
 from app.services.auth import create_token
 
@@ -66,6 +83,18 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
             )
             subject = Subject(title="Admin Physics", is_published=True, order=99)
             db.add_all([student, staff, unverified_staff, subject])
+            await db.flush()
+            track = ProgramTrack(niveau="2BAC", filiere="SM", title="2BAC SM", status="active")
+            db.add(track)
+            await db.flush()
+            offering = CourseOffering(
+                subject_id=subject.id,
+                track_id=track.id,
+                professor_user_id=staff.id,
+                title="Admin Physics - 2BAC SM",
+                status="active",
+            )
+            db.add(offering)
             await db.flush()
             topic = Topic(
                 subject_id=subject.id,
@@ -125,6 +154,118 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
                     watched_seconds=120,
                 )
             )
+            paid_transaction = PaymentTransaction(
+                user_id=student.id,
+                provider="cashplus",
+                rail="cashplus",
+                status="paid",
+                plan="pro",
+                amount_centimes=9900,
+                currency="MAD",
+                reference_code="ADMIN-PAID-OVERVIEW",
+            )
+            pending_transaction = PaymentTransaction(
+                user_id=student.id,
+                provider="bank_transfer",
+                rail="bank_transfer",
+                status="pending_manual_review",
+                plan="pro",
+                amount_centimes=19900,
+                currency="MAD",
+                reference_code="ADMIN-PENDING-OVERVIEW",
+            )
+            db.add_all([paid_transaction, pending_transaction])
+            await db.flush()
+            db.add_all([
+                PaymentProviderEvent(
+                    transaction_id=paid_transaction.id,
+                    provider="cashplus",
+                    event_id="admin-overview-provider-event",
+                    event_type="manual.approved",
+                    status="processed",
+                ),
+                PaymentReconciliationImport(
+                    provider="bank_transfer",
+                    rail="bank_transfer",
+                    source_name="admin-overview-import",
+                    status="processed",
+                    row_count=1,
+                    matched_count=1,
+                    created_by_user_id=staff.id,
+                ),
+                FinanceLedgerEntry(
+                    transaction_id=paid_transaction.id,
+                    user_id=student.id,
+                    entry_type="payment_confirmed",
+                    amount_centimes=9900,
+                    currency="MAD",
+                    reason="Admin overview seed",
+                ),
+                RefundRequest(
+                    transaction_id=paid_transaction.id,
+                    user_id=student.id,
+                    provider="cashplus",
+                    rail="cashplus",
+                    amount_centimes=9900,
+                    currency="MAD",
+                    status="requested",
+                    reason="Admin overview refund check",
+                    requested_by_user_id=student.id,
+                ),
+            ])
+            conversation = ProfessorChatConversation(
+                course_offering_id=offering.id,
+                professor_user_id=staff.id,
+                student_user_id=student.id,
+                status="open",
+                last_message_preview="Please review this proof.",
+                unread_for_professor=2,
+                unread_for_student=1,
+            )
+            db.add(conversation)
+            await db.flush()
+            db.add(
+                ProfessorChatMessage(
+                    conversation_id=conversation.id,
+                    sender_user_id=student.id,
+                    body="Please review this proof.",
+                    status="sent",
+                )
+            )
+            now = datetime.now(timezone.utc)
+            live_session = LiveSession(
+                course_offering_id=offering.id,
+                professor_user_id=staff.id,
+                title="Admin overview live",
+                starts_at=now + timedelta(hours=1),
+                ends_at=now + timedelta(hours=2),
+                status="live",
+            )
+            db.add(live_session)
+            await db.flush()
+            db.add(
+                LiveSessionInteraction(
+                    live_session_id=live_session.id,
+                    course_offering_id=offering.id,
+                    professor_user_id=staff.id,
+                    student_user_id=student.id,
+                    kind="question",
+                    body="Can you repeat this step?",
+                    status="pending",
+                )
+            )
+            db.add(
+                ContentReport(
+                    reporter_user_id=student.id,
+                    target_type="live_message",
+                    target_id="admin-overview-live-message",
+                    reason="bug",
+                    status="open",
+                    priority="urgent",
+                    title="Live message issue",
+                    idempotency_key="admin-overview-report",
+                )
+            )
             await db.commit()
             return (
                 create_token(student.id, test_settings),
@@ -163,6 +304,15 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
     assert data["engagement"]["quiz_attempt_pass_rate"] > 0
     assert data["engagement"]["quiz_result_pass_rate"] > 0
     assert "progress_xp" in data
+    assert data["finance"]["pending_manual_review"] >= 1
+    assert data["finance"]["paid_revenue_centimes"] >= 9900
+    assert data["finance"]["transactions_by_status"]["paid"] >= 1
+    assert data["finance"]["open_refund_requests"] >= 1
+    assert data["communications"]["chat_unread_for_professors"] >= 2
+    assert data["communications"]["chat_unread_for_students"] >= 1
+    assert data["communications"]["pending_live_interactions"] >= 1
+    assert data["communications"]["open_reports"] >= 1
+    assert data["communications"]["urgent_open_reports"] >= 1
     assert "admin_audit" in data
     assert data["ops_readiness"]["access"]["active_entitlements_now"] >= 1
     assert data["ops_readiness"]["access"]["users_with_entitlement_rows"] >= 1
@@ -190,6 +340,406 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
         "update": False,
         "delete": False,
     }
+
+
+def test_admin_activity_requires_staff_and_returns_recent_audit_rows(app_client, run_db, test_settings):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            student = User(
+                email="admin-activity-student@example.com",
+                full_name="Activity Student",
+                is_active=True,
+                is_email_verified=True,
+            )
+            staff = User(
+                email="admin-activity-staff@example.com",
+                full_name="Activity Staff",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+            )
+            db.add_all([student, staff])
+            await db.flush()
+            now = datetime.now(timezone.utc)
+            db.add_all([
+                AdminAuditLog(
+                    action="permission_grant",
+                    model_name="UserPermission",
+                    object_pk="41",
+                    object_repr=f"{staff.id}:finance:read",
+                    changed_data={
+                        "actor_user_id": staff.id,
+                        "permission": "finance:read",
+                        "reason": "activity test",
+                    },
+                    request_path="/api/admin/permissions",
+                    client_host="127.0.0.1",
+                    note=f"admin_user_id={staff.id}",
+                    created_at=now,
+                ),
+                AdminAuditLog(
+                    action="report_update",
+                    model_name="ContentReport",
+                    object_pk="7",
+                    object_repr="Live report",
+                    changed_data={
+                        "actor_user_id": staff.id,
+                        "status": "resolved",
+                        "resolution_note": "handled in activity test",
+                    },
+                    request_path="/api/admin/reports/7",
+                    client_host="127.0.0.1",
+                    note=f"admin_user_id={staff.id}",
+                    created_at=now - timedelta(hours=2),
+                ),
+            ])
+            await db.commit()
+            return create_token(student.id, test_settings), create_token(staff.id, test_settings), staff.id
+
+    student_token, staff_token, staff_id = run_db(_seed())
+
+    blocked = app_client.get(
+        "/api/admin/activity",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert blocked.status_code == 403
+
+    response = app_client.get(
+        "/api/admin/activity?limit=20",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["summary"]["total_audit_rows"] >= 2
+    assert data["summary"]["created_24h"] >= 2
+    assert data["summary"]["actors_in_feed"] >= 1
+    assert data["by_action"]["permission_grant"] >= 1
+    assert data["by_model"]["UserPermission"] >= 1
+    entry = next(item for item in data["entries"] if item["action"] == "permission_grant")
+    assert entry["actor_user_id"] == staff_id
+    assert entry["request_path"] == "/api/admin/permissions"
+    assert "permission" in entry["changed_keys"]
+    assert entry["changed_data"]["reason"] == "activity test"
+    assert "finance:read" in entry["summary"]
+
+
+def test_admin_student_progress_requires_staff_and_returns_student_rows(app_client, run_db, test_settings):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            student = User(
+                email="admin-progress-student@example.com",
+                full_name="Progress Student",
+                niveau="2BAC",
+                filiere="SM",
+                tier="vip",
+                is_pro=True,
+                is_active=True,
+                is_email_verified=True,
+            )
+            staff = User(
+                email="admin-progress-staff@example.com",
+                full_name="Progress Staff",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+            )
+            subject = Subject(title="Admin Progress Physics", is_published=True, order=199)
+            db.add_all([student, staff, subject])
+            await db.flush()
+            topic = Topic(
+                subject_id=subject.id,
+                slug="admin-progress-topic",
+                title="Admin Progress Topic",
+                status="published",
+                order=1,
+            )
+            db.add(topic)
+            await db.flush()
+            section = TopicSection(topic_id=topic.id, title="Main", section_type="main", order=1)
+            db.add(section)
+            await db.flush()
+            item = TopicItem(
+                topic_id=topic.id,
+                section_id=section.id,
+                title="Admin Progress Item",
+                item_type="reading",
+                status="published",
+            )
+            db.add(item)
+            await db.flush()
+            db.add(UserXP(user_id=student.id, total_xp=420, streak_days=6))
+            db.add(
+                TopicItemProgress(
+                    user_id=student.id,
+                    topic_id=topic.id,
+                    topic_item_id=item.id,
+                    status="completed",
+                    watched_seconds=600,
+                    best_score=90,
+                    latest_score=90,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            db.add(
+                QuizAttempt(
+                    user_id=student.id,
+                    subject_id=subject.id,
+                    topic_id=topic.id,
+                    topic_item_id=item.id,
+                    source_type="tab",
+                    score=80,
+                    passed=True,
+                    answers={},
+                    grading={},
+                )
+            )
+            await db.commit()
+            return create_token(student.id, test_settings), create_token(staff.id, test_settings)
+
+    student_token, staff_token = run_db(_seed())
+
+    blocked = app_client.get(
+        "/api/admin/student-progress",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert blocked.status_code == 403
+
+    response = app_client.get(
+        "/api/admin/student-progress?limit=10",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["summary"]["total_students"] >= 1
+    assert data["summary"]["active_students_7d"] >= 1
+    assert data["summary"]["completed_topic_items"] >= 1
+    assert data["summary"]["total_watch_minutes"] >= 10
+    assert data["summary"]["quiz_attempts"] >= 1
+    assert data["summary"]["quiz_passed"] >= 1
+    assert data["progress_by_status"]["completed"] >= 1
+    row = next(item for item in data["students"] if item["email"] == "admin-progress-student@example.com")
+    assert row["full_name"] == "Progress Student"
+    assert row["total_xp"] == 420
+    assert row["streak_days"] == 6
+    assert row["completed_items"] >= 1
+    assert row["watched_minutes"] >= 10
+    assert row["quiz_attempts"] >= 1
+    assert row["quiz_passed"] >= 1
+
+
+def test_admin_communications_requires_staff_and_returns_queues(app_client, run_db, test_settings):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            student = User(
+                email="admin-communications-student@example.com",
+                full_name="Comms Student",
+                is_active=True,
+                is_email_verified=True,
+            )
+            staff = User(
+                email="admin-communications-staff@example.com",
+                full_name="Comms Staff",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+            )
+            subject = Subject(title="Admin Communications Physics", is_published=True, order=299)
+            db.add_all([student, staff, subject])
+            await db.flush()
+            track = ProgramTrack(niveau="2BAC-COM", filiere="SM-COMMS", title="2BAC SM Comms", status="active")
+            db.add(track)
+            await db.flush()
+            offering = CourseOffering(
+                subject_id=subject.id,
+                track_id=track.id,
+                professor_user_id=staff.id,
+                title="Comms Offering",
+                status="active",
+            )
+            db.add(offering)
+            await db.flush()
+            conversation = ProfessorChatConversation(
+                course_offering_id=offering.id,
+                professor_user_id=staff.id,
+                student_user_id=student.id,
+                status="open",
+                last_message_preview="Please check this live question.",
+                unread_for_professor=3,
+                unread_for_student=1,
+            )
+            db.add(conversation)
+            await db.flush()
+            db.add(
+                ProfessorChatMessage(
+                    conversation_id=conversation.id,
+                    sender_user_id=student.id,
+                    body="Please check this live question.",
+                    status="sent",
+                )
+            )
+            now = datetime.now(timezone.utc)
+            live_session = LiveSession(
+                course_offering_id=offering.id,
+                professor_user_id=staff.id,
+                title="Comms Live Session",
+                starts_at=now - timedelta(minutes=10),
+                ends_at=now + timedelta(minutes=50),
+                status="live",
+            )
+            db.add(live_session)
+            await db.flush()
+            db.add(
+                LiveSessionInteraction(
+                    live_session_id=live_session.id,
+                    course_offering_id=offering.id,
+                    professor_user_id=staff.id,
+                    student_user_id=student.id,
+                    kind="question",
+                    body="Can you repeat the proof?",
+                    status="pending",
+                )
+            )
+            db.add(
+                ContentReport(
+                    reporter_user_id=student.id,
+                    target_type="live_message",
+                    target_id="admin-communications-live-message",
+                    reason="bug",
+                    status="open",
+                    priority="urgent",
+                    title="Comms report",
+                    description="Live chat needs moderation",
+                    idempotency_key="admin-communications-report",
+                )
+            )
+            await db.commit()
+            return create_token(student.id, test_settings), create_token(staff.id, test_settings)
+
+    student_token, staff_token = run_db(_seed())
+
+    blocked = app_client.get(
+        "/api/admin/communications",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert blocked.status_code == 403
+
+    response = app_client.get(
+        "/api/admin/communications?limit=10",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["summary"]["unread_for_professors"] >= 3
+    assert data["summary"]["pending_live_interactions"] >= 1
+    assert data["summary"]["open_reports"] >= 1
+    assert data["summary"]["urgent_open_reports"] >= 1
+    assert data["chat_conversations_by_status"]["open"] >= 1
+    assert data["live_interactions_by_status"]["pending"] >= 1
+    assert data["reports_by_priority"]["urgent"] >= 1
+    assert any(item["last_message_preview"] == "Please check this live question." for item in data["conversations"])
+    assert any(item["body"] == "Can you repeat the proof?" for item in data["live_interactions"])
+    assert any(item["title"] == "Comms report" for item in data["reports"])
+
+
+def test_admin_users_access_requires_staff_and_returns_user_rows(app_client, run_db, test_settings):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            student = User(
+                email="admin-users-student@example.com",
+                full_name="Users Student",
+                tier="pro",
+                is_pro=True,
+                is_active=True,
+                is_email_verified=True,
+            )
+            staff = User(
+                email="admin-users-staff@example.com",
+                full_name="Users Staff",
+                role="admin",
+                tier="vip",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+            )
+            subject = Subject(title="Admin Users Physics", is_published=True, order=399)
+            db.add_all([student, staff, subject])
+            await db.flush()
+            db.add(
+                UserSubjectEntitlement(
+                    user_id=student.id,
+                    subject_id=subject.id,
+                    status="active",
+                    source="manual",
+                    ends_at=datetime.now(timezone.utc) + timedelta(days=30),
+                )
+            )
+            db.add(
+                UserPermission(
+                    user_id=staff.id,
+                    permission="users:read",
+                    status="active",
+                    reason="Admin users access test",
+                    granted_by_user_id=staff.id,
+                )
+            )
+            db.add(
+                PaymentTransaction(
+                    user_id=student.id,
+                    provider="cashplus",
+                    rail="cashplus",
+                    status="paid",
+                    plan="pro",
+                    amount_centimes=9900,
+                    currency="MAD",
+                    reference_code="ADMIN-USERS-PAID",
+                )
+            )
+            await db.commit()
+            return create_token(student.id, test_settings), create_token(staff.id, test_settings)
+
+    student_token, staff_token = run_db(_seed())
+
+    blocked = app_client.get(
+        "/api/admin/users-access",
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert blocked.status_code == 403
+
+    response = app_client.get(
+        "/api/admin/users-access?limit=25",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["summary"]["total_users"] >= 2
+    assert data["summary"]["active_users"] >= 2
+    assert data["summary"]["verified_users"] >= 2
+    assert data["summary"]["staff_users"] >= 1
+    assert data["summary"]["pro_users"] >= 1
+    assert data["summary"]["active_entitlements"] >= 1
+    assert data["summary"]["active_permissions"] >= 1
+    assert data["summary"]["paid_revenue_centimes"] >= 9900
+    assert data["users_by_role"]["admin"] >= 1
+    assert data["users_by_tier"]["pro"] >= 1
+    student_row = next(item for item in data["users"] if item["email"] == "admin-users-student@example.com")
+    assert student_row["active_entitlements"] == 1
+    assert student_row["payment_count"] == 1
+    assert student_row["paid_revenue_centimes"] == 9900
+    staff_row = next(item for item in data["users"] if item["email"] == "admin-users-staff@example.com")
+    assert staff_row["active_permissions"] >= 1
+    assert "users:read" in staff_row["active_permission_names"]
+    assert any(
+        item["permission"] == "users:read" and item["reason"] == "Admin users access test"
+        for item in staff_row["permissions"]
+    )
 
 
 def test_admin_permission_management_requires_roles_manage(app_client, run_db, test_settings):
@@ -686,6 +1236,10 @@ def test_admin_overview_router_stays_thin():
 
     assert function_names == [
         "get_admin_overview",
+        "get_admin_activity",
+        "get_admin_student_progress",
+        "get_admin_communications",
+        "get_admin_users_access",
         "list_permissions",
         "grant_permission",
         "revoke_permission",
@@ -700,6 +1254,10 @@ def test_admin_overview_router_stays_thin():
         "review_professor_change_request_admin",
     ]
     assert "build_admin_overview" in router_source
+    assert "build_admin_activity" in router_source
+    assert "build_admin_student_progress" in router_source
+    assert "build_admin_communications" in router_source
+    assert "build_admin_users_access" in router_source
     assert "list_user_permissions" in router_source
     assert "grant_user_permission" in router_source
     assert "revoke_user_permission" in router_source

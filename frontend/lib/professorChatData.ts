@@ -141,11 +141,11 @@ export function useProfessorChatData(filters: ProfessorConversationFilters, acti
     conversations: conversationQuery.data ?? [],
     conversationsError: conversationQuery.error ?? null,
     conversationsLoading: conversationQuery.isLoading && !conversationQuery.data,
-    conversationsRefreshing: conversationQuery.isValidating,
+    conversationsRefreshing: conversationQuery.isValidating && Boolean(conversationQuery.data),
     messages: activeMessageEnvelope?.messages ?? [],
     messagesError: messageQuery.error ?? null,
     messagesLoading: Boolean(activeConversationId) && !activeMessageEnvelope && messageQuery.isLoading,
-    messagesRefreshing: messageQuery.isValidating,
+    messagesRefreshing: Boolean(activeConversationId) && Boolean(activeMessageEnvelope) && messageQuery.isValidating,
     mutateConversations: conversationQuery.mutate,
     mutateMessages: messageQuery.mutate,
   }

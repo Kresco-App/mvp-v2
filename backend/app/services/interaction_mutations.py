@@ -78,6 +78,7 @@ async def comment_out(comment: Comment, settings: Settings, *, reply_count: int 
         topic_item_id=comment.topic_item_id,
         exercise_id=comment.exercise_id,
         body=comment.body,
+        rating=comment.rating,
         status=comment.status,
         author=CommentAuthorOut(
             id=comment.user.id,
@@ -120,11 +121,20 @@ async def list_topic_item_comments(
     *,
     user: User,
     topic_item_id: int,
+    parent_id: int | None = None,
     settings: Settings,
     limit: int = 50,
     offset: int = 0,
 ) -> list[CommentOut]:
     await require_comments_enabled_for_topic_item(db, user, topic_item_id)
+    if parent_id is not None:
+        parent = await db.get(Comment, parent_id)
+        if parent is None or parent.status != "visible":
+            raise HTTPException(status_code=404, detail="Parent comment not found")
+        if comment_parent_mismatch(parent, topic_item_id):
+            raise HTTPException(status_code=400, detail="Parent comment belongs to a different item")
+
+    parent_filter = Comment.parent_id == parent_id if parent_id is not None else Comment.parent_id.is_(None)
 
     reply_counts = (
         select(Comment.parent_id.label("parent_id"), func.count(Comment.id).label("reply_count"))
@@ -142,7 +152,7 @@ async def list_topic_item_comments(
         .options(selectinload(Comment.user))
         .where(
             Comment.topic_item_id == topic_item_id,
-            Comment.parent_id == None,  # noqa: E711
+            parent_filter,
             Comment.status == "visible",
         )
         .order_by(Comment.created_at, Comment.id)
@@ -303,6 +313,7 @@ async def create_topic_item_comment(
         user_id=user.id,
         topic_item_id=body.topic_item_id,
         body=body.body,
+        rating=body.rating,
         parent_id=body.parent_id,
     )
     db.add(comment)

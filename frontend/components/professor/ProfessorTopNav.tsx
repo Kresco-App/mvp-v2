@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { Bell, ClipboardList, LayoutDashboard, Layers, LogOut, Menu, MessageCircle, Radio, User } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Bell, ClipboardList, LayoutDashboard, Layers, LogOut, Menu, MessageCircle, Radio, User, X } from 'lucide-react'
 import KrescoWordmark from '@/components/KrescoWordmark'
 import { AUTH_ROUTES } from '@/lib/authPolicy'
 import { isActiveNavHref } from '@/lib/navigationPolicy'
@@ -17,12 +17,18 @@ const professorLinks = [
   { href: AUTH_ROUTES.professorChat, label: 'Messagerie', Icon: MessageCircle },
 ]
 
+const professorUnreadMessagesHref = `${AUTH_ROUTES.professorChat}?filter=unread`
+
 export default function ProfessorTopNav() {
   const pathname = usePathname()
   const router = useRouter()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [pathname])
 
   function active(href: string) {
     return isActiveNavHref(pathname, href, [AUTH_ROUTES.professorHome])
@@ -35,9 +41,9 @@ export default function ProfessorTopNav() {
   }
 
   return (
-    <nav className="sticky top-0 z-50 h-16 border-b border-[#f4f4f5] bg-white/95 shadow-[0_0_7.5px_rgba(24,24,27,0.1)] backdrop-blur-xl">
+    <nav aria-label="Professor workspace" className="sticky top-0 z-50 h-16 border-b border-[#f4f4f5] bg-white/95 shadow-[0_0_7.5px_rgba(24,24,27,0.1)] backdrop-blur-xl">
       <div className="mx-auto flex h-full w-[calc(100%-2rem)] max-w-[var(--figma-shell-width)] items-center gap-6 sm:w-[calc(100%-3rem)] lg:w-[calc(100%-4rem)]">
-        <Link href="/professor" className="flex h-full w-[82px] shrink-0 items-center no-underline">
+        <Link href="/professor" aria-label="Professor dashboard" className="flex h-full w-[82px] shrink-0 items-center no-underline">
           <KrescoWordmark />
         </Link>
         <div className="hidden h-full min-w-0 flex-1 items-center md:flex">
@@ -62,25 +68,34 @@ export default function ProfessorTopNav() {
           <button
             type="button"
             title="Navigation"
+            aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={menuOpen}
+            aria-controls="professor-mobile-menu"
             onClick={() => setMenuOpen((value) => !value)}
             className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition hover:bg-[#f4f4f5] md:hidden"
           >
-            <Menu size={19} />
+            {menuOpen ? <X size={19} /> : <Menu size={19} />}
           </button>
           <span className="hidden rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2 text-[12px] font-black text-[#453dee] sm:inline-flex">
             Professeur
           </span>
-          <button type="button" className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] hover:bg-[#f4f4f5]">
+          <Link
+            href={professorUnreadMessagesHref}
+            aria-label="Open unread professor messages"
+            title="Open unread professor messages"
+            className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] no-underline transition hover:bg-[#f4f4f5]"
+          >
             <Bell size={18} />
-            <span className="absolute right-3 top-3 h-2 w-2 rounded-full bg-[#f5900b]" />
-          </button>
-          <div className="grid h-11 w-11 place-items-center rounded-[14px] border-[2px] border-[#e4e4e7] bg-[#f4f4f5] text-sm font-black text-[#3a2fd3]">
+            <span aria-hidden="true" className="absolute right-3 top-3 h-2 w-2 rounded-full bg-[#f5900b]" />
+          </Link>
+          <div title={user?.full_name || 'Professor profile'} className="grid h-11 w-11 place-items-center rounded-[14px] border-[2px] border-[#e4e4e7] bg-[#f4f4f5] text-sm font-black text-[#3a2fd3]">
             {user?.full_name?.[0]?.toUpperCase() || <User size={18} />}
           </div>
           <button
             type="button"
             onClick={doLogout}
             className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#71717b] transition hover:bg-red-50 hover:text-red-500"
+            aria-label="Se deconnecter"
             title="Se déconnecter"
           >
             <LogOut size={18} />
@@ -88,7 +103,7 @@ export default function ProfessorTopNav() {
         </div>
       </div>
       {menuOpen && (
-        <div className="border-b border-[#e4e4e7] bg-white px-4 py-3 shadow-[0_18px_40px_rgba(24,24,27,0.08)] md:hidden">
+        <div id="professor-mobile-menu" className="border-b border-[#e4e4e7] bg-white px-4 py-3 shadow-[0_18px_40px_rgba(24,24,27,0.08)] md:hidden">
           <div className="mx-auto grid max-w-[420px] gap-1">
             {professorLinks.map(({ href, label, Icon }) => {
               const isActive = active(href)

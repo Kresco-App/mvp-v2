@@ -297,9 +297,6 @@ function persistedAppState(appState: Record<string, unknown>) {
     currentItemTextAlign: appState.currentItemTextAlign,
     gridSize: appState.gridSize,
     gridModeEnabled: appState.gridModeEnabled,
-    scrollX: appState.scrollX,
-    scrollY: appState.scrollY,
-    zoom: appState.zoom,
     name: appState.name,
   }) as Record<string, unknown>
 }

@@ -3,7 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Clock, AlertTriangle, CheckCircle2, XCircle, ArrowRight, RotateCcw } from 'lucide-react'
+import {
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  ArrowRight,
+  ArrowLeft,
+  RotateCcw,
+  Loader2,
+  ShieldCheck,
+  FileQuestion,
+} from 'lucide-react'
 import { postJson } from '@/lib/apiClient'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { examQuizFingerprint, useExamDraft, type RestoredExamDraft } from '@/lib/examDraft'
@@ -69,7 +80,7 @@ export default function ExamPage() {
     submitCalledRef.current = restored.submitted
   }, [])
 
-  const { removeDraft } = useExamDraft({
+  const { draftHydrated, removeDraft } = useExamDraft({
     subjectId,
     quiz,
     quizFingerprint,
@@ -156,10 +167,11 @@ export default function ExamPage() {
   const progressPct = Math.max(0, Math.min(100, pct))
   const isUrgent = timeLeft < 300  // 5 dernieres minutes
 
-  if (loading && !quiz) return (
-    <div className="fixed inset-0 bg-slate-900 flex items-center justify-center z-50">
-      <div className="w-8 h-8 border-2 border-kresco border-t-transparent rounded-full animate-spin" />
-    </div>
+  if ((loading && !quiz) || (quiz && !draftHydrated)) return (
+    <ExamLoadingState
+      title={quiz ? 'Restauration de votre session' : 'Preparation de l\'examen'}
+      message={quiz ? 'Nous reprenons votre progression et le temps restant.' : 'Chargement du quiz, du chrono et des consignes.'}
+    />
   )
 
   if (!quiz) return (
@@ -177,10 +189,11 @@ export default function ExamPage() {
 
   // Ecran pre-examen
   if (!started) return (
-    <div className="fixed inset-0 bg-slate-900 flex items-center justify-center z-50">
-      <div className="bg-slate-900 rounded-3xl p-10 max-w-md w-full text-center shadow-2xl mx-4">
+    <div className="fixed inset-0 z-[1000] overflow-y-auto bg-slate-950 px-4 py-6 text-white sm:px-6">
+      <div className="mx-auto flex min-h-full w-full max-w-2xl items-center justify-center">
+        <section className="w-full rounded-[24px] border border-slate-800 bg-slate-900 p-6 text-left shadow-2xl shadow-black/30 sm:p-8">
         {loadError && (
-          <section role="alert" className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-950/40 p-3 text-left">
+          <section role="alert" className="mb-5 flex flex-col gap-3 rounded-xl border border-amber-500/40 bg-amber-950/40 p-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="m-0 text-xs font-bold text-amber-100">Exam data could not be refreshed.</p>
               <p className="m-0 mt-1 text-[11px] font-semibold text-amber-200/80">Cached quiz data stays visible while you retry.</p>
@@ -196,139 +209,195 @@ export default function ExamPage() {
             </button>
           </section>
         )}
-        <div className="w-16 h-16 bg-kresco/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
-          <AlertTriangle size={28} className="text-kresco" />
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+          <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-kresco/10 text-kresco">
+            <AlertTriangle size={28} />
+          </div>
+          <div>
+            <p className="m-0 text-xs font-black uppercase tracking-[0.16em] text-kresco">Session chronometree</p>
+            <h1 className="m-0 mt-2 text-2xl font-black leading-tight text-white sm:text-3xl">Mode Examen</h1>
+            <p className="m-0 mt-2 text-sm font-semibold leading-relaxed text-slate-400">{quiz.title}</p>
+          </div>
         </div>
-        <h1 className="text-2xl font-black text-white mb-2">Mode Examen</h1>
-        <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-          Vous disposez de <strong>{EXAM_DURATION_MINUTES} minutes</strong> pour terminer cet examen.
-          Pas d&apos;indices ni de tentatives supplementaires pendant l&apos;examen. Assurez-vous d&apos;etre pret.
+
+        <div className="mt-7 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+            <p className="m-0 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">Duree</p>
+            <p className="m-0 mt-2 text-xl font-black text-white">{EXAM_DURATION_MINUTES} min</p>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+            <p className="m-0 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">Questions</p>
+            <p className="m-0 mt-2 text-xl font-black text-white">{quiz.questions.length}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+            <p className="m-0 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">Reussite</p>
+            <p className="m-0 mt-2 text-xl font-black text-white">{quiz.pass_score}%</p>
+          </div>
+        </div>
+
+        <p className="m-0 mt-6 text-sm leading-relaxed text-slate-400">
+          Vous disposez de <strong className="text-slate-100">{EXAM_DURATION_MINUTES} minutes</strong> pour terminer cet examen.
+          Pas d&apos;indices ni de tentatives supplementaires pendant la session.
         </p>
-        <ul className="text-xs text-slate-500 space-y-1.5 mb-8 text-left bg-slate-950 rounded-xl p-4">
-          <li>Le chrono demarre des que vous cliquez sur Commencer</li>
-          <li>Vous pouvez naviguer librement entre les questions</li>
-          <li>L&apos;examen se soumet automatiquement a la fin du temps</li>
-          <li>Minimum 80% pour reussir</li>
+        <ul className="mt-5 space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm font-semibold text-slate-400">
+          <li className="flex gap-2"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-kresco" />Le chrono demarre des que vous cliquez sur Commencer</li>
+          <li className="flex gap-2"><FileQuestion size={16} className="mt-0.5 shrink-0 text-kresco" />Vous pouvez naviguer librement entre les questions</li>
+          <li className="flex gap-2"><Clock size={16} className="mt-0.5 shrink-0 text-kresco" />L&apos;examen se soumet automatiquement a la fin du temps</li>
+          <li className="flex gap-2"><CheckCircle2 size={16} className="mt-0.5 shrink-0 text-kresco" />Minimum {quiz.pass_score}% pour reussir</li>
         </ul>
-        <div className="flex gap-3">
+        <div className="mt-7 grid gap-3 sm:grid-cols-2">
           <button type="button"
             onClick={() => router.back()}
-            className="flex-1 border border-slate-700 text-slate-400 font-semibold py-3 rounded-xl hover:bg-slate-950 transition"
+            className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-700 px-4 text-sm font-black text-slate-300 transition hover:bg-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Annuler
           </button>
           <button type="button"
             onClick={startExam}
-            className="flex-1 bg-kresco text-white font-semibold py-3 rounded-xl hover:bg-kresco/90 transition"
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-kresco px-4 text-sm font-black text-white transition hover:bg-kresco/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Commencer
           </button>
         </div>
+        </section>
       </div>
     </div>
   )
 
   // Ecran de resultats
   if (submitted && result) return (
-    <div className="fixed inset-0 bg-slate-900 flex items-center justify-center z-50">
-      <div className="bg-slate-900 rounded-3xl p-10 max-w-md w-full text-center shadow-2xl mx-4">
-        <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${result.passed ? 'bg-green-100' : 'bg-red-100'}`}>
-          {result.passed ? <CheckCircle2 size={36} className="text-green-600" /> : <XCircle size={36} className="text-red-500" />}
+    <div className="fixed inset-0 z-[1000] overflow-y-auto bg-slate-950 px-4 py-6 text-white sm:px-6">
+      <div className="mx-auto flex min-h-full w-full max-w-2xl items-center justify-center">
+        <section className="w-full rounded-[24px] border border-slate-800 bg-slate-900 p-6 text-center shadow-2xl shadow-black/30 sm:p-8">
+        <div className={`mx-auto mb-6 grid h-20 w-20 place-items-center rounded-full ${result.passed ? 'bg-green-500/15 text-green-300' : 'bg-red-500/15 text-red-300'}`}>
+          {result.passed ? <CheckCircle2 size={36} /> : <XCircle size={36} />}
         </div>
-        <h2 className={`text-3xl font-black mb-1 ${result.passed ? 'text-green-600' : 'text-red-600'}`}>
+        <p className={`m-0 text-sm font-black uppercase tracking-[0.16em] ${result.passed ? 'text-green-300' : 'text-red-300'}`}>
+          {result.passed ? 'Examen reussi' : 'Non reussi'}
+        </p>
+        <h2 className="m-0 mt-2 text-5xl font-black leading-none text-white">
           {result.score}%
         </h2>
-        <p className={`text-sm font-semibold mb-1 ${result.passed ? 'text-green-600' : 'text-red-600'}`}>
-          {result.passed ? 'Examen reussi !' : 'Non reussi'}
-        </p>
-        <p className="text-slate-400 text-xs mb-2">
-          {result.correct} / {result.total} reponses correctes · Seuil de reussite : 80%
+        <div className="mt-7 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+            <p className="m-0 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">Correctes</p>
+            <p className="m-0 mt-2 text-xl font-black text-white">{result.correct}/{result.total}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+            <p className="m-0 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">Seuil</p>
+            <p className="m-0 mt-2 text-xl font-black text-white">{result.pass_score}%</p>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+            <p className="m-0 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">XP</p>
+            <p className="m-0 mt-2 text-xl font-black text-white">{result.xp_earned}</p>
+          </div>
+        </div>
+        <p className="m-0 mt-5 text-sm font-semibold text-slate-400">
+          {result.correct} / {result.total} reponses correctes &middot; Seuil de reussite : {result.pass_score}%
         </p>
         {result.xp_earned > 0 && (
-          <p className="text-indigo-600 text-xs font-semibold mb-6">+{result.xp_earned} XP gagnes !</p>
+          <p className="m-0 mt-2 text-xs font-black text-kresco">+{result.xp_earned} XP gagnes</p>
         )}
-        <div className="flex gap-3 mt-6">
+        <div className="mt-7 grid gap-3 sm:grid-cols-2">
           <button type="button"
             onClick={() => router.push('/home')}
-            className="flex-1 border border-slate-700 text-slate-400 font-semibold py-3 rounded-xl hover:bg-slate-950 transition"
+            className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-700 px-4 text-sm font-black text-slate-300 transition hover:bg-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Retour a l&apos;accueil
           </button>
           <button type="button"
             onClick={resetExamAttempt}
-            className="flex-1 bg-kresco text-white font-semibold py-3 rounded-xl hover:bg-kresco/90 transition"
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-kresco px-4 text-sm font-black text-white transition hover:bg-kresco/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Reessayer
           </button>
         </div>
+        </section>
       </div>
     </div>
   )
 
   // Ecran de soumission en cours
   if (submitted && submitting) return (
-    <div className="fixed inset-0 bg-slate-900 flex items-center justify-center z-50">
-      <div className="w-8 h-8 border-2 border-kresco border-t-transparent rounded-full animate-spin" />
-    </div>
+    <ExamLoadingState
+      title="Soumission en cours"
+      message="Nous enregistrons vos reponses et calculons votre score."
+    />
   )
 
-  const question = quiz.questions[currentIdx]
-  const answered = Object.keys(answers).length
   const total = quiz.questions.length
+  const questionIndex = Math.min(currentIdx, Math.max(0, total - 1))
+  const question = quiz.questions[questionIndex]
+  const answered = Object.keys(answers).length
+  const unanswered = Math.max(0, total - answered)
 
   return (
-    <div className="fixed inset-0 bg-slate-900 z-50 flex flex-col">
+    <div className="fixed inset-0 z-[1000] flex flex-col bg-slate-950 text-white">
       {/* Barre superieure */}
-      <div className="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center gap-6">
-        <div className="flex items-center gap-2 text-white font-bold">
+      <div className="pointer-events-none shrink-0 border-b border-slate-800 bg-slate-900/95 px-4 py-3 shadow-lg shadow-black/10 sm:px-6">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-5">
+        <div className="flex items-center gap-2 text-sm font-black tracking-[0.08em] text-white">
           <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
           MODE EXAMEN
         </div>
         <div
-          className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden"
+          className="pointer-events-none order-last h-2 w-full overflow-hidden rounded-full bg-slate-800 sm:order-none sm:flex-1"
           role="progressbar"
           aria-label="Temps restant"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progressPct)}
         >
-          <svg className="block h-full w-full" viewBox="0 0 100 1" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          <svg className="pointer-events-none block h-full w-full" viewBox="0 0 100 1" preserveAspectRatio="none" aria-hidden="true" focusable="false">
             <rect
               x="0"
               y="0"
               width={progressPct}
               height="1"
-              fill="currentColor"
-              className={`transition-all duration-1000 ${isUrgent ? 'text-red-500' : 'text-kresco'}`}
+              className={`transition-all duration-1000 ${isUrgent ? 'fill-red-500' : 'fill-kresco'}`}
             />
           </svg>
         </div>
-        <div className={`flex items-center gap-1.5 font-mono font-bold text-sm ${isUrgent ? 'text-red-400 animate-pulse' : 'text-white'}`}>
+        <div
+          aria-live="polite"
+          className={`flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm font-black ${isUrgent ? 'text-red-300 animate-pulse' : 'text-white'}`}
+        >
           <Clock size={14} />
           {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
         </div>
-        <span className="text-slate-400 text-xs">{answered}/{total} repondu(s)</span>
+        <span className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-black text-slate-300">{answered}/{total} repondu(s)</span>
+        </div>
+        {unanswered > 0 && (
+          <p className="m-0 mt-2 text-xs font-semibold text-slate-500 sm:hidden">
+            {unanswered} question{unanswered > 1 ? 's' : ''} sans reponse.
+          </p>
+        )}
       </div>
 
       {/* Zone de question */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Navigation des questions */}
-        <div className="w-20 bg-slate-800 border-r border-slate-700 p-3 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-1.5">
+        <nav aria-label="Questions" className="shrink-0 border-b border-slate-800 bg-slate-900 p-3 md:w-24 md:overflow-y-auto md:border-b-0 md:border-r">
+          <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible md:pb-0">
             {quiz.questions.map((q, i) => (
               <button type="button"
                 key={q.id}
                 onClick={() => setCurrentIdx(i)}
-                className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
-                  i === currentIdx ? 'bg-kresco text-white' :
-                  answers[q.id] ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                aria-current={i === questionIndex ? 'step' : undefined}
+                aria-label={`Question ${i + 1}${answers[q.id] ? ', repondue' : ', sans reponse'}`}
+                className={`relative h-9 w-9 flex-none rounded-xl text-xs font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco ${
+                  i === questionIndex ? 'bg-kresco text-white shadow-lg shadow-kresco/25' :
+                  answers[q.id] ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
                 }`}
               >
                 {i + 1}
+                {answers[q.id] && i !== questionIndex && (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-slate-900 bg-green-300" aria-hidden="true" />
+                )}
               </button>
             ))}
           </div>
-        </div>
+        </nav>
 
         {/* Question principale */}
         <ErrorBoundary
@@ -337,57 +406,100 @@ export default function ExamPage() {
           message="Retry the question panel without leaving the exam."
           homeHref="/home"
         >
-          <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center">
-            <div className="w-full max-w-2xl">
-              <p className="text-slate-400 text-sm mb-4">Question {currentIdx + 1} sur {total}</p>
-              <div className="bg-slate-800 rounded-2xl p-6 mb-6">
-                <p className="text-white text-lg font-semibold leading-relaxed">{question.text}</p>
-              </div>
+          <main className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+              <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl shadow-black/10 sm:p-6">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="m-0 text-sm font-black text-slate-400">Question {questionIndex + 1} sur {total}</p>
+                  <span className={`rounded-xl px-3 py-1.5 text-xs font-black ${answers[question.id] ? 'bg-green-500/15 text-green-300' : 'bg-slate-800 text-slate-400'}`}>
+                    {answers[question.id] ? 'Repondue' : 'Sans reponse'}
+                  </span>
+                </div>
+                <h1 className="m-0 text-xl font-black leading-relaxed text-white sm:text-2xl">{question.text}</h1>
+              </section>
 
-              <div className="space-y-3 mb-8">
-                {question.options.map(opt => (
-                  <button type="button"
-                    key={opt.id}
-                    onClick={() => setAnswers(a => ({ ...a, [question.id]: opt.id }))}
-                    className={`w-full text-left px-5 py-4 rounded-xl border-2 transition text-sm ${
-                      answers[question.id] === opt.id
-                        ? 'border-kresco bg-kresco/10 text-white font-semibold'
-                        : 'border-slate-700 text-slate-300 hover:border-slate-500 hover:bg-slate-800'
-                    }`}
-                  >
-                    {opt.text}
-                  </button>
-                ))}
-              </div>
+              {question.options.length > 0 ? (
+                <div className="grid gap-3" role="radiogroup" aria-label={`Reponses pour la question ${questionIndex + 1}`}>
+                  {question.options.map(opt => {
+                    const selected = answers[question.id] === opt.id
+                    return (
+                      <button type="button"
+                        key={opt.id}
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => setAnswers(a => ({ ...a, [question.id]: opt.id }))}
+                        className={`scroll-mt-28 flex w-full items-start gap-3 rounded-2xl border-2 px-4 py-4 text-left text-sm font-semibold leading-relaxed transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco sm:px-5 ${
+                          selected
+                            ? 'border-kresco bg-kresco/10 text-white shadow-lg shadow-kresco/10'
+                            : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:bg-slate-900 hover:text-white'
+                        }`}
+                      >
+                        <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${selected ? 'border-kresco bg-kresco text-white' : 'border-slate-600 text-transparent'}`} aria-hidden="true">
+                          <CheckCircle2 size={14} />
+                        </span>
+                        <span>{opt.text}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <section role="alert" className="rounded-2xl border border-amber-500/30 bg-amber-950/30 p-4 text-sm font-semibold leading-relaxed text-amber-100">
+                  Cette question n&apos;a pas encore de choix de reponse publies. Vous pouvez passer a la question suivante ou soumettre si vous avez termine.
+                </section>
+              )}
 
-              <div className="flex justify-between">
+              <footer className="flex flex-col gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:items-center sm:justify-between">
                 <button type="button"
-                  onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
-                  disabled={currentIdx === 0}
-                  className="text-slate-400 text-sm hover:text-white transition disabled:opacity-30"
+                  onClick={() => setCurrentIdx(Math.max(0, questionIndex - 1))}
+                  disabled={questionIndex === 0}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-800 px-4 text-sm font-black text-slate-300 transition hover:bg-slate-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
                 >
+                  <ArrowLeft size={14} />
                   Precedent
                 </button>
-                {currentIdx < total - 1 ? (
+                <p className="m-0 text-center text-xs font-semibold text-slate-500 sm:flex-1">
+                  {unanswered === 0 ? 'Toutes les questions ont une reponse.' : `${unanswered} question${unanswered > 1 ? 's' : ''} sans reponse.`}
+                </p>
+                {questionIndex < total - 1 ? (
                   <button type="button"
-                    onClick={() => setCurrentIdx(i => i + 1)}
-                    className="flex items-center gap-2 bg-kresco text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-kresco/90 transition"
+                    onClick={() => setCurrentIdx(questionIndex + 1)}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-kresco px-5 text-sm font-black text-white transition hover:bg-kresco/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
                   >
                     Suivant <ArrowRight size={14} />
                   </button>
                 ) : (
                   <button type="button"
                     onClick={handleSubmit}
-                    className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-green-700 transition"
+                    disabled={submitting}
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 text-sm font-black text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-400 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Soumettre l&apos;examen
                   </button>
                 )}
-              </div>
+              </footer>
             </div>
-          </div>
+          </main>
         </ErrorBoundary>
       </div>
+    </div>
+  )
+}
+
+function ExamLoadingState({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="fixed inset-0 z-[1000] grid place-items-center bg-slate-950 px-6 text-white">
+      <section className="w-full max-w-md rounded-[24px] border border-slate-800 bg-slate-900 p-6 text-center shadow-2xl shadow-black/30">
+        <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-kresco/10 text-kresco">
+          <Loader2 size={26} className="animate-spin" />
+        </div>
+        <h1 className="m-0 mt-5 text-xl font-black text-white">{title}</h1>
+        <p className="m-0 mt-2 text-sm font-semibold leading-relaxed text-slate-400">{message}</p>
+        <div className="mt-6 grid gap-2" aria-hidden="true">
+          <div className="h-2 rounded-full bg-slate-800" />
+          <div className="mx-auto h-2 w-4/5 rounded-full bg-slate-800" />
+          <div className="mx-auto h-2 w-3/5 rounded-full bg-slate-800" />
+        </div>
+      </section>
     </div>
   )
 }

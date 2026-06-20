@@ -38,10 +38,40 @@ from app.models.professor import (
     ProfessorChatMessage,
     ProgramTrack,
 )
+from app.models.quizzes import Question, QuestionSet
 from app.models.users import User
 from seed_safety import require_destructive_seed_database_url, require_destructive_seed_session
 
 DEMO_DATABASE_URL = "sqlite+aiosqlite:///./professor_demo.sqlite3"
+
+EXPONENTIAL_TEST_QUIZ = [
+    {
+        "external_id": "exp-test-derivative",
+        "title": "Derivative of exp",
+        "prompt": "Si f(x) = e^x, quelle est f'(x) ?",
+        "options": [
+            {"id": 1, "text": "e^x"},
+            {"id": 2, "text": "x e^(x-1)"},
+            {"id": 3, "text": "ln(x)"},
+            {"id": 4, "text": "1 / x"},
+        ],
+        "answer": 1,
+        "explanation": "La fonction exponentielle est sa propre derivee.",
+    },
+    {
+        "external_id": "exp-test-product-rule",
+        "title": "Exponential product identity",
+        "prompt": "Quelle identite est toujours vraie pour la fonction exponentielle ?",
+        "options": [
+            {"id": 1, "text": "exp(a + b) = exp(a) + exp(b)"},
+            {"id": 2, "text": "exp(a + b) = exp(a) * exp(b)"},
+            {"id": 3, "text": "exp(a + b) = a * b"},
+            {"id": 4, "text": "exp(a + b) = exp(a - b)"},
+        ],
+        "answer": 2,
+        "explanation": "La fonction exponentielle transforme une somme en produit.",
+    },
+]
 
 
 async def main() -> None:
@@ -159,8 +189,18 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
         "Derivative rules, variations, and optimisation.",
         2,
     )
+    exponential_topic = await upsert_topic(
+        db,
+        math,
+        math_offering,
+        "professor-demo-exponential-functions",
+        "Fonctions exponentielles",
+        "Croissance, derivee, identites et resolution avec la fonction exponentielle.",
+        3,
+    )
     limits_item, limits_tab = await upsert_topic_content(db, limits_topic)
     derivatives_item, derivatives_tab = await upsert_topic_content(db, derivatives_topic)
+    await upsert_exponential_test_quiz(db, exponential_topic)
 
     demo_students = [vip_student, platinum_student, basic_student]
     await clear_professor_demo_rows(db, math_offering, demo_students)
@@ -318,6 +358,100 @@ async def upsert_topic_content(db: AsyncSession, topic: Topic) -> tuple[TopicIte
     item.primary_tab_content_id = tab.id
     await db.flush()
     return item, tab
+
+
+async def upsert_exponential_test_quiz(db: AsyncSession, topic: Topic) -> tuple[TopicItem, TabContent, QuestionSet]:
+    section = await db.scalar(select(TopicSection).where(TopicSection.topic_id == topic.id, TopicSection.title == "Quiz"))
+    if section is None:
+        section = TopicSection(topic_id=topic.id, title="Quiz", section_type="quiz", order=2)
+        db.add(section)
+    section.section_type = "quiz"
+    section.order = 2
+    await db.flush()
+
+    item = await db.scalar(select(TopicItem).where(TopicItem.topic_id == topic.id, TopicItem.title == "Quiz express - exponentielle"))
+    if item is None:
+        item = TopicItem(topic_id=topic.id, section_id=section.id, title="Quiz express - exponentielle", item_type="checkpoint_quiz")
+        db.add(item)
+    item.section_id = section.id
+    item.item_type = "checkpoint_quiz"
+    item.description = "Test quiz fixture for validating the exponential topic quiz flow."
+    item.status = "published"
+    item.duration_seconds = 0
+    item.order = 1
+    item.concept_slugs = ["fonctions-exponentielles"]
+    await db.flush()
+
+    tab = await db.scalar(select(TabContent).where(TabContent.topic_item_id == item.id, TabContent.label == "Quiz"))
+    if tab is None:
+        tab = TabContent(topic_item_id=item.id, label="Quiz", tab_type="quiz")
+        db.add(tab)
+    tab.tab_type = "quiz"
+    tab.content = "Quiz express pour tester les bases de la fonction exponentielle."
+    tab.config_json = {
+        "pass_score": 70,
+        "questions": [
+            {
+                "id": question["external_id"],
+                "type": "multiple_choice",
+                "prompt": question["prompt"],
+                "options": question["options"],
+                "answer": question["answer"],
+            }
+            for question in EXPONENTIAL_TEST_QUIZ
+        ],
+    }
+    tab.status = "published"
+    tab.order = 1
+    tab.concept_slugs = ["fonctions-exponentielles"]
+    await db.flush()
+
+    item.primary_tab_content_id = tab.id
+    await db.flush()
+
+    question_set = await db.scalar(select(QuestionSet).where(QuestionSet.tab_content_id == tab.id))
+    if question_set is None:
+        question_set = QuestionSet(tab_content_id=tab.id, title="Quiz express - exponentielle")
+        db.add(question_set)
+    question_set.subject_id = topic.subject_id
+    question_set.topic_id = topic.id
+    question_set.topic_section_id = section.id
+    question_set.topic_item_id = item.id
+    question_set.source_type = "tab"
+    question_set.title = "Quiz express - exponentielle"
+    question_set.pass_score = 70
+    question_set.status = "published"
+    question_set.order = 30
+    question_set.concept_slugs = ["fonctions-exponentielles"]
+    await db.flush()
+
+    for index, question_data in enumerate(EXPONENTIAL_TEST_QUIZ, start=1):
+        question = await db.scalar(
+            select(Question).where(
+                Question.question_set_id == question_set.id,
+                Question.external_id == question_data["external_id"],
+            )
+        )
+        if question is None:
+            question = Question(
+                question_set_id=question_set.id,
+                external_id=question_data["external_id"],
+                type="multiple_choice",
+                prompt=question_data["prompt"],
+            )
+            db.add(question)
+        question.title = question_data["title"]
+        question.type = "multiple_choice"
+        question.prompt = question_data["prompt"]
+        question.explanation = question_data["explanation"]
+        question.difficulty = "easy"
+        question.concept_slugs = ["fonctions-exponentielles"]
+        question.config_json = {"options": question_data["options"]}
+        question.answer_json = {"answer": question_data["answer"]}
+        question.order = index
+        question.status = "published"
+    await db.flush()
+    return item, tab, question_set
 
 
 async def clear_professor_demo_rows(db: AsyncSession, offering: CourseOffering, students: list[User]) -> None:
