@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.base import Base
 from app.models.courses import Resource, Subject, TabContent, Topic, TopicItem, TopicSection
 from app.models.gamification import UserXP
+from app.models.interactions import Comment
 from app.models.quizzes import Question, QuestionSet
 from app.models.users import User, UserSubjectEntitlement
 from seed_professor_demo import seed_professor_demo
@@ -55,6 +56,7 @@ async def seed_e2e_accounts_and_course_surfaces(db: AsyncSession) -> None:
         is_staff=True,
         is_superuser=True,
     )
+    professor = await require_user(db, "professor@example.com")
     vip = await require_user(db, "vip@example.com")
     platinum = await require_user(db, "platinum@example.com")
 
@@ -63,7 +65,7 @@ async def seed_e2e_accounts_and_course_surfaces(db: AsyncSession) -> None:
     await ensure_entitlement(db, vip, math)
     await ensure_entitlement(db, platinum, math)
     await ensure_entitlement(db, admin, math)
-    await ensure_topic_flow(db, math)
+    await ensure_topic_flow(db, math, authors=[student, vip, platinum, professor])
 
     for user, xp in [(student, 1250), (vip, 2400), (platinum, 2600), (admin, 5000)]:
         await ensure_xp(db, user, total_xp=xp)
@@ -135,7 +137,7 @@ async def ensure_entitlement(db: AsyncSession, user: User, subject: Subject) -> 
     await db.flush()
 
 
-async def ensure_topic_flow(db: AsyncSession, subject: Subject) -> None:
+async def ensure_topic_flow(db: AsyncSession, subject: Subject, *, authors: list[User]) -> None:
     topic = await db.scalar(select(Topic).where(Topic.subject_id == subject.id, Topic.slug == "e2e-watch-flow"))
     if topic is None:
         topic = Topic(subject_id=subject.id, slug="e2e-watch-flow", title="E2E Watch Flow")
@@ -206,6 +208,26 @@ async def ensure_topic_flow(db: AsyncSession, subject: Subject) -> None:
     tab.order = 2
     await db.flush()
 
+    comments_tab = await db.scalar(
+        select(TabContent).where(
+            TabContent.topic_item_id == item.id,
+            TabContent.tab_type == "comments",
+        )
+    )
+    if comments_tab is None:
+        comments_tab = TabContent(topic_item_id=item.id, label="Comments", tab_type="comments")
+        db.add(comments_tab)
+    comments_tab.label = "Comments"
+    comments_tab.content = "E2E comments fixture with ratings and replies."
+    comments_tab.config_json = {"source": "e2e_seed", "features": ["ratings", "replies"]}
+    comments_tab.status = "published"
+    comments_tab.order = 3
+    comments_tab.required_tier = ""
+    comments_tab.required_feature_key = ""
+    await db.flush()
+
+    await seed_comment_threads(db, item, authors=authors)
+
     question_set = await db.scalar(select(QuestionSet).where(QuestionSet.tab_content_id == tab.id))
     if question_set is None:
         question_set = QuestionSet(tab_content_id=tab.id, title="E2E Exam Quiz")
@@ -227,6 +249,81 @@ async def ensure_topic_flow(db: AsyncSession, subject: Subject) -> None:
     question.status = "published"
     question.order = 1
     await db.flush()
+
+
+async def seed_comment_threads(db: AsyncSession, item: TopicItem, *, authors: list[User]) -> None:
+    users_by_email = {user.email: user for user in authors}
+    timestamp = now()
+    parent = await upsert_comment(
+        db,
+        item=item,
+        author=users_by_email["vip@example.com"],
+        body="The E2E checkpoint comment includes a rating so the comments panel shows the full review UI.",
+        rating=5,
+        created_at=timestamp - timedelta(minutes=25),
+    )
+    await upsert_comment(
+        db,
+        item=item,
+        author=users_by_email["professor@example.com"],
+        body="This reply keeps the expandable thread path covered in the seeded workspace.",
+        parent=parent,
+        created_at=timestamp - timedelta(minutes=20),
+    )
+    second_parent = await upsert_comment(
+        db,
+        item=item,
+        author=users_by_email["student@example.com"],
+        body="I can see the discussion tab, rating pill, reply button, and loaded replies in one place.",
+        rating=4,
+        created_at=timestamp - timedelta(minutes=15),
+    )
+    await upsert_comment(
+        db,
+        item=item,
+        author=users_by_email["platinum@example.com"],
+        body="Confirmed. The mock data also exercises a second author avatar and nested reply.",
+        parent=second_parent,
+        created_at=timestamp - timedelta(minutes=10),
+    )
+
+
+async def upsert_comment(
+    db: AsyncSession,
+    *,
+    item: TopicItem,
+    author: User,
+    body: str,
+    rating: int | None = None,
+    parent: Comment | None = None,
+    created_at: datetime,
+) -> Comment:
+    parent_filter = Comment.parent_id == parent.id if parent is not None else Comment.parent_id.is_(None)
+    comment = await db.scalar(
+        select(Comment).where(
+            Comment.topic_item_id == item.id,
+            Comment.user_id == author.id,
+            Comment.body == body,
+            parent_filter,
+        )
+    )
+    if comment is None:
+        comment = Comment(topic_item_id=item.id, user_id=author.id, body=body)
+        db.add(comment)
+    comment.exercise_id = None
+    comment.topic_item_id = item.id
+    comment.user_id = author.id
+    comment.body = body
+    comment.rating = rating
+    comment.parent_id = parent.id if parent is not None else None
+    comment.status = "visible"
+    comment.moderated_by_user_id = None
+    comment.moderated_at = None
+    comment.moderation_reason = ""
+    comment.created_at = created_at
+    comment.updated_at = created_at
+    await db.flush()
+    return comment
 
 
 async def ensure_xp(db: AsyncSession, user: User, *, total_xp: int) -> None:

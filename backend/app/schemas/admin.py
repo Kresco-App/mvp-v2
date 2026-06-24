@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AdminCrudActionsOut(BaseModel):
@@ -48,6 +48,8 @@ class AdminActivitySummaryOut(BaseModel):
 
 
 class AdminActivityEntryOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     id: int
     action: str
     model_name: str
@@ -120,6 +122,22 @@ class AdminCommunicationsSummaryOut(BaseModel):
     urgent_open_reports: int
 
 
+class AdminChatMessageOut(BaseModel):
+    message_id: int
+    conversation_id: int
+    sender_user_id: int
+    sender_name: str
+    sender_role: str
+    body: str
+    attachment_url: str = ""
+    attachment_name: str = ""
+    attachment_mime_type: str = ""
+    attachment_size: int = 0
+    status: str
+    created_at: datetime | None = None
+    read_at: datetime | None = None
+
+
 class AdminChatConversationOut(BaseModel):
     conversation_id: int
     status: str
@@ -134,6 +152,7 @@ class AdminChatConversationOut(BaseModel):
     last_message_preview: str
     last_message_at: datetime | None = None
     updated_at: datetime | None = None
+    messages: list[AdminChatMessageOut] = Field(default_factory=list)
 
 
 class AdminLiveInteractionOut(BaseModel):

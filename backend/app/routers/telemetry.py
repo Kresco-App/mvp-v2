@@ -1,9 +1,14 @@
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.dependencies import get_current_user, get_db
+from app.models.users import User
 from app.rate_limit import limiter
+from app.schemas.founder_ops import AnalyticsEventIn, AnalyticsEventOut
 from app.schemas.limits import MediumText, ShortText, StrictInputModel
+from app.services.founder_ops import record_analytics_event
 from app.services.telemetry import emit_client_error_metric
 
 logger = logging.getLogger("kresco.client_errors")
@@ -55,3 +60,15 @@ async def record_client_error(request: Request, payload: ClientErrorIn):
         user_agent_present=bool(payload.user_agent),
     )
     return {"ok": True}
+
+
+@router.post("/client-events", response_model=AnalyticsEventOut, status_code=202)
+@limiter.limit("120/minute")
+async def record_client_event(
+    request: Request,
+    payload: AnalyticsEventIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await record_analytics_event(db, user=user, payload=payload)

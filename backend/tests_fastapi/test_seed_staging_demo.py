@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.models.base import Base
-from app.models.courses import Topic
+from app.models.courses import TabContent, Topic, TopicItem
 from app.models.exercises import Exercise, ExerciseAsset
+from app.models.interactions import Comment
 from app.models.professor import (
     LiveSession,
     LiveSessionCheckpoint,
@@ -66,6 +67,12 @@ def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
         async with session_factory() as db:
             vip = await db.scalar(select(User).where(User.email == "vip@example.com"))
             topic = await db.scalar(select(Topic).where(Topic.slug == "staging-demo-limits-continuity"))
+            topic_item = await db.scalar(
+                select(TopicItem).where(
+                    TopicItem.topic_id == topic.id,
+                    TopicItem.title == "Limits checkpoint",
+                )
+            )
             exercises = (
                 await db.execute(
                     select(Exercise)
@@ -117,11 +124,41 @@ def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
                         ExerciseAsset.exercise_id.in_([exercise.id for exercise in exercises])
                     )
                 ),
+                "comments_tabs": await db.scalar(
+                    select(func.count()).select_from(TabContent).where(
+                        TabContent.topic_item_id == topic_item.id,
+                        TabContent.tab_type == "comments",
+                        TabContent.status == "published",
+                    )
+                ),
+                "comments": await db.scalar(
+                    select(func.count()).select_from(Comment).where(
+                        Comment.topic_item_id == topic_item.id,
+                        Comment.status == "visible",
+                    )
+                ),
+                "comment_replies": await db.scalar(
+                    select(func.count()).select_from(Comment).where(
+                        Comment.topic_item_id == topic_item.id,
+                        Comment.parent_id.is_not(None),
+                        Comment.status == "visible",
+                    )
+                ),
             }
+            comment_rows = (
+                await db.execute(
+                    select(Comment)
+                    .where(
+                        Comment.topic_item_id == topic_item.id,
+                        Comment.parent_id.is_(None),
+                    )
+                    .order_by(Comment.created_at, Comment.id)
+                )
+            ).scalars().all()
         await engine.dispose()
-        return vip, topic, exercises, live_session, conversation, counts
+        return vip, topic, exercises, live_session, conversation, counts, comment_rows
 
-    vip, topic, exercises, live_session, conversation, counts = asyncio.run(exercise())
+    vip, topic, exercises, live_session, conversation, counts, comment_rows = asyncio.run(exercise())
 
     assert vip.tier == "vip"
     assert topic.title == "Limits and Continuity"
@@ -136,6 +173,7 @@ def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
     assert live_session.status == "live"
     assert live_session.join_url == f"/live/{live_session.id}"
     assert conversation.status == "open"
+    assert [comment.rating for comment in comment_rows] == [5, 4, 3]
     assert counts == {
         "live_sessions": 1,
         "checkpoints": 1,
@@ -143,4 +181,7 @@ def test_staging_demo_seed_creates_idempotent_evidence_fixtures(tmp_path):
         "conversations": 1,
         "messages": 1,
         "exercise_assets": 1,
+        "comments_tabs": 1,
+        "comments": 6,
+        "comment_replies": 3,
     }

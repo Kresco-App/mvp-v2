@@ -16,6 +16,7 @@ from app.models.reports import ContentReport
 from app.models.users import User
 from app.schemas.admin import (
     AdminChatConversationOut,
+    AdminChatMessageOut,
     AdminCommunicationsOut,
     AdminCommunicationsSummaryOut,
     AdminLiveInteractionOut,
@@ -127,6 +128,91 @@ async def build_admin_communications(db: AsyncSession, *, limit: int = 50) -> Ad
         )
         for row in conversations_result.mappings().all()
     ]
+    if conversations:
+        sender = aliased(User)
+        conversation_ids = [conversation.conversation_id for conversation in conversations]
+        sender_roles_by_conversation = {
+            conversation.conversation_id: {
+                conversation.professor_user_id: "professor",
+                conversation.student_user_id: "student",
+            }
+            for conversation in conversations
+        }
+        ranked_messages = (
+            select(
+                ProfessorChatMessage.id.label("message_id"),
+                ProfessorChatMessage.conversation_id,
+                ProfessorChatMessage.sender_user_id,
+                sender.full_name.label("sender_name"),
+                ProfessorChatMessage.body,
+                ProfessorChatMessage.attachment_url,
+                ProfessorChatMessage.attachment_name,
+                ProfessorChatMessage.attachment_mime_type,
+                ProfessorChatMessage.attachment_size,
+                ProfessorChatMessage.status,
+                ProfessorChatMessage.created_at,
+                ProfessorChatMessage.read_at,
+                func.row_number()
+                .over(
+                    partition_by=ProfessorChatMessage.conversation_id,
+                    order_by=ProfessorChatMessage.created_at.desc(),
+                )
+                .label("message_rank"),
+            )
+            .select_from(ProfessorChatMessage)
+            .outerjoin(sender, sender.id == ProfessorChatMessage.sender_user_id)
+            .where(ProfessorChatMessage.conversation_id.in_(conversation_ids))
+            .subquery()
+        )
+        messages_result = await db.execute(
+            select(
+                ranked_messages.c.message_id,
+                ranked_messages.c.conversation_id,
+                ranked_messages.c.sender_user_id,
+                ranked_messages.c.sender_name,
+                ranked_messages.c.body,
+                ranked_messages.c.attachment_url,
+                ranked_messages.c.attachment_name,
+                ranked_messages.c.attachment_mime_type,
+                ranked_messages.c.attachment_size,
+                ranked_messages.c.status,
+                ranked_messages.c.created_at,
+                ranked_messages.c.read_at,
+            )
+            .where(ranked_messages.c.message_rank <= 8)
+            .order_by(
+                ranked_messages.c.conversation_id,
+                ranked_messages.c.created_at.asc(),
+                ranked_messages.c.message_id.asc(),
+            )
+        )
+        messages_by_conversation: dict[int, list[AdminChatMessageOut]] = {
+            conversation_id: [] for conversation_id in conversation_ids
+        }
+        for row in messages_result.mappings().all():
+            conversation_id = _int(row["conversation_id"])
+            sender_user_id = _int(row["sender_user_id"])
+            messages_by_conversation.setdefault(conversation_id, []).append(
+                AdminChatMessageOut(
+                    message_id=_int(row["message_id"]),
+                    conversation_id=conversation_id,
+                    sender_user_id=sender_user_id,
+                    sender_name=_str(row["sender_name"]),
+                    sender_role=sender_roles_by_conversation.get(conversation_id, {}).get(sender_user_id, "staff"),
+                    body=_str(row["body"]),
+                    attachment_url=_str(row["attachment_url"]),
+                    attachment_name=_str(row["attachment_name"]),
+                    attachment_mime_type=_str(row["attachment_mime_type"]),
+                    attachment_size=_int(row["attachment_size"]),
+                    status=_str(row["status"] or "sent"),
+                    created_at=row["created_at"],
+                    read_at=row["read_at"],
+                )
+            )
+        conversations = [
+            conversation.model_copy(update={"messages": messages_by_conversation.get(conversation.conversation_id, [])})
+            for conversation in conversations
+        ]
 
     live_interactions_result = await db.execute(
         select(

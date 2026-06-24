@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query, Request
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_staff_user, get_db, require_staff_permission
@@ -10,6 +12,14 @@ from app.schemas.admin import (
     AdminOverviewOut,
     AdminStudentProgressOut,
     AdminUsersAccessOut,
+)
+from app.schemas.founder_ops import (
+    FinanceExpenseIn,
+    FinanceExpenseOut,
+    FounderDashboardOut,
+    RedemptionCodeTemplateIn,
+    RedemptionCodeTemplateOut,
+    StaffPaymentRequestOut,
 )
 from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionOut, UserPermissionRevokeIn
 from app.schemas.professor import (
@@ -33,6 +43,8 @@ from app.services.admin_communications import build_admin_communications
 from app.services.admin_overview import build_admin_overview
 from app.services.admin_student_progress import build_admin_student_progress
 from app.services.admin_users import build_admin_users_access
+from app.services.founder_ops import build_founder_dashboard, create_finance_expense, list_finance_expenses
+from app.services.staff_payments import create_redemption_template, list_redemption_templates, list_staff_payment_requests
 from app.services.admin_change_requests import (
     get_admin_change_request_detail,
     list_admin_change_requests,
@@ -52,6 +64,9 @@ require_roles_manage = require_staff_permission("roles:manage")
 require_xp_adjust = require_staff_permission("xp:adjust")
 require_audit_read = require_staff_permission("audit:read")
 require_reports_manage = require_staff_permission("support:reports")
+require_finance_read = require_staff_permission("finance:read")
+require_finance_expense_manage = require_staff_permission("finance:expense_manage")
+require_staff_codes_admin = require_staff_permission("finance:staff_codes")
 
 
 @router.get("/overview", response_model=AdminOverviewOut)
@@ -63,6 +78,64 @@ async def get_admin_overview(
 ):
     del request
     return await build_admin_overview(db)
+
+
+@router.get("/founder-dashboard", response_model=FounderDashboardOut)
+async def get_founder_dashboard(
+    month: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_finance_read),
+):
+    parsed_month = _parse_month(month)
+    return await build_founder_dashboard(db, month=parsed_month)
+
+
+@router.get("/finance/expenses", response_model=list[FinanceExpenseOut])
+async def get_finance_expenses(
+    month: str | None = None,
+    limit: int = Query(default=100, ge=1, le=300),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_finance_read),
+):
+    parsed_month = _parse_month(month)
+    return await list_finance_expenses(db, month=parsed_month, limit=limit)
+
+
+@router.post("/finance/expenses", response_model=FinanceExpenseOut)
+async def create_admin_finance_expense(
+    expense: FinanceExpenseIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_finance_expense_manage),
+):
+    return await create_finance_expense(db, actor=staff, payload=expense)
+
+
+@router.get("/redemption-templates", response_model=list[RedemptionCodeTemplateOut])
+async def get_redemption_templates(
+    include_archived: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_staff_codes_admin),
+):
+    return await list_redemption_templates(db, include_archived=include_archived)
+
+
+@router.post("/redemption-templates", response_model=RedemptionCodeTemplateOut)
+async def create_admin_redemption_template(
+    template: RedemptionCodeTemplateIn,
+    db: AsyncSession = Depends(get_db),
+    staff: User = Depends(require_staff_codes_admin),
+):
+    return await create_redemption_template(db, actor=staff, payload=template)
+
+
+@router.get("/staff-payment-requests", response_model=list[StaffPaymentRequestOut])
+async def get_staff_payment_requests(
+    staff_user_id: int | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _staff: User = Depends(require_staff_codes_admin),
+):
+    return await list_staff_payment_requests(db, staff_user_id=staff_user_id, limit=limit)
 
 
 @router.get("/activity", response_model=AdminActivityOut)
@@ -298,3 +371,13 @@ async def review_professor_change_request_admin(
         body=body,
         admin_user=staff,
     )
+
+
+def _parse_month(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        year_text, month_text, *_ = f"{value}-01".split("-")
+        return date(int(year_text), int(month_text), 1)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="month must use YYYY-MM format") from exc

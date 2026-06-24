@@ -33,6 +33,7 @@ SECRET_PLACEHOLDERS = {
     "REALTIME_OUTBOX_SECRET": "test-realtime-outbox-secret-32-bytes",
     "FRONTEND_URL": "https://app.example.com",
     "CORS_ALLOWED_ORIGINS": "https://app.example.com",
+    "KRESCO_TRUSTED_HOSTS": "api.example.com",
     "MEDIA_GCS_BUCKET": "kresco-media-production",
 }
 PRODUCTION_MEDIA_SETTINGS = {
@@ -159,6 +160,12 @@ def test_blank_cors_origin_regex_is_disabled_not_wildcard():
     assert settings.cors_allow_origin_regex_value is None
 
 
+def test_trusted_hosts_are_normalized_for_middleware():
+    settings = Settings(trusted_hosts=" https://api.example.com , *.preview.example.com, testserver:8000 ")
+
+    assert settings.trusted_hosts_list == ["api.example.com", "*.preview.example.com", "testserver"]
+
+
 def test_deployed_app_rejects_fallback_jwt_secret(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "kresco-backend-prod")
     settings = Settings(
@@ -201,6 +208,8 @@ def test_production_settings_reject_missing_integration_config():
         cors_allowed_origins="https://app.example.com",
         cors_allow_origin_regex="",
         frontend_url="https://app.example.com",
+        trusted_hosts="api.example.com",
+        realtime_outbox_secret="",
         **PRODUCTION_MEDIA_SETTINGS,
     )
 
@@ -215,6 +224,66 @@ def test_production_settings_reject_missing_integration_config():
     assert any("CMI_FAIL_URL" in error for error in errors)
     assert any("CMI_CALLBACK_URL" in error for error in errors)
     assert any("REALTIME_OUTBOX_SECRET" in error for error in errors)
+
+
+def test_production_settings_reject_untrusted_host_policy():
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://video.example.com/api",
+        vdocipher_live_create_url="https://video.example.com/live",
+        cmi_client_id="cmi-client",
+        cmi_store_key="cmi-store-key",
+        cmi_payment_url="https://test.cmi.co.ma/payment",
+        cmi_ok_url="https://app.example.com/payment/cmi/ok",
+        cmi_fail_url="https://app.example.com/payment/cmi/fail",
+        cmi_callback_url="https://api.example.com/api/payments/cmi/callback",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        trusted_hosts="*,localhost",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "TRUSTED_HOSTS must not include wildcard hosts in production environments." in errors
+    assert "TRUSTED_HOSTS must not include localhost hosts in production environments." in errors
+
+
+def test_production_settings_reject_private_vdocipher_urls():
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="http://127.0.0.1:9000/api",
+        vdocipher_live_create_url="https://localhost/live",
+        vdocipher_live_delete_url="http://video.example.com/live",
+        cmi_client_id="cmi-client",
+        cmi_store_key="cmi-store-key",
+        cmi_payment_url="https://test.cmi.co.ma/payment",
+        cmi_ok_url="https://app.example.com/payment/cmi/ok",
+        cmi_fail_url="https://app.example.com/payment/cmi/fail",
+        cmi_callback_url="https://api.example.com/api/payments/cmi/callback",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        trusted_hosts="api.example.com",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "VDOCIPHER_API_BASE_URL must be an HTTPS URL" in errors
+    assert "VDOCIPHER_LIVE_CREATE_URL must be publicly reachable" in errors
+    assert "VDOCIPHER_LIVE_DELETE_URL must be an HTTPS URL" in errors
 
 
 def test_production_settings_require_shared_rate_limit_storage():
@@ -425,6 +494,44 @@ def test_production_settings_reject_permissive_cors_policy():
 
     assert any("CORS_ALLOWED_ORIGINS" in error and "wildcard" in error for error in errors)
     assert any("CORS_ALLOW_ORIGIN_REGEX" in error and "tightly scoped" in error for error in errors)
+
+
+def test_production_like_app_disables_public_api_docs(monkeypatch, test_settings):
+    monkeypatch.setattr("app.main.configure_rate_limit_storage", lambda uri: None)
+
+    app = create_app(test_settings.model_copy(update={
+        "environment": "production",
+        "release_sha": "0123456789abcdef0123456789abcdef01234567",
+        "database_url": "postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        "database_connection_strategy": "cloud_sql",
+        "gcp_project_id": "kresco-prod",
+        "gcp_region": "europe-southwest1",
+        "firebase_project_id": "kresco-prod",
+        "firebase_web_api_key": "firebase-web-api-key",
+        "jwt_secret_key": "prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        "vdocipher_api_secret": "vdocipher-secret",
+        "vdocipher_api_base_url": "https://video.example.com/api",
+        "vdocipher_live_create_url": "https://video.example.com/live",
+        "cmi_client_id": "cmi-client",
+        "cmi_store_key": "cmi-store-key",
+        "cmi_payment_url": "https://test.cmi.co.ma/payment",
+        "cmi_ok_url": "https://app.example.com/payment/cmi/ok",
+        "cmi_fail_url": "https://app.example.com/payment/cmi/fail",
+        "cmi_callback_url": "https://api.example.com/api/payments/cmi/callback",
+        "rate_limit_storage_uri": "redis://rate-limit.example.com:6379/0",
+        "realtime_outbox_secret": "test-realtime-outbox-secret-32-bytes",
+        "frontend_url": "https://app.example.com",
+        "cors_allowed_origins": "https://app.example.com",
+        "cors_allow_origin_regex": "",
+        "trusted_hosts": "api.example.com",
+        "media_storage_backend": "gcs",
+        "media_gcs_bucket": "kresco-media-production",
+    }))
+
+    assert app.docs_url is None
+    assert app.redoc_url is None
+    assert app.openapi_url is None
+    assert all(route.path not in {"/api/docs", "/api/redoc", "/api/openapi.json"} for route in app.routes)
 
 
 def test_backend_ci_pytest_uses_postgres_service_when_configured():

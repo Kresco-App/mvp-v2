@@ -27,6 +27,7 @@ from app.models.exercises import (
     Exercise,
     ExerciseAsset,
 )
+from app.models.interactions import Comment
 from app.models.professor import (
     CourseOffering,
     LiveSession,
@@ -203,9 +204,127 @@ async def upsert_topic_surface(db: AsyncSession, subject: Subject, offering: Cou
     tab.order = 1
     await db.flush()
 
+    comments_tab = await db.scalar(
+        select(TabContent).where(
+            TabContent.topic_item_id == item.id,
+            TabContent.tab_type == "comments",
+        )
+    )
+    if comments_tab is None:
+        comments_tab = TabContent(topic_item_id=item.id, label="Comments", tab_type="comments")
+        db.add(comments_tab)
+    comments_tab.label = "Comments"
+    comments_tab.content = "Staging demo discussion with ratings and replies."
+    comments_tab.config_json = {"source": "staging_demo_seed", "features": ["ratings", "replies"]}
+    comments_tab.status = "published"
+    comments_tab.order = 2
+    comments_tab.required_tier = ""
+    comments_tab.required_feature_key = ""
+    await db.flush()
+
     item.primary_tab_content_id = tab.id
     await db.flush()
     return topic
+
+
+async def upsert_topic_comment_threads(db: AsyncSession, topic: Topic, authors: list[User]) -> None:
+    item = await db.scalar(
+        select(TopicItem).where(
+            TopicItem.topic_id == topic.id,
+            TopicItem.title == "Limits checkpoint",
+        )
+    )
+    if item is None:
+        return
+
+    users_by_email = {user.email: user for user in authors}
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    parent = await upsert_topic_comment(
+        db,
+        item=item,
+        author=users_by_email["vip@example.com"],
+        body="The factorization step finally clicked after replaying the checkpoint. I rated it high because the direct substitution trap is clear now.",
+        rating=5,
+        created_at=now - timedelta(minutes=42),
+    )
+    await upsert_topic_comment(
+        db,
+        item=item,
+        author=users_by_email["professor@example.com"],
+        body="Exactly. First test direct substitution, then simplify only on the punctured interval before taking the limit.",
+        parent=parent,
+        created_at=now - timedelta(minutes=35),
+    )
+    await upsert_topic_comment(
+        db,
+        item=item,
+        author=users_by_email["platinum@example.com"],
+        body="I added the simplified expression to my notes and it made the removable discontinuity easier to see.",
+        parent=parent,
+        created_at=now - timedelta(minutes=31),
+    )
+    second_parent = await upsert_topic_comment(
+        db,
+        item=item,
+        author=users_by_email["student@example.com"],
+        body="Can someone explain why we are allowed to cancel x - 1 if the original expression is not defined at x = 1?",
+        rating=4,
+        created_at=now - timedelta(minutes=24),
+    )
+    await upsert_topic_comment(
+        db,
+        item=item,
+        author=users_by_email["professor@example.com"],
+        body="The cancellation describes the same values near 1, not at 1. Limits only care about values arbitrarily close to the point.",
+        parent=second_parent,
+        created_at=now - timedelta(minutes=18),
+    )
+    await upsert_topic_comment(
+        db,
+        item=item,
+        author=users_by_email["basic@example.com"],
+        body="The graph view helped me connect the hole in the curve with the algebraic cancellation.",
+        rating=3,
+        created_at=now - timedelta(minutes=9),
+    )
+
+
+async def upsert_topic_comment(
+    db: AsyncSession,
+    *,
+    item: TopicItem,
+    author: User,
+    body: str,
+    rating: int | None = None,
+    parent: Comment | None = None,
+    created_at: datetime,
+) -> Comment:
+    parent_filter = Comment.parent_id == parent.id if parent is not None else Comment.parent_id.is_(None)
+    comment = await db.scalar(
+        select(Comment).where(
+            Comment.topic_item_id == item.id,
+            Comment.user_id == author.id,
+            Comment.body == body,
+            parent_filter,
+        )
+    )
+    if comment is None:
+        comment = Comment(topic_item_id=item.id, user_id=author.id, body=body)
+        db.add(comment)
+    comment.exercise_id = None
+    comment.topic_item_id = item.id
+    comment.user_id = author.id
+    comment.body = body
+    comment.rating = rating
+    comment.parent_id = parent.id if parent is not None else None
+    comment.status = "visible"
+    comment.moderated_by_user_id = None
+    comment.moderated_at = None
+    comment.moderation_reason = ""
+    comment.created_at = created_at
+    comment.updated_at = created_at
+    await db.flush()
+    return comment
 
 
 async def upsert_exercise_bank_fixtures(db: AsyncSession, subject: Subject, topic: Topic) -> None:
@@ -499,6 +618,7 @@ async def seed_staging_demo(
         for user in [professor, *users]:
             await ensure_entitlement(db, user, subject)
         topic = await upsert_topic_surface(db, subject, offering)
+        await upsert_topic_comment_threads(db, topic, [professor, *users])
         await upsert_exercise_bank_fixtures(db, subject, topic)
         await upsert_live_and_chat_surface(db, offering=offering, professor=professor, student=vip_student)
         await db.commit()

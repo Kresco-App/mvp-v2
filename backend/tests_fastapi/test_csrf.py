@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from fastapi.testclient import TestClient
 
 from app.database import get_session_factory
 from app.models.users import User
@@ -68,6 +69,31 @@ def test_cookie_write_rejects_untrusted_origin_even_with_token(app_client, run_d
     assert response.status_code == 403
     assert response.json()["detail"] == "CSRF origin is not trusted"
     assert run_db(_full_name("csrf-origin@example.com")) == "CSRF User"
+
+
+def test_cookie_write_rejects_spoofed_host_origin_match(app_client, run_db, test_settings):
+    user = run_db(_seed_session_user("csrf-host@example.com"))
+    auth_token = create_token(user, test_settings)
+    csrf_token = csrf_token_for_user(user, test_settings)
+    attacker_client = TestClient(app_client.app, base_url="https://attacker.example")
+    attacker_client.cookies.set(AUTH_COOKIE_NAME, auth_token, domain="attacker.example", path="/")
+    attacker_client.cookies.set(CSRF_COOKIE_NAME, csrf_token, domain="attacker.example", path="/")
+
+    try:
+        response = attacker_client.patch(
+            "/api/profile/me",
+            json={"full_name": "Should Not Persist"},
+            headers={
+                "Origin": "https://attacker.example",
+                CSRF_HEADER_NAME: csrf_token,
+            },
+        )
+    finally:
+        attacker_client.close()
+
+    assert response.status_code == 400
+    assert "Invalid host header" in response.text
+    assert run_db(_full_name("csrf-host@example.com")) == "CSRF User"
 
 
 def test_cookie_write_accepts_trusted_origin_and_matching_csrf_token(app_client, run_db, test_settings):

@@ -15,6 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqladmin import Admin
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.admin.auth import StaffAdminAuth
@@ -23,7 +24,7 @@ from app.config import Settings, get_settings, validate_production_settings
 from app.database import init_engine, reset_engine
 from app.rate_limit import configure_rate_limit_storage, limiter
 from app.routers import admin as admin_api
-from app.routers import calendar, courses, exam_bank, exercises, gamification, interactions, internal, notifications, payments, professor, quizzes, realtime, reports, telemetry, users
+from app.routers import calendar, courses, exam_bank, exercises, gamification, interactions, internal, notifications, payments, professor, quizzes, realtime, reports, staff, telemetry, users
 from app.security.csrf import csrf_failure_reason
 from app.services.media_storage import warm_media_storage_client
 from app.services.telemetry import emit_readiness_error_metric, emit_request_metric, emit_unhandled_exception_metric
@@ -180,6 +181,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     root_path = ""
     release_sha = settings.release_sha.strip() or "development"
+    docs_url = None if settings.is_production_like else "/api/docs"
+    redoc_url = None if settings.is_production_like else "/api/redoc"
+    openapi_url = None if settings.is_production_like else "/api/openapi.json"
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -193,9 +197,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="Kresco API",
         version=APP_VERSION,
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
-        openapi_url="/api/openapi.json",
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
         root_path=root_path,
         lifespan=lifespan,
         default_response_class=ORJSONResponse,
@@ -212,6 +216,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.add_middleware(RequestSizeLimitMiddleware, max_body_bytes=settings.max_request_body_bytes)
     app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts_list)
 
     # CORS
     app.add_middleware(
@@ -243,6 +248,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(telemetry.router, prefix="/api")
     app.include_router(professor.router, prefix="/api/professor")
     app.include_router(admin_api.router, prefix="/api/admin")
+    app.include_router(staff.router, prefix="/api/staff")
     app.include_router(internal.router, prefix="/api/internal")
 
     if not settings.is_production_like:

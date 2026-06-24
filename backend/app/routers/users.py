@@ -1,4 +1,5 @@
 import inspect
+import logging
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
@@ -30,6 +31,7 @@ from app.services.user_profile import (
 from app.services.xp import award_daily_login_xp
 
 router = APIRouter(tags=["Auth & Users"])
+logger = logging.getLogger("kresco.auth")
 
 AUTH_LOGIN_RATE_LIMIT = os.environ.get("KRESCO_AUTH_LOGIN_RATE_LIMIT", "5/minute")
 AUTH_SESSION_RATE_LIMIT = os.environ.get("KRESCO_AUTH_SESSION_RATE_LIMIT", "20/minute")
@@ -122,7 +124,8 @@ async def _firebase_session_user(
         payload = await verification if inspect.isawaitable(verification) else verification
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
+        logger.warning("firebase_session_verification_failed error_type=%s", type(exc).__name__, exc_info=True)
         raise HTTPException(status_code=401, detail="Invalid Firebase credential")
 
     return await complete_firebase_session(

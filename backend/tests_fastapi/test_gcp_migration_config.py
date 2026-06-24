@@ -31,6 +31,7 @@ def _production_settings(**overrides):
         "frontend_url": "https://app.example.com",
         "cors_allowed_origins": "https://app.example.com",
         "cors_allow_origin_regex": "",
+        "trusted_hosts": "api.example.com",
         "media_storage_backend": "gcs",
         "media_gcs_bucket": "kresco-private-media",
         "media_gcs_prefix": "production",

@@ -260,6 +260,10 @@ async def build_topic_workspace(
         )).scalars().all())
 
     item_ids = [item.id for item in items]
+    items_by_section: dict[int, list[TopicItem]] = {section.id: [] for section in section_rows}
+    for item in items:
+        items_by_section.setdefault(item.section_id, []).append(item)
+
     tabs_by_item: dict[int, list[TabContent]] = {item.id: [] for item in items}
     if item_ids:
         tab_rows = (await db.execute(
@@ -348,8 +352,7 @@ async def build_topic_workspace(
                     item,
                     include_body=active_item is not None and item.id == active_item.id,
                 )
-                for item in items
-                if item.section_id == section.id
+                for item in items_by_section.get(section.id, [])
             ],
         )
         for section in section_rows

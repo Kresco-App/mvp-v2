@@ -75,6 +75,8 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "CMI_CALLBACK_URL": "cmi_callback_url",
     "CORS_ALLOWED_ORIGINS": "cors_allowed_origins",
     "CORS_ALLOW_ORIGIN_REGEX": "cors_allow_origin_regex",
+    "TRUSTED_HOSTS": "trusted_hosts",
+    "KRESCO_TRUSTED_HOSTS": "trusted_hosts",
     "FRONTEND_URL": "frontend_url",
     "AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
     "KRESCO_AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
@@ -175,6 +177,10 @@ class Settings(BaseSettings):
         default=r"^https?://(localhost|127\.0\.0\.1):\d+$",
         validation_alias=AliasChoices("cors_allow_origin_regex", "CORS_ALLOW_ORIGIN_REGEX"),
     )
+    trusted_hosts: str = Field(
+        default="localhost,127.0.0.1,testserver,testserver.local",
+        validation_alias=AliasChoices("trusted_hosts", "TRUSTED_HOSTS", "KRESCO_TRUSTED_HOSTS"),
+    )
     frontend_url: str = Field(default="http://localhost:3000", validation_alias=AliasChoices("frontend_url", "FRONTEND_URL"))
     auth_cookie_samesite: str = Field(
         default="lax",
@@ -221,6 +227,10 @@ class Settings(BaseSettings):
     def cors_allow_origin_regex_value(self) -> str | None:
         value = self.cors_allow_origin_regex.strip()
         return value or None
+
+    @property
+    def trusted_hosts_list(self) -> list[str]:
+        return _trusted_hosts_list(self.trusted_hosts)
 
     @property
     def is_cloud_run(self) -> bool:
@@ -273,6 +283,15 @@ class Settings(BaseSettings):
             if not str(value).strip():
                 errors.append(f"{env_name} must be configured for production environments.")
 
+        for field_name, env_name in (
+            ("vdocipher_api_base_url", "VDOCIPHER_API_BASE_URL"),
+            ("vdocipher_live_create_url", "VDOCIPHER_LIVE_CREATE_URL"),
+            ("vdocipher_live_delete_url", "VDOCIPHER_LIVE_DELETE_URL"),
+        ):
+            value = str(getattr(self, field_name, "") or "").strip()
+            if value:
+                errors.extend(_public_https_url_errors(value, name=env_name))
+
         if not self.dark_production_mode:
             for field_name, env_name in CMI_PRODUCTION_FIELDS:
                 if not str(getattr(self, field_name, "")).strip():
@@ -314,6 +333,14 @@ class Settings(BaseSettings):
 
         if _is_permissive_origin_regex(self.cors_allow_origin_regex):
             errors.append("CORS_ALLOW_ORIGIN_REGEX must be tightly scoped in production environments.")
+
+        trusted_hosts = self.trusted_hosts_list
+        if not trusted_hosts:
+            errors.append("TRUSTED_HOSTS must list the public backend hostnames in production environments.")
+        if any(_is_permissive_host(host) for host in trusted_hosts):
+            errors.append("TRUSTED_HOSTS must not include wildcard hosts in production environments.")
+        if any(_is_local_host(host) for host in trusted_hosts):
+            errors.append("TRUSTED_HOSTS must not include localhost hosts in production environments.")
 
         return errors
 
@@ -420,6 +447,41 @@ def _is_local_origin(value: str) -> bool:
     )
 
 
+def _trusted_hosts_list(value: str) -> list[str]:
+    hosts: list[str] = []
+    for item in value.split(","):
+        host = _normalize_trusted_host(item)
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def _normalize_trusted_host(value: str) -> str:
+    from urllib.parse import urlparse
+
+    raw = value.strip().lower()
+    if not raw:
+        return ""
+    if raw == "*" or raw.startswith("*."):
+        return raw
+    parsed = urlparse(raw if "://" in raw else f"//{raw}")
+    host = (parsed.hostname or raw).strip().lower()
+    return host.strip("[]")
+
+
+def _is_local_host(value: str) -> bool:
+    import ipaddress
+
+    normalized = _normalize_trusted_host(value)
+    if normalized in {"localhost", "::1"} or normalized.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_link_local or address.is_private
+
+
 def _cmi_production_url_errors(settings: Settings) -> list[str]:
     checks = (
         ("CMI_PAYMENT_URL", settings.cmi_payment_url, True),
@@ -470,6 +532,11 @@ def _is_permissive_origin_regex(value: str) -> bool:
     if compact in {"*", ".*", "^.*$", "https?://.*", "^https?://.*$", "^https://.*$", "^http://.*$"}:
         return True
     return ".*" in compact or ".+" in compact
+
+
+def _is_permissive_host(value: str) -> bool:
+    normalized = value.strip()
+    return normalized in {"*", "*.*"} or normalized.startswith("*.")
 
 
 def _is_shared_rate_limit_storage_uri(value: str) -> bool:

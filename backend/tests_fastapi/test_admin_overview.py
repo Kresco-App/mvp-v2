@@ -574,14 +574,20 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
             )
             db.add(conversation)
             await db.flush()
-            db.add(
+            db.add_all([
                 ProfessorChatMessage(
                     conversation_id=conversation.id,
                     sender_user_id=student.id,
                     body="Please check this live question.",
                     status="sent",
-                )
-            )
+                ),
+                ProfessorChatMessage(
+                    conversation_id=conversation.id,
+                    sender_user_id=staff.id,
+                    body="I can see it from the staff side.",
+                    status="sent",
+                ),
+            ])
             now = datetime.now(timezone.utc)
             live_session = LiveSession(
                 course_offering_id=offering.id,
@@ -643,6 +649,19 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
     assert data["live_interactions_by_status"]["pending"] >= 1
     assert data["reports_by_priority"]["urgent"] >= 1
     assert any(item["last_message_preview"] == "Please check this live question." for item in data["conversations"])
+    transcript_messages = [
+        message
+        for conversation in data["conversations"]
+        for message in conversation["messages"]
+    ]
+    assert any(
+        message["body"] == "Please check this live question." and message["sender_role"] == "student"
+        for message in transcript_messages
+    )
+    assert any(
+        message["body"] == "I can see it from the staff side." and message["sender_role"] == "professor"
+        for message in transcript_messages
+    )
     assert any(item["body"] == "Can you repeat the proof?" for item in data["live_interactions"])
     assert any(item["title"] == "Comms report" for item in data["reports"])
 
@@ -1236,6 +1255,12 @@ def test_admin_overview_router_stays_thin():
 
     assert function_names == [
         "get_admin_overview",
+        "get_founder_dashboard",
+        "get_finance_expenses",
+        "create_admin_finance_expense",
+        "get_redemption_templates",
+        "create_admin_redemption_template",
+        "get_staff_payment_requests",
         "get_admin_activity",
         "get_admin_student_progress",
         "get_admin_communications",
@@ -1252,8 +1277,15 @@ def test_admin_overview_router_stays_thin():
         "list_professor_change_requests_admin",
         "get_professor_change_request_admin",
         "review_professor_change_request_admin",
+        "_parse_month",
     ]
     assert "build_admin_overview" in router_source
+    assert "build_founder_dashboard" in router_source
+    assert "list_finance_expenses" in router_source
+    assert "create_finance_expense" in router_source
+    assert "list_redemption_templates" in router_source
+    assert "create_redemption_template" in router_source
+    assert "list_staff_payment_requests" in router_source
     assert "build_admin_activity" in router_source
     assert "build_admin_student_progress" in router_source
     assert "build_admin_communications" in router_source

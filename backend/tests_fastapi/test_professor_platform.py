@@ -1182,6 +1182,8 @@ def test_professor_live_session_generation_cleans_up_provider_stream_when_db_per
 
 
 def test_live_interactions_are_trimmed_rate_limited_and_published(app_client, run_db, test_settings, monkeypatch):
+    monkeypatch.setattr(professor_live_interactions, "LIVE_INTERACTION_BURST_LIMIT", 2)
+    monkeypatch.setattr(professor_live_interactions, "LIVE_INTERACTION_BURST_WINDOW", timedelta(minutes=5))
     seeded = run_db(_seed_professor_platform(test_settings))
     starts_at = datetime.now(timezone.utc) + timedelta(hours=2)
     created = app_client.post(
@@ -1234,7 +1236,7 @@ def test_live_interactions_are_trimmed_rate_limited_and_published(app_client, ru
     assert outbox_event.channel == f"kresco:live:{live_id}"
     assert outbox_event.payload_json == first.json()
 
-    for index in range(professor_router.LIVE_INTERACTION_BURST_LIMIT - 1):
+    for index in range(professor_live_interactions.LIVE_INTERACTION_BURST_LIMIT - 1):
         response = app_client.post(
             f"/api/professor/student-live-sessions/{live_id}/interactions",
             json={"kind": "message", "body": f"Message {index}"},

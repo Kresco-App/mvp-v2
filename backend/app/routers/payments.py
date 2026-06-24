@@ -6,6 +6,7 @@ from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db, require_staff_permission
 from app.models.users import User
 from app.rate_limit import limiter
+from app.schemas.founder_ops import RedemptionCodeRedeemIn, RedemptionCodeRedeemOut
 from app.schemas.payments import (
     FinanceExportCreateIn,
     FinanceExportOut,
@@ -53,6 +54,7 @@ from app.services.refund_requests import (
     list_refund_requests,
     reject_refund_request,
 )
+from app.services.staff_payments import redeem_code_for_user
 
 router = APIRouter(tags=["Payments"])
 require_finance_read = require_staff_permission("finance:read")
@@ -87,6 +89,18 @@ async def get_current_payment_request(
     user: User = Depends(get_current_user),
 ):
     return await get_current_provider_payment_request(db, user=user, plan="pro")
+
+
+@router.post("/redemption-codes/redeem", response_model=RedemptionCodeRedeemOut)
+@limiter.limit("10/minute")
+async def redeem_redemption_code(
+    request: Request,
+    body: RedemptionCodeRedeemIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    del request
+    return await redeem_code_for_user(db, user=user, raw_code=body.code)
 
 
 @router.get("/manual-payment-requests", response_model=list[ManualPaymentTransactionOut])
