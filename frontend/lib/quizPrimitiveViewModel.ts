@@ -79,7 +79,8 @@ export function isOrderedAnswerCorrect(current: string[], answer: string[]) {
 }
 
 export function availableFormulaTokens(tokens: QuizPrimitiveOption[], built: string[]) {
-  return tokens.filter((token) => !built.includes(token.id))
+  const builtIds = new Set(built)
+  return tokens.filter((token) => !builtIds.has(token.id))
 }
 
 export function isDragDropCorrect(assignments: Record<string, string>, answer: Record<string, string>) {
@@ -93,9 +94,16 @@ export function orderedZoneItems(
   zoneId: string,
 ) {
   const orderedIds = zoneOrders[zoneId] ?? []
-  const assignedIds = items.filter((item) => assignments[item.id] === zoneId).map((item) => item.id)
-  const ids = [...orderedIds.filter((id) => assignedIds.includes(id)), ...assignedIds.filter((id) => !orderedIds.includes(id))]
-  return ids.map((id) => items.find((item) => item.id === id)).filter((item): item is QuizPrimitiveOption => Boolean(item))
+  const itemById = new Map(items.map((item) => [item.id, item]))
+  const assignedIds = items.flatMap((item) => assignments[item.id] === zoneId ? [item.id] : [])
+  const assignedIdSet = new Set(assignedIds)
+  const orderedIdSet = new Set(orderedIds)
+  const ids = [...orderedIds.filter((id) => assignedIdSet.has(id)), ...assignedIds.filter((id) => !orderedIdSet.has(id))]
+
+  return ids.flatMap((id) => {
+    const item = itemById.get(id)
+    return item ? [item] : []
+  })
 }
 
 export function clamp(value: number, min: number, max: number) {

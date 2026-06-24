@@ -1,5 +1,7 @@
 import DOMPurify from 'isomorphic-dompurify'
 
+import { isSafeLinkHref } from '@/lib/urlSafety'
+
 const allowedTags = [
   'a',
   'b',
@@ -37,6 +39,11 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.nodeName !== 'A') return
 
   const element = node as Element
+  const href = element.getAttribute('href')
+  if (href && !isSafeLinkHref(href)) {
+    element.removeAttribute('href')
+  }
+
   const target = element.getAttribute('target')
   if (target && target !== '_blank') {
     element.removeAttribute('target')

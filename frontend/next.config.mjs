@@ -48,11 +48,22 @@ export function buildImageRemotePatterns(nodeEnv = process.env.NODE_ENV) {
   return [...productionImageRemotePatterns, ...localImageRemotePatterns]
 }
 
-const SECURITY_HEADERS = [
+export function buildSecurityHeaders(nodeEnv = process.env.NODE_ENV) {
+  return [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-DNS-Prefetch-Control', value: 'on' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-]
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
+  { key: 'Origin-Agent-Cluster', value: '?1' },
+  { key: 'X-Download-Options', value: 'noopen' },
+  { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
+  ...(nodeEnv === 'production'
+    ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
+    : []),
+  ]
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -73,7 +84,7 @@ const nextConfig = {
     },
   },
   async headers() {
-    return [{ source: '/(.*)', headers: SECURITY_HEADERS }]
+    return [{ source: '/(.*)', headers: buildSecurityHeaders() }]
   },
   async rewrites() {
     const localBackendOrigin = process.env.KRESCO_LOCAL_BACKEND_ORIGIN ?? 'http://127.0.0.1:8000'

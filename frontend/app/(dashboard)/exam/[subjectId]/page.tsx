@@ -354,7 +354,7 @@ export default function ExamPage() {
               y="0"
               width={progressPct}
               height="1"
-              className={`transition-all duration-1000 ${isUrgent ? 'fill-red-500' : 'fill-kresco'}`}
+              className={`transition-[fill] duration-1000 ${isUrgent ? 'fill-red-500' : 'fill-kresco'}`}
             />
           </svg>
         </div>

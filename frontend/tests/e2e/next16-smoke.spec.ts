@@ -2,7 +2,15 @@ import { createHmac } from 'node:crypto'
 import { expect, type Page, test } from '@playwright/test'
 
 const apiBase = /\/api\//
-const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
+const jwtSecretKey = requiredJwtSecretKey()
+
+function requiredJwtSecretKey() {
+  const value = process.env.JWT_SECRET_KEY
+  if (!value) {
+    throw new Error('JWT_SECRET_KEY must be provided by the Playwright config before smoke tests load.')
+  }
+  return value
+}
 
 const smokeUser = {
   id: 1,

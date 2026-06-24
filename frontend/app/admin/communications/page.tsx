@@ -213,7 +213,7 @@ export default function AdminCommunicationsPage() {
                   key={key}
                   type="button"
                   onClick={() => setTab(key)}
-                  className={`h-8 rounded-[9px] px-3 text-[12px] font-black transition ${tab === key ? 'bg-white text-[#5b60f9] shadow-sm' : 'text-[#71717a] hover:text-[#3f3f46]'}`}
+                  className={`h-10 rounded-[10px] px-3 text-[12px] font-black transition-[background-color,box-shadow,color,transform] active:scale-[0.96] ${tab === key ? 'bg-white text-[#5b60f9] shadow-sm' : 'text-[#71717a] hover:text-[#3f3f46]'}`}
                 >
                   {tabLabels[key]}
                 </button>
@@ -258,7 +258,7 @@ function StatTile({
         <span className="grid h-9 w-9 place-items-center rounded-[11px] bg-[#f0f0ff] text-[#5b60f9]"><Icon size={17} /></span>
         <span className="text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</span>
       </div>
-      <p className="m-0 mt-3 text-[24px] font-black leading-none text-[#3f3f46]">{loading ? '-' : value}</p>
+      <p className="m-0 mt-3 text-[24px] font-black leading-none text-[#3f3f46] tabular-nums">{loading ? '-' : value}</p>
       <p className="m-0 mt-1 text-[12px] font-bold text-[#a1a1aa]">{hint}</p>
     </div>
   )
@@ -297,7 +297,7 @@ function MiniMetric({ label, value, tone = 'default' }: { label: string; value: 
   return (
     <div className="rounded-[12px] border border-[#f4f4f5] bg-[#fbfbfc] px-3 py-3">
       <p className="m-0 text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
-      <p className={`m-0 mt-1 text-[20px] font-black leading-none ${tone === 'warn' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</p>
+      <p className={`m-0 mt-1 text-[20px] font-black leading-none tabular-nums ${tone === 'warn' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</p>
     </div>
   )
 }
@@ -306,25 +306,63 @@ function ConversationList({ items }: { items: AdminChatConversation[] }) {
   if (!items.length) return <EmptyQueue icon={MessageSquareText} title="Aucune conversation trouvee." />
   return (
     <div className="divide-y divide-[#f4f4f5]">
-      {items.map((item) => (
-        <article key={item.conversation_id} className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_180px]">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill value={item.status} />
-              <span className="text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">#{item.conversation_id}</span>
+      {items.map((item) => {
+        const messages = item.messages ?? []
+        return (
+          <article key={item.conversation_id} className="grid gap-4 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill value={item.status} />
+                <span className="text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">#{item.conversation_id}</span>
+              </div>
+              <h3 className="m-0 mt-2 truncate text-[15px] font-black text-[#3f3f46]">{item.student_name || `Student #${item.student_user_id}`}</h3>
+              <p className="m-0 mt-1 truncate text-[13px] font-semibold text-[#71717a]">{item.course_title || `Offering #${item.course_offering_id}`}</p>
+              <p className="m-0 mt-2 line-clamp-2 text-[13px] font-semibold text-[#a1a1aa]">{item.last_message_preview || 'Aucun apercu de message.'}</p>
             </div>
-            <h3 className="m-0 mt-2 truncate text-[15px] font-black text-[#3f3f46]">{item.student_name || `Student #${item.student_user_id}`}</h3>
-            <p className="m-0 mt-1 truncate text-[13px] font-semibold text-[#71717a]">{item.course_title || `Offering #${item.course_offering_id}`}</p>
-            <p className="m-0 mt-2 line-clamp-2 text-[13px] font-semibold text-[#a1a1aa]">{item.last_message_preview || 'Aucun apercu de message.'}</p>
-          </div>
-          <div className="grid content-start gap-2 text-[12px] font-bold text-[#71717a]">
-            <span>Prof: {item.professor_name || `#${item.professor_user_id}`}</span>
-            <span>Non lus prof: <strong className="text-[#f5900b]">{formatNumber(item.unread_for_professor)}</strong></span>
-            <span>Non lus eleve: {formatNumber(item.unread_for_student)}</span>
-            <span>{formatDate(item.last_message_at)}</span>
-          </div>
-        </article>
-      ))}
+            <div className="grid content-start gap-2 text-[12px] font-bold text-[#71717a]">
+              <span>Prof: {item.professor_name || `#${item.professor_user_id}`}</span>
+              <span>Non lus prof: <strong className="text-[#f5900b]">{formatNumber(item.unread_for_professor)}</strong></span>
+              <span>Non lus eleve: {formatNumber(item.unread_for_student)}</span>
+              <span>{formatDate(item.last_message_at)}</span>
+            </div>
+            <div className="lg:col-span-2">
+              <div className="rounded-[16px] border border-[#eef0f4] bg-[#fbfbfc] p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <p className="m-0 text-[12px] font-black uppercase tracking-[0.08em] text-[#8b93a3]">Message transcript</p>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-[#71717a]">{formatNumber(messages.length)} shown</span>
+                </div>
+                {!messages.length ? (
+                  <p className="m-0 rounded-[12px] border border-dashed border-[#e4e4e7] bg-white px-3 py-4 text-center text-[13px] font-semibold text-[#a1a1aa]">
+                    Aucun message recent dans cette conversation.
+                  </p>
+                ) : (
+                  <div className="grid gap-2.5">
+                    {messages.map((message) => (
+                      <div key={message.message_id} className="rounded-[12px] border border-[#eef0f4] bg-white px-3 py-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-black uppercase ${senderRoleClass(message.sender_role)}`}>
+                              {senderRoleLabel(message.sender_role)}
+                            </span>
+                            <span className="truncate text-[12px] font-black text-[#52525c]">{message.sender_name || `#${message.sender_user_id}`}</span>
+                          </div>
+                          <span className="text-[11.5px] font-bold text-[#a1a1aa]">{formatDate(message.created_at, true)}</span>
+                        </div>
+                        <p className="m-0 mt-2 whitespace-pre-wrap break-words text-[13px] font-semibold leading-5 text-[#3f3f46]">{message.body || 'Message vide.'}</p>
+                        {message.attachment_url && (
+                          <p className="m-0 mt-2 truncate text-[12px] font-bold text-[#5b60f9]">
+                            Attachment: {message.attachment_name || message.attachment_url}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </article>
+        )
+      })}
     </div>
   )
 }
@@ -390,7 +428,7 @@ function ReportList({
                     type="button"
                     disabled={busyReportId === item.report_id}
                     onClick={() => onStatusChange(item, 'in_review')}
-                    className="h-8 rounded-[10px] border-[2px] border-[#e4e4e7] bg-white px-2 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9] disabled:opacity-50"
+                    className="h-10 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-2 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:border-[#5b60f9] hover:text-[#5b60f9] disabled:opacity-50 disabled:active:scale-100"
                   >
                     Start review
                   </button>
@@ -400,7 +438,7 @@ function ReportList({
                     type="button"
                     disabled={busyReportId === item.report_id}
                     onClick={() => onStatusChange(item, 'resolved')}
-                    className="h-8 rounded-[10px] bg-[#16a34a] px-2 text-[12px] font-black text-white transition hover:bg-[#15803d] disabled:opacity-50"
+                    className="h-10 rounded-[12px] bg-[#16a34a] px-2 text-[12px] font-black text-white transition-[background-color,color,transform] active:scale-[0.96] hover:bg-[#15803d] disabled:opacity-50 disabled:active:scale-100"
                   >
                     Resolve
                   </button>
@@ -408,7 +446,7 @@ function ReportList({
                     type="button"
                     disabled={busyReportId === item.report_id}
                     onClick={() => onStatusChange(item, 'dismissed')}
-                    className="h-8 rounded-[10px] bg-[#71717a] px-2 text-[12px] font-black text-white transition hover:bg-[#52525c] disabled:opacity-50"
+                    className="h-10 rounded-[12px] bg-[#71717a] px-2 text-[12px] font-black text-white transition-[background-color,color,transform] active:scale-[0.96] hover:bg-[#52525c] disabled:opacity-50 disabled:active:scale-100"
                   >
                     Dismiss
                   </button>
@@ -471,6 +509,18 @@ function formatDate(value: string | null, includeTime = false) {
   return new Date(value).toLocaleString('fr-FR', includeTime ? undefined : { dateStyle: 'medium' })
 }
 
+function senderRoleLabel(value: string) {
+  if (value === 'student') return 'Student'
+  if (value === 'professor') return 'Professor'
+  return 'Staff'
+}
+
+function senderRoleClass(value: string) {
+  if (value === 'student') return 'bg-[#eef0ff] text-[#4f46e5]'
+  if (value === 'professor') return 'bg-[#f0fdf4] text-[#15803d]'
+  return 'bg-[#f4f4f5] text-[#71717a]'
+}
+
 function matchesConversation(item: AdminChatConversation, query: string) {
   if (!query) return true
   return [
@@ -479,6 +529,12 @@ function matchesConversation(item: AdminChatConversation, query: string) {
     item.course_title,
     item.status,
     item.last_message_preview,
+    ...(item.messages ?? []).flatMap((message) => [
+      message.sender_name,
+      message.sender_role,
+      message.body,
+      message.attachment_name,
+    ]),
   ].join(' ').toLowerCase().includes(query)
 }
 

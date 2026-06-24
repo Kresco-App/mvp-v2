@@ -4,14 +4,14 @@ import { type ReactNode } from 'react'
 import { Loader2, RotateCcw, Search, type LucideIcon } from 'lucide-react'
 
 export const adminPageClass = 'mx-auto w-[calc(100%-2rem)] max-w-[var(--figma-shell-width)] py-7 sm:w-[calc(100%-3rem)] lg:w-[calc(100%-4rem)]'
-export const adminPanelClass = 'rounded-[22px] border border-[color:var(--border)] bg-[color:var(--surface-card)] shadow-[0_8px_26px_rgba(24,24,27,0.045)]'
+export const adminPanelClass = 'rounded-[22px] border border-transparent bg-[color:var(--surface-card)] shadow-[var(--shadow-border),0_8px_26px_rgba(24,24,27,0.045)]'
 export const adminSubtlePanelClass = 'rounded-[16px] border border-[color:var(--border)] bg-[color:var(--surface-page)]'
-export const adminButtonClass = 'inline-flex h-10 items-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-4 text-[13px] font-black text-[color:var(--text-secondary)] transition hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-60'
-export const adminInputShellClass = 'flex h-10 min-w-0 items-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-3 transition focus-within:border-[color:var(--primary)] focus-within:ring-4 focus-within:ring-[color:var(--primary-soft)]'
+export const adminButtonClass = 'inline-flex h-10 items-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-4 text-[13px] font-black text-[color:var(--text-secondary)] transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100'
+export const adminInputShellClass = 'flex h-10 min-w-0 items-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-3 transition-[background-color,border-color,box-shadow] duration-150 ease-out focus-within:border-[color:var(--primary)] focus-within:ring-4 focus-within:ring-[color:var(--primary-soft)]'
 export const adminMetricStripThreeClass = `${adminPanelClass} mb-6 grid overflow-hidden sm:grid-cols-3`
 export const adminMetricStripClass = `${adminPanelClass} mb-6 grid overflow-hidden sm:grid-cols-2 xl:grid-cols-4`
 export const adminMetricStripFiveClass = `${adminPanelClass} mb-6 grid overflow-hidden sm:grid-cols-2 xl:grid-cols-5`
-export const adminMetricTileClass = 'min-h-[112px] border-b border-[color:var(--border)] p-4 sm:border-r xl:border-b-0 last:border-b-0 sm:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:last:border-r-0'
+export const adminMetricTileClass = 'min-h-[112px] border-b border-[color:var(--border)] p-4 tabular-nums sm:border-r xl:border-b-0 last:border-b-0 sm:[&:nth-child(2n)]:border-r-0 xl:[&:nth-child(2n)]:border-r xl:last:border-r-0'
 
 export function AdminPageHeader({
   icon: Icon,
@@ -36,8 +36,8 @@ export function AdminPageHeader({
         </span>
         <div className="min-w-0">
           <p className="m-0 text-[12px] font-black uppercase tracking-[0.08em] text-[color:var(--primary)]">{eyebrow}</p>
-          <h1 className="m-0 mt-1 text-[25px] font-black leading-tight text-[color:var(--text-primary)]">{title}</h1>
-          <p className="m-0 mt-1 max-w-[820px] text-[14px] font-semibold leading-6 text-[color:var(--text-hint)]">{description}</p>
+          <h1 className="m-0 mt-1 text-balance text-[25px] font-black leading-tight text-[color:var(--text-primary)]">{title}</h1>
+          <p className="m-0 mt-1 max-w-[820px] text-pretty text-[14px] font-semibold leading-6 text-[color:var(--text-hint)]">{description}</p>
           {syncLabel && <p className="m-0 mt-1 text-[12px] font-bold text-[color:var(--text-tertiary)]">{syncLabel}</p>}
         </div>
       </div>

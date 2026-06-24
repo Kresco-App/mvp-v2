@@ -17,6 +17,7 @@ describe('sanitizeHtml', () => {
     expect(sanitizeHtml('<a href="javascript:alert(1)">bad</a><iframe src="https://example.com"></iframe>')).toBe(
       '<a>bad</a>',
     )
+    expect(sanitizeHtml('<a href="//evil.example/phish">bad</a>')).toBe('<a>bad</a>')
   })
 
   it('removes parser-confusing XSS payloads', () => {

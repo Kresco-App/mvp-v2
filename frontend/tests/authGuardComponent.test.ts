@@ -63,6 +63,7 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))))
   localStorage.clear()
   document.cookie = `${KRESCO_USER_ROLE_COOKIE}=; Path=/; Max-Age=0`
   document.body.innerHTML = ''
@@ -82,6 +83,7 @@ afterEach(() => {
     })
     container.remove()
   }
+  vi.unstubAllGlobals()
 })
 
 describe('AuthGuard component behavior', () => {

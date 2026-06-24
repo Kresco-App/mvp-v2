@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { PermanentSidebar, type PermanentSidebarProps } from '@/components/figma'
 
-const routeEase = [0.2, 0.8, 0.2, 1] as const
+const routeEase = [0.22, 1, 0.36, 1] as const
 const routeExitEase = [0.4, 0, 1, 1] as const
 
 type DashboardSidebarConfig = {
@@ -58,11 +58,11 @@ export default function DashboardLayoutShell({ children }: { children: React.Rea
   const config = getDashboardSidebarConfig(pathname)
   const reduceMotion = useReducedMotion()
   const routeKey = dashboardRouteKey(pathname)
-  const routeInitial = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, filter: 'blur(1.5px)' }
+  const routeInitial = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, filter: 'blur(3px)' }
   const routeAnimate = reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: 'blur(0px)' }
   const routeExit = reduceMotion
     ? { opacity: 0, transition: { duration: 0.08 } }
-    : { opacity: 0, y: 4, filter: 'blur(1px)', transition: { duration: 0.09, ease: routeExitEase } }
+    : { opacity: 0, y: 4, filter: 'blur(2px)', transition: { duration: 0.15, ease: routeExitEase } }
 
   const content = config ? (
     <div className={config.containerClassName}>
@@ -74,13 +74,16 @@ export default function DashboardLayoutShell({ children }: { children: React.Rea
   ) : children
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="wait" initial={false}>
       <motion.div
+        id="main-content"
+        role="main"
+        tabIndex={-1}
         key={routeKey}
         initial={routeInitial}
         animate={routeAnimate}
         exit={routeExit}
-        transition={{ duration: 0.18, ease: routeEase }}
+        transition={{ duration: 0.25, ease: routeEase }}
         className="min-w-0"
       >
         {content}
@@ -90,5 +93,5 @@ export default function DashboardLayoutShell({ children }: { children: React.Rea
 }
 
 function dashboardRouteKey(pathname: string) {
-  return pathname.split('/').filter(Boolean)[0] ?? 'home'
+  return pathname.split('/').filter(Boolean).join('/') || 'home'
 }

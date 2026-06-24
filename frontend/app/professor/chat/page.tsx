@@ -810,7 +810,7 @@ export default function ProfessorChatPage() {
                             <button
                               type="button"
                               onClick={showOlderMessages}
-                              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#71717b] transition hover:-translate-y-px hover:text-[#3f3f46]"
+                              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#71717b] transition-[border-color,color] duration-150 ease-out hover:text-[#3f3f46]"
                               aria-label={`Show ${Math.min(CHAT_OLDER_MESSAGE_BATCH_SIZE, messageWindow.hiddenBeforeCount)} older messages`}
                             >
                               <ChevronUp size={14} />
@@ -879,7 +879,7 @@ export default function ProfessorChatPage() {
                             )}
                             <div className={`relative min-w-0 rounded-[16px] px-4 py-3 ${hasThreadSearch ? 'ring-2 ring-[#453dee]/20' : ''} ${mine ? mineBubbleClass : otherBubbleClass}`}>
                               {canUseMessageActions && (
-                                <div data-chat-message-actions className={`absolute right-[calc(100%+6px)] top-1 z-10 h-8 w-8 transition duration-150 ${isMessageMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
+                                <div data-chat-message-actions className={`absolute right-[calc(100%+6px)] top-1 z-10 h-8 w-8 transition-opacity duration-150 ease-out ${isMessageMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
                                   {isMessageMenuOpen ? (
                                     <div className="absolute right-0 top-0 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]">
                                       {canEdit && (
@@ -894,7 +894,7 @@ export default function ProfessorChatPage() {
                                       </button>
                                     </div>
                                   ) : (
-                                    <button type="button" onClick={() => setMessageMenuId(message.id)} className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]" aria-label="Message actions">
+                                    <button type="button" onClick={() => setMessageMenuId(message.id)} className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition-[border-color,color] duration-150 ease-out hover:text-[#3f3f46]" aria-label="Message actions">
                                       <MoreHorizontal size={15} />
                                     </button>
                                   )}
@@ -935,7 +935,7 @@ export default function ProfessorChatPage() {
                                         width={520}
                                         height={280}
                                         unoptimized
-                                        className="max-h-[280px] w-full object-cover"
+                                        className="kresco-media-outline max-h-[280px] w-full object-cover"
                                       />
                                     </a>
                                   )}
@@ -952,10 +952,10 @@ export default function ProfessorChatPage() {
                                   </span>
                                   {isFailed && (
                                     <span className="ml-auto flex shrink-0 items-center gap-1">
-                                      <button type="button" onClick={() => void retryFailedMessage(message)} disabled={retryingMessageIds.has(message.id)} className="h-7 rounded-[8px] border border-[#fecaca] bg-white px-2 text-[11px] font-black text-[#dc2626] transition hover:-translate-y-px disabled:opacity-60">
+                                      <button type="button" onClick={() => void retryFailedMessage(message)} disabled={retryingMessageIds.has(message.id)} className="h-7 rounded-[8px] border border-[#fecaca] bg-white px-2 text-[11px] font-black text-[#dc2626] transition-[background-color,border-color,color] duration-150 ease-out hover:bg-[#fff1f2] disabled:opacity-60">
                                         {retryingMessageIds.has(message.id) ? 'Retrying' : 'Retry'}
                                       </button>
-                                      <button type="button" onClick={() => void removeFailedMessage(message)} className="h-7 rounded-[8px] border-0 bg-transparent px-2 text-[11px] font-black text-[#71717b] transition hover:bg-white">
+                                      <button type="button" onClick={() => void removeFailedMessage(message)} className="h-7 rounded-[8px] border-0 bg-transparent px-2 text-[11px] font-black text-[#71717b] transition-[background-color,color] duration-150 ease-out hover:bg-white">
                                         Remove
                                       </button>
                                     </span>
@@ -1002,9 +1002,9 @@ export default function ProfessorChatPage() {
                   )}
                   {selectedImagePreview && (
                     <div className="mb-3 flex items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-[#fbfbfc] p-2">
-                      <Image src={selectedImagePreview} alt="" width={64} height={64} unoptimized className="h-16 w-16 rounded-[10px] object-cover" />
+                      <Image src={selectedImagePreview} alt="" width={64} height={64} unoptimized className="kresco-media-outline h-16 w-16 rounded-[10px] object-cover" />
                       <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-[#52525c]">{selectedImage?.name}</span>
-                      <button type="button" onClick={clearSelectedImage} className="grid h-9 w-9 place-items-center rounded-[11px] border-0 bg-white text-[#71717b]" aria-label="Remove image">
+                      <button type="button" onClick={clearSelectedImage} className="grid h-10 w-10 place-items-center rounded-[11px] border-0 bg-white text-[#71717b] transition-transform duration-200 active:scale-[0.96]" aria-label="Remove image">
                         <X size={16} />
                       </button>
                     </div>
@@ -1021,7 +1021,7 @@ export default function ProfessorChatPage() {
                         if (file) setSelectedImageFile(file)
                       }}
                     />
-                    <button type="button" onClick={() => imageInputRef.current?.click()} className="grid h-12 w-12 place-items-center rounded-[14px] border-[2px] border-[#e4e4e7] bg-white text-[#71717b]" aria-label="Add image">
+                    <button type="button" onClick={() => imageInputRef.current?.click()} className="grid h-12 w-12 place-items-center rounded-[14px] border-[2px] border-[#e4e4e7] bg-white text-[#71717b] transition-[background-color,border-color,transform] duration-200 hover:bg-[#f8f9fc] active:scale-[0.96]" aria-label="Add image">
                       <ImageIcon size={18} />
                     </button>
                     <textarea
@@ -1039,7 +1039,7 @@ export default function ProfessorChatPage() {
                       className="min-h-12 min-w-0 resize-none rounded-[14px] border-[2px] border-[#e4e4e7] px-4 py-3 text-[14px] font-bold leading-[1.35] text-[#3f3f46] outline-none focus:border-[#5b60f9]"
                       placeholder={selectedImage ? 'Add a caption' : 'Reply to this student'}
                     />
-                    <button type="submit" aria-label="Send reply" disabled={sending || (!draft.trim() && !selectedImage)} className="grid h-12 w-12 place-items-center rounded-[14px] border-0 bg-[#453dee] text-white disabled:cursor-not-allowed disabled:opacity-50">
+                    <button type="submit" aria-label="Send reply" disabled={sending || (!draft.trim() && !selectedImage)} className="grid h-12 w-12 place-items-center rounded-[14px] border-0 bg-[#453dee] text-white transition-transform duration-200 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100">
                       {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                     </button>
                   </div>
@@ -1064,7 +1064,7 @@ export default function ProfessorChatPage() {
 function InboxMetric({ label, value, tone = 'calm' }: { label: string; value: number; tone?: 'calm' | 'attention' }) {
   return (
     <div className="min-w-0 flex-1 px-3 py-2">
-      <span className={`block text-[15px] font-black leading-none ${tone === 'attention' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</span>
+      <span className={`block text-[15px] font-black leading-none tabular-nums ${tone === 'attention' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</span>
       <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.08em] text-[#71717b]">{label}</span>
     </div>
   )
@@ -1083,7 +1083,7 @@ function ChatAvatar({ name, src }: { name: string; src?: string | null }) {
           width={36}
           height={36}
           unoptimized
-          className="h-full w-full object-cover"
+          className="kresco-media-outline h-full w-full object-cover"
           onError={() => setFailedSrc(src || null)}
         />
       ) : initials(name)}

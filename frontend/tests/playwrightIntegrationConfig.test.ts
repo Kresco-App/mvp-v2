@@ -36,4 +36,16 @@ describe('Playwright integration config', () => {
     expect(packageJson.scripts['test:e2e']).toBe('npm run build && playwright test')
     expect(packageJson.scripts.ci).not.toContain('npm run build && npm run test:e2e')
   })
+
+  it('does not commit a hardcoded JWT fallback for Playwright runs', () => {
+    const smokeConfig = readFileSync(resolve(process.cwd(), 'playwright.config.ts'), 'utf8')
+    const integrationConfig = readFileSync(resolve(process.cwd(), 'playwright.integration.config.ts'), 'utf8')
+
+    expect(smokeConfig).not.toContain('test-secret-key-for-ci')
+    expect(integrationConfig).not.toContain('test-secret-key-for-ci')
+    expect(integrationConfig).not.toContain('test-admin-password')
+    expect(smokeConfig).toContain('randomBytes(32)')
+    expect(integrationConfig).toContain('randomBytes(32)')
+    expect(integrationConfig).toContain('resolveAdminPassword')
+  })
 })

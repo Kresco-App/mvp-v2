@@ -213,7 +213,7 @@ export function TopicWorkspaceWhiteboard({
                     type="button"
                     onClick={() => void whiteboard.saveCanvas({ notify: true })}
                     disabled={whiteboard.syncStatus === 'loading' || whiteboard.syncStatus === 'saving'}
-                    className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] max-[460px]:flex-1 max-[460px]:justify-center"
+                    className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,transform] duration-200 hover:bg-[#2f27b8] active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100 max-[460px]:flex-1 max-[460px]:justify-center"
                   >
                     <Save size={14} />
                     Save now
@@ -224,7 +224,7 @@ export function TopicWorkspaceWhiteboard({
                   onClick={closeExpanded}
                   aria-label="Close"
                   title="Close whiteboard"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-[#d4d4d8] bg-white text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] max-[460px]:ml-auto"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#d4d4d8] bg-white text-[#52525c] transition-[background-color,border-color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] max-[460px]:ml-auto"
                 >
                   <X size={16} />
                 </button>
@@ -256,7 +256,7 @@ export function TopicWorkspaceWhiteboard({
               type="button"
               onClick={() => void whiteboard.saveCanvas({ notify: true })}
               disabled={whiteboard.syncStatus === 'loading' || whiteboard.syncStatus === 'saving' || !whiteboard.isDirty}
-              className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] max-[460px]:flex-1 max-[460px]:justify-center"
+              className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,transform] duration-200 hover:bg-[#2f27b8] active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100 max-[460px]:flex-1 max-[460px]:justify-center"
             >
               <Save size={14} />
               Save now
@@ -264,7 +264,7 @@ export function TopicWorkspaceWhiteboard({
             <button
               type="button"
               onClick={openExpanded}
-              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] max-[460px]:flex-1 max-[460px]:justify-center"
+              className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] max-[460px]:flex-1 max-[460px]:justify-center"
             >
               <Maximize2 size={14} />
               Expand
@@ -280,7 +280,7 @@ export function TopicWorkspaceWhiteboard({
               <button
                 type="button"
                 onClick={whiteboard.reloadFromServer}
-                className="ml-auto inline-flex items-center gap-1 text-[12px] font-black text-[#991b1b] underline"
+                className="ml-auto inline-flex min-h-10 items-center gap-1 rounded-[10px] px-2 text-[12px] font-black text-[#991b1b] underline transition-transform duration-200 active:scale-[0.96]"
               >
                 <RefreshCcw size={13} />
                 Reload

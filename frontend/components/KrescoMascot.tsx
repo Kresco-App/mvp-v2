@@ -117,7 +117,7 @@ export default function KrescoMascot({
         <button
           type="button"
           aria-label="Show Kresco mascot message"
-          className={`border-0 bg-transparent p-0 cursor-pointer transition-transform duration-200 hover:scale-110 ${mascotSizeClass(size)} ${floating ? animationClass : ''}`}
+          className={`cursor-pointer border-0 bg-transparent p-0 ${mascotSizeClass(size)} ${floating ? animationClass : ''}`}
           onClick={handleClick}
         >
           <Image
@@ -183,19 +183,19 @@ export function FloatingMascot() {
           <div className="space-y-2">
             <button type="button"
               onClick={() => { setMessage('Clique sur une matiere pour commencer !'); setMood('happy'); setExpanded(false) }}
-              className="w-full text-left text-xs text-slate-400 hover:bg-slate-950 px-3 py-2 rounded-lg transition"
+              className="w-full rounded-lg px-3 py-2 text-left text-xs text-slate-400 transition-[background-color,color] duration-150 ease-out hover:bg-slate-950"
             >
               Comment commencer ?
             </button>
             <button type="button"
               onClick={() => { setMessage('Regarde la video, puis passe le quiz avec 80% !'); setMood('idle'); setExpanded(false) }}
-              className="w-full text-left text-xs text-slate-400 hover:bg-slate-950 px-3 py-2 rounded-lg transition"
+              className="w-full rounded-lg px-3 py-2 text-left text-xs text-slate-400 transition-[background-color,color] duration-150 ease-out hover:bg-slate-950"
             >
               Comment debloquer une lecon ?
             </button>
             <button type="button"
               onClick={() => { setMessage('Complete des lecons et des quiz pour gagner de l\'XP !'); setMood('love'); setExpanded(false) }}
-              className="w-full text-left text-xs text-slate-400 hover:bg-slate-950 px-3 py-2 rounded-lg transition"
+              className="w-full rounded-lg px-3 py-2 text-left text-xs text-slate-400 transition-[background-color,color] duration-150 ease-out hover:bg-slate-950"
             >
               Comment gagner de l&apos;XP ?
             </button>

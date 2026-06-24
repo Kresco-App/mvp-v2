@@ -1,6 +1,16 @@
 import { defineConfig, devices } from '@playwright/test'
+import { randomBytes } from 'node:crypto'
 
-const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
+function resolveJwtSecretKey() {
+  const configured = process.env.JWT_SECRET_KEY?.trim()
+  if (configured) return configured
+
+  const generated = randomBytes(32).toString('hex')
+  process.env.JWT_SECRET_KEY = generated
+  return generated
+}
+
+const jwtSecretKey = resolveJwtSecretKey()
 
 export default defineConfig({
   testDir: './tests/e2e',

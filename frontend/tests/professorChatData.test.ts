@@ -18,7 +18,7 @@ import {
   useProfessorChatData,
   type ProfessorConversationFilter,
 } from '@/lib/professorChatData'
-import type { ProfessorConversation, ProfessorMessage } from '@/lib/professor'
+import { chatMediaUrl, type ProfessorConversation, type ProfessorMessage } from '@/lib/professor'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -51,6 +51,13 @@ afterEach(() => {
 })
 
 describe('professor chat SWR data', () => {
+  it('drops non-navigation chat attachment URLs', () => {
+    expect(chatMediaUrl('/media/chat.png')).toBe('/media/chat.png')
+    expect(chatMediaUrl('https://cdn.kresco.ma/chat.png')).toBe('https://cdn.kresco.ma/chat.png')
+    expect(chatMediaUrl('data:text/html,phish')).toBe('')
+    expect(chatMediaUrl('blob:https://evil.example/chat')).toBe('')
+  })
+
   it('builds stable filtered keys and omits false conversation filters from API params', () => {
     expect(professorConversationsSWRKey({ q: ' Sara ', filter: 'unread' })).toEqual([
       '/professor/chat/conversations',

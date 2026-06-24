@@ -16,6 +16,8 @@ describe('Root layout rendering mode', () => {
     const source = readFileSync(join(process.cwd(), 'app', 'layout.tsx'), 'utf8')
 
     expect(source).toContain('metadataBase: siteUrl')
+    expect(source).toContain("manifest: '/manifest.webmanifest'")
+    expect(source).toContain("category: 'education'")
     expect(source).toContain("template: '%s - Kresco'")
     expect(source).toContain('openGraph: {')
     expect(source).toContain("locale: 'fr_MA'")
@@ -25,6 +27,8 @@ describe('Root layout rendering mode', () => {
     expect(source).toContain("canonical: '/'")
     expect(source).toContain("'kresco:release': releaseSha")
     expect(source).toContain('data-release={releaseSha}')
+    expect(source).toContain('application/ld+json')
+    expect(source).toContain("requestHeaders.get('x-nonce')")
     expect(source).toContain('ClientErrorReporter')
   })
 })

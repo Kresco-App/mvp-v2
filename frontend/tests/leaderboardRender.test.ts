@@ -25,7 +25,21 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('next/image', () => ({
-  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement('img', props),
+  default: ({
+    fill: _fill,
+    priority: _priority,
+    unoptimized: _unoptimized,
+    ...props
+  }: React.ImgHTMLAttributes<HTMLImageElement> & {
+    fill?: boolean
+    priority?: boolean
+    unoptimized?: boolean
+  }) => {
+    void _fill
+    void _priority
+    void _unoptimized
+    return React.createElement('img', props)
+  },
 }))
 
 import { LeaderboardPage, LeaderboardWidget } from '@/components/Leaderboard'
@@ -187,6 +201,25 @@ describe('leaderboard rendering', () => {
     expect(bronzeMarker?.getAttribute('aria-current')).toBe('true')
     expect(bronzeMarker?.className).toContain('border-[3px]')
     expect(bronzeMarker?.className).toContain('border-[#cc6a00]')
+  })
+
+  it('shows one demotion boundary when multiple players share the demotion rank', async () => {
+    const seasonEntries = tiedDemotionLeaderboardEntries()
+    mocks.apiGet
+      .mockResolvedValueOnce({ data: leaderboardEntries(3) })
+      .mockResolvedValueOnce({ data: seasonLeaderboard(seasonEntries, 8) })
+
+    const { container } = renderComponent(React.createElement(LeaderboardPage))
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect(container.textContent).toContain('Youssef El Idrissi')
+    expect(container.textContent).toContain('Pr Lina Amrani')
+    const demotionBoundaries = Array.from(container.querySelectorAll('span')).filter((node) => (
+      node.textContent === 'Zone de demotion'
+    ))
+    expect(demotionBoundaries).toHaveLength(1)
   })
 
   it('shows an actionable error state and retries the leaderboard request', async () => {
@@ -370,6 +403,32 @@ function leaderboardEntriesWithoutCurrentUser(count: number) {
     full_name: `Player ${entry.rank}`,
     is_current_user: false,
   }))
+}
+
+function tiedDemotionLeaderboardEntries() {
+  return [
+    ...leaderboardEntriesWithoutCurrentUser(6),
+    {
+      rank: 7,
+      user_id: 701,
+      full_name: 'Youssef El Idrissi',
+      avatar_url: '',
+      total_xp: 2800,
+      season_xp: 10,
+      level: 11,
+      is_current_user: false,
+    },
+    {
+      rank: 7,
+      user_id: 702,
+      full_name: 'Pr Lina Amrani',
+      avatar_url: '',
+      total_xp: 2700,
+      season_xp: 10,
+      level: 1,
+      is_current_user: true,
+    },
+  ]
 }
 
 function namedLeaderboardEntries(name: string) {

@@ -48,6 +48,11 @@ function expectSecurityHeaders(response: ReturnType<typeof proxy>) {
   expect(response.headers.get('permissions-policy')).toBe('camera=(), microphone=(), geolocation=(), payment=()')
   expect(response.headers.get('x-frame-options')).toBe('DENY')
   expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+  expect(response.headers.get('x-dns-prefetch-control')).toBe('on')
+  expect(response.headers.get('cross-origin-opener-policy')).toBe('same-origin-allow-popups')
+  expect(response.headers.get('origin-agent-cluster')).toBe('?1')
+  expect(response.headers.get('x-download-options')).toBe('noopen')
+  expect(response.headers.get('x-permitted-cross-domain-policies')).toBe('none')
 }
 
 describe('Next proxy auth boundary', () => {
@@ -183,6 +188,7 @@ describe('Next proxy auth boundary', () => {
     expect(cspDirective(csp, 'script-src')).toContain('https://accounts.google.com')
     expect(cspDirective(csp, 'script-src')).toContain('https://apis.google.com')
     expect(cspDirective(csp, 'script-src')).toContain('https://player.vdocipher.com')
+    expect(cspDirective(csp, 'script-src')).toContain('https://www.youtube.com')
     expect(cspDirective(csp, 'script-src')).not.toContain("'unsafe-inline'")
     expect(cspDirective(csp, 'style-src')).toContain('https://accounts.google.com')
     expect(cspDirective(csp, 'style-src')).not.toContain("'unsafe-inline'")
@@ -268,6 +274,18 @@ describe('Next proxy auth boundary', () => {
       ['/professor/login', {}],
     ] as const) {
       expectSecurityHeaders(proxy(makeRequest(pathname, cookies)))
+    }
+  })
+
+  it('emits production HSTS without changing non-production header expectations', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      const response = proxy(makeRequest('/professor/login'))
+
+      expectSecurityHeaders(response)
+      expect(response.headers.get('strict-transport-security')).toBe('max-age=31536000; includeSubDomains')
+    } finally {
+      vi.unstubAllEnvs()
     }
   })
 

@@ -123,17 +123,17 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           )}>
             {finalPassed ? 'Quiz reussi !' : 'Quiz echoue'}
           </h3>
-          <p className="text-slate-400 text-base mb-2">
-            Vous avez obtenu <span className="font-bold text-white text-xl">{finalScore}%</span>
+          <p className="mb-2 text-base text-slate-400">
+            Vous avez obtenu <span className="text-xl font-bold text-white tabular-nums">{finalScore}%</span>
           </p>
-          <p className="text-slate-500 text-sm mb-8">
+          <p className="mb-8 text-sm text-slate-500 tabular-nums">
             {correctCount} correct{correctCount > 1 ? 's' : ''} sur {totalCount} questions
             {!finalPassed && ` - Il faut ${passScore}% pour reussir.`}
           </p>
           {!finalPassed && (
             <button type="button"
               onClick={handleRetry}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 text-sm font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-slate-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
             >
               <RotateCcw size={14} />
               Reessayer
@@ -157,10 +157,10 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
       {/* Progress bar */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-slate-400 text-sm font-medium">
+          <span className="text-sm font-medium text-slate-400 tabular-nums">
             Question {currentQuestionNumber} sur {totalQuestions}
           </span>
-          <span className="text-slate-500 text-sm">{Math.round(progressPercent)}%</span>
+          <span className="text-sm text-slate-500 tabular-nums">{Math.round(progressPercent)}%</span>
         </div>
         <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
           <svg
@@ -180,7 +180,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
 
       {/* Question */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-[0_18px_45px_rgba(15,23,42,0.22)] sm:p-8" aria-live="polite">
-        <h3 className="text-white text-lg font-bold mb-8 leading-relaxed">
+        <h3 className="mb-8 text-balance text-lg font-bold leading-relaxed text-white">
           {currentQuestion.text}
         </h3>
 
@@ -205,7 +205,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
                 role="radio"
                 aria-checked={isSelected}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:px-5',
+                  'flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-sm font-medium transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:active:scale-100 sm:px-5',
                   optionClasses,
                   submitting && 'opacity-50 cursor-not-allowed'
                 )}
@@ -234,7 +234,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           <button type="button"
             onClick={handleNext}
             disabled={selectedOption === null || submitting}
-            className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition-[background-color,opacity,transform] duration-200 hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100 sm:w-auto"
           >
             {submitting && <Loader2 size={14} className="animate-spin" />}
             {actionLabel}

@@ -1,6 +1,7 @@
 'use client'
 
 import { Component, type ReactNode } from 'react'
+import Image from 'next/image'
 import { AnimatedContentRenderer } from '@/components/animated/registry'
 import { Latex } from '@/components/animated/shared/Latex'
 import type { AnimatedJsonValue, AnimatedLessonConfig } from '@/components/animated/types'
@@ -392,10 +393,10 @@ function CourseBlockRenderer({ block }: { block: CourseContentBlock }) {
 function HeadingBlock({ block }: { block: CourseHeadingBlock }) {
   const level = block.level ?? 3
   const className = level === 2
-    ? 'm-0 text-[26px] font-black leading-tight text-[#18181b]'
+    ? 'm-0 text-balance text-[26px] font-black leading-tight text-[#18181b]'
     : level === 4
-      ? 'm-0 text-[17px] font-black leading-tight text-[#3f3f46]'
-      : 'm-0 text-[21px] font-black leading-tight text-[#27272a]'
+      ? 'm-0 text-balance text-[17px] font-black leading-tight text-[#3f3f46]'
+      : 'm-0 text-balance text-[21px] font-black leading-tight text-[#27272a]'
 
   if (level === 2) return <h2 className={className}>{block.text}</h2>
   if (level === 4) return <h4 className={className}>{block.text}</h4>
@@ -404,7 +405,7 @@ function HeadingBlock({ block }: { block: CourseHeadingBlock }) {
 
 function ParagraphBlock({ block }: { block: CourseParagraphBlock }) {
   return (
-    <p className="m-0 whitespace-pre-line text-[15px] font-semibold leading-7 text-[#52525c]">
+    <p className="m-0 whitespace-pre-line break-words text-pretty text-[15px] font-semibold leading-7 text-[#52525c]">
       <InlineMathText text={block.text} />
     </p>
   )
@@ -656,8 +657,8 @@ function ImageBlock({ block }: { block: CourseImageBlock }) {
   return (
     <figure className="m-0">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt={block.alt} className="max-h-[520px] w-full rounded-[16px] border border-[#e4e4e7] object-contain" />
-      {block.caption && <figcaption className="mt-2 text-center text-[12px] font-bold text-[#71717b]">{block.caption}</figcaption>}
+      <Image src={src} alt={block.alt} width={1200} height={675} unoptimized loading="lazy" className="kresco-media-outline max-h-[520px] w-full rounded-[16px] object-contain" />
+      {block.caption && <figcaption className="mt-2 break-words text-center text-[12px] font-bold text-[#71717b]">{block.caption}</figcaption>}
     </figure>
   )
 }
@@ -863,7 +864,7 @@ function CodeBlock({ block }: { block: CourseCodeBlock }) {
 
 function UnknownBlock({ type }: { type: string }) {
   return (
-    <div className="rounded-[14px] border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-[13px] font-bold text-[#92400e]">
+    <div className="break-words rounded-[14px] border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-[13px] font-bold text-[#92400e]">
       Unsupported Course block type: <code>{type}</code>
     </div>
   )

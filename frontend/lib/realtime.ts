@@ -1,13 +1,4 @@
-import {
-  collection,
-  getFirestore,
-  limitToLast,
-  onSnapshot,
-  orderBy,
-  query,
-  type QueryDocumentSnapshot,
-  type Unsubscribe,
-} from '@firebase/firestore'
+import type { Firestore, QueryDocumentSnapshot, Unsubscribe } from '@firebase/firestore'
 
 import { getJson } from './apiClient'
 import { firebasePublicAuthConfig, getFirebaseApp } from './firebaseAuth'
@@ -42,7 +33,15 @@ type RealtimeFailureContext = {
   operation: string
 }
 
+type FirestoreSdk = typeof import('@firebase/firestore')
+
 let firestoreMisconfiguredForSession = false
+let firestoreSdkPromise: Promise<FirestoreSdk> | null = null
+
+function loadFirestoreSdk() {
+  firestoreSdkPromise ??= import('@firebase/firestore')
+  return firestoreSdkPromise
+}
 
 function realtimeProviderFlag(env: NodeJS.ProcessEnv = process.env) {
   return env.NEXT_PUBLIC_REALTIME_PROVIDER?.trim().toLowerCase() ?? ''
@@ -122,14 +121,14 @@ function firestoreDatabaseId() {
   return process.env.NEXT_PUBLIC_FIRESTORE_DATABASE?.trim() || '(default)'
 }
 
-function getKrescoFirestore() {
-  const config = firebasePublicAuthConfig()
-  if (!config || firestoreMisconfiguredForSession) return null
-
+function getKrescoFirestore(
+  firestoreSdk: FirestoreSdk,
+  config: NonNullable<ReturnType<typeof firebasePublicAuthConfig>>,
+): Firestore {
   const app = getFirebaseApp(config)
   const databaseId = firestoreDatabaseId()
-  if (databaseId && databaseId !== '(default)') return getFirestore(app, databaseId)
-  return getFirestore(app)
+  if (databaseId && databaseId !== '(default)') return firestoreSdk.getFirestore(app, databaseId)
+  return firestoreSdk.getFirestore(app)
 }
 
 export function firestoreChannelDocumentId(channel: string) {
@@ -180,8 +179,8 @@ function subscribeKrescoFirestore({
     { channelName, operation: 'firestore-fallback-poll' },
   )
 
-  const firestore = getKrescoFirestore()
-  if (!firestore) {
+  const firebaseConfig = firebasePublicAuthConfig()
+  if (!firebaseConfig || firestoreMisconfiguredForSession) {
     startFallback?.(false)
     return () => {
       stopped = true
@@ -193,12 +192,15 @@ function subscribeKrescoFirestore({
     try {
       await beforeSubscribe?.()
       if (stopped) return
-      const eventsQuery = query(
-        collection(firestore, 'realtimeChannels', firestoreChannelDocumentId(channelName), 'events'),
-        orderBy('createdAt'),
-        limitToLast(25),
+      const firestoreSdk = await loadFirestoreSdk()
+      if (stopped) return
+      const firestore = getKrescoFirestore(firestoreSdk, firebaseConfig)
+      const eventsQuery = firestoreSdk.query(
+        firestoreSdk.collection(firestore, 'realtimeChannels', firestoreChannelDocumentId(channelName), 'events'),
+        firestoreSdk.orderBy('createdAt'),
+        firestoreSdk.limitToLast(25),
       )
-      unsubscribe = onSnapshot(
+      unsubscribe = firestoreSdk.onSnapshot(
         eventsQuery,
         (snapshot) => {
           if (stopped) return

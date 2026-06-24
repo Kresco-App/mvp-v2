@@ -46,7 +46,7 @@ export function QuizPrimitiveShowcase() {
                       key={question.id}
                       type="button"
                       onClick={() => setActiveId(question.id)}
-                      className={`grid grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-[12px] border px-3 py-3 text-left transition ${
+                      className={`grid grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-[12px] border px-3 py-3 text-left transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] ${
                         active
                           ? 'border-[#453dee] bg-white text-[#453dee] shadow-[0_10px_26px_rgba(58,47,211,0.10)]'
                           : 'border-transparent bg-transparent text-[#52525c] hover:bg-white'
@@ -91,7 +91,7 @@ export function QuizPrimitiveShowcase() {
                     key={question.id}
                     type="button"
                     onClick={() => setActiveId(question.id)}
-                    className="grid grid-cols-[26px_minmax(0,1fr)_18px] items-center gap-3 rounded-[12px] bg-[#f7f8fb] px-3 py-3 text-left text-[#3f3f46] transition hover:-translate-y-0.5 hover:bg-[#eef2ff]"
+                    className="grid grid-cols-[26px_minmax(0,1fr)_18px] items-center gap-3 rounded-[12px] bg-[#f7f8fb] px-3 py-3 text-left text-[#3f3f46] transition-[background-color,transform] duration-150 ease-out hover:bg-[#eef2ff] active:scale-[0.96]"
                   >
                     <Icon size={18} className="text-[#453dee]" />
                     <span className="truncate text-[13px] font-black">{question.title}</span>

@@ -8,6 +8,7 @@ import nextConfig, {
 } from '../next.config.mjs'
 import {
   buildImageRemotePatterns,
+  buildSecurityHeaders,
   shouldEnableBackendRewrites,
   shouldEnableLocalRewrites,
 } from '../next.config.mjs'
@@ -159,7 +160,22 @@ describe('Next production config boundaries', () => {
     expect(headers).toEqual(expect.arrayContaining([
       { key: 'X-Frame-Options', value: 'DENY' },
       { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'X-DNS-Prefetch-Control', value: 'on' },
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+      { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
+      { key: 'Origin-Agent-Cluster', value: '?1' },
+      { key: 'X-Download-Options', value: 'noopen' },
+      { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
+    ]))
+  })
+
+  it('adds HSTS only for production header configs', () => {
+    expect(buildSecurityHeaders('test')).not.toEqual(expect.arrayContaining([
+      { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+    ]))
+    expect(buildSecurityHeaders('production')).toEqual(expect.arrayContaining([
+      { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
     ]))
   })
 

@@ -12,6 +12,7 @@ import {
   type TopicItem,
 } from '@/lib/topicWorkspaceViewModel'
 import { resolvedTabContentId } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
+import { sanitizeNavigationUrl } from '@/lib/urlSafety'
 
 const RESOURCE_FORMAT_LABEL = 'PDF'
 
@@ -63,12 +64,17 @@ export function TopicWorkspaceResourcePanel({
       window.open(resolvedUrl, '_blank', 'noopener,noreferrer')
     } catch (error) {
       if (isTopicWorkspaceResourceOpenUnavailable(error)) {
+        const fallbackUrl = sanitizeNavigationUrl(resource.url)
+        if (!fallbackUrl) {
+          toast.error('This resource does not expose a usable URL.')
+          return
+        }
         if (action === 'preview') {
-          setPreviewUrl(resource.url)
+          setPreviewUrl(fallbackUrl)
         } else if (action === 'download') {
-          downloadTopicWorkspaceFile(resource.url, resource.title || 'resource')
+          downloadTopicWorkspaceFile(fallbackUrl, resource.title || 'resource')
         } else {
-          window.open(resource.url, '_blank', 'noopener,noreferrer')
+          window.open(fallbackUrl, '_blank', 'noopener,noreferrer')
         }
         return
       }
@@ -91,7 +97,7 @@ export function TopicWorkspaceResourcePanel({
               type="button"
               onClick={() => void runResourceAction('open')}
               disabled={activeAction !== null}
-              className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#d4d4d8]"
+              className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,transform] duration-200 hover:bg-[#2f27b8] active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#d4d4d8] disabled:active:scale-100"
             >
               <ExternalLink size={13} />
               Open
@@ -100,7 +106,7 @@ export function TopicWorkspaceResourcePanel({
               type="button"
               onClick={() => void runResourceAction('preview')}
               disabled={activeAction !== null}
-              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:cursor-not-allowed disabled:text-[#a1a1aa]"
+              className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:active:scale-100"
             >
               <Eye size={13} />
               Preview
@@ -109,7 +115,7 @@ export function TopicWorkspaceResourcePanel({
               type="button"
               onClick={() => void runResourceAction('download')}
               disabled={activeAction !== null}
-              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:cursor-not-allowed disabled:text-[#a1a1aa]"
+              className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:active:scale-100"
             >
               <Download size={13} />
               Download
@@ -124,7 +130,7 @@ export function TopicWorkspaceResourcePanel({
             <button
               type="button"
               onClick={() => setPreviewUrl('')}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] transition hover:bg-[#f8f9fc]"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] transition-[background-color,transform] duration-200 hover:bg-[#f8f9fc] active:scale-[0.96]"
               aria-label="Close resource preview"
             >
               <X size={14} />

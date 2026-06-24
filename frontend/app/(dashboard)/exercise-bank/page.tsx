@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
@@ -513,7 +514,7 @@ function ExerciseCard({
   const topic = topicLabel(exercise)
 
   return (
-    <article className="kresco-enter group relative flex min-h-[250px] w-full flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] hover:-translate-y-1 hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)]">
+    <article className="kresco-enter group relative flex min-h-[250px] w-full flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition-[border-color,box-shadow] duration-150 ease-out hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)]">
       <div className="absolute inset-x-0 top-0 h-1 bg-[color:var(--primary-soft)]"><span className={`block h-full ${difficultyAccentClass(exercise.difficulty)}`} style={{ width: `${difficultyLevel(exercise.difficulty) * 33.333}%` }} /></div>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -540,7 +541,7 @@ function ExerciseCard({
 
       <button type="button" onClick={onOpen} className="mt-4 flex h-11 w-full items-center justify-between rounded-[13px] bg-[color:var(--primary)] px-4 text-[14px] font-black text-white hover:brightness-[1.04] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
         <span>{cta}</span>
-        <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
+        <ArrowRight size={16} className="transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
       </button>
     </article>
   )
@@ -630,8 +631,7 @@ function ExerciseDetailView({
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
                   {exercise.assets.map((asset) => (
                     <figure key={asset.id} className="m-0 rounded-[14px] border border-[#e4e4e7] bg-[#fafafa] p-3">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={asset.url} alt={asset.alt_text || asset.caption || 'Exercise asset'} className="max-h-[280px] w-full rounded-[10px] object-contain" />
+                      <Image src={asset.url} alt={asset.alt_text || asset.caption || 'Exercise asset'} width={640} height={280} unoptimized loading="lazy" className="kresco-media-outline max-h-[280px] w-full rounded-[10px] object-contain" />
                       {asset.caption && <figcaption className="mt-2 text-xs font-bold text-[#71717b]">{asset.caption}</figcaption>}
                     </figure>
                   ))}

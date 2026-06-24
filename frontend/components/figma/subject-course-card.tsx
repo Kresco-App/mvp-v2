@@ -56,19 +56,19 @@ export function FigmaSubjectCourseCard({
       className={`kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${cardChromeClass} ${isUnavailable ? 'opacity-80' : ''}`}
     >
       <div
-        className={`flex h-full flex-col overflow-hidden rounded-[14px] transition duration-200 ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
+        className={`flex h-full flex-col overflow-hidden rounded-[14px] transition-[background-color] duration-200 ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
       >
         <div
           className={`relative h-[193.5px] w-full overflow-hidden border-b-2 p-[12px] ${imageBorderClass}`}
         >
           <Image
             alt=""
-            className="object-cover transition duration-500 group-hover:scale-[1.035]"
+            className="kresco-media-outline object-cover"
             fill
             sizes="(max-width: 768px) 100vw, 344px"
             src={imageUrl ?? PLACEHOLDER_IMAGE}
           />
-          <div className={`relative grid size-[36px] place-items-center rounded-[4px] border-2 text-[20px] font-black leading-[1.2] tracking-[0.2px] ${badgeClass}`}>
+          <div className={`relative grid size-[36px] place-items-center rounded-[4px] border-2 text-[20px] font-black leading-[1.2] tracking-[0.2px] tabular-nums ${badgeClass}`}>
             {index + 1}
           </div>
         </div>
@@ -91,7 +91,7 @@ export function FigmaSubjectCourseCard({
           </div>
 
           <span
-            className={`flex h-[44px] w-full items-center justify-center rounded-[12px] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition duration-200 group-hover:brightness-[1.03] group-hover:saturate-[1.08] ${
+            className={`flex h-[44px] w-full items-center justify-center rounded-[12px] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition-[filter] duration-200 group-hover:brightness-[1.03] group-hover:saturate-[1.08] ${
               isCompleted ? 'bg-[#f5900b]' : isLocked ? 'bg-[#a1a1aa]' : isUpcoming ? 'bg-[#d4d4d8] text-[#71717b]' : 'bg-[#5b60f9]'
             }`}
           >
@@ -109,7 +109,7 @@ export function FigmaSubjectCourseCard({
   if (onClick) {
     return (
       <div
-        className="group relative block w-full max-w-[344.33px] cursor-pointer no-underline transition duration-200 hover:-translate-y-1"
+        className="group relative block w-full max-w-[344.33px] cursor-pointer no-underline"
       >
         {card}
         <button
@@ -126,7 +126,7 @@ export function FigmaSubjectCourseCard({
   if (!href || isUnavailable) return card
 
   return (
-    <Link className="block w-full max-w-[344.33px] no-underline transition duration-200 hover:-translate-y-1 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20" href={href}>
+    <Link className="group block w-full max-w-[344.33px] no-underline focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20" href={href}>
       {card}
     </Link>
   )

@@ -31,15 +31,15 @@ export function useTopicNotes({
   const [canDeleteNotes, setCanDeleteNotes] = useState(true)
   const tabContentId = useMemo(() => resolvedTabContentId(tab), [tab])
   const draftKey = useMemo(() => noteDraftKey(topicId, item.id, tabContentId), [item.id, tabContentId, topicId])
-  const [note, setNoteState] = useState(() => readTopicWorkspaceDraft(draftKey, ''))
-
-  useEffect(() => {
-    setNoteState(readTopicWorkspaceDraft(draftKey, ''))
-  }, [draftKey])
+  const [noteDraft, setNoteDraft] = useState(() => ({
+    draftKey,
+    value: readTopicWorkspaceDraft(draftKey, ''),
+  }))
+  const note = noteDraft.draftKey === draftKey ? noteDraft.value : readTopicWorkspaceDraft(draftKey, '')
 
   const setNote = useCallback((nextValue: string) => {
     writeTopicWorkspaceDraft(draftKey, nextValue)
-    setNoteState(nextValue)
+    setNoteDraft({ draftKey, value: nextValue })
   }, [draftKey])
 
   useEffect(() => {

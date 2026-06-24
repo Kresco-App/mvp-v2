@@ -143,7 +143,7 @@ export function LeagueMarker({ league, active }: { league: ReturnType<typeof get
           alt={league.label}
           width={active ? 64 : 42}
           height={active ? 64 : 42}
-          className="object-contain"
+          className="kresco-media-outline object-contain"
           onError={() => setImageFailed(true)}
         />
       ) : (
@@ -176,7 +176,7 @@ export const LeaderboardRow = memo(function LeaderboardRow({ entry, compact = fa
           {entry.is_current_user && <span className="ml-1 text-[10px] font-normal text-[color:var(--primary)]">(vous)</span>}
         </p>
       </div>
-      <span className="shrink-0 text-xs font-bold text-amber-500">
+      <span className="shrink-0 text-xs font-bold text-amber-500 tabular-nums">
         {entry.total_xp.toLocaleString()} XP
       </span>
     </div>
@@ -232,7 +232,7 @@ export const LeaderboardListRow = memo(function LeaderboardListRow({
       </div>
       <div className="flex shrink-0 items-center gap-1">
         <Zap size={13} color="#f59e0b" fill="#f59e0b" />
-        <span className="text-sm font-bold text-amber-500">
+        <span className="text-sm font-bold text-amber-500 tabular-nums">
           {scoreValue.toLocaleString()}
         </span>
         <span className="text-[11px] text-[color:var(--text-tertiary)]">{scoreLabel}</span>
@@ -259,7 +259,7 @@ function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
   )
   return (
     <div aria-label={`Rang ${rank}`} className={`flex shrink-0 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--surface-hover)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
-      <span className={small ? 'text-[10px] font-bold text-[color:var(--text-tertiary)]' : 'text-[11px] font-bold text-[color:var(--text-tertiary)]'}>{rank}</span>
+      <span className={`${small ? 'text-[10px] font-bold text-[color:var(--text-tertiary)]' : 'text-[11px] font-bold text-[color:var(--text-tertiary)]'} tabular-nums`}>{rank}</span>
     </div>
   )
 }
@@ -274,7 +274,7 @@ export const AvatarBubble = memo(function AvatarBubble({ entry, small = false }:
       height={size}
       unoptimized
       referrerPolicy="no-referrer"
-      className={`shrink-0 rounded-full object-cover ${small ? 'h-7 w-7' : 'h-9 w-9'}`}
+      className={`kresco-media-outline shrink-0 rounded-full object-cover ${small ? 'h-7 w-7' : 'h-9 w-9'}`}
     />
   ) : (
     <div className={`flex shrink-0 items-center justify-center rounded-full bg-[color:var(--primary-soft)] ${small ? 'h-7 w-7' : 'h-9 w-9'}`}>

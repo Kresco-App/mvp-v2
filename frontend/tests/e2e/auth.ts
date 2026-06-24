@@ -7,7 +7,15 @@ const frontendPort = Number(process.env.KRESCO_E2E_FRONTEND_PORT ?? 3101)
 const backendPort = Number(process.env.KRESCO_E2E_BACKEND_PORT ?? 8010)
 const frontendOrigin = `http://127.0.0.1:${frontendPort}`
 const backendOrigin = `http://127.0.0.1:${backendPort}`
-const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
+const jwtSecretKey = requiredJwtSecretKey()
+
+function requiredJwtSecretKey() {
+  const value = process.env.JWT_SECRET_KEY
+  if (!value) {
+    throw new Error('JWT_SECRET_KEY must be provided by the Playwright config before E2E auth helpers load.')
+  }
+  return value
+}
 const authManifestPath = process.env.KRESCO_E2E_AUTH_MANIFEST
   ?? resolve(process.cwd(), '../backend/e2e_auth_manifest.json')
 

@@ -42,7 +42,7 @@ export default function TrueFalse({ statement, isTrue, explanation, onComplete }
               key={label}
               onClick={() => handleAnswer(val)}
               disabled={submitted}
-              className={`py-4 rounded-xl text-sm font-bold border-2 transition-all ${
+              className={`rounded-xl border-2 py-4 text-sm font-bold transition-[background-color,border-color,color,transform] duration-200 active:scale-[0.96] disabled:active:scale-100 ${
                 submitted
                   ? isRight ? 'border-green-500 bg-green-500/15 text-green-400'
                   : isWrong ? 'border-red-500 bg-red-500/15 text-red-400'
@@ -69,7 +69,7 @@ export default function TrueFalse({ statement, isTrue, explanation, onComplete }
           )}
           <button type="button"
             onClick={() => { setAnswer(null); setSubmitted(false) }}
-            className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
+            className="min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 transition-[background-color,transform] duration-200 hover:bg-slate-800 active:scale-[0.96]"
           >
             Reessayer
           </button>

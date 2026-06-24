@@ -197,7 +197,7 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
 
   return (
     <Link href={href} className="group block w-full max-w-[480px] no-underline">
-      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-center justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)]">
+      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-center justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition-[border-color,box-shadow] duration-200 ease-out group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)]">
         <div className="min-w-0 flex-1 self-stretch pt-[16px] pr-[18px]">
           <h3 className="m-0 line-clamp-1 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">{topic.title}</h3>
           <p className="m-0 mt-[4px] line-clamp-2 max-w-[300px] text-[14px] font-semibold leading-[1.1] tracking-[0.21px] text-[#71717b]">
@@ -210,7 +210,7 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
           </div>
         </div>
 
-        <div className="relative h-[96px] w-[132px] shrink-0 overflow-hidden transition-transform duration-300 group-hover:scale-[1.025]">
+        <div className="relative h-[96px] w-[132px] shrink-0 overflow-hidden">
           <div className={`absolute inset-0 ${isMathCard ? 'bg-[#eef1ff]' : 'bg-[#e6f9ef]'}`} />
           {isMathCard ? (
             <div className="absolute bottom-[8px] left-[9px] right-[-8px] top-[8px]">
@@ -233,7 +233,7 @@ function FigmaSubjectShortcutCard({ subject, index }: { subject: FigmaHomeSubjec
 
   return (
     <Link href={href} className="group block min-w-0 no-underline">
-      <article className="kresco-enter grid h-[194px] w-full min-w-0 place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition duration-200 group-hover:-translate-y-0.5 group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)]">
+      <article className="kresco-enter grid h-[194px] w-full min-w-0 place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition-[border-color,box-shadow] duration-200 ease-out group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)]">
         <div className="relative grid h-[68px] w-[78px] place-items-center">
           <SubjectIconScene icon={Icon} index={index} />
         </div>
@@ -255,7 +255,7 @@ function SubjectIconScene({ icon: Icon, index }: { icon: LucideIcon; index: numb
   ]
 
   return (
-    <div className={`relative grid h-[66px] w-[66px] place-items-center rounded-[18px] transition-transform duration-300 group-hover:scale-105 ${scenes[index % scenes.length]}`}>
+    <div className={`relative grid h-[66px] w-[66px] place-items-center rounded-[18px] ${scenes[index % scenes.length]}`}>
       <Icon size={43} strokeWidth={2.25} className="relative z-10" />
     </div>
   )

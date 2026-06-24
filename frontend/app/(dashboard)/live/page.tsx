@@ -72,8 +72,8 @@ export default function LivePage() {
           />
           Live
         </p>
-        <h1 className="font-rounded text-[40px] font-bold leading-tight tracking-normal text-[#3f3f46]">Live sessions</h1>
-        <p className="mt-2 max-w-[560px] text-[20px] font-semibold leading-relaxed text-[#71717b]">
+        <h1 className="font-rounded text-balance text-[40px] font-bold leading-tight tracking-normal text-[#3f3f46]">Live sessions</h1>
+        <p className="mt-2 max-w-[560px] text-pretty text-[20px] font-semibold leading-relaxed text-[#71717b]">
           Join your assigned filiere sessions from inside Kresco.
         </p>
       </motion.div>
@@ -84,7 +84,7 @@ export default function LivePage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...pageTransition, delay: 0.1 }}
       >
-        <AnimatePresence mode="popLayout">
+        <AnimatePresence mode="popLayout" initial={false}>
           {loading ? (
             Array.from({ length: 3 }).map((_, index) => <LiveSkeleton index={index} key={index} reduceMotion={Boolean(reduceMotion)} />)
           ) : error && sessions.length === 0 ? (
@@ -105,7 +105,7 @@ export default function LivePage() {
                 type="button"
                 onClick={() => void mutateSessions()}
                 whileHover={reduceMotion ? undefined : { y: -1 }}
-                whileTap={reduceMotion ? undefined : { scale: 0.97 }}
+                whileTap={reduceMotion ? undefined : { scale: 0.96 }}
               >
                 Retry
               </motion.button>
@@ -158,7 +158,7 @@ export default function LivePage() {
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
                     {session.can_join ? (
-                      <motion.div whileHover={reduceMotion ? undefined : { y: -1 }} whileTap={reduceMotion ? undefined : { scale: 0.97 }}>
+                      <motion.div whileHover={reduceMotion ? undefined : { y: -1 }} whileTap={reduceMotion ? undefined : { scale: 0.96 }}>
                         <Link
                           className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#453dee] px-4 text-sm font-bold text-white shadow-[0_10px_22px_rgba(69,61,238,0.16)] transition-colors hover:bg-[#3932d6]"
                           href={`/live/${session.id}`}

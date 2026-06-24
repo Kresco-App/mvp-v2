@@ -33,6 +33,7 @@ describe('frontend API runtime config', () => {
     expect(getBackendUrl('/media/avatar.png', 'https://api.kresco.ma/api/')).toBe('https://api.kresco.ma/media/avatar.png')
     expect(getBackendUrl('/media/avatar.png', '/api/')).toBe('/media/avatar.png')
     expect(getBackendUrl('https://cdn.kresco.ma/avatar.png', '/api/')).toBe('https://cdn.kresco.ma/avatar.png')
+    expect(getBackendUrl('data:text/plain,hello', '/api/')).toBe('/data:text/plain,hello')
     expect(getAdminRootUrl('https://api.kresco.ma/api/')).toBe('https://api.kresco.ma/admin')
   })
 })

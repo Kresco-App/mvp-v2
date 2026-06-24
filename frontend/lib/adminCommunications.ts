@@ -24,6 +24,23 @@ export type AdminChatConversation = {
   last_message_preview: string
   last_message_at: string | null
   updated_at: string | null
+  messages: AdminChatMessage[]
+}
+
+export type AdminChatMessage = {
+  message_id: number
+  conversation_id: number
+  sender_user_id: number
+  sender_name: string
+  sender_role: 'student' | 'professor' | 'staff' | string
+  body: string
+  attachment_url: string
+  attachment_name: string
+  attachment_mime_type: string
+  attachment_size: number
+  status: string
+  created_at: string | null
+  read_at: string | null
 }
 
 export type AdminLiveInteraction = {

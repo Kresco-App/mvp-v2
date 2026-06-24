@@ -1,6 +1,7 @@
 import { postJson } from '@/lib/apiClient'
 import { apiErrorStatus } from '@/lib/apiData'
 import type { Resource } from '@/lib/topicWorkspaceTypes'
+import { sanitizeNavigationUrl } from '@/lib/urlSafety'
 
 export type TopicWorkspaceResourceAction = 'open' | 'preview' | 'download'
 
@@ -41,8 +42,8 @@ export function resolvedTopicWorkspaceResourceUrl(
   resource: Resource,
   action: TopicWorkspaceResourceAction,
 ) {
-  if (typeof response === 'string' && response.trim()) return response
-  if (!response || typeof response !== 'object') return resource.url
+  if (typeof response === 'string' && response.trim()) return sanitizeNavigationUrl(response)
+  if (!response || typeof response !== 'object') return sanitizeNavigationUrl(resource.url)
 
   const actionSpecific =
     action === 'preview'
@@ -51,7 +52,7 @@ export function resolvedTopicWorkspaceResourceUrl(
         ? response.download_url
         : response.open_url
 
-  return actionSpecific || response.url || response.href || response.location || resource.url
+  return sanitizeNavigationUrl(actionSpecific || response.url || response.href || response.location || resource.url)
 }
 
 export async function resolveTopicWorkspaceResourceUrl(
@@ -74,5 +75,5 @@ export async function resolveTopicWorkspaceResourceUrl(
     }
   }
 
-  return resource.url
+  return sanitizeNavigationUrl(resource.url)
 }

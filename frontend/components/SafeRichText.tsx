@@ -3,6 +3,7 @@
 import React, { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import { sanitizeHtml } from '@/lib/sanitizeHtml'
+import { isSafeLinkHref } from '@/lib/urlSafety'
 
 const allowedElementTags = new Set([
   'a',
@@ -35,8 +36,6 @@ const allowedElementTags = new Set([
   'ul',
 ])
 
-const allowedHrefPattern = /^(https?:|mailto:|#|\/)/i
-
 type SafeRichTextProps = {
   html: string
   fallbackText?: string
@@ -64,7 +63,10 @@ export function renderSanitizedHtml(html: string): ReactNode[] {
   }
 
   const parsed = new DOMParser().parseFromString(html, 'text/html')
-  return Array.from(parsed.body.childNodes).map((node, index) => renderNode(node, `safe-html-${index}`)).filter(Boolean)
+  return Array.from(parsed.body.childNodes).flatMap((node, index) => {
+    const rendered = renderNode(node, `safe-html-${index}`)
+    return rendered ? [rendered] : []
+  })
 }
 
 export function textFromSanitizedHtml(html: string) {
@@ -96,7 +98,7 @@ function renderNode(node: ChildNode, key: string): ReactNode {
 
   if (tagName === 'a') {
     const href = element.getAttribute('href')
-    if (href && allowedHrefPattern.test(href)) props.href = href
+    if (href && isSafeLinkHref(href)) props.href = href
     const target = element.getAttribute('target')
     if (target === '_blank') {
       props.target = '_blank'

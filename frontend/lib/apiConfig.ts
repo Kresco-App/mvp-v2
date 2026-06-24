@@ -1,6 +1,6 @@
 const LOCAL_API_BASE_URL = '/api/'
 const API_SUFFIX_PATTERN = /\/api\/?$/
-const ABSOLUTE_URL_PATTERN = /^(https?:|data:|blob:)/
+const ABSOLUTE_URL_PATTERN = /^https?:/
 
 export function defaultApiBaseUrl() {
   // Default to same-origin (/api/) in every environment. A cross-site backend

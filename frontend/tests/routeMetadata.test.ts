@@ -1,6 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import manifest from '../app/manifest'
+import robots from '../app/robots'
+import sitemap from '../app/sitemap'
 
 const APP_ROOT = join(process.cwd(), 'app')
 
@@ -41,7 +44,58 @@ describe('route metadata ownership', () => {
       expect(source, layoutPath).toContain('description:')
     }
   })
+
+  it('publishes crawlability metadata routes for audit tools', () => {
+    for (const filename of ['robots.ts', 'sitemap.ts', 'manifest.ts']) {
+      expect(existsSync(join(APP_ROOT, filename)), filename).toBe(true)
+    }
+  })
+
+  it('exports valid crawlability metadata without sitemap and robots conflicts', () => {
+    const expectedOrigin = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://kresco.ma').origin
+    const robotsMetadata = robots()
+    const sitemapMetadata = sitemap()
+    const manifestMetadata = manifest()
+
+    expect(robotsMetadata.host).toBe(expectedOrigin)
+    expect(robotsMetadata.sitemap).toBe(`${expectedOrigin}/sitemap.xml`)
+    expect(manifestMetadata.name).toBe('Kresco - Plateforme E-Learning')
+    expect(manifestMetadata.start_url).toBe('/')
+    expect(manifestMetadata.display).toBe('standalone')
+
+    expect(sitemapMetadata.map((entry) => new URL(entry.url).pathname)).toEqual(['/', '/pricing'])
+    for (const entry of sitemapMetadata) {
+      expect(new URL(entry.url).origin).toBe(expectedOrigin)
+      expect(entry.lastModified).toBeInstanceOf(Date)
+      expect(entry.priority).toBeGreaterThan(0)
+      expect(entry.priority).toBeLessThanOrEqual(1)
+    }
+
+    const disallowedPaths = robotsRules(robotsMetadata).flatMap((rule) => stringList(rule.disallow))
+    for (const entry of sitemapMetadata) {
+      const path = new URL(entry.url).pathname
+
+      for (const disallowedPath of disallowedPaths) {
+        expect(isPathDisallowed(path, disallowedPath), `${path} should not be blocked by ${disallowedPath}`).toBe(
+          false,
+        )
+      }
+    }
+  })
 })
+
+function robotsRules(metadata: ReturnType<typeof robots>) {
+  return Array.isArray(metadata.rules) ? metadata.rules : [metadata.rules]
+}
+
+function stringList(value: string | string[] | undefined): string[] {
+  if (!value) return []
+  return Array.isArray(value) ? value : [value]
+}
+
+function isPathDisallowed(path: string, disallowedPath: string) {
+  return path === disallowedPath || path.startsWith(`${disallowedPath}/`)
+}
 
 function appSourceFiles(root: string): string[] {
   const entries = readdirSync(root, { withFileTypes: true })

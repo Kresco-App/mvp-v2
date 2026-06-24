@@ -243,16 +243,20 @@ export function LeaderboardPage() {
   const visibleRows = useMemo(
     () => leaderboardEntries.map((entry, idx) => {
       const zone = mode === 'league' ? getLeagueZone(entry.rank, totalLeagueEntries) : undefined
+      const previousEntry = leaderboardEntries[idx - 1]
+      const previousZone = mode === 'league' && previousEntry
+        ? getLeagueZone(previousEntry.rank, totalLeagueEntries)
+        : undefined
       return {
         entry,
         key: `${mode}-${entry.user_id}-${entry.rank}`,
-        showPromotionDivider: mode === 'league' && entry.rank === promotionCutoff + 1,
-        showDemotionDivider: mode === 'league' && entry.rank === demotionStart,
+        showPromotionDivider: mode === 'league' && previousZone === 'promotion' && zone !== 'promotion',
+        showDemotionDivider: mode === 'league' && zone === 'demotion' && previousZone !== 'demotion',
         isLast: idx >= leaderboardEntries.length - 1 && !shouldPinCurrentUser,
         zone,
       }
     }),
-    [demotionStart, leaderboardEntries, mode, promotionCutoff, shouldPinCurrentUser, totalLeagueEntries],
+    [leaderboardEntries, mode, shouldPinCurrentUser, totalLeagueEntries],
   )
 
   if (loading && globalEntries.length === 0 && seasonEntries.length === 0) {

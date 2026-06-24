@@ -69,6 +69,10 @@ export default function CalendarPage() {
   const weekRangeLabel = useMemo(() => formatWeekRange(weekDays), [weekDays])
   const weekSummary = weekEvents.length === 1 ? '1 scheduled item' : `${weekEvents.length} scheduled items`
 
+  function jumpToToday() {
+    setSelectedDate(startOfDay(new Date()))
+  }
+
   useEffect(() => {
     if (!requestedEventId) return
     let alive = true
@@ -180,13 +184,13 @@ export default function CalendarPage() {
                 {weekRangeLabel}
               </div>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => moveWeek(-1)} className="grid h-9 w-9 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#52525c]">
+                <button type="button" onClick={() => moveWeek(-1)} className="grid h-10 w-10 place-items-center rounded-[12px] border border-[#e4e4e7] bg-white text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
                   <ChevronLeft size={18} strokeWidth={2.6} />
                 </button>
-                <button type="button" onClick={() => setSelectedDate(startOfDay(new Date()))} className="h-9 rounded-[10px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-bold text-[#52525c]">
+                <button type="button" onClick={jumpToToday} className="h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-bold text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
                   Today
                 </button>
-                <button type="button" onClick={() => moveWeek(1)} className="grid h-9 w-9 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#52525c]">
+                <button type="button" onClick={() => moveWeek(1)} className="grid h-10 w-10 place-items-center rounded-[12px] border border-[#e4e4e7] bg-white text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
                   <ChevronRight size={18} strokeWidth={2.6} />
                 </button>
               </div>
@@ -207,7 +211,7 @@ export default function CalendarPage() {
                   <div className="w-14 shrink-0">
                     {hours.map((hour) => (
                       <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-1.5 pb-1.5">
-                        <span className="text-[14px] font-bold leading-[1.2] tracking-[0.14px] text-[#71717b] max-[480px]:text-[11px]">{formatHour(hour)}</span>
+                        <span className="text-[14px] font-bold leading-[1.2] tracking-[0.14px] text-[#71717b] tabular-nums max-[480px]:text-[11px]">{formatHour(hour)}</span>
                       </div>
                     ))}
                   </div>
@@ -239,10 +243,10 @@ export default function CalendarPage() {
                               Your calendar is clear for this range. Jump back to today or browse nearby weeks for live sessions and study blocks.
                             </p>
                             <div className="mt-3 flex flex-wrap gap-2">
-                              <button type="button" onClick={() => setSelectedDate(startOfDay(new Date()))} className="h-9 rounded-[10px] border border-[#e4e4e7] bg-[#5b60f9] px-3 text-[12px] font-black text-white">
+                              <button type="button" onClick={jumpToToday} className="h-10 rounded-[12px] border border-[#e4e4e7] bg-[#5b60f9] px-3 text-[12px] font-black text-white transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#484cf0]">
                                 Today
                               </button>
-                              <button type="button" onClick={() => moveWeek(1)} className="h-9 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c]">
+                              <button type="button" onClick={() => moveWeek(1)} className="h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
                                 Next week
                               </button>
                             </div>
@@ -367,8 +371,8 @@ function MiniCalendarCard({
           <motion.button
             type="button"
             onClick={() => moveVisibleMonth(-1)}
-            className="grid h-8 w-8 place-items-center rounded-[10px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
-            whileTap={{ scale: 0.92 }}
+            className="grid h-10 w-10 place-items-center rounded-[12px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
+            whileTap={{ scale: 0.96 }}
             aria-label="Previous month"
           >
             <ChevronLeft size={18} strokeWidth={3} />
@@ -376,8 +380,8 @@ function MiniCalendarCard({
           <motion.button
             type="button"
             onClick={() => moveVisibleMonth(1)}
-            className="grid h-8 w-8 place-items-center rounded-[10px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
-            whileTap={{ scale: 0.92 }}
+            className="grid h-10 w-10 place-items-center rounded-[12px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
+            whileTap={{ scale: 0.96 }}
             aria-label="Next month"
           >
             <ChevronRight size={18} strokeWidth={3} />
@@ -429,7 +433,7 @@ function MiniCalendarCard({
                             : 'text-[#a1a1aa] hover:bg-[#fafafa]'
                       }`}
                       whileHover={{ y: -1 }}
-                      whileTap={{ scale: 0.94 }}
+                      whileTap={{ scale: 0.96 }}
                       transition={miniCalendarSelectionTransition}
                       aria-current={isToday ? 'date' : undefined}
                       aria-pressed={isSelected}
@@ -483,7 +487,7 @@ function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: ()
     >
       <div className="flex items-start justify-between gap-3">
         <PermanentSidebarPanelTitle title="Event Details" subtitle={event.event_type === 'live_session' ? 'Live preparation' : 'Study block'} />
-        <motion.button type="button" onClick={onClose} className="h-8 rounded-md border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b]" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
+        <motion.button type="button" onClick={onClose} className="h-10 rounded-[10px] border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b]" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
           Close
         </motion.button>
       </div>
@@ -517,7 +521,7 @@ function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: ()
       )}
       <div className="mt-5 grid gap-2">
         {event.preparation_href && (
-          <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+          <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
             <Link href={event.preparation_href} className="figma-button h-11 w-full shadow-none">
             Prepare
             <ExternalLink size={15} />
@@ -525,7 +529,7 @@ function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: ()
           </motion.div>
         )}
         {event.join_url ? (
-          <motion.a href={event.join_url} className="figma-button secondary h-11" target="_blank" rel="noreferrer" whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+          <motion.a href={event.join_url} className="figma-button secondary h-11" target="_blank" rel="noreferrer" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
               Join session
           </motion.a>
         ) : (
@@ -554,7 +558,7 @@ function InfoRow({ label, value, index = 0 }: { label: string; value: string; in
       className="flex items-center justify-between gap-3 rounded-lg bg-[#f4f4f5] px-3 py-2"
     >
       <span className="text-[#9f9fa9]">{label}</span>
-      <span className="min-w-0 truncate text-right text-[#3f3f46]">{value}</span>
+      <span className="min-w-0 truncate text-right text-[#3f3f46] tabular-nums">{value}</span>
     </motion.div>
   )
 }

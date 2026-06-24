@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Bell, ClipboardList, LayoutDashboard, Layers, LogOut, Menu, MessageCircle, Radio, User, X } from 'lucide-react'
 import KrescoWordmark from '@/components/KrescoWordmark'
+import { useDropdownTransition } from '@/hooks/useDropdownTransition'
 import { AUTH_ROUTES } from '@/lib/authPolicy'
 import { isActiveNavHref } from '@/lib/navigationPolicy'
 import { useAuthStore } from '@/lib/store'
@@ -24,11 +25,17 @@ export default function ProfessorTopNav() {
   const router = useRouter()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const {
+    closeDropdown: closeMenu,
+    dropdownStateClassName: menuStateClassName,
+    isOpen: menuOpen,
+    shouldRenderDropdown: shouldRenderMenu,
+    toggleDropdown: toggleMenu,
+  } = useDropdownTransition()
 
   useEffect(() => {
-    setMenuOpen(false)
-  }, [pathname])
+    closeMenu()
+  }, [closeMenu, pathname])
 
   function active(href: string) {
     return isActiveNavHref(pathname, href, [AUTH_ROUTES.professorHome])
@@ -53,7 +60,7 @@ export default function ProfessorTopNav() {
               <Link
                 key={href}
                 href={href}
-                className={`relative flex h-full shrink-0 items-center justify-center gap-2 px-4 text-[13px] font-black no-underline transition duration-200 ${
+                className={`relative flex h-full shrink-0 items-center justify-center gap-2 px-4 text-[13px] font-black no-underline transition-[color,transform] duration-150 ease-out active:scale-[0.96] ${
                   isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:text-[#3a2fd3]'
                 }`}
               >
@@ -71,10 +78,13 @@ export default function ProfessorTopNav() {
             aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
             aria-expanded={menuOpen}
             aria-controls="professor-mobile-menu"
-            onClick={() => setMenuOpen((value) => !value)}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition hover:bg-[#f4f4f5] md:hidden"
+            onClick={toggleMenu}
+            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition-[background-color,color,transform] duration-150 ease-out hover:bg-[#f4f4f5] active:scale-[0.96] md:hidden"
           >
-            {menuOpen ? <X size={19} /> : <Menu size={19} />}
+            <span className="t-icon-swap" data-state={menuOpen ? 'b' : 'a'} aria-hidden="true">
+              <span className="t-icon" data-icon="a"><Menu size={19} /></span>
+              <span className="t-icon" data-icon="b"><X size={19} /></span>
+            </span>
           </button>
           <span className="hidden rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2 text-[12px] font-black text-[#453dee] sm:inline-flex">
             Professeur
@@ -83,7 +93,7 @@ export default function ProfessorTopNav() {
             href={professorUnreadMessagesHref}
             aria-label="Open unread professor messages"
             title="Open unread professor messages"
-            className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] no-underline transition hover:bg-[#f4f4f5]"
+            className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] no-underline transition-[background-color,transform] duration-150 ease-out hover:bg-[#f4f4f5] active:scale-[0.96]"
           >
             <Bell size={18} />
             <span aria-hidden="true" className="absolute right-3 top-3 h-2 w-2 rounded-full bg-[#f5900b]" />
@@ -94,7 +104,7 @@ export default function ProfessorTopNav() {
           <button
             type="button"
             onClick={doLogout}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#71717b] transition hover:bg-red-50 hover:text-red-500"
+            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#71717b] transition-[background-color,color,transform] duration-150 ease-out hover:bg-red-50 hover:text-red-500 active:scale-[0.96]"
             aria-label="Se deconnecter"
             title="Se déconnecter"
           >
@@ -102,8 +112,8 @@ export default function ProfessorTopNav() {
           </button>
         </div>
       </div>
-      {menuOpen && (
-        <div id="professor-mobile-menu" className="border-b border-[#e4e4e7] bg-white px-4 py-3 shadow-[0_18px_40px_rgba(24,24,27,0.08)] md:hidden">
+      {shouldRenderMenu && (
+        <div id="professor-mobile-menu" className={`t-dropdown border-b border-[#e4e4e7] bg-white px-4 py-3 shadow-[0_18px_40px_rgba(24,24,27,0.08)] md:hidden ${menuStateClassName}`} data-origin="top-right">
           <div className="mx-auto grid max-w-[420px] gap-1">
             {professorLinks.map(({ href, label, Icon }) => {
               const isActive = active(href)
@@ -111,8 +121,8 @@ export default function ProfessorTopNav() {
                 <Link
                   key={href}
                   href={href}
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black no-underline ${
+                  onClick={closeMenu}
+                  className={`flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black no-underline transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] ${
                     isActive ? 'bg-[#f0f0ff] text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
                   }`}
                 >

@@ -9,7 +9,21 @@ import Scratchpad from '@/components/zed/Scratchpad'
 vi.mock('next/image', async () => {
   const react = await import('react')
   return {
-    default: (props: React.ComponentProps<'img'>) => react.createElement('img', props),
+    default: ({
+      fill: _fill,
+      priority: _priority,
+      unoptimized: _unoptimized,
+      ...props
+    }: React.ComponentProps<'img'> & {
+      fill?: boolean
+      priority?: boolean
+      unoptimized?: boolean
+    }) => {
+      void _fill
+      void _priority
+      void _unoptimized
+      return react.createElement('img', props)
+    },
   }
 })
 

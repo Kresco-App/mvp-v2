@@ -1,3 +1,5 @@
+import { sanitizeNavigationUrl } from '@/lib/urlSafety'
+
 export type FigmaDailyQuest = {
   id: number | string
   quest_type?: string
@@ -198,7 +200,8 @@ export function getQuestTone(type: string | undefined, index: number, surface: Q
 }
 
 export function getLeaderboardAvatarSrc(entry: Pick<PermanentSidebarLeaderboardEntry, 'avatar_url'>, index: number) {
-  if (entry.avatar_url) return entry.avatar_url
+  const safeAvatarUrl = sanitizeNavigationUrl(entry.avatar_url)
+  if (safeAvatarUrl) return safeAvatarUrl
   return index === 1 ? '/figma-assets/sidebar-avatar-fatima.png' : '/figma-assets/sidebar-avatar-ahmed.png'
 }
 

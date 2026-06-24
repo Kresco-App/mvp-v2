@@ -231,10 +231,10 @@ export function FigmaProfile({
         <main className="figma-profile-main" aria-busy={loading ? 'true' : 'false'}>
           <section className="figma-profile-hero" aria-label="Profile summary">
             <div className="figma-profile-cover">
-              <Image src={bannerUrl} alt="" fill sizes="720px" priority unoptimized />
+              <Image src={bannerUrl} alt="" fill sizes="720px" priority unoptimized className="kresco-media-outline" />
             </div>
             <div className="figma-profile-avatar" aria-label="Profile picture">
-              <Image src={avatarUrl} alt={firstName} fill sizes="82px" unoptimized referrerPolicy="no-referrer" />
+              <Image src={avatarUrl} alt={firstName} fill sizes="82px" unoptimized referrerPolicy="no-referrer" className="kresco-media-outline" />
             </div>
 
             <div className="figma-profile-badges" aria-label={`Badges: ${badgeSummary.earnedCount} of ${badgeSummary.totalCount} earned`}>
@@ -335,8 +335,8 @@ export function FigmaProfile({
             </div>
 
             <div className="figma-profile-edit-preview">
-              <Image className="figma-profile-edit-cover" src={mediaUrl(draft.banner_url || DEFAULT_PROFILE_BANNER_URL)} alt="" fill sizes="520px" unoptimized />
-              <Image className="figma-profile-edit-avatar" src={mediaUrl(draft.avatar_url || DEFAULT_PROFILE_AVATAR_URL)} alt="" width={72} height={72} unoptimized referrerPolicy="no-referrer" />
+              <Image className="figma-profile-edit-cover kresco-media-outline" src={mediaUrl(draft.banner_url || DEFAULT_PROFILE_BANNER_URL)} alt="" fill sizes="520px" unoptimized />
+              <Image className="figma-profile-edit-avatar kresco-media-outline" src={mediaUrl(draft.avatar_url || DEFAULT_PROFILE_AVATAR_URL)} alt="" width={72} height={72} unoptimized referrerPolicy="no-referrer" />
             </div>
 
             <div className="figma-profile-edit-grid">
@@ -1526,7 +1526,7 @@ function FollowerPanel({ entries }: { entries: PermanentSidebarLeaderboardEntry[
       <div className="figma-profile-follow-list">
         {visible.map((entry, index) => (
           <Link href="/classement" className="figma-profile-follow-row" key={`${entry.user_id}-${entry.rank}-${index}`}>
-            <Image src={entry.avatar_url || followerAvatar(index)} alt="" width={40} height={40} unoptimized referrerPolicy="no-referrer" />
+            <Image src={entry.avatar_url || followerAvatar(index)} alt="" width={40} height={40} unoptimized referrerPolicy="no-referrer" className="kresco-media-outline" />
             <span>
               <strong>{entry.full_name}</strong>
               <small>{entry.total_xp.toLocaleString()} point</small>

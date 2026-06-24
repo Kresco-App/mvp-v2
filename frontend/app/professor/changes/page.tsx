@@ -282,15 +282,15 @@ function ChangeRequestRow({
       </div>
 
       <div className="flex flex-wrap gap-1.5 text-[11px] font-black lg:grid">
-        <span className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-[#52525c]">{request.operation_count} ops</span>
-        {request.pending_count > 0 && <span className="rounded-full bg-[#fff7ed] px-2.5 py-1 text-[#9a3412]">{request.pending_count} pending</span>}
-        {request.rejected_count > 0 && <span className="rounded-full bg-[#fef2f2] px-2.5 py-1 text-[#991b1b]">{request.rejected_count} rejected</span>}
+        <span className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-[#52525c] tabular-nums">{request.operation_count} ops</span>
+        {request.pending_count > 0 && <span className="rounded-full bg-[#fff7ed] px-2.5 py-1 text-[#9a3412] tabular-nums">{request.pending_count} pending</span>}
+        {request.rejected_count > 0 && <span className="rounded-full bg-[#fef2f2] px-2.5 py-1 text-[#991b1b] tabular-nums">{request.rejected_count} rejected</span>}
       </div>
 
       <div aria-label={`Progression demande ${request.id}`}>
         <div className="mb-1 flex items-center justify-between gap-2">
           <span className="text-[11px] font-black uppercase tracking-[0.08em] text-[#71717b]">Reviewed</span>
-          <span className="text-[12px] font-black text-[#27272a]">{progress.label}</span>
+          <span className="text-[12px] font-black text-[#27272a] tabular-nums">{progress.label}</span>
         </div>
         <div
           className="h-2 overflow-hidden rounded-full bg-[#e4e4e7]"
@@ -300,14 +300,14 @@ function ChangeRequestRow({
           aria-valuemax={100}
           aria-valuenow={progress.percent}
         >
-          <div className={`h-full rounded-full transition-all duration-500 ${progress.className}`} style={{ width: `${progress.percent}%` }} />
+          <div className={`h-full rounded-full transition-[background-color,width] duration-500 ${progress.className}`} style={{ width: `${progress.percent}%` }} />
         </div>
       </div>
 
       <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
         <Link
           href={action.href}
-          className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-[11px] px-3 text-[12px] font-black no-underline transition hover:-translate-y-0.5 ${action.className}`}
+          className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-[11px] px-3 text-[12px] font-black no-underline transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] ${action.className}`}
         >
           <Pencil size={13} />
           {action.cta}
@@ -316,7 +316,7 @@ function ChangeRequestRow({
           <button
             type="button"
             onClick={() => onWithdraw(request.id)}
-            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[11px] border border-[#fecaca] bg-white px-3 text-[12px] font-black text-[#ef4444] transition hover:bg-red-50"
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[11px] border border-[#fecaca] bg-white px-3 text-[12px] font-black text-[#ef4444] transition-[background-color,border-color,color,transform] duration-150 ease-out hover:bg-red-50 active:scale-[0.96]"
           >
             <Trash2 size={13} /> Cancel
           </button>

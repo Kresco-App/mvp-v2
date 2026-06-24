@@ -17,9 +17,11 @@ import {
   ClipboardCheck,
   TrendingUp,
   User,
+  X,
   Users,
 } from 'lucide-react'
 import KrescoWordmark from '@/components/KrescoWordmark'
+import { useDropdownTransition } from '@/hooks/useDropdownTransition'
 import { getJson } from '@/lib/apiClient'
 import { getAdminRootUrl } from '@/lib/apiConfig'
 import { numberValue, type AdminOverview } from '@/lib/adminOverview'
@@ -81,7 +83,13 @@ export default function AdminTopNav() {
   const router = useRouter()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const {
+    closeDropdown: closeMenu,
+    dropdownStateClassName: menuStateClassName,
+    isOpen: menuOpen,
+    shouldRenderDropdown: shouldRenderMenu,
+    toggleDropdown: toggleMenu,
+  } = useDropdownTransition()
   const [navBadges, setNavBadges] = useState<NavBadgeMap>({})
 
   useEffect(() => {
@@ -107,6 +115,10 @@ export default function AdminTopNav() {
     return () => { alive = false }
   }, [pathname])
 
+  useEffect(() => {
+    closeMenu()
+  }, [closeMenu, pathname])
+
   function active(href: string, exact: boolean) {
     return exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`)
   }
@@ -129,14 +141,14 @@ export default function AdminTopNav() {
               <Link
                 key={href}
                 href={href}
-                className={`relative flex h-full shrink-0 items-center justify-center gap-2 px-3 text-[13px] font-black no-underline transition duration-200 ${
+                className={`relative flex h-full shrink-0 items-center justify-center gap-2 px-3 text-[13px] font-black no-underline transition-[background-color,color,transform] duration-200 active:scale-[0.96] ${
                   isActive ? 'text-[#3a2fd3]' : 'text-[#5f6878] hover:text-[#3a2fd3]'
                 }`}
               >
                 <Icon size={16} strokeWidth={2.2} />
                 <span>{label}</span>
                 {badge > 0 && (
-                  <span className={`grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[10px] font-black text-white ${badgeClassName(href)}`}>
+                  <span className={`grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[10px] font-black text-white tabular-nums ${badgeClassName(href)}`}>
                     {compactBadge(badge)}
                   </span>
                 )}
@@ -149,10 +161,16 @@ export default function AdminTopNav() {
           <button
             type="button"
             title="Navigation"
-            onClick={() => setMenuOpen((value) => !value)}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#5f6878] transition hover:bg-[#f4f6fb] md:hidden"
+            aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+            aria-expanded={menuOpen}
+            aria-controls="admin-mobile-menu"
+            onClick={toggleMenu}
+            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#5f6878] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[#f4f6fb] md:hidden"
           >
-            <Menu size={19} />
+            <span className="t-icon-swap" data-state={menuOpen ? 'b' : 'a'} aria-hidden="true">
+              <span className="t-icon" data-icon="a"><Menu size={19} /></span>
+              <span className="t-icon" data-icon="b"><X size={19} /></span>
+            </span>
           </button>
           <span className="hidden items-center gap-1.5 rounded-[12px] border border-[#dfe3ea] bg-white px-3 py-2 text-[12px] font-black text-[#453dee] sm:inline-flex">
             <ShieldCheck size={13} /> Staff
@@ -162,7 +180,7 @@ export default function AdminTopNav() {
             target="_blank"
             rel="noreferrer"
             title="Open SQLAdmin"
-            className="hidden h-11 items-center gap-2 rounded-[14px] border border-[#dfe3ea] bg-white px-3 text-[12px] font-black text-[#5f6878] transition hover:border-[#5b60f9] hover:text-[#5b60f9] sm:inline-flex"
+            className="hidden h-11 items-center gap-2 rounded-[14px] border border-[#dfe3ea] bg-white px-3 text-[12px] font-black text-[#5f6878] transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:border-[#5b60f9] hover:text-[#5b60f9] sm:inline-flex"
           >
             <Database size={15} /> SQLAdmin
           </a>
@@ -172,15 +190,15 @@ export default function AdminTopNav() {
           <button
             type="button"
             onClick={doLogout}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#7b8494] transition hover:bg-red-50 hover:text-red-500"
+            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#7b8494] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-red-50 hover:text-red-500"
             title="Sign out"
           >
             <LogOut size={18} />
           </button>
         </div>
       </div>
-      {menuOpen && (
-        <div className="border-b border-[#e6e9f0] bg-white px-4 py-3 shadow-[0_18px_40px_rgba(15,23,42,0.08)] md:hidden">
+      {shouldRenderMenu && (
+        <div id="admin-mobile-menu" className={`t-dropdown border-b border-[#e6e9f0] bg-white px-4 py-3 shadow-[0_18px_40px_rgba(15,23,42,0.08)] md:hidden ${menuStateClassName}`} data-origin="top-right">
           <div className="mx-auto grid max-w-[420px] gap-1">
             {adminLinks.map(({ href, label, Icon, exact }) => {
               const isActive = active(href, exact)
@@ -189,22 +207,22 @@ export default function AdminTopNav() {
                 <Link
                   key={href}
                   href={href}
-                  onClick={() => setMenuOpen(false)}
-                  className={`flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black no-underline ${
+                  onClick={closeMenu}
+                  className={`flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black no-underline transition-[background-color,color] duration-150 ease-out ${
                     isActive ? 'bg-[#eef0ff] text-[#3a2fd3]' : 'text-[#5f6878] hover:bg-[#f4f6fb]'
                   }`}
                 >
                   <Icon size={16} />
                   <span className="min-w-0 flex-1">{label}</span>
                   {badge > 0 && (
-                    <span className={`grid h-[20px] min-w-[20px] place-items-center rounded-full px-1.5 text-[10px] font-black text-white ${badgeClassName(href)}`}>
+                    <span className={`grid h-[20px] min-w-[20px] place-items-center rounded-full px-1.5 text-[10px] font-black text-white tabular-nums ${badgeClassName(href)}`}>
                       {compactBadge(badge)}
                     </span>
                   )}
                 </Link>
               )
             })}
-            <a href={getAdminRootUrl()} target="_blank" rel="noreferrer" className="flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black text-[#5f6878] no-underline hover:bg-[#f4f6fb]">
+            <a href={getAdminRootUrl()} target="_blank" rel="noreferrer" className="flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black text-[#5f6878] no-underline transition-[background-color,color] duration-150 ease-out hover:bg-[#f4f6fb]">
               <Database size={16} /> SQLAdmin
             </a>
           </div>

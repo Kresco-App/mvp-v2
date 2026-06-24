@@ -39,7 +39,7 @@
   outline: none;
 }
 
-.finance-input:focus {
+.finance-input:focus-visible {
   border-color: #6366f1;
   box-shadow: 0 0 0 4px rgb(99 102 241 / 0.25);
 }
@@ -104,6 +104,8 @@
   /* Border */
   --border:          #e4e4e7;
   --border-focus:    #453dee;
+  --focus-ring:      #453dee;
+  --focus-ring-soft: rgba(69, 61, 238, 0.18);
 
   /* Text */
   --text-primary:    #18181b;
@@ -143,6 +145,32 @@
   --xp-color:        #f59e0b;
   --streak-color:    #f97316;
   --quest-color:     #453dee;
+
+  /* Depth */
+  --shadow-border:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 1px 2px -1px rgba(0, 0, 0, 0.06),
+    0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-border-hover:
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 1px 2px -1px rgba(0, 0, 0, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.06);
+
+  /* Motion */
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+  --motion-medium: 350ms;
+  --motion-slow: 400ms;
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dropdown-open-dur: 250ms;
+  --dropdown-close-dur: 150ms;
+  --dropdown-pre-scale: 0.97;
+  --dropdown-closing-scale: 0.99;
+  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --icon-swap-dur: 250ms;
+  --icon-swap-blur: 2px;
+  --icon-swap-start-scale: 0.25;
+  --icon-swap-ease: ease-in-out;
 }
 
 /* ─── Base ─────────────────────────────────────────────────────── */
@@ -155,43 +183,180 @@
 @keyframes krescoShimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 @keyframes math-set-float { from { transform: translateY(0) scale(1); } to { transform: translateY(-3px) scale(1.03); } }
 
-* { box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 html {
+  color-scheme: light;
+  max-width: 100%;
+  overflow-x: hidden;
   scrollbar-gutter: stable;
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  --font-rounded: var(--font-sf-rounded), "Kresco SF Rounded", "SF Pro Rounded", "Helvetica Rounded", "Arial Rounded MT Bold", var(--font-sunghyun-sans);
+  --font-sf-rounded: "Kresco SF Rounded", "SF Pro Rounded", "Helvetica Rounded", "Arial Rounded MT Bold";
+  --font-rounded: var(--font-sf-rounded), var(--font-sunghyun-sans);
   font-family: var(--font-rounded), system-ui, -apple-system, sans-serif;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--surface-page);
   color: var(--text-primary);
-  transition: background-color 180ms ease, color 180ms ease;
+  min-width: 0;
+  overflow-x: hidden;
+  transition: background-color var(--motion-quick) ease, color var(--motion-quick) ease;
   text-rendering: optimizeLegibility;
 }
 
-:where(a, button, [role="button"], input, select, textarea, summary, .figma-button, .card, .card-hover, .figma-card, .figma-card-soft) {
-  transition-duration: 170ms;
+@supports (overflow: clip) {
+  body {
+    overflow-x: clip;
+  }
+}
+
+:where(button, input, select, textarea) {
+  font: inherit;
+}
+
+:where(a[href], button, [role="button"], input, select, textarea, summary, .figma-button) {
+  -webkit-tap-highlight-color: rgba(69, 61, 238, 0.16);
+  touch-action: manipulation;
+}
+
+:where(a, button, [role="button"], input, select, textarea, summary, .figma-button, .card, .figma-card, .figma-card-soft) {
+  transition-duration: var(--motion-quick);
+  transition-property: background-color, border-color, box-shadow, color, filter, opacity;
+  transition-timing-function: var(--motion-ease-out);
+}
+
+:where(.card-hover, .kresco-hover-lift, .kresco-pressable) {
+  transition-duration: var(--motion-quick);
   transition-property: background-color, border-color, box-shadow, color, filter, opacity, transform;
-  transition-timing-function: cubic-bezier(.2,.8,.2,1);
+  transition-timing-function: var(--motion-ease-out);
+}
+
+a[href]:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+input:not([type="hidden"]):focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible,
+.figma-button:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px var(--focus-ring-soft);
+}
+
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: max(12px, env(safe-area-inset-top));
+  z-index: 9999;
+  transform: translateY(calc(-100% - 24px));
+  border-radius: 12px;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+  padding: 12px 14px;
+  text-decoration: none;
+  transition: transform var(--motion-quick) var(--motion-ease-out), box-shadow var(--motion-quick) ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  box-shadow: 0 10px 24px rgba(69,61,238,0.24);
+  outline-color: #ffffff;
+}
+
+#main-content {
+  scroll-margin-top: 84px;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :where(a[href], button, [role="button"], summary, .figma-button):where(:not(:disabled):not([aria-disabled="true"])):hover {
-    transform: translateY(-1px);
-  }
-
-  :where(.card, .figma-card, .figma-card-soft):hover {
+  :where(.card-hover, .kresco-hover-lift):hover {
     transform: translateY(-1px);
   }
 }
 
-:where(a[href], button, [role="button"], summary, .figma-button):where(:not(:disabled):not([aria-disabled="true"])):active {
-  transform: translateY(0) scale(.985);
+:where(.kresco-pressable):where(:not(:disabled):not([aria-disabled="true"])):active {
+  transform: translateY(0) scale(.96);
+}
+
+:where(h1, h2, h3, h4, .figma-title) {
+  text-wrap: balance;
+}
+
+:where(p, li, figcaption, blockquote, .figma-subtle) {
+  text-wrap: pretty;
+}
+
+:where(h1, h2, h3, h4, h5, h6, p, li, figcaption, blockquote, a[href], button, [role="button"], label, small, strong) {
+  overflow-wrap: anywhere;
+}
+
+:where(main, section, article, aside, header, footer, nav, form, fieldset, .card, .card-hover, .figma-card, .figma-card-soft) {
+  min-width: 0;
+}
+
+:where(img, picture, video, canvas, svg, iframe, embed, object) {
+  max-inline-size: 100%;
+}
+
+:where(img, video, canvas, svg) {
+  height: auto;
+}
+
+:where(pre, table) {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (pointer: coarse) {
+  :where(
+    a[href]:not(:where(p a, li a, figcaption a, blockquote a)),
+    button,
+    [role="button"],
+    summary,
+    .figma-button,
+    .kresco-control,
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    select,
+    textarea
+  ) {
+    min-height: 44px;
+  }
+
+  :where(input[type="checkbox"], input[type="radio"]) {
+    min-height: 24px;
+    min-width: 24px;
+  }
+}
+
+@media (max-width: 640px) {
+  :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: 16px;
+  }
+}
+
+:where(.tabular-nums, .kresco-number, [data-kresco-number="true"]) {
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.kresco-media-outline, [data-kresco-media="true"]) {
+  outline: 1px solid rgba(0, 0, 0, 0.1);
+  outline-offset: -1px;
 }
 
 :where(input, select, textarea):focus-visible {
@@ -392,7 +557,7 @@ body {
   transition: border-color 150ms, box-shadow 150ms, background 150ms;
 }
 
-.kresco-control:focus {
+.kresco-control:focus-visible {
   background: var(--surface-card);
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(69,61,238,0.12);
@@ -480,29 +645,85 @@ body {
 }
 
 /* ─── Animations ────────────────────────────────────────────────── */
-.animate-fade-in { animation: fadeIn 200ms ease both; }
+.animate-fade-in { animation: fadeIn var(--motion-fast) ease both; }
 .kresco-enter {
-  animation: krescoRise 360ms cubic-bezier(.2,.8,.2,1) both;
+  animation: krescoRise var(--motion-slow) var(--motion-ease-out) both;
 }
 .kresco-progress-fill {
   transform-origin: left center;
-  animation: krescoScaleX 560ms cubic-bezier(.2,.8,.2,1) both;
-  transition: width 420ms cubic-bezier(.2,.8,.2,1), background-color 180ms ease;
+  animation: krescoScaleX 500ms var(--motion-ease-out) both;
+  transition: width var(--motion-slow) var(--motion-ease-out), background-color var(--motion-quick) ease;
 }
 .kresco-hover-lift {
   transition:
-    transform 180ms cubic-bezier(.2,.8,.2,1),
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    background-color 180ms ease,
-    color 180ms ease,
-    opacity 180ms ease;
+    transform var(--motion-fast) var(--motion-ease-out),
+    border-color var(--motion-quick) ease,
+    box-shadow var(--motion-quick) ease,
+    background-color var(--motion-quick) ease,
+    color var(--motion-quick) ease,
+    opacity var(--motion-quick) ease;
 }
 .kresco-hover-lift:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 .kresco-soft-pulse {
   animation: krescoSoftPulse 2400ms ease-in-out infinite;
+}
+.t-dropdown {
+  transform-origin: top left;
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-dropdown[data-origin="top-right"]     { transform-origin: top right; }
+.t-dropdown[data-origin="top-center"]    { transform-origin: top center; }
+.t-dropdown[data-origin="bottom-left"]   { transform-origin: bottom left; }
+.t-dropdown[data-origin="bottom-center"] { transform-origin: bottom center; }
+.t-dropdown[data-origin="bottom-right"]  { transform-origin: bottom right; }
+
+.t-dropdown.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-close-dur) var(--dropdown-ease);
+}
+
+.t-icon-swap {
+  position: relative;
+  display: inline-grid;
+}
+.t-icon-swap .t-icon {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  transition:
+    opacity   var(--icon-swap-dur) var(--icon-swap-ease),
+    filter    var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--icon-swap-ease);
+  will-change: opacity, filter, transform;
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="a"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="b"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="b"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="a"] {
+  opacity: 0;
+  filter: blur(var(--icon-swap-blur));
+  transform: scale(var(--icon-swap-start-scale));
 }
 .audit-catalog-mode-hidden,
 body:has(.audit-catalog) > button[aria-label*='mode'] {
@@ -539,7 +760,10 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   font-weight: 800;
   outline: none;
 }
-.professor-live-input:focus { border-color: #453dee; }
+.professor-live-input:focus-visible {
+  border-color: #453dee;
+  box-shadow: 0 0 0 3px rgba(69,61,238,0.12);
+}
 .professor-live-menu-item {
   display: flex;
   min-height: 36px;
@@ -644,12 +868,49 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-quick: 1ms;
+    --motion-fast: 1ms;
+    --motion-medium: 1ms;
+    --motion-slow: 1ms;
+    --dropdown-open-dur: 1ms;
+    --dropdown-close-dur: 1ms;
+    --dropdown-pre-scale: 1;
+    --dropdown-closing-scale: 1;
+    --icon-swap-dur: 1ms;
+    --icon-swap-blur: 0;
+    --icon-swap-start-scale: 1;
+  }
+
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  .t-dropdown {
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .t-icon-swap .t-icon {
+    filter: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .card-hover:hover,
+  .kresco-hover-lift:hover,
+  .kresco-pressable:active {
+    transform: none !important;
+  }
+
   *,
   *::before,
   *::after {
     animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
+    transition-delay: 0ms !important;
     transition-duration: 1ms !important;
   }
 }
@@ -778,7 +1039,7 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   font-weight: 700;
 }
 
-.figma-input:focus {
+.figma-input:focus-visible {
   border-color: var(--figma-primary);
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(58, 47, 211, 0.1);

@@ -97,7 +97,7 @@ describe('Firestore realtime facade', () => {
       onMessage,
     })
 
-    await Promise.resolve()
+    await vi.dynamicImportSettled()
 
     expect(collectionMock).toHaveBeenCalledWith(
       firestore,
@@ -144,7 +144,7 @@ describe('Firestore realtime facade', () => {
       onMessage: vi.fn(),
     })
 
-    await Promise.resolve()
+    await vi.dynamicImportSettled()
 
     expect(collectionMock).toHaveBeenCalledTimes(2)
     cleanup()

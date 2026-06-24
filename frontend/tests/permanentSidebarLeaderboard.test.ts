@@ -8,7 +8,21 @@ import { LeaderboardPanel } from '@/components/figma/permanent-sidebar'
 import type { PermanentSidebarLeaderboardEntry } from '@/lib/permanentSidebarViewModel'
 
 vi.mock('next/image', () => ({
-  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement('img', props),
+  default: ({
+    fill: _fill,
+    priority: _priority,
+    unoptimized: _unoptimized,
+    ...props
+  }: React.ImgHTMLAttributes<HTMLImageElement> & {
+    fill?: boolean
+    priority?: boolean
+    unoptimized?: boolean
+  }) => {
+    void _fill
+    void _priority
+    void _unoptimized
+    return React.createElement('img', props)
+  },
 }))
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true

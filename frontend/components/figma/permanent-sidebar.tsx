@@ -417,7 +417,7 @@ export function ChronoCard({
       <div className="mt-6 flex h-[54px] w-full items-center justify-center gap-1.5 text-center text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#52525c]">
         {units.map((item) => (
           <div className="kresco-hover-lift flex h-[54px] w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg bg-[#f4f4f5] px-2 hover:bg-[#eceef2]" key={item.label}>
-            <span>{item.value}</span>
+            <span className="tabular-nums">{item.value}</span>
             <span className="whitespace-nowrap">{item.label}</span>
           </div>
         ))}
@@ -515,7 +515,7 @@ export function CalendarCard({
                           transition={sidebarCalendarDayTransition}
                         />
                       )}
-                      <span className="relative z-10">{day.value}</span>
+                      <span className="relative z-10 tabular-nums">{day.value}</span>
                       <span className="relative z-10">{day.label}</span>
                     </motion.button>
                   )
@@ -554,12 +554,12 @@ export function CalendarArrow({ direction, onClick }: { direction: 'left' | 'rig
   const reduceMotion = useReducedMotion()
   return (
     <motion.button
-      className="kresco-hover-lift grid h-8 w-8 shrink-0 place-items-center rounded-[10.5px] border-0 bg-[#f4f4f5] text-[#27272f] shadow-[0_2px_0_rgba(0,0,0,0.2)] active:translate-y-px active:shadow-none"
+      className="kresco-hover-lift grid h-10 w-10 shrink-0 place-items-center rounded-[12px] border-0 bg-[#f4f4f5] text-[#27272f] shadow-[0_2px_0_rgba(0,0,0,0.2)] active:translate-y-px active:shadow-none"
       type="button"
       aria-label={direction === 'left' ? 'Previous days' : 'Next days'}
       onClick={onClick}
       whileHover={reduceMotion ? undefined : { y: -1 }}
-      whileTap={reduceMotion ? undefined : { scale: 0.94, y: 1 }}
+      whileTap={reduceMotion ? undefined : { scale: 0.96, y: 1 }}
     >
       <Icon size={15} strokeWidth={3} />
     </motion.button>
@@ -582,7 +582,7 @@ export function WeeklyStrikeCard({
       <div className="mt-6 flex h-[54px] w-full items-start gap-1.5">
         {days.map((day) => (
           <button
-            className={`grid h-[54px] w-[39.857px] shrink-0 justify-items-center gap-2 border-0 bg-transparent p-0 text-center transition-transform duration-150 hover:-translate-y-0.5 ${day.done ? 'text-[#f5900b]' : 'text-[#71717b]'}`}
+            className={`grid h-[54px] w-10 shrink-0 justify-items-center gap-2 border-0 bg-transparent p-0 text-center transition-transform duration-150 active:scale-[0.96] ${day.done ? 'text-[#f5900b]' : 'text-[#71717b]'}`}
             key={day.label}
             type="button"
             onClick={() => onDaySelect?.(day)}
@@ -695,14 +695,14 @@ function LeaderboardPanelRow({
 
   return (
     <Link
-      className={`grid h-[38px] w-full grid-cols-[25px_34px_minmax(0,1fr)] items-center gap-3 rounded-xl px-1.5 py-0 no-underline transition duration-150 hover:translate-x-0.5 hover:bg-[#f7f8fb] ${zoneClass} ${currentClass || (pinned ? 'shadow-[inset_3px_0_0_#453dee]' : '')}`}
+      className={`grid h-[38px] w-full grid-cols-[25px_34px_minmax(0,1fr)] items-center gap-3 rounded-xl px-1.5 py-0 no-underline transition-[background-color,box-shadow] duration-150 ease-out hover:bg-[#f7f8fb] ${zoneClass} ${currentClass || (pinned ? 'shadow-[inset_3px_0_0_#453dee]' : '')}`}
       href={entry.href || href}
     >
       <RankMarker rank={entry.rank || index + 1} />
       <LeaderboardAvatar entry={entry} index={index} small />
       <div className="grid min-w-0 gap-0.5">
         <strong className="truncate text-[14px] font-bold leading-[0.95] tracking-[0.18px]">{entry.full_name}{entry.is_current_user ? ' (you)' : ''}</strong>
-        <span className="whitespace-nowrap text-[12px] font-semibold leading-[1.05] tracking-[0.16px] text-[#71717b]">{entry.total_xp.toLocaleString()} point</span>
+        <span className="whitespace-nowrap text-[12px] font-semibold leading-[1.05] tracking-[0.16px] text-[#71717b] tabular-nums">{entry.total_xp.toLocaleString()} point</span>
       </div>
     </Link>
   )
@@ -720,13 +720,13 @@ export function RankMarker({ rank }: { rank: number }) {
       3: 'bg-[#e6b16f] text-[#a65f00] shadow-[inset_0_0_0_4px_#f0c48c]',
     } as const
     return (
-      <span className={`grid h-[25px] w-[23px] place-items-center rounded-md text-[14px] font-black leading-none tracking-[0.18px] ${styles[rank as 1 | 2 | 3]}`}>
+      <span className={`grid h-[25px] w-[23px] place-items-center rounded-md text-[14px] font-black leading-none tracking-[0.18px] tabular-nums ${styles[rank as 1 | 2 | 3]}`}>
         {rank}
       </span>
     )
   }
 
-  return <span className="grid h-[25px] w-[25px] place-items-center text-[14px] font-bold leading-none tracking-[0.18px] text-[#9f9fa9]">{rank}</span>
+  return <span className="grid h-[25px] w-[25px] place-items-center text-[14px] font-bold leading-none tracking-[0.18px] text-[#9f9fa9] tabular-nums">{rank}</span>
 }
 
 export function LeaderboardAvatar({ entry, index, small = false }: { entry: PermanentSidebarLeaderboardEntry; index: number; small?: boolean }) {
@@ -735,7 +735,7 @@ export function LeaderboardAvatar({ entry, index, small = false }: { entry: Perm
 
   return (
     <span className={`${small ? 'h-[34px] w-[34px] rounded-[11px]' : 'h-10 w-10 rounded-[12.727px]'} grid shrink-0 place-items-center overflow-hidden bg-[#e4e4e7]`}>
-      <Image className="h-full w-full object-cover" src={src} alt="" width={size} height={size} unoptimized referrerPolicy="no-referrer" />
+      <Image className="kresco-media-outline h-full w-full object-cover" src={src} alt="" width={size} height={size} unoptimized referrerPolicy="no-referrer" />
     </span>
   )
 }
@@ -757,7 +757,7 @@ function DailyQuestRow({
 }) {
   return (
     <button
-      className={`grid w-full grid-cols-[32px_1fr] gap-4 border-0 bg-transparent p-0 text-left transition-transform duration-150 hover:translate-x-0.5 ${index === 1 ? 'min-h-14' : 'min-h-[41px]'}`}
+      className={`grid w-full grid-cols-[32px_1fr] gap-4 border-0 bg-transparent p-0 text-left transition-transform duration-150 active:scale-[0.96] hover:translate-x-0.5 ${index === 1 ? 'min-h-14' : 'min-h-[41px]'}`}
       type="button"
       onClick={onClick}
     >

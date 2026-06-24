@@ -53,6 +53,7 @@ const professorStudentLinks = [
 const notificationPanelTransition = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
 const notificationRowTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.72 } as const
 const topNavIndicatorTransition = { type: 'spring', stiffness: 520, damping: 44, mass: 0.7 } as const
+const contextualIconTransition = { type: 'spring', duration: 0.3, bounce: 0 } as const
 
 export default function TopNav() {
   const pathname = usePathname()
@@ -304,7 +305,7 @@ export default function TopNav() {
                   )}
                 </>
               )
-              const className = `relative flex h-10 shrink-0 items-center justify-center gap-2 overflow-visible rounded-[14px] px-3.5 text-[13px] font-black no-underline outline-none transition duration-200 focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 ${
+              const className = `relative flex h-10 shrink-0 items-center justify-center gap-2 overflow-visible rounded-[14px] px-3.5 text-[13px] font-black no-underline outline-none transition-[background-color,box-shadow,color,transform] duration-200 focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 ${
                 isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f7f7ff] hover:text-[#3a2fd3]'
               }`
               if (!href) {
@@ -329,7 +330,7 @@ export default function TopNav() {
             aria-label="Navigation menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition duration-150 hover:-translate-y-px hover:bg-[#f4f4f5] active:scale-95 md:hidden"
+            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition-[background-color,color,transform] duration-150 hover:bg-[#f4f4f5] active:scale-[0.96] md:hidden"
           >
             <Menu size={19} aria-hidden="true" />
           </button>
@@ -340,7 +341,7 @@ export default function TopNav() {
               aria-label={professorChatUnreadCount > 0 ? `Professor Chat, ${professorChatUnreadCount > 9 ? '9 plus' : professorChatUnreadCount} unread` : 'Professor Chat'}
               onClick={(event) => handleNavClick(event, AUTH_ROUTES.studentProfessorChat, active(AUTH_ROUTES.studentProfessorChat))}
               aria-current={active(AUTH_ROUTES.studentProfessorChat) ? 'page' : undefined}
-              className={`relative hidden h-11 w-11 place-items-center rounded-[14px] no-underline outline-none transition duration-150 hover:-translate-y-px active:scale-95 sm:grid ${
+              className={`relative hidden h-11 w-11 place-items-center rounded-[14px] no-underline outline-none transition-[background-color,box-shadow,color,transform] duration-150 active:scale-[0.96] sm:grid ${
                 active(AUTH_ROUTES.studentProfessorChat)
                   ? 'bg-[#f0f0ff] text-[#3a2fd3] shadow-[inset_0_0_0_1px_rgba(91,96,249,0.13)]'
                   : 'text-[#52525c] hover:bg-[#f4f4f5] hover:text-[#3a2fd3]'
@@ -351,10 +352,10 @@ export default function TopNav() {
                 {professorChatUnreadCount > 0 && (
                   <motion.span
                     key="professor-chat-count"
-                    initial={{ opacity: 0, scale: 0.7 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.7 }}
-                    transition={{ duration: 0.16 }}
+                    initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                    transition={contextualIconTransition}
                     className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white"
                   >
                     {professorChatUnreadCount > 9 ? '9+' : professorChatUnreadCount}
@@ -371,17 +372,17 @@ export default function TopNav() {
               aria-haspopup="dialog"
               aria-expanded={notificationsOpen}
               onClick={() => void openNotifications()}
-              className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition duration-150 hover:-translate-y-px hover:bg-[#f4f4f5] active:scale-95"
+              className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition-[background-color,color,transform] duration-150 hover:bg-[#f4f4f5] active:scale-[0.96]"
             >
               <Bell size={18} aria-hidden="true" />
               <AnimatePresence initial={false}>
                 {unreadCount > 0 && (
                   <motion.span
                     key="notifications-count"
-                    initial={{ opacity: 0, scale: 0.7 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.7 }}
-                    transition={{ duration: 0.16 }}
+                    initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                    transition={contextualIconTransition}
                     className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white"
                   >
                     {unreadCount > 9 ? '9+' : unreadCount}
@@ -389,7 +390,7 @@ export default function TopNav() {
                 )}
               </AnimatePresence>
             </button>
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {notificationsOpen && (
                 <motion.div
                   role="dialog"
@@ -410,7 +411,7 @@ export default function TopNav() {
                         type="button"
                         onClick={() => void markAllRead()}
                         disabled={unreadCount === 0 || markingAllRead || deletingAll}
-                        className="inline-flex h-8 items-center gap-1 rounded-[10px] border-0 bg-transparent px-2 text-[12px] font-black text-[#453dee] transition hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:hover:bg-transparent"
+                        className="inline-flex h-10 items-center gap-1 rounded-[10px] border-0 bg-transparent px-2 text-[12px] font-black text-[#453dee] transition-[background-color,color,transform] hover:bg-[#f4f4f5] active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:hover:bg-transparent disabled:active:scale-100"
                         title="Mark all notifications read"
                       >
                         {markingAllRead ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <CheckCheck size={14} aria-hidden="true" />}
@@ -420,7 +421,7 @@ export default function TopNav() {
                         type="button"
                         onClick={() => void removeAllNotifications()}
                         disabled={notifications.length === 0 || deletingAll}
-                        className="grid h-8 w-8 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:text-[#d4d4d8] disabled:hover:bg-transparent"
+                        className="grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] transition-[background-color,color,transform] hover:bg-red-50 hover:text-red-500 active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#d4d4d8] disabled:hover:bg-transparent disabled:active:scale-100"
                         title="Delete all notifications"
                         aria-label="Delete all notifications"
                       >
@@ -429,7 +430,7 @@ export default function TopNav() {
                       <button
                         type="button"
                         onClick={() => setNotificationsOpen(false)}
-                        className="grid h-8 w-8 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] hover:bg-[#f4f4f5] hover:text-[#3f3f46]"
+                        className="grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] transition-[background-color,color,transform] duration-150 hover:bg-[#f4f4f5] hover:text-[#3f3f46] active:scale-[0.96]"
                         title="Close notifications"
                         aria-label="Close notifications"
                       >
@@ -462,7 +463,7 @@ export default function TopNav() {
                               animate={{ opacity: 1, y: 0, scale: 1 }}
                               exit={{ opacity: 0, y: -8, scale: 0.98 }}
                               transition={notificationRowTransition}
-                              className="group grid grid-cols-[1fr_32px] items-center gap-1 rounded-xl hover:bg-[#f4f4f5] focus-within:bg-[#f4f4f5]"
+                              className="group grid grid-cols-[1fr_40px] items-center gap-1 rounded-xl hover:bg-[#f4f4f5] focus-within:bg-[#f4f4f5]"
                             >
                               <button
                                 type="button"
@@ -476,10 +477,10 @@ export default function TopNav() {
                                     {isReading ? (
                                       <motion.span
                                         key="reading"
-                                        initial={{ opacity: 0, scale: 0.7 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.7 }}
-                                        transition={{ duration: 0.14 }}
+                                        initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                                        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                                        exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                                        transition={contextualIconTransition}
                                         className="grid h-4 w-4 shrink-0 place-items-center text-[#a1a1aa]"
                                       >
                                         <Loader2 size={12} className="animate-spin" aria-hidden="true" />
@@ -487,10 +488,10 @@ export default function TopNav() {
                                     ) : !item.is_read && (
                                       <motion.span
                                         key="unread"
-                                        initial={{ opacity: 0, scale: 0.7 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.7 }}
-                                        transition={{ duration: 0.14 }}
+                                        initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                                        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                                        exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                                        transition={contextualIconTransition}
                                         className="h-2 w-2 shrink-0 rounded-full bg-[#f5900b]"
                                       />
                                     )}
@@ -502,7 +503,7 @@ export default function TopNav() {
                                 type="button"
                                 onClick={() => void removeNotification(item)}
                                 disabled={isDeleting || deletingAll}
-                                className="mr-1 grid h-8 w-8 place-items-center rounded-[10px] border-0 bg-transparent text-[#a1a1aa] opacity-0 transition duration-150 hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed"
+                                className="mr-1 grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#a1a1aa] opacity-0 transition-[background-color,color,opacity,transform] duration-150 hover:bg-red-50 hover:text-red-500 active:scale-[0.96] group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:active:scale-100"
                                 title="Delete notification"
                                 aria-label={`Delete notification: ${item.title}`}
                               >
@@ -527,11 +528,11 @@ export default function TopNav() {
                 setMenuOpen((value) => !value)
                 setNotificationsOpen(false)
               }}
-              className="grid h-11 w-11 place-items-center overflow-hidden rounded-[14px] border border-[#e4e4e7] bg-[#e4e4e7] text-sm font-black text-[#3a2fd3] transition duration-150 hover:-translate-y-px hover:border-[#d4d4d8] hover:bg-[#f4f4f5] active:scale-95"
+              className="grid h-11 w-11 place-items-center overflow-hidden rounded-[14px] border border-[#e4e4e7] bg-[#e4e4e7] text-sm font-black text-[#3a2fd3] transition-[background-color,border-color,color,transform] duration-150 hover:border-[#d4d4d8] hover:bg-[#f4f4f5] active:scale-[0.96]"
             >
               {user?.full_name?.[0]?.toUpperCase() || <User size={18} aria-hidden="true" />}
             </button>
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {menuOpen && (
                 <motion.div
                   initial={{ opacity: 0, y: -8, scale: 0.98 }}
@@ -553,7 +554,7 @@ export default function TopNav() {
                           <Link
                             href={href}
                             onClick={(event) => handleNavClick(event, href, isActive)}
-                            className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold no-underline transition hover:-translate-y-px ${
+                            className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold no-underline transition-[background-color,color] duration-150 ${
                               isActive ? 'bg-[#f0f0ff] text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
                             }`}
                             aria-current={isActive ? 'page' : undefined}
@@ -570,13 +571,13 @@ export default function TopNav() {
                     <p className="m-0 mt-1 truncate text-xs font-bold text-[#71717b]">{user?.email}</p>
                   </motion.div>
                   <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.025, duration: 0.14 }}>
-                    <Link href="/profile" onClick={() => setMenuOpen(false)} className="mt-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#52525c] no-underline transition hover:-translate-y-px hover:bg-[#f4f4f5]">
+                    <Link href="/profile" onClick={() => setMenuOpen(false)} className="mt-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#52525c] no-underline transition-[background-color,color] duration-150 hover:bg-[#f4f4f5]">
                       <User size={15} aria-hidden="true" />
                       Profile
                     </Link>
                   </motion.div>
                   <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04, duration: 0.14 }}>
-                    <button type="button" onClick={doLogout} className="flex w-full items-center gap-2 rounded-xl border-0 bg-transparent px-3 py-2 text-left text-sm font-bold text-red-500 transition hover:-translate-y-px hover:bg-red-50">
+                    <button type="button" onClick={doLogout} className="flex w-full items-center gap-2 rounded-xl border-0 bg-transparent px-3 py-2 text-left text-sm font-bold text-red-500 transition-[background-color,color] duration-150 hover:bg-red-50">
                       <LogOut size={15} aria-hidden="true" />
                       Log out
                     </button>
@@ -587,7 +588,7 @@ export default function TopNav() {
           </div>
         </div>
       </div>
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {pendingHref && (
           <motion.div
             key="top-nav-loading-rail"

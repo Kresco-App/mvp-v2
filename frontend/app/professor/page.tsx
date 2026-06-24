@@ -408,11 +408,11 @@ function DashboardMetricCard({
   const clampedProgress = Math.max(0, Math.min(100, progress))
 
   return (
-    <Link href={href} className="group grid min-h-[112px] content-between rounded-[14px] border border-[#ececf0] bg-[#fbfbfc] p-3 no-underline transition hover:-translate-y-0.5 hover:border-[#c7c8ff] hover:bg-white">
+    <Link href={href} className="group grid min-h-[112px] content-between rounded-[14px] border border-[#ececf0] bg-[#fbfbfc] p-3 no-underline transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:border-[#c7c8ff] hover:bg-white active:scale-[0.96]">
       <span>
         <span className="block truncate text-[11px] font-black uppercase tracking-[0.1em] text-[#71717b]">{label}</span>
         <span className="mt-2 flex items-end justify-between gap-2">
-          <strong className="block truncate text-[24px] font-black leading-none text-[#27272a]">{value}</strong>
+          <strong className="block truncate text-[24px] font-black leading-none text-[#27272a] tabular-nums">{value}</strong>
           <span className="flex h-8 items-end gap-1" aria-hidden="true">
             {bars.map((bar, index) => (
               <span key={`${label}-${index}`} className="w-1.5 rounded-full bg-[#c7c8ff]" style={{ height: `${Math.max(20, Math.min(100, bar))}%` }} />
@@ -422,7 +422,7 @@ function DashboardMetricCard({
         <span className="mt-1 block truncate text-[12px] font-bold text-[#71717b]">{detail}</span>
       </span>
       <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-[#e4e4e7]" aria-hidden="true">
-        <span className="block h-full rounded-full bg-[#453dee] transition-all duration-500 group-hover:bg-[#5b60f9]" style={{ width: `${clampedProgress}%` }} />
+        <span className="block h-full rounded-full bg-[#453dee] transition-[background-color,width] duration-500 group-hover:bg-[#5b60f9]" style={{ width: `${clampedProgress}%` }} />
       </span>
     </Link>
   )
@@ -478,7 +478,7 @@ function DashboardQueueRow({ item }: { item: DashboardRiskRadarItem }) {
   const clampedScore = Math.max(0, Math.min(100, item.score))
 
   return (
-    <Link href={item.href} className="group grid grid-cols-[1fr_auto] items-center gap-3 rounded-[12px] border border-[#ececf0] bg-[#fbfbfc] px-3 py-3 no-underline transition hover:-translate-y-0.5 hover:border-[#c7c8ff] hover:bg-white">
+    <Link href={item.href} className="group grid grid-cols-[1fr_auto] items-center gap-3 rounded-[12px] border border-[#ececf0] bg-[#fbfbfc] px-3 py-3 no-underline transition-[background-color,border-color] duration-150 ease-out hover:border-[#c7c8ff] hover:bg-white">
       <span className="min-w-0">
         <span className="flex items-center gap-2">
           <span className={`h-2 w-2 rounded-full ${dotClass}`} aria-hidden="true" />
@@ -489,7 +489,7 @@ function DashboardQueueRow({ item }: { item: DashboardRiskRadarItem }) {
       </span>
       <span className="inline-flex items-center gap-1 text-[12px] font-black text-[#453dee]">
         {item.action}
-        <ArrowRight size={13} className="transition group-hover:translate-x-0.5" />
+        <ArrowRight size={13} className="transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
       </span>
     </Link>
   )
@@ -501,13 +501,13 @@ function DashboardLiveLineupItem({ session }: { session: ProfessorLiveSession })
   const liveNow = session.status === 'live'
 
   return (
-    <Link href={`/professor/live/${session.id}`} className="group grid gap-2 rounded-[12px] border border-[#ececf0] bg-[#fbfbfc] px-3 py-3 no-underline transition hover:-translate-y-0.5 hover:border-[#c7c8ff] hover:bg-white">
+    <Link href={`/professor/live/${session.id}`} className="group grid gap-2 rounded-[12px] border border-[#ececf0] bg-[#fbfbfc] px-3 py-3 no-underline transition-[background-color,border-color] duration-150 ease-out hover:border-[#c7c8ff] hover:bg-white">
       <span className="flex items-start justify-between gap-3">
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-black text-[#27272a]">{session.title}</span>
           <span className="mt-1 block text-[11px] font-bold leading-4 text-[#71717b]">{formatDateTime(session.starts_at)}</span>
         </span>
-        <ArrowRight size={14} className="mt-0.5 shrink-0 text-[#453dee] transition group-hover:translate-x-0.5" />
+        <ArrowRight size={14} className="mt-0.5 shrink-0 text-[#453dee] transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
       </span>
       <span className="flex flex-wrap gap-1.5">
         <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-[#52525c]">{liveNow ? 'On air' : session.status}</span>
@@ -530,7 +530,7 @@ function DashboardCompactLink({
   value: number | string
 }) {
   return (
-    <Link href={href} className="flex items-center justify-between gap-3 rounded-[12px] border border-[#ececf0] bg-[#fbfbfc] px-3 py-3 text-[#27272a] no-underline transition hover:border-[#c7c8ff] hover:bg-white">
+    <Link href={href} className="flex items-center justify-between gap-3 rounded-[12px] border border-[#ececf0] bg-[#fbfbfc] px-3 py-3 text-[#27272a] no-underline transition-[background-color,border-color] duration-150 ease-out hover:border-[#c7c8ff] hover:bg-white">
       <span className="flex min-w-0 items-center gap-2 text-[13px] font-black">
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-white text-[#453dee]">{icon}</span>
         <span className="truncate">{label}</span>

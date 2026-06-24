@@ -34,7 +34,7 @@ export function QuizQuestionShell({ question }: { question: QuizPrimitiveQuestio
       </div>
 
       {'media' in question && question.media && question.type !== 'image_hotspot' && (
-        <div className="relative h-[210px] w-full overflow-hidden rounded-[14px] border border-[#e4e4e7]">
+        <div className="kresco-media-outline relative h-[210px] w-full overflow-hidden rounded-[14px]">
           <Image
             src={question.media.src}
             alt={question.media.alt}

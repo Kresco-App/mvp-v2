@@ -202,7 +202,7 @@ export default function ScientificCalculator({ onClose }: Props) {
               type="button"
               onClick={() => handleButton(btn)}
               className={cn(
-                'flex h-14 flex-col items-center justify-center rounded-xl border text-base font-semibold shadow-sm transition-all active:scale-[0.96]',
+                'flex h-14 flex-col items-center justify-center rounded-xl border text-base font-semibold shadow-sm transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96]',
                 ACCENT.has(btn) && 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700',
                 DANGER.has(btn) && 'border-red-100 bg-red-50 text-red-600 hover:bg-red-100',
                 MUTED.has(btn) && 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100',

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { randomBytes } from 'node:crypto'
 
 const backendPort = Number(process.env.KRESCO_E2E_BACKEND_PORT ?? 8010)
 const frontendPort = Number(process.env.KRESCO_E2E_FRONTEND_PORT ?? 3101)
@@ -10,7 +11,27 @@ if (process.env.CI && !process.env.KRESCO_E2E_DATABASE_URL) {
   throw new Error('KRESCO_E2E_DATABASE_URL is required for CI integration tests.')
 }
 const e2eDatabaseUrl = process.env.KRESCO_E2E_DATABASE_URL ?? localE2eDatabaseUrl
-const jwtSecretKey = process.env.JWT_SECRET_KEY ?? 'test-secret-key-for-ci-32-bytes-minimum'
+
+function resolveAdminPassword() {
+  const configured = process.env.ADMIN_PASSWORD?.trim()
+  if (configured) return configured
+
+  const generated = `e2e-admin-${randomBytes(24).toString('hex')}`
+  process.env.ADMIN_PASSWORD = generated
+  return generated
+}
+
+function resolveJwtSecretKey() {
+  const configured = process.env.JWT_SECRET_KEY?.trim()
+  if (configured) return configured
+
+  const generated = randomBytes(32).toString('hex')
+  process.env.JWT_SECRET_KEY = generated
+  return generated
+}
+
+const adminPassword = resolveAdminPassword()
+const jwtSecretKey = resolveJwtSecretKey()
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -33,7 +54,7 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         ...process.env,
-        ADMIN_PASSWORD: process.env.ADMIN_PASSWORD ?? 'test-admin-password',
+        ADMIN_PASSWORD: adminPassword,
         CORS_ALLOWED_ORIGINS: frontendOrigin,
         CORS_ALLOW_ORIGIN_REGEX: '',
         DATABASE_URL: e2eDatabaseUrl,

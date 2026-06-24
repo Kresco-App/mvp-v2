@@ -9,7 +9,7 @@ import { localizedCopy } from '@/lib/localization'
 import { confirmFirebasePasswordReset } from '@/lib/firebaseAuth'
 
 const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
-const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-200 ease-out active:scale-[0.99] disabled:active:scale-100'
+const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-200 ease-out active:scale-[0.96] disabled:active:scale-100'
 const pageClass = 'flex min-h-[100svh] flex-col items-center justify-center overflow-y-auto bg-[var(--auth-bg)] p-6'
 const panelClass = 'flex w-full max-w-[380px] flex-col items-center'
 const inputClass = 'min-h-12 w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-[var(--auth-text-muted)] focus:border-[var(--auth-input-border-focus)] focus:bg-white focus:shadow-[0_0_0_3px_rgba(69,61,238,0.12)]'
@@ -113,7 +113,7 @@ function ResetPasswordContent() {
                     type="button"
                     aria-label={showPassword ? localizedCopy.auth.hidePassword : localizedCopy.auth.showPassword}
                     onClick={() => setShowPassword(v => !v)}
-                    className={`absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-[var(--auth-text-muted)] hover:bg-white hover:text-[var(--auth-text)] ${buttonMotionClass} ${focusRingClass}`}
+                    className={`absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-[var(--auth-text-muted)] hover:bg-white hover:text-[var(--auth-text)] ${buttonMotionClass} ${focusRingClass}`}
                   >
                     {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                   </button>

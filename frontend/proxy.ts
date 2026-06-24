@@ -79,6 +79,7 @@ function getContentSecurityPolicyTemplate(nonceSource: string) {
     'https://accounts.google.com',
     'https://apis.google.com',
     'https://player.vdocipher.com',
+    'https://www.youtube.com',
     ...devScriptSources,
   ])
   const styleElemIntegritySources = allowDevOverlayStyles
@@ -160,6 +161,14 @@ function withSecurityHeaders(response: NextResponse, csp: string) {
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
   response.headers.set('X-Frame-Options', 'DENY')
   response.headers.set('X-Content-Type-Options', 'nosniff')
+  response.headers.set('X-DNS-Prefetch-Control', 'on')
+  response.headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups')
+  response.headers.set('Origin-Agent-Cluster', '?1')
+  response.headers.set('X-Download-Options', 'noopen')
+  response.headers.set('X-Permitted-Cross-Domain-Policies', 'none')
+  if (process.env.NODE_ENV === 'production') {
+    response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  }
   return response
 }
 

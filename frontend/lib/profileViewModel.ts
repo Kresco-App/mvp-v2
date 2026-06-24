@@ -1,6 +1,7 @@
 import { getBackendUrl } from '@/lib/apiConfig'
 import { getLeagueInfoByKey, rankToLeagueKey } from '@/lib/leaderboardLeagues'
 import { canonicalSubject as resolveCanonicalSubject } from '@/lib/subjectIdentity'
+import { sanitizeNavigationUrl } from '@/lib/urlSafety'
 import type {
   PermanentSidebarCalendarDay,
   PermanentSidebarCountdownUnit,
@@ -440,9 +441,9 @@ function positiveIntOrFallback(value: unknown, fallback: number) {
 
 export function mediaUrl(value?: string) {
   if (!value) return ''
-  if (/^(https?:|data:|blob:)/.test(value)) return value
   if (value.startsWith('/figma-assets/')) return value
-  return getBackendUrl(value)
+  const safeUrl = sanitizeNavigationUrl(value)
+  return safeUrl || getBackendUrl(value)
 }
 
 export function polarPoint(cx: number, cy: number, r: number, index: number, total: number) {

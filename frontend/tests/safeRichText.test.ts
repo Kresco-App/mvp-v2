@@ -37,15 +37,16 @@ describe('SafeRichText', () => {
 
   it('keeps only safe link attributes', () => {
     const container = renderComponent(React.createElement(React.Fragment, null, renderSanitizedHtml(
-      '<a href="javascript:alert(1)" target="_self">bad</a><a href="https://kresco.example" target="_blank">good</a><span style="color:red">clean</span>',
+      '<a href="javascript:alert(1)" target="_self">bad</a><a href="//evil.example/phish">evil</a><a href="https://kresco.example" target="_blank">good</a><span style="color:red">clean</span>',
     )))
 
     const links = container.querySelectorAll('a')
     expect(links[0]?.hasAttribute('href')).toBe(false)
     expect(links[0]?.hasAttribute('target')).toBe(false)
-    expect(links[1]?.getAttribute('href')).toBe('https://kresco.example')
-    expect(links[1]?.getAttribute('target')).toBe('_blank')
-    expect(links[1]?.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(links[1]?.hasAttribute('href')).toBe(false)
+    expect(links[2]?.getAttribute('href')).toBe('https://kresco.example')
+    expect(links[2]?.getAttribute('target')).toBe('_blank')
+    expect(links[2]?.getAttribute('rel')).toBe('noopener noreferrer')
     expect(container.querySelector('span')?.hasAttribute('style')).toBe(false)
   })
 

@@ -1,6 +1,7 @@
 'use client'
 
-import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react'
+import Image from 'next/image'
 import {
   Check,
   CircleDot,
@@ -58,11 +59,11 @@ function ChoiceQuestion({ question }: { question: Extract<QuizPrimitiveQuestion,
             key={option.id}
             type="button"
             onClick={() => setSelected(option.id)}
-            className={`overflow-hidden rounded-[14px] border-2 text-left transition ${
+            className={`overflow-hidden rounded-[14px] border-2 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 active:scale-[0.96] ${
               active ? 'border-[#453dee] bg-[#eef2ff]' : 'border-[#e4e4e7] bg-white hover:border-[#b9bcff]'
             }`}
           >
-            {option.image && <img src={option.image} alt="" className="h-28 w-full object-cover" />}
+            {option.image && <Image src={option.image} alt="" width={320} height={112} unoptimized className="kresco-media-outline h-28 w-full object-cover" />}
             <span className="flex min-h-[54px] items-center justify-between gap-3 px-4 py-3">
               <strong className="text-[13px] font-black text-[#3f3f46]">{option.label}</strong>
               {active && (correct ? <Check size={18} className="text-[#16a34a]" /> : <X size={18} className="text-[#dc2626]" />)}
@@ -90,7 +91,7 @@ function MultiSelectQuestion({ question }: { question: Extract<QuizPrimitiveQues
             key={option.id}
             type="button"
             onClick={() => toggle(option.id)}
-            className={`flex min-h-[64px] items-center justify-between gap-3 rounded-[14px] border-2 px-4 py-3 text-left transition ${
+            className={`flex min-h-[64px] items-center justify-between gap-3 rounded-[14px] border-2 px-4 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 active:scale-[0.96] ${
               active ? 'border-[#453dee] bg-[#eef2ff]' : 'border-[#e4e4e7] bg-white hover:border-[#b9bcff]'
             }`}
           >
@@ -143,7 +144,7 @@ function SliderQuestion({ question }: { question: Extract<QuizPrimitiveQuestion,
       <div className="grid gap-3 rounded-[14px] bg-white p-4 ring-1 ring-[#e4e4e7]">
         <div className="flex items-end justify-between gap-3">
           <span className="text-[12px] font-black uppercase tracking-[0.1em] text-[#71717b]">Estimate</span>
-          <strong className="text-[30px] font-black leading-none text-[#453dee]">
+          <strong className="tabular-nums text-[30px] font-black leading-none text-[#453dee]">
             {value.toFixed(1)} {question.unit}
           </strong>
         </div>
@@ -159,14 +160,14 @@ function SliderQuestion({ question }: { question: Extract<QuizPrimitiveQuestion,
           className="h-3 w-full accent-[#453dee]"
         />
         <div className="flex justify-between text-[11px] font-black text-[#9f9fa9]">
-          <span>{question.min} {question.unit}</span>
-          <span>{question.max} {question.unit}</span>
+          <span className="tabular-nums">{question.min} {question.unit}</span>
+          <span className="tabular-nums">{question.max} {question.unit}</span>
         </div>
       </div>
       <button
         type="button"
         onClick={() => setAttempted(true)}
-        className="min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] transition hover:-translate-y-0.5"
+        className="min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] transition-[background-color,box-shadow,transform] duration-150 ease-out active:scale-[0.96]"
       >
         Validate estimate
       </button>
@@ -230,7 +231,7 @@ function FormulaBuilderQuestion({ question }: { question: Extract<QuizPrimitiveQ
                 type="button"
                 layout
                 onClick={() => setBuilt((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                className="rounded-[10px] bg-[#eef2ff] px-3 py-2 text-[18px] font-black text-[#453dee] ring-1 ring-[#cfd3ff]"
+                className="rounded-[10px] bg-[#eef2ff] px-3 py-2 text-[18px] font-black text-[#453dee] ring-1 ring-[#cfd3ff] transition-transform duration-200 active:scale-[0.96]"
               >
                 {token?.label ?? id}
               </motion.button>
@@ -240,7 +241,7 @@ function FormulaBuilderQuestion({ question }: { question: Extract<QuizPrimitiveQ
         <button
           type="button"
           onClick={() => setBuilt([])}
-          className="grid h-11 w-11 place-items-center rounded-[12px] bg-white text-[#71717b] ring-1 ring-[#e4e4e7] transition hover:text-[#453dee]"
+          className="grid h-11 w-11 place-items-center rounded-[12px] bg-white text-[#71717b] ring-1 ring-[#e4e4e7] transition-[color,transform] duration-200 hover:text-[#453dee] active:scale-[0.96]"
           aria-label="Reset formula"
         >
           <RotateCcw size={18} />
@@ -252,7 +253,7 @@ function FormulaBuilderQuestion({ question }: { question: Extract<QuizPrimitiveQ
             key={token.id}
             type="button"
             onClick={() => addToken(token.id)}
-            className="min-h-[52px] rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[16px] font-black text-[#3f3f46] transition hover:-translate-y-0.5 hover:border-[#453dee] hover:bg-[#eef2ff] hover:text-[#453dee]"
+            className="min-h-[52px] rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[16px] font-black text-[#3f3f46] transition-[background-color,border-color,color,transform] duration-150 ease-out hover:border-[#453dee] hover:bg-[#eef2ff] hover:text-[#453dee] active:scale-[0.96]"
           >
             {token.label}
           </button>
@@ -278,7 +279,7 @@ function ErrorSpottingQuestion({ question }: { question: Extract<QuizPrimitiveQu
               key={line.id}
               type="button"
               onClick={() => setSelected(line.id)}
-              className={`rounded-[12px] border-2 px-4 py-3 text-left text-[14px] font-black transition ${
+              className={`rounded-[12px] border-2 px-4 py-3 text-left text-[14px] font-black transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] ${
                 active
                   ? correct
                     ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'
@@ -322,7 +323,7 @@ function OrderingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
           transition={{ type: 'spring', stiffness: 520, damping: 36 }}
           className="grid cursor-grab grid-cols-[34px_24px_minmax(0,1fr)] items-center gap-3 rounded-[14px] border border-[#e4e4e7] bg-white px-3 py-3 active:cursor-grabbing"
         >
-          <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-[#f7f8fb] text-[13px] font-black text-[#71717b]">{index + 1}</span>
+          <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-[#f7f8fb] text-[13px] font-black text-[#71717b] tabular-nums">{index + 1}</span>
           <GripVertical size={17} className="text-[#9f9fa9]" />
           <strong className="truncate text-[14px] font-black text-[#3f3f46]">{item.label}</strong>
         </Reorder.Item>
@@ -336,13 +337,23 @@ function MatchingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
   const [matched, setMatched] = useState<Record<string, string>>({})
   const [lastMatched, setLastMatched] = useState<string[]>([])
   const [wrongIds, setWrongIds] = useState<string[]>([])
+  const labelById = useMemo(() => (
+    new Map([...question.left, ...question.right].map((item) => [item.id, item.label]))
+  ), [question.left, question.right])
+  const leftPairNumberById = useMemo(() => (
+    new Map(question.left.map((left, index) => [left.id, index + 1]))
+  ), [question.left])
+  const rightPairNumberById = useMemo(() => (
+    new Map(question.left.map((left, index) => [question.answer[left.id], index + 1]))
+  ), [question.answer, question.left])
+  const matchedIds = useMemo(() => (
+    new Set([...Object.keys(matched), ...Object.values(matched)])
+  ), [matched])
   const matchedCount = Object.keys(matched).length
-  const selectedLabel = selected
-    ? [...question.left, ...question.right].find((item) => item.id === selected.id)?.label
-    : null
+  const selectedLabel = selected ? labelById.get(selected.id) : null
 
   function isMatched(id: string) {
-    return Object.keys(matched).includes(id) || Object.values(matched).includes(id)
+    return matchedIds.has(id)
   }
 
   function isSelected(side: 'left' | 'right', id: string) {
@@ -382,7 +393,7 @@ function MatchingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
               {selectedLabel ? `Now choose a match for ${selectedLabel}` : 'Pick a term from either side'}
             </p>
           </div>
-          <span className="rounded-full bg-white px-3 py-1.5 text-[12px] font-black text-[#453dee] ring-1 ring-[#e4e4e7]">
+          <span className="rounded-full bg-white px-3 py-1.5 text-[12px] font-black text-[#453dee] ring-1 ring-[#e4e4e7] tabular-nums">
             {matchedCount}/{question.left.length} paired
           </span>
         </div>
@@ -401,7 +412,7 @@ function MatchingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
           {question.left.map((left) => (
             <MatchingTile
               key={left.id}
-              pairNumber={question.left.findIndex((item) => item.id === left.id) + 1}
+              pairNumber={leftPairNumberById.get(left.id) ?? 0}
               label={left.label}
               matched={isMatched(left.id)}
               selected={isSelected('left', left.id)}
@@ -426,7 +437,7 @@ function MatchingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
           {question.right.map((right) => (
             <MatchingTile
               key={right.id}
-              pairNumber={question.left.findIndex((left) => question.answer[left.id] === right.id) + 1}
+              pairNumber={rightPairNumberById.get(right.id) ?? 0}
               label={right.label}
               matched={isMatched(right.id)}
               selected={isSelected('right', right.id)}
@@ -477,7 +488,7 @@ function MatchingTile({
       disabled={matched}
       animate={wrong ? { x: [0, -6, 6, -3, 3, 0], scale: [1, 1.015, 1] } : recent && matched ? { scale: [1, 1.035, 1] } : { scale: 1 }}
       transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
-      className={`min-h-[58px] rounded-[14px] border-2 px-4 text-left text-[16px] font-black transition ${
+      className={`min-h-[58px] rounded-[14px] border-2 px-4 text-left text-[16px] font-black transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] disabled:active:scale-100 ${
         matched
           ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d] opacity-60'
           : wrong
@@ -489,7 +500,7 @@ function MatchingTile({
     >
       <span className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 items-center gap-3">
-          <span className={`grid h-7 w-7 flex-none place-items-center rounded-[9px] text-[12px] ${
+          <span className={`grid h-7 w-7 flex-none place-items-center rounded-[9px] text-[12px] tabular-nums ${
             matched ? 'bg-[#dcfce7] text-[#15803d]' : wrong ? 'bg-[#facc15] text-[#713f12]' : selected ? 'bg-[#453dee] text-white' : 'bg-[#f7f8fb] text-[#71717b]'
           }`}>
             {pairNumber}
@@ -512,8 +523,22 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
   const zoneRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const tokenRefs = useRef<Record<string, HTMLButtonElement | null>>({})
 
+  const itemById = useMemo(() => (
+    new Map(question.items.map((item) => [item.id, item]))
+  ), [question.items])
+  const assignedItemIdsByZone = useMemo(() => {
+    const next = new Map<string, string[]>()
+    for (const item of question.items) {
+      const zoneId = assignments[item.id]
+      if (!zoneId) continue
+      const ids = next.get(zoneId) ?? []
+      ids.push(item.id)
+      next.set(zoneId, ids)
+    }
+    return next
+  }, [assignments, question.items])
   const unassignedItems = question.items.filter((item) => !assignments[item.id])
-  const draggedItem = question.items.find((item) => item.id === draggedId)
+  const draggedItem = draggedId ? itemById.get(draggedId) : undefined
 
   function pointInside(element: HTMLDivElement | null, point: { x: number; y: number }) {
     if (!element) return false
@@ -537,9 +562,14 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
 
   function orderedZoneItems(zoneId: string) {
     const orderedIds = zoneOrders[zoneId] ?? []
-    const assignedIds = question.items.filter((item) => assignments[item.id] === zoneId).map((item) => item.id)
-    const ids = [...orderedIds.filter((id) => assignedIds.includes(id)), ...assignedIds.filter((id) => !orderedIds.includes(id))]
-    return ids.map((id) => question.items.find((item) => item.id === id)).filter((item): item is Option => Boolean(item))
+    const assignedIds = assignedItemIdsByZone.get(zoneId) ?? []
+    const assignedIdSet = new Set(assignedIds)
+    const orderedIdSet = new Set(orderedIds)
+    const ids = [...orderedIds.filter((id) => assignedIdSet.has(id)), ...assignedIds.filter((id) => !orderedIdSet.has(id))]
+    return ids.flatMap((id) => {
+      const item = itemById.get(id)
+      return item ? [item] : []
+    })
   }
 
   function insertionIndexForZone(zoneId: string, point: { x: number; y: number }) {
@@ -603,7 +633,7 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
 
   return (
     <div className="grid gap-4">
-      <div className={`rounded-[14px] px-4 py-3 text-[13px] font-black transition ${
+      <div className={`rounded-[14px] px-4 py-3 text-[13px] font-black transition-[background-color,color] duration-200 ${
         draggedItem ? 'bg-[#eef2ff] text-[#453dee]' : 'bg-[#f7f8fb] text-[#71717b]'
       }`}>
         {draggedItem ? `Dragging ${draggedItem.label}. Drop it into a highlighted family.` : 'Grab a token and drop it into the right family.'}
@@ -612,7 +642,7 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
       <div className="grid grid-cols-[220px_minmax(0,1fr)] gap-4 max-[760px]:grid-cols-1">
       <div
         ref={poolRef}
-        className={`relative grid min-h-[210px] content-start gap-2 rounded-[16px] border-2 border-dashed p-3 transition ${
+        className={`relative grid min-h-[210px] content-start gap-2 rounded-[16px] border-2 border-dashed p-3 transition-[background-color,border-color,box-shadow] duration-200 ${
           activeZone === 'pool'
             ? 'z-10 border-[#453dee] bg-[#eef2ff] shadow-[0_10px_24px_rgba(58,47,211,0.08)]'
             : 'border-[#e4e4e7] bg-[#f7f8fb]'
@@ -642,52 +672,57 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
         ))}
       </div>
       <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
-        {question.zones.map((zone) => (
-          <div
-            key={zone.id}
-            ref={(node) => {
-              zoneRefs.current[zone.id] = node
-            }}
-            className={`relative min-h-[210px] overflow-visible rounded-[16px] border-2 border-dashed p-3 transition ${
-              activeZone === zone.id
-                ? 'z-10 border-[#453dee] bg-[#eef2ff] shadow-[0_12px_28px_rgba(58,47,211,0.10)]'
-                : 'border-[#cfd3ff] bg-[#f7f8fb]'
-            }`}
-          >
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <strong className="block text-[13px] font-black text-[#453dee]">{zone.label}</strong>
+        {question.zones.map((zone) => {
+          const zoneItems = orderedZoneItems(zone.id)
+          const visibleZoneItems = zoneItems.filter((item) => item.id !== draggedId)
+
+          return (
+            <div
+              key={zone.id}
+              ref={(node) => {
+                zoneRefs.current[zone.id] = node
+              }}
+              className={`relative min-h-[210px] overflow-visible rounded-[16px] border-2 border-dashed p-3 transition-[background-color,border-color,box-shadow] duration-200 ${
+                activeZone === zone.id
+                  ? 'z-10 border-[#453dee] bg-[#eef2ff] shadow-[0_12px_28px_rgba(58,47,211,0.10)]'
+                  : 'border-[#cfd3ff] bg-[#f7f8fb]'
+              }`}
+            >
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <strong className="block text-[13px] font-black text-[#453dee]">{zone.label}</strong>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {zoneItems.map((item, index) => (
+                  <div key={item.id} className="grid gap-2">
+                    {activeZone === zone.id && activeInsertIndex === index && item.id !== draggedId && <DropSlot />}
+                    <DragToken
+                      item={item}
+                      assigned
+                      correct={question.answer[item.id] === zone.id}
+                      dragging={draggedId === item.id}
+                      onDragStart={() => handleDragStart(item.id)}
+                      onDrag={handleTokenDrag}
+                      onDragEnd={(event, info) => handleTokenDragEnd(item.id, event, info)}
+                      setTokenRef={(node) => {
+                        tokenRefs.current[item.id] = node
+                      }}
+                    />
+                  </div>
+                ))}
+                {activeZone === zone.id && activeInsertIndex === visibleZoneItems.length && <DropSlot />}
+                {zoneItems.length === 0 && activeZone !== zone.id && (
+                  <span className={`rounded-[12px] px-3 py-8 text-center text-[12px] font-black transition-[background-color,color] duration-200 ${
+                    activeZone === zone.id
+                      ? 'bg-white text-[#453dee]'
+                      : 'bg-white text-[#9f9fa9]'
+                  }`}>
+                    {activeZone === zone.id ? 'Release to place' : 'Drop here'}
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="mt-3 grid gap-2">
-              {orderedZoneItems(zone.id).map((item, index) => (
-                <div key={item.id} className="grid gap-2">
-                  {activeZone === zone.id && activeInsertIndex === index && item.id !== draggedId && <DropSlot />}
-                  <DragToken
-                    item={item}
-                    assigned
-                    correct={question.answer[item.id] === zone.id}
-                    dragging={draggedId === item.id}
-                    onDragStart={() => handleDragStart(item.id)}
-                    onDrag={handleTokenDrag}
-                    onDragEnd={(event, info) => handleTokenDragEnd(item.id, event, info)}
-                    setTokenRef={(node) => {
-                      tokenRefs.current[item.id] = node
-                    }}
-                  />
-                </div>
-              ))}
-              {activeZone === zone.id && activeInsertIndex === orderedZoneItems(zone.id).filter((item) => item.id !== draggedId).length && <DropSlot />}
-              {orderedZoneItems(zone.id).length === 0 && activeZone !== zone.id && (
-                <span className={`rounded-[12px] px-3 py-8 text-center text-[12px] font-black transition ${
-                  activeZone === zone.id
-                    ? 'bg-white text-[#453dee]'
-                    : 'bg-white text-[#9f9fa9]'
-                }`}>
-                  {activeZone === zone.id ? 'Release to place' : 'Drop here'}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
       </div>
     </div>
@@ -728,7 +763,7 @@ function DragToken({
       onDrag={onDrag}
       onDragEnd={onDragEnd}
       whileHover={{ y: -2, boxShadow: '0 10px 24px rgba(24, 24, 27, 0.10)' }}
-      whileTap={{ scale: 0.985 }}
+      whileTap={{ scale: 0.96 }}
       animate={{
         scale: dragging ? 1.035 : 1,
         rotate: dragging ? -0.7 : 0,
@@ -962,13 +997,13 @@ function HotspotQuestion({ question }: { question: Extract<QuizPrimitiveQuestion
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_150px] gap-3 max-[760px]:grid-cols-1">
-        <div className="rounded-[12px] bg-[#f7f8fb] px-4 py-3 text-[13px] font-black text-[#71717b]" aria-live="polite">
+        <div className="rounded-[12px] bg-[#f7f8fb] px-4 py-3 text-[13px] font-black text-[#71717b] tabular-nums" aria-live="polite">
           x {cursor.x.toFixed(0)}%, y {cursor.y.toFixed(0)}%. Drag the circle, click the diagram, or use arrow keys.
         </div>
         <button
           type="button"
           onClick={validate}
-          className="min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] transition hover:-translate-y-0.5"
+          className="min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] transition-[background-color,box-shadow,transform] duration-150 ease-out active:scale-[0.96]"
         >
           Validate region
         </button>

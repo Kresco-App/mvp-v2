@@ -28,14 +28,14 @@ const SPECIALITES = [
 ]
 
 const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
-const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-200 ease-out active:scale-[0.99] disabled:active:scale-100'
+const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-200 ease-out active:scale-[0.96] disabled:active:scale-100'
 const pageClass = 'relative flex min-h-[100svh] flex-col items-center justify-center overflow-y-auto bg-[var(--auth-bg)] px-5 py-6 sm:py-8'
 const panelClass = 'flex w-full max-w-[380px] flex-col items-center'
-const titleClass = 'mb-1 text-center text-[24px] font-bold text-[var(--auth-text)]'
-const sectionTitleClass = 'mb-1.5 text-center text-[22px] font-bold text-[var(--auth-text)]'
-const bodyClass = 'text-center text-[14px] leading-normal text-[var(--auth-text-muted)]'
-const bodySpaciousClass = 'text-center text-[14px] leading-[1.5] text-[var(--auth-text-muted)]'
-const inputClass = 'min-h-12 w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-[var(--auth-text-muted)] focus:border-[var(--auth-input-border-focus)] focus:bg-white focus:shadow-[0_0_0_3px_rgba(69,61,238,0.12)]'
+const titleClass = 'mb-1 text-balance text-center text-[24px] font-bold text-[var(--auth-text)]'
+const sectionTitleClass = 'mb-1.5 text-balance text-center text-[22px] font-bold text-[var(--auth-text)]'
+const bodyClass = 'text-pretty text-center text-[14px] leading-normal text-[var(--auth-text-muted)]'
+const bodySpaciousClass = 'text-pretty text-center text-[14px] leading-[1.5] text-[var(--auth-text-muted)]'
+const inputClass = 'min-h-12 w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-[var(--auth-text-muted)] focus-visible:border-[var(--auth-input-border-focus)] focus-visible:bg-white focus-visible:shadow-[0_0_0_3px_rgba(69,61,238,0.12)]'
 const labelClass = 'mb-1.5 block text-[13px] font-medium text-[var(--auth-text-hint)]'
 const primaryButtonClass = `flex min-h-12 w-full items-center justify-center gap-2 rounded-[14px] border-0 bg-[var(--auth-primary)] p-[14px] text-[15px] font-semibold text-white shadow-[0_8px_22px_rgba(69,61,238,0.18)] hover:bg-[#3a2fd3] disabled:cursor-not-allowed disabled:opacity-[0.45] disabled:shadow-none ${buttonMotionClass} ${focusRingClass}`
 const outlineButtonClass = `min-h-12 w-full rounded-[14px] border border-[var(--auth-outline-border)] bg-transparent p-[13px] text-[14px] font-medium text-[var(--auth-text)] hover:border-[var(--auth-outline-hover)] hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-[0.55] ${buttonMotionClass} ${focusRingClass}`
@@ -85,7 +85,7 @@ function AppleIcon() {
 
 function LoadingText({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center justify-center gap-2">
+    <span className="inline-flex items-center justify-center gap-2" aria-live="polite">
       <Loader2 size={16} className="animate-spin" aria-hidden="true" />
       {label}
     </span>
@@ -157,13 +157,15 @@ export function AuthPageView(controller: AuthPageController) {
     step,
     triggerGoogle,
   } = controller
+  const progressStep = step === 'auth' ? 1 : step === 'niveau' ? 2 : 3
 
   return (
-    <main className={pageClass} aria-busy={loading}>
-      <div ref={hiddenGoogleRef} className={hiddenGoogleClass} />
+    <main id="main-content" tabIndex={-1} className={pageClass} aria-busy={loading}>
+      <div ref={hiddenGoogleRef} className={hiddenGoogleClass} aria-hidden="true" />
 
       <div className={panelClass}>
-        <div className={progressTrackClass}>
+        <progress className="sr-only" aria-label="Progression d'inscription" value={progressStep} max={3} />
+        <div className={progressTrackClass} aria-hidden="true">
           <div className={cx(progressFillClass, progressWidthClass)} />
         </div>
 
@@ -195,7 +197,7 @@ export function AuthPageView(controller: AuthPageController) {
                 </div>
 
                 {loading && (
-                  <p className="mt-2 inline-flex items-center gap-2 text-[12px] text-[var(--auth-text-muted)]" role="status">
+                  <p className="mt-2 inline-flex items-center gap-2 text-[12px] text-[var(--auth-text-muted)]" aria-live="polite">
                     <Loader2 size={13} className="animate-spin" aria-hidden="true" />
                     {localizedCopy.auth.loginLoading}
                   </p>
@@ -228,20 +230,20 @@ export function AuthPageView(controller: AuthPageController) {
                 <form onSubmit={handleSignup} className={formClass}>
                   <div>
                     <label htmlFor="signup-full-name" className={labelClass}>{localizedCopy.auth.fullName}</label>
-                    <input id="signup-full-name" aria-label={localizedCopy.auth.fullName} type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder={localizedCopy.auth.fullNamePlaceholder} required className={inputClass} />
+                    <input id="signup-full-name" name="name" autoComplete="name" aria-label={localizedCopy.auth.fullName} type="text" value={fullName} onChange={e => setFullName(e.target.value)} placeholder={localizedCopy.auth.fullNamePlaceholder} required className={inputClass} />
                   </div>
                   <div>
                     <label htmlFor="signup-email" className={labelClass}>{localizedCopy.auth.email}</label>
-                    <input id="signup-email" aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
+                    <input id="signup-email" name="email" autoComplete="email" inputMode="email" spellCheck={false} aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
                   </div>
                   <div>
                     <label htmlFor="signup-password" className={labelClass}>{localizedCopy.auth.password}</label>
                     <div className="relative">
-                      <input id="signup-password" aria-label={localizedCopy.auth.password} type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                      <input id="signup-password" name="new-password" autoComplete="new-password" spellCheck={false} aria-label={localizedCopy.auth.password} type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                         placeholder={localizedCopy.auth.passwordMinPlaceholder} required minLength={8}
                         className={cx(inputClass, 'pr-11')} />
                       <button type="button" aria-label={showPassword ? localizedCopy.auth.hidePassword : localizedCopy.auth.showPassword} onClick={() => setShowPassword(v => !v)}
-                        className={cx('absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-[var(--auth-text-muted)] hover:bg-white hover:text-[var(--auth-text)]', buttonMotionClass, focusRingClass)}>
+                        className={cx('absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-[var(--auth-text-muted)] hover:bg-white hover:text-[var(--auth-text)]', buttonMotionClass, focusRingClass)}>
                         {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                       </button>
                     </div>
@@ -294,7 +296,7 @@ export function AuthPageView(controller: AuthPageController) {
                 <form onSubmit={handleLogin} className={formClass}>
                   <div>
                     <label htmlFor="login-email" className={labelClass}>{localizedCopy.auth.email}</label>
-                    <input id="login-email" aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
+                    <input id="login-email" name="email" autoComplete="email" inputMode="email" spellCheck={false} aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
                   </div>
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
@@ -304,11 +306,11 @@ export function AuthPageView(controller: AuthPageController) {
                       </button>
                     </div>
                     <div className="relative">
-                      <input id="login-password" aria-label={localizedCopy.auth.password} type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                      <input id="login-password" name="current-password" autoComplete="current-password" spellCheck={false} aria-label={localizedCopy.auth.password} type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                         placeholder={localizedCopy.auth.passwordPlaceholder} required
                         className={cx(inputClass, 'pr-11')} />
                       <button type="button" aria-label={showPassword ? localizedCopy.auth.hidePassword : localizedCopy.auth.showPassword} onClick={() => setShowPassword(v => !v)}
-                        className={cx('absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-[var(--auth-text-muted)] hover:bg-white hover:text-[var(--auth-text)]', buttonMotionClass, focusRingClass)}>
+                        className={cx('absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border-0 bg-transparent text-[var(--auth-text-muted)] hover:bg-white hover:text-[var(--auth-text)]', buttonMotionClass, focusRingClass)}>
                         {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                       </button>
                     </div>
@@ -336,7 +338,7 @@ export function AuthPageView(controller: AuthPageController) {
                 <form onSubmit={handleForgot} className={formClass}>
                   <div>
                     <label htmlFor="forgot-email" className={labelClass}>{localizedCopy.auth.email}</label>
-                    <input id="forgot-email" aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
+                    <input id="forgot-email" name="email" autoComplete="email" inputMode="email" spellCheck={false} aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
                   </div>
                   <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
                     {loading ? <LoadingText label={localizedCopy.auth.resending} /> : localizedCopy.auth.sendLink}

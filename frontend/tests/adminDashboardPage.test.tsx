@@ -8,20 +8,28 @@ import AdminDashboard from '@/app/admin/page'
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
-  listAdminChangeRequests: vi.fn(),
 }))
 
 vi.mock('@/lib/apiClient', () => ({
   getJson: mocks.getJson,
 }))
 
-vi.mock('@/lib/apiConfig', () => ({
-  getAdminRootUrl: () => 'https://api.example.test/admin',
-}))
-
-vi.mock('@/lib/studio', () => ({
-  listAdminChangeRequests: mocks.listAdminChangeRequests,
-}))
+vi.mock('recharts', async () => {
+  const react = await import('react')
+  const Chart = () => react.createElement('div')
+  const Leaf = () => react.createElement('div')
+  return {
+    Area: Leaf,
+    AreaChart: Chart,
+    Bar: Leaf,
+    BarChart: Chart,
+    CartesianGrid: Leaf,
+    ResponsiveContainer: Chart,
+    Tooltip: Leaf,
+    XAxis: Leaf,
+    YAxis: Leaf,
+  }
+})
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -31,10 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
   mountedRoot = null
-  mocks.getJson.mockResolvedValue(adminOverviewFixture)
-  mocks.listAdminChangeRequests.mockResolvedValue([
-    { id: 1, pending_count: 2, operation_count: 2 },
-  ])
+  mocks.getJson.mockResolvedValue(founderDashboardFixture)
 })
 
 afterEach(() => {
@@ -48,26 +53,27 @@ afterEach(() => {
 })
 
 describe('AdminDashboard', () => {
-  it('renders finance, communication, and progress transparency panels', async () => {
+  it('renders founder operations dashboard panels', async () => {
     const { container } = renderPage()
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Paiements manuels')
-      expect(container.textContent).toContain('Messages et live')
-      expect(container.textContent).toContain('Signalements ouverts')
-      expect(container.textContent).toContain('Transactions par statut')
-      expect(container.textContent).toContain('Progression par statut')
-      expect(container.textContent).toContain('Utilisateurs et accès')
-      expect(container.textContent).toContain('Examens et calendrier')
-      expect(container.textContent).toContain('Gated content')
-      expect(container.textContent).toContain('Difficulté examens')
+      expect(container.textContent).toContain('Business dashboard')
+      expect(container.textContent).toContain('Student growth')
+      expect(container.textContent).toContain('Student status')
+      expect(container.textContent).toContain('Finance')
+      expect(container.textContent).toContain('Staff codes')
+      expect(container.textContent).toContain('Engagement')
+      expect(container.textContent).toContain('Private messages')
+      expect(container.textContent).toContain('Paid revenue')
+      expect(container.textContent).toContain('Revenue by rail')
+      expect(container.textContent).toContain('Expenses by category')
       expect(container.textContent).toContain('9,900 MAD')
-      expect(container.textContent).toContain('1 demande(s)')
-      expect(container.textContent).toContain('100% publié')
-      expect(container.textContent).not.toContain('10000%')
+      expect(container.textContent).toContain('1,980 MAD')
+      expect(container.textContent).toContain('Conversations')
+      expect(container.textContent).toContain('Messages month')
     })
 
-    expect(mocks.getJson).toHaveBeenCalledWith('/admin/overview')
+    expect(mocks.getJson.mock.calls[0]?.[0]).toMatch(/^\/admin\/founder-dashboard\?month=\d{4}-\d{2}$/)
   })
 })
 
@@ -100,78 +106,47 @@ async function waitFor(assertion: () => void) {
   throw lastError
 }
 
-const adminOverviewFixture = {
+const founderDashboardFixture = {
   generated_at: '2026-06-20T10:00:00Z',
-  totals: {
-    users: 12,
-    pro_users: 3,
-    topics: 8,
-    topic_items: 24,
-    resources: 6,
-    tab_contents: 18,
-    quiz_attempts: 14,
-    activity_events: 32,
-    exam_problems: 9,
-    exams: 2,
-  },
-  content_status: {
-    subjects: { published: 2 },
-    topics: { published: 8 },
-    topic_items: { published: 24 },
-  },
-  access_billing: {
-    users_by_role: { student: 10, professor: 1, admin: 1 },
-    entitlements_by_status: { active: 6, expired: 2 },
-    gated_content: 4,
-  },
-  ops_readiness: {},
-  progress_xp: {
-    total_xp: 3450,
-    completed_topic_items: 5,
-    completed_lessons: 2,
-    topic_item_progress_by_status: { completed: 5, in_progress: 3 },
-  },
-  exam_bank: {
-    problems_by_difficulty: { easy: 4, medium: 3, hard: 2 },
-    problems_with_written_solution: 5,
-    problems_with_video_solution: 2,
-  },
-  calendar: {
-    upcoming_events: 3,
-    events_by_status: { scheduled: 3, live: 1 },
-  },
-  engagement: {
-    active_users_7d: 6,
-    quiz_attempt_pass_rate: 75,
-    total_watch_minutes: 120,
-  },
-  interactions: {},
-  notifications: {
-    unread: 4,
-  },
+  month: '2026-06',
+  metrics: [
+    { key: 'students', label: 'Students', value: 12, previous_value: 10, unit: 'count' },
+    { key: 'new_students', label: 'New students', value: 6, previous_value: 4, unit: 'count' },
+    { key: 'mrr', label: 'MRR', value: 990000, previous_value: 850000, unit: 'centimes' },
+    { key: 'profit', label: 'Profit', value: 940000, previous_value: 790000, unit: 'centimes' },
+  ],
+  growth_by_day: [
+    { date: '2026-06-01', new_students: 2 },
+    { date: '2026-06-02', new_students: 4 },
+  ],
+  students_by_status: { paid: 3, trial: 2, registered: 7 },
+  students_by_tier: { pro: 3, free: 9 },
+  students_by_track: { '2bac': 12 },
   finance: {
     paid_revenue_centimes: 990000,
-    paid_revenue_7d_centimes: 198000,
-    pending_manual_review: 2,
-    pending_provider: 1,
-    failed_or_mismatch: 1,
-    provider_events_7d: 7,
-    ledger_entries_7d: 3,
-    transactions_by_status: { paid: 10, pending_manual_review: 2, failed: 1 },
+    staff_collected_revenue_centimes: 198000,
+    expenses_centimes: 50000,
+    arr_centimes: 11880000,
+    revenue_by_rail: { cmi: 750000, cashplus: 240000 },
+    expenses_by_category: { hosting: 50000 },
   },
-  communications: {
-    chat_unread_for_professors: 4,
-    chat_messages_7d: 9,
-    pending_live_interactions: 2,
-    open_reports: 3,
-    urgent_open_reports: 1,
-    reports_created_7d: 5,
-    live_sessions_live: 1,
-    chat_conversations_by_status: { open: 4 },
-    reports_by_status: { open: 3, resolved: 8 },
+  engagement: {
+    active_students_7d: 6,
+    approx_video_watch_minutes: 120,
+    live_joined_students_month: 14,
+    ai_quota_units_month: 42,
   },
-  admin_audit: {
-    created_7d: 3,
+  messages: {
+    private_conversations: 4,
+    private_messages_month: 9,
+    unread_for_professors: 4,
+    professors_with_chats: 2,
   },
-  crud_catalog: [],
+  staff_codes: {
+    generated_month: 20,
+    redeemed_month: 8,
+    unused_total: 12,
+    redeemed_staff_revenue_centimes: 198000,
+  },
+  expenses: [],
 }

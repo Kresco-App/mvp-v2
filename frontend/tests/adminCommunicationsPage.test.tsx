@@ -48,6 +48,8 @@ describe('AdminCommunicationsPage', () => {
       expect(container.textContent).toContain('Stale chats')
       expect(container.textContent).toContain('Unassigned')
       expect(container.textContent).toContain('Comms Student')
+      expect(container.textContent).toContain('Message transcript')
+      expect(container.textContent).toContain('Here is the professor answer.')
       expect(container.textContent).toContain('9')
       expect(mocks.getJson).toHaveBeenCalledWith('/admin/communications?limit=100')
     })
@@ -157,6 +159,38 @@ const communicationsFixture = {
       last_message_preview: 'Please check this live question.',
       last_message_at: '2026-06-20T01:50:00Z',
       updated_at: '2026-06-20T01:50:00Z',
+      messages: [
+        {
+          message_id: 901,
+          conversation_id: 41,
+          sender_user_id: 22,
+          sender_name: 'Comms Student',
+          sender_role: 'student',
+          body: 'Please check this live question.',
+          attachment_url: '',
+          attachment_name: '',
+          attachment_mime_type: '',
+          attachment_size: 0,
+          status: 'sent',
+          created_at: '2026-06-20T01:45:00Z',
+          read_at: null,
+        },
+        {
+          message_id: 902,
+          conversation_id: 41,
+          sender_user_id: 7,
+          sender_name: 'Prof Kresco',
+          sender_role: 'professor',
+          body: 'Here is the professor answer.',
+          attachment_url: '',
+          attachment_name: '',
+          attachment_mime_type: '',
+          attachment_size: 0,
+          status: 'sent',
+          created_at: '2026-06-20T01:50:00Z',
+          read_at: null,
+        },
+      ],
     },
   ],
   live_interactions: [

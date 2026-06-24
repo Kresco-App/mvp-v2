@@ -89,6 +89,8 @@ describe('permanent sidebar view model', () => {
     const entry = { avatar_url: '' }
 
     expect(getLeaderboardAvatarSrc({ avatar_url: 'https://cdn/avatar.png' }, 0)).toBe('https://cdn/avatar.png')
+    expect(getLeaderboardAvatarSrc({ avatar_url: 'data:text/html,phish' }, 0)).toBe('/figma-assets/sidebar-avatar-ahmed.png')
+    expect(getLeaderboardAvatarSrc({ avatar_url: 'blob:https://evil.example/avatar' }, 1)).toBe('/figma-assets/sidebar-avatar-fatima.png')
     expect(getLeaderboardAvatarSrc(entry, 1)).toBe('/figma-assets/sidebar-avatar-fatima.png')
     expect(getLeaderboardAvatarSrc(entry, 2)).toBe('/figma-assets/sidebar-avatar-ahmed.png')
   })

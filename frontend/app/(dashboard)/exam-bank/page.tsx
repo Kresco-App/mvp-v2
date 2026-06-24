@@ -314,7 +314,7 @@ function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
   const href = exam.firstProblemId ? `/exam-bank/${exam.id}?problem=${exam.firstProblemId}` : ''
 
   return (
-    <article className={`kresco-enter group relative flex min-h-[286px] w-full max-w-[344.33px] flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition hover:-translate-y-1 hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)] ${showLocked ? 'opacity-80' : ''}`}>
+    <article className={`kresco-enter group relative flex min-h-[286px] w-full max-w-[344.33px] flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition-[border-color,box-shadow] duration-150 ease-out hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)] ${showLocked ? 'opacity-80' : ''}`}>
       <div className={`absolute inset-y-0 left-0 w-1.5 ${sessionTone.accent}`} />
       <div className="pointer-events-none absolute -right-2 top-7 text-[76px] font-black leading-none tracking-[-5px] text-[color:var(--surface-hover)]" aria-hidden="true">{exam.year}</div>
       <div className="relative flex items-start justify-between gap-3">
@@ -358,12 +358,12 @@ function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
         {href ? (
           <Link
             href={href}
-            className={`mt-3.5 flex h-[44px] w-full items-center justify-between rounded-[13px] px-4 text-[14px] font-black text-white no-underline transition duration-200 ${
+            className={`mt-3.5 flex h-[44px] w-full items-center justify-between rounded-[13px] px-4 text-[14px] font-black text-white no-underline transition-[background-color,filter,transform] duration-150 ease-out active:scale-[0.96] ${
               exam.completedProblemCount === exam.totalProblemCount && exam.totalProblemCount > 0 ? 'bg-[color:var(--warning)]' : 'bg-[color:var(--primary)]'
             }`}
           >
             <span className="inline-flex items-center gap-2"><FileText size={15} strokeWidth={2.7} />{actionLabel}</span>
-            <ArrowRight size={16} strokeWidth={2.7} className="transition-transform group-hover:translate-x-0.5" />
+            <ArrowRight size={16} strokeWidth={2.7} className="transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
           </Link>
         ) : (
           <span className="mt-3.5 flex h-[44px] w-full items-center justify-center rounded-[13px] bg-[color:var(--surface-hover)] px-4 text-center text-[14px] font-black text-[color:var(--text-hint)]">

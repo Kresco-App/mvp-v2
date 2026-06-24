@@ -41,7 +41,7 @@ export function FigmaCourseSearchControls({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          className="h-[44px] w-[280px] max-w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46] outline-none transition placeholder:text-[#9f9fa9] focus:border-[#d4d4d8] focus:bg-white"
+          className="h-[44px] w-[280px] max-w-full rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] px-[16px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46] outline-none transition-[background-color,border-color] duration-200 placeholder:text-[#9f9fa9] focus:border-[#d4d4d8] focus:bg-white"
           placeholder="Search courses"
           type="search"
         />
@@ -50,7 +50,7 @@ export function FigmaCourseSearchControls({
           <button
             type="button"
             onClick={() => setSubjectOpen((value) => !value)}
-            className={`flex h-full w-full items-center justify-between rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] pl-[16px] pr-[12px] text-left text-[16px] font-bold leading-[1.1] tracking-[0.24px] outline-none transition hover:bg-white focus:border-[#d4d4d8] focus:bg-white ${
+            className={`flex h-full w-full items-center justify-between rounded-[14px] border border-[#e4e4e7] bg-[#f4f4f5] pl-[16px] pr-[12px] text-left text-[16px] font-bold leading-[1.1] tracking-[0.24px] outline-none transition-[background-color,border-color,transform] duration-200 hover:bg-white active:scale-[0.96] focus:border-[#d4d4d8] focus:bg-white ${
               selectedSubject ? 'text-[#3f3f46]' : 'text-[#9f9fa9]'
             }`}
             aria-expanded={subjectOpen}
@@ -73,7 +73,7 @@ export function FigmaCourseSearchControls({
                   onSubjectChange('')
                   setSubjectOpen(false)
                 }}
-                className={`flex h-10 w-full items-center justify-between rounded-[11px] px-3 text-left text-[14px] font-bold transition ${
+                className={`flex h-10 w-full items-center justify-between rounded-[11px] px-3 text-left text-[14px] font-bold transition-[background-color,color,transform] duration-200 active:scale-[0.96] ${
                   !subject ? 'bg-[#f0f0ff] text-[#453dee]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
                 }`}
               >
@@ -90,7 +90,7 @@ export function FigmaCourseSearchControls({
                     onSubjectChange(item.value)
                     setSubjectOpen(false)
                   }}
-                  className={`flex h-10 w-full items-center justify-between rounded-[11px] px-3 text-left text-[14px] font-bold transition ${
+                  className={`flex h-10 w-full items-center justify-between rounded-[11px] px-3 text-left text-[14px] font-bold transition-[background-color,color,transform] duration-200 active:scale-[0.96] ${
                     subject === item.value ? 'bg-[#f0f0ff] text-[#453dee]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
                   }`}
                 >
@@ -108,7 +108,7 @@ export function FigmaCourseSearchControls({
             return (
               <button
                 key={item.value}
-                className={`h-[36px] rounded-[10px] px-[8px] text-[12px] font-bold leading-[1.1] tracking-[0.12px] transition ${
+                className={`min-h-10 rounded-[10px] px-[10px] text-[12px] font-bold leading-[1.1] tracking-[0.12px] transition-[background-color,box-shadow,color,transform] duration-200 active:scale-[0.96] ${
                   active ? 'bg-white text-[#3f3f46] shadow-[0_1px_2px_rgba(24,24,27,.08)]' : 'text-[#71717b] hover:bg-white/70'
                 }`}
                 type="button"

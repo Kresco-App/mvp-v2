@@ -419,6 +419,14 @@ export default function StudentProfessorChatPage() {
     setEditDraft(message.body)
   }
 
+  function openMessageMenu(messageId: number) {
+    setMessageMenuId(messageId)
+  }
+
+  function cancelMessageEdit() {
+    setEditingMessageId(null)
+  }
+
   function cleanupOptimisticMessage(message: ProfessorMessage) {
     optimisticImageFilesRef.current.delete(message.id)
     if (message.attachment_url && optimisticAttachmentUrlsRef.current.has(message.attachment_url)) {
@@ -675,7 +683,7 @@ export default function StudentProfessorChatPage() {
                           <button
                             type="button"
                             onClick={() => draftTextareaRef.current?.focus()}
-                            className="inline-flex h-11 items-center gap-2 rounded-[12px] border-0 bg-[#5b60f9] px-4 text-[13px] font-black text-white transition hover:-translate-y-px hover:bg-[#4c50e8]"
+                            className="inline-flex h-11 items-center gap-2 rounded-[12px] border-0 bg-[#5b60f9] px-4 text-[13px] font-black text-white transition-[background-color,transform] duration-150 ease-out hover:bg-[#4c50e8] active:scale-[0.96]"
                           >
                             <Send size={15} />
                             Ask your first question
@@ -697,7 +705,7 @@ export default function StudentProfessorChatPage() {
                             <button
                               type="button"
                               onClick={showOlderMessages}
-                              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#71717b] transition hover:-translate-y-px hover:text-[#3f3f46]"
+                              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#71717b] transition-[border-color,color] duration-150 ease-out hover:text-[#3f3f46]"
                               aria-label={`Show ${Math.min(CHAT_OLDER_MESSAGE_BATCH_SIZE, messageWindow.hiddenBeforeCount)} older messages`}
                             >
                               <ChevronUp size={14} />
@@ -705,184 +713,31 @@ export default function StudentProfessorChatPage() {
                             </button>
                           </motion.div>
                         )}
-                        {messageWindow.messages.map((message, visibleIndex) => {
-                          const index = messageWindow.startIndex + visibleIndex
-                          const mine = isSameUser(message.sender_user_id, user?.id)
-                          const showTimestamp = shouldShowChatTimestamp(messages, index)
-                          const showAvatar = shouldShowClusterAvatar(messages, index)
-                          const isEditing = editingMessageId === message.id
-                          const isPending = isPendingChatMessage(message)
-                          const isFailed = isFailedChatMessage(message)
-                          const isSavingEdit = savingEditId === message.id
-                          const isMessageMenuOpen = messageMenuId === message.id
-                          const canUseMessageActions = mine && !isEditing && !isPending && !isFailed && !isSavingEdit
-                          const canEdit = canUseMessageActions && canEditChatMessage(message.created_at)
-                          const bubbleTone = isFailed
-                            ? 'border-[#fecaca] bg-[#fff1f2]'
-                            : isSavingEdit
-                              ? 'border-[#ddd6fe] bg-[#f5f3ff]'
-                              : 'border-[#e4e4e7] bg-[#f4f4f5]'
-                          const stateLabel = messageStateLabel(message, isSavingEdit)
-                          const stableMessageKey = sentMessageStableKeys[message.id] ?? message.id
-                          return (
-                            <motion.div
-                              key={stableMessageKey}
-                              layout
-                              initial={{ opacity: 0, y: 12, scale: 0.98 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                              transition={messageMotionTransition}
-                              className={`flex w-full flex-col ${showTimestamp ? 'mb-5' : 'mb-0'} ${mine ? 'items-end' : 'items-start'}`}
-                            >
-                              <div className={`group flex w-full items-start gap-3 ${mine ? 'justify-end' : 'justify-start'}`}>
-                                {!mine && (showAvatar ? <Avatar name={chatProfessor.full_name} src={chatProfessor.avatar_url} /> : <AvatarSpacer />)}
-                                {mine && (
-                                  <AnimatePresence initial={false}>
-                                    {isPending && (
-                                      <motion.span
-                                        key="pending-side-indicator"
-                                        layout
-                                        aria-label="Sending"
-                                        initial={{ opacity: 0, scale: 0.84, x: 5 }}
-                                        animate={{ opacity: 1, scale: 1, x: 0 }}
-                                        exit={{ opacity: 0, scale: 0.84, x: 5 }}
-                                        transition={{ duration: 0.16 }}
-                                        className="mt-2 grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[#e4e4e7] bg-white text-[#a1a1aa] shadow-sm"
-                                      >
-                                        <Loader2 size={11} className="animate-spin" />
-                                      </motion.span>
-                                    )}
-                                  </AnimatePresence>
-                                )}
-                                <motion.div layout transition={messageMotionTransition} className={`relative max-w-[min(78%,520px)] rounded-b-[12px] border p-3 sm:max-w-[min(72%,520px)] ${bubbleTone} ${mine ? 'rounded-tl-[12px]' : 'rounded-tr-[12px]'}`}>
-                                  {canUseMessageActions && (
-                                    <div data-chat-message-actions className={`absolute -left-11 top-1 z-10 h-8 w-8 transition duration-150 ${isMessageMenuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
-                                      <AnimatePresence mode="wait" initial={false}>
-                                        {isMessageMenuOpen ? (
-                                          <motion.div
-                                            key="message-menu"
-                                            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                                            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                                            transition={{ duration: 0.14 }}
-                                            className="absolute right-0 top-0 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]"
-                                          >
-                                            {canEdit && (
-                                              <button type="button" onClick={() => startEditingMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-[#52525c] hover:bg-[#f4f4f5]">
-                                                <Pencil size={13} />
-                                                Edit
-                                              </button>
-                                            )}
-                                            <button type="button" onClick={() => void removeMessage(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-red-500 hover:bg-red-50">
-                                              <Trash2 size={13} />
-                                              Delete
-                                            </button>
-                                          </motion.div>
-                                        ) : (
-                                          <motion.button
-                                            key="message-actions"
-                                            type="button"
-                                            whileTap={{ scale: 0.96 }}
-                                            onClick={() => setMessageMenuId(message.id)}
-                                            className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition hover:-translate-y-px hover:text-[#3f3f46]"
-                                            aria-label="Message actions"
-                                          >
-                                            <MoreHorizontal size={15} />
-                                          </motion.button>
-                                        )}
-                                      </AnimatePresence>
-                                    </div>
-                                  )}
-                                  <AnimatePresence mode="wait" initial={false}>
-                                    {isEditing ? (
-                                      <motion.form
-                                        key="edit-message"
-                                        initial={{ opacity: 0, y: 6 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -6 }}
-                                        transition={{ duration: 0.16 }}
-                                        onSubmit={(event) => {
-                                          event.preventDefault()
-                                          void saveMessageEdit(message)
-                                        }}
-                                        className="grid min-w-[220px] gap-2"
-                                      >
-                                        <textarea
-                                          aria-label="Edit message"
-                                          value={editDraft}
-                                          onChange={(event) => setEditDraft(event.target.value)}
-                                          className="min-h-20 w-full resize-none rounded-[10px] border border-[#e4e4e7] bg-white px-3 py-2 text-[14px] font-bold leading-[1.35] text-[#71717b] outline-none focus:border-[#5b60f9]"
-                                          autoFocus
-                                        />
-                                        <span className="flex justify-end gap-1">
-                                          <button type="button" onClick={() => setEditingMessageId(null)} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-white text-[#71717b] hover:text-[#3f3f46]" aria-label="Cancel edit">
-                                            <X size={14} />
-                                          </button>
-                                          <button type="submit" disabled={!editDraft.trim() || savingEditId === message.id} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-[#5b60f9] text-white disabled:cursor-not-allowed disabled:opacity-50" aria-label="Save edit">
-                                            {savingEditId === message.id ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                                          </button>
-                                        </span>
-                                      </motion.form>
-                                    ) : (
-                                      <motion.div
-                                        key="message-body"
-                                        initial={{ opacity: 0, y: 6 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -6 }}
-                                        transition={{ duration: 0.16 }}
-                                      >
-                                        {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.35] text-[#71717b]">{message.body}</p>}
-                                        {message.attachment_url && (
-                                          <a href={chatMediaUrl(message.attachment_url)} target="_blank" rel="noreferrer" className={message.body ? 'mt-3 block overflow-hidden rounded-[10px] border border-[#e4e4e7]' : 'block overflow-hidden rounded-[10px] border border-[#e4e4e7]'}>
-                                            <Image
-                                              src={chatMediaUrl(message.attachment_url)}
-                                              alt={message.attachment_name || 'Chat image'}
-                                              width={520}
-                                              height={260}
-                                              unoptimized
-                                              className="max-h-[260px] w-full object-cover"
-                                            />
-                                          </a>
-                                        )}
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
-                                  <AnimatePresence initial={false}>
-                                    {stateLabel && (
-                                      <motion.div
-                                        key="message-state"
-                                        initial={{ opacity: 0, height: 0, y: -4 }}
-                                        animate={{ opacity: 1, height: 'auto', y: 0 }}
-                                        exit={{ opacity: 0, height: 0, y: -4 }}
-                                        transition={{ duration: 0.16 }}
-                                        className={`mt-2 flex flex-wrap items-center justify-between gap-2 overflow-hidden border-t pt-2 ${isFailed ? 'border-[#fecaca]' : 'border-[#e4e4e7]'}`}
-                                      >
-                                        <span className={`inline-flex min-w-0 items-center gap-1.5 text-[11px] font-black ${isFailed ? 'text-[#dc2626]' : 'text-[#a1a1aa]'}`}>
-                                          {!isFailed && <Loader2 size={11} className="shrink-0 animate-spin" />}
-                                          <span className="truncate">{stateLabel}</span>
-                                        </span>
-                                        {isFailed && (
-                                          <span className="ml-auto flex shrink-0 items-center gap-1">
-                                            <button type="button" onClick={() => void retryFailedMessage(message)} className="h-7 rounded-[8px] border border-[#fecaca] bg-white px-2 text-[11px] font-black text-[#dc2626] transition hover:-translate-y-px">
-                                              Retry
-                                            </button>
-                                            <button type="button" onClick={() => void removeFailedMessage(message)} className="h-7 rounded-[8px] border-0 bg-transparent px-2 text-[11px] font-black text-[#71717b] transition hover:bg-white">
-                                              Remove
-                                            </button>
-                                          </span>
-                                        )}
-                                      </motion.div>
-                                    )}
-                                  </AnimatePresence>
-                                </motion.div>
-                                {mine && (showAvatar ? <Avatar name={user?.full_name || 'Student'} src={user?.avatar_url} /> : <AvatarSpacer />)}
-                              </div>
-                              {showTimestamp && (
-                                <span className={`mt-1 block text-[11px] font-bold text-[#a1a1aa] ${mine ? 'mr-14' : 'ml-14'}`}>{formatMessageTime(message.created_at)}</span>
-                              )}
-                            </motion.div>
-                          )
-                        })}
+                        {messageWindow.messages.map((message, visibleIndex) => (
+                          <ChatMessageRow
+                            key={sentMessageStableKeys[message.id] ?? message.id}
+                            message={message}
+                            allMessages={messages}
+                            messageIndex={messageWindow.startIndex + visibleIndex}
+                            currentUserId={user?.id}
+                            currentUserName={user?.full_name || 'Student'}
+                            currentUserAvatarUrl={user?.avatar_url}
+                            professorName={chatProfessor.full_name}
+                            professorAvatarUrl={chatProfessor.avatar_url}
+                            isEditing={editingMessageId === message.id}
+                            isSavingEdit={savingEditId === message.id}
+                            isMessageMenuOpen={messageMenuId === message.id}
+                            editDraft={editDraft}
+                            onOpenMessageMenu={openMessageMenu}
+                            onStartEditingMessage={startEditingMessage}
+                            onRemoveMessage={removeMessage}
+                            onEditDraftChange={setEditDraft}
+                            onCancelEdit={cancelMessageEdit}
+                            onSaveEdit={saveMessageEdit}
+                            onRetryFailedMessage={retryFailedMessage}
+                            onRemoveFailedMessage={removeFailedMessage}
+                          />
+                        ))}
                       </AnimatePresence>
                     )}
                     <div ref={messagesEndRef} />
@@ -907,9 +762,9 @@ export default function StudentProfessorChatPage() {
                         transition={{ duration: 0.16 }}
                         className="flex items-center gap-3 rounded-[10px] border border-[#e4e4e7] bg-white p-2"
                       >
-                        <Image src={selectedImagePreview} alt="" width={56} height={56} unoptimized className="h-14 w-14 rounded-[8px] object-cover" />
+                        <Image src={selectedImagePreview} alt="" width={56} height={56} unoptimized className="kresco-media-outline h-14 w-14 rounded-[8px] object-cover" />
                         <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-[#71717b]">{selectedImage?.name}</span>
-                        <button type="button" onClick={clearSelectedImage} className="grid h-8 w-8 place-items-center rounded-[8px] border-0 bg-[#f4f4f5] text-[#71717b]" aria-label="Remove image">
+                        <button type="button" onClick={clearSelectedImage} className="grid h-10 w-10 place-items-center rounded-[8px] border-0 bg-[#f4f4f5] text-[#71717b] transition-transform duration-200 active:scale-[0.96]" aria-label="Remove image">
                           <X size={15} />
                         </button>
                       </motion.div>
@@ -929,7 +784,7 @@ export default function StudentProfessorChatPage() {
                       }
                     }}
                   />
-                  <div className="flex h-8 items-center justify-between">
+                  <div className="flex min-h-10 items-center justify-between">
                     <div className="flex items-center gap-[10px] text-[#71717b]">
                       <input
                         aria-label="Image attachment"
@@ -942,18 +797,18 @@ export default function StudentProfessorChatPage() {
                           if (file) setSelectedImageFile(file)
                         }}
                       />
-                      <button type="button" onClick={() => imageInputRef.current?.click()} className="grid h-8 w-5 place-items-center border-0 bg-transparent p-0 text-[#71717b] disabled:cursor-not-allowed disabled:opacity-40" aria-label="Add image" disabled={!active} title={active ? undefined : 'Images are available after the first message'}>
+                      <button type="button" onClick={() => imageInputRef.current?.click()} className="grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent p-0 text-[#71717b] transition-[background-color,transform] duration-200 hover:bg-[#f4f4f5] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100" aria-label="Add image" disabled={!active} title={active ? undefined : 'Images are available after the first message'}>
                         <ImageIcon size={16} />
                       </button>
-                      <button type="button" className="grid h-8 w-5 place-items-center border-0 bg-transparent p-0 text-[#71717b] opacity-40" aria-label="Attach file" disabled title="File attachments are not available yet">
+                      <button type="button" className="grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent p-0 text-[#71717b] opacity-40" aria-label="Attach file" disabled title="File attachments are not available yet">
                         <Link2 size={16} />
                       </button>
                     </div>
                     <motion.button
                       type="submit"
-                      whileTap={{ scale: 0.94 }}
+                      whileTap={{ scale: 0.96 }}
                       disabled={active ? (!draft.trim() && !selectedImage) : (!draft.trim() || Boolean(selectedImage) || !composerOfferingId || Boolean(pendingConversationId) || startingConversation)}
-                      className="grid h-8 w-8 place-items-center rounded-[7px] border-0 bg-[#5b60f9] text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="grid h-10 w-10 place-items-center rounded-[7px] border-0 bg-[#5b60f9] text-white disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label="Send message"
                     >
                       {startingConversation && !active ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -1047,7 +902,7 @@ function Avatar({ name, src }: { name: string; src?: string | null }) {
           width={40}
           height={40}
           unoptimized
-          className="h-full w-full object-cover"
+          className="kresco-media-outline h-full w-full object-cover"
           onError={() => setFailedSrc(src || null)}
         />
       ) : initials(name)}
@@ -1188,6 +1043,393 @@ function updateStudentStatusWithLocalMessagePreview(
 
 function isPendingChatMessage(message: ProfessorMessage) {
   return message.status === 'sending'
+}
+
+type ChatMessageRowProps = {
+  message: ProfessorMessage
+  allMessages: ProfessorMessage[]
+  messageIndex: number
+  currentUserId: number | string | undefined | null
+  currentUserName: string
+  currentUserAvatarUrl?: string | null
+  professorName: string
+  professorAvatarUrl?: string | null
+  isEditing: boolean
+  isSavingEdit: boolean
+  isMessageMenuOpen: boolean
+  editDraft: string
+  onOpenMessageMenu: (messageId: number) => void
+  onStartEditingMessage: (message: ProfessorMessage) => void
+  onRemoveMessage: (message: ProfessorMessage) => void | Promise<void>
+  onEditDraftChange: (value: string) => void
+  onCancelEdit: () => void
+  onSaveEdit: (message: ProfessorMessage) => void | Promise<void>
+  onRetryFailedMessage: (message: ProfessorMessage) => void | Promise<void>
+  onRemoveFailedMessage: (message: ProfessorMessage) => void | Promise<void>
+}
+
+function ChatMessageRow({
+  message,
+  allMessages,
+  messageIndex,
+  currentUserId,
+  currentUserName,
+  currentUserAvatarUrl,
+  professorName,
+  professorAvatarUrl,
+  isEditing,
+  isSavingEdit,
+  isMessageMenuOpen,
+  editDraft,
+  onOpenMessageMenu,
+  onStartEditingMessage,
+  onRemoveMessage,
+  onEditDraftChange,
+  onCancelEdit,
+  onSaveEdit,
+  onRetryFailedMessage,
+  onRemoveFailedMessage,
+}: ChatMessageRowProps) {
+  const mine = isSameUser(message.sender_user_id, currentUserId)
+  const showTimestamp = shouldShowChatTimestamp(allMessages, messageIndex)
+  const showAvatar = shouldShowClusterAvatar(allMessages, messageIndex)
+  const isPending = isPendingChatMessage(message)
+  const isFailed = isFailedChatMessage(message)
+  const canUseMessageActions = mine && !isEditing && !isPending && !isFailed && !isSavingEdit
+  const canEdit = canUseMessageActions && canEditChatMessage(message.created_at)
+  const bubbleTone = isFailed
+    ? 'border-[#fecaca] bg-[#fff1f2]'
+    : isSavingEdit
+      ? 'border-[#ddd6fe] bg-[#f5f3ff]'
+      : 'border-[#e4e4e7] bg-[#f4f4f5]'
+  const stateLabel = messageStateLabel(message, isSavingEdit)
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8, scale: 0.96 }}
+      transition={messageMotionTransition}
+      className={`flex w-full flex-col ${showTimestamp ? 'mb-5' : 'mb-0'} ${mine ? 'items-end' : 'items-start'}`}
+    >
+      <div className={`group flex w-full items-start gap-3 ${mine ? 'justify-end' : 'justify-start'}`}>
+        <ChatMessageLeadingAvatar mine={mine} showAvatar={showAvatar} name={professorName} src={professorAvatarUrl} />
+        <PendingMessageIndicator show={mine && isPending} />
+        <motion.div layout transition={messageMotionTransition} className={`relative max-w-[min(78%,520px)] rounded-b-[12px] border p-3 sm:max-w-[min(72%,520px)] ${bubbleTone} ${mine ? 'rounded-tl-[12px]' : 'rounded-tr-[12px]'}`}>
+          {canUseMessageActions && (
+            <ChatMessageActions
+              message={message}
+              isOpen={isMessageMenuOpen}
+              canEdit={canEdit}
+              onOpen={onOpenMessageMenu}
+              onStartEditing={onStartEditingMessage}
+              onRemove={onRemoveMessage}
+            />
+          )}
+          <ChatMessageContent
+            message={message}
+            isEditing={isEditing}
+            isSavingEdit={isSavingEdit}
+            editDraft={editDraft}
+            stateLabel={stateLabel}
+            isFailed={isFailed}
+            onEditDraftChange={onEditDraftChange}
+            onCancelEdit={onCancelEdit}
+            onSaveEdit={onSaveEdit}
+            onRetryFailedMessage={onRetryFailedMessage}
+            onRemoveFailedMessage={onRemoveFailedMessage}
+          />
+        </motion.div>
+        <ChatMessageTrailingAvatar mine={mine} showAvatar={showAvatar} name={currentUserName} src={currentUserAvatarUrl} />
+      </div>
+      {showTimestamp && (
+        <span className={`mt-1 block text-[11px] font-bold text-[#a1a1aa] ${mine ? 'mr-14' : 'ml-14'}`}>{formatMessageTime(message.created_at)}</span>
+      )}
+    </motion.div>
+  )
+}
+
+function ChatMessageLeadingAvatar({ mine, showAvatar, name, src }: { mine: boolean; showAvatar: boolean; name: string; src?: string | null }) {
+  if (mine) return null
+  return showAvatar ? <Avatar name={name} src={src} /> : <AvatarSpacer />
+}
+
+function ChatMessageTrailingAvatar({ mine, showAvatar, name, src }: { mine: boolean; showAvatar: boolean; name: string; src?: string | null }) {
+  if (!mine) return null
+  return showAvatar ? <Avatar name={name} src={src} /> : <AvatarSpacer />
+}
+
+function PendingMessageIndicator({ show }: { show: boolean }) {
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.span
+          key="pending-side-indicator"
+          layout
+          aria-label="Sending"
+          initial={{ opacity: 0, scale: 0.84, x: 5 }}
+          animate={{ opacity: 1, scale: 1, x: 0 }}
+          exit={{ opacity: 0, scale: 0.84, x: 5 }}
+          transition={{ duration: 0.16 }}
+          className="mt-2 grid h-5 w-5 shrink-0 place-items-center rounded-full border border-[#e4e4e7] bg-white text-[#a1a1aa] shadow-sm"
+        >
+          <Loader2 size={11} className="animate-spin" />
+        </motion.span>
+      )}
+    </AnimatePresence>
+  )
+}
+
+function ChatMessageActions({
+  message,
+  isOpen,
+  canEdit,
+  onOpen,
+  onStartEditing,
+  onRemove,
+}: {
+  message: ProfessorMessage
+  isOpen: boolean
+  canEdit: boolean
+  onOpen: (messageId: number) => void
+  onStartEditing: (message: ProfessorMessage) => void
+  onRemove: (message: ProfessorMessage) => void | Promise<void>
+}) {
+  return (
+    <div data-chat-message-actions className={`absolute -left-11 top-1 z-10 h-8 w-8 transition-opacity duration-150 ease-out ${isOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`}>
+      <AnimatePresence mode="wait" initial={false}>
+        {isOpen ? (
+          <ChatMessageActionMenu message={message} canEdit={canEdit} onStartEditing={onStartEditing} onRemove={onRemove} />
+        ) : (
+          <ChatMessageActionsButton messageId={message.id} onOpen={onOpen} />
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function ChatMessageActionMenu({
+  message,
+  canEdit,
+  onStartEditing,
+  onRemove,
+}: {
+  message: ProfessorMessage
+  canEdit: boolean
+  onStartEditing: (message: ProfessorMessage) => void
+  onRemove: (message: ProfessorMessage) => void | Promise<void>
+}) {
+  return (
+    <motion.div
+      key="message-menu"
+      initial={{ opacity: 0, y: -4, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -4, scale: 0.98 }}
+      transition={{ duration: 0.14 }}
+      className="absolute right-0 top-0 z-10 grid min-w-28 gap-1 rounded-[12px] border border-[#e4e4e7] bg-white p-1 text-[#3f3f46] shadow-[0_12px_30px_rgba(24,24,27,0.14)]"
+    >
+      {canEdit && <ChatEditActionButton message={message} onStartEditing={onStartEditing} />}
+      <ChatDeleteActionButton message={message} onRemove={onRemove} />
+    </motion.div>
+  )
+}
+
+function ChatEditActionButton({ message, onStartEditing }: { message: ProfessorMessage; onStartEditing: (message: ProfessorMessage) => void }) {
+  return (
+    <button type="button" onClick={() => onStartEditing(message)} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-[#52525c] hover:bg-[#f4f4f5]">
+      <Pencil size={13} />
+      Edit
+    </button>
+  )
+}
+
+function ChatDeleteActionButton({ message, onRemove }: { message: ProfessorMessage; onRemove: (message: ProfessorMessage) => void | Promise<void> }) {
+  return (
+    <button type="button" onClick={() => { void onRemove(message) }} className="flex h-8 items-center gap-2 rounded-[9px] border-0 bg-transparent px-2 text-left text-[12px] font-black text-red-500 hover:bg-red-50">
+      <Trash2 size={13} />
+      Delete
+    </button>
+  )
+}
+
+function ChatMessageActionsButton({ messageId, onOpen }: { messageId: number; onOpen: (messageId: number) => void }) {
+  return (
+    <motion.button
+      key="message-actions"
+      type="button"
+      whileTap={{ scale: 0.96 }}
+      onClick={() => onOpen(messageId)}
+      className="grid h-8 w-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] shadow-sm transition-[border-color,color] duration-150 ease-out hover:text-[#3f3f46]"
+      aria-label="Message actions"
+    >
+      <MoreHorizontal size={15} />
+    </motion.button>
+  )
+}
+
+function ChatMessageContent({
+  message,
+  isEditing,
+  isSavingEdit,
+  editDraft,
+  stateLabel,
+  isFailed,
+  onEditDraftChange,
+  onCancelEdit,
+  onSaveEdit,
+  onRetryFailedMessage,
+  onRemoveFailedMessage,
+}: {
+  message: ProfessorMessage
+  isEditing: boolean
+  isSavingEdit: boolean
+  editDraft: string
+  stateLabel: string
+  isFailed: boolean
+  onEditDraftChange: (value: string) => void
+  onCancelEdit: () => void
+  onSaveEdit: (message: ProfessorMessage) => void | Promise<void>
+  onRetryFailedMessage: (message: ProfessorMessage) => void | Promise<void>
+  onRemoveFailedMessage: (message: ProfessorMessage) => void | Promise<void>
+}) {
+  return (
+    <>
+      <AnimatePresence mode="wait" initial={false}>
+        {isEditing ? (
+          <ChatMessageEditForm
+            editDraft={editDraft}
+            saving={isSavingEdit}
+            onDraftChange={onEditDraftChange}
+            onCancel={onCancelEdit}
+            onSave={() => { void onSaveEdit(message) }}
+          />
+        ) : (
+          <ChatMessageBody message={message} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        <ChatMessageState message={message} stateLabel={stateLabel} isFailed={isFailed} onRetry={onRetryFailedMessage} onRemove={onRemoveFailedMessage} />
+      </AnimatePresence>
+    </>
+  )
+}
+
+function ChatMessageEditForm({
+  editDraft,
+  saving,
+  onDraftChange,
+  onCancel,
+  onSave,
+}: {
+  editDraft: string
+  saving: boolean
+  onDraftChange: (value: string) => void
+  onCancel: () => void
+  onSave: () => void
+}) {
+  return (
+    <motion.form
+      key="edit-message"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.16 }}
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSave()
+      }}
+      className="grid min-w-[220px] gap-2"
+    >
+      <textarea
+        aria-label="Edit message"
+        value={editDraft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        className="min-h-20 w-full resize-none rounded-[10px] border border-[#e4e4e7] bg-white px-3 py-2 text-[14px] font-bold leading-[1.35] text-[#71717b] outline-none focus:border-[#5b60f9]"
+        autoFocus
+      />
+      <span className="flex justify-end gap-1">
+        <button type="button" onClick={onCancel} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-white text-[#71717b] hover:text-[#3f3f46]" aria-label="Cancel edit">
+          <X size={14} />
+        </button>
+        <button type="submit" disabled={!editDraft.trim() || saving} className="grid h-8 w-8 place-items-center rounded-[9px] border-0 bg-[#5b60f9] text-white disabled:cursor-not-allowed disabled:opacity-50" aria-label="Save edit">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+        </button>
+      </span>
+    </motion.form>
+  )
+}
+
+function ChatMessageBody({ message }: { message: ProfessorMessage }) {
+  return (
+    <motion.div
+      key="message-body"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.16 }}
+    >
+      {message.body && <p className="m-0 whitespace-pre-wrap break-words text-[14px] font-bold leading-[1.35] text-[#71717b]">{message.body}</p>}
+      {message.attachment_url && <ChatImageAttachment message={message} attachmentUrl={message.attachment_url} hasBody={Boolean(message.body)} />}
+    </motion.div>
+  )
+}
+
+function ChatImageAttachment({ message, attachmentUrl, hasBody }: { message: ProfessorMessage; attachmentUrl: string; hasBody: boolean }) {
+  const imageUrl = chatMediaUrl(attachmentUrl)
+  return (
+    <a href={imageUrl} target="_blank" rel="noreferrer" className={hasBody ? 'mt-3 block overflow-hidden rounded-[10px] border border-[#e4e4e7]' : 'block overflow-hidden rounded-[10px] border border-[#e4e4e7]'}>
+      <Image
+        src={imageUrl}
+        alt={message.attachment_name || 'Chat image'}
+        width={520}
+        height={260}
+        unoptimized
+        className="kresco-media-outline max-h-[260px] w-full object-cover"
+      />
+    </a>
+  )
+}
+
+function ChatMessageState({
+  message,
+  stateLabel,
+  isFailed,
+  onRetry,
+  onRemove,
+}: {
+  message: ProfessorMessage
+  stateLabel: string
+  isFailed: boolean
+  onRetry: (message: ProfessorMessage) => void | Promise<void>
+  onRemove: (message: ProfessorMessage) => void | Promise<void>
+}) {
+  if (!stateLabel) return null
+  return (
+    <motion.div
+      key="message-state"
+      initial={{ opacity: 0, height: 0, y: -4 }}
+      animate={{ opacity: 1, height: 'auto', y: 0 }}
+      exit={{ opacity: 0, height: 0, y: -4 }}
+      transition={{ duration: 0.16 }}
+      className={`mt-2 flex flex-wrap items-center justify-between gap-2 overflow-hidden border-t pt-2 ${isFailed ? 'border-[#fecaca]' : 'border-[#e4e4e7]'}`}
+    >
+      <span className={`inline-flex min-w-0 items-center gap-1.5 text-[11px] font-black ${isFailed ? 'text-[#dc2626]' : 'text-[#a1a1aa]'}`}>
+        {!isFailed && <Loader2 size={11} className="shrink-0 animate-spin" />}
+        <span className="truncate">{stateLabel}</span>
+      </span>
+      {isFailed && (
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <button type="button" onClick={() => { void onRetry(message) }} className="h-7 rounded-[8px] border border-[#fecaca] bg-white px-2 text-[11px] font-black text-[#dc2626] transition-[background-color,border-color,color] duration-150 ease-out hover:bg-[#fff1f2]">
+            Retry
+          </button>
+          <button type="button" onClick={() => { void onRemove(message) }} className="h-7 rounded-[8px] border-0 bg-transparent px-2 text-[11px] font-black text-[#71717b] transition-[background-color,color] duration-150 ease-out hover:bg-white">
+            Remove
+          </button>
+        </span>
+      )}
+    </motion.div>
+  )
 }
 
 function isFailedChatMessage(message: ProfessorMessage) {

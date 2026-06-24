@@ -128,11 +128,11 @@ export default function SubjectDetailPage() {
 
             {continueHref && (
               <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[#e4e4e7] pt-5">
-                <Link href={continueHref} className="inline-flex h-12 items-center gap-2 rounded-xl bg-[#453dee] px-5 text-[14px] font-bold text-white no-underline shadow-none transition hover:-translate-y-0.5">
+                <Link href={continueHref} className="inline-flex h-12 items-center gap-2 rounded-xl bg-[#453dee] px-5 text-[14px] font-bold text-white no-underline shadow-none transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]">
                   <Play size={15} fill="currentColor" />
                   {completedTotal === 0 ? 'Start course' : 'Continue'}
                 </Link>
-                <Link href={`/exam/${subjectId}`} className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#e4e4e7] bg-white px-5 text-[14px] font-bold text-[#52525c] no-underline transition hover:border-[#453dee] hover:text-[#453dee]">
+                <Link href={`/exam/${subjectId}`} className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#e4e4e7] bg-white px-5 text-[14px] font-bold text-[#52525c] no-underline transition-[border-color,color,transform] duration-150 ease-out hover:border-[#453dee] hover:text-[#453dee] active:scale-[0.96]">
                   <ClipboardCheck size={15} />
                   Mock exam
                 </Link>
@@ -162,7 +162,7 @@ export default function SubjectDetailPage() {
               ))}
             </div>
 
-            <Link href={`/exam/${subjectId}`} className="mt-8 inline-flex h-[58px] w-full items-center justify-center gap-3 rounded-[18px] bg-[#453dee] text-[17px] font-bold text-white no-underline shadow-none transition hover:-translate-y-0.5">
+            <Link href={`/exam/${subjectId}`} className="mt-8 inline-flex h-[58px] w-full items-center justify-center gap-3 rounded-[18px] bg-[#453dee] text-[17px] font-bold text-white no-underline shadow-none transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]">
               <ClipboardCheck size={22} />
               Passer l&apos;examen blanc final
             </Link>

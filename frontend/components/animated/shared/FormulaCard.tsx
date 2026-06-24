@@ -18,7 +18,7 @@ export const FormulaCard: React.FC<FormulaCardProps> = ({ title, children, formu
       initial={{ opacity: 0, y: 20 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
-      className="relative overflow-hidden rounded-3xl bg-white shadow-lg border border-slate-100 my-10 group hover:shadow-xl transition-all duration-300"
+      className="relative my-10 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-lg transition-shadow duration-200 ease-out hover:shadow-xl"
     >
       <div className="h-2 w-full bg-gradient-to-r from-cyan-600 via-blue-500 to-indigo-400" />
       <div className="p-8">

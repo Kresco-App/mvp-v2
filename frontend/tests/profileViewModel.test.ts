@@ -74,6 +74,8 @@ describe('profile view model helpers', () => {
     expect(mediaUrl('/media/avatar.png')).toBe('/media/avatar.png')
     expect(mediaUrl('/figma-assets/profile/profile-avatar.png')).toBe('/figma-assets/profile/profile-avatar.png')
     expect(mediaUrl('https://cdn.kresco.ma/avatar.png')).toBe('https://cdn.kresco.ma/avatar.png')
+    expect(mediaUrl('data:text/html,phish')).toBe('/data:text/html,phish')
+    expect(mediaUrl('blob:https://evil.example/avatar')).toBe('/blob:https://evil.example/avatar')
   })
 
   it('derives league and follower lists from leaderboard entries', () => {

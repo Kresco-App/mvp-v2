@@ -1318,7 +1318,7 @@ function StudioReadinessIssueCard({
   const actionText = issue.target ? 'Open in inspector' : 'Add chapter'
 
   return (
-    <button type="button" onClick={() => onSelect(issue)} className={`inline-flex min-w-0 max-w-[240px] items-center gap-2 rounded-full border px-2.5 py-1 text-left transition hover:-translate-y-0.5 ${toneClass}`}>
+    <button type="button" onClick={() => onSelect(issue)} className={`inline-flex min-w-0 max-w-[240px] items-center gap-2 rounded-full border px-2.5 py-1 text-left ${toneClass}`}>
       <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.08em]">{issue.level}</span>
       <span className="min-w-0 truncate text-[11px] font-bold text-[#3f3f46]">{issue.label}</span>
       <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.08em] text-[#52525c]">{actionText}</span>

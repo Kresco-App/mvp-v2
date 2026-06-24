@@ -131,7 +131,7 @@ function SimulatorBlock({
         {showCompleteButton && (
           <button type="button"
             onClick={() => onComplete?.(true)}
-            className="mt-6 inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+            className="mt-6 inline-flex min-h-10 items-center gap-2 rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-green-700 active:scale-[0.96]"
           >
             <CheckCircle2 size={15} />
             Marquer comme terminee

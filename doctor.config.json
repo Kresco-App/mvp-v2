@@ -1,0 +1,9 @@
+{
+  "rootDir": "frontend",
+  "ignore": {
+    "rules": [
+      "react-doctor/require-reduced-motion",
+      "socket/low-supply-chain-score"
+    ]
+  }
+}

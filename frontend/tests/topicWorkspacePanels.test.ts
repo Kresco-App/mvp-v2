@@ -20,7 +20,12 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/image', () => ({
-  default: (props: Record<string, unknown>) => React.createElement('img', props),
+  default: ({ fill: _fill, priority: _priority, unoptimized: _unoptimized, ...props }: Record<string, unknown>) => {
+    void _fill
+    void _priority
+    void _unoptimized
+    return React.createElement('img', props)
+  },
 }))
 
 vi.mock('sonner', () => ({
@@ -107,6 +112,10 @@ beforeEach(() => {
     value: vi.fn(),
     writable: true,
   })
+  Object.defineProperty(window, 'scrollTo', {
+    value: vi.fn(),
+    writable: true,
+  })
 })
 
 afterEach(() => {
@@ -181,10 +190,12 @@ describe('TopicWorkspacePanels', () => {
     expect(window.open).toHaveBeenCalledWith('/worksheet.pdf', '_blank', 'noopener,noreferrer')
   })
 
-  it('renders the notes tab as a lesson whiteboard surface', () => {
+  it('renders the notes tab as a lesson whiteboard surface', async () => {
     const { container } = renderPanel(notesTab, baseItem)
 
-    expect(container.querySelector('[data-testid="lesson-whiteboard"]')?.textContent).toContain(baseItem.title)
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="lesson-whiteboard"]')?.textContent).toContain(baseItem.title)
+    })
     expect(container.querySelector('textarea[aria-label="Topic note"]')).toBeNull()
     expect(mocks.getJson).not.toHaveBeenCalledWith('/interactions/notes', expect.anything())
   })

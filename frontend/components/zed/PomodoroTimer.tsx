@@ -86,7 +86,7 @@ export default function PomodoroTimer({ engine }: Props) {
               strokeDasharray={`${2 * Math.PI * 14}`}
               strokeDashoffset={`${2 * Math.PI * 14 * (1 - progress)}`}
               strokeLinecap="round"
-              className="transition-all duration-1000"
+              className="transition-[stroke,stroke-dashoffset] duration-1000 ease-linear"
             />
           </svg>
         </div>

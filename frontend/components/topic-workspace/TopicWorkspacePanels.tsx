@@ -36,8 +36,8 @@ export function LockedContentPanel({
   return (
     <div className="rounded-[16px] border border-[#e4e4e7] bg-[#f7f8fb] p-5">
       <p className="m-0 text-[13px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">Locked preview</p>
-      <p className="m-0 mt-2 text-[16px] font-black text-[#3f3f46]">{title || lockedContentReason(reason)}</p>
-      <p className="m-0 mt-2 text-[13px] font-semibold leading-6 text-[#71717b]">
+      <p className="m-0 mt-2 break-words text-[16px] font-black text-[#3f3f46]">{title || lockedContentReason(reason)}</p>
+      <p className="m-0 mt-2 break-words text-[13px] font-semibold leading-6 text-[#71717b]">
         {summary || 'This learning item is visible in the topic path, but the protected lesson content is not available for the current account.'}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -251,13 +251,13 @@ function CommentsTab({ item }: { item: TopicItem }) {
           className="min-h-[76px] w-full resize-y border-0 bg-transparent px-4 pb-2 pt-4 text-[14px] font-semibold leading-6 text-[#3f3f46] outline-none placeholder:text-[#a1a1aa]"
           placeholder="Write a comment or question..."
         />
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#f4f4f5] bg-[#fbfcff] px-3 py-2.5 transition focus-within:border-[#3a2fd3]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#f4f4f5] bg-[#fbfcff] px-3 py-2.5 transition-[border-color] focus-within:border-[#3a2fd3]">
           <RatingSelector value={draftRating} onChange={setDraftRating} />
           <button
             type="button"
             onClick={postComment}
             disabled={posting || !body.trim()}
-            className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3.5 text-[13px] font-black text-white transition hover:bg-[#2f27b8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3a2fd3]/30 disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9]"
+            className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3.5 text-[13px] font-black text-white transition-[background-color,color,transform] active:scale-[0.96] hover:bg-[#2f27b8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3a2fd3]/30 disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100"
           >
             {posting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Send size={14} aria-hidden="true" />}
             Post
@@ -314,7 +314,7 @@ function CommentsTab({ item }: { item: TopicItem }) {
                   <button
                     type="button"
                     onClick={() => void toggleReplies(comment)}
-                    className="mt-4 inline-flex h-9 items-center gap-2 rounded-[10px] border border-[#e9e5ff] bg-[#f7f5ff] px-3 text-[12px] font-black text-[#3a2fd3] transition hover:border-[#d9d2ff] hover:bg-[#f1eeff]"
+                    className="mt-4 inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#e9e5ff] bg-[#f7f5ff] px-3 text-[12px] font-black text-[#3a2fd3] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:border-[#d9d2ff] hover:bg-[#f1eeff]"
                     aria-expanded={repliesExpanded}
                   >
                     {loadingReplies[comment.id] ? (
@@ -382,7 +382,7 @@ function RatingSelector({
             key={rating}
             type="button"
             onClick={() => onChange(value === rating ? 0 : rating)}
-            className={`grid h-8 w-8 place-items-center rounded-[10px] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f5b800]/30 ${selected ? 'bg-[#fff7db] text-[#d99700]' : 'bg-[#f4f4f5] text-[#a1a1aa] hover:bg-[#f8f9fc] hover:text-[#71717b]'}`}
+            className={`grid h-10 w-10 place-items-center rounded-[12px] transition-[background-color,color,transform] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f5b800]/30 ${selected ? 'bg-[#fff7db] text-[#d99700]' : 'bg-[#f4f4f5] text-[#a1a1aa] hover:bg-[#f8f9fc] hover:text-[#71717b]'}`}
             role="radio"
             aria-checked={value === rating}
             aria-label={`Rate ${rating} out of 5`}
@@ -415,7 +415,7 @@ function CommentCard({
       <CommentAvatar author={comment.author} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[13px] font-black text-[#3f3f46]">{comment.author.full_name}</span>
+          <span className="min-w-0 break-words text-[13px] font-black text-[#3f3f46]">{comment.author.full_name}</span>
           <span className="text-[11px] font-bold text-[#9f9fa9]">{formatCommentDate(comment.created_at)}</span>
           {rating ? <RatingPill rating={rating} /> : null}
         </div>
@@ -439,7 +439,7 @@ function CommentCard({
             <button
               type="button"
               onClick={onReply}
-              className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-[#e4e4e7] bg-white px-2.5 text-[12px] font-black text-[#52525c] transition hover:border-[#d7d7dd] hover:bg-[#f8f9fc]"
+              className="inline-flex h-10 items-center gap-1.5 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:border-[#d7d7dd] hover:bg-[#f8f9fc]"
             >
               <CornerDownRight size={13} aria-hidden="true" />
               Reply
@@ -460,7 +460,7 @@ function CommentAvatar({ author }: { author: TopicComment['author'] }) {
         width={36}
         height={36}
         unoptimized
-        className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
+        className="kresco-media-outline h-9 w-9 flex-shrink-0 rounded-full object-cover"
         referrerPolicy="no-referrer"
       />
     )
@@ -475,7 +475,7 @@ function CommentAvatar({ author }: { author: TopicComment['author'] }) {
 
 function RatingPill({ rating }: { rating: number }) {
   return (
-    <span className="inline-flex h-6 items-center gap-1 rounded-full bg-[#fff7db] px-2 text-[11px] font-black text-[#b77900]">
+    <span className="inline-flex h-6 items-center gap-1 rounded-full bg-[#fff7db] px-2 text-[11px] font-black text-[#b77900] tabular-nums">
       <Star size={12} fill="currentColor" aria-hidden="true" />
       {rating}/5
     </span>
@@ -501,7 +501,7 @@ function ReactionButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-[9px] border px-2.5 text-[12px] font-black transition ${active ? 'border-[#c7d2fe] bg-[#eef2ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#d7d7dd] hover:bg-[#f8f9fc] hover:text-[#52525c]'}`}
+      className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] border px-2.5 text-[12px] font-black transition-[background-color,border-color,color,transform] active:scale-[0.96] ${active ? 'border-[#c7d2fe] bg-[#eef2ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#d7d7dd] hover:bg-[#f8f9fc] hover:text-[#52525c]'}`}
     >
       <Icon size={13} aria-hidden="true" />
       {label}
@@ -536,7 +536,7 @@ function ReplyComposer({
         aria-label={`Reply to ${authorName}`}
         value={body}
         onChange={(event) => onBodyChange(event.target.value)}
-        className="min-h-20 w-full resize-y rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-semibold leading-6 text-[#3f3f46] outline-none transition placeholder:text-[#a1a1aa] focus:border-[#3a2fd3] focus:shadow-[0_0_0_3px_rgba(58,47,211,0.10)]"
+        className="min-h-20 w-full resize-y rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-semibold leading-6 text-[#3f3f46] outline-none transition-[border-color,box-shadow] placeholder:text-[#a1a1aa] focus:border-[#3a2fd3] focus:shadow-[0_0_0_3px_rgba(58,47,211,0.10)]"
         placeholder={`Reply to ${authorName}`}
       />
       <div className="mt-2 flex flex-wrap justify-end gap-2">
@@ -544,7 +544,7 @@ function ReplyComposer({
           type="button"
           onClick={onCancel}
           disabled={posting}
-          className="inline-flex h-8 items-center rounded-[9px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:opacity-50"
+          className="inline-flex h-10 items-center rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:opacity-50 disabled:active:scale-100"
         >
           Cancel
         </button>
@@ -552,7 +552,7 @@ function ReplyComposer({
           type="button"
           onClick={onPost}
           disabled={posting || !body.trim()}
-          className="inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9]"
+          className="inline-flex h-10 items-center gap-1.5 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,color,transform] active:scale-[0.96] hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100"
         >
           {posting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Send size={13} aria-hidden="true" />}
           Post reply
@@ -634,7 +634,7 @@ export function TabPanel({
 
   return (
     <div>
-      {body && <p className="m-0 whitespace-pre-line text-sm font-semibold leading-7 text-[#52525c]">{body}</p>}
+      {body && <p className="m-0 whitespace-pre-line break-words text-sm font-semibold leading-7 text-[#52525c]">{body}</p>}
       {tab.resource && <TopicWorkspaceResourcePanel resource={tab.resource} item={item} tab={tab} />}
     </div>
   )

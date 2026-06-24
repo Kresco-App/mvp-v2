@@ -20,10 +20,10 @@
     "ci": "npm run lint && npm run audit:csp-styles && npm run validate:production-env:fixture && npm run typecheck && npm run test:coverage && npm run test:e2e && npm run test:e2e:integration"
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "^0.18.1",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@firebase/app": "^0.15.0",
     "@firebase/auth": "^1.13.3",
     "@firebase/firestore": "^4.16.0",

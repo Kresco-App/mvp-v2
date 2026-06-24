@@ -74,4 +74,15 @@ describe('topic workspace resource helpers', () => {
     expect(resolvedTopicWorkspaceResourceUrl({ href: 'https://signed.example/open.pdf' }, resource, 'open')).toBe('https://signed.example/open.pdf')
     expect(resolvedTopicWorkspaceResourceUrl(null, resource, 'open')).toBe('/worksheet.pdf')
   })
+
+  it('drops non-navigation URLs from provider responses and fallbacks', async () => {
+    expect(resolvedTopicWorkspaceResourceUrl({ open_url: 'javascript:alert(1)' }, resource, 'open')).toBe('')
+    expect(resolvedTopicWorkspaceResourceUrl(null, { ...resource, url: 'data:text/html,phish' }, 'open')).toBe('')
+
+    mocks.apiPost
+      .mockRejectedValueOnce({ response: { status: 404 } })
+      .mockRejectedValueOnce({ response: { status: 405 } })
+
+    await expect(resolveTopicWorkspaceResourceUrl({ ...resource, url: 'blob:https://evil.example/file' }, 'open')).resolves.toBe('')
+  })
 })

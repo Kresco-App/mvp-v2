@@ -174,17 +174,24 @@ export function groupByDomain(items: CrudCatalogItem[]) {
   }, {})
 }
 
+function searchText(value: string): string {
+  return value.toLowerCase().replace(/[-_]/g, ' ')
+}
+
 export function filterCrudCatalog(items: CrudCatalogItem[] | undefined, query: string) {
   const source = items?.length ? items : FALLBACK_CRUD
-  const text = query.trim().toLowerCase()
+  const text = searchText(query.trim())
   if (!text) return source
 
   return source.filter((item) => {
-    return [
+    const haystack = [
+      item.slug,
+      item.domain,
       item.name,
       item.name_plural,
       item.model,
       DOMAIN_LABELS[item.domain] ?? item.domain,
-    ].join(' ').toLowerCase().includes(text)
+    ].join(' ')
+    return searchText(haystack).includes(text)
   })
 }

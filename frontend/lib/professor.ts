@@ -1,4 +1,5 @@
 import { deleteJson, getJson, patchJson, postJson } from './apiClient'
+import { sanitizeNavigationUrl } from './urlSafety'
 
 export type ProgramTrack = {
   id: number
@@ -397,7 +398,5 @@ export async function sendStudentProfessorImageMessage(conversationId: number, f
 }
 
 export function chatMediaUrl(value?: string | null) {
-  if (!value) return ''
-  if (/^(https?:|blob:|data:)/i.test(value)) return value
-  return value
+  return sanitizeNavigationUrl(value)
 }
