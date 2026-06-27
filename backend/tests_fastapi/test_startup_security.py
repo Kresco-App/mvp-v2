@@ -21,8 +21,8 @@ SECRET_PLACEHOLDERS = {
     "FIREBASE_WEB_API_KEY": "firebase-web-api-key",
     "JWT_SECRET_KEY": "prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
     "VDOCIPHER_API_SECRET": "vdocipher-secret",
-    "VDOCIPHER_API_BASE_URL": "https://video.example.com/api",
-    "VDOCIPHER_LIVE_CREATE_URL": "https://video.example.com/live",
+    "VDOCIPHER_API_BASE_URL": "https://dev.vdocipher.com/api",
+    "VDOCIPHER_LIVE_CREATE_URL": "https://dev.vdocipher.com/live",
     "CMI_CLIENT_ID": "cmi-client",
     "CMI_STORE_KEY": "cmi-store-key",
     "CMI_PAYMENT_URL": "https://test.cmi.co.ma/payment",
@@ -33,6 +33,8 @@ SECRET_PLACEHOLDERS = {
     "REALTIME_OUTBOX_SECRET": "test-realtime-outbox-secret-32-bytes",
     "FRONTEND_URL": "https://app.example.com",
     "CORS_ALLOWED_ORIGINS": "https://app.example.com",
+    "CSRF_TRUSTED_ORIGINS": "https://app.example.com",
+    "AUTH_COOKIE_DOMAIN": "example.com",
     "KRESCO_TRUSTED_HOSTS": "api.example.com",
     "MEDIA_GCS_BUCKET": "kresco-media-production",
 }
@@ -160,6 +162,26 @@ def test_blank_cors_origin_regex_is_disabled_not_wildcard():
     assert settings.cors_allow_origin_regex_value is None
 
 
+def test_local_settings_include_subdomain_dev_origins():
+    settings = Settings(_env_file=None)
+
+    assert "http://app.kresco.lvh.me:3000" in settings.cors_origins_list
+    assert "http://admin.kresco.lvh.me:3000" in settings.cors_origins_list
+    assert "http://prof.kresco.lvh.me:3000" in settings.cors_origins_list
+    assert "http://staff.kresco.lvh.me:3000" in settings.cors_origins_list
+    assert "http://app.kresco.test:3000" in settings.cors_origins_list
+    assert "http://admin.kresco.test:3000" in settings.cors_origins_list
+    assert "http://prof.kresco.test:3000" in settings.cors_origins_list
+    assert "http://staff.kresco.test:3000" in settings.cors_origins_list
+    assert "lvh.me" in settings.trusted_hosts_list
+    assert "*.lvh.me" in settings.trusted_hosts_list
+    assert "kresco.test" in settings.trusted_hosts_list
+    assert "*.kresco.test" in settings.trusted_hosts_list
+    assert settings.cors_allow_origin_regex_value is not None
+    assert "lvh\\.me" in settings.cors_allow_origin_regex_value
+    assert "kresco\\.test" in settings.cors_allow_origin_regex_value
+
+
 def test_trusted_hosts_are_normalized_for_middleware():
     settings = Settings(trusted_hosts=" https://api.example.com , *.preview.example.com, testserver:8000 ")
 
@@ -189,6 +211,16 @@ def test_production_settings_reject_public_jwt_secret_placeholders():
         )
 
         assert any("JWT_SECRET_KEY" in error for error in settings.production_config_errors())
+
+
+def test_production_settings_reject_non_hs256_jwt_algorithm():
+    settings = Settings(
+        environment="production",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        jwt_algorithm="none",
+    )
+
+    assert "JWT_ALGORITHM must be HS256 in production environments." in settings.production_config_errors()
 
 
 def test_production_settings_reject_missing_integration_config():
@@ -233,8 +265,8 @@ def test_production_settings_reject_untrusted_host_policy():
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         cmi_client_id="cmi-client",
         cmi_store_key="cmi-store-key",
         cmi_payment_url="https://test.cmi.co.ma/payment",
@@ -286,6 +318,35 @@ def test_production_settings_reject_private_vdocipher_urls():
     assert "VDOCIPHER_LIVE_DELETE_URL must be an HTTPS URL" in errors
 
 
+def test_production_settings_reject_non_vdocipher_provider_hosts():
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://video-provider.example.com/api",
+        vdocipher_live_create_url="https://live-provider.example.com/live",
+        cmi_client_id="cmi-client",
+        cmi_store_key="cmi-store-key",
+        cmi_payment_url="https://test.cmi.co.ma/payment",
+        cmi_ok_url="https://app.example.com/payment/cmi/ok",
+        cmi_fail_url="https://app.example.com/payment/cmi/fail",
+        cmi_callback_url="https://api.example.com/api/payments/cmi/callback",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        trusted_hosts="api.example.com",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "VDOCIPHER_API_BASE_URL must use a VdoCipher-owned host" in errors
+    assert "VDOCIPHER_LIVE_CREATE_URL must use a VdoCipher-owned host" in errors
+
+
 def test_production_settings_require_shared_rate_limit_storage():
     settings = Settings(
         environment="production",
@@ -293,8 +354,8 @@ def test_production_settings_require_shared_rate_limit_storage():
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         frontend_url="https://app.example.com",
         cors_allowed_origins="https://app.example.com",
@@ -317,8 +378,8 @@ def test_production_settings_require_release_sha():
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         frontend_url="https://app.example.com",
         cors_allowed_origins="https://app.example.com",
@@ -337,8 +398,8 @@ def test_production_settings_require_private_media_storage_config():
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         database_connection_strategy="cloud_sql",
         frontend_url="https://app.example.com",
@@ -358,8 +419,8 @@ def test_production_settings_require_media_quota_and_lifecycle_config():
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         frontend_url="https://app.example.com",
         cors_allowed_origins="https://app.example.com",
@@ -386,8 +447,8 @@ def test_production_settings_require_verified_postgres_tls():
         pgsslrootcert="missing-ca.pem",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         frontend_url="https://app.example.com",
         cors_allowed_origins="https://app.example.com",
@@ -407,8 +468,8 @@ def test_production_settings_require_managed_postgres_connection_strategy():
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         frontend_url="https://app.example.com",
         cors_allowed_origins="https://app.example.com",
@@ -431,8 +492,8 @@ def test_production_settings_reject_invalid_cmi_launch_urls():
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         cmi_client_id="cmi-client",
         cmi_store_key="cmi-store-key",
         cmi_payment_url="https://cmi.example.com/payment",
@@ -458,8 +519,8 @@ def test_production_settings_reject_local_runtime_defaults():
         environment="production",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         frontend_url="http://localhost:3000",
         cors_allowed_origins="http://localhost:3000",
@@ -475,14 +536,62 @@ def test_production_settings_reject_local_runtime_defaults():
     assert any("CORS_ALLOW_ORIGIN_REGEX" in error for error in errors)
 
 
+def test_production_settings_reject_lvh_local_subdomain_policy():
+    settings = Settings(
+        environment="production",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://kresco.lvh.me",
+        cors_allowed_origins="https://app.kresco.lvh.me",
+        cors_allow_origin_regex="",
+        csrf_trusted_origins="https://admin.kresco.lvh.me",
+        trusted_hosts="api.kresco.lvh.me",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert any("FRONTEND_URL" in error for error in errors)
+    assert any("CORS_ALLOWED_ORIGINS" in error for error in errors)
+    assert any("CSRF_TRUSTED_ORIGINS" in error for error in errors)
+    assert any("TRUSTED_HOSTS" in error for error in errors)
+
+
+def test_production_settings_reject_kresco_test_local_subdomain_policy():
+    settings = Settings(
+        environment="production",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://kresco.test",
+        cors_allowed_origins="https://app.kresco.test",
+        cors_allow_origin_regex="",
+        csrf_trusted_origins="https://admin.kresco.test",
+        trusted_hosts="api.kresco.test",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert any("FRONTEND_URL" in error for error in errors)
+    assert any("CORS_ALLOWED_ORIGINS" in error for error in errors)
+    assert any("CSRF_TRUSTED_ORIGINS" in error for error in errors)
+    assert any("TRUSTED_HOSTS" in error for error in errors)
+
+
 def test_production_settings_reject_permissive_cors_policy():
     settings = Settings(
         environment="production",
         database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
         jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         vdocipher_api_secret="vdocipher-secret",
-        vdocipher_api_base_url="https://video.example.com/api",
-        vdocipher_live_create_url="https://video.example.com/live",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
         realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
         frontend_url="https://app.example.com",
         cors_allowed_origins="*",
@@ -494,6 +603,166 @@ def test_production_settings_reject_permissive_cors_policy():
 
     assert any("CORS_ALLOWED_ORIGINS" in error and "wildcard" in error for error in errors)
     assert any("CORS_ALLOW_ORIGIN_REGEX" in error and "tightly scoped" in error for error in errors)
+
+
+def test_production_settings_reject_untrusted_csrf_origin_policy():
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://app.example.com",
+        cors_allowed_origins="https://app.example.com",
+        cors_allow_origin_regex="",
+        csrf_trusted_origins="*,http://localhost:3000,http://127.0.0.1:3000",
+        trusted_hosts="api.example.com",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert any("CSRF_TRUSTED_ORIGINS" in error and "wildcard" in error for error in errors)
+    assert any("CSRF_TRUSTED_ORIGINS" in error and "HTTPS URL" in error for error in errors)
+
+
+def test_production_settings_require_frontend_origin_in_cors_and_csrf():
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://admin.kresco.ma",
+        cors_allowed_origins="https://app.kresco.ma,https://staff.kresco.ma",
+        cors_allow_origin_regex="",
+        csrf_trusted_origins="https://app.kresco.ma,https://staff.kresco.ma",
+        trusted_hosts="api.kresco.ma",
+        auth_cookie_domain="kresco.ma",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "CORS_ALLOWED_ORIGINS must include FRONTEND_URL origin." in errors
+    assert "CSRF_TRUSTED_ORIGINS must include FRONTEND_URL origin." in errors
+
+
+def test_production_settings_reject_cross_site_cors_and_csrf_origins():
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://admin.kresco.ma",
+        cors_allowed_origins="https://admin.kresco.ma,https://evil.example.com",
+        cors_allow_origin_regex="",
+        csrf_trusted_origins="https://admin.kresco.ma,https://evil.example.com",
+        trusted_hosts="api.kresco.ma",
+        auth_cookie_domain="kresco.ma",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "CORS_ALLOWED_ORIGINS must stay within AUTH_COOKIE_DOMAIN." in errors
+    assert "CSRF_TRUSTED_ORIGINS must stay within AUTH_COOKIE_DOMAIN." in errors
+
+
+def test_production_settings_require_cookie_domain_to_match_frontend_family():
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://admin.kresco.ma",
+        cors_allowed_origins="https://admin.kresco.ma",
+        cors_allow_origin_regex="",
+        csrf_trusted_origins="https://admin.kresco.ma",
+        trusted_hosts="api.kresco.ma",
+        auth_cookie_domain="other.ma",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "AUTH_COOKIE_DOMAIN must match FRONTEND_URL host or a parent domain." in errors
+
+
+def test_production_settings_require_cookie_domain():
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://admin.kresco.ma",
+        cors_allowed_origins="https://admin.kresco.ma",
+        cors_allow_origin_regex="",
+        csrf_trusted_origins="https://admin.kresco.ma",
+        trusted_hosts="api.kresco.ma",
+        auth_cookie_domain="",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert "AUTH_COOKIE_DOMAIN must be configured for production environments." in errors
+
+
+def test_production_settings_accept_subdomain_auth_origin_policy():
+    frontend_origins = ",".join([
+        "https://kresco.ma",
+        "https://www.kresco.ma",
+        "https://app.kresco.ma",
+        "https://admin.kresco.ma",
+        "https://prof.kresco.ma",
+        "https://staff.kresco.ma",
+    ])
+    settings = Settings(
+        environment="production",
+        release_sha="0123456789abcdef0123456789abcdef01234567",
+        database_url="postgresql+asyncpg://user:pass@db.example.com/kresco?sslmode=verify-full",
+        jwt_secret_key="prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
+        vdocipher_api_secret="vdocipher-secret",
+        vdocipher_api_base_url="https://dev.vdocipher.com/api",
+        vdocipher_live_create_url="https://dev.vdocipher.com/live",
+        cmi_client_id="cmi-client",
+        cmi_store_key="cmi-store-key",
+        cmi_payment_url="https://test.cmi.co.ma/payment",
+        cmi_ok_url="https://app.kresco.ma/payment/cmi/ok",
+        cmi_fail_url="https://app.kresco.ma/payment/cmi/fail",
+        cmi_callback_url="https://api.kresco.ma/api/payments/cmi/callback",
+        realtime_outbox_secret="test-realtime-outbox-secret-32-bytes",
+        frontend_url="https://kresco.ma",
+        cors_allowed_origins=frontend_origins,
+        cors_allow_origin_regex="",
+        csrf_trusted_origins=frontend_origins,
+        trusted_hosts="api.kresco.ma",
+        auth_cookie_domain="kresco.ma",
+        auth_cookie_samesite="lax",
+        **PRODUCTION_MEDIA_SETTINGS,
+    )
+
+    errors = settings.production_config_errors()
+
+    assert not any("FRONTEND_URL" in error for error in errors)
+    assert not any("CORS_ALLOWED_ORIGINS" in error for error in errors)
+    assert not any("CSRF_TRUSTED_ORIGINS" in error for error in errors)
+    assert not any("TRUSTED_HOSTS" in error for error in errors)
+    assert not any("AUTH_COOKIE_DOMAIN" in error for error in errors)
 
 
 def test_production_like_app_disables_public_api_docs(monkeypatch, test_settings):
@@ -510,8 +779,8 @@ def test_production_like_app_disables_public_api_docs(monkeypatch, test_settings
         "firebase_web_api_key": "firebase-web-api-key",
         "jwt_secret_key": "prod-fixture-3fb835dc1d9d4fa6a28678341a109d91",
         "vdocipher_api_secret": "vdocipher-secret",
-        "vdocipher_api_base_url": "https://video.example.com/api",
-        "vdocipher_live_create_url": "https://video.example.com/live",
+        "vdocipher_api_base_url": "https://dev.vdocipher.com/api",
+        "vdocipher_live_create_url": "https://dev.vdocipher.com/live",
         "cmi_client_id": "cmi-client",
         "cmi_store_key": "cmi-store-key",
         "cmi_payment_url": "https://test.cmi.co.ma/payment",
@@ -523,7 +792,9 @@ def test_production_like_app_disables_public_api_docs(monkeypatch, test_settings
         "frontend_url": "https://app.example.com",
         "cors_allowed_origins": "https://app.example.com",
         "cors_allow_origin_regex": "",
+        "csrf_trusted_origins": "https://app.example.com",
         "trusted_hosts": "api.example.com",
+        "auth_cookie_domain": "example.com",
         "media_storage_backend": "gcs",
         "media_gcs_bucket": "kresco-media-production",
     }))
@@ -557,6 +828,8 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert "enforce_production_launch_gate" in workflow
     assert "inputs.enforce_production_launch_gate == true" in workflow
     assert "Dark production deploy only: this workflow does not route domains or user traffic." in workflow
+    assert 'deploy_flags+=(--no-traffic --tag "dark-$SHORT_SHA")' in workflow
+    assert '"${deploy_flags[@]}"' in workflow
     assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in workflow
     assert 'docker build --pull -t "$image" backend' in workflow
     assert 'docker push "$image"' in workflow
@@ -572,6 +845,19 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert "--min-instances 0" in workflow
     assert "--max-instances 3" in workflow
     assert "lambda" not in workflow.lower()
+    update_secret_index = workflow.index("- name: Update runtime release secret")
+    preflight_index = workflow.index("- name: Validate runtime domain contract")
+    build_index = workflow.index("- name: Build backend image")
+    assert update_secret_index < preflight_index < build_index
+    preflight_step = workflow[preflight_index:build_index]
+    assert "python scripts/check_public_auth_readiness.py" in preflight_step
+    assert "--runtime-secret-only" in preflight_step
+    assert "--frontend-apex-url \"$frontend_apex_url\"" in preflight_step
+    assert "--api-host \"$api_host\"" in preflight_step
+    assert "https://staging.kresco.ma" in preflight_step
+    assert "https://kresco.ma" in preflight_step
+    assert "api.staging.kresco.ma" in preflight_step
+    assert "api.kresco.ma" in preflight_step
     deploy_step = workflow[
         workflow.index("- name: Deploy backend service"):
         workflow.index("- name: Run migrations with stopped-db cleanup")
@@ -605,6 +891,7 @@ def test_production_runbook_covers_release_recovery_and_incidents():
 
     for heading in (
         "## Release Preflight",
+        "## Domain Routing",
         "## Deploy",
         "## Monitoring",
         "## Rollback",
@@ -615,7 +902,34 @@ def test_production_runbook_covers_release_recovery_and_incidents():
         assert heading in runbook
 
     assert "DATABASE_CONNECTION_STRATEGY=cloud_sql" in runbook
+    assert "admin.kresco.ma" in runbook
+    assert "staff.kresco.ma" in runbook
+    assert "AUTH_COOKIE_DOMAIN=kresco.ma" in runbook
+    assert "NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=kresco.ma" in runbook
     assert "Kresco/Api" in runbook
     assert "ClientError" in runbook
     assert "/api/internal/diagnostics" in runbook
+    assert "public-api-health.json" in runbook
+    assert "https://api.kresco.ma/health" in runbook
     assert "docs/production-runbook.md" in manual_ops
+
+
+def test_staging_runbook_covers_subdomain_auth_cutover():
+    staging_path = Path(__file__).resolve().parents[2] / "docs" / "staging-deployment-automation.md"
+    migration_path = Path(__file__).resolve().parents[2] / "docs" / "gcp-firebase-migration.md"
+    staging = staging_path.read_text(encoding="utf-8")
+    migration = migration_path.read_text(encoding="utf-8")
+
+    assert "## Staging Domains" in staging
+    assert "admin.staging.kresco.ma" in staging
+    assert "staff.staging.kresco.ma" in staging
+    assert "kresco.test" in staging
+    assert "npm run check:local-subdomains:kresco-test" in staging
+    assert "AUTH_COOKIE_DOMAIN=staging.kresco.ma" in staging
+    assert "NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=staging.kresco.ma" in staging
+    assert "Firebase Auth authorized domains" in staging
+    assert "public-api-health.json" in staging
+    assert "https://api.staging.kresco.ma/health" in staging
+    assert "NEXT_PUBLIC_API_BASE_URL=/api/" in migration
+    assert "KRESCO_BACKEND_ORIGIN=https://api.staging.kresco.ma" in migration
+    assert "raw `*.run.app` backend URLs" in migration

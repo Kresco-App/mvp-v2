@@ -1,0 +1,28 @@
+{
+  "projects": {
+    "staging": "kresco-staging",
+    "production": "kresco-prod"
+  },
+  "targets": {
+    "kresco-staging": {
+      "hosting": {
+        "staging-frontend": [
+          "kresco-staging"
+        ],
+        "staging-api": [
+          "kresco-staging-api"
+        ]
+      }
+    },
+    "kresco-prod": {
+      "hosting": {
+        "production-frontend": [
+          "kresco-prod"
+        ],
+        "production-api": [
+          "kresco-prod-api"
+        ]
+      }
+    }
+  }
+}

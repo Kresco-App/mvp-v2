@@ -20,6 +20,7 @@ def test_staging_realtime_fanout_workflow_collects_firestore_delivery_artifact()
     assert "google-cloud-firestore==2.27.0" in workflow
     assert "gcloud secrets versions access latest" in workflow
     assert "--secret kresco-runtime" in workflow
+    assert "normalize_secret_value()" in workflow
     assert ".FIREBASE_PROJECT_ID // .firebase_project_id // empty" in workflow
     assert ".FIRESTORE_DATABASE // .firestore_database // \"(default)\"" in workflow
     assert "python scripts/run_evidence_command.py" in workflow

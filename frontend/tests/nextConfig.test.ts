@@ -96,9 +96,22 @@ describe('Next production config boundaries', () => {
     }
   })
 
+  it('keeps the local env example on same-origin API rewrites for subdomain auth', () => {
+    const envExample = readFileSync(join(FRONTEND_ROOT, '.env.example'), 'utf8')
+
+    expect(envExample).toContain('NEXT_PUBLIC_API_BASE_URL=/api/')
+    expect(envExample).toContain('KRESCO_LOCAL_BACKEND_ORIGIN=http://127.0.0.1:8000')
+    expect(envExample).toContain('NEXT_PUBLIC_SITE_URL=http://kresco.test:3000')
+    expect(envExample).toContain('NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=kresco.test')
+    expect(envExample).toContain('http://kresco.lvh.me:3000')
+    expect(envExample).not.toContain('NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api')
+  })
+
   it('allows production backend rewrites only for non-local HTTPS origins', () => {
-    expect(shouldEnableBackendRewrites('https://api.example.com/staging')).toBe(true)
+    expect(shouldEnableBackendRewrites('https://api.example.com')).toBe(true)
     expect(shouldEnableBackendRewrites('http://api.example.com')).toBe(false)
+    expect(shouldEnableBackendRewrites('https://api.example.com/backend')).toBe(false)
+    expect(shouldEnableBackendRewrites('https://api.example.com?target=backend')).toBe(false)
     expect(shouldEnableBackendRewrites('https://localhost:8000')).toBe(false)
     expect(shouldEnableBackendRewrites('https://127.0.0.1:8000')).toBe(false)
     expect(shouldEnableBackendRewrites('https://kresco.ngrok.app')).toBe(false)
@@ -144,10 +157,10 @@ describe('Next production config boundaries', () => {
       KRESCO_ENV: 'production',
       KRESCO_ENABLE_LOCAL_REWRITES: 'true',
       KRESCO_LOCAL_BACKEND_ORIGIN: 'http://127.0.0.1:8000',
-      KRESCO_BACKEND_ORIGIN: 'https://api.kresco.example/backend/',
+      KRESCO_BACKEND_ORIGIN: 'https://api.kresco.example/',
     })).resolves.toEqual([
-      { source: '/api/:path*', destination: 'https://api.kresco.example/backend/api/:path*' },
-      { source: '/media/:path*', destination: 'https://api.kresco.example/backend/media/:path*' },
+      { source: '/api/:path*', destination: 'https://api.kresco.example/api/:path*' },
+      { source: '/media/:path*', destination: 'https://api.kresco.example/media/:path*' },
     ])
   })
 
@@ -164,19 +177,37 @@ describe('Next production config boundaries', () => {
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
       { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
       { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
+      { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
       { key: 'Origin-Agent-Cluster', value: '?1' },
       { key: 'X-Download-Options', value: 'noopen' },
       { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
+      { key: 'X-XSS-Protection', value: '0' },
     ]))
   })
 
-  it('adds HSTS only for production header configs', () => {
+  it('adds conservative HSTS only for production header configs', () => {
     expect(buildSecurityHeaders('test')).not.toEqual(expect.arrayContaining([
       { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
     ]))
     expect(buildSecurityHeaders('production')).toEqual(expect.arrayContaining([
-      { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+      { key: 'Strict-Transport-Security', value: 'max-age=31536000' },
     ]))
+  })
+
+  it('opts into HSTS includeSubDomains only when explicitly enabled', () => {
+    const previousValue = process.env.KRESCO_HSTS_INCLUDE_SUBDOMAINS
+    process.env.KRESCO_HSTS_INCLUDE_SUBDOMAINS = 'true'
+    try {
+      expect(buildSecurityHeaders('production')).toEqual(expect.arrayContaining([
+        { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+      ]))
+    } finally {
+      if (previousValue === undefined) {
+        delete process.env.KRESCO_HSTS_INCLUDE_SUBDOMAINS
+      } else {
+        process.env.KRESCO_HSTS_INCLUDE_SUBDOMAINS = previousValue
+      }
+    }
   })
 
   it('keeps the root layout request-bound so strict CSP nonces hydrate pages', () => {
@@ -184,6 +215,13 @@ describe('Next production config boundaries', () => {
 
     expect(source).toContain("from 'next/headers'")
     expect(source).toContain('await headers()')
+  })
+
+  it('keeps dynamic page segments warm in the client router cache for return navigation', () => {
+    expect(nextConfig.experimental?.staleTimes).toEqual({
+      dynamic: 60,
+      static: 300,
+    })
   })
 
   it('keeps heavy visualization and icon imports modular', () => {

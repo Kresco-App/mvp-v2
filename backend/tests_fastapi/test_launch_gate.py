@@ -115,6 +115,7 @@ Target for broad student production: **9/10**.
 def test_deploy_workflows_are_manual_only_and_gate_production():
     backend_workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
     frontend_workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
+    frontend_dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
 
     for workflow in (backend_workflow, frontend_workflow):
         assert "\n  workflow_dispatch:" in workflow
@@ -141,6 +142,11 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "--set-cloudsql-instances \"$cloud_sql_connection\"" in backend_workflow
     assert "--args scripts/run_alembic_from_settings.py" in backend_workflow
     assert 'ready_url = base_url + "/ready"' in backend_workflow
+    assert "- name: Resolve backend verification URL" in backend_workflow
+    assert 'tag="dark-$SHORT_SHA"' in backend_workflow
+    assert 'echo "BACKEND_VERIFY_URL=$verify_url" >> "$GITHUB_ENV"' in backend_workflow
+    assert 'export BACKEND_URL="$BACKEND_VERIFY_URL"' in backend_workflow
+    assert 'echo "backend_service_url=$BACKEND_SERVICE_URL" >> "$GITHUB_OUTPUT"' in backend_workflow
     assert "--activation-policy ALWAYS" in backend_workflow
     assert "--activation-policy NEVER" in backend_workflow
     assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in backend_workflow
@@ -157,7 +163,64 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "npm run check:production-demo-surface -- --base-url \"$FRONTEND_URL\" --json" in frontend_workflow
     assert "NEXT_PUBLIC_FIREBASE_API_KEY" in frontend_workflow
     assert "NEXT_PUBLIC_REALTIME_PROVIDER=firestore" in frontend_workflow
-    assert 'KRESCO_BACKEND_ORIGIN="$BACKEND_URL"' in frontend_workflow
+    assert 'KRESCO_BACKEND_ORIGIN="$FRONTEND_BACKEND_ORIGIN"' in frontend_workflow
+    assert "FRONTEND_BACKEND_ORIGIN=https://api.staging.kresco.ma" in frontend_workflow
+    assert "FRONTEND_BACKEND_ORIGIN=https://api.kresco.ma" in frontend_workflow
+    assert "FRONTEND_PUBLIC_SITE_URL=https://staging.kresco.ma" in frontend_workflow
+    assert "FRONTEND_PUBLIC_SITE_URL=https://kresco.ma" in frontend_workflow
+    assert "FRONTEND_AUTH_COOKIE_DOMAIN=staging.kresco.ma" in frontend_workflow
+    assert "FRONTEND_AUTH_COOKIE_DOMAIN=kresco.ma" in frontend_workflow
+    assert "hsts_include_subdomains" in frontend_workflow
+    assert "HSTS includeSubDomains is not allowed on staging deploys." in frontend_workflow
+    assert "HSTS includeSubDomains requires enforce_production_launch_gate=true" in frontend_workflow
+    assert "FRONTEND_HSTS_INCLUDE_SUBDOMAINS=false" in frontend_workflow
+    assert 'NEXT_PUBLIC_SITE_URL="$FRONTEND_PUBLIC_SITE_URL"' in frontend_workflow
+    assert 'NEXT_PUBLIC_AUTH_COOKIE_DOMAIN="$FRONTEND_AUTH_COOKIE_DOMAIN"' in frontend_workflow
+    assert 'KRESCO_HSTS_INCLUDE_SUBDOMAINS="$FRONTEND_HSTS_INCLUDE_SUBDOMAINS"' in frontend_workflow
+    assert "NEXT_PUBLIC_SITE_URL: ${{ env.FRONTEND_PUBLIC_SITE_URL }}" not in frontend_workflow
+    assert '--build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_PUBLIC_SITE_URL"' in frontend_workflow
+    assert '--build-arg NEXT_PUBLIC_AUTH_COOKIE_DOMAIN="$FRONTEND_AUTH_COOKIE_DOMAIN"' in frontend_workflow
+    assert '--build-arg KRESCO_HSTS_INCLUDE_SUBDOMAINS="$FRONTEND_HSTS_INCLUDE_SUBDOMAINS"' in frontend_workflow
+    assert "runtime_env_vars=(" in frontend_workflow
+    assert 'runtime_env_csv="$(IFS=,; echo "${runtime_env_vars[*]}")"' in frontend_workflow
+    assert '--update-env-vars "$runtime_env_csv"' in frontend_workflow
+    for cloud_run_runtime_env in (
+        "NEXT_PUBLIC_API_BASE_URL=/api",
+        "NEXT_PUBLIC_SITE_URL=$FRONTEND_PUBLIC_SITE_URL",
+        "NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=$FRONTEND_AUTH_COOKIE_DOMAIN",
+        "NEXT_PUBLIC_REALTIME_PROVIDER=firestore",
+        "NEXT_PUBLIC_RELEASE_SHA=$SHORT_SHA",
+        "NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY",
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+        "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+        "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
+        "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
+        "NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID",
+        "NEXT_PUBLIC_FIRESTORE_DATABASE=$NEXT_PUBLIC_FIRESTORE_DATABASE",
+        "KRESCO_BACKEND_ORIGIN=$FRONTEND_BACKEND_ORIGIN",
+        "KRESCO_HSTS_INCLUDE_SUBDOMAINS=$FRONTEND_HSTS_INCLUDE_SUBDOMAINS",
+    ):
+        assert cloud_run_runtime_env in frontend_workflow
+    assert "ARG KRESCO_HSTS_INCLUDE_SUBDOMAINS=false" in frontend_dockerfile
+    assert "KRESCO_HSTS_INCLUDE_SUBDOMAINS=$KRESCO_HSTS_INCLUDE_SUBDOMAINS" in frontend_dockerfile
+    frontend_runtime_stage = frontend_dockerfile.split("FROM node:24-bookworm-slim AS runtime", 1)[1]
+    for public_runtime_env in (
+        "NEXT_PUBLIC_API_BASE_URL",
+        "NEXT_PUBLIC_SITE_URL",
+        "NEXT_PUBLIC_AUTH_COOKIE_DOMAIN",
+        "NEXT_PUBLIC_REALTIME_PROVIDER",
+        "NEXT_PUBLIC_RELEASE_SHA",
+        "NEXT_PUBLIC_FIREBASE_API_KEY",
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+        "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+        "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
+        "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
+        "NEXT_PUBLIC_FIREBASE_APP_ID",
+        "NEXT_PUBLIC_FIRESTORE_DATABASE",
+        "KRESCO_BACKEND_ORIGIN",
+    ):
+        assert f"ARG {public_runtime_env}" in frontend_runtime_stage
+        assert f"{public_runtime_env}=${public_runtime_env}" in frontend_runtime_stage
 
 
 def test_ci_and_deploy_workflows_report_test_coverage():
@@ -171,6 +234,7 @@ def test_ci_and_deploy_workflows_report_test_coverage():
     for workflow_path in (
         ".github/workflows/ci-frontend.yml",
         ".github/workflows/deploy-frontend.yml",
+        ".github/workflows/deploy-firebase-hosting.yml",
         ".github/workflows/staging-provider-diagnostics.yml",
         ".github/workflows/staging-launch-evidence.yml",
         ".github/workflows/staging-topic-latency-evidence.yml",
@@ -178,6 +242,7 @@ def test_ci_and_deploy_workflows_report_test_coverage():
         ".github/workflows/staging-realtime-fanout-evidence.yml",
         ".github/workflows/staging-runbook-drill-evidence.yml",
         ".github/workflows/production-dark-evidence.yml",
+        ".github/workflows/production-public-domain-evidence.yml",
     ):
         assert workflow_path in backend_ci
     assert '"codex/**"' not in backend_ci

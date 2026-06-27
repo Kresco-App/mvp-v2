@@ -13,6 +13,8 @@
     "validate:production-env": "node scripts/validate-production-env.mjs",
     "validate:production-env:fixture": "node scripts/validate-production-env.mjs --fixture",
     "check:production-demo-surface": "node scripts/check-production-demo-surface.mjs",
+    "check:local-subdomains": "python ../scripts/check_subdomain_routing.py --apex-url http://kresco.lvh.me:3000 --hsts-policy ignore --check-professor-alias --required",
+    "check:local-subdomains:kresco-test": "python ../scripts/check_subdomain_routing.py --apex-url http://kresco.test:3000 --hsts-policy ignore --check-professor-alias --required",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:integration": "node scripts/build-integration.mjs && playwright test --config playwright.integration.config.ts",
     "test:e2e:install": "playwright install chromium",

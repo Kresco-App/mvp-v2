@@ -12,14 +12,40 @@ function makeToken(payload: Record<string, unknown>) {
   return `${encodeSegment({ alg: 'none', typ: 'JWT' })}.${encodeSegment(payload)}.proxy-only`
 }
 
-function makeRequest(pathname: string, cookies: Record<string, string> = {}) {
+function makeRequest(pathname: string, cookies: Record<string, string> = {}, host = 'app.kresco.example') {
   const headers = new Headers()
   const cookieHeader = Object.entries(cookies)
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('; ')
   if (cookieHeader) headers.set('cookie', cookieHeader)
 
-  return new NextRequest(new Request(`https://app.kresco.example${pathname}`, { headers }))
+  return new NextRequest(new Request(`https://${host}${pathname}`, { headers }))
+}
+
+function makeHttpRequest(pathname: string, cookies: Record<string, string> = {}, host = 'app.kresco.lvh.me:3000') {
+  const headers = new Headers()
+  const cookieHeader = Object.entries(cookies)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('; ')
+  if (cookieHeader) headers.set('cookie', cookieHeader)
+
+  return new NextRequest(new Request(`http://${host}${pathname}`, { headers }))
+}
+
+function makeRequestWithHostHeader(
+  pathname: string,
+  cookies: Record<string, string> = {},
+  host = 'app.kresco.lvh.me:3000',
+  urlHost = 'localhost:3000',
+) {
+  const headers = new Headers()
+  const cookieHeader = Object.entries(cookies)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('; ')
+  if (cookieHeader) headers.set('cookie', cookieHeader)
+  headers.set('host', host)
+
+  return new NextRequest(new Request(`http://${urlHost}${pathname}`, { headers }))
 }
 
 function validToken(payload: Record<string, unknown> = {}) {
@@ -50,9 +76,11 @@ function expectSecurityHeaders(response: ReturnType<typeof proxy>) {
   expect(response.headers.get('x-content-type-options')).toBe('nosniff')
   expect(response.headers.get('x-dns-prefetch-control')).toBe('on')
   expect(response.headers.get('cross-origin-opener-policy')).toBe('same-origin-allow-popups')
+  expect(response.headers.get('cross-origin-resource-policy')).toBe('same-origin')
   expect(response.headers.get('origin-agent-cluster')).toBe('?1')
   expect(response.headers.get('x-download-options')).toBe('noopen')
   expect(response.headers.get('x-permitted-cross-domain-policies')).toBe('none')
+  expect(response.headers.get('x-xss-protection')).toBe('0')
 }
 
 describe('Next proxy auth boundary', () => {
@@ -60,7 +88,7 @@ describe('Next proxy auth boundary', () => {
     const response = proxy(makeRequest('/courses'))
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(response.headers.get('location')).toBe('https://kresco.example/')
   })
 
   it('protects the onboarding route with the same cookie boundary as student routes', () => {
@@ -71,7 +99,7 @@ describe('Next proxy auth boundary', () => {
     }))
 
     expect(unauthenticated.status).toBe(307)
-    expect(unauthenticated.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(unauthenticated.headers.get('location')).toBe('https://kresco.example/')
     expect(authenticated.status).toBe(200)
     expect(authenticated.headers.get('x-middleware-next')).toBe('1')
   })
@@ -80,7 +108,7 @@ describe('Next proxy auth boundary', () => {
     const response = proxy(makeRequest('/professor/chat'))
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/professor/login')
+    expect(response.headers.get('location')).toBe('https://prof.kresco.example/professor/login')
   })
 
   it('clears auth cookies when a protected route receives an expired token', () => {
@@ -92,7 +120,7 @@ describe('Next proxy auth boundary', () => {
     const setCookie = response.headers.get('set-cookie') ?? response.headers.get('x-middleware-set-cookie') ?? ''
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(response.headers.get('location')).toBe('https://kresco.example/')
     expect(setCookie).toContain(`${KRESCO_TOKEN_COOKIE}=`)
     expect(setCookie).toContain(`${KRESCO_USER_ROLE_COOKIE}=`)
     expect(setCookie).toContain(`${KRESCO_CSRF_COOKIE}=`)
@@ -103,10 +131,10 @@ describe('Next proxy auth boundary', () => {
     const response = proxy(makeRequest('/', {
       [KRESCO_TOKEN_COOKIE]: validToken({ role: 'professor' }),
       [KRESCO_USER_ROLE_COOKIE]: 'professor',
-    }))
+    }, 'kresco.example'))
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/professor')
+    expect(response.headers.get('location')).toBe('https://prof.kresco.example/professor')
   })
 
   it('defers professor role authorization to AuthGuard server verification', () => {
@@ -148,7 +176,7 @@ describe('Next proxy auth boundary', () => {
     expect(accepted.status).toBe(200)
     expect(accepted.headers.get('x-middleware-next')).toBe('1')
     expect(expired.status).toBe(307)
-    expect(expired.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(expired.headers.get('location')).toBe('https://kresco.example/')
   })
 
   it('allows protected routes with a valid auth cookie', () => {
@@ -169,9 +197,145 @@ describe('Next proxy auth boundary', () => {
     }))
 
     expect(unauthenticated.status).toBe(307)
-    expect(unauthenticated.headers.get('location')).toBe('https://app.kresco.example/')
+    expect(unauthenticated.headers.get('location')).toBe('https://kresco.example/')
     expect(authenticated.status).toBe(200)
     expect(authenticated.headers.get('x-middleware-next')).toBe('1')
+  })
+
+  it('routes workspace subdomain roots to their owned app paths', () => {
+    const student = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken(),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'app.kresco.example'))
+    const admin = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'admin.kresco.example'))
+    const professor = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ role: 'professor' }),
+      [KRESCO_USER_ROLE_COOKIE]: 'professor',
+    }, 'prof.kresco.example'))
+    const staff = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'staff.kresco.example'))
+
+    expect(student.headers.get('x-middleware-rewrite')).toBe('https://app.kresco.example/home')
+    expect(admin.headers.get('x-middleware-rewrite')).toBe('https://admin.kresco.example/admin')
+    expect(professor.headers.get('x-middleware-rewrite')).toBe('https://prof.kresco.example/professor')
+    expect(staff.headers.get('x-middleware-rewrite')).toBe('https://staff.kresco.example/staff/payments')
+  })
+
+  it('routes staging subdomain roots without special-case deployment code', () => {
+    const response = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'admin.staging.kresco.ma'))
+
+    expect(response.headers.get('x-middleware-rewrite')).toBe('https://admin.staging.kresco.ma/admin')
+  })
+
+  it('keeps unauthenticated workspace roots out of redirect loops', () => {
+    const student = proxy(makeRequest('/', {}, 'app.kresco.example'))
+    const admin = proxy(makeRequest('/', {}, 'admin.kresco.example'))
+    const staff = proxy(makeRequest('/', {}, 'staff.kresco.example'))
+    const professor = proxy(makeRequest('/', {}, 'prof.kresco.example'))
+
+    expect(student.headers.get('location')).toBe('https://kresco.example/')
+    expect(admin.headers.get('location')).toBe('https://kresco.example/')
+    expect(staff.headers.get('location')).toBe('https://kresco.example/')
+    expect(professor.headers.get('location')).toBe('https://prof.kresco.example/professor/login')
+  })
+
+  it('redirects authenticated landing visitors to the right subdomain workspace', () => {
+    const student = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken(),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'kresco.example'))
+    const professor = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ role: 'professor' }),
+      [KRESCO_USER_ROLE_COOKIE]: 'professor',
+    }, 'kresco.example'))
+    const staff = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'kresco.example'))
+
+    expect(student.headers.get('location')).toBe('https://app.kresco.example/home')
+    expect(professor.headers.get('location')).toBe('https://prof.kresco.example/professor')
+    expect(staff.headers.get('location')).toBe('https://admin.kresco.example/admin')
+  })
+
+  it('supports lvh.me local subdomains with the same host routing model', () => {
+    const admin = proxy(makeHttpRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'admin.kresco.lvh.me:3000'))
+    const unauthenticatedApp = proxy(makeHttpRequest('/', {}, 'app.kresco.lvh.me:3000'))
+
+    expect(admin.headers.get('x-middleware-rewrite')).toBe('http://admin.kresco.lvh.me:3000/admin')
+    expect(unauthenticatedApp.headers.get('location')).toBe('http://kresco.lvh.me:3000/')
+  })
+
+  it('supports kresco.test local subdomains with the same host routing model', () => {
+    const admin = proxy(makeHttpRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'admin.kresco.test:3000'))
+    const unauthenticatedApp = proxy(makeHttpRequest('/', {}, 'app.kresco.test:3000'))
+
+    expect(admin.headers.get('x-middleware-rewrite')).toBe('http://admin.kresco.test:3000/admin')
+    expect(unauthenticatedApp.headers.get('location')).toBe('http://kresco.test:3000/')
+  })
+
+  it('keeps plain localhost auth redirects path-based for development', () => {
+    const httpsLocalhost = proxy(makeRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'localhost:3000'))
+    const httpLocalhost = proxy(makeRequestWithHostHeader('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'localhost:3000'))
+
+    expect(httpsLocalhost.headers.get('location')).toBe('https://localhost:3000/admin')
+    expect(httpLocalhost.headers.get('location')).toBe('http://localhost:3000/admin')
+  })
+
+  it('uses the Host header for local subdomain routing when nextUrl is localhost', () => {
+    const admin = proxy(makeRequestWithHostHeader('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'admin.kresco.lvh.me:3000'))
+    const unauthenticatedApp = proxy(makeRequestWithHostHeader('/', {}, 'app.kresco.lvh.me:3000'))
+    const professorAlias = proxy(makeRequestWithHostHeader(
+      '/professor/login?next=chat',
+      {},
+      'professor.kresco.lvh.me:3000',
+    ))
+    const krescoTestAdmin = proxy(makeRequestWithHostHeader('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'admin.kresco.test:3000'))
+
+    expect(admin.headers.get('x-middleware-rewrite')).toBe('http://admin.kresco.lvh.me:3000/admin')
+    expect(unauthenticatedApp.headers.get('location')).toBe('http://kresco.lvh.me:3000/')
+    expect(professorAlias.headers.get('location')).toBe('http://prof.kresco.lvh.me:3000/professor/login?next=chat')
+    expect(krescoTestAdmin.headers.get('x-middleware-rewrite')).toBe('http://admin.kresco.test:3000/admin')
+  })
+
+  it('redirects www to the apex host while preserving the path and query', () => {
+    const response = proxy(makeRequest('/pricing?coupon=bac', {}, 'www.kresco.example'))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://kresco.example/pricing?coupon=bac')
+  })
+
+  it('canonicalizes professor host aliases to the configured professor origin', () => {
+    const response = proxy(makeRequest('/professor/login?next=chat', {}, 'professor.kresco.example'))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://prof.kresco.example/professor/login?next=chat')
   })
 
   it('emits a blocking CSP on allowed page responses', () => {
@@ -277,12 +441,24 @@ describe('Next proxy auth boundary', () => {
     }
   })
 
-  it('emits production HSTS without changing non-production header expectations', () => {
+  it('emits production HSTS without forcing subdomains before cutover', () => {
     vi.stubEnv('NODE_ENV', 'production')
     try {
       const response = proxy(makeRequest('/professor/login'))
 
       expectSecurityHeaders(response)
+      expect(response.headers.get('strict-transport-security')).toBe('max-age=31536000')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('can opt into HSTS includeSubDomains after every workspace domain is live', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('KRESCO_HSTS_INCLUDE_SUBDOMAINS', 'true')
+    try {
+      const response = proxy(makeRequest('/professor/login'))
+
       expect(response.headers.get('strict-transport-security')).toBe('max-age=31536000; includeSubDomains')
     } finally {
       vi.unstubAllEnvs()
@@ -293,7 +469,7 @@ describe('Next proxy auth boundary', () => {
     const response = proxy(makeRequest('/professor/chat'))
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://app.kresco.example/professor/login')
+    expect(response.headers.get('location')).toBe('https://prof.kresco.example/professor/login')
     expect(response.headers.get('content-security-policy')).toContain("default-src 'self'")
   })
 
@@ -332,6 +508,11 @@ describe('Next proxy auth boundary', () => {
       const csp = buildContentSecurityPolicy('test-nonce')
 
       expect(cspDirective(csp, 'style-src')).toContain("'unsafe-inline'")
+      expect(cspDirective(csp, 'connect-src')).toContain('http://*.lvh.me:*')
+      expect(cspDirective(csp, 'connect-src')).toContain('ws://*.lvh.me:*')
+      expect(cspDirective(csp, 'connect-src')).toContain('http://*.kresco.test:*')
+      expect(cspDirective(csp, 'connect-src')).toContain('ws://*.kresco.test:*')
+      expect(cspDirective(csp, 'img-src')).toContain('http://*.kresco.test:*')
       expect(cspDirective(csp, 'style-src-elem')).toContain("'unsafe-inline'")
       expect(cspDirective(csp, 'style-src-elem')).not.toContain("'sha256-")
       expect(cspDirective(csp, 'style-src-attr')).toBe("style-src-attr 'unsafe-inline'")

@@ -1,6 +1,16 @@
 import type { MetadataRoute } from 'next'
 
-const siteUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://kresco.ma')
+function getSiteUrl() {
+  const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://kresco.ma'
+
+  try {
+    return new URL('/', new URL(configuredUrl).origin)
+  } catch {
+    return new URL('https://kresco.ma')
+  }
+}
+
+const siteUrl = getSiteUrl()
 
 type PublicRoute = {
   path: string
@@ -10,15 +20,11 @@ type PublicRoute = {
 
 const publicRoutes: PublicRoute[] = [
   { path: '/', changeFrequency: 'weekly', priority: 1 },
-  { path: '/pricing', changeFrequency: 'monthly', priority: 0.8 },
 ]
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const lastModified = new Date()
-
   return publicRoutes.map(({ path, changeFrequency, priority }) => ({
     url: new URL(path, siteUrl).toString(),
-    lastModified,
     changeFrequency,
     priority,
   }))

@@ -13,6 +13,28 @@ LOCAL_DATABASE_URL = "sqlite+aiosqlite:///./db.sqlite3"
 PRODUCTION_ENVIRONMENTS = {"production", "prod", "staging"}
 DISALLOWED_JWT_SECRETS = {"", "change-me", LEGACY_FALLBACK_JWT_SECRET, PUBLIC_DEV_JWT_SECRET}
 DISALLOWED_JWT_SECRET_MARKERS = ("change-me", "placeholder", "test-secret", "development", "local")
+LOCAL_FRONTEND_PORTS = (3000, 3001, 3002)
+LOCAL_FRONTEND_HOSTS = (
+    "localhost",
+    "127.0.0.1",
+    "kresco.lvh.me",
+    "app.kresco.lvh.me",
+    "admin.kresco.lvh.me",
+    "prof.kresco.lvh.me",
+    "staff.kresco.lvh.me",
+    "kresco.test",
+    "app.kresco.test",
+    "admin.kresco.test",
+    "prof.kresco.test",
+    "staff.kresco.test",
+)
+LOCAL_FRONTEND_ORIGINS = ",".join(
+    f"http://{host}:{port}"
+    for port in LOCAL_FRONTEND_PORTS
+    for host in LOCAL_FRONTEND_HOSTS
+)
+LOCAL_FRONTEND_ORIGIN_REGEX = r"^https?://(([a-z0-9-]+\.)?localhost|([a-z0-9-]+\.)?lvh\.me|([a-z0-9-]+\.)?kresco\.test|127\.0\.0\.1):\d+$"
+LOCAL_TRUSTED_HOSTS = "localhost,127.0.0.1,testserver,testserver.local,lvh.me,*.lvh.me,kresco.test,*.kresco.test"
 
 REQUIRED_PRODUCTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("gcp_project_id", "GCP_PROJECT_ID"),
@@ -35,6 +57,7 @@ MEDIA_STORAGE_LOCAL = "local"
 MEDIA_STORAGE_GCS = "gcs"
 MEDIA_STORAGE_GCS_MOCK = "gcs-mock"
 DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS = 3600
+MAX_MEDIA_GCS_SIGNED_URL_TTL_SECONDS = 3600
 GCP_RUNTIME_SECRET_NAME_ENV = "KRESCO_GCP_RUNTIME_SECRET_NAME"
 PRODUCTION_DATABASE_CONNECTION_STRATEGIES = {"alloydb", "cloud_sql"}
 RUNTIME_SECRET_KEY_ALIASES = {
@@ -75,9 +98,13 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "CMI_CALLBACK_URL": "cmi_callback_url",
     "CORS_ALLOWED_ORIGINS": "cors_allowed_origins",
     "CORS_ALLOW_ORIGIN_REGEX": "cors_allow_origin_regex",
+    "CSRF_TRUSTED_ORIGINS": "csrf_trusted_origins",
+    "KRESCO_CSRF_TRUSTED_ORIGINS": "csrf_trusted_origins",
     "TRUSTED_HOSTS": "trusted_hosts",
     "KRESCO_TRUSTED_HOSTS": "trusted_hosts",
     "FRONTEND_URL": "frontend_url",
+    "AUTH_COOKIE_DOMAIN": "auth_cookie_domain",
+    "KRESCO_AUTH_COOKIE_DOMAIN": "auth_cookie_domain",
     "AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
     "KRESCO_AUTH_COOKIE_SAMESITE": "auth_cookie_samesite",
     "DEBUG": "debug",
@@ -170,18 +197,26 @@ class Settings(BaseSettings):
     cmi_fail_url: str = Field(default="", validation_alias=AliasChoices("cmi_fail_url", "CMI_FAIL_URL"))
     cmi_callback_url: str = Field(default="", validation_alias=AliasChoices("cmi_callback_url", "CMI_CALLBACK_URL"))
     cors_allowed_origins: str = Field(
-        default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002",
+        default=LOCAL_FRONTEND_ORIGINS,
         validation_alias=AliasChoices("cors_allowed_origins", "CORS_ALLOWED_ORIGINS"),
     )
     cors_allow_origin_regex: str = Field(
-        default=r"^https?://(localhost|127\.0\.0\.1):\d+$",
+        default=LOCAL_FRONTEND_ORIGIN_REGEX,
         validation_alias=AliasChoices("cors_allow_origin_regex", "CORS_ALLOW_ORIGIN_REGEX"),
     )
+    csrf_trusted_origins: str = Field(
+        default="",
+        validation_alias=AliasChoices("csrf_trusted_origins", "CSRF_TRUSTED_ORIGINS", "KRESCO_CSRF_TRUSTED_ORIGINS"),
+    )
     trusted_hosts: str = Field(
-        default="localhost,127.0.0.1,testserver,testserver.local",
+        default=LOCAL_TRUSTED_HOSTS,
         validation_alias=AliasChoices("trusted_hosts", "TRUSTED_HOSTS", "KRESCO_TRUSTED_HOSTS"),
     )
     frontend_url: str = Field(default="http://localhost:3000", validation_alias=AliasChoices("frontend_url", "FRONTEND_URL"))
+    auth_cookie_domain: str = Field(
+        default="",
+        validation_alias=AliasChoices("auth_cookie_domain", "AUTH_COOKIE_DOMAIN", "KRESCO_AUTH_COOKIE_DOMAIN"),
+    )
     auth_cookie_samesite: str = Field(
         default="lax",
         validation_alias=AliasChoices("auth_cookie_samesite", "AUTH_COOKIE_SAMESITE", "KRESCO_AUTH_COOKIE_SAMESITE"),
@@ -229,6 +264,10 @@ class Settings(BaseSettings):
         return value or None
 
     @property
+    def csrf_trusted_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.csrf_trusted_origins.split(",") if origin.strip()]
+
+    @property
     def trusted_hosts_list(self) -> list[str]:
         return _trusted_hosts_list(self.trusted_hosts)
 
@@ -251,6 +290,8 @@ class Settings(BaseSettings):
 
         if _is_disallowed_jwt_secret(self.jwt_secret_key):
             errors.append("JWT_SECRET_KEY must be configured to a non-default secret with at least 32 characters.")
+        if self.jwt_algorithm.strip().upper() != "HS256":
+            errors.append("JWT_ALGORITHM must be HS256 in production environments.")
 
         database_strategy = self.database_connection_strategy.strip().lower()
         if _is_sqlite_database_url(self.database_url):
@@ -290,7 +331,7 @@ class Settings(BaseSettings):
         ):
             value = str(getattr(self, field_name, "") or "").strip()
             if value:
-                errors.extend(_public_https_url_errors(value, name=env_name))
+                errors.extend(_vdocipher_url_errors(value, name=env_name))
 
         if not self.dark_production_mode:
             for field_name, env_name in CMI_PRODUCTION_FIELDS:
@@ -305,6 +346,8 @@ class Settings(BaseSettings):
             errors.append("MEDIA_GCS_BUCKET must be configured for production environments.")
         if int(self.media_gcs_signed_url_ttl_seconds) < 60:
             errors.append("MEDIA_GCS_SIGNED_URL_TTL_SECONDS must be at least 60 seconds.")
+        if int(self.media_gcs_signed_url_ttl_seconds) > MAX_MEDIA_GCS_SIGNED_URL_TTL_SECONDS:
+            errors.append("MEDIA_GCS_SIGNED_URL_TTL_SECONDS must be at most 3600 seconds.")
         if int(self.media_profile_quota_bytes) <= 0:
             errors.append("MEDIA_PROFILE_QUOTA_BYTES must be greater than zero.")
         if int(self.media_chat_conversation_quota_bytes) <= 0:
@@ -316,11 +359,23 @@ class Settings(BaseSettings):
         if not self.dark_production_mode and not _is_shared_rate_limit_storage_uri(self.rate_limit_storage_uri):
             errors.append("KRESCO_RATE_LIMIT_STORAGE_URI must point to a shared rate-limit store in production environments.")
 
-        if _is_local_origin(self.frontend_url):
-            errors.append("FRONTEND_URL must not point to localhost in production environments.")
+        frontend_origin = _normalized_origin(self.frontend_url)
+        frontend_host = _url_hostname(self.frontend_url)
+        errors.extend(_public_https_url_errors(self.frontend_url.strip(), name="FRONTEND_URL"))
 
         if self.auth_cookie_samesite.strip().lower() not in {"lax", "strict", "none"}:
             errors.append("AUTH_COOKIE_SAMESITE must be one of lax, strict, or none.")
+        auth_cookie_domain = self.auth_cookie_domain.strip().lower()
+        if not auth_cookie_domain:
+            errors.append("AUTH_COOKIE_DOMAIN must be configured for production environments.")
+        elif (
+            auth_cookie_domain.startswith(".")
+            or "." not in auth_cookie_domain
+            or any(part in auth_cookie_domain for part in ("://", "/", " "))
+        ):
+            errors.append("AUTH_COOKIE_DOMAIN must be a bare registrable domain such as kresco.ma.")
+        elif frontend_host and not _host_matches_cookie_domain(frontend_host, auth_cookie_domain):
+            errors.append("AUTH_COOKIE_DOMAIN must match FRONTEND_URL host or a parent domain.")
 
         if any(_is_local_origin(origin) for origin in self.cors_origins_list):
             errors.append("CORS_ALLOWED_ORIGINS must not include localhost origins in production environments.")
@@ -328,11 +383,35 @@ class Settings(BaseSettings):
         if any(_is_permissive_origin(origin) for origin in self.cors_origins_list):
             errors.append("CORS_ALLOWED_ORIGINS must not include wildcard origins in production environments.")
 
+        for origin in self.cors_origins_list:
+            if _is_permissive_origin(origin):
+                continue
+            errors.extend(_public_https_url_errors(origin, name="CORS_ALLOWED_ORIGINS"))
+            origin_host = _url_hostname(origin)
+            if auth_cookie_domain and origin_host and not _host_matches_cookie_domain(origin_host, auth_cookie_domain):
+                errors.append("CORS_ALLOWED_ORIGINS must stay within AUTH_COOKIE_DOMAIN.")
+
+        cors_origins = {_normalized_origin(origin) for origin in self.cors_origins_list}
+        if frontend_origin and frontend_origin not in cors_origins:
+            errors.append("CORS_ALLOWED_ORIGINS must include FRONTEND_URL origin.")
+
         if "localhost" in self.cors_allow_origin_regex or "127" in self.cors_allow_origin_regex:
             errors.append("CORS_ALLOW_ORIGIN_REGEX must not allow localhost origins in production environments.")
 
         if _is_permissive_origin_regex(self.cors_allow_origin_regex):
             errors.append("CORS_ALLOW_ORIGIN_REGEX must be tightly scoped in production environments.")
+
+        for origin in self.csrf_trusted_origins_list:
+            if _is_permissive_origin(origin):
+                errors.append("CSRF_TRUSTED_ORIGINS must not include wildcard origins in production environments.")
+            else:
+                errors.extend(_public_https_url_errors(origin, name="CSRF_TRUSTED_ORIGINS"))
+                origin_host = _url_hostname(origin)
+                if auth_cookie_domain and origin_host and not _host_matches_cookie_domain(origin_host, auth_cookie_domain):
+                    errors.append("CSRF_TRUSTED_ORIGINS must stay within AUTH_COOKIE_DOMAIN.")
+        csrf_origins = {_normalized_origin(origin) for origin in self.csrf_trusted_origins_list}
+        if frontend_origin and frontend_origin not in csrf_origins:
+            errors.append("CSRF_TRUSTED_ORIGINS must include FRONTEND_URL origin.")
 
         trusted_hosts = self.trusted_hosts_list
         if not trusted_hosts:
@@ -348,6 +427,11 @@ class Settings(BaseSettings):
     def auth_cookie_samesite_value(self) -> str:
         normalized = self.auth_cookie_samesite.strip().lower()
         return normalized if normalized in {"lax", "strict", "none"} else "lax"
+
+    @property
+    def auth_cookie_domain_value(self) -> str | None:
+        normalized = self.auth_cookie_domain.strip().lower()
+        return normalized or None
 
     model_config = SettingsConfigDict(
         env_file=(BACKEND_DIR / ".env", ".env"),
@@ -440,11 +524,38 @@ def _is_local_origin(value: str) -> bool:
     return (
         normalized.startswith("http://localhost")
         or normalized.startswith("https://localhost")
+        or normalized.startswith("http://lvh.me")
+        or normalized.startswith("https://lvh.me")
+        or ".lvh.me" in normalized
+        or normalized.startswith("http://kresco.test")
+        or normalized.startswith("https://kresco.test")
+        or ".kresco.test" in normalized
         or normalized.startswith("http://127.0.0.1")
         or normalized.startswith("https://127.0.0.1")
         or normalized.startswith("http://[::1]")
         or normalized.startswith("https://[::1]")
     )
+
+
+def _url_hostname(value: str) -> str:
+    from urllib.parse import urlparse
+
+    return (urlparse(value.strip()).hostname or "").lower()
+
+
+def _normalized_origin(value: str) -> str:
+    from urllib.parse import urlparse, urlunparse
+
+    parsed = urlparse(value.strip())
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return urlunparse((parsed.scheme.lower(), parsed.netloc.lower(), "", "", "", "")).rstrip("/")
+
+
+def _host_matches_cookie_domain(hostname: str, cookie_domain: str) -> bool:
+    normalized_host = hostname.strip(".").lower()
+    normalized_domain = cookie_domain.strip(".").lower()
+    return normalized_host == normalized_domain or normalized_host.endswith(f".{normalized_domain}")
 
 
 def _trusted_hosts_list(value: str) -> list[str]:
@@ -473,7 +584,12 @@ def _is_local_host(value: str) -> bool:
     import ipaddress
 
     normalized = _normalize_trusted_host(value)
-    if normalized in {"localhost", "::1"} or normalized.endswith(".localhost"):
+    if (
+        normalized in {"localhost", "::1", "lvh.me", "kresco.test"}
+        or normalized.endswith(".localhost")
+        or normalized.endswith(".lvh.me")
+        or normalized.endswith(".kresco.test")
+    ):
         return True
     try:
         address = ipaddress.ip_address(normalized)
@@ -506,7 +622,15 @@ def _public_https_url_errors(value: str, *, name: str, require_cmi_host: bool = 
     hostname = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or not hostname:
         return [f"{name} must be an HTTPS URL"]
-    if hostname == "localhost" or hostname.endswith(".localhost") or "." not in hostname:
+    if (
+        hostname == "localhost"
+        or hostname.endswith(".localhost")
+        or hostname == "lvh.me"
+        or hostname.endswith(".lvh.me")
+        or hostname == "kresco.test"
+        or hostname.endswith(".kresco.test")
+        or "." not in hostname
+    ):
         return [f"{name} must be publicly reachable"]
     try:
         address = ipaddress.ip_address(hostname)
@@ -518,6 +642,23 @@ def _public_https_url_errors(value: str, *, name: str, require_cmi_host: bool = 
     if require_cmi_host and not (hostname == "cmi.co.ma" or hostname.endswith(".cmi.co.ma")):
         return ["CMI_PAYMENT_URL must use a CMI gateway host"]
     return []
+
+
+def _vdocipher_url_errors(value: str, *, name: str) -> list[str]:
+    errors = _public_https_url_errors(value, name=name)
+    if errors:
+        return errors
+    if not is_vdocipher_provider_url(value):
+        return [f"{name} must use a VdoCipher-owned host"]
+    return []
+
+
+def is_vdocipher_provider_url(value: str) -> bool:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(value)
+    hostname = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (hostname == "vdocipher.com" or hostname.endswith(".vdocipher.com"))
 
 
 def _is_permissive_origin(value: str) -> bool:

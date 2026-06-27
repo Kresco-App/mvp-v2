@@ -430,16 +430,31 @@ def test_staging_runtime_json_mode_emits_failure_artifact_payload(monkeypatch, c
 def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-backend.yml").read_text(encoding="utf-8")
 
+    preflight_index = workflow.index("- name: Validate runtime domain contract")
     build_index = workflow.index("- name: Build backend image")
     deploy_index = workflow.index("- name: Deploy backend service")
+    resolve_url_index = workflow.index("- name: Resolve backend verification URL")
     migration_index = workflow.index("- name: Run migrations with stopped-db cleanup")
     readiness_index = workflow.index('ready_url = base_url + "/ready"')
     verifier_index = workflow.index("- name: Verify backend release health")
+    resolve_url_block = workflow[resolve_url_index:migration_index]
     migration_block = workflow[migration_index:verifier_index]
+    verifier_block = workflow[verifier_index:]
 
-    assert build_index < deploy_index < migration_index < readiness_index < verifier_index
+    assert preflight_index < build_index < deploy_index < resolve_url_index < migration_index < readiness_index < verifier_index
+    preflight_block = workflow[preflight_index:build_index]
+    assert "python scripts/check_public_auth_readiness.py" in preflight_block
+    assert "--runtime-secret-only" in preflight_block
+    assert 'tag="dark-$SHORT_SHA"' in resolve_url_block
+    assert '.status.traffic[]? | select(.tag == $tag) | .url // empty' in resolve_url_block
+    assert 'echo "BACKEND_SERVICE_URL=$service_url" >> "$GITHUB_ENV"' in resolve_url_block
+    assert 'echo "BACKEND_VERIFY_URL=$verify_url" >> "$GITHUB_ENV"' in resolve_url_block
     assert 'ready_url = base_url + "/ready"' in migration_block
+    assert 'export BACKEND_URL="$BACKEND_VERIFY_URL"' in migration_block
     assert "--activation-policy NEVER" in migration_block
+    assert 'export BACKEND_URL="$BACKEND_VERIFY_URL"' in verifier_block
+    assert 'echo "backend_url=$BACKEND_VERIFY_URL" >> "$GITHUB_OUTPUT"' in verifier_block
+    assert 'echo "backend_service_url=$BACKEND_SERVICE_URL" >> "$GITHUB_OUTPUT"' in verifier_block
     assert "google-github-actions/auth@v2" in workflow
     assert 'docker build --pull -t "$image" backend' in workflow
     assert 'docker push "$image"' in workflow

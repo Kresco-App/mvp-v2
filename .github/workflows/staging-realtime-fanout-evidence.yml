@@ -45,15 +45,24 @@ jobs:
       - name: Collect Firestore realtime delivery evidence
         run: |
           set -euo pipefail
+          normalize_secret_value() {
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+              ""|"null"|"undefined"|"none") printf '' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
           runtime_json="$(mktemp)"
           gcloud secrets versions access latest \
             --project "$PROJECT_ID" \
             --secret kresco-runtime > "$runtime_json"
-          firebase_project_id="$(jq -r '.FIREBASE_PROJECT_ID // .firebase_project_id // empty' "$runtime_json")"
-          firestore_database="$(jq -r '.FIRESTORE_DATABASE // .firestore_database // "(default)"' "$runtime_json")"
+          firebase_project_id="$(normalize_secret_value "$(jq -r '.FIREBASE_PROJECT_ID // .firebase_project_id // empty' "$runtime_json")")"
+          firestore_database="$(normalize_secret_value "$(jq -r '.FIRESTORE_DATABASE // .firestore_database // "(default)"' "$runtime_json")")"
           rm -f "$runtime_json"
           if [ -z "$firebase_project_id" ]; then
             firebase_project_id="$PROJECT_ID"
+          fi
+          if [ -z "$firestore_database" ]; then
+            firestore_database="(default)"
           fi
           python scripts/run_evidence_command.py \
             --name staging-realtime-fanout \

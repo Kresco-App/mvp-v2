@@ -17,6 +17,9 @@ jobs:
       BACKEND_SERVICE: kresco-backend-staging
       FRONTEND_SERVICE: kresco-frontend-staging
       CLOUD_SQL_INSTANCE: kresco-staging-postgres
+      STAGING_FRONTEND_APEX_URL: https://staging.kresco.ma
+      STAGING_API_HOST: api.staging.kresco.ma
+      STAGING_PUBLIC_API_URL: https://api.staging.kresco.ma
       EVIDENCE_DIR: artifacts/staging-launch-evidence
 
     steps:
@@ -72,6 +75,42 @@ jobs:
               raise SystemExit("; ".join(errors))
           PY
 
+      - name: Collect Firebase Hosting rewrites
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python scripts/check_firebase_hosting_rewrites.py \
+            --environment staging \
+            --json > "$EVIDENCE_DIR/firebase-hosting-rewrites.json"
+
+      - name: Collect Firebase Hosting domain contract
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python scripts/check_firebase_hosting_domains.py \
+            --environment staging \
+            --live \
+            --json > "$EVIDENCE_DIR/firebase-hosting-domains.json"
+
+      - name: Collect Firebase Hosting DNS record plan
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python scripts/export_firebase_hosting_dns_records.py \
+            --environment staging \
+            --json > "$EVIDENCE_DIR/firebase-hosting-dns-records.json"
+
+      - name: Collect public DNS record evidence
+        continue-on-error: true
+        run: |
+          set +e
+          python scripts/check_firebase_hosting_public_dns.py \
+            --environment staging \
+            --json > "$EVIDENCE_DIR/firebase-hosting-public-dns.json" 2> "$EVIDENCE_DIR/firebase-hosting-public-dns.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/firebase-hosting-public-dns.status.json"
+          exit 0
+
       - name: Collect Cloud SQL cost posture
         continue-on-error: true
         run: |
@@ -122,12 +161,18 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          normalize_secret_value() {
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+              ""|"null"|"undefined"|"none") printf '' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
           runtime_json="$(mktemp)"
           gcloud secrets versions access latest \
             --project "$PROJECT_ID" \
             --secret kresco-runtime > "$runtime_json"
-          media_bucket="$(jq -r '.MEDIA_GCS_BUCKET // .media_gcs_bucket // empty' "$runtime_json")"
-          media_prefix="$(jq -r '.MEDIA_GCS_PREFIX // .media_gcs_prefix // "media"' "$runtime_json")"
+          media_bucket="$(normalize_secret_value "$(jq -r '.MEDIA_GCS_BUCKET // .media_gcs_bucket // empty' "$runtime_json")")"
+          media_prefix="$(normalize_secret_value "$(jq -r '.MEDIA_GCS_PREFIX // .media_gcs_prefix // "media"' "$runtime_json")")"
           rm -f "$runtime_json"
           if [ -z "$media_bucket" ]; then
             echo "::error::MEDIA_GCS_BUCKET is missing from kresco-runtime."
@@ -253,6 +298,103 @@ jobs:
               "frontend_status": frontend_status,
           }, indent=2), encoding="utf-8")
           PY
+
+      - name: Collect public subdomain routing evidence
+        continue-on-error: true
+        run: |
+          set +e
+          python scripts/check_subdomain_routing.py \
+            --apex-url "$STAGING_FRONTEND_APEX_URL" \
+            --hsts-policy no-include-subdomains \
+            --required > "$EVIDENCE_DIR/subdomain-routing.txt" 2> "$EVIDENCE_DIR/subdomain-routing.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/subdomain-routing.status.json"
+          exit 0
+
+      - name: Collect public API release evidence
+        continue-on-error: true
+        run: |
+          set +e
+          python - <<'PY' > "$EVIDENCE_DIR/public-api-health.stdout.txt" 2> "$EVIDENCE_DIR/public-api-health.stderr.txt"
+          import json
+          import os
+          import sys
+          import urllib.request
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          runtime = json.loads((evidence_dir / "runtime-smoke.json").read_text(encoding="utf-8"))
+          expected_sha = str(runtime.get("backend_release_sha") or "").strip()
+          api_url = os.environ["STAGING_PUBLIC_API_URL"].rstrip("/")
+          result = {
+              "api_url": api_url,
+              "ready_url": f"{api_url}/ready",
+              "health_url": f"{api_url}/health",
+              "expected_sha": expected_sha,
+          }
+          errors = []
+
+          def fetch_json(url):
+              with urllib.request.urlopen(url, timeout=30) as response:
+                  return response.getcode(), json.loads(response.read().decode("utf-8"))
+
+          try:
+              ready_status, ready = fetch_json(result["ready_url"])
+              health_status, health = fetch_json(result["health_url"])
+              result.update({
+                  "ready_status_code": ready_status,
+                  "ready_status": ready.get("status"),
+                  "health_status_code": health_status,
+                  "release_sha": health.get("release_sha"),
+              })
+              if not expected_sha:
+                  errors.append("runtime smoke did not capture backend_release_sha.")
+              if ready_status >= 400:
+                  errors.append(f"public API /ready returned {ready_status}.")
+              if ready.get("status") != "ready":
+                  errors.append(f"public API /ready status was {ready.get('status')!r}, expected 'ready'.")
+              if health_status >= 400:
+                  errors.append(f"public API /health returned {health_status}.")
+              if health.get("release_sha") != expected_sha:
+                  errors.append(f"public API release_sha was {health.get('release_sha')!r}, expected {expected_sha!r}.")
+          except Exception as exc:
+              errors.append(f"public API health check failed: {exc}")
+
+          result["passed"] = not errors
+          result["errors"] = errors
+          (evidence_dir / "public-api-health.json").write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+          if errors:
+              for error in errors:
+                  print(f"error: {error}", file=sys.stderr)
+              raise SystemExit(1)
+          print(f"Public API release evidence passed for {api_url}.")
+          PY
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/public-api-health.status.json"
+          exit 0
+
+      - name: Collect public auth readiness
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          normalize_secret_value() {
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+              ""|"null"|"undefined"|"none") printf '' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          firebase_project_id="$(normalize_secret_value "$(jq -r '.NEXT_PUBLIC_FIREBASE_PROJECT_ID // .FIREBASE_PROJECT_ID // .firebase_project_id // empty' "$runtime_json")")"
+          rm -f "$runtime_json"
+          python scripts/check_public_auth_readiness.py \
+            --project-id "${firebase_project_id:-$PROJECT_ID}" \
+            --runtime-secret-name kresco-runtime \
+            --frontend-apex-url "$STAGING_FRONTEND_APEX_URL" \
+            --api-host "$STAGING_API_HOST" \
+            --require-email-password \
+            --require-google-provider \
+            --json > "$EVIDENCE_DIR/public-auth-readiness.json"
 
       - name: Evaluate staging launch evidence
         if: always()

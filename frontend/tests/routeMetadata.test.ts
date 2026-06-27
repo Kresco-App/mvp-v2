@@ -52,7 +52,7 @@ describe('route metadata ownership', () => {
   })
 
   it('exports valid crawlability metadata without sitemap and robots conflicts', () => {
-    const expectedOrigin = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://kresco.ma').origin
+    const expectedOrigin = expectedSiteOrigin()
     const robotsMetadata = robots()
     const sitemapMetadata = sitemap()
     const manifestMetadata = manifest()
@@ -63,10 +63,10 @@ describe('route metadata ownership', () => {
     expect(manifestMetadata.start_url).toBe('/')
     expect(manifestMetadata.display).toBe('standalone')
 
-    expect(sitemapMetadata.map((entry) => new URL(entry.url).pathname)).toEqual(['/', '/pricing'])
+    expect(sitemapMetadata.map((entry) => new URL(entry.url).pathname)).toEqual(['/'])
     for (const entry of sitemapMetadata) {
       expect(new URL(entry.url).origin).toBe(expectedOrigin)
-      expect(entry.lastModified).toBeInstanceOf(Date)
+      expect(entry.lastModified).toBeUndefined()
       expect(entry.priority).toBeGreaterThan(0)
       expect(entry.priority).toBeLessThanOrEqual(1)
     }
@@ -81,8 +81,20 @@ describe('route metadata ownership', () => {
         )
       }
     }
+
+    expect(disallowedPaths).toContain('/pricing')
   })
 })
+
+function expectedSiteOrigin() {
+  const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://kresco.ma'
+
+  try {
+    return new URL(configuredUrl).origin
+  } catch {
+    return 'https://kresco.ma'
+  }
+}
 
 function robotsRules(metadata: ReturnType<typeof robots>) {
   return Array.isArray(metadata.rules) ? metadata.rules : [metadata.rules]

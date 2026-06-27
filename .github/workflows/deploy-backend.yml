@@ -26,6 +26,9 @@ on:
       backend_url:
         description: "Deployed backend Cloud Run URL"
         value: ${{ jobs.deploy.outputs.backend_url }}
+      backend_service_url:
+        description: "Base Cloud Run service URL before any dark-deploy tag selection"
+        value: ${{ jobs.deploy.outputs.backend_service_url }}
       backend_image:
         description: "Pushed backend image reference"
         value: ${{ jobs.deploy.outputs.backend_image }}
@@ -74,6 +77,7 @@ jobs:
     environment: ${{ inputs.environment == 'production' && 'Production' || 'staging' }}
     outputs:
       backend_url: ${{ steps.backend_outputs.outputs.backend_url }}
+      backend_service_url: ${{ steps.backend_outputs.outputs.backend_service_url }}
       backend_image: ${{ steps.backend_outputs.outputs.backend_image }}
       backend_image_digest: ${{ steps.backend_outputs.outputs.backend_image_digest }}
       backend_revision: ${{ steps.backend_outputs.outputs.backend_revision }}
@@ -154,6 +158,30 @@ jobs:
             --data-file "$runtime_json"
           rm -f "$runtime_json"
 
+      - name: Validate runtime domain contract
+        run: |
+          set -euo pipefail
+          case "$KRESCO_ENV" in
+            staging)
+              frontend_apex_url="https://staging.kresco.ma"
+              api_host="api.staging.kresco.ma"
+              ;;
+            prod)
+              frontend_apex_url="https://kresco.ma"
+              api_host="api.kresco.ma"
+              ;;
+            *)
+              echo "::error::Unsupported KRESCO_ENV=$KRESCO_ENV"
+              exit 1
+              ;;
+          esac
+          python scripts/check_public_auth_readiness.py \
+            --project-id "$PROJECT_ID" \
+            --runtime-secret-name kresco-runtime \
+            --frontend-apex-url "$frontend_apex_url" \
+            --api-host "$api_host" \
+            --runtime-secret-only
+
       - name: Build backend image
         run: |
           set -euo pipefail
@@ -169,6 +197,10 @@ jobs:
         run: |
           set -euo pipefail
           cloud_sql_connection="$PROJECT_ID:$REGION:$CLOUD_SQL_INSTANCE"
+          deploy_flags=()
+          if [ "$KRESCO_ENV" = "prod" ] && [ "${{ inputs.enforce_production_launch_gate }}" != "true" ]; then
+            deploy_flags+=(--no-traffic --tag "dark-$SHORT_SHA")
+          fi
           gcloud run deploy "$BACKEND_SERVICE" \
             --project "$PROJECT_ID" \
             --region "$REGION" \
@@ -177,6 +209,7 @@ jobs:
             --max-instances 3 \
             --set-cloudsql-instances "$cloud_sql_connection" \
             --update-env-vars "KRESCO_ENV=$KRESCO_ENV,KRESCO_RELEASE_SHA=$SHORT_SHA,KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" \
+            "${deploy_flags[@]}" \
             --quiet
           gcloud run jobs deploy "$MIGRATION_JOB" \
             --project "$PROJECT_ID" \
@@ -187,6 +220,34 @@ jobs:
             --set-cloudsql-instances "$cloud_sql_connection" \
             --update-env-vars "KRESCO_ENV=$KRESCO_ENV,KRESCO_RELEASE_SHA=$SHORT_SHA,KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" \
             --quiet
+
+      - name: Resolve backend verification URL
+        run: |
+          set -euo pipefail
+          service_json="$(mktemp)"
+          gcloud run services describe "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$service_json"
+          service_url="$(jq -r '.status.url // empty' "$service_json")"
+          verify_url="$service_url"
+          if [ "$KRESCO_ENV" = "prod" ] && [ "${{ inputs.enforce_production_launch_gate }}" != "true" ]; then
+            tag="dark-$SHORT_SHA"
+            verify_url="$(jq -r --arg tag "$tag" '.status.traffic[]? | select(.tag == $tag) | .url // empty' "$service_json" | head -n 1)"
+            if [ -z "$verify_url" ]; then
+              echo "::error::Could not find Cloud Run URL for dark production tag $tag."
+              cat "$service_json"
+              exit 1
+            fi
+          fi
+          if [ -z "$service_url" ] || [ -z "$verify_url" ]; then
+            echo "::error::Cloud Run backend service URL could not be resolved."
+            cat "$service_json"
+            exit 1
+          fi
+          echo "BACKEND_SERVICE_URL=$service_url" >> "$GITHUB_ENV"
+          echo "BACKEND_VERIFY_URL=$verify_url" >> "$GITHUB_ENV"
+          rm -f "$service_json"
 
       - name: Run migrations with stopped-db cleanup
         if: ${{ inputs.run_migrations == true }}
@@ -220,8 +281,7 @@ jobs:
             --region "$REGION" \
             --wait \
             --quiet
-          url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
-          export BACKEND_URL="$url"
+          export BACKEND_URL="$BACKEND_VERIFY_URL"
           python - <<'PY'
           import json
           import os
@@ -240,9 +300,8 @@ jobs:
         id: backend_outputs
         run: |
           set -euo pipefail
-          url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
           revision="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.latestReadyRevisionName)')"
-          export BACKEND_URL="$url"
+          export BACKEND_URL="$BACKEND_VERIFY_URL"
           python - <<'PY'
           import json
           import os
@@ -256,7 +315,8 @@ jobs:
               raise SystemExit(f"Release mismatch: {body.get('release_sha')} != {os.environ['SHORT_SHA']}")
           print(f"Backend release health passed for {base_url}")
           PY
-          echo "backend_url=$url" >> "$GITHUB_OUTPUT"
+          echo "backend_url=$BACKEND_VERIFY_URL" >> "$GITHUB_OUTPUT"
+          echo "backend_service_url=$BACKEND_SERVICE_URL" >> "$GITHUB_OUTPUT"
           echo "backend_image=$BACKEND_IMAGE" >> "$GITHUB_OUTPUT"
           echo "backend_image_digest=$BACKEND_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "backend_revision=$revision" >> "$GITHUB_OUTPUT"

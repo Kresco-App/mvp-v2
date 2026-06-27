@@ -1,0 +1,104 @@
+{
+  "hosting": [
+    {
+      "target": "staging-frontend",
+      "public": "firebase-hosting-public",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "kresco-backend-staging",
+            "region": "europe-southwest1"
+          }
+        },
+        {
+          "source": "/media/**",
+          "run": {
+            "serviceId": "kresco-backend-staging",
+            "region": "europe-southwest1"
+          }
+        },
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "kresco-frontend-staging",
+            "region": "europe-southwest1"
+          }
+        }
+      ]
+    },
+    {
+      "target": "staging-api",
+      "public": "firebase-hosting-public",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "kresco-backend-staging",
+            "region": "europe-southwest1"
+          }
+        }
+      ]
+    },
+    {
+      "target": "production-frontend",
+      "public": "firebase-hosting-public",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "kresco-backend-prod",
+            "region": "europe-southwest1"
+          }
+        },
+        {
+          "source": "/media/**",
+          "run": {
+            "serviceId": "kresco-backend-prod",
+            "region": "europe-southwest1"
+          }
+        },
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "kresco-frontend-prod",
+            "region": "europe-southwest1"
+          }
+        }
+      ]
+    },
+    {
+      "target": "production-api",
+      "public": "firebase-hosting-public",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "kresco-backend-prod",
+            "region": "europe-southwest1"
+          }
+        }
+      ]
+    }
+  ]
+}

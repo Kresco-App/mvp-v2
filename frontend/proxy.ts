@@ -4,7 +4,14 @@ import { NextResponse } from 'next/server'
 
 import { getAuthRedirect } from '@/lib/authRedirect'
 import { getApiOrigin } from '@/lib/apiConfig'
-import { isJwtExpired, KRESCO_CSRF_COOKIE, KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE_COOKIE } from '@/lib/authSession'
+import { AUTH_ROUTES, getAuthenticatedDestination } from '@/lib/authPolicy'
+import {
+  getAuthUserFromJwt,
+  isJwtExpired,
+  KRESCO_CSRF_COOKIE,
+  KRESCO_TOKEN_COOKIE,
+  KRESCO_USER_ROLE_COOKIE,
+} from '@/lib/authSession'
 
 const CSP_HEADER = 'Content-Security-Policy'
 let cachedCspTemplate: { key: string; value: string } | null = null
@@ -13,6 +20,10 @@ type ProxyAuthUser = {
   role: string | null
   is_staff: boolean
 }
+
+type WorkspaceHost = 'landing' | 'www' | 'student' | 'admin' | 'professor' | 'staff'
+
+const ROUTED_HOST_LABELS = new Set(['www', 'app', 'admin', 'prof', 'professor', 'staff'])
 
 function normalizeCsp(directives: string[]) {
   return directives
@@ -42,6 +53,108 @@ function uniqueSources(sources: string[]) {
   return Array.from(new Set(sources.filter(Boolean)))
 }
 
+function workspaceForHostname(hostname: string): WorkspaceHost {
+  const firstLabel = hostname.split('.')[0] ?? ''
+  if (firstLabel === 'www') return 'www'
+  if (firstLabel === 'app') return 'student'
+  if (firstLabel === 'admin') return 'admin'
+  if (firstLabel === 'prof' || firstLabel === 'professor') return 'professor'
+  if (firstLabel === 'staff') return 'staff'
+  return 'landing'
+}
+
+function hostnameFromHeader(value: string | null) {
+  const host = value?.split(',')[0]?.trim().toLowerCase()
+  if (!host) return null
+
+  try {
+    return new URL(`http://${host}`).hostname.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function requestHostname(request: NextRequest) {
+  return (
+    hostnameFromHeader(request.headers.get('host')) ??
+    hostnameFromHeader(request.headers.get('x-forwarded-host')) ??
+    request.nextUrl.hostname.toLowerCase()
+  )
+}
+
+function isProfessorAliasHostname(hostname: string) {
+  const labels = hostname.split('.').filter(Boolean)
+  return labels.length > 1 && labels[0] === 'professor'
+}
+
+function apexHostname(hostname: string) {
+  const labels = hostname.split('.').filter(Boolean)
+  if (labels.length <= 1) return hostname
+  return ROUTED_HOST_LABELS.has(labels[0] ?? '') ? labels.slice(1).join('.') : hostname
+}
+
+function isLocalhostHostname(hostname: string) {
+  return hostname === 'localhost' || hostname.endsWith('.localhost')
+}
+
+function hasRoutableSubdomain(hostname: string) {
+  return Boolean(
+    hostname
+    && !isLocalhostHostname(hostname)
+    && hostname !== '127.0.0.1'
+    && hostname !== '::1'
+    && !hostname.includes(':'),
+  )
+}
+
+function workspaceHostname(currentHostname: string, workspace: Exclude<WorkspaceHost, 'landing' | 'www'>) {
+  if (!hasRoutableSubdomain(currentHostname)) return currentHostname
+
+  const apex = apexHostname(currentHostname)
+  const label = workspace === 'student' ? 'app' : workspace === 'professor' ? 'prof' : workspace
+  return `${label}.${apex}`
+}
+
+function workspaceRootPath(workspace: WorkspaceHost) {
+  if (workspace === 'student') return AUTH_ROUTES.studentHome
+  if (workspace === 'admin') return AUTH_ROUTES.adminHome
+  if (workspace === 'professor') return AUTH_ROUTES.professorHome
+  if (workspace === 'staff') return '/staff/payments'
+  return null
+}
+
+function destinationWorkspace(pathname: string): Exclude<WorkspaceHost, 'landing' | 'www'> {
+  if (pathname === AUTH_ROUTES.adminHome || pathname.startsWith(`${AUTH_ROUTES.adminHome}/`)) return 'admin'
+  if (pathname === AUTH_ROUTES.professorHome || pathname.startsWith(`${AUTH_ROUTES.professorHome}/`)) return 'professor'
+  if (pathname === '/staff' || pathname.startsWith('/staff/')) return 'staff'
+  return 'student'
+}
+
+function urlForHostname(request: NextRequest, hostname: string, pathname: string, search = request.nextUrl.search) {
+  const url = request.nextUrl.clone()
+  url.hostname = hostname
+  url.pathname = pathname
+  url.search = search
+  return url
+}
+
+function authenticatedWorkspaceUrl(request: NextRequest, destination: string, hostname: string) {
+  const workspace = destinationWorkspace(destination)
+  return urlForHostname(request, workspaceHostname(hostname, workspace), destination, '')
+}
+
+function authRedirectUrl(request: NextRequest, hostname: string, workspace: WorkspaceHost, destination: string) {
+  if (destination === AUTH_ROUTES.landing && ['student', 'admin', 'staff'].includes(workspace)) {
+    return urlForHostname(request, apexHostname(hostname), AUTH_ROUTES.landing, '')
+  }
+
+  if (destination === AUTH_ROUTES.professorLogin) {
+    return urlForHostname(request, workspaceHostname(hostname, 'professor'), destination, '')
+  }
+
+  return new URL(destination, request.url)
+}
+
 export function buildContentSecurityPolicy(nonce?: string | null) {
   const nonceSource = nonce ? `'nonce-${nonce}'` : ''
   return getContentSecurityPolicyTemplate(nonceSource)
@@ -68,9 +181,34 @@ function getContentSecurityPolicyTemplate(nonceSource: string) {
   const firebaseOrigin = firebaseAuthOrigin()
   const allowDevOverlayStyles = process.env.NODE_ENV === 'development'
   const devConnectSources = isDevelopment
-    ? ['http://localhost:*', 'http://127.0.0.1:*', 'ws://localhost:*', 'ws://127.0.0.1:*']
+    ? [
+      'http://localhost:*',
+      'http://*.localhost:*',
+      'http://127.0.0.1:*',
+      'http://lvh.me:*',
+      'http://*.lvh.me:*',
+      'http://kresco.test:*',
+      'http://*.kresco.test:*',
+      'ws://localhost:*',
+      'ws://*.localhost:*',
+      'ws://127.0.0.1:*',
+      'ws://lvh.me:*',
+      'ws://*.lvh.me:*',
+      'ws://kresco.test:*',
+      'ws://*.kresco.test:*',
+    ]
     : []
-  const devImageSources = isDevelopment ? ['http://localhost:*', 'http://127.0.0.1:*'] : []
+  const devImageSources = isDevelopment
+    ? [
+      'http://localhost:*',
+      'http://*.localhost:*',
+      'http://127.0.0.1:*',
+      'http://lvh.me:*',
+      'http://*.lvh.me:*',
+      'http://kresco.test:*',
+      'http://*.kresco.test:*',
+    ]
+    : []
   const devScriptSources = isDevelopment ? ["'unsafe-eval'"] : []
   const devStyleSources = allowDevOverlayStyles ? ["'unsafe-inline'"] : []
   const scriptSources = uniqueSources([
@@ -163,11 +301,14 @@ function withSecurityHeaders(response: NextResponse, csp: string) {
   response.headers.set('X-Content-Type-Options', 'nosniff')
   response.headers.set('X-DNS-Prefetch-Control', 'on')
   response.headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups')
+  response.headers.set('Cross-Origin-Resource-Policy', 'same-origin')
   response.headers.set('Origin-Agent-Cluster', '?1')
   response.headers.set('X-Download-Options', 'noopen')
   response.headers.set('X-Permitted-Cross-Domain-Policies', 'none')
+  response.headers.set('X-XSS-Protection', '0')
   if (process.env.NODE_ENV === 'production') {
-    response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    const includeSubdomains = process.env.KRESCO_HSTS_INCLUDE_SUBDOMAINS === 'true'
+    response.headers.set('Strict-Transport-Security', includeSubdomains ? 'max-age=31536000; includeSubDomains' : 'max-age=31536000')
   }
   return response
 }
@@ -179,11 +320,38 @@ export function proxy(request: NextRequest) {
   if (nonce) requestHeaders.set('x-nonce', nonce)
   requestHeaders.set(CSP_HEADER, csp)
 
+  const hostname = requestHostname(request)
+
+  if (isProfessorAliasHostname(hostname)) {
+    return withSecurityHeaders(
+      NextResponse.redirect(urlForHostname(request, workspaceHostname(hostname, 'professor'), request.nextUrl.pathname)),
+      csp,
+    )
+  }
+
+  const workspace = workspaceForHostname(hostname)
+
+  if (workspace === 'www') {
+    return withSecurityHeaders(
+      NextResponse.redirect(urlForHostname(request, apexHostname(hostname), request.nextUrl.pathname)),
+      csp,
+    )
+  }
+
   const token = request.cookies.get(KRESCO_TOKEN_COOKIE)?.value
+  if (workspace === 'landing' && request.nextUrl.pathname === '/' && token && !isJwtExpired(token)) {
+    return withSecurityHeaders(
+      NextResponse.redirect(authenticatedWorkspaceUrl(request, getAuthenticatedDestination(getAuthUserFromJwt(token)), hostname)),
+      csp,
+    )
+  }
+
+  const workspaceRoot = request.nextUrl.pathname === '/' ? workspaceRootPath(workspace) : null
+  const effectivePathname = workspaceRoot ?? request.nextUrl.pathname
   const roleCookie = request.cookies.get(KRESCO_USER_ROLE_COOKIE)?.value?.trim() || null
   const getProxyUser = (): ProxyAuthUser => ({ role: roleCookie, is_staff: false })
   const decision = getAuthRedirect(
-    request.nextUrl.pathname,
+    effectivePathname,
     token,
     isJwtExpired,
     getProxyUser,
@@ -191,10 +359,14 @@ export function proxy(request: NextRequest) {
   )
 
   if (decision.action === 'allow') {
+    if (effectivePathname !== request.nextUrl.pathname) {
+      const rewriteUrl = urlForHostname(request, hostname, effectivePathname)
+      return withSecurityHeaders(NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } }), csp)
+    }
     return withSecurityHeaders(NextResponse.next({ request: { headers: requestHeaders } }), csp)
   }
 
-  const response = NextResponse.redirect(new URL(decision.destination, request.url))
+  const response = NextResponse.redirect(authRedirectUrl(request, hostname, workspace, decision.destination))
   if (decision.clearCookie) {
     response.cookies.delete(KRESCO_TOKEN_COOKIE)
     response.cookies.delete(KRESCO_USER_ROLE_COOKIE)

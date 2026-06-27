@@ -36,6 +36,9 @@ export function shouldEnableBackendRewrites(value = process.env.KRESCO_BACKEND_O
   try {
     const parsed = new URL(value)
     return parsed.protocol === 'https:'
+      && parsed.pathname.replace(/\/+$/, '') === ''
+      && parsed.search === ''
+      && parsed.hash === ''
       && !LOCAL_HOST_PATTERN.test(parsed.hostname)
       && !LOCAL_OR_TUNNEL_PATTERN.test(value)
   } catch {
@@ -48,20 +51,26 @@ export function buildImageRemotePatterns(nodeEnv = process.env.NODE_ENV) {
   return [...productionImageRemotePatterns, ...localImageRemotePatterns]
 }
 
-export function buildSecurityHeaders(nodeEnv = process.env.NODE_ENV) {
+export function buildSecurityHeaders(
+  nodeEnv = process.env.NODE_ENV,
+  hstsIncludeSubdomains = process.env.KRESCO_HSTS_INCLUDE_SUBDOMAINS,
+) {
+  const hstsValue = hstsIncludeSubdomains === 'true' ? 'max-age=31536000; includeSubDomains' : 'max-age=31536000'
   return [
-  { key: 'X-Frame-Options', value: 'DENY' },
-  { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'X-DNS-Prefetch-Control', value: 'on' },
-  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
-  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
-  { key: 'Origin-Agent-Cluster', value: '?1' },
-  { key: 'X-Download-Options', value: 'noopen' },
-  { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
-  ...(nodeEnv === 'production'
-    ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
-    : []),
+    { key: 'X-Frame-Options', value: 'DENY' },
+    { key: 'X-Content-Type-Options', value: 'nosniff' },
+    { key: 'X-DNS-Prefetch-Control', value: 'on' },
+    { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+    { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+    { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
+    { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+    { key: 'Origin-Agent-Cluster', value: '?1' },
+    { key: 'X-Download-Options', value: 'noopen' },
+    { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
+    { key: 'X-XSS-Protection', value: '0' },
+    ...(nodeEnv === 'production'
+      ? [{ key: 'Strict-Transport-Security', value: hstsValue }]
+      : []),
   ]
 }
 
@@ -70,6 +79,10 @@ const nextConfig = {
   output: 'standalone',
   experimental: {
     optimizePackageImports,
+    staleTimes: {
+      dynamic: 60,
+      static: 300,
+    },
     sri: {
       algorithm: 'sha256',
     },

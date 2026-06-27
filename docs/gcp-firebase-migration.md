@@ -10,7 +10,7 @@ This branch intentionally targets a breaking replatform. It is the GCP/Firebase 
 - Media: Cloud Storage with private `gs://` object references and short-lived signed read URLs.
 - Auth: Firebase Auth is the external identity provider; Postgres remains the authorization and entitlement source of truth.
 - Realtime: Firestore is the target realtime provider for narrow UI state and outbox delivery. Postgres keeps durable business state. Backend outbox events publish to `realtimeChannels/{encodedChannel}/events`.
-- Frontend: Next.js container on Cloud Run, optionally fronted by Firebase Hosting/CDN.
+- Frontend: Next.js container on Cloud Run, fronted by Firebase Hosting/CDN for public custom domains.
 
 ## Required Backend Runtime Env
 
@@ -39,7 +39,10 @@ Provider credentials for VdoCipher and CMI stay backend-only and should live ins
 ## Required Frontend Runtime Env
 
 ```dotenv
-NEXT_PUBLIC_API_BASE_URL=https://<backend-cloud-run-url>/api
+NEXT_PUBLIC_API_BASE_URL=/api/
+KRESCO_BACKEND_ORIGIN=https://api.staging.kresco.ma
+NEXT_PUBLIC_SITE_URL=https://staging.kresco.ma
+NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=staging.kresco.ma
 NEXT_PUBLIC_FIREBASE_API_KEY=<firebase-web-api-key>
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=kresco-staging.firebaseapp.com
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=kresco-staging
@@ -50,6 +53,8 @@ NEXT_PUBLIC_FIRESTORE_DATABASE=(default)
 NEXT_PUBLIC_REALTIME_PROVIDER=firestore
 NEXT_PUBLIC_RELEASE_SHA=<git-sha>
 ```
+
+The frontend should not be built against raw `*.run.app` backend URLs. Cloud Run service URLs are useful for internal deploy verification, but browser traffic should use Firebase Hosting public origins. Frontend Hosting sites rewrite `/api/**` and `/media/**` to backend Cloud Run, while API Hosting sites rewrite every path to backend Cloud Run.
 
 Firebase Auth must have the Google and Email/Password sign-in providers enabled. Authorized domains and email action handling must point at the deployed frontend so verification and password-reset links return to `/auth/verify-email` and `/auth/reset-password`.
 
@@ -69,7 +74,7 @@ cd backend; python -m pytest backend/tests_fastapi/test_image_uploads.py backend
 4. Store backend runtime JSON in Secret Manager.
 5. Run Alembic against staging Postgres.
 6. Deploy backend to Cloud Run staging.
-7. Deploy frontend to Cloud Run staging.
+7. Deploy frontend to Cloud Run staging and deploy Firebase Hosting edge rewrites.
 8. Move media uploads to Cloud Storage and verify `gs://` references.
 9. Enable Firebase Auth Google and Email/Password providers, then verify backend token exchange maps Firebase UID to Postgres users.
 10. Verify frontend Firestore listeners through the realtime facade.

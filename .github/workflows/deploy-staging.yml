@@ -54,6 +54,18 @@ jobs:
       environment: staging
       confirm_production_dark_deploy: false
       enforce_production_launch_gate: false
+      hsts_include_subdomains: false
+    secrets: inherit
+
+  deploy-hosting:
+    name: Deploy Firebase Hosting Edge
+    needs:
+      - deploy-frontend
+    uses: ./.github/workflows/deploy-firebase-hosting.yml
+    with:
+      environment: staging
+      confirm_production_hosting_deploy: false
+      ensure_custom_domains: true
     secrets: inherit
 
   staging-smoke:
@@ -61,6 +73,7 @@ jobs:
     needs:
       - deploy-backend
       - deploy-frontend
+      - deploy-hosting
     runs-on: ubuntu-latest
     environment: staging
     env:
@@ -78,6 +91,8 @@ jobs:
       FRONTEND_IMAGE_DIGEST: ${{ needs.deploy-frontend.outputs.frontend_image_digest }}
       STAGING_AUTH_SMOKE_EMAIL: ${{ secrets.STAGING_AUTH_SMOKE_EMAIL }}
       STAGING_AUTH_SMOKE_PASSWORD: ${{ secrets.STAGING_AUTH_SMOKE_PASSWORD }}
+      STAGING_FRONTEND_APEX_URL: https://staging.kresco.ma
+      STAGING_PUBLIC_API_URL: https://api.staging.kresco.ma
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -94,14 +109,22 @@ jobs:
       - name: Resolve Firebase public API key
         run: |
           set -euo pipefail
+          normalize_secret_value() {
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+              ""|"null"|"undefined"|"none") printf '' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
           runtime_json="$(mktemp)"
           gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
-          firebase_api_key="$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY // empty' "$runtime_json")"
+          firebase_api_key="$(normalize_secret_value "$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY // empty' "$runtime_json")")"
+          firebase_project_id="$(normalize_secret_value "$(jq -r '.NEXT_PUBLIC_FIREBASE_PROJECT_ID // .FIREBASE_PROJECT_ID // .firebase_project_id // empty' "$runtime_json")")"
           rm -f "$runtime_json"
           if [ -n "$firebase_api_key" ]; then
             echo "::add-mask::$firebase_api_key"
           fi
           echo "FIREBASE_API_KEY=$firebase_api_key" >> "$GITHUB_ENV"
+          echo "FIREBASE_PROJECT_ID=${firebase_project_id:-$PROJECT_ID}" >> "$GITHUB_ENV"
 
       - name: Run staging smoke checks
         run: |
@@ -113,6 +136,14 @@ jobs:
               --quiet || true
           }
           trap cleanup EXIT
+          python scripts/check_public_auth_readiness.py \
+            --project-id "$FIREBASE_PROJECT_ID" \
+            --runtime-secret-name kresco-runtime \
+            --frontend-apex-url "$STAGING_FRONTEND_APEX_URL" \
+            --api-host api.staging.kresco.ma \
+            --ensure-authorized-domains \
+            --require-email-password \
+            --require-google-provider
           gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
             --project "$PROJECT_ID" \
             --activation-policy ALWAYS \
@@ -131,7 +162,9 @@ jobs:
           fi
           python scripts/check_staging_deployment.py \
             --backend-url "$BACKEND_URL" \
+            --public-api-url "$STAGING_PUBLIC_API_URL" \
             --frontend-url "$FRONTEND_URL" \
+            --subdomain-apex-url "$STAGING_FRONTEND_APEX_URL" \
             --expected-sha "$SHORT_SHA" \
             --firebase-api-key "$FIREBASE_API_KEY"
 

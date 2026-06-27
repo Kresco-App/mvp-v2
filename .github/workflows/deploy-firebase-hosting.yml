@@ -1,0 +1,112 @@
+name: Deploy Firebase Hosting Edge
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: string
+      confirm_production_hosting_deploy:
+        description: "Required for production Firebase Hosting deploys"
+        required: false
+        default: false
+        type: boolean
+      ensure_custom_domains:
+        description: "Create missing Firebase Hosting custom-domain resources"
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+      confirm_production_hosting_deploy:
+        description: "Required for production Firebase Hosting deploys"
+        required: true
+        default: false
+        type: boolean
+      ensure_custom_domains:
+        description: "Create missing Firebase Hosting custom-domain resources"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'production' && 'Production' || 'staging' }}
+    env:
+      FIREBASE_TOOLS_VERSION: latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve target
+        run: |
+          set -euo pipefail
+          case "${{ inputs.environment }}" in
+            staging)
+              echo "PROJECT_ID=kresco-staging" >> "$GITHUB_ENV"
+              echo "FRONTEND_SITE=kresco-staging" >> "$GITHUB_ENV"
+              echo "API_SITE=kresco-staging-api" >> "$GITHUB_ENV"
+              echo "HOSTING_TARGETS=hosting:staging-frontend,hosting:staging-api" >> "$GITHUB_ENV"
+              ;;
+            production)
+              if [ "${{ inputs.confirm_production_hosting_deploy }}" != "true" ]; then
+                echo "::error::Production Firebase Hosting deploys require confirm_production_hosting_deploy=true."
+                exit 1
+              fi
+              echo "PROJECT_ID=kresco-prod" >> "$GITHUB_ENV"
+              echo "FRONTEND_SITE=kresco-prod" >> "$GITHUB_ENV"
+              echo "API_SITE=kresco-prod-api" >> "$GITHUB_ENV"
+              echo "HOSTING_TARGETS=hosting:production-frontend,hosting:production-api" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::Unsupported environment: ${{ inputs.environment }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate Hosting rewrites
+        run: python scripts/check_firebase_hosting_rewrites.py --environment "${{ inputs.environment }}" --json
+
+      - name: Validate Hosting domain contract
+        run: python scripts/check_firebase_hosting_domains.py --environment "${{ inputs.environment }}" --json
+
+      - name: Ensure Hosting sites exist
+        run: python scripts/ensure_firebase_hosting_sites.py --environment "${{ inputs.environment }}" --ensure --json
+
+      - name: Ensure Hosting custom domains
+        if: ${{ inputs.ensure_custom_domains }}
+        run: python scripts/ensure_firebase_hosting_domains.py --environment "${{ inputs.environment }}" --ensure --json
+
+      - name: Deploy Hosting rewrites
+        run: |
+          set -euo pipefail
+          npx --yes "firebase-tools@$FIREBASE_TOOLS_VERSION" deploy \
+            --only "$HOSTING_TARGETS" \
+            --project "$PROJECT_ID" \
+            --non-interactive

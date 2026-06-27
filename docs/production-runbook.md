@@ -8,15 +8,115 @@
 4. Confirm `DATABASE_CONNECTION_STRATEGY=cloud_sql` or `DATABASE_CONNECTION_STRATEGY=alloydb`.
 5. Confirm `MEDIA_STORAGE_BACKEND=gcs`, `MEDIA_GCS_BUCKET`, `MEDIA_GCS_PREFIX`, quota settings, and lifecycle retention are configured.
 6. Confirm Firebase Auth and Firestore values match the same project as the deployed frontend.
+7. Confirm frontend domains are attached before user cutover: `kresco.ma`, `www.kresco.ma`, `app.kresco.ma`, `admin.kresco.ma`, `prof.kresco.ma`, and `staff.kresco.ma`.
+8. Confirm Firebase Auth authorized domains include every production frontend domain and the Firebase default domains.
+9. Confirm the backend runtime domain contract passes before deploy:
+
+```powershell
+python scripts/check_public_auth_readiness.py --project-id kresco-prod --runtime-secret-name kresco-runtime --frontend-apex-url https://kresco.ma --api-host api.kresco.ma --runtime-secret-only
+```
+
+## Domain Routing
+
+One frontend deployment serves all browser workspaces. `proxy.ts` routes by host:
+
+- `kresco.ma` is the public landing and auth entry.
+- `www.kresco.ma` redirects to `kresco.ma`.
+- `app.kresco.ma` opens the student app at `/home`.
+- `admin.kresco.ma` opens the founder/admin workspace at `/admin`.
+- `prof.kresco.ma` opens the professor workspace at `/professor`.
+- `staff.kresco.ma` opens the WhatsApp/payment staff workspace at `/staff/payments`.
+
+Keep authorization inside backend routes and server/client guards. Host routing is only a UX boundary; it is not the permission boundary.
+
+`prof.kresco.ma` is the canonical professor origin. If a wildcard DNS record ever makes `professor.kresco.ma` resolve, the frontend proxy redirects it back to `prof.kresco.ma`; do not add `professor.kresco.ma` as a separate Firebase Auth, CORS, or CSRF origin.
+
+Production backend env:
+
+```text
+FRONTEND_URL=https://kresco.ma
+CORS_ALLOWED_ORIGINS=https://kresco.ma,https://www.kresco.ma,https://app.kresco.ma,https://admin.kresco.ma,https://prof.kresco.ma,https://staff.kresco.ma
+CSRF_TRUSTED_ORIGINS=https://kresco.ma,https://www.kresco.ma,https://app.kresco.ma,https://admin.kresco.ma,https://prof.kresco.ma,https://staff.kresco.ma
+KRESCO_TRUSTED_HOSTS=api.kresco.ma
+AUTH_COOKIE_DOMAIN=kresco.ma
+AUTH_COOKIE_SAMESITE=lax
+```
+
+Production frontend env:
+
+```text
+NEXT_PUBLIC_SITE_URL=https://kresco.ma
+NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=kresco.ma
+NEXT_PUBLIC_API_BASE_URL=/api/
+KRESCO_BACKEND_ORIGIN=https://api.kresco.ma
+KRESCO_HSTS_INCLUDE_SUBDOMAINS=false
+```
+
+DNS:
+
+- Attach `kresco.ma`, `www`, `app`, `admin`, `prof`, and `staff` to the production frontend Firebase Hosting site.
+- Attach `api.kresco.ma` to the production API Firebase Hosting site.
+- Keep `KRESCO_HSTS_INCLUDE_SUBDOMAINS=false` until every listed subdomain has working HTTPS and production routing smoke passes. After cutover, redeploy the frontend with `hsts_include_subdomains=true` deliberately.
+
+Firebase currently requests these DNS records for production custom-domain activation:
+
+| Host | Type | Value |
+| --- | --- | --- |
+| `kresco.ma` | A | `199.36.158.100` |
+| `kresco.ma` | TXT | `hosting-site=kresco-prod` |
+| `www.kresco.ma` | CNAME | `kresco-prod.web.app` |
+| `app.kresco.ma` | CNAME | `kresco-prod.web.app` |
+| `admin.kresco.ma` | CNAME | `kresco-prod.web.app` |
+| `prof.kresco.ma` | CNAME | `kresco-prod.web.app` |
+| `staff.kresco.ma` | CNAME | `kresco-prod.web.app` |
+| `api.kresco.ma` | CNAME | `kresco-prod-api.web.app` |
+
+To print DNS-panel friendly names for the `kresco.ma` zone without calling Firebase:
+
+```powershell
+python scripts/render_required_dns_records.py --environment production
+python scripts/render_required_dns_records.py --environment production --format csv
+python scripts/render_required_dns_records.py --environment production --format bind
+```
+
+Firebase Hosting edge:
+
+1. Run the manual `Deploy Firebase Hosting Edge` workflow for production with `confirm_production_hosting_deploy=true`. Set `ensure_custom_domains=true` only when you intentionally want the workflow to create missing Firebase Hosting custom-domain resources.
+2. Confirm the workflow creates or verifies the frontend/API Firebase Hosting sites before deploy.
+3. Confirm the frontend and API custom domains are attached to the correct Firebase Hosting sites.
+4. Run the manual `Production Public Domain Evidence` workflow with `confirm_production_public_domain_check=true`, the expected frontend/backend short SHA, and the intended HSTS policy. Its artifact must include passing `firebase-hosting-rewrites.json`, `firebase-hosting-domains.json`, and `public-api-health.json` proving the site/domain contract, `https://api.kresco.ma/ready`, and the backend release SHA on `https://api.kresco.ma/health`.
+5. Only then run the public routing smoke below if you need a local repeat.
 
 ## Deploy
 
 1. Confirm the latest `Deploy Staging` workflow on `master` passed first.
 2. Run the backend deploy workflow with production-dark confirmation enabled.
-3. Let the workflow build the backend image, push it to Artifact Registry, deploy the Cloud Run service, execute the migration job, and verify `/ready`.
+3. Let the workflow preflight the runtime domain contract, build the backend image, push it to Artifact Registry, deploy the Cloud Run service, execute the migration job, and verify `/ready`.
 4. Run the frontend deploy workflow after the backend URL is known.
-5. Do not attach domains or route users during dark production.
-6. Capture `/ready` and protected `/api/internal/diagnostics` output as launch evidence.
+5. Verify public production routing after DNS is attached:
+
+```powershell
+python scripts/check_subdomain_routing.py --apex-url https://kresco.ma --expected-sha <short-sha> --hsts-policy no-include-subdomains --required
+python scripts/check_public_auth_readiness.py --project-id kresco-prod --runtime-secret-name kresco-runtime --frontend-apex-url https://kresco.ma --api-host api.kresco.ma --require-email-password --require-google-provider
+python scripts/ensure_firebase_hosting_sites.py --environment production --json
+python scripts/ensure_firebase_hosting_sites.py --environment production --ensure --json
+python scripts/ensure_firebase_hosting_domains.py --environment production --json
+python scripts/ensure_firebase_hosting_domains.py --environment production --ensure --json
+python scripts/export_firebase_hosting_dns_records.py --environment production --json
+python scripts/check_firebase_hosting_public_dns.py --environment production --json
+python scripts/check_firebase_hosting_rewrites.py --environment production --json
+python scripts/check_firebase_hosting_domains.py --environment production --json
+python scripts/check_firebase_hosting_domains.py --environment production --live --json
+```
+
+This checks the apex release marker, `www` canonical redirect, app/admin/staff unauthenticated redirect boundaries, the professor login boundary, backend auth-domain settings, Firebase Auth authorized domains, and Email/Password/Google provider enablement.
+The `Production Public Domain Evidence` workflow also checks the Hosting site/domain split, live Firebase custom-domain attachments, and the public API domain directly. It fails unless `firebase-hosting-domains.json` includes and live-discovers every expected public host, and `public-api-health.json` proves `api.kresco.ma` is serving the same backend release.
+For production, prefer verification first. If the project target has been double-checked and only Firebase Auth authorized domains are missing, rerun the auth command with `--ensure-authorized-domains` to add the required production frontend domains without removing existing Firebase defaults.
+
+6. Do not route real users during dark production.
+7. After every frontend subdomain is live on HTTPS and the `Production Public Domain Evidence` workflow passes with `hsts_policy=no-include-subdomains`, rerun the frontend deploy with `hsts_include_subdomains=true` and `enforce_production_launch_gate=true`.
+8. Rerun `Production Public Domain Evidence` with `hsts_policy=include-subdomains`.
+9. Capture `/ready` and protected `/api/internal/diagnostics` output as launch evidence.
 
 ## Monitoring
 

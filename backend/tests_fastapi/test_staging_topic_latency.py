@@ -133,6 +133,27 @@ def test_topic_latency_exchanges_firebase_id_token_for_app_session_cookie():
     assert json.loads(requests[0].data.decode("utf-8")) == {"credential": "firebase-id-token"}
 
 
+def test_topic_latency_treats_placeholder_firebase_api_key_as_missing():
+    latency = _load_latency_module()
+
+    def opener(request, timeout):
+        del request, timeout
+        raise AssertionError("placeholder Firebase API key must fail before HTTP")
+
+    try:
+        latency._mint_firebase_id_token(
+            firebase_api_key="none",
+            auth_email="student@example.com",
+            auth_password="password",
+            timeout_seconds=1,
+            opener=opener,
+        )
+    except ValueError as exc:
+        assert "FIREBASE_API_KEY" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for placeholder Firebase API key")
+
+
 def test_topic_latency_rejects_local_or_non_https_backend_before_http():
     latency = _load_latency_module()
     called = False

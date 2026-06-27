@@ -21,6 +21,7 @@ def test_staging_live_chat_load_workflow_collects_redacted_artifact():
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
     assert "Resolve Firebase public API key" in workflow
     assert "gcloud secrets versions access latest" in workflow
+    assert "normalize_secret_value()" in workflow
     assert "FIREBASE_API_KEY=$firebase_api_key" in workflow
     assert 'gcloud sql instances patch "$CLOUD_SQL_INSTANCE"' in workflow
     assert "--activation-policy ALWAYS" in workflow

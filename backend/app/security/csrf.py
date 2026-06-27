@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hmac
-import re
 import secrets
 from urllib.parse import urlparse
 
@@ -29,6 +28,7 @@ UNAUTHENTICATED_AUTH_PATHS = {
     *FIREBASE_SESSION_AUTH_PATHS,
     "/api/auth/logout",
     "/api/client-errors",
+    "/api/client-events",
 }
 SIGNED_WEBHOOK_PATHS = {
     "/api/payments/cmi/callback",
@@ -53,6 +53,7 @@ def set_csrf_cookie(response: Response, user: object, settings: Settings) -> str
         httponly=False,
         secure=settings.is_production_like,
         samesite=settings.auth_cookie_samesite_value,
+        domain=settings.auth_cookie_domain_value,
         path="/",
     )
     return token
@@ -65,6 +66,7 @@ def clear_csrf_cookie(response: Response, settings: Settings) -> None:
         secure=settings.is_production_like,
         httponly=False,
         samesite=settings.auth_cookie_samesite_value,
+        domain=settings.auth_cookie_domain_value,
     )
 
 
@@ -150,19 +152,10 @@ def _is_trusted_origin(origin: str, request: Request, settings: Settings) -> boo
     }
     trusted_origins.update(
         normalized
-        for configured in settings.cors_origins_list
+        for configured in settings.csrf_trusted_origins_list
         if (normalized := _normalize_origin(configured))
     )
-    if origin in trusted_origins:
-        return True
-
-    pattern = settings.cors_allow_origin_regex.strip()
-    if not pattern:
-        return False
-    try:
-        return re.fullmatch(pattern, origin) is not None
-    except re.error:
-        return False
+    return origin in trusted_origins
 
 
 class AdminCSRFMiddleware:
@@ -221,6 +214,7 @@ class AdminCSRFMiddleware:
                         httponly=False,
                         secure=self.settings.is_production_like,
                         samesite="lax",
+                        domain=self.settings.auth_cookie_domain_value,
                         path="/",
                     )
                 else:
@@ -230,6 +224,7 @@ class AdminCSRFMiddleware:
                         secure=self.settings.is_production_like,
                         httponly=False,
                         samesite="lax",
+                        domain=self.settings.auth_cookie_domain_value,
                     )
                 headers = MutableHeaders(scope=message)
                 for key, value in response.raw_headers:

@@ -1,0 +1,321 @@
+name: Production Public Domain Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Short release SHA expected in the production frontend and backend"
+        required: true
+        type: string
+      hsts_policy:
+        description: "Expected production HSTS policy"
+        required: true
+        default: "no-include-subdomains"
+        type: choice
+        options:
+          - no-include-subdomains
+          - include-subdomains
+      confirm_production_public_domain_check:
+        description: "Required: confirms production DNS/domain checks may hit public hosts"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    environment: Production
+    env:
+      PROJECT_ID: kresco-prod
+      REGION: europe-southwest1
+      FRONTEND_SERVICE: kresco-frontend-prod
+      BACKEND_SERVICE: kresco-backend-prod
+      PRODUCTION_FRONTEND_APEX_URL: https://kresco.ma
+      PRODUCTION_API_HOST: api.kresco.ma
+      PRODUCTION_PUBLIC_API_URL: https://api.kresco.ma
+      EVIDENCE_DIR: artifacts/production-public-domain-evidence
+
+    steps:
+      - name: Confirm production public domain check
+        run: |
+          if [ "${{ inputs.confirm_production_public_domain_check }}" != "true" ]; then
+            echo "::error::Production public-domain evidence requires confirm_production_public_domain_check=true."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Prepare evidence directory
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          printf '%s\n' '{"passed":false,"errors":["production public-domain evidence collection did not finish"]}' > "$EVIDENCE_DIR/evidence-manifest.json"
+
+      - name: Collect Firebase Hosting rewrite evidence
+        run: |
+          set +e
+          python scripts/check_firebase_hosting_rewrites.py \
+            --environment production \
+            --json > "$EVIDENCE_DIR/firebase-hosting-rewrites.json" 2> "$EVIDENCE_DIR/firebase-hosting-rewrites.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/firebase-hosting-rewrites.status.json"
+          exit 0
+
+      - name: Collect Firebase Hosting domain contract
+        run: |
+          set +e
+          python scripts/check_firebase_hosting_domains.py \
+            --environment production \
+            --live \
+            --json > "$EVIDENCE_DIR/firebase-hosting-domains.json" 2> "$EVIDENCE_DIR/firebase-hosting-domains.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/firebase-hosting-domains.status.json"
+          exit 0
+
+      - name: Collect Firebase Hosting DNS record plan
+        run: |
+          set +e
+          python scripts/export_firebase_hosting_dns_records.py \
+            --environment production \
+            --json > "$EVIDENCE_DIR/firebase-hosting-dns-records.json" 2> "$EVIDENCE_DIR/firebase-hosting-dns-records.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/firebase-hosting-dns-records.status.json"
+          exit 0
+
+      - name: Collect public DNS record evidence
+        run: |
+          set +e
+          python scripts/check_firebase_hosting_public_dns.py \
+            --environment production \
+            --json > "$EVIDENCE_DIR/firebase-hosting-public-dns.json" 2> "$EVIDENCE_DIR/firebase-hosting-public-dns.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/firebase-hosting-public-dns.status.json"
+          exit 0
+
+      - name: Collect public auth evidence
+        run: |
+          set +e
+          normalize_secret_value() {
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+              ""|"null"|"undefined"|"none") printf '' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          firebase_project_id="$(normalize_secret_value "$(jq -r '.NEXT_PUBLIC_FIREBASE_PROJECT_ID // .FIREBASE_PROJECT_ID // .firebase_project_id // empty' "$runtime_json")")"
+          rm -f "$runtime_json"
+          python scripts/check_public_auth_readiness.py \
+            --project-id "${firebase_project_id:-$PROJECT_ID}" \
+            --runtime-secret-name kresco-runtime \
+            --frontend-apex-url "$PRODUCTION_FRONTEND_APEX_URL" \
+            --api-host "$PRODUCTION_API_HOST" \
+            --require-email-password \
+            --require-google-provider \
+            --json > "$EVIDENCE_DIR/public-auth-readiness.json" 2> "$EVIDENCE_DIR/public-auth-readiness.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/public-auth-readiness.status.json"
+          exit 0
+
+      - name: Collect public routing evidence
+        run: |
+          set +e
+          python scripts/check_subdomain_routing.py \
+            --apex-url "$PRODUCTION_FRONTEND_APEX_URL" \
+            --expected-sha "${{ inputs.expected_sha }}" \
+            --hsts-policy "${{ inputs.hsts_policy }}" \
+            --required > "$EVIDENCE_DIR/subdomain-routing.txt" 2> "$EVIDENCE_DIR/subdomain-routing.stderr.txt"
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/subdomain-routing.status.json"
+          exit 0
+
+      - name: Collect public API release evidence
+        run: |
+          set +e
+          export EXPECTED_SHA="${{ inputs.expected_sha }}"
+          python - <<'PY' > "$EVIDENCE_DIR/public-api-health.stdout.txt" 2> "$EVIDENCE_DIR/public-api-health.stderr.txt"
+          import json
+          import os
+          import sys
+          import urllib.request
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          api_url = os.environ["PRODUCTION_PUBLIC_API_URL"].rstrip("/")
+          expected_sha = os.environ["EXPECTED_SHA"].strip()
+          result = {
+              "api_url": api_url,
+              "ready_url": f"{api_url}/ready",
+              "health_url": f"{api_url}/health",
+              "expected_sha": expected_sha,
+          }
+          errors = []
+
+          def fetch_json(url):
+              with urllib.request.urlopen(url, timeout=30) as response:
+                  return response.getcode(), json.loads(response.read().decode("utf-8"))
+
+          try:
+              ready_status, ready = fetch_json(result["ready_url"])
+              health_status, health = fetch_json(result["health_url"])
+              result.update({
+                  "ready_status_code": ready_status,
+                  "ready_status": ready.get("status"),
+                  "health_status_code": health_status,
+                  "release_sha": health.get("release_sha"),
+              })
+              if ready_status >= 400:
+                  errors.append(f"public API /ready returned {ready_status}.")
+              if ready.get("status") != "ready":
+                  errors.append(f"public API /ready status was {ready.get('status')!r}, expected 'ready'.")
+              if health_status >= 400:
+                  errors.append(f"public API /health returned {health_status}.")
+              if health.get("release_sha") != expected_sha:
+                  errors.append(f"public API release_sha was {health.get('release_sha')!r}, expected {expected_sha!r}.")
+          except Exception as exc:
+              errors.append(f"public API health check failed: {exc}")
+
+          result["passed"] = not errors
+          result["errors"] = errors
+          (evidence_dir / "public-api-health.json").write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+          if errors:
+              for error in errors:
+                  print(f"error: {error}", file=sys.stderr)
+              raise SystemExit(1)
+          print(f"Public API release evidence passed for {api_url}.")
+          PY
+          status=$?
+          printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/public-api-health.status.json"
+          exit 0
+
+      - name: Evaluate production public-domain evidence
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          evidence_dir = Path(os.environ["EVIDENCE_DIR"])
+          checks = {}
+          errors = []
+
+          def read_json(name):
+              path = evidence_dir / name
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except FileNotFoundError:
+                  errors.append(f"{name} is missing.")
+              except json.JSONDecodeError as exc:
+                  errors.append(f"{name} is invalid JSON: {exc.msg}.")
+              return {}
+
+          def require_zero_status(name):
+              status = read_json(f"{name}.status.json")
+              exit_code = status.get("exit_code")
+              if exit_code != 0:
+                  stderr = (evidence_dir / f"{name}.stderr.txt").read_text(encoding="utf-8", errors="replace") if (evidence_dir / f"{name}.stderr.txt").exists() else ""
+                  errors.append(f"{name} exited {exit_code}: {stderr[:1000]}")
+              checks[name] = {"exit_code": exit_code, "passed": exit_code == 0}
+
+          for name in ("firebase-hosting-rewrites", "firebase-hosting-domains", "firebase-hosting-dns-records", "firebase-hosting-public-dns", "public-auth-readiness", "subdomain-routing", "public-api-health"):
+              require_zero_status(name)
+
+          hosting = read_json("firebase-hosting-rewrites.json")
+          if hosting.get("passed") is not True:
+              errors.append("firebase-hosting-rewrites.json must report passed=true.")
+          hosting_domains = read_json("firebase-hosting-domains.json")
+          if hosting_domains.get("passed") is not True:
+              errors.append("firebase-hosting-domains.json must report passed=true.")
+          hosting_dns = read_json("firebase-hosting-dns-records.json")
+          if hosting_dns.get("passed") is not True:
+              errors.append("firebase-hosting-dns-records.json must report passed=true.")
+          public_dns = read_json("firebase-hosting-public-dns.json")
+          if public_dns.get("passed") is not True:
+              errors.append("firebase-hosting-public-dns.json must report passed=true.")
+          entries = hosting_domains.get("entries") if isinstance(hosting_domains.get("entries"), list) else []
+          domains_by_target = {
+              str(entry.get("target") or ""): set(entry.get("domains") if isinstance(entry.get("domains"), list) else [])
+              for entry in entries
+              if isinstance(entry, dict)
+          }
+          live_domains_by_target = {
+              str(entry.get("target") or ""): set(entry.get("live_domains") if isinstance(entry.get("live_domains"), list) else [])
+              for entry in entries
+              if isinstance(entry, dict)
+          }
+          expected_domains_by_target = {
+              "production-frontend": {
+                  "kresco.ma",
+                  "www.kresco.ma",
+                  "app.kresco.ma",
+                  "admin.kresco.ma",
+                  "prof.kresco.ma",
+                  "staff.kresco.ma",
+              },
+              "production-api": {"api.kresco.ma"},
+          }
+          for target, expected_domains in expected_domains_by_target.items():
+              entry = next((item for item in entries if isinstance(item, dict) and item.get("target") == target), None)
+              if not entry:
+                  errors.append(f"firebase-hosting-domains.json did not include target {target}.")
+                  continue
+              if entry.get("live_checked") is not True:
+                  errors.append(f"firebase-hosting-domains.json did not live-check {target}.")
+              missing = expected_domains - domains_by_target.get(target, set())
+              for domain in sorted(missing):
+                  errors.append(f"firebase-hosting-domains.json did not include {domain} for {target}.")
+              missing_live = expected_domains - live_domains_by_target.get(target, set())
+              for domain in sorted(missing_live):
+                  errors.append(f"firebase-hosting-domains.json did not find live custom domain {domain} for {target}.")
+          auth = read_json("public-auth-readiness.json")
+          if auth.get("passed") is not True:
+              errors.append("public-auth-readiness.json must report passed=true.")
+          public_api = read_json("public-api-health.json")
+          if public_api.get("passed") is not True:
+              errors.append("public-api-health.json must report passed=true.")
+          if public_api.get("api_url") != os.environ["PRODUCTION_PUBLIC_API_URL"]:
+              errors.append("public-api-health.json must target the production public API URL.")
+          if public_api.get("release_sha") != "${{ inputs.expected_sha }}":
+              errors.append("public-api-health.json must prove the expected backend release SHA.")
+          if public_api.get("ready_status") != "ready":
+              errors.append("public-api-health.json must prove /ready status=ready.")
+
+          manifest = {
+              "passed": not errors,
+              "errors": errors,
+              "checks": checks,
+              "apex_url": os.environ["PRODUCTION_FRONTEND_APEX_URL"],
+              "api_host": os.environ["PRODUCTION_API_HOST"],
+              "public_api_url": os.environ["PRODUCTION_PUBLIC_API_URL"],
+              "hsts_policy": "${{ inputs.hsts_policy }}",
+              "expected_sha": "${{ inputs.expected_sha }}",
+          }
+          (evidence_dir / "evidence-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+          if errors:
+              for error in errors:
+                  print(f"error: {error}", file=sys.stderr)
+              raise SystemExit(1)
+          print("Production public-domain evidence passed.")
+          PY
+
+      - name: Upload production public-domain evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-public-domain-evidence
+          path: artifacts/production-public-domain-evidence
+          if-no-files-found: error

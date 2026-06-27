@@ -15,10 +15,12 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from check_subdomain_routing import check_subdomain_routing
 
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_RETRIES = 6
 DEFAULT_DELAY_SECONDS = 5
+EMPTY_SECRET_VALUES = {"", "null", "undefined", "none"}
 LEGACY_AUTH_ROUTES = (
     "/api/auth/login",
     "/api/auth/signup",
@@ -36,7 +38,9 @@ class HttpPayload:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify a freshly deployed staging revision.")
     parser.add_argument("--backend-url", default=os.environ.get("BACKEND_URL", ""))
+    parser.add_argument("--public-api-url", default=os.environ.get("STAGING_PUBLIC_API_URL", ""))
     parser.add_argument("--frontend-url", default=os.environ.get("FRONTEND_URL", ""))
+    parser.add_argument("--subdomain-apex-url", default=os.environ.get("STAGING_FRONTEND_APEX_URL", ""))
     parser.add_argument("--expected-sha", default=os.environ.get("SHORT_SHA", ""))
     parser.add_argument("--firebase-api-key", default=os.environ.get("FIREBASE_API_KEY", ""))
     parser.add_argument("--auth-email", default=os.environ.get("STAGING_AUTH_SMOKE_EMAIL", ""))
@@ -48,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
 
     errors: list[str] = []
     backend_url = _required_absolute_url(args.backend_url, "backend-url", errors)
+    public_api_url = _optional_absolute_url(args.public_api_url, "public-api-url", errors)
     frontend_url = _required_absolute_url(args.frontend_url, "frontend-url", errors)
     expected_sha = args.expected_sha.strip()
     if not expected_sha:
@@ -67,9 +72,34 @@ def main(argv: list[str] | None = None) -> int:
             args.timeout_seconds,
             retries=args.retries,
             delay_seconds=args.delay_seconds,
+            label="backend",
         )
     )
     errors.extend(_check_frontend_surface(opener, frontend_url, expected_sha, args.timeout_seconds))
+    if args.subdomain_apex_url.strip():
+        if public_api_url is None:
+            public_api_url = _public_api_url_for_apex(args.subdomain_apex_url, errors)
+        errors.extend(
+            check_subdomain_routing(
+                args.subdomain_apex_url,
+                expected_sha=expected_sha,
+                timeout_seconds=args.timeout_seconds,
+            )
+        )
+    else:
+        print("Subdomain routing smoke skipped: STAGING_FRONTEND_APEX_URL is not configured.")
+    if public_api_url and public_api_url.rstrip("/") != backend_url.rstrip("/"):
+        errors.extend(
+            _check_backend_readiness(
+                opener,
+                public_api_url,
+                expected_sha,
+                args.timeout_seconds,
+                retries=args.retries,
+                delay_seconds=args.delay_seconds,
+                label="public api",
+            )
+        )
     errors.extend(_check_legacy_auth_routes_absent(opener, backend_url, args.timeout_seconds))
     errors.extend(
         _check_optional_firebase_auth_smoke(
@@ -92,15 +122,16 @@ def _check_backend_readiness(
     *,
     retries: int,
     delay_seconds: int,
+    label: str,
 ) -> list[str]:
     last_errors: list[str] = []
     attempts = max(retries, 1)
     for attempt in range(1, attempts + 1):
-        last_errors = _check_backend_readiness_once(opener, backend_url, expected_sha, timeout_seconds)
+        last_errors = _check_backend_readiness_once(opener, backend_url, expected_sha, timeout_seconds, label=label)
         if not last_errors:
             return []
         if attempt < attempts:
-            print(f"Backend readiness attempt {attempt}/{attempts} failed; retrying in {delay_seconds}s.")
+            print(f"{label.title()} readiness attempt {attempt}/{attempts} failed; retrying in {delay_seconds}s.")
             time.sleep(max(delay_seconds, 1))
     return last_errors
 
@@ -110,19 +141,21 @@ def _check_backend_readiness_once(
     backend_url: str,
     expected_sha: str,
     timeout_seconds: int,
+    *,
+    label: str,
 ) -> list[str]:
     errors: list[str] = []
     ready = _fetch_json(opener, _url(backend_url, "/ready"), timeout_seconds=timeout_seconds)
     if isinstance(ready, Exception):
-        return [f"backend /ready failed: {ready}"]
+        return [f"{label} /ready failed: {ready}"]
     if ready.get("status") != "ready":
-        errors.append(f"backend /ready status was {ready.get('status')!r}, expected 'ready'.")
+        errors.append(f"{label} /ready status was {ready.get('status')!r}, expected 'ready'.")
 
     health = _fetch_json(opener, _url(backend_url, "/health"), timeout_seconds=timeout_seconds)
     if isinstance(health, Exception):
-        errors.append(f"backend /health failed: {health}")
+        errors.append(f"{label} /health failed: {health}")
     elif health.get("release_sha") != expected_sha:
-        errors.append(f"backend release_sha was {health.get('release_sha')!r}, expected {expected_sha!r}.")
+        errors.append(f"{label} release_sha was {health.get('release_sha')!r}, expected {expected_sha!r}.")
     return errors
 
 
@@ -181,7 +214,7 @@ def _check_optional_firebase_auth_smoke(
         return []
     if not email or not password:
         return ["Firebase credential smoke needs both STAGING_AUTH_SMOKE_EMAIL and STAGING_AUTH_SMOKE_PASSWORD."]
-    if not firebase_api_key:
+    if not _has_secret_value(firebase_api_key):
         return ["Firebase credential smoke needs FIREBASE_API_KEY."]
 
     firebase_opener = urllib.request.build_opener()
@@ -282,6 +315,25 @@ def _required_absolute_url(value: str, name: str, errors: list[str]) -> str | No
         errors.append(f"{name} must be an absolute HTTP(S) URL.")
         return None
     return stripped
+
+
+def _optional_absolute_url(value: str, name: str, errors: list[str]) -> str | None:
+    if not value.strip():
+        return None
+    return _required_absolute_url(value, name, errors)
+
+
+def _public_api_url_for_apex(apex_url: str, errors: list[str]) -> str | None:
+    parsed = urllib.parse.urlparse(apex_url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        errors.append("subdomain-apex-url must be an absolute HTTP(S) URL before deriving public-api-url.")
+        return None
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://api.{parsed.hostname}{port}"
+
+
+def _has_secret_value(value: str) -> bool:
+    return value.strip().lower() not in EMPTY_SECRET_VALUES
 
 
 def _safe_body(body: bytes) -> str:

@@ -513,7 +513,7 @@ const professorConversations = [
       id: 33,
       full_name: 'Youssef El Idrissi',
       avatar_url: '',
-      tier: 'platinum',
+      tier: 'vip',
     },
     status: 'open',
     last_message_preview: 'Thanks, I will try the variation table again.',
@@ -1120,12 +1120,12 @@ test('vip student professor chat and locked basic student state hydrate', async 
   await seedAuthenticatedUser(page, smokeBasicStudent)
   await page.route('**/api/professor/student-chat', async (route) => {
     await route.fulfill({
-      json: { eligible: false, reason: 'VIP or Platinum access required for professor chat', offerings: [], conversations: [] },
+      json: { eligible: false, reason: 'VIP access required for professor chat', offerings: [], conversations: [] },
     })
   })
   await page.goto('/professor-chat')
   await expect(page.getByText('VIP chat is locked')).toBeVisible()
-  await expect(page.getByText('VIP or Platinum access required for professor chat')).toBeVisible()
+  await expect(page.getByText('VIP access required for professor chat')).toBeVisible()
 
   browserErrors.assertClean()
 })

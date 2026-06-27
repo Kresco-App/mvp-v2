@@ -18,6 +18,7 @@ DEFAULT_THRESHOLD_MS = 1500.0
 DEFAULT_SAMPLES = 5
 DEFAULT_WARMUPS = 1
 DEFAULT_TIMEOUT_SECONDS = 15
+EMPTY_SECRET_VALUES = {"", "null", "undefined", "none"}
 
 
 @dataclass(frozen=True)
@@ -426,6 +427,10 @@ def _safe_body_summary(body: str) -> str:
     return str(parsed)[:200]
 
 
+def _has_secret_value(value: str) -> bool:
+    return value.strip().lower() not in EMPTY_SECRET_VALUES
+
+
 def _backend_url_errors(backend_url: str) -> tuple[str, ...]:
     try:
         parsed = urlparse(backend_url.strip())
@@ -451,7 +456,7 @@ def _mint_firebase_id_token(
     opener: OpenUrl = urlopen,
 ) -> str:
     missing: list[str] = []
-    if not firebase_api_key.strip():
+    if not _has_secret_value(firebase_api_key):
         missing.append("FIREBASE_API_KEY")
     if not auth_email.strip():
         missing.append("STAGING_AUTH_SMOKE_EMAIL")

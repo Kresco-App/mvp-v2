@@ -1,6 +1,16 @@
 import type { MetadataRoute } from 'next'
 
-const siteUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://kresco.ma')
+function getSiteUrl() {
+  const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://kresco.ma'
+
+  try {
+    return new URL('/', new URL(configuredUrl).origin)
+  } catch {
+    return new URL('https://kresco.ma')
+  }
+}
+
+const siteUrl = getSiteUrl()
 const privateRoutePrefixes = [
   '/admin',
   '/animated-showcase',
@@ -18,6 +28,7 @@ const privateRoutePrefixes = [
   '/media',
   '/onboarding',
   '/payment',
+  '/pricing',
   '/profile',
   '/professor',
   '/professor-chat',

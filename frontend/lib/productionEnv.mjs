@@ -6,10 +6,12 @@ export const REQUIRED_FRONTEND_PRODUCTION_ENV = [
   'NEXT_PUBLIC_FIREBASE_APP_ID',
   'NEXT_PUBLIC_REALTIME_PROVIDER',
   'NEXT_PUBLIC_RELEASE_SHA',
+  'NEXT_PUBLIC_SITE_URL',
+  'NEXT_PUBLIC_AUTH_COOKIE_DOMAIN',
 ]
 
 const LOCAL_HOST_PATTERN = /(^|\.)localhost$|^127\.|^\[?::1\]?$/
-const LOCAL_OR_TUNNEL_PATTERN = /localhost|127\.0\.0\.1|\[::1\]|ngrok/i
+const LOCAL_OR_TUNNEL_PATTERN = /localhost|127\.0\.0\.1|\[::1\]|lvh\.me|kresco\.test|ngrok/i
 
 export function validateFrontendProductionEnv(env) {
   const errors = []
@@ -20,10 +22,12 @@ export function validateFrontendProductionEnv(env) {
     }
   }
 
-  validateApiBaseUrl(env.NEXT_PUBLIC_API_BASE_URL, env.KRESCO_BACKEND_ORIGIN, errors)
+  validateApiBaseUrl(env.NEXT_PUBLIC_API_BASE_URL, env.KRESCO_BACKEND_ORIGIN, env.NEXT_PUBLIC_AUTH_COOKIE_DOMAIN, errors)
   validateFirebaseAuthConfig(env, errors)
   validateRealtimeProvider(env, errors)
   validateReleaseSha(env.NEXT_PUBLIC_RELEASE_SHA, errors)
+  validateSiteUrl(env.NEXT_PUBLIC_SITE_URL, env.NEXT_PUBLIC_AUTH_COOKIE_DOMAIN, errors)
+  validateAuthCookieDomain(env.NEXT_PUBLIC_AUTH_COOKIE_DOMAIN, errors)
   validateLocalRewritePolicy(env, errors)
   validateLocalDemoFeaturePolicy(env, errors)
 
@@ -49,7 +53,7 @@ export function parseEnvFile(contents) {
   return env
 }
 
-function validateApiBaseUrl(value, backendRewriteOrigin, errors) {
+function validateApiBaseUrl(value, backendRewriteOrigin, authCookieDomain, errors) {
   if (!hasValue(value)) return
 
   const trimmed = value.trim()
@@ -57,7 +61,7 @@ function validateApiBaseUrl(value, backendRewriteOrigin, errors) {
     if (trimmed.replace(/\/+$/, '') !== '/api') {
       errors.push('NEXT_PUBLIC_API_BASE_URL must be /api or an absolute HTTPS URL in production.')
     }
-    validateBackendRewriteOrigin(backendRewriteOrigin, errors)
+    validateBackendRewriteOrigin(backendRewriteOrigin, authCookieDomain, errors)
     return
   }
 
@@ -78,9 +82,10 @@ function validateApiBaseUrl(value, backendRewriteOrigin, errors) {
   if (!parsed.pathname.replace(/\/+$/, '').endsWith('/api')) {
     errors.push('NEXT_PUBLIC_API_BASE_URL must include the backend /api path.')
   }
+  validateHostWithinAuthCookieDomain(parsed.hostname, authCookieDomain, 'NEXT_PUBLIC_API_BASE_URL', errors)
 }
 
-function validateBackendRewriteOrigin(value, errors) {
+function validateBackendRewriteOrigin(value, authCookieDomain, errors) {
   if (!hasValue(value)) {
     errors.push('KRESCO_BACKEND_ORIGIN must be configured when NEXT_PUBLIC_API_BASE_URL is /api in production.')
     return
@@ -97,9 +102,13 @@ function validateBackendRewriteOrigin(value, errors) {
   if (parsed.protocol !== 'https:') {
     errors.push('KRESCO_BACKEND_ORIGIN must use HTTPS in production.')
   }
+  if (parsed.pathname.replace(/\/+$/, '') !== '' || parsed.search || parsed.hash) {
+    errors.push('KRESCO_BACKEND_ORIGIN must be an origin only, without a path, query, or hash.')
+  }
   if (LOCAL_HOST_PATTERN.test(parsed.hostname) || LOCAL_OR_TUNNEL_PATTERN.test(value)) {
     errors.push('KRESCO_BACKEND_ORIGIN must not point to localhost or tunnel origins in production.')
   }
+  validateHostWithinAuthCookieDomain(parsed.hostname, authCookieDomain, 'KRESCO_BACKEND_ORIGIN', errors)
 }
 
 function validateFirebaseAuthConfig(env, errors) {
@@ -123,7 +132,7 @@ function validateFirebaseAuthConfig(env, errors) {
 
 function validateFirebaseValue(key, value, errors) {
   if (!hasValue(value)) return
-  if (LOCAL_OR_TUNNEL_PATTERN.test(value) || /placeholder|change-me|development|unknown/i.test(value)) {
+  if (LOCAL_OR_TUNNEL_PATTERN.test(value) || /placeholder|change-me|development|unknown|^null$|^undefined$/i.test(value.trim())) {
     errors.push(`${key} must not use local or placeholder values in production.`)
   }
 }
@@ -144,8 +153,51 @@ function validateRealtimeProvider(env, errors) {
 function validateReleaseSha(value, errors) {
   if (!hasValue(value)) return
   const trimmed = value.trim().toLowerCase()
-  if (trimmed.length < 7 || ['development', 'local', 'unknown', 'placeholder', 'change-me'].includes(trimmed)) {
+  if (trimmed.length < 7 || ['development', 'local', 'unknown', 'placeholder', 'change-me', 'null', 'undefined'].includes(trimmed)) {
     errors.push('NEXT_PUBLIC_RELEASE_SHA must identify the deployed commit or build.')
+  }
+}
+
+function validateSiteUrl(value, authCookieDomain, errors) {
+  if (!hasValue(value)) return
+
+  let parsed
+  try {
+    parsed = new URL(value.trim())
+  } catch {
+    errors.push('NEXT_PUBLIC_SITE_URL must be a valid absolute URL.')
+    return
+  }
+
+  if (parsed.protocol !== 'https:') {
+    errors.push('NEXT_PUBLIC_SITE_URL must use HTTPS in production.')
+  }
+  if (LOCAL_HOST_PATTERN.test(parsed.hostname) || LOCAL_OR_TUNNEL_PATTERN.test(value)) {
+    errors.push('NEXT_PUBLIC_SITE_URL must not point to localhost or tunnel origins in production.')
+  }
+  validateHostWithinAuthCookieDomain(parsed.hostname, authCookieDomain, 'NEXT_PUBLIC_SITE_URL', errors)
+}
+
+function validateAuthCookieDomain(value, errors) {
+  if (!hasValue(value)) return
+
+  const trimmed = value.trim().toLowerCase()
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes('/') || trimmed.includes(':') || /\s/.test(trimmed)) {
+    errors.push('NEXT_PUBLIC_AUTH_COOKIE_DOMAIN must be a bare registrable domain such as kresco.ma.')
+    return
+  }
+  if (LOCAL_HOST_PATTERN.test(trimmed) || LOCAL_OR_TUNNEL_PATTERN.test(trimmed)) {
+    errors.push('NEXT_PUBLIC_AUTH_COOKIE_DOMAIN must not point to localhost or tunnel domains in production.')
+  }
+}
+
+function validateHostWithinAuthCookieDomain(hostname, authCookieDomain, key, errors) {
+  if (!hasValue(authCookieDomain)) return
+  const normalizedHost = hostname.trim().toLowerCase().replace(/\.$/, '')
+  const normalizedDomain = authCookieDomain.trim().toLowerCase().replace(/^\./, '').replace(/\.$/, '')
+  if (!normalizedHost || !normalizedDomain || normalizedHost === normalizedDomain) return
+  if (!normalizedHost.endsWith(`.${normalizedDomain}`)) {
+    errors.push(`${key} must stay within NEXT_PUBLIC_AUTH_COOKIE_DOMAIN.`)
   }
 }
 
@@ -170,7 +222,7 @@ function validateLocalDemoFeaturePolicy(env, errors) {
 }
 
 function hasValue(value) {
-  return typeof value === 'string' && value.trim() !== ''
+  return typeof value === 'string' && value.trim() !== '' && !['null', 'undefined'].includes(value.trim().toLowerCase())
 }
 
 function unquoteEnvValue(value) {

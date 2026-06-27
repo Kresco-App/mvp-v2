@@ -17,6 +17,11 @@ on:
         required: false
         default: false
         type: boolean
+      hsts_include_subdomains:
+        description: "Production cutover only: emit HSTS includeSubDomains after every frontend subdomain is verified"
+        required: false
+        default: false
+        type: boolean
     outputs:
       frontend_url:
         description: "Deployed frontend Cloud Run URL"
@@ -53,6 +58,11 @@ on:
         required: true
         default: false
         type: boolean
+      hsts_include_subdomains:
+        description: "Production cutover only: emit HSTS includeSubDomains after every frontend subdomain is verified"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -82,18 +92,34 @@ jobs:
           echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
           case "${{ inputs.environment }}" in
             staging)
+              if [ "${{ inputs.hsts_include_subdomains }}" = "true" ]; then
+                echo "::error::HSTS includeSubDomains is not allowed on staging deploys."
+                exit 1
+              fi
               echo "PROJECT_ID=kresco-staging" >> "$GITHUB_ENV"
               echo "FRONTEND_SERVICE=kresco-frontend-staging" >> "$GITHUB_ENV"
               echo "BACKEND_SERVICE=kresco-backend-staging" >> "$GITHUB_ENV"
+              echo "FRONTEND_PUBLIC_SITE_URL=https://staging.kresco.ma" >> "$GITHUB_ENV"
+              echo "FRONTEND_BACKEND_ORIGIN=https://api.staging.kresco.ma" >> "$GITHUB_ENV"
+              echo "FRONTEND_AUTH_COOKIE_DOMAIN=staging.kresco.ma" >> "$GITHUB_ENV"
+              echo "FRONTEND_HSTS_INCLUDE_SUBDOMAINS=false" >> "$GITHUB_ENV"
               ;;
             production)
               if [ "${{ inputs.confirm_production_dark_deploy }}" != "true" ]; then
                 echo "::error::Production deploys are dark-production only and require confirm_production_dark_deploy=true."
                 exit 1
               fi
+              if [ "${{ inputs.hsts_include_subdomains }}" = "true" ] && [ "${{ inputs.enforce_production_launch_gate }}" != "true" ]; then
+                echo "::error::HSTS includeSubDomains requires enforce_production_launch_gate=true after every frontend subdomain is verified."
+                exit 1
+              fi
               echo "PROJECT_ID=kresco-prod" >> "$GITHUB_ENV"
               echo "FRONTEND_SERVICE=kresco-frontend-prod" >> "$GITHUB_ENV"
               echo "BACKEND_SERVICE=kresco-backend-prod" >> "$GITHUB_ENV"
+              echo "FRONTEND_PUBLIC_SITE_URL=https://kresco.ma" >> "$GITHUB_ENV"
+              echo "FRONTEND_BACKEND_ORIGIN=https://api.kresco.ma" >> "$GITHUB_ENV"
+              echo "FRONTEND_AUTH_COOKIE_DOMAIN=kresco.ma" >> "$GITHUB_ENV"
+              echo "FRONTEND_HSTS_INCLUDE_SUBDOMAINS=${{ inputs.hsts_include_subdomains }}" >> "$GITHUB_ENV"
               ;;
           esac
 
@@ -133,23 +159,27 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Resolve Cloud Run URLs and Firebase build config
+      - name: Resolve Firebase build config
         run: |
           set -euo pipefail
-          backend_url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
-          frontend_url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
           runtime_json="$(mktemp)"
           gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
+          firebase_api_key="$(jq -er '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY' "$runtime_json")"
+          firebase_project_id="$(jq -er '.NEXT_PUBLIC_FIREBASE_PROJECT_ID // .FIREBASE_PROJECT_ID // .firebase_project_id' "$runtime_json")"
+          firebase_auth_domain="$(jq -er '.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN // .FIREBASE_AUTH_DOMAIN // .firebase_auth_domain' "$runtime_json")"
+          firebase_storage_bucket="$(jq -er '.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET // .FIREBASE_STORAGE_BUCKET // .firebase_storage_bucket' "$runtime_json")"
+          firebase_messaging_sender_id="$(jq -er '.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID // .FIREBASE_MESSAGING_SENDER_ID // .firebase_messaging_sender_id' "$runtime_json")"
+          firebase_app_id="$(jq -er '.NEXT_PUBLIC_FIREBASE_APP_ID // .FIREBASE_APP_ID // .firebase_app_id' "$runtime_json")"
+          firestore_database="$(jq -er '.NEXT_PUBLIC_FIRESTORE_DATABASE // .FIRESTORE_DATABASE // .firestore_database // "(default)"' "$runtime_json")"
+          echo "::add-mask::$firebase_api_key"
           {
-            echo "BACKEND_URL=$backend_url"
-            echo "FRONTEND_URL=$frontend_url"
-            echo "NEXT_PUBLIC_FIREBASE_API_KEY=$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY' "$runtime_json")"
-            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=$(jq -r '.NEXT_PUBLIC_FIREBASE_PROJECT_ID' "$runtime_json")"
-            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$(jq -r '.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN' "$runtime_json")"
-            echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$(jq -r '.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET' "$runtime_json")"
-            echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$(jq -r '.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID' "$runtime_json")"
-            echo "NEXT_PUBLIC_FIREBASE_APP_ID=$(jq -r '.NEXT_PUBLIC_FIREBASE_APP_ID' "$runtime_json")"
-            echo "NEXT_PUBLIC_FIRESTORE_DATABASE=$(jq -r '.NEXT_PUBLIC_FIRESTORE_DATABASE' "$runtime_json")"
+            echo "NEXT_PUBLIC_FIREBASE_API_KEY=$firebase_api_key"
+            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=$firebase_project_id"
+            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$firebase_auth_domain"
+            echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$firebase_storage_bucket"
+            echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$firebase_messaging_sender_id"
+            echo "NEXT_PUBLIC_FIREBASE_APP_ID=$firebase_app_id"
+            echo "NEXT_PUBLIC_FIRESTORE_DATABASE=$firestore_database"
           } >> "$GITHUB_ENV"
           rm -f "$runtime_json"
 
@@ -159,12 +189,16 @@ jobs:
 
       - name: Validate production-shaped frontend env
         working-directory: frontend
-        run: npm run validate:production-env
-        env:
-          NEXT_PUBLIC_API_BASE_URL: /api
-          KRESCO_BACKEND_ORIGIN: ${{ env.BACKEND_URL }}
-          NEXT_PUBLIC_REALTIME_PROVIDER: firestore
-          NEXT_PUBLIC_RELEASE_SHA: ${{ env.SHORT_SHA }}
+        run: |
+          set -euo pipefail
+          NEXT_PUBLIC_API_BASE_URL=/api \
+          KRESCO_BACKEND_ORIGIN="$FRONTEND_BACKEND_ORIGIN" \
+          NEXT_PUBLIC_SITE_URL="$FRONTEND_PUBLIC_SITE_URL" \
+          NEXT_PUBLIC_AUTH_COOKIE_DOMAIN="$FRONTEND_AUTH_COOKIE_DOMAIN" \
+          KRESCO_HSTS_INCLUDE_SUBDOMAINS="$FRONTEND_HSTS_INCLUDE_SUBDOMAINS" \
+          NEXT_PUBLIC_REALTIME_PROVIDER=firestore \
+          NEXT_PUBLIC_RELEASE_SHA="$SHORT_SHA" \
+          npm run validate:production-env
 
       - name: Build frontend image
         run: |
@@ -174,7 +208,9 @@ jobs:
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           docker build --pull \
             --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
-            --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_URL" \
+            --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_PUBLIC_SITE_URL" \
+            --build-arg NEXT_PUBLIC_AUTH_COOKIE_DOMAIN="$FRONTEND_AUTH_COOKIE_DOMAIN" \
+            --build-arg KRESCO_HSTS_INCLUDE_SUBDOMAINS="$FRONTEND_HSTS_INCLUDE_SUBDOMAINS" \
             --build-arg NEXT_PUBLIC_REALTIME_PROVIDER=firestore \
             --build-arg NEXT_PUBLIC_RELEASE_SHA="$SHORT_SHA" \
             --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
@@ -184,7 +220,7 @@ jobs:
             --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
             --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
             --build-arg NEXT_PUBLIC_FIRESTORE_DATABASE="$NEXT_PUBLIC_FIRESTORE_DATABASE" \
-            --build-arg KRESCO_BACKEND_ORIGIN="$BACKEND_URL" \
+            --build-arg KRESCO_BACKEND_ORIGIN="$FRONTEND_BACKEND_ORIGIN" \
             -f frontend/Dockerfile \
             -t "$image" \
             frontend
@@ -195,10 +231,28 @@ jobs:
       - name: Deploy frontend service
         run: |
           set -euo pipefail
+          runtime_env_vars=(
+            "NEXT_PUBLIC_API_BASE_URL=/api"
+            "NEXT_PUBLIC_SITE_URL=$FRONTEND_PUBLIC_SITE_URL"
+            "NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=$FRONTEND_AUTH_COOKIE_DOMAIN"
+            "NEXT_PUBLIC_REALTIME_PROVIDER=firestore"
+            "NEXT_PUBLIC_RELEASE_SHA=$SHORT_SHA"
+            "NEXT_PUBLIC_FIREBASE_API_KEY=$NEXT_PUBLIC_FIREBASE_API_KEY"
+            "NEXT_PUBLIC_FIREBASE_PROJECT_ID=$NEXT_PUBLIC_FIREBASE_PROJECT_ID"
+            "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"
+            "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET"
+            "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID"
+            "NEXT_PUBLIC_FIREBASE_APP_ID=$NEXT_PUBLIC_FIREBASE_APP_ID"
+            "NEXT_PUBLIC_FIRESTORE_DATABASE=$NEXT_PUBLIC_FIRESTORE_DATABASE"
+            "KRESCO_BACKEND_ORIGIN=$FRONTEND_BACKEND_ORIGIN"
+            "KRESCO_HSTS_INCLUDE_SUBDOMAINS=$FRONTEND_HSTS_INCLUDE_SUBDOMAINS"
+          )
+          runtime_env_csv="$(IFS=,; echo "${runtime_env_vars[*]}")"
           gcloud run deploy "$FRONTEND_SERVICE" \
             --project "$PROJECT_ID" \
             --region "$REGION" \
             --image "$FRONTEND_IMAGE" \
+            --update-env-vars "$runtime_env_csv" \
             --min-instances 0 \
             --max-instances 3 \
             --quiet
@@ -209,6 +263,7 @@ jobs:
           set -euo pipefail
           url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
           revision="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.latestReadyRevisionName)')"
+          export FRONTEND_URL="$url"
           python - <<'PY'
           import os
           import urllib.request
@@ -223,16 +278,13 @@ jobs:
               raise SystemExit("Frontend release marker mismatch.")
           print(f"Frontend smoke passed for {url}")
           PY
+          echo "FRONTEND_URL=$url" >> "$GITHUB_ENV"
           echo "frontend_url=$url" >> "$GITHUB_OUTPUT"
           echo "frontend_image=$FRONTEND_IMAGE" >> "$GITHUB_OUTPUT"
           echo "frontend_image_digest=$FRONTEND_IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "frontend_revision=$revision" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-        env:
-          FRONTEND_URL: ${{ env.FRONTEND_URL }}
 
       - name: Scan for production demo surface
         working-directory: frontend
         run: npm run check:production-demo-surface -- --base-url "$FRONTEND_URL" --json
-        env:
-          FRONTEND_URL: ${{ env.FRONTEND_URL }}

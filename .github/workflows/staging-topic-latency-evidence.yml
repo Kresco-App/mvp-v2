@@ -46,9 +46,15 @@ jobs:
       - name: Resolve Firebase public API key
         run: |
           set -euo pipefail
+          normalize_secret_value() {
+            case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+              ""|"null"|"undefined"|"none") printf '' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
           runtime_json="$(mktemp)"
           gcloud secrets versions access latest --project "$PROJECT_ID" --secret kresco-runtime > "$runtime_json"
-          firebase_api_key="$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY // empty' "$runtime_json")"
+          firebase_api_key="$(normalize_secret_value "$(jq -r '.NEXT_PUBLIC_FIREBASE_API_KEY // .FIREBASE_WEB_API_KEY // empty' "$runtime_json")")"
           rm -f "$runtime_json"
           if [ -n "$firebase_api_key" ]; then
             echo "::add-mask::$firebase_api_key"

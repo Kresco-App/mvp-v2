@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import localFont from 'next/font/local'
 import { headers } from 'next/headers'
 import AppToaster from '@/components/AppToaster'
-import ApiDataProvider from '@/components/ApiDataProvider'
 import ClientErrorReporter from '@/components/ClientErrorReporter'
 import './globals.css'
 
@@ -29,8 +28,13 @@ const sunghyunSans = localFont({
 })
 
 function getSiteUrl() {
-  const configuredUrl = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://kresco.ma')
-  return new URL('/', configuredUrl.origin)
+  const configuredUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim() || 'https://kresco.ma'
+
+  try {
+    return new URL('/', new URL(configuredUrl).origin)
+  } catch {
+    return new URL('https://kresco.ma')
+  }
 }
 
 const siteName = 'Kresco'
@@ -39,12 +43,25 @@ const siteDescription = 'Preparez le Bac au Maroc avec des cours video, quiz int
 const siteUrl = getSiteUrl()
 const siteOrigin = siteUrl.origin
 const siteLanguage = 'fr-MA'
-const siteImageUrl = new URL('/mascot/mascot.jpeg', siteOrigin).href
+const siteImage = {
+  url: new URL('/mascot/mascot.jpeg', siteOrigin).href,
+  width: 1124,
+  height: 1600,
+  type: 'image/jpeg',
+  alt: 'Kresco education mascot for Bac preparation',
+}
 const releaseSha = process.env.NEXT_PUBLIC_RELEASE_SHA ?? 'development'
 const organizationId = `${siteOrigin}/#organization`
 const websiteId = `${siteOrigin}/#website`
 const webApplicationId = `${siteOrigin}/#web-application`
 const rootPageId = `${siteOrigin}/#home`
+const primaryImageId = `${siteOrigin}/#primary-image`
+const breadcrumbId = `${siteOrigin}/#breadcrumb`
+const educationalAudience = {
+  '@type': 'EducationalAudience',
+  educationalRole: 'student',
+  audienceType: 'Moroccan Bac students',
+}
 const seoKeywords = [
   'Kresco',
   'Kresco Academia',
@@ -62,13 +79,18 @@ const siteStructuredData = JSON.stringify({
       '@type': 'EducationalOrganization',
       '@id': organizationId,
       name: siteName,
-      url: siteOrigin,
+      alternateName: 'Kresco Academia',
+      url: siteUrl.href,
       description: siteDescription,
       inLanguage: siteLanguage,
+      image: {
+        '@id': primaryImageId,
+      },
       areaServed: {
         '@type': 'Country',
         name: 'Morocco',
       },
+      audience: educationalAudience,
       knowsAbout: [
         'Cours video',
         'Quiz interactifs',
@@ -77,11 +99,22 @@ const siteStructuredData = JSON.stringify({
       ],
     },
     {
+      '@type': 'ImageObject',
+      '@id': primaryImageId,
+      url: siteImage.url,
+      contentUrl: siteImage.url,
+      width: siteImage.width,
+      height: siteImage.height,
+      encodingFormat: siteImage.type,
+      caption: siteImage.alt,
+      inLanguage: siteLanguage,
+    },
+    {
       '@type': 'WebSite',
       '@id': websiteId,
       name: siteName,
       alternateName: 'Kresco Academia',
-      url: siteOrigin,
+      url: siteUrl.href,
       description: siteDescription,
       inLanguage: siteLanguage,
       publisher: {
@@ -92,18 +125,22 @@ const siteStructuredData = JSON.stringify({
       '@type': 'WebApplication',
       '@id': webApplicationId,
       name: siteName,
-      url: siteOrigin,
+      url: siteUrl.href,
       description: siteDescription,
       applicationCategory: 'EducationalApplication',
       operatingSystem: 'Web',
       inLanguage: siteLanguage,
+      featureList: [
+        'Cours video pour le Bac',
+        'Quiz interactifs',
+        'Exercices corriges',
+        'Examens blancs',
+        'Suivi personnalise',
+      ],
       publisher: {
         '@id': organizationId,
       },
-      audience: {
-        '@type': 'EducationalAudience',
-        educationalRole: 'student',
-      },
+      audience: educationalAudience,
     },
     {
       '@type': 'WebPage',
@@ -118,9 +155,28 @@ const siteStructuredData = JSON.stringify({
       about: {
         '@id': organizationId,
       },
+      primaryImageOfPage: {
+        '@id': primaryImageId,
+      },
+      breadcrumb: {
+        '@id': breadcrumbId,
+      },
+      audience: educationalAudience,
       mainEntity: {
         '@id': webApplicationId,
       },
+    },
+    {
+      '@type': 'BreadcrumbList',
+      '@id': breadcrumbId,
+      itemListElement: [
+        {
+          '@type': 'ListItem',
+          position: 1,
+          name: siteName,
+          item: siteUrl.href,
+        },
+      ],
     },
   ],
 }).replace(/</g, '\\u003c')
@@ -129,6 +185,10 @@ export const metadata: Metadata = {
   metadataBase: siteUrl,
   applicationName: siteName,
   manifest: '/manifest.webmanifest',
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+  },
   authors: [{ name: siteName }],
   creator: siteName,
   publisher: siteName,
@@ -160,13 +220,13 @@ export const metadata: Metadata = {
     description: siteDescription,
     locale: 'fr_MA',
     alternateLocale: ['fr_FR'],
-    images: [{ url: siteImageUrl, alt: siteName }],
+    images: [siteImage],
   },
   twitter: {
     card: 'summary_large_image',
     title: siteTitle,
     description: siteDescription,
-    images: [siteImageUrl],
+    images: [{ url: siteImage.url, alt: siteImage.alt }],
   },
   robots: {
     index: true,
@@ -197,12 +257,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <script
           id="kresco-root-jsonld"
           nonce={nonce}
+          suppressHydrationWarning
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: siteStructuredData }}
-        />
-        <ApiDataProvider>
-          {children}
-        </ApiDataProvider>
+        >
+          {siteStructuredData}
+        </script>
+        {children}
         <ClientErrorReporter />
         <AppToaster />
       </body>
