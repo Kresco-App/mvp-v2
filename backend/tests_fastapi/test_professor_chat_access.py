@@ -13,9 +13,8 @@ from app.services.professor_chat_access import (
 )
 
 
-@pytest.mark.parametrize("tier", ["vip", "platinum"])
-def test_professor_chat_eligibility_allows_vip_and_platinum(tier):
-    eligibility = professor_chat_eligibility(User(role="student", tier=tier, is_pro=False))
+def test_professor_chat_eligibility_allows_vip():
+    eligibility = professor_chat_eligibility(User(role="student", tier="vip", is_pro=False))
 
     assert eligibility.eligible is True
     assert eligibility.reason == ""

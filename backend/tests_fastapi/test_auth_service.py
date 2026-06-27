@@ -287,6 +287,22 @@ def test_firebase_token_fallback_rejects_wrong_project_before_network_verify(mon
         )
 
 
+def test_identity_toolkit_fallback_rejects_wrong_project_before_lookup(monkeypatch):
+    import requests
+
+    def unexpected_lookup(*_args, **_kwargs):
+        raise AssertionError("wrong-project tokens should not reach Identity Toolkit lookup")
+
+    monkeypatch.setattr(requests, "post", unexpected_lookup)
+
+    with pytest.raises(jwt.InvalidTokenError):
+        auth_module._verify_firebase_token_with_identity_toolkit(
+            _firebase_id_token_like("other-project"),
+            "kresco-staging",
+            "firebase-web-api-key",
+        )
+
+
 def test_decode_token_rejects_invalid_payload_shape(test_settings):
     invalid_payloads = [
         {"token_version": 0},

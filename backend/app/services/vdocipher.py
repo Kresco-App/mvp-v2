@@ -6,7 +6,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import HTTPException
 
-from app.config import Settings
+from app.config import Settings, is_vdocipher_provider_url
 
 SENSITIVE_PROVIDER_KEYS = {
     "authorization",
@@ -152,6 +152,15 @@ def _live_delete_url(template: str, live_id: str) -> str:
     return f"{template.rstrip('/')}/{encoded_live_id}"
 
 
+def _vdocipher_authorization_headers(settings: Settings, url: str) -> dict[str, str]:
+    if not is_vdocipher_provider_url(url):
+        raise HTTPException(
+            status_code=501,
+            detail="VdoCipher provider URL must use a VdoCipher-owned HTTPS host.",
+        )
+    return {"Authorization": f"Apisecret {settings.vdocipher_api_secret}"}
+
+
 async def get_video_otp(vdocipher_id: str, settings: Settings, *, user_id: int | str | None = None) -> dict:
     video_id = vdocipher_id.strip()
     if not video_id:
@@ -189,7 +198,7 @@ async def _fetch_video_otp(
     try:
         response = await _post_vdocipher_json(
             otp_url,
-            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+            headers=_vdocipher_authorization_headers(settings, otp_url),
             json=payload,
             timeout=10,
         )
@@ -240,7 +249,7 @@ async def create_live_stream(title: str, settings: Settings, *, chat_mode: str =
     try:
         response = await _post_vdocipher_json(
             settings.vdocipher_live_create_url,
-            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+            headers=_vdocipher_authorization_headers(settings, settings.vdocipher_live_create_url),
             json=payload,
             timeout=15,
         )
@@ -292,7 +301,7 @@ async def delete_live_stream(live_id: str, settings: Settings) -> dict:
     try:
         response = await _delete_vdocipher_resource(
             delete_url,
-            headers={"Authorization": f"Apisecret {settings.vdocipher_api_secret}"},
+            headers=_vdocipher_authorization_headers(settings, delete_url),
             timeout=15,
         )
     except httpx.HTTPError as exc:

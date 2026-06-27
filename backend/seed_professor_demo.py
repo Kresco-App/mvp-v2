@@ -11,7 +11,7 @@ Demo identities:
   professor@example.com
   physics.professor@example.com
   vip@example.com
-  platinum@example.com
+  second_vip@example.com
   basic@example.com
 
 Create matching Firebase Auth users for interactive browser login.
@@ -93,7 +93,7 @@ async def main() -> None:
     print("Create matching Firebase Auth users for these demo identities:")
     print("Professor: professor@example.com")
     print("VIP student: vip@example.com")
-    print("Platinum student: platinum@example.com")
+    print("Second VIP student: second_vip@example.com")
     print("Basic student: basic@example.com")
 
 
@@ -131,12 +131,12 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
         filiere="Sciences Math B",
         is_pro=True,
     )
-    platinum_student = await upsert_user(
+    second_vip_student = await upsert_user(
         db,
-        "platinum@example.com",
+        "second_vip@example.com",
         "Youssef El Idrissi",
         role="student",
-        tier="platinum",
+        tier="vip",
         niveau="2BAC",
         filiere="Sciences Math B",
         is_pro=True,
@@ -202,7 +202,7 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
     derivatives_item, derivatives_tab = await upsert_topic_content(db, derivatives_topic)
     await upsert_exponential_test_quiz(db, exponential_topic)
 
-    demo_students = [vip_student, platinum_student, basic_student]
+    demo_students = [vip_student, second_vip_student, basic_student]
     await clear_professor_demo_rows(db, math_offering, demo_students)
     await seed_live_sessions(db, math_offering, math_professor, limits_topic)
     await seed_live_notifications(db, demo_students)
@@ -217,7 +217,7 @@ async def seed_professor_demo(db: AsyncSession, *, destructive_confirmed: bool =
         limits_tab,
         derivatives_tab,
     )
-    await seed_conversations(db, math_offering, math_professor, vip_student, platinum_student)
+    await seed_conversations(db, math_offering, math_professor, vip_student, second_vip_student)
 
     await db.commit()
     print("Seeded professor dashboard, live sessions, change requests, and chat threads.")
@@ -582,7 +582,7 @@ async def seed_conversations(
     offering: CourseOffering,
     teacher: User,
     vip_student: User,
-    platinum_student: User,
+    second_vip_student: User,
 ) -> None:
     vip_conversation = ProfessorChatConversation(
         course_offering_id=offering.id,
@@ -595,10 +595,10 @@ async def seed_conversations(
         is_pinned_by_professor=True,
         last_message_at=datetime.now(timezone.utc) - timedelta(minutes=8),
     )
-    platinum_conversation = ProfessorChatConversation(
+    second_vip_conversation = ProfessorChatConversation(
         course_offering_id=offering.id,
         professor_user_id=teacher.id,
-        student_user_id=platinum_student.id,
+        student_user_id=second_vip_student.id,
         status="open",
         last_message_preview="Thanks, I will try the variation table again.",
         unread_for_professor=0,
@@ -606,16 +606,16 @@ async def seed_conversations(
         is_pinned_by_professor=False,
         last_message_at=datetime.now(timezone.utc) - timedelta(minutes=23),
     )
-    db.add_all([vip_conversation, platinum_conversation])
+    db.add_all([vip_conversation, second_vip_conversation])
     await db.flush()
     messages = [
         (vip_conversation.id, vip_student.id, "Can you explain why the final limit is not zero?", 36),
         (vip_conversation.id, teacher.id, "Check the dominant term before cancelling. The denominator wins here.", 28),
         (vip_conversation.id, vip_student.id, "I still get stuck at the conjugate step.", 15),
         (vip_conversation.id, vip_student.id, "Can you review my final proof step?", 8),
-        (platinum_conversation.id, platinum_student.id, "Is the variation table required for the national solution?", 55),
-        (platinum_conversation.id, teacher.id, "Yes. Include sign, monotonicity, and the final extremum.", 44),
-        (platinum_conversation.id, platinum_student.id, "Thanks, I will try the variation table again.", 23),
+        (second_vip_conversation.id, second_vip_student.id, "Is the variation table required for the national solution?", 55),
+        (second_vip_conversation.id, teacher.id, "Yes. Include sign, monotonicity, and the final extremum.", 44),
+        (second_vip_conversation.id, second_vip_student.id, "Thanks, I will try the variation table again.", 23),
     ]
     now = datetime.now(timezone.utc)
     for conversation_id, sender_id, body, minutes_ago in messages:

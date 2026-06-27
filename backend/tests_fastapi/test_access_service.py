@@ -103,3 +103,8 @@ def test_basic_user_without_entitlement_rows_keeps_seed_data_fallback():
 def test_effective_user_tier_prefers_explicit_paid_tier_over_legacy_pro_flag():
     assert effective_user_tier(User(tier="vip", is_pro=False)) == "vip"
     assert effective_user_tier(User(tier="basic", is_pro=True)) == "pro"
+
+
+def test_effective_user_tier_does_not_elevate_unknown_tiers():
+    assert effective_user_tier(User(tier="enterprise", is_pro=False)) == "basic"
+    assert effective_user_tier(User(tier="enterprise", is_pro=True)) == "pro"

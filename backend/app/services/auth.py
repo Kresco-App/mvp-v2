@@ -260,6 +260,7 @@ def _verify_firebase_token_with_identity_toolkit(
     web_api_key = web_api_key.strip()
     if not web_api_key:
         raise jwt.InvalidAudienceError("Firebase web API key is not configured")
+    _validate_firebase_id_token_shape(credential, project_id)
 
     response = requests.post(
         FIREBASE_IDENTITY_TOOLKIT_LOOKUP_URL,

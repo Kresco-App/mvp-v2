@@ -1,27 +1,26 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import case, func, select
+from fastapi import Request
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.models.admin_audit import AdminAuditLog
 from app.models.professor import (
     CourseOffering,
-    LiveSession,
-    LiveSessionInteraction,
     ProfessorChatConversation,
     ProfessorChatMessage,
 )
-from app.models.reports import ContentReport
 from app.models.users import User
 from app.schemas.admin import (
     AdminChatConversationOut,
     AdminChatMessageOut,
     AdminCommunicationsOut,
     AdminCommunicationsSummaryOut,
-    AdminLiveInteractionOut,
-    AdminReportQueueItemOut,
+    AdminProfessorChatGroupOut,
 )
+from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
 
 
 def _int(value: Any) -> int:
@@ -56,34 +55,76 @@ async def _breakdown(db: AsyncSession, model: type[Any], column: Any) -> dict[st
     return {str(key or "unset").lower(): _int(value) for key, value in rows.all()}
 
 
-async def build_admin_communications(db: AsyncSession, *, limit: int = 50) -> AdminCommunicationsOut:
+def _conversation_search_filter(search: str | None, professor: Any, student: Any) -> tuple[Any | None, str]:
+    normalized = normalize_substring_search(search, min_length=2)
+    if not normalized:
+        return None, ""
+
+    needle = substring_search_pattern(normalized)
+    sender = aliased(User)
+    message_match = (
+        select(ProfessorChatMessage.id)
+        .select_from(ProfessorChatMessage)
+        .outerjoin(sender, sender.id == ProfessorChatMessage.sender_user_id)
+        .where(ProfessorChatMessage.conversation_id == ProfessorChatConversation.id)
+        .where(
+            or_(
+                ProfessorChatMessage.body.ilike(needle, escape=LIKE_ESCAPE),
+                ProfessorChatMessage.attachment_name.ilike(needle, escape=LIKE_ESCAPE),
+                sender.full_name.ilike(needle, escape=LIKE_ESCAPE),
+            )
+        )
+        .exists()
+    )
+    return (
+        or_(
+            CourseOffering.title.ilike(needle, escape=LIKE_ESCAPE),
+            professor.full_name.ilike(needle, escape=LIKE_ESCAPE),
+            student.full_name.ilike(needle, escape=LIKE_ESCAPE),
+            ProfessorChatConversation.status.ilike(needle, escape=LIKE_ESCAPE),
+            ProfessorChatConversation.last_message_preview.ilike(needle, escape=LIKE_ESCAPE),
+            message_match,
+        ),
+        normalized,
+    )
+
+
+async def build_admin_communications(
+    db: AsyncSession,
+    *,
+    limit: int = 50,
+    search: str | None = None,
+) -> AdminCommunicationsOut:
     now = datetime.now(timezone.utc)
     recent_since = now - timedelta(days=7)
     bounded_limit = max(1, min(int(limit or 50), 100))
 
     professor = aliased(User)
     student = aliased(User)
-    reporter = aliased(User)
-    assignee = aliased(User)
+    search_filter, normalized_search = _conversation_search_filter(search, professor, student)
+
+    total_professors = await db.scalar(
+        select(func.count(func.distinct(ProfessorChatConversation.professor_user_id)))
+        .select_from(ProfessorChatConversation)
+    )
+    students_in_private_chats = await db.scalar(
+        select(func.count(func.distinct(ProfessorChatConversation.student_user_id)))
+        .select_from(ProfessorChatConversation)
+    )
 
     summary = AdminCommunicationsSummaryOut(
         total_conversations=await _count(db, ProfessorChatConversation),
         open_conversations=await _count(db, ProfessorChatConversation, ProfessorChatConversation.status == "open"),
+        total_professors=_int(total_professors),
+        students_in_private_chats=_int(students_in_private_chats),
         unread_for_professors=await _sum(db, ProfessorChatConversation.unread_for_professor),
         unread_for_students=await _sum(db, ProfessorChatConversation.unread_for_student),
+        messages_total=await _count(db, ProfessorChatMessage),
         messages_7d=await _count(db, ProfessorChatMessage, ProfessorChatMessage.created_at >= recent_since),
-        live_sessions_live=await _count(db, LiveSession, LiveSession.status == "live"),
-        pending_live_interactions=await _count(db, LiveSessionInteraction, LiveSessionInteraction.status == "pending"),
-        open_reports=await _count(db, ContentReport, ContentReport.status.in_(("open", "in_review"))),
-        urgent_open_reports=await _count(
-            db,
-            ContentReport,
-            ContentReport.status.in_(("open", "in_review")),
-            ContentReport.priority == "urgent",
-        ),
+        matched_conversations=0,
     )
 
-    conversations_result = await db.execute(
+    conversations_statement = (
         select(
             ProfessorChatConversation.id.label("conversation_id"),
             ProfessorChatConversation.status,
@@ -104,12 +145,17 @@ async def build_admin_communications(db: AsyncSession, *, limit: int = 50) -> Ad
         .outerjoin(professor, professor.id == ProfessorChatConversation.professor_user_id)
         .outerjoin(student, student.id == ProfessorChatConversation.student_user_id)
         .order_by(
+            professor.full_name.asc(),
             ProfessorChatConversation.unread_for_professor.desc(),
-            ProfessorChatConversation.unread_for_student.desc(),
             ProfessorChatConversation.last_message_at.desc(),
+            ProfessorChatConversation.id.desc(),
         )
         .limit(bounded_limit)
     )
+    if search_filter is not None:
+        conversations_statement = conversations_statement.where(search_filter)
+
+    conversations_result = await db.execute(conversations_statement)
     conversations = [
         AdminChatConversationOut(
             conversation_id=_int(row["conversation_id"]),
@@ -128,6 +174,7 @@ async def build_admin_communications(db: AsyncSession, *, limit: int = 50) -> Ad
         )
         for row in conversations_result.mappings().all()
     ]
+
     if conversations:
         sender = aliased(User)
         conversation_ids = [conversation.conversation_id for conversation in conversations]
@@ -214,111 +261,78 @@ async def build_admin_communications(db: AsyncSession, *, limit: int = 50) -> Ad
             for conversation in conversations
         ]
 
-    live_interactions_result = await db.execute(
-        select(
-            LiveSessionInteraction.id.label("interaction_id"),
-            LiveSessionInteraction.live_session_id,
-            LiveSession.title.label("session_title"),
-            LiveSessionInteraction.kind,
-            LiveSessionInteraction.status,
-            LiveSessionInteraction.professor_user_id,
-            professor.full_name.label("professor_name"),
-            LiveSessionInteraction.student_user_id,
-            student.full_name.label("student_name"),
-            LiveSessionInteraction.body,
-            LiveSessionInteraction.answer,
-            LiveSessionInteraction.created_at,
-            LiveSessionInteraction.answered_at,
-        )
-        .select_from(LiveSessionInteraction)
-        .outerjoin(LiveSession, LiveSession.id == LiveSessionInteraction.live_session_id)
-        .outerjoin(professor, professor.id == LiveSessionInteraction.professor_user_id)
-        .outerjoin(student, student.id == LiveSessionInteraction.student_user_id)
-        .order_by(
-            case((LiveSessionInteraction.status == "pending", 0), else_=1),
-            LiveSessionInteraction.created_at.desc(),
-        )
-        .limit(bounded_limit)
-    )
-    live_interactions = [
-        AdminLiveInteractionOut(
-            interaction_id=_int(row["interaction_id"]),
-            live_session_id=_int(row["live_session_id"]),
-            session_title=_str(row["session_title"]),
-            kind=_str(row["kind"] or "question"),
-            status=_str(row["status"] or "pending"),
-            professor_user_id=_int(row["professor_user_id"]),
-            professor_name=_str(row["professor_name"]),
-            student_user_id=_int(row["student_user_id"]),
-            student_name=_str(row["student_name"]),
-            body=_str(row["body"]),
-            answer=_str(row["answer"]),
-            created_at=row["created_at"],
-            answered_at=row["answered_at"],
-        )
-        for row in live_interactions_result.mappings().all()
-    ]
+    professors_by_id: dict[int, AdminProfessorChatGroupOut] = {}
+    for conversation in conversations:
+        professor_id = conversation.professor_user_id
+        current = professors_by_id.get(professor_id)
+        if current is None:
+            current = AdminProfessorChatGroupOut(
+                professor_user_id=professor_id,
+                professor_name=conversation.professor_name,
+                conversation_count=0,
+                open_conversations=0,
+                unread_for_professor=0,
+                unread_for_student=0,
+                messages_shown=0,
+                last_message_at=conversation.last_message_at,
+                conversations=[],
+            )
+            professors_by_id[professor_id] = current
+        current.conversation_count += 1
+        if conversation.status == "open":
+            current.open_conversations += 1
+        current.unread_for_professor += conversation.unread_for_professor
+        current.unread_for_student += conversation.unread_for_student
+        current.messages_shown += len(conversation.messages)
+        if conversation.last_message_at and (
+            current.last_message_at is None or conversation.last_message_at > current.last_message_at
+        ):
+            current.last_message_at = conversation.last_message_at
+        current.conversations.append(conversation)
 
-    reports_result = await db.execute(
-        select(
-            ContentReport.id.label("report_id"),
-            ContentReport.target_type,
-            ContentReport.target_id,
-            ContentReport.reason,
-            ContentReport.status,
-            ContentReport.priority,
-            ContentReport.title,
-            ContentReport.description,
-            ContentReport.reporter_user_id,
-            reporter.full_name.label("reporter_name"),
-            ContentReport.assigned_to_user_id,
-            assignee.full_name.label("assigned_to_name"),
-            ContentReport.created_at,
-            ContentReport.updated_at,
-        )
-        .select_from(ContentReport)
-        .outerjoin(reporter, reporter.id == ContentReport.reporter_user_id)
-        .outerjoin(assignee, assignee.id == ContentReport.assigned_to_user_id)
-        .order_by(
-            case(
-                (ContentReport.priority == "urgent", 0),
-                (ContentReport.priority == "high", 1),
-                (ContentReport.priority == "normal", 2),
-                else_=3,
-            ),
-            case((ContentReport.status.in_(("open", "in_review")), 0), else_=1),
-            ContentReport.created_at.desc(),
-        )
-        .limit(bounded_limit)
+    professors = sorted(
+        professors_by_id.values(),
+        key=lambda group: (
+            -group.unread_for_professor,
+            -(group.last_message_at.timestamp() if group.last_message_at else 0),
+            group.professor_name.lower(),
+        ),
     )
-    reports = [
-        AdminReportQueueItemOut(
-            report_id=_int(row["report_id"]),
-            target_type=_str(row["target_type"]),
-            target_id=_str(row["target_id"]),
-            reason=_str(row["reason"]),
-            status=_str(row["status"]),
-            priority=_str(row["priority"]),
-            title=_str(row["title"]),
-            description=_str(row["description"]),
-            reporter_user_id=_int(row["reporter_user_id"]),
-            reporter_name=_str(row["reporter_name"]),
-            assigned_to_user_id=_int(row["assigned_to_user_id"]) if row["assigned_to_user_id"] is not None else None,
-            assigned_to_name=_str(row["assigned_to_name"]),
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
-        for row in reports_result.mappings().all()
-    ]
+    summary = summary.model_copy(update={"matched_conversations": len(conversations)})
 
     return AdminCommunicationsOut(
         generated_at=now,
         summary=summary,
+        search_query=normalized_search,
         chat_conversations_by_status=await _breakdown(db, ProfessorChatConversation, ProfessorChatConversation.status),
-        live_interactions_by_status=await _breakdown(db, LiveSessionInteraction, LiveSessionInteraction.status),
-        reports_by_status=await _breakdown(db, ContentReport, ContentReport.status),
-        reports_by_priority=await _breakdown(db, ContentReport, ContentReport.priority),
+        professors=professors,
         conversations=conversations,
-        live_interactions=live_interactions,
-        reports=reports,
+    )
+
+
+def record_admin_communications_read(
+    db: AsyncSession,
+    *,
+    staff: User,
+    request: Request,
+    response: AdminCommunicationsOut,
+    limit: int,
+) -> None:
+    db.add(
+        AdminAuditLog(
+            action="read_private_messages",
+            model_name="ProfessorChatConversation",
+            object_pk="",
+            object_repr="Admin private message workspace",
+            changed_data={
+                "actor_user_id": int(staff.id),
+                "limit": int(limit),
+                "search_query": response.search_query,
+                "professor_groups_returned": len(response.professors),
+                "conversations_returned": len(response.conversations),
+            },
+            request_path=str(request.url.path),
+            client_host=request.client.host if request.client else "",
+            note=f"staff_user_id={staff.id}",
+        )
     )

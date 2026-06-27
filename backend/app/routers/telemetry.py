@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_db, get_optional_current_user
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.founder_ops import AnalyticsEventIn, AnalyticsEventOut
@@ -68,7 +68,7 @@ async def record_client_event(
     request: Request,
     payload: AnalyticsEventIn,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User | None = Depends(get_optional_current_user),
 ):
     del request
     return await record_analytics_event(db, user=user, payload=payload)

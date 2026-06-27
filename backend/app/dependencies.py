@@ -54,6 +54,29 @@ async def get_current_user(
     return user
 
 
+async def get_optional_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> User | None:
+    token = credentials.credentials if credentials is not None else request.cookies.get(AUTH_COOKIE_NAME)
+    if not token:
+        return None
+    try:
+        token_payload = decode_token(token, settings)
+    except (jwt.ExpiredSignatureError, jwt.PyJWTError):
+        return None
+
+    result = await db.execute(
+        select(User).where(User.id == token_payload.user_id, User.is_active == True)  # noqa: E712
+    )
+    user = result.scalar_one_or_none()
+    if user is None or (user.auth_token_version or 0) != token_payload.token_version:
+        return None
+    return user
+
+
 async def get_current_staff_user(
     user: User = Depends(get_current_user),
 ) -> User:

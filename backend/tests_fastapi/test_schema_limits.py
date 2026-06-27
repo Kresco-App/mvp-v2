@@ -3,8 +3,32 @@ from pydantic import ValidationError
 from typing import Annotated, get_args, get_origin
 
 from app.routers.telemetry import ClientErrorIn
+from app.schemas.admin_permissions import UserPermissionGrantIn, UserPermissionRevokeIn
 from app.schemas.courses import TopicItemCompleteIn
+from app.schemas.exam_bank import ExamProblemPartProgressIn, ExamProblemProgressIn
+from app.schemas.exercises import ExerciseSavedIn, ExerciseSelfGradeIn
+from app.schemas.founder_ops import (
+    AnalyticsEventIn,
+    FinanceExpenseIn,
+    RedemptionCodeRedeemIn,
+    RedemptionCodeTemplateIn,
+    StaffPaymentProfileUpdateIn,
+    StaffPaymentRequestCreateIn,
+)
+from app.schemas.gamification import XPAdjustmentCreateIn
 from app.schemas.interactions import CanvasDocumentPutIn, CommentCreateIn, NoteCreateIn, SavedItemCreateIn
+from app.schemas.payments import (
+    FinanceExportCreateIn,
+    ManualAccessGrantCreateIn,
+    ManualPaymentProofIn,
+    ManualPaymentReconciliationIn,
+    ManualPaymentReviewIn,
+    PaymentReconciliationImportIn,
+    PaymentReconciliationImportRowIn,
+    PaymentRequestCreateIn,
+    RefundRequestCreateIn,
+    RefundRequestReviewIn,
+)
 from app.schemas.professor import (
     ChatConversationPatchIn,
     ChatMessageIn,
@@ -24,6 +48,35 @@ from app.schemas.users import FirebaseSessionIn, UserUpdateIn
 LIMITED_STRING_FIELDS = {
     FirebaseSessionIn: ("credential",),
     UserUpdateIn: ("full_name", "avatar_url", "banner_url", "niveau", "filiere"),
+    UserPermissionGrantIn: ("permission", "reason"),
+    UserPermissionRevokeIn: ("reason",),
+    ExerciseSelfGradeIn: ("self_grade",),
+    ExamProblemPartProgressIn: ("self_grade",),
+    AnalyticsEventIn: ("event_name", "anonymous_id", "session_id"),
+    FinanceExpenseIn: ("category", "vendor", "description", "source", "status"),
+    RedemptionCodeTemplateIn: ("name", "plan", "tier", "subject_scope", "status"),
+    StaffPaymentProfileUpdateIn: ("display_name", "status"),
+    StaffPaymentRequestCreateIn: (
+        "payment_method",
+        "provider_reference",
+        "student_name",
+        "student_phone",
+        "student_email",
+        "proof_url",
+        "notes",
+    ),
+    RedemptionCodeRedeemIn: ("code",),
+    XPAdjustmentCreateIn: ("reason", "idempotency_key"),
+    PaymentRequestCreateIn: ("payment_method", "plan"),
+    ManualPaymentReviewIn: ("reason",),
+    ManualPaymentProofIn: ("proof_kind", "provider_reference", "proof_url", "payer_name", "notes"),
+    ManualPaymentReconciliationIn: ("payment_method", "reference_code", "provider_reference", "reason"),
+    PaymentReconciliationImportRowIn: ("reference_code", "provider_reference", "reason"),
+    PaymentReconciliationImportIn: ("payment_method", "source_name"),
+    FinanceExportCreateIn: ("export_kind",),
+    ManualAccessGrantCreateIn: ("action", "reason"),
+    RefundRequestCreateIn: ("reason",),
+    RefundRequestReviewIn: ("reason",),
     NoteCreateIn: ("body",),
     SavedItemCreateIn: ("target_type", "label", "note"),
     CommentCreateIn: ("body",),
@@ -187,8 +240,101 @@ def test_schema_limits_reject_nested_or_oversized_professor_change_request_json(
 @pytest.mark.parametrize(
     ("model", "payload"),
     [
+        (AnalyticsEventIn, {"event_name": "page_view", "properties": {"path": "x" * 4097}}),
+        (
+            FinanceExpenseIn,
+            {
+                "expense_date": "2026-01-01",
+                "category": "hosting",
+                "amount_centimes": 1000,
+                "metadata": {"a": {"b": {"c": {"d": {"e": "too deep"}}}}},
+            },
+        ),
+        (
+            RedemptionCodeTemplateIn,
+            {
+                "name": "VIP",
+                "subject_scope": "all",
+                "amount_centimes": 9900,
+                "metadata": {"items": [f"item-{index}" for index in range(101)]},
+            },
+        ),
+        (StaffPaymentProfileUpdateIn, {"metadata": {"note": "x" * 4097}}),
+        (
+            PaymentReconciliationImportRowIn,
+            {
+                "reference_code": "REF-001",
+                "amount_centimes": 9900,
+                "provider_reference": "PROVIDER-001",
+                "raw_row": {"cell": "x" * 4097},
+            },
+        ),
+    ],
+)
+def test_finance_and_analytics_json_fields_are_bounded(model, payload):
+    with pytest.raises(ValidationError):
+        model(**payload)
+
+
+@pytest.mark.parametrize(
+    ("model", "payload"),
+    [
         (FirebaseSessionIn, {"credential": "credential"}),
         (UserUpdateIn, {"full_name": "Student"}),
+        (UserPermissionGrantIn, {"user_id": 1, "permission": "roles:manage", "reason": "support handoff"}),
+        (UserPermissionRevokeIn, {"reason": "support handoff"}),
+        (ExamProblemProgressIn, {"status": "opened"}),
+        (ExamProblemPartProgressIn, {"status": "opened", "self_grade": "partial"}),
+        (ExerciseSelfGradeIn, {"self_grade": "partial"}),
+        (ExerciseSavedIn, {"saved": True}),
+        (AnalyticsEventIn, {"event_name": "page_view"}),
+        (
+            FinanceExpenseIn,
+            {"expense_date": "2026-01-01", "category": "hosting", "amount_centimes": 1000},
+        ),
+        (RedemptionCodeTemplateIn, {"name": "VIP", "subject_scope": "all", "amount_centimes": 9900}),
+        (StaffPaymentProfileUpdateIn, {"status": "active"}),
+        (
+            StaffPaymentRequestCreateIn,
+            {
+                "template_id": 1,
+                "payment_method": "cashplus",
+                "provider_reference": "CASH-001",
+                "amount_centimes": 9900,
+                "student_name": "Student",
+                "student_phone": "0600000000",
+            },
+        ),
+        (RedemptionCodeRedeemIn, {"code": "KRABC123"}),
+        (XPAdjustmentCreateIn, {"user_id": 1, "amount": 10, "reason": "Manual correction", "idempotency_key": "adjust-1"}),
+        (PaymentRequestCreateIn, {"payment_method": "cashplus", "plan": "pro"}),
+        (ManualPaymentReviewIn, {"reason": "Valid receipt"}),
+        (ManualPaymentProofIn, {"proof_kind": "receipt"}),
+        (
+            ManualPaymentReconciliationIn,
+            {
+                "payment_method": "cashplus",
+                "reference_code": "REF-001",
+                "amount_centimes": 9900,
+                "provider_reference": "PROVIDER-001",
+                "reason": "Matched receipt",
+            },
+        ),
+        (
+            PaymentReconciliationImportRowIn,
+            {"reference_code": "REF-001", "amount_centimes": 9900, "provider_reference": "PROVIDER-001"},
+        ),
+        (
+            PaymentReconciliationImportIn,
+            {
+                "payment_method": "cashplus",
+                "rows": [{"reference_code": "REF-001", "amount_centimes": 9900, "provider_reference": "PROVIDER-001"}],
+            },
+        ),
+        (FinanceExportCreateIn, {"export_kind": "ledger"}),
+        (ManualAccessGrantCreateIn, {"user_id": 1, "subject_id": 1, "action": "grant", "reason": "Support grant"}),
+        (RefundRequestCreateIn, {"transaction_id": 1, "amount_centimes": 9900, "reason": "Duplicate payment"}),
+        (RefundRequestReviewIn, {"reason": "Approved refund"}),
         (NoteCreateIn, {"body": "Note"}),
         (SavedItemCreateIn, {"target_type": "topic", "target_id": 1}),
         (CanvasDocumentPutIn, {"target_type": "topic_item", "target_id": 1, "scene_json": {"elements": []}}),

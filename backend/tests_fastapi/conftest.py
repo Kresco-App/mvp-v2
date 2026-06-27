@@ -38,6 +38,8 @@ def test_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
         vdocipher_api_base_url="",
         vdocipher_live_create_url="",
         frontend_url="http://localhost:3000",
+        auth_cookie_domain="",
+        auth_cookie_samesite="lax",
         debug=True,
     )
 

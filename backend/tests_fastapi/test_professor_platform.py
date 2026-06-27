@@ -2070,7 +2070,7 @@ def test_revoked_student_cannot_delete_existing_professor_chat_message(app_clien
     )
 
     assert deleted.status_code == 403
-    assert deleted.json()["detail"] == "VIP or Platinum access required for professor chat"
+    assert deleted.json()["detail"] == "VIP access required for professor chat"
 
 
 def test_professor_chat_and_live_mutations_keep_race_guards():

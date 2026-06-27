@@ -11,7 +11,7 @@ from app.services.realtime_channels import offering_notifications_channel_name, 
 
 LIVE_SESSION_ACCESS_REQUIREMENT = FeatureAccessRequirement("live_sessions")
 LIVE_SESSION_TOKEN_LOOKAHEAD = timedelta(days=7)
-GLOBAL_PAID_REALTIME_TIERS = {"pro", "vip", "platinum"}
+GLOBAL_PAID_REALTIME_TIERS = {"pro", "vip"}
 
 
 def active_live_session_filters(now: datetime) -> tuple:

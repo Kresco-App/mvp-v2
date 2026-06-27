@@ -30,6 +30,14 @@ def _float(value: Any) -> float:
     return round(float(value or 0), 2)
 
 
+def _payment_booked_at():
+    return func.coalesce(PaymentTransaction.confirmed_at, PaymentTransaction.created_at)
+
+
+def _non_staff_redemption_payment():
+    return ~PaymentTransaction.reference_code.like("CODE-%")
+
+
 def month_start(value: date | None = None) -> date:
     target = value or datetime.now(timezone.utc).date()
     return date(target.year, target.month, 1)
@@ -133,15 +141,24 @@ async def build_founder_dashboard(db: AsyncSession, *, month: date | None = None
         db,
         PaymentTransaction.amount_centimes,
         PaymentTransaction.status == PAYMENT_STATUS_PAID,
-        PaymentTransaction.confirmed_at >= start,
-        PaymentTransaction.confirmed_at < end,
+        _non_staff_redemption_payment(),
+        _payment_booked_at() >= start,
+        _payment_booked_at() < end,
     )
     previous_paid_revenue = await _sum(
         db,
         PaymentTransaction.amount_centimes,
         PaymentTransaction.status == PAYMENT_STATUS_PAID,
-        PaymentTransaction.confirmed_at >= previous_start,
-        PaymentTransaction.confirmed_at < previous_end,
+        _non_staff_redemption_payment(),
+        _payment_booked_at() >= previous_start,
+        _payment_booked_at() < previous_end,
+    )
+    previous_collected_staff_revenue = await _sum(
+        db,
+        StaffPaymentRequest.amount_centimes,
+        StaffPaymentRequest.created_at >= previous_start,
+        StaffPaymentRequest.created_at < previous_end,
+        StaffPaymentRequest.status.in_(("code_generated", "redeemed")),
     )
     collected_staff_revenue = await _sum(
         db,
@@ -187,7 +204,12 @@ async def build_founder_dashboard(db: AsyncSession, *, month: date | None = None
     )
     ai_events = await _sum(db, AnalyticsEvent.value_int, AnalyticsEvent.event_name == "ai_quota_used", AnalyticsEvent.occurred_at >= start, AnalyticsEvent.occurred_at < end)
     video_events = await _count(db, AnalyticsEvent, AnalyticsEvent.event_name.in_(("video_started", "video_progress", "video_completed")), AnalyticsEvent.occurred_at >= start, AnalyticsEvent.occurred_at < end)
-    video_seconds = await _sum(db, TopicItemProgress.watched_seconds)
+    video_seconds = await _sum(
+        db,
+        TopicItemProgress.watched_seconds,
+        TopicItemProgress.updated_at >= start,
+        TopicItemProgress.updated_at < end,
+    )
     live_joined = await _count_distinct(
         db,
         AnalyticsEvent.user_id,
@@ -229,8 +251,8 @@ async def build_founder_dashboard(db: AsyncSession, *, month: date | None = None
         "expenses_centimes": expenses_total,
         "open_refunds_centimes": refunds_total,
         "profit_centimes": paid_revenue + collected_staff_revenue - expenses_total - refunds_total,
-        "mrr_centimes": paid_revenue,
-        "arr_centimes": paid_revenue * 12,
+        "mrr_centimes": paid_revenue + collected_staff_revenue,
+        "arr_centimes": (paid_revenue + collected_staff_revenue) * 12,
         "paid_users": paid_users,
         "active_entitlements": active_entitlements,
         "expenses_by_category": await _expense_breakdown(db, selected_month),
@@ -241,7 +263,7 @@ async def build_founder_dashboard(db: AsyncSession, *, month: date | None = None
     metrics = [
         FounderMetricOut(key="students", label="Students", value=students_total, previous_value=previous_students_total),
         FounderMetricOut(key="new_students", label="New students", value=new_students, previous_value=0),
-        FounderMetricOut(key="mrr", label="MRR", value=finance["mrr_centimes"], previous_value=previous_paid_revenue, unit="centimes"),
+        FounderMetricOut(key="mrr", label="MRR", value=finance["mrr_centimes"], previous_value=previous_paid_revenue + previous_collected_staff_revenue, unit="centimes"),
         FounderMetricOut(key="profit", label="Profit", value=finance["profit_centimes"], previous_value=0, unit="centimes"),
         FounderMetricOut(key="active_7d", label="Active 7d", value=active_students_7d, previous_value=0),
         FounderMetricOut(key="private_messages", label="Private messages", value=messages["private_messages_month"], previous_value=0),
@@ -317,8 +339,9 @@ async def _payment_breakdown(db: AsyncSession, column: Any, start: datetime, end
         .select_from(PaymentTransaction)
         .where(
             PaymentTransaction.status == PAYMENT_STATUS_PAID,
-            PaymentTransaction.confirmed_at >= start,
-            PaymentTransaction.confirmed_at < end,
+            _non_staff_redemption_payment(),
+            _payment_booked_at() >= start,
+            _payment_booked_at() < end,
         )
         .group_by(column)
         .order_by(column)
@@ -337,6 +360,7 @@ async def _expense_breakdown(db: AsyncSession, selected_month: date) -> dict[str
 
 
 async def _growth_by_day(db: AsyncSession, start: datetime, end: datetime) -> list[dict[str, Any]]:
+    opening_total = await _count(db, User, User.role == "student", User.is_staff == False, User.created_at < start)  # noqa: E712
     rows = await db.execute(
         select(func.date(User.created_at), func.count())
         .where(User.role == "student", User.is_staff == False, User.created_at >= start, User.created_at < end)  # noqa: E712
@@ -345,14 +369,20 @@ async def _growth_by_day(db: AsyncSession, start: datetime, end: datetime) -> li
     )
     values_by_day = {str(day): _int(count) for day, count in rows.all()}
     days_in_month = monthrange(start.year, start.month)[1]
-    return [
-        {
-            "date": date(start.year, start.month, day).isoformat(),
-            "new_students": values_by_day.get(date(start.year, start.month, day).isoformat(), 0),
-        }
-        for day in range(1, days_in_month + 1)
-        if datetime(start.year, start.month, day, tzinfo=timezone.utc) < end
-    ]
+    total_students = opening_total
+    growth_rows = []
+    for day in range(1, days_in_month + 1):
+        if datetime(start.year, start.month, day, tzinfo=timezone.utc) >= end:
+            continue
+        day_key = date(start.year, start.month, day).isoformat()
+        new_students = values_by_day.get(day_key, 0)
+        total_students += new_students
+        growth_rows.append({
+            "date": day_key,
+            "new_students": new_students,
+            "total_students": total_students,
+        })
+    return growth_rows
 
 
 async def _students_by_track(db: AsyncSession) -> dict[str, int]:
@@ -366,6 +396,7 @@ async def _students_by_track(db: AsyncSession) -> dict[str, int]:
 
 
 async def _students_by_status(db: AsyncSession, now: datetime) -> dict[str, int]:
+    normalized_tier = func.lower(func.coalesce(User.tier, ""))
     active_entitlement_exists = (
         select(UserSubjectEntitlement.id)
         .where(
@@ -383,25 +414,22 @@ async def _students_by_status(db: AsyncSession, now: datetime) -> dict[str, int]
         )
         .exists()
     )
+    status_case = case(
+        (User.is_active == False, "registered"),  # noqa: E712
+        (active_entitlement_exists & normalized_tier.in_(("vip",)), "vip"),
+        (active_entitlement_exists & ((normalized_tier == "pro") | (User.is_pro == True)), "pro"),  # noqa: E712
+        (active_entitlement_exists | progress_exists, "active_basic"),
+        else_="registered",
+    )
     rows = await db.execute(
         select(
-            case(
-                (User.is_active == False, "blocked"),  # noqa: E712
-                (active_entitlement_exists, "active_paid"),
-                (progress_exists, "trial_or_active"),
-                else_="registered",
-            ),
+            status_case,
             func.count(),
         )
         .select_from(User)
         .where(User.role == "student", User.is_staff == False)  # noqa: E712
-        .group_by(
-            case(
-                (User.is_active == False, "blocked"),  # noqa: E712
-                (active_entitlement_exists, "active_paid"),
-                (progress_exists, "trial_or_active"),
-                else_="registered",
-            )
-        )
+        .group_by(status_case)
     )
-    return {str(status): _int(count) for status, count in rows.all()}
+    values = {"registered": 0, "active_basic": 0, "pro": 0, "vip": 0}
+    values.update({str(status): _int(count) for status, count in rows.all()})
+    return values

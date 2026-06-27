@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.schemas.limits import EmailText, ShortText, StrictInputModel
 
 
 class AdminCrudActionsOut(BaseModel):
@@ -113,13 +115,13 @@ class AdminStudentProgressOut(BaseModel):
 class AdminCommunicationsSummaryOut(BaseModel):
     total_conversations: int
     open_conversations: int
+    total_professors: int
+    students_in_private_chats: int
     unread_for_professors: int
     unread_for_students: int
+    messages_total: int
     messages_7d: int
-    live_sessions_live: int
-    pending_live_interactions: int
-    open_reports: int
-    urgent_open_reports: int
+    matched_conversations: int = 0
 
 
 class AdminChatMessageOut(BaseModel):
@@ -155,49 +157,67 @@ class AdminChatConversationOut(BaseModel):
     messages: list[AdminChatMessageOut] = Field(default_factory=list)
 
 
-class AdminLiveInteractionOut(BaseModel):
-    interaction_id: int
-    live_session_id: int
-    session_title: str
-    kind: str
-    status: str
+class AdminProfessorChatGroupOut(BaseModel):
     professor_user_id: int
     professor_name: str
-    student_user_id: int
-    student_name: str
-    body: str
-    answer: str
-    created_at: datetime | None = None
-    answered_at: datetime | None = None
-
-
-class AdminReportQueueItemOut(BaseModel):
-    report_id: int
-    target_type: str
-    target_id: str
-    reason: str
-    status: str
-    priority: str
-    title: str
-    description: str
-    reporter_user_id: int
-    reporter_name: str
-    assigned_to_user_id: int | None = None
-    assigned_to_name: str = ""
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    conversation_count: int = 0
+    open_conversations: int = 0
+    unread_for_professor: int = 0
+    unread_for_student: int = 0
+    messages_shown: int = 0
+    last_message_at: datetime | None = None
+    conversations: list[AdminChatConversationOut] = Field(default_factory=list)
 
 
 class AdminCommunicationsOut(BaseModel):
     generated_at: datetime
     summary: AdminCommunicationsSummaryOut
+    search_query: str = ""
     chat_conversations_by_status: dict[str, int]
-    live_interactions_by_status: dict[str, int]
-    reports_by_status: dict[str, int]
-    reports_by_priority: dict[str, int]
+    professors: list[AdminProfessorChatGroupOut]
     conversations: list[AdminChatConversationOut]
-    live_interactions: list[AdminLiveInteractionOut]
-    reports: list[AdminReportQueueItemOut]
+
+
+class AdminVideoFeedbackSummaryOut(BaseModel):
+    videos_reviewed: int
+    rated_comments: int
+    average_rating: float = 0
+    positive_comments: int = 0
+    negative_comments: int = 0
+    watchlist_videos: int = 0
+
+
+class AdminVideoFeedbackCommentOut(BaseModel):
+    comment_id: int
+    author_name: str
+    body: str
+    rating: int
+    created_at: datetime | None = None
+
+
+class AdminVideoFeedbackItemOut(BaseModel):
+    topic_item_id: int
+    title: str
+    topic_title: str = ""
+    subject_title: str = ""
+    item_type: str = ""
+    duration_seconds: int = 0
+    resource_provider: str = ""
+    resource_url: str = ""
+    rating_count: int = 0
+    average_rating: float = 0
+    positive_count: int = 0
+    negative_count: int = 0
+    neutral_count: int = 0
+    latest_comment_at: datetime | None = None
+    negative_comments: list[AdminVideoFeedbackCommentOut] = Field(default_factory=list)
+    positive_comments: list[AdminVideoFeedbackCommentOut] = Field(default_factory=list)
+
+
+class AdminVideoFeedbackOut(BaseModel):
+    generated_at: datetime
+    summary: AdminVideoFeedbackSummaryOut
+    items: list[AdminVideoFeedbackItemOut]
 
 
 class AdminUsersAccessSummaryOut(BaseModel):
@@ -240,9 +260,77 @@ class AdminUserAccessRowOut(BaseModel):
     permissions: list[AdminUserPermissionRowOut] = Field(default_factory=list)
     payment_count: int = 0
     paid_revenue_centimes: int = 0
+    ai_quota_used_month: int = 0
     latest_payment_at: datetime | None = None
     last_login: datetime | None = None
     created_at: datetime | None = None
+
+
+def _normalize_student_tier(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"basic", "pro", "vip"}:
+        raise ValueError("tier must be basic, pro, or vip")
+    return normalized
+
+
+class AdminStudentAccountCreateIn(StrictInputModel):
+    full_name: ShortText
+    email: EmailText
+    niveau: ShortText | None = None
+    filiere: ShortText | None = None
+    tier: str = Field(default="basic", max_length=30)
+    is_active: bool = True
+    is_email_verified: bool = False
+
+    @field_validator("full_name")
+    @classmethod
+    def normalize_required_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 2:
+            raise ValueError("full_name is required")
+        return normalized
+
+    @field_validator("niveau", "filiere")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: EmailText) -> str:
+        return str(value).strip().lower()
+
+    @field_validator("tier")
+    @classmethod
+    def normalize_tier(cls, value: str) -> str:
+        return _normalize_student_tier(value) or "basic"
+
+
+class AdminStudentAccountUpdateIn(StrictInputModel):
+    full_name: ShortText | None = None
+    email: EmailText | None = None
+    niveau: ShortText | None = None
+    filiere: ShortText | None = None
+    tier: str | None = Field(default=None, max_length=30)
+    is_active: bool | None = None
+    is_email_verified: bool | None = None
+
+    @field_validator("full_name", "niveau", "filiere")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: EmailText | None) -> str | None:
+        return str(value).strip().lower() if value is not None else None
+
+    @field_validator("tier")
+    @classmethod
+    def normalize_tier(cls, value: str | None) -> str | None:
+        return _normalize_student_tier(value)
 
 
 class AdminUsersAccessOut(BaseModel):

@@ -14,7 +14,6 @@ TIER_RANK: dict[str, int] = {
     "basic": 0,
     "pro": 10,
     "vip": 20,
-    "platinum": 30,
 }
 
 # Current tier-to-feature mapping. New feature gates should be added here or
@@ -40,18 +39,9 @@ FEATURES_BY_TIER: dict[str, set[str]] = {
         "simulated_exams",
         "teacher_chat",
     },
-    "platinum": {
-        "advanced_quizzes",
-        "ai_tutor",
-        "downloads",
-        "exam_bank_video_solutions",
-        "forum_posting",
-        "interactive_course",
-        "live_sessions",
-        "simulated_exams",
-        "teacher_chat",
-    },
 }
+
+VALID_TIERS = frozenset({"", "free", "basic", "pro", "vip"})
 
 
 @dataclass(frozen=True)
@@ -244,7 +234,8 @@ def _is_active_entitlement(entitlement: UserSubjectEntitlement) -> bool:
 
 
 def _normalize_tier(value: str) -> str:
-    return value.strip().lower()
+    tier = value.strip().lower()
+    return tier if tier in VALID_TIERS else "basic"
 
 
 def _normalize_feature(value: str) -> str:

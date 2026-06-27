@@ -2,8 +2,10 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.limits import StrictInputModel
 
-class UserPermissionGrantIn(BaseModel):
+
+class UserPermissionGrantIn(StrictInputModel):
     user_id: int = Field(gt=0)
     permission: str = Field(min_length=3, max_length=80)
     reason: str = Field(min_length=3, max_length=255)
@@ -25,7 +27,7 @@ class UserPermissionGrantIn(BaseModel):
         return normalized
 
 
-class UserPermissionRevokeIn(BaseModel):
+class UserPermissionRevokeIn(StrictInputModel):
     reason: str = Field(min_length=3, max_length=255)
 
     @field_validator("reason")

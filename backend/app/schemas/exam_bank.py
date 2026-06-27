@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.courses import AccessGuardedMixin, ResourceOut
+from app.schemas.limits import StrictInputModel
 
 
 class ExamProblemPartOut(AccessGuardedMixin):
@@ -76,7 +77,7 @@ class ExamBankProblemDetailOut(ExamBankProblemOut):
     created_at: datetime | None = None
 
 
-class ExamProblemProgressIn(BaseModel):
+class ExamProblemProgressIn(StrictInputModel):
     status: str | None = None
     saved: bool | None = None
 
@@ -101,7 +102,7 @@ class ExamProblemProgressOut(BaseModel):
     last_activity_at: datetime | None = None
 
 
-class ExamProblemPartProgressIn(BaseModel):
+class ExamProblemPartProgressIn(StrictInputModel):
     status: str | None = None
     correction_revealed: bool | None = None
     video_watched: bool | None = None

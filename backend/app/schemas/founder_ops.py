@@ -1,12 +1,32 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.payments import MANUAL_PAYMENT_RAILS
+from app.schemas.limits import JsonBounds, StrictInputModel, validate_bounded_json_object
 
 
-class AnalyticsEventIn(BaseModel):
+FOUNDER_JSON_BOUNDS = JsonBounds(
+    max_container_depth=4,
+    max_dict_items=50,
+    max_list_items=100,
+    max_string_length=1000,
+    max_total_bytes=4096,
+)
+
+
+def _validate_founder_json_object(value: dict[str, Any]) -> dict[str, Any]:
+    return validate_bounded_json_object(value, bounds=FOUNDER_JSON_BOUNDS)
+
+
+def _validate_optional_founder_json_object(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return _validate_founder_json_object(value)
+
+
+class AnalyticsEventIn(StrictInputModel):
     event_name: str = Field(min_length=2, max_length=80)
     anonymous_id: str | None = Field(default=None, max_length=120)
     session_id: str | None = Field(default=None, max_length=120)
@@ -29,6 +49,24 @@ class AnalyticsEventIn(BaseModel):
         normalized = value.strip()
         return normalized or None
 
+    @field_validator("properties")
+    @classmethod
+    def validate_properties(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _validate_founder_json_object(value)
+
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_occurred_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        now = datetime.now(timezone.utc)
+        occurred_at = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+        if occurred_at > now + timedelta(minutes=10):
+            raise ValueError("occurred_at cannot be in the future")
+        if occurred_at < now - timedelta(days=370):
+            raise ValueError("occurred_at is too old")
+        return occurred_at
+
 
 class AnalyticsEventOut(BaseModel):
     id: int
@@ -38,7 +76,7 @@ class AnalyticsEventOut(BaseModel):
     received_at: datetime
 
 
-class FinanceExpenseIn(BaseModel):
+class FinanceExpenseIn(StrictInputModel):
     expense_month: date | None = None
     expense_date: date
     category: str = Field(min_length=2, max_length=60)
@@ -70,6 +108,11 @@ class FinanceExpenseIn(BaseModel):
             raise ValueError("status must be planned, paid, or cancelled")
         return value
 
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _validate_founder_json_object(value)
+
 
 class FinanceExpenseOut(BaseModel):
     id: int
@@ -88,7 +131,7 @@ class FinanceExpenseOut(BaseModel):
     updated_at: datetime
 
 
-class RedemptionCodeTemplateIn(BaseModel):
+class RedemptionCodeTemplateIn(StrictInputModel):
     name: str = Field(min_length=2, max_length=160)
     plan: str = Field(default="pro", min_length=1, max_length=60)
     tier: str = Field(default="pro", min_length=1, max_length=30)
@@ -119,6 +162,27 @@ class RedemptionCodeTemplateIn(BaseModel):
         if normalized not in {"active", "archived"}:
             raise ValueError("status must be active or archived")
         return normalized
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _validate_founder_json_object(value)
+
+    @model_validator(mode="after")
+    def validate_subject_selection(self) -> "RedemptionCodeTemplateIn":
+        subject_ids = []
+        seen: set[int] = set()
+        for value in self.subject_ids:
+            subject_id = int(value)
+            if subject_id <= 0:
+                raise ValueError("subject_ids must contain positive integers")
+            if subject_id not in seen:
+                seen.add(subject_id)
+                subject_ids.append(subject_id)
+        if self.subject_scope == "selected" and not subject_ids:
+            raise ValueError("selected templates require at least one subject")
+        self.subject_ids = subject_ids if self.subject_scope == "selected" else []
+        return self
 
 
 class RedemptionCodeTemplateOut(BaseModel):
@@ -151,7 +215,55 @@ class StaffPaymentProfileOut(BaseModel):
     remaining_amount_this_month_centimes: int | None = None
 
 
-class StaffPaymentRequestCreateIn(BaseModel):
+class StaffPaymentProfileUpdateIn(StrictInputModel):
+    display_name: str | None = Field(default=None, max_length=160)
+    status: str | None = Field(default=None, min_length=2, max_length=20)
+    monthly_code_limit: int | None = Field(default=None, ge=0, le=100_000)
+    monthly_amount_limit_centimes: int | None = Field(default=None, ge=0)
+    allowed_template_ids: list[int] | None = Field(default=None, max_length=200)
+    metadata: dict[str, Any] | None = None
+
+    @field_validator("display_name", "status")
+    @classmethod
+    def normalize_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.lower()
+        if normalized not in {"active", "paused"}:
+            raise ValueError("status must be active or paused")
+        return normalized
+
+    @field_validator("allowed_template_ids")
+    @classmethod
+    def normalize_allowed_template_ids(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for raw in value:
+            template_id = int(raw)
+            if template_id <= 0:
+                raise ValueError("allowed_template_ids must contain positive integers")
+            if template_id not in seen:
+                seen.add(template_id)
+                normalized.append(template_id)
+        return normalized
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_optional_founder_json_object(value)
+
+
+class StaffPaymentRequestCreateIn(StrictInputModel):
     template_id: int = Field(gt=0)
     payment_method: str = Field(min_length=1, max_length=40)
     provider_reference: str = Field(min_length=3, max_length=160)
@@ -171,7 +283,15 @@ class StaffPaymentRequestCreateIn(BaseModel):
             raise ValueError(f"payment_method must be one of: {supported}")
         return normalized
 
-    @field_validator("provider_reference", "student_name", "student_phone", "student_email", "proof_url", "notes")
+    @field_validator("provider_reference")
+    @classmethod
+    def normalize_provider_reference(cls, value: str) -> str:
+        normalized = "".join(value.strip().upper().split())
+        if len(normalized) < 3:
+            raise ValueError("provider_reference is required")
+        return normalized
+
+    @field_validator("student_name", "student_phone", "student_email", "proof_url", "notes")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -227,7 +347,7 @@ class StaffPaymentDashboardOut(BaseModel):
     requests: list[StaffPaymentRequestOut]
 
 
-class RedemptionCodeRedeemIn(BaseModel):
+class RedemptionCodeRedeemIn(StrictInputModel):
     code: str = Field(min_length=6, max_length=80)
 
     @field_validator("code")

@@ -58,6 +58,7 @@ def _set_auth_cookies(response: Response, token: str, user: User, settings: Sett
         httponly=True,
         secure=secure,
         samesite=samesite,
+        domain=settings.auth_cookie_domain_value,
         path="/",
     )
     response.set_cookie(
@@ -67,6 +68,7 @@ def _set_auth_cookies(response: Response, token: str, user: User, settings: Sett
         httponly=False,
         secure=secure,
         samesite=samesite,
+        domain=settings.auth_cookie_domain_value,
         path="/",
     )
     return set_csrf_cookie(response, user, settings)
@@ -81,6 +83,7 @@ def _clear_auth_cookies(response: Response, settings: Settings) -> None:
         secure=secure,
         httponly=True,
         samesite=samesite,
+        domain=settings.auth_cookie_domain_value,
     )
     response.delete_cookie(
         AUTH_ROLE_COOKIE_NAME,
@@ -88,6 +91,7 @@ def _clear_auth_cookies(response: Response, settings: Settings) -> None:
         secure=secure,
         httponly=False,
         samesite=samesite,
+        domain=settings.auth_cookie_domain_value,
     )
     clear_csrf_cookie(response, settings)
 

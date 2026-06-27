@@ -4,14 +4,22 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.payments import PAYMENT_RAIL_ASHPLUS, PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS, PAYMENT_RAIL_CMI
+from app.schemas.limits import JsonBounds, StrictInputModel, validate_bounded_json_object
 
 SUPPORTED_PAYMENT_RAILS = {PAYMENT_RAIL_CMI, PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS, PAYMENT_RAIL_ASHPLUS}
 MANUAL_PAYMENT_RAILS = {PAYMENT_RAIL_BANK_TRANSFER, PAYMENT_RAIL_CASHPLUS, PAYMENT_RAIL_ASHPLUS}
+PAYMENT_IMPORT_RAW_ROW_BOUNDS = JsonBounds(
+    max_container_depth=3,
+    max_dict_items=50,
+    max_list_items=50,
+    max_string_length=1000,
+    max_total_bytes=4096,
+)
 
 
-class PaymentRequestCreateIn(BaseModel):
+class PaymentRequestCreateIn(StrictInputModel):
     payment_method: str = Field(min_length=1, max_length=40)
-    plan: str = "pro"
+    plan: str = Field(default="pro", min_length=1, max_length=60)
 
     @field_validator("payment_method")
     @classmethod
@@ -63,7 +71,7 @@ class ManualPaymentTransactionOut(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ManualPaymentReviewIn(BaseModel):
+class ManualPaymentReviewIn(StrictInputModel):
     reason: str = Field(min_length=3, max_length=255)
 
     @field_validator("reason")
@@ -75,7 +83,7 @@ class ManualPaymentReviewIn(BaseModel):
         return normalized
 
 
-class ManualPaymentProofIn(BaseModel):
+class ManualPaymentProofIn(StrictInputModel):
     proof_kind: str = Field(default="receipt", min_length=3, max_length=40)
     provider_reference: str | None = Field(default=None, max_length=160)
     proof_url: str | None = Field(default=None, max_length=2000)
@@ -92,7 +100,7 @@ class ManualPaymentProofIn(BaseModel):
         return normalized or None
 
 
-class ManualPaymentReconciliationIn(BaseModel):
+class ManualPaymentReconciliationIn(StrictInputModel):
     payment_method: str = Field(min_length=1, max_length=40)
     reference_code: str = Field(min_length=3, max_length=80)
     amount_centimes: int = Field(gt=0)
@@ -118,7 +126,7 @@ class ManualPaymentReconciliationIn(BaseModel):
         return normalized
 
 
-class PaymentReconciliationImportRowIn(BaseModel):
+class PaymentReconciliationImportRowIn(StrictInputModel):
     reference_code: str = Field(min_length=3, max_length=80)
     amount_centimes: int = Field(gt=0)
     provider_reference: str = Field(min_length=3, max_length=160)
@@ -134,8 +142,13 @@ class PaymentReconciliationImportRowIn(BaseModel):
             raise ValueError("value is required")
         return normalized
 
+    @field_validator("raw_row")
+    @classmethod
+    def validate_raw_row(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return validate_bounded_json_object(value, bounds=PAYMENT_IMPORT_RAW_ROW_BOUNDS)
 
-class PaymentReconciliationImportIn(BaseModel):
+
+class PaymentReconciliationImportIn(StrictInputModel):
     payment_method: str = Field(min_length=1, max_length=40)
     source_name: str | None = Field(default=None, max_length=160)
     rows: list[PaymentReconciliationImportRowIn] = Field(min_length=1, max_length=500)
@@ -260,7 +273,7 @@ class FinancePaymentMonitoringOut(BaseModel):
     latest_problem_indicators: list[FinanceMonitoringProblemIndicatorOut]
 
 
-class FinanceExportCreateIn(BaseModel):
+class FinanceExportCreateIn(StrictInputModel):
     export_kind: str = Field(min_length=1, max_length=60)
     transaction_id: int | None = None
     limit: int = Field(default=200, ge=1, le=500)
@@ -292,7 +305,7 @@ class FinanceExportOut(FinanceExportSummaryOut):
     csv_text: str
 
 
-class ManualAccessGrantCreateIn(BaseModel):
+class ManualAccessGrantCreateIn(StrictInputModel):
     user_id: int = Field(gt=0)
     subject_id: int = Field(gt=0)
     action: str = Field(min_length=1, max_length=20)
@@ -332,7 +345,7 @@ class ManualAccessGrantOut(BaseModel):
     created_at: datetime
 
 
-class RefundRequestCreateIn(BaseModel):
+class RefundRequestCreateIn(StrictInputModel):
     transaction_id: int = Field(gt=0)
     amount_centimes: int = Field(gt=0)
     reason: str = Field(min_length=3, max_length=255)
@@ -346,7 +359,7 @@ class RefundRequestCreateIn(BaseModel):
         return normalized
 
 
-class RefundRequestReviewIn(BaseModel):
+class RefundRequestReviewIn(StrictInputModel):
     reason: str = Field(min_length=3, max_length=255)
 
     @field_validator("reason")

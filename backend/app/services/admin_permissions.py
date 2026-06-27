@@ -10,16 +10,23 @@ from app.models.users import User, UserPermission
 from app.schemas.admin_permissions import UserPermissionOut
 
 ALLOWED_USER_PERMISSIONS = {
+    "admin:overview_read",
     "audit:read",
+    "communications:read",
+    "content:change_read",
+    "content:change_review",
     "content:write",
     "finance:export",
+    "finance:expense_manage",
     "finance:manual_grant",
     "finance:payment_review",
     "finance:read",
     "finance:refund",
+    "finance:staff_codes",
     "live:moderate",
     "roles:manage",
     "sqladmin:access",
+    "students:progress_read",
     "support:reports",
     "users:read",
     "users:update",

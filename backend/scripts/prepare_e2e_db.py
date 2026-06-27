@@ -27,7 +27,7 @@ E2E_AUTH_EMAILS = (
     "professor@example.com",
     "physics.professor@example.com",
     "vip@example.com",
-    "platinum@example.com",
+    "second_vip@example.com",
     "basic@example.com",
     "student@example.com",
     "admin@example.com",

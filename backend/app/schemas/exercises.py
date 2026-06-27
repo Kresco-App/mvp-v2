@@ -63,7 +63,7 @@ class ExerciseBankListOut(BaseModel):
     total: int
 
 
-class ExerciseSelfGradeIn(BaseModel):
+class ExerciseSelfGradeIn(StrictInputModel):
     self_grade: str = Field(min_length=3, max_length=30)
 
     @field_validator("self_grade")
@@ -75,7 +75,7 @@ class ExerciseSelfGradeIn(BaseModel):
         return normalized
 
 
-class ExerciseSavedIn(BaseModel):
+class ExerciseSavedIn(StrictInputModel):
     saved: bool = False
 
 

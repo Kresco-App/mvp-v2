@@ -59,8 +59,8 @@ def live_settings(**overrides) -> Settings:
         "database_url": "sqlite+aiosqlite:///./test.sqlite3",
         "jwt_secret_key": "test-secret-key-for-ci-32-bytes-minimum",
         "vdocipher_api_secret": "api-secret",
-        "vdocipher_api_base_url": "https://video-api.example/api",
-        "vdocipher_live_create_url": "https://provider.example/live/create",
+        "vdocipher_api_base_url": "https://dev.vdocipher.com/api",
+        "vdocipher_live_create_url": "https://dev.vdocipher.com/live/create",
     }
     values.update(overrides)
     return Settings(**values)
@@ -80,13 +80,13 @@ def test_get_video_otp_posts_to_configured_api_base_and_parses_response(monkeypa
     monkeypatch.setattr(vdocipher.httpx, "AsyncClient", FakeAsyncClient)
 
     result = asyncio.run(
-        vdocipher.get_video_otp(" video/id 1 ", live_settings(vdocipher_api_base_url="https://video-api.example/api/"))
+        vdocipher.get_video_otp(" video/id 1 ", live_settings(vdocipher_api_base_url="https://dev.vdocipher.com/api/"))
     )
 
     assert result == {"otp": "otp-value", "playback_info": "playback-value"}
     assert FakeAsyncClient.calls == [
         {
-            "url": "https://video-api.example/api/videos/video%2Fid%201/otp",
+            "url": "https://dev.vdocipher.com/api/videos/video%2Fid%201/otp",
             "headers": {"Authorization": "Apisecret api-secret"},
             "json": {"ttl": 300},
             "timeout": 10,
@@ -108,6 +108,21 @@ def test_get_video_otp_requires_video_id_and_provider_config():
         asyncio.run(vdocipher.get_video_otp("video-123", live_settings(vdocipher_api_base_url="")))
     assert missing_base_url.value.status_code == 501
     assert "VDOCIPHER_API_BASE_URL" in missing_base_url.value.detail
+
+
+def test_get_video_otp_rejects_non_vdocipher_provider_url_before_auth_header(monkeypatch):
+    class UnexpectedAsyncClient:
+        def __init__(self, *, timeout: int):
+            del timeout
+            raise AssertionError("unsafe provider URL should not create an HTTP client")
+
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(vdocipher.get_video_otp("video-123", live_settings(vdocipher_api_base_url="https://evil.example/api")))
+
+    assert error.value.status_code == 501
+    assert error.value.detail == "VdoCipher provider URL must use a VdoCipher-owned HTTPS host."
 
 
 def test_get_video_stream_data_returns_demo_stream_outside_production(monkeypatch):
@@ -132,7 +147,7 @@ def test_get_video_stream_data_uses_provider_for_demo_ids_in_production(monkeypa
     result = asyncio.run(vdocipher.get_video_stream_data("demo-preview", live_settings(environment="production")))
 
     assert result == {"otp": "otp-value", "playback_info": "playback-value"}
-    assert FakeAsyncClient.calls[0]["url"] == "https://video-api.example/api/videos/demo-preview/otp"
+    assert FakeAsyncClient.calls[0]["url"] == "https://dev.vdocipher.com/api/videos/demo-preview/otp"
 
 
 def test_get_video_stream_data_caches_otp_per_user_and_binds_payload(monkeypatch):
@@ -229,7 +244,7 @@ def test_create_live_stream_posts_expected_payload_and_parses_provider_response(
     }
     assert FakeAsyncClient.calls == [
         {
-            "url": "https://provider.example/live/create",
+            "url": "https://dev.vdocipher.com/live/create",
             "headers": {"Authorization": "Apisecret api-secret"},
             "json": {
                 "title": "National exam live",
@@ -253,6 +268,21 @@ def test_create_live_stream_requires_provider_config():
         asyncio.run(vdocipher.create_live_stream("Missing URL", live_settings(vdocipher_live_create_url="")))
     assert missing_url.value.status_code == 501
     assert "VDOCIPHER_LIVE_CREATE_URL" in missing_url.value.detail
+
+
+def test_create_live_stream_rejects_non_vdocipher_provider_url_before_auth_header(monkeypatch):
+    class UnexpectedAsyncClient:
+        def __init__(self, *, timeout: int):
+            del timeout
+            raise AssertionError("unsafe provider URL should not create an HTTP client")
+
+    monkeypatch.setattr(vdocipher.httpx, "AsyncClient", UnexpectedAsyncClient)
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(vdocipher.create_live_stream("Unsafe live", live_settings(vdocipher_live_create_url="https://evil.example/live")))
+
+    assert error.value.status_code == 501
+    assert error.value.detail == "VdoCipher provider URL must use a VdoCipher-owned HTTPS host."
 
 
 def test_create_live_stream_masks_provider_error(monkeypatch):
@@ -326,7 +356,7 @@ def test_delete_live_stream_uses_configured_cleanup_endpoint(monkeypatch):
     result = asyncio.run(
         vdocipher.delete_live_stream(
             " live/id 1 ",
-            live_settings(vdocipher_live_delete_url="https://provider.example/live/{live_id}"),
+            live_settings(vdocipher_live_delete_url="https://dev.vdocipher.com/live/{live_id}"),
         )
     )
 
@@ -334,7 +364,7 @@ def test_delete_live_stream_uses_configured_cleanup_endpoint(monkeypatch):
     assert FakeAsyncClient.calls == [
         {
             "method": "DELETE",
-            "url": "https://provider.example/live/live%2Fid%201",
+            "url": "https://dev.vdocipher.com/live/live%2Fid%201",
             "headers": {"Authorization": "Apisecret api-secret"},
             "timeout": 15,
         }

@@ -27,6 +27,7 @@ from app.schemas.founder_ops import (
     StaffPaymentProfileOut,
     StaffPaymentRequestCreateIn,
     StaffPaymentRequestOut,
+    StaffPaymentProfileUpdateIn,
 )
 from app.services.payment_gateway import provider_for_rail
 
@@ -46,7 +47,7 @@ async def create_redemption_template(
         plan=payload.plan.strip().lower(),
         tier=payload.tier.strip().lower(),
         subject_scope=payload.subject_scope,
-        subject_ids_json=[int(value) for value in payload.subject_ids],
+        subject_ids_json=[] if payload.subject_scope == "all" else [int(value) for value in payload.subject_ids],
         duration_days=int(payload.duration_days),
         amount_centimes=int(payload.amount_centimes),
         status=payload.status,
@@ -66,13 +67,69 @@ async def list_redemption_templates(db: AsyncSession, *, include_archived: bool 
     return [template_out(row) for row in (await db.execute(statement)).scalars().all()]
 
 
+async def list_staff_payment_profiles(db: AsyncSession, *, limit: int = 100) -> list[StaffPaymentProfileOut]:
+    profiles = (
+        await db.execute(
+            select(StaffPaymentProfile)
+            .order_by(StaffPaymentProfile.updated_at.desc(), StaffPaymentProfile.user_id.desc())
+            .limit(max(1, min(int(limit or 100), 300)))
+        )
+    ).scalars().all()
+    return [await profile_out(db, profile) for profile in profiles]
+
+
+async def upsert_staff_payment_profile(
+    db: AsyncSession,
+    *,
+    actor: User,
+    user_id: int,
+    payload: StaffPaymentProfileUpdateIn,
+) -> StaffPaymentProfileOut:
+    del actor
+    staff = await db.get(User, int(user_id))
+    if staff is None or not staff.is_staff:
+        raise HTTPException(status_code=404, detail="Staff user not found")
+    profile = await db.get(StaffPaymentProfile, int(user_id))
+    if profile is None:
+        profile = StaffPaymentProfile(
+            user_id=int(user_id),
+            display_name=payload.display_name or staff.full_name or staff.email,
+            monthly_code_limit=0,
+            monthly_amount_limit_centimes=0,
+            allowed_template_ids_json=[],
+            metadata_json={},
+        )
+        db.add(profile)
+        await db.flush()
+    if payload.display_name is not None:
+        profile.display_name = payload.display_name
+    if payload.status is not None:
+        profile.status = payload.status
+    if payload.monthly_code_limit is not None:
+        profile.monthly_code_limit = int(payload.monthly_code_limit)
+    if payload.monthly_amount_limit_centimes is not None:
+        profile.monthly_amount_limit_centimes = int(payload.monthly_amount_limit_centimes)
+    if payload.allowed_template_ids is not None:
+        await _ensure_templates_exist(db, payload.allowed_template_ids)
+        profile.allowed_template_ids_json = [int(value) for value in payload.allowed_template_ids]
+    if payload.metadata is not None:
+        profile.metadata_json = payload.metadata
+    await db.commit()
+    await db.refresh(profile)
+    return await profile_out(db, profile)
+
+
 async def build_staff_payment_dashboard(db: AsyncSession, *, staff: User, limit: int = 50) -> StaffPaymentDashboardOut:
     profile = await _profile_for_staff(db, staff)
     template_ids = set(int(value) for value in (profile.allowed_template_ids_json or []))
-    templates_statement = select(RedemptionCodeTemplate).where(RedemptionCodeTemplate.status == "active")
+    templates = []
     if template_ids:
-        templates_statement = templates_statement.where(RedemptionCodeTemplate.id.in_(template_ids))
-    templates = (await db.execute(templates_statement.order_by(RedemptionCodeTemplate.name.asc()))).scalars().all()
+        templates_statement = (
+            select(RedemptionCodeTemplate)
+            .where(RedemptionCodeTemplate.status == "active", RedemptionCodeTemplate.id.in_(template_ids))
+            .order_by(RedemptionCodeTemplate.name.asc())
+        )
+        templates = (await db.execute(templates_statement)).scalars().all()
 
     code_alias = RedemptionCode
     requests = (
@@ -124,7 +181,7 @@ async def create_staff_payment_request(
     if template is None or template.status != "active":
         raise HTTPException(status_code=404, detail="Redemption template not found")
     allowed_template_ids = {int(value) for value in (profile.allowed_template_ids_json or [])}
-    if allowed_template_ids and int(template.id) not in allowed_template_ids:
+    if not allowed_template_ids or int(template.id) not in allowed_template_ids:
         raise HTTPException(status_code=403, detail="Template is not allowed for this staff member")
     if int(payload.amount_centimes) != int(template.amount_centimes):
         raise HTTPException(status_code=409, detail="Payment amount does not match selected template")
@@ -216,9 +273,11 @@ async def redeem_code_for_user(
     )
     if request is None:
         raise HTTPException(status_code=409, detail="Redemption code is missing payment trace")
+    if request.status != "code_generated":
+        raise HTTPException(status_code=409, detail="Payment trace is not available for redemption")
 
     user.tier = code.tier
-    if code.tier in {"pro", "vip", "platinum"}:
+    if code.tier in {"pro", "vip"}:
         user.is_pro = True
     code.status = "redeemed"
     code.redeemed_by_user_id = int(user.id)
@@ -287,7 +346,7 @@ async def _profile_for_staff(db: AsyncSession, staff: User, *, for_update: bool 
         profile = StaffPaymentProfile(
             user_id=int(staff.id),
             display_name=staff.full_name or staff.email,
-            monthly_code_limit=50,
+            monthly_code_limit=0,
             monthly_amount_limit_centimes=0,
             allowed_template_ids_json=[],
             metadata_json={"auto_created": True},
@@ -414,7 +473,7 @@ async def _create_unique_code(
             currency=template.currency,
             status="generated",
             expires_at=now + timedelta(days=CODE_TTL_DAYS),
-            metadata_json=metadata,
+            metadata_json={**metadata, "subject_scope": template.subject_scope},
         )
         db.add(code)
         await db.flush()
@@ -431,6 +490,8 @@ async def _grant_code_entitlements(
 ) -> int:
     subject_ids = [int(value) for value in (code.subject_ids_json or [])]
     if not subject_ids:
+        if (code.metadata_json or {}).get("subject_scope") == "selected":
+            raise HTTPException(status_code=409, detail="Redemption code has no selected subjects")
         from app.models.courses import Subject
 
         subject_ids = list((await db.execute(select(Subject.id).order_by(Subject.id.asc()))).scalars().all())
@@ -504,6 +565,22 @@ async def _staff_monthly_amount_sum(db: AsyncSession, *, staff_user_id: int, mon
         )
         or 0
     )
+
+
+async def _ensure_templates_exist(db: AsyncSession, template_ids: list[int]) -> None:
+    if not template_ids:
+        return
+    existing = set(
+        (await db.execute(
+            select(RedemptionCodeTemplate.id).where(
+                RedemptionCodeTemplate.id.in_([int(value) for value in template_ids]),
+                RedemptionCodeTemplate.status == "active",
+            )
+        )).scalars().all()
+    )
+    missing = [int(value) for value in template_ids if int(value) not in existing]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Active redemption template not found: {missing[0]}")
 
 
 def _month_start(value: date) -> date:

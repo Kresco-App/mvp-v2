@@ -11,6 +11,7 @@ import uuid
 
 from app.config import (
     DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS,
+    MAX_MEDIA_GCS_SIGNED_URL_TTL_SECONDS,
     MEDIA_STORAGE_GCS,
     MEDIA_STORAGE_GCS_MOCK,
     Settings,
@@ -61,7 +62,7 @@ class GCSMediaStorage:
     def __init__(self, settings: Settings) -> None:
         self.bucket = settings.media_gcs_bucket.strip()
         self.prefix = _clean_prefix(settings.media_gcs_prefix)
-        self.signed_url_ttl_seconds = int(settings.media_gcs_signed_url_ttl_seconds)
+        self.signed_url_ttl_seconds = _safe_signed_url_ttl_seconds(settings.media_gcs_signed_url_ttl_seconds)
         if not self.bucket:
             raise MediaStorageError("GCS media storage is missing bucket configuration.")
 
@@ -98,7 +99,7 @@ class GCSMockMediaStorage:
         self.bucket = settings.media_gcs_bucket.strip()
         self.prefix = _clean_prefix(settings.media_gcs_prefix)
         self.root = Path(settings.media_gcs_mock_root).expanduser()
-        self.signed_url_ttl_seconds = int(settings.media_gcs_signed_url_ttl_seconds)
+        self.signed_url_ttl_seconds = _safe_signed_url_ttl_seconds(settings.media_gcs_signed_url_ttl_seconds)
         if not self.bucket:
             raise MediaStorageError("GCS mock media storage is missing bucket configuration.")
 
@@ -184,7 +185,9 @@ def mock_sign_gcs_reference(
 
     bucket = parsed.netloc
     key = unquote(parsed.path.lstrip("/"))
-    ttl = expires_in if expires_in is not None else int(settings.media_gcs_signed_url_ttl_seconds if settings else DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS)
+    ttl = _safe_signed_url_ttl_seconds(
+        expires_in if expires_in is not None else (settings.media_gcs_signed_url_ttl_seconds if settings else DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS)
+    )
     return f"https://mock-gcs.local/{bucket}/{quote(key, safe='/')}?expires={ttl}&signature=mock"
 
 
@@ -201,11 +204,20 @@ def sign_gcs_reference(
 
     bucket = parsed.netloc
     key = unquote(parsed.path.lstrip("/"))
-    ttl = expires_in if expires_in is not None else int(settings.media_gcs_signed_url_ttl_seconds if settings else DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS)
+    ttl = _safe_signed_url_ttl_seconds(
+        expires_in if expires_in is not None else (settings.media_gcs_signed_url_ttl_seconds if settings else DEFAULT_MEDIA_GCS_SIGNED_URL_TTL_SECONDS)
+    )
     if client is None:
         client = _gcs_client()
     blob = client.bucket(bucket).blob(key)
     return _signed_gcs_blob_url(blob, expires_in=ttl)
+
+
+def _safe_signed_url_ttl_seconds(value: int | str) -> int:
+    ttl = int(value)
+    if ttl < 1:
+        raise MediaStorageError("Signed media URL TTL must be positive.")
+    return min(ttl, MAX_MEDIA_GCS_SIGNED_URL_TTL_SECONDS)
 
 
 def profile_media_key(user_id: int, kind: str, extension: str) -> str:

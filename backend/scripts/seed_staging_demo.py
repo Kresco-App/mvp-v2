@@ -258,7 +258,7 @@ async def upsert_topic_comment_threads(db: AsyncSession, topic: Topic, authors: 
     await upsert_topic_comment(
         db,
         item=item,
-        author=users_by_email["platinum@example.com"],
+        author=users_by_email["second_vip@example.com"],
         body="I added the simplified expression to my notes and it made the removable discontinuity easier to see.",
         parent=parent,
         created_at=now - timedelta(minutes=31),
@@ -585,10 +585,10 @@ async def seed_staging_demo(
             vip_student,
             await upsert_user(
                 db,
-                "platinum@example.com",
+                "second_vip@example.com",
                 "Youssef El Idrissi",
                 role="student",
-                tier="platinum",
+                tier="vip",
                 niveau="2BAC",
                 filiere="Sciences Math B",
                 is_pro=True,
@@ -607,7 +607,7 @@ async def seed_staging_demo(
                 "admin@example.com",
                 "Kresco Admin",
                 role="admin",
-                tier="platinum",
+                tier="vip",
                 is_pro=True,
                 is_staff=True,
             ),
@@ -624,7 +624,7 @@ async def seed_staging_demo(
         await db.commit()
 
     await engine.dispose()
-    print("Seeded staging demo accounts: student@example.com, vip@example.com, platinum@example.com, basic@example.com, professor@example.com, admin@example.com")
+    print("Seeded staging demo accounts: student@example.com, vip@example.com, second_vip@example.com, basic@example.com, professor@example.com, admin@example.com")
 
 
 def main() -> None:

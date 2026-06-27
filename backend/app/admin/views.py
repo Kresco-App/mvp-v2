@@ -147,7 +147,6 @@ class UserAdmin(PowerModelView, model=User):
                 ("basic", "Basic"),
                 ("pro", "Pro"),
                 ("vip", "VIP"),
-                ("platinum", "Platinum"),
             ],
         },
         "niveau": {

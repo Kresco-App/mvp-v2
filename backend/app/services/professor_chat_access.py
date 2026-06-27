@@ -4,8 +4,8 @@ from app.models.professor import CourseOffering
 from app.models.users import User
 from app.services.access import AccessContext, AccessDecision, FeatureAccessRequirement, effective_user_tier
 
-PROFESSOR_CHAT_ALLOWED_TIERS = frozenset({"vip", "platinum"})
-PROFESSOR_CHAT_ACCESS_DENIED_REASON = "VIP or Platinum access required for professor chat"
+PROFESSOR_CHAT_ALLOWED_TIERS = frozenset({"vip"})
+PROFESSOR_CHAT_ACCESS_DENIED_REASON = "VIP access required for professor chat"
 PROFESSOR_CHAT_TRACK_NOT_CONFIGURED_REASON = "Course offering track is not configured"
 PROFESSOR_CHAT_LEVEL_MISMATCH_REASON = "Course offering does not match your level"
 PROFESSOR_CHAT_FILIERE_MISMATCH_REASON = "Course offering does not match your filiere"

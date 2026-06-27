@@ -31,7 +31,7 @@ from app.services.vdocipher import create_live_stream, delete_live_stream, sanit
 
 MAX_PROFESSOR_LIVE_SESSIONS_LIMIT = 100
 LIVE_SESSION_NOTIFICATION_TYPE = "live_session"
-LIVE_SESSION_NOTIFICATION_TIERS = ("pro", "vip", "platinum")
+LIVE_SESSION_NOTIFICATION_TIERS = ("pro", "vip")
 
 logger = logging.getLogger(__name__)
 

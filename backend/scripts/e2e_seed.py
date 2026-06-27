@@ -49,7 +49,7 @@ async def seed_e2e_accounts_and_course_surfaces(db: AsyncSession) -> None:
         "admin@example.com",
         "Kresco Admin",
         role="admin",
-        tier="platinum",
+        tier="vip",
         niveau="",
         filiere="",
         is_pro=True,
@@ -58,16 +58,16 @@ async def seed_e2e_accounts_and_course_surfaces(db: AsyncSession) -> None:
     )
     professor = await require_user(db, "professor@example.com")
     vip = await require_user(db, "vip@example.com")
-    platinum = await require_user(db, "platinum@example.com")
+    second_vip = await require_user(db, "second_vip@example.com")
 
     math = await require_subject(db, "Mathematics")
     await ensure_entitlement(db, student, math)
     await ensure_entitlement(db, vip, math)
-    await ensure_entitlement(db, platinum, math)
+    await ensure_entitlement(db, second_vip, math)
     await ensure_entitlement(db, admin, math)
-    await ensure_topic_flow(db, math, authors=[student, vip, platinum, professor])
+    await ensure_topic_flow(db, math, authors=[student, vip, second_vip, professor])
 
-    for user, xp in [(student, 1250), (vip, 2400), (platinum, 2600), (admin, 5000)]:
+    for user, xp in [(student, 1250), (vip, 2400), (second_vip, 2600), (admin, 5000)]:
         await ensure_xp(db, user, total_xp=xp)
 
     await db.flush()
@@ -281,7 +281,7 @@ async def seed_comment_threads(db: AsyncSession, item: TopicItem, *, authors: li
     await upsert_comment(
         db,
         item=item,
-        author=users_by_email["platinum@example.com"],
+        author=users_by_email["second_vip@example.com"],
         body="Confirmed. The mock data also exercises a second author avatar and nested reply.",
         parent=second_parent,
         created_at=timestamp - timedelta(minutes=10),

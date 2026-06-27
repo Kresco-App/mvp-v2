@@ -358,6 +358,7 @@ async def reject_manual_payment_request(
 
 
 @router.post("/cmi/callback", response_class=PlainTextResponse)
+@limiter.limit("60/minute")
 async def cmi_callback(
     request: Request,
     db: AsyncSession = Depends(get_db),

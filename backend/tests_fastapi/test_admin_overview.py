@@ -25,6 +25,7 @@ from app.models.payments import (
     PaymentTransaction,
     RefundRequest,
 )
+from app.models.operations import AnalyticsEvent
 from app.models.professor import (
     CourseOffering,
     LiveSession,
@@ -84,6 +85,15 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
             subject = Subject(title="Admin Physics", is_published=True, order=99)
             db.add_all([student, staff, unverified_staff, subject])
             await db.flush()
+            db.add(
+                UserPermission(
+                    user_id=staff.id,
+                    permission="admin:overview_read",
+                    status="active",
+                    reason="Admin overview test",
+                    granted_by_user_id=staff.id,
+                )
+            )
             track = ProgramTrack(niveau="2BAC", filiere="SM", title="2BAC SM", status="active")
             db.add(track)
             await db.flush()
@@ -342,6 +352,47 @@ def test_admin_overview_requires_staff_and_returns_catalog(app_client, run_db, t
     }
 
 
+def test_admin_sensitive_reads_require_scoped_permissions(app_client, run_db, test_settings):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            staff = User(
+                email="admin-scoped-plain-staff@example.com",
+                full_name="Plain Scoped Staff",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+            )
+            db.add(staff)
+            await db.commit()
+            return create_token(staff.id, test_settings)
+
+    staff_token = run_db(_seed())
+    headers = {"Authorization": f"Bearer {staff_token}"}
+    checks = [
+        ("get", "/api/admin/overview", None, "admin:overview_read"),
+        ("get", "/api/admin/activity", None, "audit:read"),
+        ("get", "/api/admin/student-progress", None, "students:progress_read"),
+        ("get", "/api/admin/communications", None, "communications:read"),
+        ("get", "/api/admin/video-feedback", None, "content:change_read"),
+        ("get", "/api/admin/users-access", None, "users:read"),
+        ("post", "/api/admin/users-access/students", {"full_name": "Blocked", "email": "blocked@example.com"}, "users:update"),
+        ("patch", "/api/admin/users-access/students/1", {"full_name": "Blocked"}, "users:update"),
+        ("get", "/api/admin/change-requests", None, "content:change_read"),
+        ("get", "/api/admin/change-requests/1", None, "content:change_read"),
+        ("post", "/api/admin/change-requests/1/review", {"decisions": []}, "content:change_review"),
+    ]
+
+    for method, path, json_body, permission in checks:
+        request = getattr(app_client, method)
+        kwargs = {"headers": headers}
+        if json_body is not None:
+            kwargs["json"] = json_body
+        response = request(path, **kwargs)
+        assert response.status_code == 403
+        assert response.json()["detail"] == f"Permission required: {permission}"
+
+
 def test_admin_activity_requires_staff_and_returns_recent_audit_rows(app_client, run_db, test_settings):
     async def _seed():
         session_factory = get_session_factory()
@@ -361,6 +412,15 @@ def test_admin_activity_requires_staff_and_returns_recent_audit_rows(app_client,
             )
             db.add_all([student, staff])
             await db.flush()
+            db.add(
+                UserPermission(
+                    user_id=staff.id,
+                    permission="audit:read",
+                    status="active",
+                    reason="Admin activity test",
+                    granted_by_user_id=staff.id,
+                )
+            )
             now = datetime.now(timezone.utc)
             db.add_all([
                 AdminAuditLog(
@@ -434,7 +494,7 @@ def test_admin_student_progress_requires_staff_and_returns_student_rows(app_clie
                 full_name="Progress Student",
                 niveau="2BAC",
                 filiere="SM",
-                tier="vip",
+                tier="legacy_top",
                 is_pro=True,
                 is_active=True,
                 is_email_verified=True,
@@ -449,6 +509,15 @@ def test_admin_student_progress_requires_staff_and_returns_student_rows(app_clie
             subject = Subject(title="Admin Progress Physics", is_published=True, order=199)
             db.add_all([student, staff, subject])
             await db.flush()
+            db.add(
+                UserPermission(
+                    user_id=staff.id,
+                    permission="students:progress_read",
+                    status="active",
+                    reason="Admin progress test",
+                    granted_by_user_id=staff.id,
+                )
+            )
             topic = Topic(
                 subject_id=subject.id,
                 slug="admin-progress-topic",
@@ -497,9 +566,9 @@ def test_admin_student_progress_requires_staff_and_returns_student_rows(app_clie
                 )
             )
             await db.commit()
-            return create_token(student.id, test_settings), create_token(staff.id, test_settings)
+            return create_token(student.id, test_settings), create_token(staff.id, test_settings), staff.id
 
-    student_token, staff_token = run_db(_seed())
+    student_token, staff_token, staff_id = run_db(_seed())
 
     blocked = app_client.get(
         "/api/admin/student-progress",
@@ -523,6 +592,7 @@ def test_admin_student_progress_requires_staff_and_returns_student_rows(app_clie
     assert data["progress_by_status"]["completed"] >= 1
     row = next(item for item in data["students"] if item["email"] == "admin-progress-student@example.com")
     assert row["full_name"] == "Progress Student"
+    assert row["tier"] == "vip"
     assert row["total_xp"] == 420
     assert row["streak_days"] == 6
     assert row["completed_items"] >= 1
@@ -531,7 +601,7 @@ def test_admin_student_progress_requires_staff_and_returns_student_rows(app_clie
     assert row["quiz_passed"] >= 1
 
 
-def test_admin_communications_requires_staff_and_returns_queues(app_client, run_db, test_settings):
+def test_admin_communications_requires_staff_and_returns_private_chats(app_client, run_db, test_settings):
     async def _seed():
         session_factory = get_session_factory()
         async with session_factory() as db:
@@ -551,6 +621,15 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
             subject = Subject(title="Admin Communications Physics", is_published=True, order=299)
             db.add_all([student, staff, subject])
             await db.flush()
+            db.add(
+                UserPermission(
+                    user_id=staff.id,
+                    permission="communications:read",
+                    status="active",
+                    reason="Admin communications test",
+                    granted_by_user_id=staff.id,
+                )
+            )
             track = ProgramTrack(niveau="2BAC-COM", filiere="SM-COMMS", title="2BAC SM Comms", status="active")
             db.add(track)
             await db.flush()
@@ -568,7 +647,7 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
                 professor_user_id=staff.id,
                 student_user_id=student.id,
                 status="open",
-                last_message_preview="Please check this live question.",
+                last_message_preview="privxonlyneedle private question.",
                 unread_for_professor=3,
                 unread_for_student=1,
             )
@@ -578,7 +657,7 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
                 ProfessorChatMessage(
                     conversation_id=conversation.id,
                     sender_user_id=student.id,
-                    body="Please check this live question.",
+                    body="privxonlyneedle private question.",
                     status="sent",
                 ),
                 ProfessorChatMessage(
@@ -606,7 +685,7 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
                     professor_user_id=staff.id,
                     student_user_id=student.id,
                     kind="question",
-                    body="Can you repeat the proof?",
+                    body="livexonlyneedle should stay out of private messages.",
                     status="pending",
                 )
             )
@@ -624,9 +703,9 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
                 )
             )
             await db.commit()
-            return create_token(student.id, test_settings), create_token(staff.id, test_settings)
+            return create_token(student.id, test_settings), create_token(staff.id, test_settings), staff.id
 
-    student_token, staff_token = run_db(_seed())
+    student_token, staff_token, staff_id = run_db(_seed())
 
     blocked = app_client.get(
         "/api/admin/communications",
@@ -642,28 +721,71 @@ def test_admin_communications_requires_staff_and_returns_queues(app_client, run_
     data = response.json()
 
     assert data["summary"]["unread_for_professors"] >= 3
-    assert data["summary"]["pending_live_interactions"] >= 1
-    assert data["summary"]["open_reports"] >= 1
-    assert data["summary"]["urgent_open_reports"] >= 1
+    assert data["summary"]["total_professors"] >= 1
+    assert data["summary"]["students_in_private_chats"] >= 1
+    assert data["summary"]["messages_total"] >= 2
+    assert data["summary"]["matched_conversations"] >= 1
+    assert "pending_live_interactions" not in data["summary"]
+    assert "open_reports" not in data["summary"]
     assert data["chat_conversations_by_status"]["open"] >= 1
-    assert data["live_interactions_by_status"]["pending"] >= 1
-    assert data["reports_by_priority"]["urgent"] >= 1
-    assert any(item["last_message_preview"] == "Please check this live question." for item in data["conversations"])
+    assert "live_interactions_by_status" not in data
+    assert "reports_by_priority" not in data
+    assert "live_interactions" not in data
+    assert "reports" not in data
+    assert any(item["last_message_preview"] == "privxonlyneedle private question." for item in data["conversations"])
+    professor_group = next(item for item in data["professors"] if item["professor_name"] == "Comms Staff")
+    assert professor_group["conversation_count"] >= 1
+    assert any(
+        item["last_message_preview"] == "privxonlyneedle private question."
+        for item in professor_group["conversations"]
+    )
     transcript_messages = [
         message
         for conversation in data["conversations"]
         for message in conversation["messages"]
     ]
     assert any(
-        message["body"] == "Please check this live question." and message["sender_role"] == "student"
+        message["body"] == "privxonlyneedle private question." and message["sender_role"] == "student"
         for message in transcript_messages
     )
     assert any(
         message["body"] == "I can see it from the staff side." and message["sender_role"] == "professor"
         for message in transcript_messages
     )
-    assert any(item["body"] == "Can you repeat the proof?" for item in data["live_interactions"])
-    assert any(item["title"] == "Comms report" for item in data["reports"])
+
+    private_search = app_client.get(
+        "/api/admin/communications?limit=10&q=privxonlyneedle",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert private_search.status_code == 200
+    private_search_data = private_search.json()
+    assert private_search_data["search_query"] == "privxonlyneedle"
+    assert any(item["student_name"] == "Comms Student" for item in private_search_data["conversations"])
+
+    live_search = app_client.get(
+        "/api/admin/communications?limit=10&q=livexonlyneedle",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert live_search.status_code == 200
+    assert not any(item["student_name"] == "Comms Student" for item in live_search.json()["conversations"])
+
+    async def _read_audits():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            result = await db.execute(
+                select(AdminAuditLog)
+                .where(
+                    AdminAuditLog.action == "read_private_messages",
+                    AdminAuditLog.model_name == "ProfessorChatConversation",
+                    AdminAuditLog.note == f"staff_user_id={staff_id}",
+                )
+                .order_by(AdminAuditLog.id.asc())
+            )
+            return list(result.scalars().all())
+
+    audits = run_db(_read_audits())
+    assert audits
+    assert audits[-1].changed_data["search_query"] == "livexonlyneedle"
 
 
 def test_admin_users_access_requires_staff_and_returns_user_rows(app_client, run_db, test_settings):
@@ -687,8 +809,16 @@ def test_admin_users_access_requires_staff_and_returns_user_rows(app_client, run
                 is_email_verified=True,
                 is_staff=True,
             )
+            legacy_student = User(
+                email="admin-users-legacy@example.com",
+                full_name="Legacy Paid Student",
+                tier="legacy_top",
+                is_pro=True,
+                is_active=True,
+                is_email_verified=True,
+            )
             subject = Subject(title="Admin Users Physics", is_published=True, order=399)
-            db.add_all([student, staff, subject])
+            db.add_all([student, legacy_student, staff, subject])
             await db.flush()
             db.add(
                 UserSubjectEntitlement(
@@ -720,6 +850,24 @@ def test_admin_users_access_requires_staff_and_returns_user_rows(app_client, run
                     reference_code="ADMIN-USERS-PAID",
                 )
             )
+            now = datetime.now(timezone.utc)
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            db.add_all(
+                [
+                    AnalyticsEvent(
+                        user_id=student.id,
+                        event_name="ai_quota_used",
+                        value_int=7,
+                        occurred_at=now,
+                    ),
+                    AnalyticsEvent(
+                        user_id=student.id,
+                        event_name="ai_quota_used",
+                        value_int=99,
+                        occurred_at=month_start - timedelta(seconds=1),
+                    ),
+                ]
+            )
             await db.commit()
             return create_token(student.id, test_settings), create_token(staff.id, test_settings)
 
@@ -738,20 +886,25 @@ def test_admin_users_access_requires_staff_and_returns_user_rows(app_client, run
     assert response.status_code == 200
     data = response.json()
 
-    assert data["summary"]["total_users"] >= 2
-    assert data["summary"]["active_users"] >= 2
-    assert data["summary"]["verified_users"] >= 2
+    assert data["summary"]["total_users"] >= 1
+    assert data["summary"]["active_users"] >= 1
+    assert data["summary"]["verified_users"] >= 1
     assert data["summary"]["staff_users"] >= 1
     assert data["summary"]["pro_users"] >= 1
     assert data["summary"]["active_entitlements"] >= 1
     assert data["summary"]["active_permissions"] >= 1
     assert data["summary"]["paid_revenue_centimes"] >= 9900
-    assert data["users_by_role"]["admin"] >= 1
+    assert data["users_by_role"]["student"] >= 1
+    assert data["users_by_role"].get("admin", 0) == 0
     assert data["users_by_tier"]["pro"] >= 1
+    assert data["users_by_tier"]["vip"] >= 1
     student_row = next(item for item in data["users"] if item["email"] == "admin-users-student@example.com")
     assert student_row["active_entitlements"] == 1
     assert student_row["payment_count"] == 1
     assert student_row["paid_revenue_centimes"] == 9900
+    assert student_row["ai_quota_used_month"] == 7
+    legacy_row = next(item for item in data["users"] if item["email"] == "admin-users-legacy@example.com")
+    assert legacy_row["tier"] == "vip"
     staff_row = next(item for item in data["users"] if item["email"] == "admin-users-staff@example.com")
     assert staff_row["active_permissions"] >= 1
     assert "users:read" in staff_row["active_permission_names"]
@@ -759,6 +912,167 @@ def test_admin_users_access_requires_staff_and_returns_user_rows(app_client, run
         item["permission"] == "users:read" and item["reason"] == "Admin users access test"
         for item in staff_row["permissions"]
     )
+
+
+def test_admin_student_account_update_requires_scope_and_audits_changes(app_client, run_db, test_settings):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            student = User(
+                email="admin-student-edit@example.com",
+                full_name="Student Before",
+                tier="basic",
+                is_pro=False,
+                is_active=True,
+                is_email_verified=False,
+                niveau="1BAC",
+                filiere="SVT",
+            )
+            staff = User(
+                email="admin-student-edit-staff@example.com",
+                full_name="Student Editor",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+            )
+            other_staff = User(
+                email="admin-student-edit-other-staff@example.com",
+                full_name="Other Staff",
+                role="admin",
+                is_active=True,
+                is_email_verified=True,
+                is_staff=True,
+            )
+            db.add_all([student, staff, other_staff])
+            await db.flush()
+            db.add(
+                UserPermission(
+                    user_id=staff.id,
+                    permission="users:update",
+                    status="active",
+                    reason="Student editor test",
+                    granted_by_user_id=staff.id,
+                )
+            )
+            await db.commit()
+            return (
+                student.id,
+                other_staff.id,
+                create_token(student.id, test_settings),
+                create_token(staff.id, test_settings),
+            )
+
+    student_id, other_staff_id, student_token, staff_token = run_db(_seed())
+
+    blocked = app_client.patch(
+        f"/api/admin/users-access/students/{student_id}",
+        json={"full_name": "Blocked"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert blocked.status_code == 403
+
+    staff_target = app_client.patch(
+        f"/api/admin/users-access/students/{other_staff_id}",
+        json={"full_name": "Wrong Target"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert staff_target.status_code == 404
+
+    response = app_client.patch(
+        f"/api/admin/users-access/students/{student_id}",
+        json={
+            "full_name": "Student After",
+            "email": "student.after@example.com",
+            "niveau": "2BAC",
+            "filiere": "SM",
+            "tier": "vip",
+            "is_email_verified": True,
+            "is_active": False,
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user_id"] == student_id
+    assert data["full_name"] == "Student After"
+    assert data["email"] == "student.after@example.com"
+    assert data["niveau"] == "2BAC"
+    assert data["filiere"] == "SM"
+    assert data["tier"] == "vip"
+    assert data["is_pro"] is True
+    assert data["is_email_verified"] is True
+    assert data["is_active"] is False
+
+    duplicate = app_client.patch(
+        f"/api/admin/users-access/students/{student_id}",
+        json={"email": "admin-student-edit-other-staff@example.com"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert duplicate.status_code == 400
+    assert duplicate.json()["detail"] == "Email already belongs to another account"
+
+    create_response = app_client.post(
+        "/api/admin/users-access/students",
+        json={
+            "full_name": "Created Student",
+            "email": "created.student@example.com",
+            "niveau": "2BAC",
+            "filiere": "PC",
+            "tier": "pro",
+            "is_email_verified": False,
+            "is_active": True,
+        },
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    created_id = created["user_id"]
+    assert created["full_name"] == "Created Student"
+    assert created["email"] == "created.student@example.com"
+    assert created["niveau"] == "2BAC"
+    assert created["filiere"] == "PC"
+    assert created["tier"] == "pro"
+    assert created["is_pro"] is True
+    assert created["is_staff"] is False
+    assert created["is_email_verified"] is False
+    assert created["active_entitlements"] == 0
+
+    duplicate_create = app_client.post(
+        "/api/admin/users-access/students",
+        json={"full_name": "Duplicate Student", "email": "created.student@example.com"},
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    assert duplicate_create.status_code == 400
+    assert duplicate_create.json()["detail"] == "Email already belongs to another account"
+
+    async def _read_audit():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            result = await db.execute(
+                select(AdminAuditLog)
+                .where(
+                    AdminAuditLog.action == "student_account_update",
+                    AdminAuditLog.object_pk == str(student_id),
+                )
+                .order_by(AdminAuditLog.id.desc())
+            )
+            update_audit = result.scalar_one()
+            create_result = await db.execute(
+                select(AdminAuditLog)
+                .where(
+                    AdminAuditLog.action == "student_account_create",
+                    AdminAuditLog.object_pk == str(created_id),
+                )
+                .order_by(AdminAuditLog.id.desc())
+            )
+            return update_audit, create_result.scalar_one()
+
+    audit, create_audit = run_db(_read_audit())
+    assert audit.changed_data["student_user_id"] == student_id
+    assert "tier" in audit.changed_data["fields"]
+    assert audit.changed_data["changes"]["full_name"]["to"] == "Student After"
+    assert create_audit.changed_data["student_user_id"] == created_id
+    assert create_audit.changed_data["values"]["tier"] == "pro"
 
 
 def test_admin_permission_management_requires_roles_manage(app_client, run_db, test_settings):
@@ -1261,10 +1575,15 @@ def test_admin_overview_router_stays_thin():
         "get_redemption_templates",
         "create_admin_redemption_template",
         "get_staff_payment_requests",
+        "get_staff_payment_profiles",
+        "put_staff_payment_profile",
         "get_admin_activity",
         "get_admin_student_progress",
         "get_admin_communications",
+        "get_admin_video_feedback",
         "get_admin_users_access",
+        "create_admin_student_account_route",
+        "patch_admin_student_account",
         "list_permissions",
         "grant_permission",
         "revoke_permission",
@@ -1290,6 +1609,8 @@ def test_admin_overview_router_stays_thin():
     assert "build_admin_student_progress" in router_source
     assert "build_admin_communications" in router_source
     assert "build_admin_users_access" in router_source
+    assert "create_admin_student_account" in router_source
+    assert "update_admin_student_account" in router_source
     assert "list_user_permissions" in router_source
     assert "grant_user_permission" in router_source
     assert "revoke_user_permission" in router_source

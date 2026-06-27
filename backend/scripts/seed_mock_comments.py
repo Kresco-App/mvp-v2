@@ -18,7 +18,7 @@ THREAD_SPECS = [
                 "body": "Good note. Rewatch the key step, then compare it with the written solution before moving on.",
             },
             {
-                "author": "platinum@example.com",
+                "author": "second_vip@example.com",
                 "body": "I added the same step to my notes and it made the next exercise faster.",
             },
         ],

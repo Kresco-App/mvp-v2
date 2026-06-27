@@ -237,6 +237,37 @@ def test_sign_gcs_reference_reuses_cached_storage_client(monkeypatch):
     media_storage._gcs_client.cache_clear()
 
 
+def test_sign_gcs_reference_clamps_oversized_runtime_ttl(monkeypatch):
+    media_storage._gcs_client.cache_clear()
+
+    class FakeBlob:
+        def __init__(self, key):
+            self.key = key
+
+        def generate_signed_url(self, *, expiration, method, version):
+            del method, version
+            return f"https://signed-gcs.example.com/{self.key}?ttl={int(expiration.total_seconds())}"
+
+    class FakeBucket:
+        def blob(self, key):
+            return FakeBlob(key)
+
+    class FakeClient:
+        def bucket(self, name):
+            del name
+            return FakeBucket()
+
+    fake_storage = SimpleNamespace(Client=lambda: FakeClient())
+    monkeypatch.setitem(sys.modules, "google.cloud.storage", fake_storage)
+    monkeypatch.setitem(sys.modules, "google.cloud", SimpleNamespace(storage=fake_storage))
+    settings = SimpleNamespace(media_gcs_signed_url_ttl_seconds=999999)
+
+    result = sign_gcs_reference("gs://kresco-media/profile/1/avatar.png", settings=settings)
+
+    assert result == "https://signed-gcs.example.com/profile/1/avatar.png?ttl=3600"
+    media_storage._gcs_client.cache_clear()
+
+
 def test_async_media_url_denies_unscoped_gcs_reference_before_signing(monkeypatch):
     calls = []
 

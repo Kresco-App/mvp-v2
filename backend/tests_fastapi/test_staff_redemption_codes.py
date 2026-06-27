@@ -13,7 +13,13 @@ from app.models.users import User, UserPermission, UserSubjectEntitlement
 from app.services.auth import create_token
 
 
-async def _seed_staff_code_fixture(test_settings, *, suffix: str):
+async def _seed_staff_code_fixture(
+    test_settings,
+    *,
+    suffix: str,
+    monthly_code_limit: int = 2,
+    monthly_amount_limit_centimes: int = 30000,
+):
     session_factory = get_session_factory()
     async with session_factory() as db:
         staff = User(
@@ -71,8 +77,8 @@ async def _seed_staff_code_fixture(test_settings, *, suffix: str):
             StaffPaymentProfile(
                 user_id=int(staff.id),
                 display_name="Counter Staff",
-                monthly_code_limit=2,
-                monthly_amount_limit_centimes=30000,
+                monthly_code_limit=monthly_code_limit,
+                monthly_amount_limit_centimes=monthly_amount_limit_centimes,
                 allowed_template_ids_json=[int(template.id)],
                 metadata_json={"fixture": suffix},
             )
@@ -87,6 +93,64 @@ async def _seed_staff_code_fixture(test_settings, *, suffix: str):
             "subject_id": int(subject.id),
             "template_id": int(template.id),
         }
+
+
+async def _seed_unprofiled_staff_code_fixture(test_settings, *, suffix: str):
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        staff = User(
+            email=f"staff-codes-unprofiled-{suffix}@example.com",
+            full_name="Unprofiled Staff Codes Agent",
+            is_active=True,
+            is_email_verified=True,
+            is_staff=True,
+        )
+        subject = Subject(
+            title=f"Unprofiled Staff Code Subject {suffix}",
+            description="",
+            is_published=True,
+            order=901,
+        )
+        db.add_all([staff, subject])
+        await db.flush()
+        db.add(
+            UserPermission(
+                user_id=int(staff.id),
+                permission="finance:staff_codes",
+                reason="staff code test",
+                granted_by_user_id=int(staff.id),
+            )
+        )
+        template = RedemptionCodeTemplate(
+            name=f"Unprofiled Staff Code {suffix}",
+            plan="pro",
+            tier="pro",
+            subject_scope="selected",
+            subject_ids_json=[int(subject.id)],
+            duration_days=30,
+            amount_centimes=9900,
+            status="active",
+            created_by_user_id=int(staff.id),
+            metadata_json={"fixture": suffix},
+        )
+        db.add(template)
+        await db.commit()
+        return {
+            "staff_id": int(staff.id),
+            "staff_token": create_token(staff.id, test_settings),
+            "template_id": int(template.id),
+        }
+
+
+async def _set_request_status_by_code(*, code_value: str, status: str):
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        code = await db.scalar(select(RedemptionCode).where(RedemptionCode.code == code_value))
+        request = await db.scalar(
+            select(StaffPaymentRequest).where(StaffPaymentRequest.redemption_code_id == int(code.id))
+        )
+        request.status = status
+        await db.commit()
 
 
 async def _redemption_state(*, code_value: str, student_id: int):
@@ -157,7 +221,7 @@ def test_staff_payment_dashboard_request_and_duplicate_reference_contract(app_cl
         json={
             "template_id": fixture["template_id"],
             "payment_method": "cashplus",
-            "provider_reference": "CASHPLUS-STAFF-REQUEST-001",
+            "provider_reference": "cashplus-staff-request-001",
             "amount_centimes": 12300,
             "student_name": "Second Student",
             "student_phone": "0600000001",
@@ -209,6 +273,131 @@ def test_staff_payment_dashboard_request_and_duplicate_reference_contract(app_cl
     assert [request["provider_reference"] for request in counted_dashboard["requests"]] == [
         "CASHPLUS-STAFF-REQUEST-001"
     ]
+
+
+def test_staff_without_profile_has_no_default_template_authority(app_client, run_db, test_settings):
+    fixture = run_db(_seed_unprofiled_staff_code_fixture(test_settings, suffix="default"))
+
+    dashboard_response = app_client.get(
+        "/api/staff/payments/dashboard",
+        headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+    )
+    create_response = app_client.post(
+        "/api/staff/payments/requests",
+        json={
+            "template_id": fixture["template_id"],
+            "payment_method": "cashplus",
+            "provider_reference": "UNPROFILED-001",
+            "amount_centimes": 9900,
+            "student_name": "Unprofiled Student",
+            "student_phone": "0600000002",
+        },
+        headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+    )
+
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["profile"]["monthly_code_limit"] == 0
+    assert dashboard["profile"]["remaining_codes_this_month"] == 0
+    assert dashboard["templates"] == []
+    assert create_response.status_code == 403
+    assert create_response.json()["detail"] == "Template is not allowed for this staff member"
+
+
+def test_selected_redemption_template_requires_subject_ids(app_client, run_db, test_settings):
+    fixture = run_db(_seed_staff_code_fixture(test_settings, suffix="selected-empty"))
+
+    response = app_client.post(
+        "/api/admin/redemption-templates",
+        json={
+            "name": "Selected empty",
+            "plan": "pro",
+            "tier": "pro",
+            "subject_scope": "selected",
+            "subject_ids": [],
+            "duration_days": 30,
+            "amount_centimes": 9900,
+        },
+        headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_staff_payment_monthly_code_quota_is_enforced(app_client, run_db, test_settings):
+    fixture = run_db(_seed_staff_code_fixture(test_settings, suffix="quota"))
+
+    for index in range(2):
+        response = app_client.post(
+            "/api/staff/payments/requests",
+            json={
+                "template_id": fixture["template_id"],
+                "payment_method": "cashplus",
+                "provider_reference": f"QUOTA-{index}",
+                "amount_centimes": 12300,
+                "student_name": f"Quota Student {index}",
+                "student_phone": f"060000010{index}",
+            },
+            headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+        )
+        assert response.status_code == 200
+
+    blocked_response = app_client.post(
+        "/api/staff/payments/requests",
+        json={
+            "template_id": fixture["template_id"],
+            "payment_method": "cashplus",
+            "provider_reference": "QUOTA-2",
+            "amount_centimes": 12300,
+            "student_name": "Quota Student 2",
+            "student_phone": "0600000102",
+        },
+        headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+    )
+
+    assert blocked_response.status_code == 403
+    assert blocked_response.json()["detail"] == "Monthly code quota exceeded"
+
+
+def test_staff_payment_request_creation_is_route_rate_limited(app_client, run_db, test_settings):
+    fixture = run_db(
+        _seed_staff_code_fixture(
+            test_settings,
+            suffix="rate-limit",
+            monthly_code_limit=20,
+            monthly_amount_limit_centimes=300000,
+        )
+    )
+
+    for index in range(10):
+        response = app_client.post(
+            "/api/staff/payments/requests",
+            json={
+                "template_id": fixture["template_id"],
+                "payment_method": "cashplus",
+                "provider_reference": f"RATE-LIMIT-{index}",
+                "amount_centimes": 12300,
+                "student_name": f"Rate Limit Student {index}",
+                "student_phone": f"06000002{index:02d}",
+            },
+            headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+        )
+        assert response.status_code == 200
+
+    blocked_response = app_client.post(
+        "/api/staff/payments/requests",
+        json={
+            "template_id": fixture["template_id"],
+            "payment_method": "cashplus",
+            "provider_reference": "RATE-LIMIT-10",
+            "amount_centimes": 12300,
+            "student_name": "Rate Limit Student 10",
+            "student_phone": "0600000210",
+        },
+        headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+    )
+
+    assert blocked_response.status_code == 429
 
 
 def test_staff_redemption_code_grants_entitlement_and_is_single_use(app_client, run_db, test_settings):
@@ -267,3 +456,31 @@ def test_staff_redemption_code_grants_entitlement_and_is_single_use(app_client, 
     assert state["entitlement_status"] == "active"
     assert state["student_is_pro"] is True
     assert state["student_tier"] == "vip"
+
+
+def test_redemption_fails_when_payment_trace_is_not_available(app_client, run_db, test_settings):
+    fixture = run_db(_seed_staff_code_fixture(test_settings, suffix="revoked-trace"))
+    create_response = app_client.post(
+        "/api/staff/payments/requests",
+        json={
+            "template_id": fixture["template_id"],
+            "payment_method": "bank-transfer",
+            "provider_reference": "BANK-STAFF-TRACE-001",
+            "amount_centimes": 12300,
+            "student_name": "Blocked Trace Student",
+            "student_phone": "0611111112",
+        },
+        headers={"Authorization": f"Bearer {fixture['staff_token']}"},
+    )
+    assert create_response.status_code == 200
+    code_value = create_response.json()["code"]["code"]
+    run_db(_set_request_status_by_code(code_value=code_value, status="revoked"))
+
+    redeem_response = app_client.post(
+        "/api/payments/redemption-codes/redeem",
+        json={"code": code_value},
+        headers={"Authorization": f"Bearer {fixture['student_token']}"},
+    )
+
+    assert redeem_response.status_code == 409
+    assert redeem_response.json()["detail"] == "Payment trace is not available for redemption"

@@ -350,7 +350,7 @@ async def _load_accessible_exercise_for_mutation(
         select(Exercise)
         .join(Subject, Subject.id == Exercise.subject_id)
         .outerjoin(Topic, Topic.id == Exercise.topic_id)
-        .options(selectinload(Exercise.assets), selectinload(Exercise.progress_records))
+        .options(selectinload(Exercise.assets))
         .where(
             Exercise.id == exercise_id,
             Exercise.status == EXERCISE_STATUS_PUBLISHED,

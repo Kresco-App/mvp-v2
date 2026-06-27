@@ -167,6 +167,7 @@ class StaffPaymentRequest(Base):
     __tablename__ = "staff_payment_requests"
     __table_args__ = (
         UniqueConstraint("payment_method", "provider_reference", name="uq_staff_payment_requests_method_reference"),
+        UniqueConstraint("redemption_code_id", name="uq_staff_payment_requests_redemption_code"),
         CheckConstraint("amount_centimes >= 0", name="ck_staff_payment_requests_amount_nonnegative"),
         CheckConstraint("currency = 'MAD'", name="ck_staff_payment_requests_currency"),
         CheckConstraint("status IN ('code_generated', 'redeemed', 'revoked', 'needs_review')", name="ck_staff_payment_requests_status"),

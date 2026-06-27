@@ -4,7 +4,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.limits import ShortText, StrictInputModel
+from app.schemas.limits import StrictInputModel
 
 
 class XPOut(BaseModel):
@@ -37,7 +37,7 @@ class XPTransactionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class XPAdjustmentCreateIn(BaseModel):
+class XPAdjustmentCreateIn(StrictInputModel):
     user_id: int = Field(gt=0)
     amount: int = Field(ge=-10000, le=10000)
     reason: str = Field(min_length=3, max_length=200)

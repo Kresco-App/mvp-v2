@@ -21,6 +21,13 @@ def _float(value: Any) -> float:
     return round(float(value or 0), 2)
 
 
+def _normalize_student_tier(value: Any, *, is_pro: bool) -> str:
+    tier = str(value or "basic").strip().lower()
+    if tier in {"basic", "pro", "vip"}:
+        return tier
+    return "vip" if is_pro else "basic"
+
+
 def _latest_datetime(*values: datetime | None) -> datetime | None:
     dates = [value for value in values if value is not None]
     return max(dates) if dates else None
@@ -105,7 +112,7 @@ async def build_admin_student_progress(db: AsyncSession, *, limit: int = 50) -> 
                 user_id=_int(row["user_id"]),
                 full_name=str(row["full_name"] or ""),
                 email=str(row["email"] or ""),
-                tier=str(row["tier"] or "basic"),
+                tier=_normalize_student_tier(row["tier"], is_pro=bool(row["is_pro"])),
                 niveau=str(row["niveau"] or ""),
                 filiere=str(row["filiere"] or ""),
                 is_pro=bool(row["is_pro"]),
