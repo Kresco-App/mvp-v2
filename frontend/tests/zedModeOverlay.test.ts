@@ -1,73 +1,84 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ZedModeOverlay from '@/components/zed/ZedModeOverlay'
 
-vi.mock('framer-motion', async () => {
-  const React = await import('react')
-  const MockMotionDiv = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-    ({ children, ...props }, ref) => React.createElement('div', { ...props, ref }, children),
-  )
-  MockMotionDiv.displayName = 'MockMotionDiv'
-  return {
-    AnimatePresence: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
-    motion: {
-      div: MockMotionDiv,
-    },
-  }
-})
-
-vi.mock('next/dynamic', async () => {
-  const React = await import('react')
-  return {
-    default: () => function DynamicMock() {
-      return React.createElement('div', { 'data-testid': 'pdf-viewer' })
-    },
-  }
-})
-
-vi.mock('@/hooks/useFocusEngine', () => ({
-  useFocusEngine: () => ({
-    state: 'paused',
-    tabStatus: 'focused',
-  }),
+const pdfViewerMock = vi.hoisted(() => ({
+  props: [] as Array<{
+    activeTool: string
+    onAnnotationStatsChange?: (stats: { highlights: number; drawings: number; textNotes: number; total: number }) => void
+    onDocumentChange?: (document: { id: string; name: string; size: number; pageCount: number } | null) => void
+  }>,
 }))
 
-vi.mock('@/components/KrescoMascot', async () => {
+vi.mock('@/components/zed/PdfViewerCore', async () => {
   const React = await import('react')
-  return {
-    default: () => React.createElement('div', { 'data-testid': 'mascot' }),
-  }
-})
+  function MockPdfViewer(props: (typeof pdfViewerMock.props)[number]) {
+    pdfViewerMock.props.push(props)
 
-vi.mock('@/components/zed/PomodoroTimer', async () => {
-  const React = await import('react')
+    return React.createElement('div', { 'data-testid': 'pdf-viewer' }, `PDF tool ${props.activeTool}`)
+  }
+
   return {
-    default: () => React.createElement('div', { 'data-testid': 'pomodoro' }),
+    default: MockPdfViewer,
   }
 })
 
 vi.mock('@/components/zed/ScientificCalculator', async () => {
   const React = await import('react')
+
   return {
-    default: () => React.createElement('div', { 'data-testid': 'calculator' }),
+    default: ({ initialMode, onFloat, variant }: { initialMode?: string; onFloat?: (mode: string) => void; variant?: string }) => React.createElement(
+      'button',
+      {
+        'data-testid': `calculator-${variant ?? 'default'}-${initialMode ?? 'scientific'}`,
+        type: 'button',
+        onClick: () => onFloat?.(initialMode ?? 'scientific'),
+      },
+      `Calculator ${initialMode ?? 'scientific'}`,
+    ),
   }
 })
 
-vi.mock('@/components/zed/RappelsCours', async () => {
+vi.mock('@/components/zed/FormulaLibrary', async () => {
   const React = await import('react')
+
   return {
-    default: () => React.createElement('div', { 'data-testid': 'rappels' }),
+    default: () => React.createElement('div', { 'data-testid': 'rappels' }, 'Formula catalog'),
   }
 })
 
-vi.mock('@/components/zed/Scratchpad', async () => {
+vi.mock('framer-motion', async () => {
   const React = await import('react')
+
   return {
-    default: () => React.createElement('div', { 'data-testid': 'scratchpad' }),
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children),
+    motion: {
+      div: ({
+        animate: _animate,
+        children,
+        exit: _exit,
+        initial: _initial,
+        transition: _transition,
+        ...props
+      }: React.HTMLAttributes<HTMLDivElement> & {
+        animate?: unknown
+        exit?: unknown
+        initial?: unknown
+        transition?: unknown
+      }) => {
+        void _animate
+        void _exit
+        void _initial
+        void _transition
+        return React.createElement('div', props, children)
+      },
+    },
   }
 })
 
@@ -79,6 +90,7 @@ beforeEach(() => {
   localStorage.clear()
   document.body.innerHTML = ''
   mountedRoots = []
+  pdfViewerMock.props = []
 })
 
 afterEach(() => {
@@ -90,6 +102,91 @@ afterEach(() => {
   }
   mountedRoots = []
   vi.restoreAllMocks()
+})
+
+describe('ZedModeOverlay', () => {
+  it('keeps the full Zed workspace out of the eager route module', () => {
+    const source = readFileSync(resolve(process.cwd(), 'app/zed/page.tsx'), 'utf8')
+
+    expect(source).toContain("import dynamic from 'next/dynamic'")
+    expect(source).not.toContain("import ZedModeOverlay from '@/components/zed/ZedModeOverlay'")
+    expect(source).toContain("dynamic(() => import('@/components/zed/ZedModeOverlay')")
+    expect(source).toContain('ssr: false')
+  })
+
+  it('keeps the overlay off the old split-pane and pin storage path', () => {
+    const source = readFileSync(resolve(process.cwd(), 'components/zed/ZedModeOverlay.tsx'), 'utf8')
+
+    expect(source).toContain('activeTool={activeAnnotationTool}')
+    expect(source).toContain('<AnnotationToolbar')
+    expect(source).not.toContain('kresco:zed:split:v1')
+    expect(source).not.toContain('kresco:zed:pins:v1')
+  })
+
+  it('passes annotation tool changes to the PDF viewer', () => {
+    const { container } = renderOverlay()
+
+    expect(container.textContent).toContain('PDF tool select')
+
+    act(() => {
+      getButton(container, 'Highlight').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pdfViewerMock.props.at(-1)?.activeTool).toBe('highlight')
+    expect(container.textContent).toContain('PDF tool highlight')
+  })
+
+  it('resets the active annotation tool with Escape before leaving the overlay', () => {
+    const { container } = renderOverlay()
+
+    act(() => {
+      getButton(container, 'Draw').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(pdfViewerMock.props.at(-1)?.activeTool).toBe('draw')
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    expect(pdfViewerMock.props.at(-1)?.activeTool).toBe('select')
+  })
+
+  it('keeps Zed note writes off the typing path until pagehide flush', async () => {
+    vi.useFakeTimers()
+    try {
+      const { container } = renderOverlay()
+
+      act(() => {
+        pdfViewerMock.props.at(-1)?.onDocumentChange?.({
+          id: 'doc-1',
+          name: 'Limits.pdf',
+          size: 128,
+          pageCount: 4,
+        })
+      })
+      await act(async () => {
+        getButton(container, 'Notes').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        vi.advanceTimersByTime(300)
+        await Promise.resolve()
+      })
+
+      const textarea = container.querySelector<HTMLTextAreaElement>('textarea#zed-session-notes')
+      expect(textarea).not.toBeNull()
+
+      act(() => {
+        setTextareaValue(textarea!, 'Review the derivative table.')
+        textarea!.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+
+      expect(localStorage.getItem('kresco:zed:notes:v1:doc-1')).toBeNull()
+
+      window.dispatchEvent(new Event('pagehide'))
+
+      expect(localStorage.getItem('kresco:zed:notes:v1:doc-1')).toBe('Review the derivative table.')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 function renderOverlay() {
@@ -105,57 +202,14 @@ function renderOverlay() {
   return { container, root }
 }
 
-describe('ZedModeOverlay', () => {
-  it('defers localStorage hydration until after the initial render', () => {
-    localStorage.setItem('kresco_zed_split', '61')
-    localStorage.setItem(
-      'kresco_zed_pins',
-      JSON.stringify([{ id: 'pin-1', content: 'Note', type: 'text' }]),
-    )
-    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
-    vi.useFakeTimers()
+function getButton(container: HTMLElement, name: string) {
+  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes(name))
+  if (!button) throw new Error(`button not found: ${name}`)
+  return button
+}
 
-    try {
-      renderOverlay()
-
-      expect(getItemSpy).not.toHaveBeenCalled()
-      expect(setItemSpy).not.toHaveBeenCalled()
-
-      act(() => {
-        vi.runOnlyPendingTimers()
-      })
-
-      expect(getItemSpy).toHaveBeenCalledWith('kresco_zed_split')
-      expect(getItemSpy).toHaveBeenCalledWith('kresco_zed_pins')
-      expect(setItemSpy).not.toHaveBeenCalledWith('kresco_zed_pins', '[]')
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('cleans up active resize listeners when unmounted mid-drag', () => {
-    const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
-    const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
-    const { container, root } = renderOverlay()
-
-    const separator = container.querySelector('[aria-label="Redimensionner le panneau Zed"]')
-    expect(separator).not.toBeNull()
-
-    act(() => {
-      separator?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 500 }))
-    })
-
-    const mouseMoveHandler = addEventListenerSpy.mock.calls.find(([type]) => type === 'mousemove')?.[1]
-    const mouseUpHandler = addEventListenerSpy.mock.calls.find(([type]) => type === 'mouseup')?.[1]
-    expect(mouseMoveHandler).toEqual(expect.any(Function))
-    expect(mouseUpHandler).toEqual(expect.any(Function))
-
-    act(() => {
-      root.unmount()
-    })
-
-    expect(removeEventListenerSpy).toHaveBeenCalledWith('mousemove', mouseMoveHandler)
-    expect(removeEventListenerSpy).toHaveBeenCalledWith('mouseup', mouseUpHandler)
-  })
-})
+function setTextareaValue(input: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+  if (setter) setter.call(input, value)
+  else input.value = value
+}

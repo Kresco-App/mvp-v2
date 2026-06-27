@@ -1,555 +1,337 @@
 'use client'
 
-import type { MutableRefObject } from 'react'
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import dynamic from 'next/dynamic'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useEffect, useMemo, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
-  X,
-  GripVertical,
-  FileText,
-  Calculator,
-  Maximize2,
-  Minimize2,
-  Moon,
   BookOpen,
-  House,
+  Calculator,
+  ChartSpline,
+  FileText,
+  Highlighter,
+  Home,
+  MousePointer2,
+  PenLine,
+  StickyNote,
+  Type,
+  X,
 } from 'lucide-react'
-import { useFocusEngine } from '@/hooks/useFocusEngine'
-import { useAuthStore } from '@/lib/store'
-import KrescoMascot, { MascotMood } from '@/components/KrescoMascot'
-import PomodoroTimer from './PomodoroTimer'
-import ScientificCalculator from './ScientificCalculator'
-import RappelsCours from './RappelsCours'
-import Scratchpad from './Scratchpad'
-
-const PdfViewer = dynamic(() => import('./PdfViewer'), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-    </div>
-  ),
-})
-
-type RightTab = 'scratchpad' | 'rappels'
-
-const RIGHT_TABS: { id: RightTab; label: string; icon: typeof FileText }[] = [
-  { id: 'scratchpad', label: 'Brouillon', icon: FileText },
-  { id: 'rappels', label: 'Rappels', icon: BookOpen },
-]
-
-const SPLIT_STORAGE_KEY = 'kresco_zed_split'
-const PINS_STORAGE_KEY = 'kresco_zed_pins'
-const STORAGE_DEFER_DELAY_MS = 0
-const MIN_SPLIT_PERCENT = 45
-const MAX_SPLIT_PERCENT = 65
-
-const PDF_WIDTH_CLASSES = [
-  'md:w-[45%]', 'md:w-[46%]', 'md:w-[47%]', 'md:w-[48%]', 'md:w-[49%]',
-  'md:w-[50%]', 'md:w-[51%]', 'md:w-[52%]', 'md:w-[53%]', 'md:w-[54%]',
-  'md:w-[55%]', 'md:w-[56%]', 'md:w-[57%]', 'md:w-[58%]', 'md:w-[59%]',
-  'md:w-[60%]', 'md:w-[61%]', 'md:w-[62%]', 'md:w-[63%]', 'md:w-[64%]',
-  'md:w-[65%]',
-] as const
-
-const RAIL_WIDTH_CLASSES = [
-  'md:w-[55%]', 'md:w-[54%]', 'md:w-[53%]', 'md:w-[52%]', 'md:w-[51%]',
-  'md:w-[50%]', 'md:w-[49%]', 'md:w-[48%]', 'md:w-[47%]', 'md:w-[46%]',
-  'md:w-[45%]', 'md:w-[44%]', 'md:w-[43%]', 'md:w-[42%]', 'md:w-[41%]',
-  'md:w-[40%]', 'md:w-[39%]', 'md:w-[38%]', 'md:w-[37%]', 'md:w-[36%]',
-  'md:w-[35%]',
-] as const
-
-function clampSplit(value: number) {
-  if (!Number.isFinite(value)) return 58
-  return Math.max(MIN_SPLIT_PERCENT, Math.min(MAX_SPLIT_PERCENT, value))
-}
-
-function splitClassIndex(value: number) {
-  return Math.round(clampSplit(value)) - MIN_SPLIT_PERCENT
-}
-
-interface PinnedSnippet {
-  id: string
-  content: string
-  type: 'text' | 'image'
-}
-
-function isPinnedSnippet(value: unknown): value is PinnedSnippet {
-  if (!value || typeof value !== 'object') return false
-  const snippet = value as Partial<PinnedSnippet>
-  return (
-    typeof snippet.id === 'string' &&
-    typeof snippet.content === 'string' &&
-    (snippet.type === 'text' || snippet.type === 'image')
-  )
-}
-
-function parsePinnedSnippets(raw: string | null): PinnedSnippet[] | null {
-  if (raw === null) return []
-
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed) || !parsed.every(isPinnedSnippet)) return null
-    return parsed.map(snippet => ({
-      id: snippet.id,
-      content: snippet.content,
-      type: snippet.type,
-    }))
-  } catch {
-    return null
-  }
-}
-
-function mergePinnedSnippets(current: PinnedSnippet[], incoming: PinnedSnippet[]) {
-  const currentIds = new Set(current.map(snippet => snippet.id))
-  const additions = incoming.filter(snippet => !currentIds.has(snippet.id))
-  return additions.length > 0 ? [...current, ...additions] : current
-}
+import PdfViewer, { type AnnotationTool, type PdfAnnotationStats, type ZedDocumentMeta } from './PdfViewerCore'
+import FormulaLibrary from './FormulaLibrary'
+import ScientificCalculator, { type CalculatorMode } from './ScientificCalculator'
+import { zedStorageGetItem, zedStorageRemoveItemDeferred, zedStorageSetItemDeferred } from './zedStorage'
 
 interface Props {
   onClose: () => void
 }
 
-function userScopedStorageKey(base: string, userId: string | number | null) {
-  return userId !== null ? `${base}_${userId}` : base
-}
+type ToolPanel = 'calculator' | 'limits' | 'graph' | 'formulas' | 'notes'
+
+const ANNOTATION_TOOLS: Array<{ id: AnnotationTool; label: string; icon: typeof MousePointer2 }> = [
+  { id: 'select', label: 'Select', icon: MousePointer2 },
+  { id: 'highlight', label: 'Highlight', icon: Highlighter },
+  { id: 'draw', label: 'Draw', icon: PenLine },
+  { id: 'text', label: 'Text', icon: Type },
+]
+
+const TOOL_PANELS: Array<{ id: ToolPanel; label: string; icon: typeof Calculator; mode?: CalculatorMode }> = [
+  { id: 'calculator', label: 'Calculator', icon: Calculator, mode: 'scientific' },
+  { id: 'limits', label: 'Limits', icon: Calculator, mode: 'limits' },
+  { id: 'graph', label: 'Graph', icon: ChartSpline, mode: 'graph' },
+  { id: 'formulas', label: 'Formulas', icon: BookOpen },
+  { id: 'notes', label: 'Notes', icon: StickyNote },
+]
+
+const buttonMotion = 'transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100'
 
 export default function ZedModeOverlay({ onClose }: Props) {
-  const engine = useFocusEngine()
-  const currentUserId = useAuthStore((state) => state.user?.id ?? null)
-  const splitContainerRef = useRef<HTMLDivElement>(null)
-  const activeResizeCleanupRef = useRef<(() => void) | null>(null)
-  const splitStorageWriteTimerRef = useRef<number | null>(null)
-  const pinsStorageWriteTimerRef = useRef<number | null>(null)
-  const isStorageHydratedRef = useRef(false)
-  const skipNextPinsPersistRef = useRef(false)
-  const [rightTab, setRightTab] = useState<RightTab>('scratchpad')
-  const [splitPercent, setSplitPercent] = useState(58)
-  const [isResizing, setIsResizing] = useState(false)
-  const [pinnedSnippets, setPinnedSnippets] = useState<PinnedSnippet[]>([])
-  const [mascotMood, setMascotMood] = useState<MascotMood>('idle')
-  const [isFullscreenPdf, setIsFullscreenPdf] = useState(false)
-  const [showCalculator, setShowCalculator] = useState(false)
-  const [showHomeConfirm, setShowHomeConfirm] = useState(false)
-  const pinsStorageKey = useMemo(() => userScopedStorageKey(PINS_STORAGE_KEY, currentUserId), [currentUserId])
-  const scratchpadStorageKey = useMemo(() => userScopedStorageKey('kresco_zed_scratchpad', currentUserId), [currentUserId])
-
-  const clearDeferredStorageWrite = useCallback((timerRef: MutableRefObject<number | null>) => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
-  }, [])
-
-  const scheduleStorageWrite = useCallback(
-      (
-      timerRef: MutableRefObject<number | null>,
-      write: () => void,
-    ) => {
-      if (typeof window === 'undefined') return
-      clearDeferredStorageWrite(timerRef)
-      timerRef.current = window.setTimeout(() => {
-        timerRef.current = null
-        write()
-      }, STORAGE_DEFER_DELAY_MS)
-    },
-    [clearDeferredStorageWrite],
-  )
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    isStorageHydratedRef.current = false
-    skipNextPinsPersistRef.current = false
-
-    const idleCallback = window.requestIdleCallback?.(() => {
-      const saved = localStorage.getItem(SPLIT_STORAGE_KEY)
-      if (saved) setSplitPercent(clampSplit(Number(saved)))
-
-      const savedPins = parsePinnedSnippets(localStorage.getItem(pinsStorageKey))
-      setPinnedSnippets(savedPins ?? [])
-
-      isStorageHydratedRef.current = true
-    })
-
-    if (idleCallback !== undefined) {
-      return () => {
-        window.cancelIdleCallback?.(idleCallback)
-      }
-    }
-
-    const timer = window.setTimeout(() => {
-      const saved = localStorage.getItem(SPLIT_STORAGE_KEY)
-      if (saved) setSplitPercent(clampSplit(Number(saved)))
-
-      const savedPins = parsePinnedSnippets(localStorage.getItem(pinsStorageKey))
-      setPinnedSnippets(savedPins ?? [])
-
-      isStorageHydratedRef.current = true
-    }, STORAGE_DEFER_DELAY_MS)
-
-    return () => window.clearTimeout(timer)
-  }, [pinsStorageKey])
-
-  useEffect(() => {
-    if (!isStorageHydratedRef.current) return
-    scheduleStorageWrite(pinsStorageWriteTimerRef, () => {
-      if (skipNextPinsPersistRef.current) {
-        skipNextPinsPersistRef.current = false
-        return
-      }
-
-      if (pinnedSnippets.length === 0) {
-        localStorage.removeItem(pinsStorageKey)
-      } else {
-        localStorage.setItem(pinsStorageKey, JSON.stringify(pinnedSnippets))
-      }
-    })
-  }, [pinnedSnippets, pinsStorageKey, scheduleStorageWrite])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-
-    function clearPinsFromExternalStorage() {
-      setPinnedSnippets(prev => {
-        if (prev.length === 0) return prev
-        skipNextPinsPersistRef.current = true
-        return []
-      })
-    }
-
-    function handleStorage(event: StorageEvent) {
-      if (event.storageArea && event.storageArea !== localStorage) return
-
-      if (event.key === null) {
-        setSplitPercent(58)
-        clearPinsFromExternalStorage()
-        return
-      }
-
-      if (event.key === SPLIT_STORAGE_KEY) {
-        setSplitPercent(event.newValue === null ? 58 : clampSplit(Number(event.newValue)))
-        return
-      }
-
-      if (event.key !== pinsStorageKey) return
-
-      if (event.newValue === null) {
-        clearPinsFromExternalStorage()
-        return
-      }
-
-      const incomingPins = parsePinnedSnippets(event.newValue)
-      if (!incomingPins) return
-      setPinnedSnippets(prev => mergePinnedSnippets(prev, incomingPins))
-    }
-
-    window.addEventListener('storage', handleStorage)
-    return () => window.removeEventListener('storage', handleStorage)
-  }, [pinsStorageKey])
-
-  useEffect(() => {
-    return () => {
-      clearDeferredStorageWrite(splitStorageWriteTimerRef)
-      clearDeferredStorageWrite(pinsStorageWriteTimerRef)
-    }
-  }, [clearDeferredStorageWrite])
-
-  useEffect(() => {
-    if (engine.tabStatus === 'away' && engine.state === 'running') {
-      setMascotMood('angry')
-    } else if (engine.state === 'finished') {
-      setMascotMood('love')
-    } else if (engine.state === 'running') {
-      setMascotMood('happy')
-    } else {
-      setMascotMood('idle')
-    }
-  }, [engine.state, engine.tabStatus])
-
-  const cleanupActiveResize = useCallback(() => {
-    activeResizeCleanupRef.current?.()
-    activeResizeCleanupRef.current = null
-  }, [])
-
-  useEffect(() => cleanupActiveResize, [cleanupActiveResize])
-
-  const persistSplitPercent = useCallback((nextSplit: number) => {
-    scheduleStorageWrite(splitStorageWriteTimerRef, () => {
-      localStorage.setItem(SPLIT_STORAGE_KEY, String(nextSplit))
-    })
-  }, [scheduleStorageWrite])
-
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    if (!splitContainerRef.current) return
-
-    cleanupActiveResize()
-    const bounds = splitContainerRef.current.getBoundingClientRect()
-    setIsResizing(true)
-    let latestSplit = splitPercent
-
-    function handleMouseMove(moveEvent: MouseEvent) {
-      const pct = ((moveEvent.clientX - bounds.left) / bounds.width) * 100
-      const clamped = clampSplit(pct)
-      latestSplit = clamped
-      setSplitPercent(clamped)
-    }
-
-    function removeResizeListeners() {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-
-    function handleMouseUp() {
-      setIsResizing(false)
-      persistSplitPercent(latestSplit)
-      cleanupActiveResize()
-    }
-
-    activeResizeCleanupRef.current = removeResizeListeners
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-  }, [cleanupActiveResize, persistSplitPercent, splitPercent])
-
-  const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    let nextSplit = splitPercent
-    if (event.key === 'ArrowLeft') nextSplit = splitPercent - 2
-    else if (event.key === 'ArrowRight') nextSplit = splitPercent + 2
-    else if (event.key === 'Home') nextSplit = 45
-    else if (event.key === 'End') nextSplit = 65
-    else return
-
-    event.preventDefault()
-    const clamped = clampSplit(nextSplit)
-    setSplitPercent(clamped)
-    persistSplitPercent(clamped)
-  }, [persistSplitPercent, splitPercent])
-
-  const addPinnedSnippet = useCallback((snippet: PinnedSnippet) => {
-    setPinnedSnippets(prev => [...prev, snippet])
-  }, [])
-
-  const removePinnedSnippet = useCallback((id: string) => {
-    setPinnedSnippets(prev => prev.filter(snippet => snippet.id !== id))
-  }, [])
-
-  const requestExit = useCallback(() => {
-    setShowHomeConfirm(true)
-  }, [])
+  const [activeAnnotationTool, setActiveAnnotationTool] = useState<AnnotationTool>('select')
+  const [activePanel, setActivePanel] = useState<ToolPanel>('calculator')
+  const [activeDocument, setActiveDocument] = useState<ZedDocumentMeta | null>(null)
+  const [annotationStats, setAnnotationStats] = useState<PdfAnnotationStats>({
+    highlights: 0,
+    drawings: 0,
+    textNotes: 0,
+    total: 0,
+  })
+  const [floatingCalculatorMode, setFloatingCalculatorMode] = useState<CalculatorMode | null>(null)
+  const activePanelConfig = TOOL_PANELS.find((panel) => panel.id === activePanel) ?? TOOL_PANELS[0]
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        if (showHomeConfirm) {
-          setShowHomeConfirm(false)
-          return
-        }
-        if (showCalculator) {
-          setShowCalculator(false)
-          return
-        }
-        requestExit()
+      if (event.key !== 'Escape') return
+      if (floatingCalculatorMode) {
+        setFloatingCalculatorMode(null)
+        return
       }
+      setActiveAnnotationTool('select')
     }
 
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [requestExit, showCalculator, showHomeConfirm])
-
-  const openRappelsRail = useCallback(() => {
-    setRightTab('rappels')
-    setIsFullscreenPdf(false)
-  }, [])
-
-  const splitIndex = splitClassIndex(splitPercent)
-  const pdfWidthClass = isFullscreenPdf ? 'md:w-full' : PDF_WIDTH_CLASSES[splitIndex]
-  const railWidthClass = RAIL_WIDTH_CLASSES[splitIndex]
+  }, [floatingCalculatorMode])
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-slate-50 font-rounded text-slate-900"
-    >
-      <div className="flex min-h-14 flex-shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-slate-200 bg-white px-3 py-2 shadow-sm sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
-          <div className="flex items-center gap-2">
-            <Moon size={16} className="text-indigo-600" />
-            <span className="text-sm font-bold text-slate-900">Zed Mode</span>
+    <div className="fixed inset-0 z-[100] flex min-w-0 flex-col overflow-hidden bg-[#eef0f4] font-rounded text-slate-950">
+      <header className="flex min-h-16 flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 shadow-sm sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white shadow-[0_10px_22px_rgba(69,61,238,0.22)]">
+            <FileText size={18} />
           </div>
-          <div className="hidden h-5 w-px bg-slate-200 min-[430px]:block" />
-          <div className="hidden min-[430px]:block">
-            <PomodoroTimer engine={engine} />
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-sm font-black tracking-normal text-slate-950">Zed Mode</h1>
+              <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-slate-500 sm:inline-flex">
+                local workspace
+              </span>
+            </div>
+            <p className="truncate text-xs font-semibold text-slate-500">
+              {activeDocument ? `${activeDocument.name} · ${activeDocument.pageCount} pages` : 'PDF-first study workspace'}
+            </p>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-3">
-          <button type="button"
-            onClick={() => setIsFullscreenPdf(current => !current)}
-            className={`rounded-lg p-1.5 text-sm transition ${isFullscreenPdf ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
-            title={isFullscreenPdf ? 'Afficher le panneau droit' : 'PDF plein ecran'}
-            aria-label={isFullscreenPdf ? 'Afficher le panneau droit' : 'PDF plein ecran'}
-            aria-pressed={isFullscreenPdf}
+        <div className="hidden min-w-0 flex-1 justify-center lg:flex">
+          <AnnotationToolbar activeTool={activeAnnotationTool} onChange={setActiveAnnotationTool} />
+        </div>
+
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-100 px-3 text-sm font-bold text-slate-700 ${buttonMotion} hover:bg-slate-200 hover:text-slate-950`}
+            aria-label="Return home"
           >
-            {isFullscreenPdf ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            <Home size={16} />
+            <span className="hidden sm:inline">Home</span>
           </button>
-          <button type="button"
-            onClick={() => setShowCalculator(current => !current)}
-            title="Calculatrice scientifique"
-            aria-label="Calculatrice scientifique"
-            aria-pressed={showCalculator}
-            className={`rounded-lg p-1.5 text-sm transition ${showCalculator ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
+          <button
+            type="button"
+            onClick={onClose}
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 ${buttonMotion} hover:bg-slate-100 hover:text-slate-950`}
+            aria-label="Close Zed Mode"
           >
-            <Calculator size={15} />
-          </button>
-          <button type="button"
-            onClick={openRappelsRail}
-            title="Rappels de cours"
-            aria-label="Rappels de cours"
-            aria-pressed={rightTab === 'rappels' && !isFullscreenPdf}
-            className={`rounded-lg p-1.5 text-sm transition ${rightTab === 'rappels' && !isFullscreenPdf ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
-          >
-            <BookOpen size={15} />
-          </button>
-          <div className="hidden h-5 w-px bg-slate-200 sm:block" />
-          <div className="hidden origin-right scale-75 sm:block">
-            <KrescoMascot
-              mood={mascotMood}
-              size={40}
-              floating={engine.state === 'running'}
-              message={
-                engine.tabStatus === 'away' && engine.state === 'running'
-                  ? 'Concentre-toi !'
-                  : engine.state === 'finished'
-                    ? 'Bravo, session terminee !'
-                    : undefined
-              }
-            />
-          </div>
-          <button type="button"
-            onClick={requestExit}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 sm:px-3"
-            title="Retour a l'accueil"
-            aria-label="Retour a l'accueil"
-          >
-            <House size={14} />
-            <span className="hidden sm:inline">Accueil</span>
-          </button>
-          <button type="button"
-            onClick={requestExit}
-            className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-            title="Quitter Zed Mode (Echap)"
-            aria-label="Quitter Zed Mode"
-          >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
+      </header>
+
+      <div className="border-b border-slate-200 bg-white px-3 py-2 lg:hidden">
+        <AnnotationToolbar activeTool={activeAnnotationTool} onChange={setActiveAnnotationTool} />
       </div>
 
-      <div
-        ref={splitContainerRef}
-        className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50 md:flex-row ${isResizing ? 'cursor-col-resize' : ''}`}
-      >
-        <div
-          className={`flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-slate-200 bg-white md:h-full md:border-b-0 ${pdfWidthClass}`}
-        >
-          <PdfViewer onPinSnippet={addPinnedSnippet} />
-        </div>
+      <main className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(22rem,42vh)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_390px] lg:grid-rows-1">
+        <section className="min-h-0 min-w-0 overflow-hidden">
+          <PdfViewer
+            activeTool={activeAnnotationTool}
+            onDocumentChange={setActiveDocument}
+            onAnnotationStatsChange={setAnnotationStats}
+          />
+        </section>
 
-        {!isFullscreenPdf && (
-          <div
-            role="separator"
-            aria-label="Redimensionner le panneau Zed"
-            aria-orientation="vertical"
-            aria-valuemin={45}
-            aria-valuemax={65}
-            aria-valuenow={Math.round(splitPercent)}
-            tabIndex={0}
-            className="group hidden w-2 flex-shrink-0 cursor-col-resize items-center justify-center bg-slate-100 transition-colors hover:bg-indigo-100 md:flex"
-            onMouseDown={handleResizeStart}
-            onKeyDown={handleResizeKeyDown}
-          >
-            <GripVertical size={12} className="text-slate-400 group-hover:text-indigo-600" />
-          </div>
-        )}
-
-        {!isFullscreenPdf && (
-          <div
-            className={`flex min-h-[18rem] w-full min-w-0 flex-col overflow-hidden border-t border-slate-200 bg-white md:h-full md:min-h-0 md:border-l md:border-t-0 ${railWidthClass}`}
-          >
-            <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {RIGHT_TABS.map(({ id, label, icon: Icon }) => (
-                <button type="button"
-                  key={id}
-                  onClick={() => setRightTab(id)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${rightTab === id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}`}
+        <aside className="flex min-h-0 min-w-0 flex-col border-t border-slate-200 bg-white shadow-[-12px_0_36px_rgba(15,23,42,0.05)] lg:border-l lg:border-t-0">
+          <div className="flex min-h-14 flex-shrink-0 items-center gap-1 border-b border-slate-200 px-2">
+            {TOOL_PANELS.map((panel) => {
+              const Icon = panel.icon
+              const active = activePanel === panel.id
+              return (
+                <button
+                  key={panel.id}
+                  type="button"
+                  onClick={() => setActivePanel(panel.id)}
+                  className={`inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-bold ${buttonMotion} ${
+                    active
+                      ? 'bg-slate-950 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
+                  }`}
+                  aria-pressed={active}
                 >
-                  <Icon size={12} />
-                  {label}
+                  <Icon size={15} />
+                  <span className="hidden min-[1180px]:inline">{panel.label}</span>
                 </button>
-              ))}
+              )
+            })}
+          </div>
+
+          <div className="flex min-h-12 flex-shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-slate-950">{activePanelConfig.label}</p>
+              <p className="truncate text-xs text-slate-500">{panelSubtitle(activePanel, activeDocument, annotationStats)}</p>
             </div>
-
-            <div className="flex-1 overflow-hidden">
-              {rightTab === 'scratchpad' && (
-                <Scratchpad
-                  pinnedSnippets={pinnedSnippets}
-                  onRemoveSnippet={removePinnedSnippet}
-                  storageKey={scratchpadStorageKey}
-                />
-              )}
-              {rightTab === 'rappels' && (
-                <div className="h-full overflow-y-auto bg-white">
-                  <RappelsCours onClose={() => setRightTab('scratchpad')} inline />
-                </div>
-              )}
-            </div>
+            {activePanelConfig.mode && (
+              <button
+                type="button"
+                onClick={() => setFloatingCalculatorMode(activePanelConfig.mode ?? 'scientific')}
+                className={`h-9 rounded-lg bg-indigo-50 px-3 text-xs font-bold text-indigo-700 ${buttonMotion} hover:bg-indigo-100`}
+              >
+                Pop out
+              </button>
+            )}
           </div>
-        )}
-      </div>
 
-      {showCalculator && (
-        <ScientificCalculator onClose={() => setShowCalculator(false)} />
-      )}
-
-      <AnimatePresence>
-        {showHomeConfirm && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
-            >
-              <h3 className="mb-2 text-xl font-bold text-slate-900">Quitter et revenir ?</h3>
-              <p className="mb-6 text-sm text-slate-500">
-                Etes-vous sur de vouloir quitter le Zed Mode et retourner a l&apos;accueil ? Toutes les annotations locales non sauvegardees seront perdues.
-              </p>
-              <div className="flex justify-end gap-3">
-                <button type="button"
-                  onClick={() => setShowHomeConfirm(false)}
-                  className="rounded-xl px-4 py-2 font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-                >
-                  Annuler
-                </button>
-                <button type="button"
-                  onClick={() => {
-                    setShowHomeConfirm(false)
-                    onClose()
-                  }}
-                  className="rounded-xl bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700"
-                >
-                  Confirmer
-                </button>
-              </div>
-            </motion.div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <AnimatePresence initial={false} mode="wait">
+              <motion.div
+                key={activePanel}
+                className="h-full min-h-0"
+                initial={{ opacity: 0, y: 14, filter: 'blur(2px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: -10, filter: 'blur(2px)' }}
+                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {activePanel === 'calculator' && (
+                  <ScientificCalculator
+                    variant="docked"
+                    initialMode="scientific"
+                    onFloat={setFloatingCalculatorMode}
+                  />
+                )}
+                {activePanel === 'limits' && (
+                  <ScientificCalculator
+                    variant="docked"
+                    initialMode="limits"
+                    onFloat={setFloatingCalculatorMode}
+                  />
+                )}
+                {activePanel === 'graph' && (
+                  <ScientificCalculator
+                    variant="docked"
+                    initialMode="graph"
+                    onFloat={setFloatingCalculatorMode}
+                  />
+                )}
+                {activePanel === 'formulas' && (
+                  <FormulaLibrary onClose={() => setActivePanel('calculator')} inline />
+                )}
+                {activePanel === 'notes' && (
+                  <ZedNotesPanel
+                    document={activeDocument}
+                    stats={annotationStats}
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
+        </aside>
+      </main>
+
+      <AnimatePresence initial={false}>
+        {floatingCalculatorMode && (
+          <ScientificCalculator
+            key="floating-calculator"
+            variant="floating"
+            initialMode={floatingCalculatorMode}
+            onClose={() => setFloatingCalculatorMode(null)}
+          />
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   )
+}
+
+function AnnotationToolbar({
+  activeTool,
+  onChange,
+}: {
+  activeTool: AnnotationTool
+  onChange: (tool: AnnotationTool) => void
+}) {
+  return (
+    <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="toolbar" aria-label="PDF annotation tools">
+      {ANNOTATION_TOOLS.map((tool) => {
+        const Icon = tool.icon
+        const active = activeTool === tool.id
+        return (
+          <button
+            key={tool.id}
+            type="button"
+            onClick={() => onChange(tool.id)}
+            className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-3 text-sm font-bold ${buttonMotion} ${
+              active
+                ? 'bg-white text-slate-950 shadow-sm'
+                : 'text-slate-500 hover:bg-white/70 hover:text-slate-950'
+            }`}
+            aria-pressed={active}
+          >
+            <Icon size={16} />
+            <span>{tool.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function ZedNotesPanel({
+  document,
+  stats,
+}: {
+  document: ZedDocumentMeta | null
+  stats: PdfAnnotationStats
+}) {
+  const storageKey = useMemo(() => document ? `kresco:zed:notes:v1:${document.id}` : null, [document])
+  const [notes, setNotes] = useState('')
+
+  useEffect(() => {
+    setNotes(storageKey ? zedStorageGetItem(storageKey) ?? '' : '')
+  }, [storageKey])
+
+  useEffect(() => {
+    if (!storageKey) return
+    if (notes.trim()) zedStorageSetItemDeferred(storageKey, notes)
+    else zedStorageRemoveItemDeferred(storageKey)
+  }, [notes, storageKey])
+
+  return (
+    <div className="flex h-full min-h-0 flex-col p-4">
+      <div className="grid grid-cols-3 gap-2">
+        <Metric label="Highlights" value={stats.highlights} />
+        <Metric label="Ink" value={stats.drawings} />
+        <Metric label="Notes" value={stats.textNotes} />
+      </div>
+
+      <label className="mt-4 text-xs font-bold text-slate-500" htmlFor="zed-session-notes">
+        Workspace notes
+      </label>
+      <textarea
+        id="zed-session-notes"
+        value={notes}
+        onChange={(event) => setNotes(event.target.value)}
+        disabled={!document}
+        placeholder={document ? 'Write problem-solving notes for this PDF.' : 'Open a PDF to save notes.'}
+        className="mt-2 min-h-0 flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-800 outline-none transition-[border-color,box-shadow,background-color] duration-150 ease-out placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus-visible:ring-4 focus-visible:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none"
+      />
+
+      <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-500 shadow-[var(--shadow-border)]">
+        <p className="font-bold text-slate-700">{document ? document.name : 'No active PDF'}</p>
+        <p className="mt-1 tabular-nums">
+          {stats.total} saved annotation{stats.total === 1 ? '' : 's'} on this PDF.
+        </p>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-500 shadow-[var(--shadow-border)]">
+        <p className="font-bold text-slate-700">Annotation layer</p>
+        <p className="mt-1 text-pretty">
+          Highlights, ink, and text markers are stored locally on the active PDF.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-3 text-center shadow-[var(--shadow-border)]">
+      <p className="text-2xl font-black tabular-nums text-slate-950">{value}</p>
+      <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">{label}</p>
+    </div>
+  )
+}
+
+function panelSubtitle(panel: ToolPanel, document: ZedDocumentMeta | null, stats: PdfAnnotationStats) {
+  if (panel === 'calculator') return 'Scientific input with LaTeX display'
+  if (panel === 'limits') return 'Numeric limit checks with left and right approaches'
+  if (panel === 'graph') return 'Plot, trace, zoom, pan, roots, and intersections'
+  if (panel === 'formulas') return 'Math, Physics, and SVT formula catalog'
+  if (!document) return 'Open a PDF to save notes'
+  return `${stats.total} saved annotations`
 }
