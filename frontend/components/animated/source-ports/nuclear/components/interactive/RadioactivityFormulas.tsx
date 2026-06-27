@@ -3,7 +3,7 @@
 
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Atom, Scale, Calculator, TrendingDown, Clock } from 'lucide-react';
 
 const FormulaItem = ({ title, formula, units }: any) => (
@@ -25,10 +25,13 @@ const FormulaItem = ({ title, formula, units }: any) => (
 );
 
 export const RadioactivityFormulas: React.FC = () => {
+  const shouldReduceMotion = useReducedMotion();
+  const cardHover = shouldReduceMotion ? undefined : { y: -2 };
+
   return (
     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 my-8">
       {/* Card 1: Lois de Décroissance */}
-      <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-indigo-500 md:col-span-2">
+      <motion.div whileHover={cardHover} transition={{ duration: 0.15, ease: "easeOut" }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-indigo-500 md:col-span-2">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><TrendingDown size={20} /></div>
           <h4 className="font-bold text-lg text-slate-800">Lois de Décroissance Radioactive</h4>
@@ -49,7 +52,7 @@ export const RadioactivityFormulas: React.FC = () => {
       </motion.div>
 
       {/* Card 2: Temps Caractéristiques */}
-      <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-emerald-500">
+      <motion.div whileHover={cardHover} transition={{ duration: 0.15, ease: "easeOut" }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-emerald-500">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600"><Clock size={20} /></div>
           <h4 className="font-bold text-lg text-slate-800">Temps Caractéristiques</h4>
@@ -69,7 +72,7 @@ export const RadioactivityFormulas: React.FC = () => {
       </motion.div>
       
       {/* Card 3: Conservation */}
-      <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-sky-500 md:col-span-2">
+      <motion.div whileHover={cardHover} transition={{ duration: 0.15, ease: "easeOut" }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-sky-500 md:col-span-2">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-sky-100 p-2 rounded-lg text-sky-600"><Atom size={20} /></div>
           <h4 className="font-bold text-lg text-slate-800">Lois de Conservation (Soddy)</h4>

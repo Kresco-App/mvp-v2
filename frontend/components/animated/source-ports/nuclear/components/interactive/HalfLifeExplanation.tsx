@@ -3,11 +3,12 @@
 
 
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Clock, RotateCcw, Scale } from 'lucide-react';
 
 export const HalfLifeExplanation: React.FC = () => {
   const [elapsedHalfLives, setElapsedHalfLives] = useState(0);
+  const shouldReduceMotion = useReducedMotion();
   
   const TOTAL_PARTICLES = 64;
   
@@ -30,6 +31,10 @@ export const HalfLifeExplanation: React.FC = () => {
     isDecayed: (i % fraction) !== 0 
   }));
 
+  const gaugeTransition = shouldReduceMotion
+    ? { duration: 0 }
+    : { type: 'spring' as const, stiffness: 70, damping: 18 };
+
   const nextStep = () => {
     if (elapsedHalfLives < 4) setElapsedHalfLives(p => p + 1);
   };
@@ -49,7 +54,7 @@ export const HalfLifeExplanation: React.FC = () => {
             </div>
         </div>
         <div className="text-right">
-            <div className="text-xl md:text-2xl font-mono font-bold text-slate-800">{elapsedHalfLives} × t<sub>1/2</sub></div>
+            <div className="font-mono text-xl font-bold tabular-nums text-slate-800 md:text-2xl">{elapsedHalfLives} × t<sub>1/2</sub></div>
             <div className="text-[10px] md:text-xs text-slate-500 uppercase tracking-wider">Temps écoulé</div>
         </div>
       </div>
@@ -59,7 +64,7 @@ export const HalfLifeExplanation: React.FC = () => {
         <div className="flex-1 p-4 md:p-6 bg-slate-50 flex flex-col items-center justify-center border-b lg:border-b-0 lg:border-r border-slate-100 min-h-[300px]">
             <div className="mb-4 flex justify-between w-full max-w-[280px] text-xs font-bold text-slate-400 uppercase">
                 <span>Échantillon (Masse)</span>
-                <span>{remainingCount} / {TOTAL_PARTICLES} u.a.</span>
+                <span className="tabular-nums">{remainingCount} / {TOTAL_PARTICLES} u.a.</span>
             </div>
             
             {/* Particle Grid representing Mass */}
@@ -73,7 +78,7 @@ export const HalfLifeExplanation: React.FC = () => {
                             scale: p.isDecayed ? 0.8 : 1,
                             opacity: p.isDecayed ? 0.5 : 1
                         }}
-                        transition={{ duration: 0.5, delay: p.id * 0.005 }} 
+                        transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.35, delay: p.id * 0.003, ease: 'easeOut' }}
                         className="w-4 h-4 md:w-6 md:h-6 rounded md:rounded-md shadow-sm border border-black/5 relative overflow-hidden"
                     >
                         {/* Shininess for active ones */}
@@ -104,17 +109,17 @@ export const HalfLifeExplanation: React.FC = () => {
                     <h4 className="font-bold text-slate-700 flex items-center gap-2 text-sm md:text-base">
                         <Scale size={16} /> Masse Restante
                     </h4>
-                    <span className="text-2xl md:text-3xl font-bold text-purple-600">{percent}%</span>
+                    <span className="text-2xl font-bold tabular-nums text-purple-600 md:text-3xl">{percent}%</span>
                 </div>
                 <div className="h-3 md:h-4 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
                     <motion.div 
                         className="h-full bg-gradient-to-r from-yellow-400 to-yellow-500"
                         initial={{ width: '100%' }}
                         animate={{ width: `${percent}%` }}
-                        transition={{ type: "spring", stiffness: 50, damping: 15 }}
+                        transition={gaugeTransition}
                     />
                 </div>
-                <div className="flex justify-between mt-2 text-xs font-mono text-slate-400">
+                <div className="mt-2 flex justify-between font-mono text-xs tabular-nums text-slate-400">
                     <span>0%</span>
                     <span>100%</span>
                 </div>
@@ -124,9 +129,9 @@ export const HalfLifeExplanation: React.FC = () => {
             <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-100">
                 <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold uppercase text-yellow-600">Formule</span>
-                    <span className="px-2 py-1 bg-white rounded text-xs font-bold text-purple-600 shadow-sm">t = {elapsedHalfLives} t<sub>1/2</sub></span>
+                    <span className="rounded bg-white px-2 py-1 text-xs font-bold tabular-nums text-purple-600 shadow-sm">t = {elapsedHalfLives} t<sub>1/2</sub></span>
                 </div>
-                <div className="text-center text-lg md:text-xl font-mono text-slate-700 my-2">
+                <div className="my-2 text-center font-mono text-lg tabular-nums text-slate-700 md:text-xl">
                     m(t) = <span className="text-purple-600 font-bold">m₀</span> / {fraction}
                 </div>
                 <p className="text-center text-xs md:text-sm text-slate-600 mt-2 leading-relaxed">
@@ -143,14 +148,15 @@ export const HalfLifeExplanation: React.FC = () => {
                 <button type="button" 
                     onClick={nextStep}
                     disabled={elapsedHalfLives >= 4}
-                    className="flex-1 bg-purple-600 text-white py-2.5 md:py-3 px-4 rounded-xl font-bold shadow-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all active:scale-95 text-sm md:text-base"
+                    className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-purple-600 px-4 py-2.5 text-sm font-bold text-white shadow-md transition-[background-color,box-shadow,opacity,transform] duration-150 ease-out hover:bg-purple-700 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:py-3 md:text-base"
                 >
                     <Clock size={18} />
                     {elapsedHalfLives < 4 ? "Attendre t(1/2)" : "Terminé"}
                 </button>
                 <button type="button" 
                     onClick={reset}
-                    className="w-10 md:w-12 flex items-center justify-center bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors border border-slate-200"
+                    aria-label="Reinitialiser la demi-vie"
+                    className="flex h-11 w-11 flex-none items-center justify-center rounded-xl border border-slate-200 bg-slate-100 text-slate-600 transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:h-12 md:w-12"
                     title="Réinitialiser"
                 >
                     <RotateCcw size={20} />

@@ -1,14 +1,17 @@
 'use client'
 
+import type { ComponentType } from 'react'
 import type { AnimatedRendererProps } from '../types'
-import {
-  CapacitorAssociation,
-  RCExercises,
-  RCFormulas,
-  RCSimulator,
-} from '../source-ports/rc'
+import { lazySourceComponent } from './lazySourceComponent'
 
 type RcComponentKey = 'simulator' | 'formulas' | 'exercises' | 'capacitor-association'
+
+const components: Record<RcComponentKey, ComponentType> = {
+  simulator: lazySourceComponent(() => import('../source-ports/rc/RCSimulator').then((mod) => mod.RCSimulator)),
+  formulas: lazySourceComponent(() => import('../source-ports/rc/RCFormulas').then((mod) => mod.RCFormulas)),
+  exercises: lazySourceComponent(() => import('../source-ports/rc/RCExercises').then((mod) => mod.RCExercises)),
+  'capacitor-association': lazySourceComponent(() => import('../source-ports/rc/CapacitorAssociation').then((mod) => mod.CapacitorAssociation)),
+}
 
 function resolveComponentKey(props: AnimatedRendererProps): RcComponentKey {
   const config = props.config ?? props.tab?.config_json ?? {}
@@ -32,10 +35,7 @@ function resolveComponentKey(props: AnimatedRendererProps): RcComponentKey {
 
 export default function RcCapacitorSourceRenderer(props: AnimatedRendererProps) {
   const component = resolveComponentKey(props)
+  const Component = components[component]
 
-  if (component === 'formulas') return <RCFormulas />
-  if (component === 'exercises') return <RCExercises />
-  if (component === 'capacitor-association') return <CapacitorAssociation />
-
-  return <RCSimulator />
+  return <Component />
 }

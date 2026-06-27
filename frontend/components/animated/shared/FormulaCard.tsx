@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'framer-motion';
 import { Latex } from '@/components/animated/shared/Latex';
 
 interface FormulaCardProps {
@@ -14,12 +13,7 @@ interface FormulaCardProps {
 
 export const FormulaCard: React.FC<FormulaCardProps> = ({ title, children, formula, description, icon }) => {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      className="relative my-10 overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-lg transition-shadow duration-200 ease-out hover:shadow-xl"
-    >
+    <div className="relative my-10 overflow-hidden rounded-3xl border border-slate-100 bg-white opacity-100 shadow-lg transition-[box-shadow,transform] duration-150 ease-out motion-safe:animate-[fadeIn_360ms_ease-out] motion-reduce:transition-none motion-reduce:hover:translate-y-0 hover:-translate-y-0.5 hover:shadow-xl">
       <div className="h-2 w-full bg-gradient-to-r from-cyan-600 via-blue-500 to-indigo-400" />
       <div className="p-8">
         <div className="flex items-center justify-between mb-6">
@@ -49,6 +43,6 @@ export const FormulaCard: React.FC<FormulaCardProps> = ({ title, children, formu
           </p>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 };

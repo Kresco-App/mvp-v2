@@ -63,7 +63,7 @@ const UraniumExercise = () => {
                     <label className="block text-xs font-bold text-slate-500 uppercase">Protons (Z)</label>
                     <input
                         type="number"
-                        className="w-full border-2 border-slate-200 rounded-lg p-3 font-mono focus:border-indigo-500 outline-none transition-colors"
+                        className="w-full rounded-lg border-2 border-slate-200 p-3 font-mono tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100"
                         placeholder="92"
                         value={inputs.p}
                         onChange={e => setInputs({ ...inputs, p: e.target.value })}
@@ -73,7 +73,7 @@ const UraniumExercise = () => {
                     <label className="block text-xs font-bold text-slate-500 uppercase">Neutrons (N)</label>
                     <input
                         type="number"
-                        className="w-full border-2 border-slate-200 rounded-lg p-3 font-mono focus:border-indigo-500 outline-none transition-colors"
+                        className="w-full rounded-lg border-2 border-slate-200 p-3 font-mono tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100"
                         placeholder="143"
                         value={inputs.n}
                         onChange={e => setInputs({ ...inputs, n: e.target.value })}
@@ -83,7 +83,7 @@ const UraniumExercise = () => {
                     <label className="block text-xs font-bold text-slate-500 uppercase">Énergie Eℓ (MeV)</label>
                     <input
                         type="number"
-                        className="w-full border-2 border-slate-200 rounded-lg p-3 font-mono focus:border-indigo-500 outline-none transition-colors"
+                        className="w-full rounded-lg border-2 border-slate-200 p-3 font-mono tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100"
                         placeholder="Ex: 1780"
                         value={inputs.binding}
                         onChange={e => setInputs({ ...inputs, binding: e.target.value })}
@@ -93,7 +93,7 @@ const UraniumExercise = () => {
 
             <div className="flex justify-end">
                 {status === 'idle' && (
-                    <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-sm">
+                    <button type="button" onClick={checkAnswer} className="min-h-10 rounded-lg bg-indigo-600 px-6 py-2 text-sm font-bold text-white transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100">
                         Vérifier mes réponses
                     </button>
                 )}
@@ -126,7 +126,7 @@ const UraniumExercise = () => {
                             {!examMode && <p>Vérifiez N = A - Z. Pour l'énergie, n'oubliez pas de multiplier le défaut de masse par 931.5.</p>}
                         </div>
                     </div>
-                    <button type="button" onClick={() => setStatus('idle')} className="text-rose-600 font-bold hover:underline text-xs bg-white px-3 py-2 rounded border border-rose-200">Réessayer</button>
+                    <button type="button" onClick={() => setStatus('idle')} className="min-h-10 rounded border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600 transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out hover:bg-rose-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-100 motion-reduce:transition-none motion-reduce:active:scale-100">Réessayer</button>
                 </motion.div>
             )}
         </div>
@@ -173,12 +173,12 @@ const FissionExercise = () => {
                 <span className="text-sm font-bold text-slate-500">Nombre de neutrons (x) :</span>
                 <input
                     type="number"
-                    className="w-20 border-2 border-slate-200 rounded-lg p-2 text-center font-bold text-lg focus:border-orange-500 outline-none"
+                    className="w-20 rounded-lg border-2 border-slate-200 p-2 text-center text-lg font-bold tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-orange-500 focus-visible:ring-4 focus-visible:ring-orange-100"
                     placeholder="?"
                     value={xVal}
                     onChange={e => setXVal(e.target.value)}
                 />
-                <button type="button" onClick={check} className="bg-orange-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-orange-700 transition-colors shadow-sm">
+                <button type="button" onClick={check} className="min-h-10 rounded-lg bg-orange-600 px-6 py-2 font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-orange-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200 motion-reduce:transition-none motion-reduce:active:scale-100">
                     Valider
                 </button>
             </div>
@@ -253,7 +253,7 @@ const DecayExercise = () => {
                     <button type="button"
                         key={opt.id}
                         onClick={() => handleSelect(opt.id, opt.correct)}
-                        className={`p - 4 rounded - lg text - left font - medium border - 2 transition - all flex justify - between items - center ${choice === opt.id
+                        className={`flex min-h-11 items-center justify-between rounded-lg border-2 p-4 text-left font-medium transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-100 motion-reduce:transition-none motion-reduce:active:scale-100 ${choice === opt.id
                                 ? (opt.correct ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-rose-500 bg-rose-50 text-rose-800')
                                 : 'border-slate-100 hover:border-purple-200 hover:bg-purple-50 text-slate-600'
                             } `}
@@ -267,7 +267,7 @@ const DecayExercise = () => {
             </div>
 
             {choice && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`mt - 4 text - sm p - 4 rounded - lg border ${isCorrect ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-rose-50 border-rose-100 text-rose-800'} `}>
+                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }} className={`mt-4 text-sm p-4 rounded-lg border ${isCorrect ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-rose-50 border-rose-100 text-rose-800'} `}>
                     {isCorrect ? (
                         <>
                             <p className="font-bold mb-1">Explication Correcte :</p>
@@ -371,12 +371,12 @@ const EnergyExercise = () => {
                         <input
                             type="number"
                             step="0.1"
-                            className="flex-1 border-2 border-slate-200 rounded-lg p-3 font-mono focus:border-sky-500 outline-none transition-colors"
+                            className="flex-1 rounded-lg border-2 border-slate-200 p-3 font-mono tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-sky-500 focus-visible:ring-4 focus-visible:ring-sky-100"
                             placeholder="Résultat en MeV"
                             value={energy}
                             onChange={e => setEnergy(e.target.value)}
                         />
-                        <button type="button" onClick={checkAnswer} className="bg-sky-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-sky-700 transition-colors shadow-sm">
+                        <button type="button" onClick={checkAnswer} className="min-h-10 rounded-lg bg-sky-600 px-6 py-2 font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-sky-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 motion-reduce:transition-none motion-reduce:active:scale-100">
                             Vérifier
                         </button>
                     </div>
@@ -409,7 +409,7 @@ const EnergyExercise = () => {
                             {!examMode && <p>Avez-vous bien soustrait la masse des produits à celle des réactifs ? (m_avant - m_après)</p>}
                         </div>
                     </div>
-                    <button type="button" onClick={() => setStatus('idle')} className="text-rose-600 font-bold hover:underline text-xs bg-white px-3 py-2 rounded border border-rose-200">Réessayer</button>
+                    <button type="button" onClick={() => setStatus('idle')} className="min-h-10 rounded border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600 transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out hover:bg-rose-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-100 motion-reduce:transition-none motion-reduce:active:scale-100">Réessayer</button>
                 </motion.div>
             )}
         </div>

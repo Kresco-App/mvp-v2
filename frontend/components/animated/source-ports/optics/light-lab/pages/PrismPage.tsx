@@ -327,7 +327,7 @@ export default function PrismPage({
     const canvasContent = (
         <canvas 
             ref={canvasRef} 
-            className="w-full h-full transition-colors duration-200"
+            className="h-full w-full transition-[background-color] duration-200 ease-out motion-reduce:transition-none"
         />
     );
 
@@ -338,7 +338,7 @@ export default function PrismPage({
                 <div className="grid grid-cols-3 gap-1">
                     <button type="button"
                         onClick={() => setSourceMode('white')}
-                        className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
+                        className={`py-2 px-1 rounded-full text-[10px] font-bold transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex flex-col items-center justify-center gap-1 ${
                             sourceMode === 'white' ? 'bg-blue-500 text-white shadow-sm' : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
                         }`}
                     >
@@ -346,7 +346,7 @@ export default function PrismPage({
                     </button>
                     <button type="button"
                         onClick={() => setSourceMode('single')}
-                        className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
+                        className={`py-2 px-1 rounded-full text-[10px] font-bold transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex flex-col items-center justify-center gap-1 ${
                             sourceMode === 'single' ? 'bg-amber-500 text-white shadow-sm' : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
                         }`}
                     >
@@ -354,7 +354,7 @@ export default function PrismPage({
                     </button>
                     <button type="button"
                         onClick={() => setSourceMode('double')}
-                        className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${
+                        className={`py-2 px-1 rounded-full text-[10px] font-bold transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex flex-col items-center justify-center gap-1 ${
                             sourceMode === 'double' ? 'bg-emerald-500 text-white shadow-sm' : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
                         }`}
                     >
@@ -427,16 +427,17 @@ export default function PrismPage({
                 {sourceMode === 'single' && (
                     <div className="pt-2 border-t border-purple-500/10">
                         <button type="button"
-                            onClick={() => setShowAngles(!showAngles)}
-                            className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${
+                            onClick={() => setShowAngles((visible) => !visible)}
+                            aria-pressed={showAngles}
+                            className={`flex min-h-10 w-full items-center justify-between rounded-full px-3 py-2 text-sm font-medium transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                                 showAngles 
                                     ? 'bg-purple-500 text-white shadow-sm' 
                                     : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
                             }`}
                         >
                             <span>Visualiser les Angles</span>
-                            <div className={`w-8 h-4 rounded-full relative transition-colors ${showAngles ? 'bg-purple-300' : 'bg-slate-400'}`}>
-                                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${showAngles ? 'left-4.5' : 'left-0.5'}`} />
+                            <div className={`relative h-4 w-8 rounded-full transition-[background-color] duration-150 ease-out motion-reduce:transition-none ${showAngles ? 'bg-purple-300' : 'bg-slate-400'}`}>
+                                <div className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white transition-[transform] duration-150 ease-out motion-reduce:transition-none ${showAngles ? 'translate-x-4' : 'translate-x-0'}`} />
                             </div>
                         </button>
                     </div>
@@ -534,7 +535,7 @@ export default function PrismPage({
                         setLaser2Wavelength(450);
                         setShowAngles(false);
                     }}
-                    className={`px-4 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'} text-sm`}
+                    className={`px-4 py-2 rounded-full font-medium transition-[background-color,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'} text-sm`}
                 >
                     Reset
                 </button>

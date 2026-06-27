@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 
 type WaveMode = 'spatial' | 'temporal'
+const waveButtonMotion = 'transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100'
+const waveModeButtonMotion = 'transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100'
 
 type NumericRange = {
   min?: number
@@ -393,7 +395,7 @@ export default function WavePeriodicityRenderer(props: RendererProps) {
               <button
                 type="button"
                 onClick={() => setIsPlaying((value) => !value)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-cyan-300 hover:text-cyan-700"
+                className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm ${waveButtonMotion} hover:border-cyan-300 hover:text-cyan-700`}
                 aria-label={isPlaying ? 'Pause animation' : 'Play animation'}
                 title={isPlaying ? 'Pause' : 'Play'}
               >
@@ -402,7 +404,7 @@ export default function WavePeriodicityRenderer(props: RendererProps) {
               <button
                 type="button"
                 onClick={reset}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-amber-300 hover:text-amber-700"
+                className={`inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm ${waveButtonMotion} hover:border-amber-300 hover:text-amber-700`}
                 aria-label="Reset controls"
                 title="Reset"
               >
@@ -417,7 +419,7 @@ export default function WavePeriodicityRenderer(props: RendererProps) {
                 key={nextMode}
                 type="button"
                 onClick={() => setMode(nextMode)}
-                className={`h-9 rounded-md px-4 text-sm font-black transition ${
+                className={`h-9 rounded-md px-4 text-sm font-black ${waveModeButtonMotion} ${
                   mode === nextMode
                     ? 'bg-white text-cyan-700 shadow-sm'
                     : 'text-slate-500 hover:text-slate-900'
@@ -557,7 +559,7 @@ export default function WavePeriodicityRenderer(props: RendererProps) {
             <button
               type="button"
               onClick={() => props.onComplete?.(true)}
-              className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg bg-cyan-700 px-4 text-sm font-black text-white transition hover:bg-cyan-800"
+              className={`mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg bg-cyan-700 px-4 text-sm font-black text-white ${waveButtonMotion} hover:bg-cyan-800`}
             >
               Terminer
             </button>

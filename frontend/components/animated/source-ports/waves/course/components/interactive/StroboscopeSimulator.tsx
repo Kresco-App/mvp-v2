@@ -4,6 +4,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Disc, Eye, Gauge } from 'lucide-react';
 
+const presetButtonClass = 'min-h-10 rounded border px-3 py-2 text-xs font-bold transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 motion-reduce:transition-none motion-reduce:active:scale-100';
+
 export const StroboscopeSimulator: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -157,7 +159,7 @@ export const StroboscopeSimulator: React.FC = () => {
             <Zap size={20} className="text-yellow-500 fill-yellow-500"/> Stroboscope
         </h3>
         
-        <div className={`px-4 py-2 rounded-lg text-sm font-bold border flex items-center gap-2 ${
+        <div className={`px-4 py-2 rounded-lg text-sm font-bold border flex items-center gap-2 transition-[background-color,border-color,color] duration-150 ease-out motion-reduce:transition-none ${
             isImmobile 
                 ? 'bg-green-50 text-green-700 border-green-200' 
                 : 'bg-slate-50 text-slate-700 border-slate-200'
@@ -174,39 +176,40 @@ export const StroboscopeSimulator: React.FC = () => {
          
          {/* Speed Control Overlay */}
          <div className="absolute bottom-4 right-4 bg-slate-800/80 backdrop-blur p-2 rounded-lg border border-slate-700 text-white text-xs">
-             <label className="flex items-center gap-2 mb-1 font-bold text-slate-300">
+             <label htmlFor="strobe-speed" className="flex items-center gap-2 mb-1 font-bold text-slate-300">
                  <Gauge size={14}/> Vitesse Lecture
-                 <span className="text-blue-400">x{simSpeed.toFixed(1)}</span>
+                 <span className="text-blue-400 tabular-nums">x{simSpeed.toFixed(1)}</span>
              </label>
              <input 
+                id="strobe-speed"
                 type="range" 
                 min="0.1" max="1" step="0.1" 
                 value={simSpeed} 
                 onChange={e => setSimSpeed(Number(e.target.value))}
-                className="w-32 accent-blue-500 h-1 bg-slate-600 rounded-lg appearance-none cursor-pointer"
+                className="w-32 accent-blue-500 h-1 bg-slate-600 rounded-lg appearance-none cursor-pointer focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-300/40"
              />
          </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
           <div className="space-y-2">
-              <label className="flex justify-between text-sm font-bold text-slate-600">
+              <label htmlFor="strobe-real-frequency" className="flex justify-between text-sm font-bold text-slate-600">
                   <span className="flex items-center gap-2"><Disc size={16}/> Fréquence Disque (f)</span>
-                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-mono">{freqReal} Hz</span>
+                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-mono tabular-nums">{freqReal} Hz</span>
               </label>
-              <input type="range" min="10" max="60" step="1" value={freqReal} onChange={e => setFreqReal(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-              <div className="flex justify-between text-xs text-slate-400 px-1">
+              <input id="strobe-real-frequency" type="range" min="10" max="60" step="1" value={freqReal} onChange={e => setFreqReal(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70" />
+              <div className="flex justify-between text-xs text-slate-400 px-1 tabular-nums">
                   <span>10 Hz</span>
                   <span>60 Hz</span>
               </div>
           </div>
           <div className="space-y-2">
-              <label className="flex justify-between text-sm font-bold text-slate-600">
+              <label htmlFor="strobe-flash-frequency" className="flex justify-between text-sm font-bold text-slate-600">
                   <span className="flex items-center gap-2"><Zap size={16}/> Fréquence Éclairs (fe)</span>
-                  <span className="bg-orange-100 text-orange-800 px-2 py-0.5 rounded font-mono">{freqFlash.toFixed(1)} Hz</span>
+                  <span className="bg-orange-100 text-orange-800 px-2 py-0.5 rounded font-mono tabular-nums">{freqFlash.toFixed(1)} Hz</span>
               </label>
-              <input type="range" min="10" max="60" step="0.5" value={freqFlash} onChange={e => setFreqFlash(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500" />
-              <div className="flex justify-between text-xs text-slate-400 px-1">
+              <input id="strobe-flash-frequency" type="range" min="10" max="60" step="0.5" value={freqFlash} onChange={e => setFreqFlash(Number(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200/70" />
+              <div className="flex justify-between text-xs text-slate-400 px-1 tabular-nums">
                   <span>10 Hz</span>
                   <span>60 Hz</span>
               </div>
@@ -214,16 +217,16 @@ export const StroboscopeSimulator: React.FC = () => {
       </div>
       
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(20); }} className="px-3 py-2 bg-green-50 text-green-700 text-xs font-bold rounded border border-green-200 hover:bg-green-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(20); }} className={`${presetButtonClass} bg-green-50 text-green-700 border-green-200 hover:bg-green-100 focus-visible:ring-green-200/80`}>
               Immobilité (f = fe)
           </button>
-          <button type="button" onClick={() => { setFreqReal(40); setFreqFlash(20); }} className="px-3 py-2 bg-green-50 text-green-700 text-xs font-bold rounded border border-green-200 hover:bg-green-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(40); setFreqFlash(20); }} className={`${presetButtonClass} bg-green-50 text-green-700 border-green-200 hover:bg-green-100 focus-visible:ring-green-200/80`}>
               Immobilité (f = 2*fe)
           </button>
-          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(19); }} className="px-3 py-2 bg-blue-50 text-blue-700 text-xs font-bold rounded border border-blue-200 hover:bg-blue-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(19); }} className={`${presetButtonClass} bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 focus-visible:ring-blue-200/80`}>
               Ralenti Avant (fe &lt; f)
           </button>
-          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(21); }} className="px-3 py-2 bg-orange-50 text-orange-700 text-xs font-bold rounded border border-orange-200 hover:bg-orange-100 transition-colors">
+          <button type="button" onClick={() => { setFreqReal(20); setFreqFlash(21); }} className={`${presetButtonClass} bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 focus-visible:ring-orange-200/80`}>
               Ralenti Arrière (fe &gt; f)
           </button>
       </div>

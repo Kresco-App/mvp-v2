@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import { Atom, Gauge, Minus, Plus, RotateCcw } from 'lucide-react'
-import { motion } from 'framer-motion'
 import type { AnimatedLessonConfig, AnimatedRendererProps } from '../types'
+
+const nucleusButtonMotion = 'transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100'
 
 type NumberBounds = {
   minZ?: number
@@ -318,7 +319,7 @@ export default function NucleusCompositionRenderer(props: NucleusCompositionRend
             <button
               type="button"
               onClick={reset}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-slate-300 hover:text-slate-950"
+              className={`inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 ${nucleusButtonMotion} hover:border-slate-300 hover:text-slate-950`}
             >
               <RotateCcw size={14} aria-hidden="true" />
               Reset
@@ -328,30 +329,29 @@ export default function NucleusCompositionRenderer(props: NucleusCompositionRend
           <div className="relative mx-auto flex aspect-square max-h-[430px] min-h-[300px] max-w-[430px] items-center justify-center rounded-lg border border-slate-200 bg-white">
             <div className="absolute inset-6 rounded-full border border-dashed border-slate-200" />
             <div className="absolute inset-14 rounded-full border border-dashed border-sky-200" />
-            <motion.div
-              className="relative h-56 w-56 rounded-full border border-slate-200 bg-[#f8fafc]"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 44, repeat: Infinity, ease: 'linear' }}
+            <div
+              className="relative h-56 w-56 rounded-full border border-slate-200 bg-[#f8fafc] motion-safe:animate-[spin_44s_linear_infinite] motion-reduce:animate-none"
               aria-hidden="true"
             >
               {particles.map((particle) => (
-                <motion.span
+                <span
                   key={particle.id}
                   className={cn(
-                    'absolute left-1/2 top-1/2 grid place-items-center rounded-full border text-[10px] font-black shadow-sm',
+                    'absolute left-1/2 top-1/2 grid place-items-center rounded-full border text-[10px] font-black opacity-100 shadow-sm transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none',
                     PARTICLE_SIZE_CLASSES[particle.size],
                     particle.type === 'proton'
                       ? 'border-rose-200 bg-rose-500 text-white'
                       : 'border-sky-200 bg-sky-500 text-white'
                   )}
-                  initial={{ opacity: 0, scale: 0.6, x: particle.x, y: particle.y }}
-                  animate={{ opacity: 1, scale: 1, x: particle.x, y: particle.y }}
-                  transition={{ delay: particle.delay, type: 'spring', stiffness: 220, damping: 18 }}
+                  style={{
+                    transform: `translate3d(${particle.x}px, ${particle.y}px, 0)`,
+                    transitionDelay: `${particle.delay}s`,
+                  }}
                 >
                   {particle.type === 'proton' ? 'p+' : 'n'}
-                </motion.span>
+                </span>
               ))}
-            </motion.div>
+            </div>
             <div className="absolute bottom-4 left-4 right-4 flex flex-wrap justify-center gap-2">
               <span className="rounded-md border border-rose-100 bg-rose-50 px-3 py-1 text-xs font-black text-rose-700">
                 {protons} protons
@@ -439,7 +439,7 @@ export default function NucleusCompositionRenderer(props: NucleusCompositionRend
             <button
               type="button"
               onClick={completeLesson}
-              className="inline-flex h-11 items-center justify-center rounded-md bg-slate-950 px-5 text-sm font-black text-white transition hover:bg-slate-800"
+              className={`inline-flex h-11 items-center justify-center rounded-md bg-slate-950 px-5 text-sm font-black text-white ${nucleusButtonMotion} hover:bg-slate-800`}
             >
               Mark lesson complete
             </button>
@@ -496,7 +496,7 @@ function Control({
           <button
             type="button"
             onClick={() => step(-1)}
-            className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300"
+            className={`grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 ${nucleusButtonMotion} hover:border-slate-300`}
             aria-label={`Decrease ${label.toLowerCase()}`}
           >
             <Minus size={14} aria-hidden="true" />
@@ -507,7 +507,7 @@ function Control({
           <button
             type="button"
             onClick={() => step(1)}
-            className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300"
+            className={`grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-700 ${nucleusButtonMotion} hover:border-slate-300`}
             aria-label={`Increase ${label.toLowerCase()}`}
           >
             <Plus size={14} aria-hidden="true" />

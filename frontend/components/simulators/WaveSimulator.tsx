@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { RefreshCw, Play, Pause } from 'lucide-react'
 import { Slider } from './Slider'
 
+const waveControlButtonClass = 'inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/30 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100'
+
 export default function WaveSimulator() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [amplitude, setAmplitude] = useState(60)
@@ -135,11 +137,11 @@ export default function WaveSimulator() {
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-bold text-slate-200">Onde Transversale Progressive</h3>
         <div className="flex gap-2">
-          <button type="button" onClick={() => setIsPlaying(!isPlaying)} className="text-slate-400 hover:text-slate-400">
-            {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+          <button type="button" onClick={() => setIsPlaying(!isPlaying)} className={waveControlButtonClass} aria-label={isPlaying ? 'Pause wave animation' : 'Play wave animation'} aria-pressed={isPlaying}>
+            {isPlaying ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
           </button>
-          <button type="button" onClick={() => { setAmplitude(60); setFrequency(2); setWavelength(200); timeRef.current = 0 }} className="text-slate-400 hover:text-slate-400">
-            <RefreshCw size={16} />
+          <button type="button" onClick={() => { setAmplitude(60); setFrequency(2); setWavelength(200); timeRef.current = 0 }} className={waveControlButtonClass} aria-label="Reset wave simulator">
+            <RefreshCw size={16} aria-hidden="true" />
           </button>
         </div>
       </div>

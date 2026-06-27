@@ -33,7 +33,7 @@ export default function EmbeddedLabCard({
 
   return (
     <section
-      className={`overflow-hidden rounded-3xl border shadow-sm transition-colors duration-200 ${
+      className={`overflow-hidden rounded-3xl border shadow-sm transition-[background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none ${
         isDark ? 'bg-[#1E293B] border-[#334155]' : 'bg-white border-[#E2E8F0]'
       } ${className}`}
     >

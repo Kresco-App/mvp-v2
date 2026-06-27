@@ -12,7 +12,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 const TabButton = ({ active, onClick, label, icon: Icon }: any) => (
   <button type="button"
     onClick={onClick}
-    className={`flex items-center gap-2 px-3 md:px-4 py-3 rounded-lg font-bold transition-all flex-1 md:flex-none justify-center text-sm md:text-base ${
+    className={`flex items-center gap-2 px-3 md:px-4 py-3 rounded-lg font-bold transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex-1 md:flex-none justify-center text-sm md:text-base ${
       active 
         ? 'bg-purple-600 text-white shadow-lg shadow-purple-200' 
         : 'bg-white text-slate-500 hover:bg-purple-50 hover:text-purple-600 border border-slate-200'
@@ -103,7 +103,7 @@ const IsotopeInput = ({ A, Z, Sym, onChange, values, disabled }: any) => (
           <input 
             type="number" 
             placeholder="A"
-            className={`w-10 h-9 md:w-12 text-center text-sm font-bold border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-500 transition-all ${disabled ? 'bg-slate-100 border-slate-200' : 'bg-white border-purple-300 shadow-sm'}`}
+            className={`h-10 w-10 rounded-lg border-2 text-center text-sm font-bold tabular-nums transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus:border-purple-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-purple-100 md:w-12 ${disabled ? 'bg-slate-100 border-slate-200' : 'bg-white border-purple-300 shadow-sm'}`}
             value={values.A}
             onChange={(e) => onChange('A', e.target.value)}
             disabled={disabled}
@@ -116,7 +116,7 @@ const IsotopeInput = ({ A, Z, Sym, onChange, values, disabled }: any) => (
           <input 
             type="number" 
             placeholder="Z"
-            className={`w-10 h-9 md:w-12 text-center text-sm font-bold border-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-200 focus:border-yellow-500 transition-all ${disabled ? 'bg-slate-100 border-slate-200' : 'bg-white border-yellow-300 shadow-sm'}`}
+            className={`h-10 w-10 rounded-lg border-2 text-center text-sm font-bold tabular-nums transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus:border-yellow-500 focus:outline-none focus-visible:ring-4 focus-visible:ring-yellow-100 md:w-12 ${disabled ? 'bg-slate-100 border-slate-200' : 'bg-white border-yellow-300 shadow-sm'}`}
             value={values.Z}
             onChange={(e) => onChange('Z', e.target.value)}
             disabled={disabled}
@@ -215,9 +215,10 @@ const ReactionExercise = () => {
          <AnimatePresence mode="wait">
             {feedback === 'idle' && (
                 <motion.button
+                    type="button"
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     onClick={checkAnswer}
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 md:py-4 rounded-xl shadow-md transition-colors text-sm md:text-base"
+                    className="min-h-11 w-full rounded-xl bg-purple-600 py-3 text-sm font-bold text-white shadow-md transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-purple-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:py-4 md:text-base"
                 >
                     Vérifier ma réponse
                 </motion.button>
@@ -235,7 +236,7 @@ const ReactionExercise = () => {
                             <p className="text-sm">Vérifiez les lois de conservation (A et Z).</p>
                         </div>
                     </div>
-                    <button type="button" onClick={() => setFeedback('idle')} className="w-full md:w-auto px-4 py-2 bg-white text-rose-600 font-bold rounded-lg border border-rose-200 hover:bg-rose-50">Réessayer</button>
+                    <button type="button" onClick={() => setFeedback('idle')} className="min-h-10 w-full rounded-lg border border-rose-200 bg-white px-4 py-2 font-bold text-rose-600 transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out hover:bg-rose-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-100 motion-reduce:transition-none motion-reduce:active:scale-100 md:w-auto">Réessayer</button>
                 </motion.div>
             )}
 
@@ -253,11 +254,11 @@ const ReactionExercise = () => {
                     </div>
                     
                     {isFinished ? (
-                         <button type="button" onClick={resetQuiz} className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white font-bold py-3 md:py-4 rounded-lg hover:bg-emerald-700 shadow-sm transition-colors text-sm md:text-base">
+                         <button type="button" onClick={resetQuiz} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-3 text-sm font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-emerald-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:py-4 md:text-base">
                              <RefreshCw size={18} /> Recommencer l'exercice
                          </button>
                     ) : (
-                        <button type="button" onClick={nextQuestion} className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white font-bold py-3 md:py-4 rounded-lg hover:bg-emerald-700 shadow-sm transition-colors text-sm md:text-base">
+                        <button type="button" onClick={nextQuestion} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-3 text-sm font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-emerald-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:py-4 md:text-base">
                             Question Suivante <ArrowRight size={18} />
                         </button>
                     )}
@@ -592,7 +593,7 @@ const QCMExercise = () => {
                             key={idx}
                             onClick={() => handleSelect(idx)}
                             disabled={isAnswered}
-                            className={`w-full text-left p-4 rounded-xl border-2 font-medium transition-all duration-200 flex items-center justify-between active:scale-[0.98] ${btnClass} ${!isAnswered && "hover:border-purple-300 hover:shadow-sm"}`}
+                            className={`flex min-h-11 w-full items-center justify-between rounded-xl border-2 p-4 text-left font-medium transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-100 motion-reduce:transition-none motion-reduce:active:scale-100 ${btnClass} ${!isAnswered && "hover:border-purple-300 hover:shadow-sm"}`}
                         >
                             <span>{opt}</span>
                             {isAnswered && idx === currentQ.correctIndex && <Check size={20} className="text-emerald-600" />}
@@ -621,11 +622,11 @@ const QCMExercise = () => {
                                     </p>
                                     
                                     {qIndex < QCM_QUESTIONS.length - 1 ? (
-                                        <button type="button" onClick={nextQ} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors w-full md:w-auto">
+                                        <button type="button" onClick={nextQ} className="min-h-10 w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-purple-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:w-auto">
                                             Question Suivante
                                         </button>
                                     ) : (
-                                        <button type="button" onClick={reset} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 w-full md:w-auto">
+                                        <button type="button" onClick={reset} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-purple-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:w-auto">
                                             <RefreshCw size={16} /> Recommencer
                                         </button>
                                     )}

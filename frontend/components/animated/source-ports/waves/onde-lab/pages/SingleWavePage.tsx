@@ -111,19 +111,19 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                     
                     {/* Tab Navigation - Pill Style */}
                     <div className={`flex ${isDark ? 'bg-[#334155]' : 'bg-[#F1F5F9]'} rounded-full p-1 gap-1`}>
-                        <button type="button" className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${accentBg} text-white shadow-sm`}>
+                        <button type="button" className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${accentBg} text-white shadow-sm`}>
                             Onde Simple
                         </button>
-                        <button type="button" onClick={() => onNavigate('interference')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('interference')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Collision
                         </button>
-                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Longitudinale
                         </button>
-                        <button type="button" onClick={() => onNavigate('multimedium')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('multimedium')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Milieux
                         </button>
-                        <button type="button" onClick={() => onNavigate('circular')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('circular')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Circulaire
                         </button>
                     </div>
@@ -131,14 +131,14 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <button type="button"
                         onClick={toggleTheme}
-                        className={`px-3 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
+                        className={`px-3 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
                         title={isDark ? 'Mode clair' : 'Mode sombre'}
                     >
                         {isDark ? 'Clair' : 'Sombre'}
                     </button>
                     <button type="button"
                         onClick={() => setIsPlaying(!isPlaying)}
-                        className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${
+                        className={`px-4 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-2 ${
                             isPlaying 
                                 ? 'bg-red-50 text-red-500 border border-red-200 hover:bg-red-100' 
                                 : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'
@@ -146,7 +146,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                     >
                         {isPlaying ? 'Pause' : 'Lecture'}
                     </button>
-                    <button type="button" onClick={handleRestart} className={`px-4 py-2 rounded-full transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>
+                    <button type="button" onClick={handleRestart} className={`px-4 py-2 rounded-full transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>
                         Reset
                     </button>
                 </div>
@@ -212,7 +212,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                         <div className="flex gap-2">
                             <button type="button"
                                 onClick={() => setWaveMode('manual')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     waveMode === 'manual' 
                                         ? `${accentBg} text-white shadow-sm` 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
@@ -222,7 +222,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                             </button>
                             <button type="button"
                                 onClick={() => setWaveMode('oscillate')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     waveMode === 'oscillate' 
                                         ? `${accentBg} text-white shadow-sm` 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
@@ -234,7 +234,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                         {waveMode === 'manual' && (
                             <button type="button"
                                 onClick={handlePulse}
-                                className="w-full py-3 rounded-full bg-[#FBAE17] text-white font-semibold hover:bg-[#E09A00] transition-all"
+                                className="w-full py-3 rounded-full bg-[#FBAE17] text-white font-semibold hover:bg-[#E09A00] transition-[background-color,border-color,box-shadow,color] duration-150 ease-out"
                             >
                                 Envoyer Impulsion
                             </button>
@@ -326,7 +326,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                                 <button type="button"
                                     key={bc}
                                     onClick={() => setEndCondition(bc)}
-                                    className={`py-2 px-2 rounded-full text-xs font-medium transition-all ${
+                                    className={`py-2 px-2 rounded-full text-xs font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                         endCondition === bc 
                                             ? `${accentBg} text-white shadow-sm` 
                                             : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
@@ -355,7 +355,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                                 <button type="button"
                                     key={key}
                                     onClick={() => set(!state)}
-                                    className={`py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${
+                                    className={`py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-2 ${
                                         state 
                                             ? 'bg-green-50 text-green-600 border border-green-200' 
                                             : isDark ? 'bg-[#475569] text-[#94A3B8] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#94A3B8] hover:bg-[#E2E8F0]'
@@ -378,7 +378,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                         <div className="flex gap-2">
                             <button type="button"
                                 onClick={() => setSpeedMode('normal')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     speedMode === 'normal' 
                                         ? `${accentBg} text-white shadow-sm` 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
@@ -388,7 +388,7 @@ export default function SingleWavePage({ onNavigate }: SingleWavePageProps) {
                             </button>
                             <button type="button"
                                 onClick={() => setSpeedMode('slow')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     speedMode === 'slow' 
                                         ? 'bg-amber-500 text-white shadow-sm' 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'

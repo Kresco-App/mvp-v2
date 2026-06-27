@@ -177,15 +177,17 @@ export const SoundWaveSimulator: React.FC = () => {
         <div className="flex gap-2">
           <button type="button"
             onClick={() => setIsPlaying(!isPlaying)}
-            className={`p-2 rounded-lg transition-colors flex items-center gap-2 px-4 font-bold text-sm ${
+            className={`flex min-h-10 items-center gap-2 rounded-lg px-4 py-2 text-sm font-bold transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200/80 motion-reduce:transition-none motion-reduce:active:scale-100 ${
               isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
             }`}
+            aria-pressed={isPlaying}
           >
             {isPlaying ? <><Pause size={18} /> PAUSE</> : <><Play size={18} /> ANIMER</>}
           </button>
           <button type="button"
             onClick={reset}
-            className="p-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-200 text-slate-700 transition-[background-color,color,transform] duration-150 ease-out hover:bg-slate-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-300/80 motion-reduce:transition-none motion-reduce:active:scale-100"
+            aria-label="Reinitialiser le son"
             title="Réinitialiser"
           >
             <RefreshCw size={20} />
@@ -204,32 +206,34 @@ export const SoundWaveSimulator: React.FC = () => {
         <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 border-t border-slate-100">
           <div className="space-y-2">
              <div className="flex justify-between text-xs font-bold text-slate-500 uppercase">
-              <label>Fréquence (f)</label>
-              <span>{frequency} Hz</span>
+              <label htmlFor="sound-frequency">Fréquence (f)</label>
+              <span className="tabular-nums">{frequency} Hz</span>
             </div>
             <input
+              id="sound-frequency"
               type="range"
               min="1"
               max="5" 
               step="0.5"
               value={frequency}
               onChange={(e) => setFrequency(Number(e.target.value))}
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70"
             />
           </div>
           
           <div className="space-y-2">
              <div className="flex justify-between text-xs font-bold text-slate-500 uppercase">
-              <label>Amplitude (A)</label>
-              <span>{amplitude} px</span>
+              <label htmlFor="sound-amplitude">Amplitude (A)</label>
+              <span className="tabular-nums">{amplitude} px</span>
             </div>
             <input
+              id="sound-amplitude"
               type="range"
               min="5"
               max="20"
               value={amplitude}
               onChange={(e) => setAmplitude(Number(e.target.value))}
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200/70"
             />
           </div>
         </div>

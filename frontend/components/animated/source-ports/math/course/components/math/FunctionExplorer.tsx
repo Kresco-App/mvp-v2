@@ -94,7 +94,7 @@ export const FunctionExplorer: React.FC = () => {
       <div className="flex flex-wrap gap-2 rounded-xl bg-slate-100 p-1.5">
         <button type="button"
           onClick={() => selectFunction('poly')}
-          className={`flex items-center gap-2 rounded-lg px-4 py-2 font-bold transition-all ${
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 font-bold transition-[background-color,box-shadow,color] duration-150 ease-out ${
             funcType === 'poly' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-rose-600'
           }`}
         >
@@ -102,7 +102,7 @@ export const FunctionExplorer: React.FC = () => {
         </button>
         <button type="button"
           onClick={() => selectFunction('exp')}
-          className={`flex items-center gap-2 rounded-lg px-4 py-2 font-bold transition-all ${
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 font-bold transition-[background-color,box-shadow,color] duration-150 ease-out ${
             funcType === 'exp' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-rose-600'
           }`}
         >
@@ -110,7 +110,7 @@ export const FunctionExplorer: React.FC = () => {
         </button>
         <button type="button"
           onClick={() => selectFunction('ln')}
-          className={`flex items-center gap-2 rounded-lg px-4 py-2 font-bold transition-all ${
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 font-bold transition-[background-color,box-shadow,color] duration-150 ease-out ${
             funcType === 'ln' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-rose-600'
           }`}
         >

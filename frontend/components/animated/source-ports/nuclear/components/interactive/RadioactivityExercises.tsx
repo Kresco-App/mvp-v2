@@ -49,12 +49,12 @@ const HalfLifeExercise = () => {
         <input 
             type="number" 
             step="0.00001"
-            className="w-32 border-2 border-slate-200 rounded-lg p-2 text-center font-bold text-lg focus:border-indigo-500 outline-none"
+            className="w-32 rounded-lg border-2 border-slate-200 p-2 text-center text-lg font-bold tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100"
             placeholder="Ex: 0.000121"
             value={lambdaInput}
             onChange={e => setLambdaInput(e.target.value)}
         />
-        <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="min-h-10 rounded-lg bg-indigo-600 px-6 py-2 font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100">
             Vérifier
         </button>
       </div>
@@ -132,12 +132,12 @@ const DatingExercise = () => {
         <input 
             type="number" 
             step="1"
-            className="w-32 border-2 border-slate-200 rounded-lg p-2 text-center font-bold text-lg focus:border-indigo-500 outline-none"
+            className="w-32 rounded-lg border-2 border-slate-200 p-2 text-center text-lg font-bold tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100"
             placeholder="?"
             value={ageInput}
             onChange={e => setAgeInput(e.target.value)}
         />
-        <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="min-h-10 rounded-lg bg-indigo-600 px-6 py-2 font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100">
             Vérifier
         </button>
       </div>
@@ -212,12 +212,12 @@ const ActivityCalculationExercise = () => {
         <input 
             type="number" 
             step="1e12"
-            className="w-32 border-2 border-slate-200 rounded-lg p-2 text-center font-bold text-lg focus:border-indigo-500 outline-none"
+            className="w-32 rounded-lg border-2 border-slate-200 p-2 text-center text-lg font-bold tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100"
             placeholder="Ex: 6.93e18"
             value={activityInput}
             onChange={e => setActivityInput(e.target.value)}
         />
-        <button type="button" onClick={checkAnswer} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="min-h-10 rounded-lg bg-indigo-600 px-6 py-2 font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100">
             Vérifier
         </button>
       </div>

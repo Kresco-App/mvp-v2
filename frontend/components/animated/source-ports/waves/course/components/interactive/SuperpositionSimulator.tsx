@@ -170,17 +170,19 @@ export const SuperpositionSimulator: React.FC = () => {
         <div className="flex gap-2">
             <button type="button"
                 onClick={() => { setMode('constructive'); timeRef.current = 0; }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${
+                className={`flex min-h-10 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-200/80 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                     mode === 'constructive' ? 'bg-violet-100 text-violet-700 ring-2 ring-violet-500 ring-offset-1' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
+                aria-pressed={mode === 'constructive'}
             >
                 <Activity size={14} /> CONSTRUCTIVE
             </button>
             <button type="button"
                 onClick={() => { setMode('destructive'); timeRef.current = 0; }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 transition-all ${
+                className={`flex min-h-10 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-200/80 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                     mode === 'destructive' ? 'bg-rose-100 text-rose-700 ring-2 ring-rose-500 ring-offset-1' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                 }`}
+                aria-pressed={mode === 'destructive'}
             >
                 <ZapOff size={14} /> DESTRUCTIVE
             </button>
@@ -189,15 +191,18 @@ export const SuperpositionSimulator: React.FC = () => {
         <div className="flex gap-2">
           <button type="button"
             onClick={() => setIsPlaying(!isPlaying)}
-            className={`p-2 rounded-lg transition-colors ${
+            className={`flex h-10 w-10 items-center justify-center rounded-lg transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200/80 motion-reduce:transition-none motion-reduce:active:scale-100 ${
               isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
             }`}
+            aria-label={isPlaying ? 'Mettre en pause' : 'Lancer la superposition'}
+            aria-pressed={isPlaying}
           >
             {isPlaying ? <Pause size={20} /> : <Play size={20} />}
           </button>
           <button type="button"
             onClick={reset}
-            className="p-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-200 text-slate-700 transition-[background-color,color,transform] duration-150 ease-out hover:bg-slate-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-300/80 motion-reduce:transition-none motion-reduce:active:scale-100"
+            aria-label="Reinitialiser la superposition"
           >
             <RefreshCw size={20} />
           </button>

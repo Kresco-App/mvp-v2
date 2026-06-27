@@ -256,7 +256,7 @@ export const NuclearAdvancedExercises: React.FC = () => {
         <div className="max-w-4xl mx-auto space-y-8">
             <div className="bg-gradient-to-r from-emerald-900 to-teal-800 p-8 rounded-3xl text-white shadow-2xl mb-12">
                 <h2 className="text-3xl font-extrabold mb-4 flex items-center gap-3">
-                    <Atom className="animate-spin-slow" size={32} /> Défis Nucléaires
+                    <Atom className="animate-spin-slow motion-reduce:animate-none" size={32} /> Défis Nucléaires
                 </h2>
                 <p className="text-emerald-100 text-lg max-w-2xl">
                     Appliquez vos connaissances sur la radioactivité et l'énergie nucléaire dans des contextes réalistes.

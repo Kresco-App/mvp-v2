@@ -267,7 +267,7 @@ export const WaveLab: React.FC = () => {
                     <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
                         <button type="button"
                             onClick={() => setIsRunning(!isRunning)}
-                            className="bg-white/90 hover:bg-white text-indigo-900 p-3 rounded-full shadow-lg backdrop-blur-sm transition-all"
+                            className="bg-white/90 hover:bg-white text-indigo-900 p-3 rounded-full shadow-lg backdrop-blur-sm transition-[background-color,box-shadow,color] duration-150 ease-out"
                         >
                             {isRunning ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
                         </button>
@@ -278,7 +278,7 @@ export const WaveLab: React.FC = () => {
                                 uPrevRef.current.fill(0);
                                 initGrid(); // rebuild wall
                             }}
-                            className="bg-white/90 hover:bg-white text-slate-600 p-3 rounded-full shadow-lg backdrop-blur-sm transition-all"
+                            className="bg-white/90 hover:bg-white text-slate-600 p-3 rounded-full shadow-lg backdrop-blur-sm transition-[background-color,box-shadow,color] duration-150 ease-out"
                         >
                             <RotateCcw size={20} />
                         </button>
@@ -345,7 +345,7 @@ export const WaveLab: React.FC = () => {
                                     width={harborAmplitudePercent}
                                     height="4"
                                     rx="2"
-                                    className={`transition-all duration-300 ${amplitudeInside < 1 ? 'fill-emerald-500' : 'fill-rose-500'}`}
+                                    className={`transition-[fill,width] duration-300 ${amplitudeInside < 1 ? 'fill-emerald-500' : 'fill-rose-500'}`}
                                 />
                             </svg>
                             {/* Safe zone indicator */}
@@ -354,7 +354,7 @@ export const WaveLab: React.FC = () => {
 
                         <button type="button"
                             onClick={checkMission}
-                            className={`w-full py-3 rounded-xl font-bold transition-all shadow-md ${missionStatus === 'success'
+                            className={`w-full py-3 rounded-xl font-bold transition-[background-color,box-shadow,color] duration-150 ease-out shadow-md ${missionStatus === 'success'
                                     ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
                                     : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                                 }`}

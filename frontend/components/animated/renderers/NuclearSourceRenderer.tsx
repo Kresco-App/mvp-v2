@@ -2,33 +2,8 @@
 
 import type { ComponentType } from 'react'
 import type { AnimatedRendererProps } from '../types'
-import {
-  AstonCurve,
-  AtomComposition,
-  ComprehensiveExercises,
-  DecayLawGraph,
-  DecayDiagrams,
-  DecaySimulator,
-  FissionFusionAnimator,
-  FormulaSummary,
-  HalfLifeExplanation,
-  IsotopeComparator,
-  MassEnergyDemonstration,
-  MassEnergyScale,
-  NuclearExercises,
-  NuclearAdvancedExercises,
-  NuclearFormulas,
-  NucleusBuilder,
-  NucleusStabilityExplorer,
-  ParticleIdentificationMethod,
-  RadioactivityExercises,
-  RadioactivityFormulas,
-  RadioactivityVisualizer,
-  SoddyLawDemonstrator,
-  StabilityGraph,
-  TauDemonstration,
-} from '../source-ports/nuclear'
 import { SettingsProvider } from '../source-ports/nuclear/context/SettingsContext'
+import { lazySourceComponent } from './lazySourceComponent'
 
 type NuclearComponentKey =
   | 'atom-composition'
@@ -57,30 +32,30 @@ type NuclearComponentKey =
   | 'nucleus-stability-explorer'
 
 const components: Record<NuclearComponentKey, ComponentType<any>> = {
-  'atom-composition': AtomComposition,
-  'nucleus-builder': NucleusBuilder,
-  'isotope-comparator': IsotopeComparator,
-  'stability-graph': StabilityGraph,
-  'decay-simulator': DecaySimulator,
-  'decay-law-graph': DecayLawGraph,
-  'decay-diagrams': DecayDiagrams,
-  'half-life-explanation': HalfLifeExplanation,
-  'formula-summary': FormulaSummary,
-  'comprehensive-exercises': ComprehensiveExercises,
-  'radioactivity-visualizer': RadioactivityVisualizer,
-  'radioactivity-formulas': RadioactivityFormulas,
-  'radioactivity-exercises': RadioactivityExercises,
-  'tau-demonstration': TauDemonstration,
-  'soddy-law-demonstrator': SoddyLawDemonstrator,
-  'particle-identification-method': ParticleIdentificationMethod,
-  'mass-energy-scale': MassEnergyScale,
-  'mass-energy-demonstration': MassEnergyDemonstration,
-  'aston-curve': AstonCurve,
-  'fission-fusion-animator': FissionFusionAnimator,
-  'nuclear-formulas': NuclearFormulas,
-  'nuclear-exercises': NuclearExercises,
-  'nuclear-advanced-exercises': NuclearAdvancedExercises,
-  'nucleus-stability-explorer': NucleusStabilityExplorer,
+  'atom-composition': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/AtomComposition').then((mod) => mod.AtomComposition)),
+  'nucleus-builder': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/NucleusBuilder').then((mod) => mod.NucleusBuilder)),
+  'isotope-comparator': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/IsotopeComparator').then((mod) => mod.IsotopeComparator)),
+  'stability-graph': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/StabilityGraph').then((mod) => mod.StabilityGraph)),
+  'decay-simulator': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/DecaySimulator').then((mod) => mod.DecaySimulator)),
+  'decay-law-graph': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/DecayLawGraph').then((mod) => mod.DecayLawGraph)),
+  'decay-diagrams': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/DecayDiagrams').then((mod) => mod.DecayDiagrams)),
+  'half-life-explanation': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/HalfLifeExplanation').then((mod) => mod.HalfLifeExplanation)),
+  'formula-summary': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/FormulaSummary').then((mod) => mod.FormulaSummary)),
+  'comprehensive-exercises': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/ComprehensiveExercises').then((mod) => mod.ComprehensiveExercises)),
+  'radioactivity-visualizer': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/RadioactivityVisualizer').then((mod) => mod.RadioactivityVisualizer)),
+  'radioactivity-formulas': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/RadioactivityFormulas').then((mod) => mod.RadioactivityFormulas)),
+  'radioactivity-exercises': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/RadioactivityExercises').then((mod) => mod.RadioactivityExercises)),
+  'tau-demonstration': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/TauDemonstration').then((mod) => mod.TauDemonstration)),
+  'soddy-law-demonstrator': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/SoddyLawDemonstrator').then((mod) => mod.SoddyLawDemonstrator)),
+  'particle-identification-method': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/ParticleIdentificationMethod').then((mod) => mod.ParticleIdentificationMethod)),
+  'mass-energy-scale': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/MassEnergyScale').then((mod) => mod.MassEnergyScale)),
+  'mass-energy-demonstration': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/MassEnergyDemonstration').then((mod) => mod.MassEnergyDemonstration)),
+  'aston-curve': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/AstonCurve').then((mod) => mod.AstonCurve)),
+  'fission-fusion-animator': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/FissionFusionAnimator').then((mod) => mod.FissionFusionAnimator)),
+  'nuclear-formulas': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/NuclearFormulas').then((mod) => mod.NuclearFormulas)),
+  'nuclear-exercises': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/NuclearExercises').then((mod) => mod.NuclearExercises)),
+  'nuclear-advanced-exercises': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/NuclearAdvancedExercises').then((mod) => mod.NuclearAdvancedExercises)),
+  'nucleus-stability-explorer': lazySourceComponent(() => import('../source-ports/nuclear/components/interactive/NucleusStabilityExplorer').then((mod) => mod.NucleusStabilityExplorer)),
 }
 
 const rendererAliases: Record<string, NuclearComponentKey> = {
@@ -168,10 +143,7 @@ export default function NuclearSourceRenderer(props: AnimatedRendererProps) {
     : componentKey === 'decay-diagrams'
       ? { type: metadata.type ?? 'alpha' }
     : {}
+  const content = <Component {...sourceProps} />
 
-  return (
-    <SettingsProvider>
-      <Component {...sourceProps} />
-    </SettingsProvider>
-  )
+  return componentKey === 'nuclear-exercises' ? <SettingsProvider>{content}</SettingsProvider> : content
 }

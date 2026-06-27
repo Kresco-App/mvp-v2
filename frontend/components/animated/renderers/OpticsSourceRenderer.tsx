@@ -2,17 +2,8 @@
 
 import type { ComponentType } from 'react'
 import type { AnimatedRendererProps } from '../types'
-import {
-  DiffractionLab,
-  DiffractionSimulator,
-  LightAdvancedExercises,
-  LightDiffractionSimulator,
-  LightExercises,
-  LightFormulas,
-  LightLabThemeProvider,
-  OpticsCourseEmbed,
-  PrismSimulator,
-} from '../source-ports/optics'
+import { ThemeProvider as LightLabThemeProvider } from '../source-ports/optics/light-lab/context/ThemeContext'
+import { lazySourceComponent } from './lazySourceComponent'
 
 type OpticsComponentKey =
   | 'light-diffraction-simulator'
@@ -24,15 +15,19 @@ type OpticsComponentKey =
   | 'light-advanced-exercises'
   | 'light-lab'
 
-const components: Record<Exclude<OpticsComponentKey, 'light-lab'>, ComponentType<any>> = {
-  'light-diffraction-simulator': LightDiffractionSimulator,
-  'diffraction-simulator': DiffractionSimulator,
-  'diffraction-lab': DiffractionLab,
-  'prism-simulator': PrismSimulator,
-  'light-formulas': LightFormulas,
-  'light-exercises': LightExercises,
-  'light-advanced-exercises': LightAdvancedExercises,
+const components: Record<Exclude<OpticsComponentKey, 'light-lab'>, ComponentType> = {
+  'light-diffraction-simulator': lazySourceComponent(() => import('../source-ports/optics/course/components/interactive/LightDiffractionSimulator').then((mod) => mod.LightDiffractionSimulator)),
+  'diffraction-simulator': lazySourceComponent(() => import('../source-ports/optics/course/components/interactive/DiffractionSimulator').then((mod) => mod.DiffractionSimulator)),
+  'diffraction-lab': lazySourceComponent(() => import('../source-ports/optics/course/components/interactive/labs/DiffractionLab').then((mod) => mod.DiffractionLab)),
+  'prism-simulator': lazySourceComponent(() => import('../source-ports/optics/course/components/interactive/PrismSimulator').then((mod) => mod.PrismSimulator)),
+  'light-formulas': lazySourceComponent(() => import('../source-ports/optics/course/components/interactive/LightFormulas').then((mod) => mod.LightFormulas)),
+  'light-exercises': lazySourceComponent(() => import('../source-ports/optics/course/components/interactive/LightExercises').then((mod) => mod.LightExercises)),
+  'light-advanced-exercises': lazySourceComponent(() => import('../source-ports/optics/course/components/interactive/advanced/LightAdvancedExercises').then((mod) => mod.LightAdvancedExercises)),
 }
+
+const OpticsCourseEmbed = lazySourceComponent(
+  () => import('../source-ports/optics/light-lab/components/OpticsCourseEmbed').then((mod) => mod.default),
+)
 
 const aliases: Record<string, OpticsComponentKey> = {
   light_diffraction_simulator: 'light-diffraction-simulator',

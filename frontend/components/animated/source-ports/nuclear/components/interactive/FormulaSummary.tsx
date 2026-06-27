@@ -3,7 +3,7 @@
 
 /* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react/display-name, prefer-const, @typescript-eslint/no-unused-expressions */
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Calculator, Clock, Atom, Activity, Scale, Ruler } from 'lucide-react';
 
 interface FormulaCardProps {
@@ -15,9 +15,13 @@ interface FormulaCardProps {
   iconColor: string;
 }
 
-const FormulaCard: React.FC<FormulaCardProps> = ({ title, formula, variables, icon, color, iconColor }) => (
+const FormulaCard: React.FC<FormulaCardProps> = ({ title, formula, variables, icon, color, iconColor }) => {
+  const shouldReduceMotion = useReducedMotion();
+
+  return (
   <motion.div 
-    whileHover={{ y: -4 }}
+    whileHover={shouldReduceMotion ? undefined : { y: -2 }}
+    transition={{ duration: 0.15, ease: "easeOut" }}
     className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden flex flex-col"
   >
     <div className={`p-3 ${color} flex items-center gap-2 border-b border-slate-100`}>
@@ -46,7 +50,8 @@ const FormulaCard: React.FC<FormulaCardProps> = ({ title, formula, variables, ic
       </ul>
     </div>
   </motion.div>
-);
+  );
+};
 
 export const FormulaSummary: React.FC = () => {
   const formulas = [

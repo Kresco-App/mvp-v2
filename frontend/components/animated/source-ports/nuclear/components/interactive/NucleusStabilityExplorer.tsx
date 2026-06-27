@@ -2,6 +2,7 @@
 
 /* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react/display-name, prefer-const, @typescript-eslint/no-unused-expressions */
 import React, { useMemo, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Info } from 'lucide-react';
 
 const ELEMENTS = [
@@ -109,10 +110,12 @@ const MAX_DRAWN_PARTICLES = 34;
 const stableNeutronsFor = (z: number) => Math.round(z * (1 + 0.006 * z));
 const plotX = (z: number) => 58 + (z / 100) * 864;
 const plotY = (n: number) => 278 - (n / MAX_N) * 236;
+const smoothEase = [0.22, 1, 0.36, 1] as const;
 
 export const NucleusStabilityExplorer: React.FC = () => {
   const [protons, setProtons] = useState(2);
   const [neutrons, setNeutrons] = useState(2);
+  const shouldReduceMotion = useReducedMotion();
 
   const element = ELEMENTS.find((e) => e.z === protons) || { symbol: '?', name: `Z=${protons}` };
   const massNumber = protons + neutrons;
@@ -122,6 +125,9 @@ export const NucleusStabilityExplorer: React.FC = () => {
   const drawnTotal = Math.min(massNumber || 1, MAX_DRAWN_PARTICLES);
   const drawnProtons = massNumber <= MAX_DRAWN_PARTICLES ? protons : Math.max(1, Math.round((protons / massNumber) * drawnTotal));
   const drawnNeutrons = Math.max(0, drawnTotal - drawnProtons);
+  const numberTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.18, ease: smoothEase };
+  const graphTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: smoothEase };
+  const currentPoint = { x: plotX(protons), y: plotY(neutrons) };
 
   const stabilityText = isStable
     ? 'Le point est proche de la vallee de stabilite pour ce nombre de protons.'
@@ -179,8 +185,8 @@ export const NucleusStabilityExplorer: React.FC = () => {
               ))}
             </div>
 
-            <div className="absolute inset-0 rounded-full border border-dashed border-indigo-200/30 scale-110 animate-[spin_20s_linear_infinite]" />
-            <div className="absolute inset-0 rounded-full border border-dashed border-indigo-200/30 scale-150 animate-[spin_25s_linear_infinite_reverse]" />
+            <div className="absolute inset-0 rounded-full border border-dashed border-indigo-200/30 scale-110 animate-[spin_20s_linear_infinite] motion-reduce:animate-none" />
+            <div className="absolute inset-0 rounded-full border border-dashed border-indigo-200/30 scale-150 animate-[spin_25s_linear_infinite_reverse] motion-reduce:animate-none" />
           </div>
 
           <div className="mt-5 flex justify-center gap-4 text-xs">
@@ -195,7 +201,7 @@ export const NucleusStabilityExplorer: React.FC = () => {
           </div>
           {massNumber > MAX_DRAWN_PARTICLES && (
             <div className="mt-3 text-[10px] font-bold text-indigo-400">
-              Visualisation compacte: {massNumber} nucleons au total
+              Visualisation compacte: <span className="tabular-nums">{massNumber}</span> nucleons au total
             </div>
           )}
         </div>
@@ -203,24 +209,38 @@ export const NucleusStabilityExplorer: React.FC = () => {
         <div className="w-full bg-slate-50 p-5 rounded-xl border border-slate-200">
           <div className="text-center mb-5">
             <div className="inline-flex items-baseline gap-1 font-serif font-bold text-slate-800">
-              <div className="flex flex-col text-xs items-end leading-tight opacity-70">
-                <span>{massNumber}</span>
-                <span>{protons}</span>
+              <div className="flex flex-col text-xs items-end leading-tight opacity-70 tabular-nums">
+                <motion.span
+                  key={`A-${massNumber}`}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={numberTransition}
+                >
+                  {massNumber}
+                </motion.span>
+                <motion.span
+                  key={`Z-${protons}`}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={numberTransition}
+                >
+                  {protons}
+                </motion.span>
               </div>
               <span className="text-5xl">{element.symbol}</span>
             </div>
             <div className="text-lg font-bold text-indigo-900 mt-2">{element.name}</div>
 
-            <div className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${isStable ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+            <div className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold transition-[background-color,color] duration-150 ease-out motion-reduce:transition-none ${isStable ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
               {isStable ? 'Noyau Stable' : 'Noyau Instable'}
             </div>
           </div>
 
           <div className="space-y-4">
-            <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-100">
+            <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-100 transition-[border-color,box-shadow] duration-150 ease-out hover:border-rose-100 hover:shadow-[0_8px_20px_rgba(244,63,94,0.08)] motion-reduce:transition-none">
               <div className="flex justify-between mb-2 text-xs font-bold text-slate-500 uppercase">
                 <span>Protons (Z)</span>
-                <span>{protons}</span>
+                <span className="tabular-nums">{protons}</span>
               </div>
               <input
                 type="range"
@@ -228,14 +248,15 @@ export const NucleusStabilityExplorer: React.FC = () => {
                 max={MAX_Z}
                 value={protons}
                 onChange={(e) => setProtons(parseInt(e.target.value))}
-                className="w-full h-2 bg-rose-100 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                className="w-full h-2 bg-rose-100 rounded-lg appearance-none cursor-pointer accent-rose-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-rose-200/70"
+                aria-label="Protons"
               />
             </div>
 
-            <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-100">
+            <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-100 transition-[border-color,box-shadow] duration-150 ease-out hover:border-slate-200 hover:shadow-[0_8px_20px_rgba(15,23,42,0.08)] motion-reduce:transition-none">
               <div className="flex justify-between mb-2 text-xs font-bold text-slate-500 uppercase">
                 <span>Neutrons (N)</span>
-                <span>{neutrons}</span>
+                <span className="tabular-nums">{neutrons}</span>
               </div>
               <input
                 type="range"
@@ -243,14 +264,15 @@ export const NucleusStabilityExplorer: React.FC = () => {
                 max={MAX_N}
                 value={neutrons}
                 onChange={(e) => setNeutrons(parseInt(e.target.value))}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-600"
+                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200/80"
+                aria-label="Neutrons"
               />
             </div>
           </div>
 
           <div className="mt-5 p-3 bg-indigo-50 rounded-lg text-xs text-indigo-800 flex items-start gap-2">
             <Info size={14} className="mt-0.5 shrink-0" />
-            <p>{stabilityText}</p>
+            <p className="text-pretty">{stabilityText}</p>
           </div>
         </div>
       </div>
@@ -298,8 +320,23 @@ export const NucleusStabilityExplorer: React.FC = () => {
               />
             ))}
 
-            <circle cx={plotX(protons)} cy={plotY(neutrons)} r="15" fill="#06b6d4" opacity="0.18" />
-            <circle cx={plotX(protons)} cy={plotY(neutrons)} r="8" fill="#06b6d4" stroke="#ffffff" strokeWidth="3" />
+            <motion.circle
+              initial={false}
+              animate={{ cx: currentPoint.x, cy: currentPoint.y }}
+              transition={graphTransition}
+              r="15"
+              fill="#06b6d4"
+              opacity="0.18"
+            />
+            <motion.circle
+              initial={false}
+              animate={{ cx: currentPoint.x, cy: currentPoint.y }}
+              transition={graphTransition}
+              r="8"
+              fill="#06b6d4"
+              stroke="#ffffff"
+              strokeWidth="3"
+            />
           </svg>
         </div>
 

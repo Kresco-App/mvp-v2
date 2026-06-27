@@ -238,15 +238,18 @@ export const TimeDelaySimulator: React.FC = () => {
         <div className="flex gap-2">
           <button type="button"
             onClick={() => setIsPlaying(!isPlaying)}
-            className={`p-2 rounded-lg transition-colors ${
+            className={`flex h-10 w-10 items-center justify-center rounded-lg transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200/80 motion-reduce:transition-none motion-reduce:active:scale-100 ${
               isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
             }`}
+            aria-label={isPlaying ? 'Mettre en pause' : 'Lancer le retard temporel'}
+            aria-pressed={isPlaying}
           >
             {isPlaying ? <Pause size={20} /> : <Play size={20} />}
           </button>
           <button type="button"
             onClick={reset}
-            className="p-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors"
+            className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-200 text-slate-700 transition-[background-color,color,transform] duration-150 ease-out hover:bg-slate-300 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-300/80 motion-reduce:transition-none motion-reduce:active:scale-100"
+            aria-label="Reinitialiser le retard temporel"
           >
             <RefreshCw size={20} />
           </button>
@@ -255,33 +258,35 @@ export const TimeDelaySimulator: React.FC = () => {
 
       <div className="p-4 bg-white grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Distance MM' (d)</label>
+              <label htmlFor="time-delay-distance" className="text-xs font-bold text-slate-500 uppercase block mb-2">Distance MM' (d)</label>
               <input 
+                id="time-delay-distance"
                 type="range" 
                 min="50" 
                 max="400" 
                 value={distance} 
                 onChange={(e) => { setDistance(Number(e.target.value)); reset(); }}
-                className="w-full accent-indigo-500 mb-2"
+                className="w-full accent-indigo-500 mb-2 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200/70"
               />
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between text-sm tabular-nums">
                   <span>0.50 m</span>
                   <span className="font-bold text-indigo-600">{distanceM} m</span>
                   <span>4.00 m</span>
               </div>
           </div>
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <label className="text-xs font-bold text-slate-500 uppercase block mb-2">Célérité (v)</label>
+              <label htmlFor="time-delay-speed" className="text-xs font-bold text-slate-500 uppercase block mb-2">Célérité (v)</label>
               <input 
+                id="time-delay-speed"
                 type="range" 
                 min="1" 
                 max="10" 
                 step="0.5"
                 value={speed} 
                 onChange={(e) => { setSpeed(Number(e.target.value)); reset(); }}
-                className="w-full accent-indigo-500 mb-2"
+                className="w-full accent-indigo-500 mb-2 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200/70"
               />
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between text-sm tabular-nums">
                   <span>0.6 m/s</span>
                   <span className="font-bold text-indigo-600">{speedMS} m/s</span>
                   <span>6.0 m/s</span>
@@ -329,7 +334,7 @@ export const TimeDelaySimulator: React.FC = () => {
           
           <div className="text-center">
               <div className="text-xs text-indigo-400 font-bold uppercase mb-1">Retard calculé</div>
-              <div className="font-mono text-2xl font-bold text-indigo-700">
+              <div className="font-mono text-2xl font-bold text-indigo-700 tabular-nums">
                   {tauSeconds} <span className="text-sm font-normal text-indigo-500">s</span>
               </div>
           </div>

@@ -273,7 +273,7 @@ const DiffractionChallenge = () => {
                     <div className="grid grid-cols-2 gap-4">
                         <button type="button"
                             onClick={() => check(true)}
-                            className={`p-4 rounded-xl border-2 font-bold transition-all ${selectedAnswer === true
+                            className={`p-4 rounded-xl border-2 font-bold transition-[background-color,border-color,color] duration-150 ease-out ${selectedAnswer === true
                                 ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
                                 : 'border-slate-200 hover:border-indigo-300'}`}
                         >
@@ -281,7 +281,7 @@ const DiffractionChallenge = () => {
                         </button>
                         <button type="button"
                             onClick={() => check(false)}
-                            className={`p-4 rounded-xl border-2 font-bold transition-all ${selectedAnswer === false
+                            className={`p-4 rounded-xl border-2 font-bold transition-[background-color,border-color,color] duration-150 ease-out ${selectedAnswer === false
                                 ? 'border-rose-600 bg-rose-50 text-rose-700'
                                 : 'border-slate-200 hover:border-rose-300'}`}
                         >
@@ -368,7 +368,7 @@ const SeismicChallenge = () => {
                                 className="flex-1 p-2 border border-amber-300 rounded font-bold outline-none focus:border-amber-500"
                                 placeholder="Distance en km"
                             />
-                            <button type="button" onClick={validate} className="bg-amber-600 text-white px-4 py-2 rounded font-bold hover:bg-amber-700 transition">
+                            <button type="button" onClick={validate} className="rounded bg-amber-600 px-4 py-2 font-bold text-white transition-[background-color,transform] duration-150 ease-out hover:bg-amber-700 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100">
                                 Valider
                             </button>
                         </div>

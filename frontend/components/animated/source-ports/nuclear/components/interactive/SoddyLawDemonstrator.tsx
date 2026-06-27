@@ -3,12 +3,12 @@
 
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const NucleusBlock = ({ A, Z, Sym, color, label }: any) => (
   <div className="flex flex-col items-center">
-    <div className={`relative flex items-center justify-center w-16 h-16 md:w-24 md:h-24 rounded-xl ${color} border-2 border-slate-900/10 shadow-md mb-2 transition-colors`}>
+    <div className={`relative mb-2 flex h-16 w-16 items-center justify-center rounded-xl border-2 border-slate-900/10 shadow-md transition-[background-color,border-color,box-shadow] duration-200 ease-out md:h-24 md:w-24 ${color}`}>
        <div className="absolute top-1 md:top-2 left-1 md:left-2 flex flex-col leading-none font-mono text-[10px] md:text-sm font-bold opacity-70">
           <span className="text-purple-700" title="Nombre de masse (A)">{A}</span>
           <span className="text-rose-700" title="Numéro atomique (Z)">{Z}</span>
@@ -46,22 +46,37 @@ const EXAMPLES = [
 export const SoddyLawDemonstrator: React.FC = () => {
   const [disintegrated, setDisintegrated] = useState(false);
   const [exampleIndex, setExampleIndex] = useState(0);
+  const shouldReduceMotion = useReducedMotion();
 
   const currentExample = EXAMPLES[exampleIndex];
   const { parent, daughter, particle } = currentExample;
+  const quickTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: 'easeOut' as const };
+  const daughterTransition = shouldReduceMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 200, damping: 20, delay: 0.1 };
+  const particleTransition = shouldReduceMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 200, damping: 20, delay: 0.2 };
+  const plusTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.2, delay: 0.3, ease: 'easeOut' as const };
 
   const nextExample = () => {
     setDisintegrated(false);
-    setTimeout(() => {
+    const updateExample = () => {
         setExampleIndex((prev) => (prev + 1) % EXAMPLES.length);
-    }, 200);
+    };
+    if (shouldReduceMotion) {
+        updateExample();
+        return;
+    }
+    setTimeout(updateExample, 200);
   };
 
   const prevExample = () => {
     setDisintegrated(false);
-    setTimeout(() => {
+    const updateExample = () => {
         setExampleIndex((prev) => (prev - 1 + EXAMPLES.length) % EXAMPLES.length);
-    }, 200);
+    };
+    if (shouldReduceMotion) {
+        updateExample();
+        return;
+    }
+    setTimeout(updateExample, 200);
   };
 
   return (
@@ -80,17 +95,19 @@ export const SoddyLawDemonstrator: React.FC = () => {
         <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200">
             <button type="button" 
                 onClick={prevExample}
-                className="p-1.5 hover:bg-white hover:shadow-sm rounded-md transition-all text-slate-500"
+                aria-label="Exemple precedent"
+                className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-white hover:shadow-sm active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 motion-reduce:transition-none motion-reduce:active:scale-100"
                 title="Exemple précédent"
             >
                 <ChevronLeft size={16} />
             </button>
-            <span className="text-xs font-mono font-bold text-slate-400 px-2">
+            <span className="px-2 font-mono text-xs font-bold tabular-nums text-slate-400">
                 {exampleIndex + 1}/{EXAMPLES.length}
             </span>
             <button type="button" 
                 onClick={nextExample}
-                className="p-1.5 hover:bg-white hover:shadow-sm rounded-md transition-all text-slate-500"
+                aria-label="Exemple suivant"
+                className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-white hover:shadow-sm active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 motion-reduce:transition-none motion-reduce:active:scale-100"
                 title="Exemple suivant"
             >
                 <ChevronRight size={16} />
@@ -99,7 +116,8 @@ export const SoddyLawDemonstrator: React.FC = () => {
 
         <button type="button" 
             onClick={() => setDisintegrated(!disintegrated)}
-            className="w-full md:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg text-xs md:text-sm font-bold hover:bg-purple-700 transition-colors shadow-sm"
+            aria-pressed={disintegrated}
+            className="min-h-10 w-full rounded-lg bg-purple-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-purple-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:w-auto md:text-sm"
         >
             {disintegrated ? 'Réinitialiser' : 'Désintégrer'}
         </button>
@@ -117,8 +135,8 @@ export const SoddyLawDemonstrator: React.FC = () => {
                     key={`parent-${exampleIndex}`}
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, x: -50, filter: 'blur(10px)' }}
-                    transition={{ duration: 0.3 }}
+                    exit={{ opacity: 0, x: shouldReduceMotion ? 0 : -50, filter: shouldReduceMotion ? 'blur(0px)' : 'blur(10px)' }}
+                    transition={quickTransition}
                     className="absolute"
                 >
                     <NucleusBlock {...parent} label="Noyau Père" />
@@ -128,7 +146,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
                     <motion.div
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
-                        transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
+                        transition={daughterTransition}
                     >
                         <NucleusBlock {...daughter} label="Noyau Fils" />
                     </motion.div>
@@ -136,7 +154,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
                     <motion.div
                         initial={{ opacity: 0, scale: 0 }}
                         animate={{ opacity: 1, scale: 1 }}
-                         transition={{ delay: 0.3 }}
+                         transition={plusTransition}
                     >
                         <span className="text-2xl md:text-3xl font-bold text-slate-300">+</span>
                     </motion.div>
@@ -144,7 +162,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
                     <motion.div
                          initial={{ opacity: 0, x: 20, rotate: 180 }}
                          animate={{ opacity: 1, x: 0, rotate: 0 }}
-                         transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.2 }}
+                         transition={particleTransition}
                     >
                         <NucleusBlock {...particle} label="Particule" />
                     </motion.div>
@@ -154,11 +172,12 @@ export const SoddyLawDemonstrator: React.FC = () => {
       </div>
 
       {/* Math Verification System of Equations */}
-      <div className="bg-slate-50 rounded-xl p-6 border border-slate-200 transition-all duration-500 relative overflow-hidden flex flex-col items-center">
+      <div className="bg-slate-50 rounded-xl p-6 border border-slate-200 transition-[background-color,border-color] duration-500 relative overflow-hidden flex flex-col items-center">
          {disintegrated && (
              <motion.div 
                 initial={{ width: 0 }} 
                 animate={{ width: '100%' }} 
+                transition={quickTransition}
                 className="absolute top-0 left-0 h-1 bg-green-500" 
              />
          )}
@@ -169,7 +188,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
              {/* Big Brace */}
              <span className="text-4xl md:text-[5rem] font-light text-slate-300 leading-none transform scale-y-110 select-none">{'{'}</span>
              
-             <div className="flex flex-col gap-3 md:gap-5 font-mono text-base md:text-xl">
+             <div className="flex flex-col gap-3 font-mono text-base tabular-nums md:gap-5 md:text-xl">
                 {/* A Equation */}
                 <div className="flex items-center gap-2 md:gap-4">
                     <span className="font-bold text-purple-600 w-8 md:w-10 text-right text-xs md:text-base tracking-widest">A:</span>
@@ -182,12 +201,14 @@ export const SoddyLawDemonstrator: React.FC = () => {
                                     <motion.span 
                                         key="qA"
                                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                        transition={quickTransition}
                                         className="text-slate-300"
                                     >?</motion.span>
                                 ) : (
                                     <motion.span 
                                         key="resA"
                                         initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                                        transition={quickTransition}
                                         className="text-purple-700 font-bold"
                                     >{daughter.A}</motion.span>
                                 )}
@@ -197,7 +218,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
                         <span>{particle.A}</span>
                     </div>
                     {disintegrated && (
-                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}>
+                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={quickTransition}>
                             <Check className="text-emerald-500" size={20} />
                         </motion.div>
                     )}
@@ -215,12 +236,14 @@ export const SoddyLawDemonstrator: React.FC = () => {
                                     <motion.span 
                                         key="qZ"
                                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                                        transition={quickTransition}
                                         className="text-slate-300"
                                     >?</motion.span>
                                 ) : (
                                     <motion.span 
                                         key="resZ"
                                         initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                                        transition={quickTransition}
                                         className="text-rose-700 font-bold"
                                     >{daughter.Z}</motion.span>
                                 )}
@@ -230,7 +253,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
                         <span>{Math.abs(particle.Z)}</span>
                     </div>
                      {disintegrated && (
-                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}>
+                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={quickTransition}>
                             <Check className="text-emerald-500" size={20} />
                         </motion.div>
                     )}
@@ -241,6 +264,7 @@ export const SoddyLawDemonstrator: React.FC = () => {
          {disintegrated && (
             <motion.p 
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                transition={quickTransition}
                 className="mt-6 text-xs text-emerald-600 font-bold uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100"
             >
                 Lois vérifiées

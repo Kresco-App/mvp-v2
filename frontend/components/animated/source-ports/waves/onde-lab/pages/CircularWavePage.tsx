@@ -62,25 +62,25 @@ export default function CircularWavePage({ onNavigate }: CircularWavePageProps) 
                         Labo Ondes
                     </h1>
                     <div className={`flex ${isDark ? 'bg-[#334155]' : 'bg-[#F1F5F9]'} rounded-full p-1 gap-1 overflow-x-auto`}>
-                        <button type="button" onClick={() => onNavigate('single')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Onde Simple</button>
-                        <button type="button" onClick={() => onNavigate('interference')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Collision</button>
-                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Longitudinale</button>
-                        <button type="button" onClick={() => onNavigate('multimedium')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Milieux</button>
-                        <button type="button" className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${accentBg} text-white shadow-sm`}>Circulaire</button>
+                        <button type="button" onClick={() => onNavigate('single')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Onde Simple</button>
+                        <button type="button" onClick={() => onNavigate('interference')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Collision</button>
+                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Longitudinale</button>
+                        <button type="button" onClick={() => onNavigate('multimedium')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Milieux</button>
+                        <button type="button" className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${accentBg} text-white shadow-sm`}>Circulaire</button>
                     </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <button type="button"
                         onClick={toggleTheme}
-                        className={`px-3 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
+                        className={`px-3 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
                         title={isDark ? 'Mode clair' : 'Mode sombre'}
                     >
                         {isDark ? 'Clair' : 'Sombre'}
                     </button>
-                    <button type="button" onClick={() => setIsPlaying(!isPlaying)} className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${isPlaying ? 'bg-red-50 text-red-500 border border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'}`}>
+                    <button type="button" onClick={() => setIsPlaying(!isPlaying)} className={`px-4 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-2 ${isPlaying ? 'bg-red-50 text-red-500 border border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'}`}>
                         {isPlaying ? 'Pause' : 'Lecture'}
                     </button>
-                    <button type="button" onClick={handleReset} className={`px-4 py-2 rounded-full transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>Reset</button>
+                    <button type="button" onClick={handleReset} className={`px-4 py-2 rounded-full transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>Reset</button>
                 </div>
             </header>
             
@@ -108,8 +108,8 @@ export default function CircularWavePage({ onNavigate }: CircularWavePageProps) 
                     <section className={`${isDark ? 'bg-[#334155]/50' : 'bg-[#FFF9EB]'} rounded-2xl p-4 space-y-3 border ${isDark ? 'border-[#475569]' : 'border-[#FBAE17]/20'}`}>
                         <h3 className={`text-xs font-semibold ${accentLight} uppercase tracking-wider`}>Mode</h3>
                         <div className="flex gap-2">
-                            <button type="button" onClick={() => setWaveMode('manual')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${waveMode === 'manual' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Pluie (Clic)</button>
-                            <button type="button" onClick={() => setWaveMode('oscillate')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${waveMode === 'oscillate' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Oscillateur</button>
+                            <button type="button" onClick={() => setWaveMode('manual')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${waveMode === 'manual' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Pluie (Clic)</button>
+                            <button type="button" onClick={() => setWaveMode('oscillate')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${waveMode === 'oscillate' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Oscillateur</button>
                         </div>
                         <p className={`text-xs ${textTertiary}`}>
                             {waveMode === 'manual' ? "Cliquez sur la zone pour créer des perturbations." : "Une source continue oscille au centre."}
@@ -167,7 +167,7 @@ export default function CircularWavePage({ onNavigate }: CircularWavePageProps) 
                                     <button type="button"
                                         key={s}
                                         onClick={() => setSimSpeed(s)}
-                                        className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-all ${simSpeed === s ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}
+                                        className={`flex-1 py-1.5 rounded-full text-xs font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${simSpeed === s ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}
                                     >
                                         {s}x
                                     </button>

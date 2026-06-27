@@ -16,6 +16,9 @@ const laserToneClasses: Record<LaserTone, { text: string; accent: string }> = {
   red: { text: 'text-red-400', accent: 'accent-red-500' },
 }
 
+const prismModeButtonMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/30 motion-reduce:transition-none motion-reduce:active:scale-100'
+const prismToggleButtonMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-400/30 motion-reduce:transition-none motion-reduce:active:scale-100'
+
 const getLaserTone = (nm: number): LaserTone => {
   if (nm < 450) return 'violet'
   if (nm < 495) return 'blue'
@@ -309,15 +312,16 @@ export default function PrismSimulator() {
             setLaser2Wavelength(450)
             setShowAngles(false)
           }}
-          className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+          aria-label="Reset prism simulator"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-400/40 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100"
         >
-          <RefreshCw size={16} />
+          <RefreshCw size={16} aria-hidden="true" />
         </button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_340px]">
         <div className="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 shadow-inner min-h-[440px] lg:min-h-[540px]">
-          <canvas ref={canvasRef} className="w-full h-full transition-colors duration-200" />
+          <canvas ref={canvasRef} className="w-full h-full transition-[background-color,color] duration-150 ease-out motion-reduce:transition-none" />
         </div>
 
         <div className="space-y-4">
@@ -326,23 +330,26 @@ export default function PrismSimulator() {
             <div className="grid grid-cols-3 gap-1">
               <button type="button"
                 onClick={() => setSourceMode('white')}
-                className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${sourceMode === 'white' ? 'bg-blue-500 text-white shadow-sm' : 'bg-slate-800 text-slate-200 border border-slate-600'}`}
+                aria-pressed={sourceMode === 'white'}
+                className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-full border px-1 py-2 text-[10px] font-bold ${prismModeButtonMotionClass} ${sourceMode === 'white' ? 'border-transparent bg-blue-500 text-white shadow-sm' : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-blue-400/50 hover:bg-slate-700'}`}
               >
-                <Sun size={14} />
+                <Sun size={14} aria-hidden="true" />
                 Soleil
               </button>
               <button type="button"
                 onClick={() => setSourceMode('single')}
-                className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${sourceMode === 'single' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-800 text-slate-200 border border-slate-600'}`}
+                aria-pressed={sourceMode === 'single'}
+                className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-full border px-1 py-2 text-[10px] font-bold ${prismModeButtonMotionClass} ${sourceMode === 'single' ? 'border-transparent bg-amber-500 text-white shadow-sm' : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-amber-400/50 hover:bg-slate-700'}`}
               >
-                <Droplet size={14} />
+                <Droplet size={14} aria-hidden="true" />
                 1 Laser
               </button>
               <button type="button"
                 onClick={() => setSourceMode('double')}
-                className={`py-2 px-1 rounded-full text-[10px] font-bold transition-all flex flex-col items-center justify-center gap-1 ${sourceMode === 'double' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-800 text-slate-200 border border-slate-600'}`}
+                aria-pressed={sourceMode === 'double'}
+                className={`flex min-h-10 flex-col items-center justify-center gap-1 rounded-full border px-1 py-2 text-[10px] font-bold ${prismModeButtonMotionClass} ${sourceMode === 'double' ? 'border-transparent bg-emerald-500 text-white shadow-sm' : 'border-slate-600 bg-slate-800 text-slate-200 hover:border-emerald-400/50 hover:bg-slate-700'}`}
               >
-                <RefreshCw size={14} />
+                <RefreshCw size={14} aria-hidden="true" />
                 2 Lasers
               </button>
             </div>
@@ -433,11 +440,12 @@ export default function PrismSimulator() {
               <div className="pt-2 border-t border-purple-500/10">
                 <button type="button"
                   onClick={() => setShowAngles(!showAngles)}
-                  className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${showAngles ? 'bg-purple-500 text-white shadow-sm' : 'bg-slate-900 text-slate-200 border border-slate-600'}`}
+                  aria-pressed={showAngles}
+                  className={`flex min-h-10 w-full items-center justify-between rounded-full border px-3 py-2 text-sm font-medium ${prismToggleButtonMotionClass} ${showAngles ? 'border-transparent bg-purple-500 text-white shadow-sm' : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-purple-400/50 hover:bg-slate-800'}`}
                 >
                   <span>Visualiser les angles</span>
-                  <div className={`w-8 h-4 rounded-full relative transition-colors ${showAngles ? 'bg-purple-300' : 'bg-slate-400'}`}>
-                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${showAngles ? 'left-4.5' : 'left-0.5'}`} />
+                  <div className={`relative h-4 w-8 rounded-full transition-[background-color] duration-150 ease-out motion-reduce:transition-none ${showAngles ? 'bg-purple-300' : 'bg-slate-400'}`} aria-hidden="true">
+                    <div className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white transition-[transform] duration-150 ease-out motion-reduce:transition-none ${showAngles ? 'translate-x-4' : 'translate-x-0'}`} />
                   </div>
                 </button>
               </div>

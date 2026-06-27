@@ -114,10 +114,10 @@ const PrismChallenge = () => {
                                 step="0.01"
                                 value={userIdx}
                                 onChange={e => setUserIdx(e.target.value)}
-                                className="border-2 border-slate-200 rounded-lg p-3 w-32 font-bold focus:border-amber-500 outline-none"
+                                className="w-32 rounded-lg border-2 border-slate-200 p-3 font-bold tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-amber-500 focus-visible:ring-4 focus-visible:ring-amber-100"
                                 placeholder="n = ?"
                             />
-                            <button type="button" onClick={check} className="bg-amber-600 text-white px-6 rounded-lg font-bold hover:bg-amber-700 transition-colors">
+                            <button type="button" onClick={check} className="min-h-11 rounded-lg bg-amber-600 px-6 font-bold text-white transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-amber-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 motion-reduce:transition-none motion-reduce:active:scale-100">
                                 Vérifier
                             </button>
                         </div>

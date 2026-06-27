@@ -2,22 +2,23 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Play, Pause, RotateCcw, Info } from 'lucide-react';
 
 export const InteractiveWater: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(true);
   const [key, setKey] = useState(0);
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
-    if (isPlaying) {
+    if (isPlaying && !shouldReduceMotion) {
       interval = setInterval(() => {
         setKey(prev => prev + 1);
       }, 5000); 
     }
     return () => clearInterval(interval);
-  }, [isPlaying]);
+  }, [isPlaying, shouldReduceMotion]);
 
   return (
     <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 my-12 shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden">
@@ -37,14 +38,16 @@ export const InteractiveWater: React.FC = () => {
         <div className="flex space-x-2 w-full md:w-auto">
             <button type="button" 
                 onClick={() => setKey(prev => prev + 1)}
-                className="p-3 bg-slate-50 rounded-xl hover:bg-slate-100 text-slate-600 transition-colors border border-slate-200"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition-[background-color,border-color,color,transform] duration-150 ease-out hover:bg-slate-100 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200/80 motion-reduce:transition-none motion-reduce:active:scale-100"
+                aria-label="Rejouer le transfert de proton"
                 title="Rejouer"
             >
                 <RotateCcw size={20} />
             </button>
             <button type="button" 
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="flex-1 md:flex-none justify-center flex items-center space-x-2 px-6 py-3 bg-[#4c1d95] rounded-xl shadow-lg shadow-purple-900/20 text-white font-bold text-sm hover:bg-[#3b0764] transition-all transform active:scale-95"
+                onClick={() => setIsPlaying((playing) => !playing)}
+                className="flex min-h-11 flex-1 items-center justify-center space-x-2 rounded-xl bg-[#4c1d95] px-6 py-3 text-sm font-bold text-white shadow-lg shadow-purple-900/20 transition-[background-color,box-shadow,transform] duration-150 ease-out hover:bg-[#3b0764] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200/80 motion-reduce:transition-none motion-reduce:active:scale-100 md:flex-none"
+                aria-pressed={isPlaying}
             >
                 {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
                 <span>{isPlaying ? "Pause" : "Lecture"}</span>
@@ -154,7 +157,7 @@ export const InteractiveWater: React.FC = () => {
             <motion.div 
                 initial={{ width: "0%" }}
                 animate={{ width: "100%" }}
-                transition={{ duration: 5, ease: "linear", repeat: Infinity }}
+                transition={shouldReduceMotion ? { duration: 0 } : { duration: 5, ease: "linear", repeat: Infinity }}
                 className="h-full bg-[#fbbf24]"
             />
           </div>

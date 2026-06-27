@@ -68,25 +68,25 @@ export default function MultiMediumPage({ onNavigate }: MultiMediumPageProps) {
                         Labo Ondes
                     </h1>
                     <div className={`flex ${isDark ? 'bg-[#334155]' : 'bg-[#F1F5F9]'} rounded-full p-1 gap-1 overflow-x-auto`}>
-                        <button type="button" onClick={() => onNavigate('single')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Onde Simple</button>
-                        <button type="button" onClick={() => onNavigate('interference')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Collision</button>
-                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Longitudinale</button>
-                        <button type="button" className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${accentBg} text-white shadow-sm`}>Milieux</button>
-                        <button type="button" onClick={() => onNavigate('circular')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Circulaire</button>
+                        <button type="button" onClick={() => onNavigate('single')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Onde Simple</button>
+                        <button type="button" onClick={() => onNavigate('interference')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Collision</button>
+                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Longitudinale</button>
+                        <button type="button" className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${accentBg} text-white shadow-sm`}>Milieux</button>
+                        <button type="button" onClick={() => onNavigate('circular')} className={`px-3 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out whitespace-nowrap ${textSecondary} hover:${textPrimary}`}>Circulaire</button>
                     </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <button type="button"
                         onClick={toggleTheme}
-                        className={`px-3 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
+                        className={`px-3 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
                         title={isDark ? 'Mode clair' : 'Mode sombre'}
                     >
                         {isDark ? 'Clair' : 'Sombre'}
                     </button>
-                    <button type="button" onClick={() => setIsPlaying(!isPlaying)} className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${isPlaying ? 'bg-red-50 text-red-500 border border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'}`}>
+                    <button type="button" onClick={() => setIsPlaying(!isPlaying)} className={`px-4 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-2 ${isPlaying ? 'bg-red-50 text-red-500 border border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'}`}>
                         {isPlaying ? 'Pause' : 'Lecture'}
                     </button>
-                    <button type="button" onClick={handleRestart} className={`px-4 py-2 rounded-full transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>Reset</button>
+                    <button type="button" onClick={handleRestart} className={`px-4 py-2 rounded-full transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>Reset</button>
                 </div>
             </header>
             
@@ -118,11 +118,11 @@ export default function MultiMediumPage({ onNavigate }: MultiMediumPageProps) {
                     <section className={`${isDark ? 'bg-[#334155]/50' : 'bg-[#EEF0FF]'} rounded-2xl p-4 space-y-3 border ${isDark ? 'border-[#475569]' : 'border-[#707FFF]/20'}`}>
                         <h3 className={`text-xs font-semibold ${accentLight} uppercase tracking-wider`}>Source</h3>
                         <div className="flex gap-2">
-                            <button type="button" onClick={() => setWaveMode('manual')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${waveMode === 'manual' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Manuel</button>
-                            <button type="button" onClick={() => setWaveMode('oscillate')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${waveMode === 'oscillate' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Oscillateur</button>
+                            <button type="button" onClick={() => setWaveMode('manual')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${waveMode === 'manual' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Manuel</button>
+                            <button type="button" onClick={() => setWaveMode('oscillate')} className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${waveMode === 'oscillate' ? `${accentBg} text-white shadow-sm` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Oscillateur</button>
                         </div>
                         {waveMode === 'manual' && (
-                            <button type="button" onClick={handlePulse} className="w-full py-3 rounded-full bg-[#707FFF] text-white font-semibold hover:bg-[#5563E8] transition-all">Envoyer Impulsion</button>
+                            <button type="button" onClick={handlePulse} className="w-full py-3 rounded-full bg-[#707FFF] text-white font-semibold hover:bg-[#5563E8] transition-[background-color,border-color,box-shadow,color] duration-150 ease-out">Envoyer Impulsion</button>
                         )}
                     </section>
 
@@ -178,12 +178,12 @@ export default function MultiMediumPage({ onNavigate }: MultiMediumPageProps) {
                     <section className={`${isDark ? 'bg-[#334155]/50' : 'bg-white'} rounded-2xl p-4 space-y-3 border ${borderColor}`}>
                         <h3 className={`text-xs font-semibold ${textSecondary} uppercase tracking-wider`}>Affichage</h3>
                         <div className="flex gap-2 mb-2">
-                             <button type="button" onClick={() => setColorMode('off')} className={`flex-1 py-1.5 px-2 rounded-full text-xs font-medium transition-all ${colorMode === 'off' ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Simple</button>
-                             <button type="button" onClick={() => setColorMode('strain')} className={`flex-1 py-1.5 px-2 rounded-full text-xs font-medium transition-all ${colorMode === 'strain' ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Pression</button>
-                             <button type="button" onClick={() => setColorMode('displacement')} className={`flex-1 py-1.5 px-2 rounded-full text-xs font-medium transition-all ${colorMode === 'displacement' ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Déplace.</button>
+                             <button type="button" onClick={() => setColorMode('off')} className={`flex-1 py-1.5 px-2 rounded-full text-xs font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${colorMode === 'off' ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Simple</button>
+                             <button type="button" onClick={() => setColorMode('strain')} className={`flex-1 py-1.5 px-2 rounded-full text-xs font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${colorMode === 'strain' ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Pression</button>
+                             <button type="button" onClick={() => setColorMode('displacement')} className={`flex-1 py-1.5 px-2 rounded-full text-xs font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${colorMode === 'displacement' ? `${accentBg} text-white` : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'}`}>Déplace.</button>
                         </div>
                         <div className="flex justify-end">
-                            <button type="button" onClick={() => setShowWaveInfo(!showWaveInfo)} className={`py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center gap-2 ${showWaveInfo ? 'bg-green-50 text-green-600 border border-green-200' : isDark ? 'bg-[#475569] text-[#94A3B8]' : 'bg-[#F1F5F9] text-[#94A3B8]'}`}>
+                            <button type="button" onClick={() => setShowWaveInfo(!showWaveInfo)} className={`py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-2 ${showWaveInfo ? 'bg-green-50 text-green-600 border border-green-200' : isDark ? 'bg-[#475569] text-[#94A3B8]' : 'bg-[#F1F5F9] text-[#94A3B8]'}`}>
                                 Infos
                             </button>
                         </div>
@@ -195,7 +195,7 @@ export default function MultiMediumPage({ onNavigate }: MultiMediumPageProps) {
                         <div className="flex gap-2">
                             <button type="button"
                                 onClick={() => setSpeedMode('normal')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     speedMode === 'normal' 
                                         ? `${accentBg} text-white shadow-sm` 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'
@@ -205,7 +205,7 @@ export default function MultiMediumPage({ onNavigate }: MultiMediumPageProps) {
                             </button>
                             <button type="button"
                                 onClick={() => setSpeedMode('slow')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     speedMode === 'slow' 
                                         ? 'bg-amber-500 text-white shadow-sm' 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-[#F1F5F9] text-[#64748B]'

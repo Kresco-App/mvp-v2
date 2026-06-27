@@ -78,7 +78,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
                     <button type="button"
                         key={variation.id}
                         onClick={() => setSelectedVariation(variation.id)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all border ${selectedVariation === variation.id
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-[background-color,border-color,box-shadow,color] duration-150 ease-out border ${selectedVariation === variation.id
                             ? (isDark ? 'bg-[#0F172A] border-emerald-500/50 text-emerald-400' : 'bg-white border-emerald-400 text-emerald-600 shadow-sm')
                             : (isDark ? 'bg-transparent border-transparent hover:bg-[#475569]' : 'bg-transparent border-transparent hover:bg-black/5')
                             } ${selectedVariation !== variation.id ? textPrimary : ''}`}
@@ -116,7 +116,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
             <div className="flex justify-center gap-3 pt-4 border-t border-amber-500/10">
                 <button type="button"
                     onClick={() => setPascalPlaying(!pascalPlaying)}
-                    className={`p-3 rounded-full transition-all ${isDark ? 'bg-[#0F172A] text-amber-400 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 shadow-sm'}`}
+                    className={`p-3 rounded-full transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#0F172A] text-amber-400 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 shadow-sm'}`}
                     title={pascalPlaying ? "Pause" : "Lecture automatique"}
                 >
                     {pascalPlaying ? <Pause size={20} /> : <Play size={20} />}
@@ -126,7 +126,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
                         setPascalPlaying(false);
                         setPascalStep(s => s + 1);
                     }}
-                    className={`p-3 rounded-full transition-all ${isDark ? 'bg-[#0F172A] text-amber-400 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 shadow-sm'}`}
+                    className={`p-3 rounded-full transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#0F172A] text-amber-400 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 shadow-sm'}`}
                     title="Pas à pas"
                 >
                     <StepForward size={20} />
@@ -139,7 +139,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
                             return r - 1;
                         });
                     }}
-                    className={`p-3 rounded-full transition-all ${isDark ? 'bg-[#0F172A] text-amber-400 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 shadow-sm'}`}
+                    className={`p-3 rounded-full transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#0F172A] text-amber-400 border border-amber-500/30 hover:bg-amber-500/10' : 'bg-white text-amber-600 border border-amber-200 hover:bg-amber-50 shadow-sm'}`}
                     title="Réinitialiser"
                 >
                     <RotateCcw size={20} />
@@ -164,6 +164,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
             <div className={`flex-1 w-full max-w-4xl rounded-2xl border ${borderColor} ${isDark ? 'bg-[#0F172A]/50' : 'bg-white/50'} backdrop-blur-sm flex items-center justify-center relative overflow-hidden`}>
                 {initialMode === 'pascal' ? (
                     <PascalTriangleLab
+                        key={pascalRows}
                         rows={pascalRows}
                         stepSpeed={animationSpeed}
                         isPlaying={pascalPlaying}
@@ -193,7 +194,7 @@ export default function MathSetsPage({ onNavigate, initialMode }: PageProps) {
                         setPascalRows(5);
                         setPascalPlaying(false);
                     }}
-                    className={`px-4 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'} text-sm`}
+                    className={`px-4 py-2 rounded-full font-medium transition-[background-color,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'} text-sm`}
                 >
                     Réinitialiser
                 </button>

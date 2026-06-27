@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend, ReferenceDot } from 'recharts';
 import { Play, Pause, RotateCcw, Settings, Zap, Activity, TrendingUp, Battery } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
 export const RCSimulator: React.FC = () => {
   const [resistance, setResistance] = useState<number>(1); // kOhm
@@ -13,6 +13,7 @@ export const RCSimulator: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [time, setTime] = useState<number>(0);
   const [timeRange, setTimeRange] = useState<number>(10); // Default time range 10s
+  const shouldReduceMotion = useReducedMotion();
   
   // New Toggles
   const [showTangent, setShowTangent] = useState<boolean>(false);
@@ -20,6 +21,8 @@ export const RCSimulator: React.FC = () => {
 
   // Constants
   const tau = (resistance * 1000) * (capacitance * 1e-6); // seconds (R in Ohms, C in Farads)
+  const switchTransition = shouldReduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 300, damping: 20 };
+  const iconTransition = shouldReduceMotion ? { duration: 0 } : { type: 'spring' as const, duration: 0.3, bounce: 0 };
 
   // Animation loop
   useEffect(() => {
@@ -121,7 +124,7 @@ export const RCSimulator: React.FC = () => {
     if (time >= timeRange) {
       setTime(0);
     }
-    setIsPlaying(!isPlaying);
+    setIsPlaying((playing) => !playing);
   };
   
   // Visual helpers
@@ -147,7 +150,7 @@ export const RCSimulator: React.FC = () => {
              <div className="flex gap-4">
                  <div className="px-4 py-2 bg-slate-800 rounded-xl border border-slate-700 flex flex-col items-end">
                      <span className="text-xs text-slate-400 uppercase font-bold">Constante de temps</span>
-                     <span className="text-xl font-mono font-bold text-emerald-400">τ = {tau.toFixed(2)} s</span>
+                     <span className="text-xl font-mono font-bold text-emerald-400 tabular-nums">τ = {tau.toFixed(2)} s</span>
                  </div>
              </div>
          </div>
@@ -197,7 +200,7 @@ export const RCSimulator: React.FC = () => {
 
                         {/* --- ACTIVE GLOWING PATHS --- */}
                         {/* Charging Loop Glow */}
-                        <g opacity={isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} className="transition-opacity duration-200">
+                        <g opacity={isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} className="transition-[opacity] duration-200 ease-out motion-reduce:transition-none">
                             <path 
                                 d="M 60 240 L 60 160 M 60 120 L 60 60 L 140 60 M 168 78 L 190 100 L 240 100 M 320 100 L 400 100 L 400 120 M 400 180 L 400 240 L 60 240"
                                 stroke="#3b82f6" 
@@ -207,14 +210,14 @@ export const RCSimulator: React.FC = () => {
                                 filter={isCharging && isPlaying ? "url(#neon-glow)" : ""}
                                 strokeDasharray={isCharging && isPlaying ? "12 6" : "0"}
                             >
-                                {isCharging && isPlaying && (
+                                {isCharging && isPlaying && !shouldReduceMotion && (
                                     <animate attributeName="stroke-dashoffset" from="0" to="-18" dur="0.6s" repeatCount="indefinite" />
                                 )}
                             </path>
                         </g>
 
                         {/* Discharging Loop Glow */}
-                        <g opacity={!isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} className="transition-opacity duration-200">
+                        <g opacity={!isCharging ? 0.4 + currentOpacity * 0.6 : 0.1} className="transition-[opacity] duration-200 ease-out motion-reduce:transition-none">
                             <path 
                                 d="M 400 120 L 400 100 L 320 100 M 240 100 L 190 100 L 168 122 M 140 140 L 140 240 L 400 240 L 400 180"
                                 stroke="#f97316" 
@@ -224,7 +227,7 @@ export const RCSimulator: React.FC = () => {
                                 filter={!isCharging && isPlaying ? "url(#neon-glow)" : ""}
                                 strokeDasharray={!isCharging && isPlaying ? "12 6" : "0"}
                             >
-                                {!isCharging && isPlaying && (
+                                {!isCharging && isPlaying && !shouldReduceMotion && (
                                     <animate attributeName="stroke-dashoffset" from="0" to="18" dur="0.6s" repeatCount="indefinite" />
                                 )}
                             </path>
@@ -258,7 +261,7 @@ export const RCSimulator: React.FC = () => {
                             x2="140" y2={isCharging ? 60 : 140}
                             stroke="white" strokeWidth="4" strokeLinecap="round"
                             animate={{ x2: 140, y2: isCharging ? 60 : 140 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                            transition={switchTransition}
                         />
 
                         {/* Resistor */}
@@ -270,7 +273,7 @@ export const RCSimulator: React.FC = () => {
                         {/* Capacitor */}
                         <g transform="translate(400, 150)">
                             {/* Field Glow */}
-                            <rect x="-20" y="-30" width="40" height="60" fill="url(#capFill)" opacity={capacitorChargeRatio} rx="4" />
+                            <rect x="-20" y="-30" width="40" height="60" fill="url(#capFill)" opacity={capacitorChargeRatio} rx="4" className="transition-[opacity] duration-200 ease-out motion-reduce:transition-none" />
                             
                             {/* Plates */}
                             <line x1="-25" y1="-30" x2="25" y2="-30" stroke="white" strokeWidth="4" strokeLinecap="round" />
@@ -293,10 +296,10 @@ export const RCSimulator: React.FC = () => {
 
                     {/* Floating Badges */}
                     <div className="absolute top-4 right-4 flex flex-col gap-2">
-                        <div className={`px-3 py-1 rounded-full text-xs font-bold shadow-lg transition-colors ${isCharging ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold shadow-lg transition-[background-color,box-shadow,color,opacity] duration-150 ease-out motion-reduce:transition-none ${isCharging ? 'bg-blue-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
                             Charge
                         </div>
-                        <div className={`px-3 py-1 rounded-full text-xs font-bold shadow-lg transition-colors ${!isCharging ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                        <div className={`px-3 py-1 rounded-full text-xs font-bold shadow-lg transition-[background-color,box-shadow,color,opacity] duration-150 ease-out motion-reduce:transition-none ${!isCharging ? 'bg-orange-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
                             Décharge
                         </div>
                     </div>
@@ -313,13 +316,26 @@ export const RCSimulator: React.FC = () => {
                         <div className="flex gap-2">
                              <button type="button" 
                                 onClick={togglePlay}
-                                className={`w-10 h-10 flex items-center justify-center rounded-full transition-all ${isPlaying ? 'bg-amber-100 text-amber-600' : 'bg-slate-900 text-white hover:scale-105 shadow-md'}`}
+                                className={`flex h-10 w-10 items-center justify-center rounded-full transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70 motion-reduce:transition-none motion-reduce:active:scale-100 ${isPlaying ? 'bg-amber-100 text-amber-600' : 'bg-slate-900 text-white shadow-md hover:shadow-lg'}`}
+                                aria-label={isPlaying ? 'Mettre en pause' : 'Lancer la simulation'}
                              >
-                                {isPlaying ? <Pause size={18} /> : <Play size={18} className="ml-1" />}
+                                <AnimatePresence initial={false} mode="popLayout">
+                                  <motion.span
+                                    key={isPlaying ? 'pause' : 'play'}
+                                    initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                                    exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
+                                    transition={iconTransition}
+                                    className="flex items-center justify-center"
+                                  >
+                                    {isPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
+                                  </motion.span>
+                                </AnimatePresence>
                              </button>
                              <button type="button" 
                                 onClick={handleReset}
-                                className="w-10 h-10 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+                                className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition-[background-color,color,transform] duration-150 ease-out hover:bg-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200/80 motion-reduce:transition-none motion-reduce:active:scale-100"
+                                aria-label="Reinitialiser la simulation"
                              >
                                 <RotateCcw size={18} />
                              </button>
@@ -331,46 +347,50 @@ export const RCSimulator: React.FC = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
-                                    <label className="font-medium text-slate-600">Résistance (R)</label>
-                                    <span className="font-bold text-blue-600">{resistance} kΩ</span>
+                                    <label htmlFor="rc-resistance" className="font-medium text-slate-600">Résistance (R)</label>
+                                    <span className="font-bold text-blue-600 tabular-nums">{resistance} kΩ</span>
                                 </div>
                                 <input 
+                                    id="rc-resistance"
                                     type="range" min="0.1" max="10" step="0.1" value={resistance}
                                     onChange={(e) => { setResistance(parseFloat(e.target.value)); handleReset(); }}
-                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70"
                                 />
                             </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
-                                    <label className="font-medium text-slate-600">Capacité (C)</label>
-                                    <span className="font-bold text-blue-600">{capacitance} μF</span>
+                                    <label htmlFor="rc-capacitance" className="font-medium text-slate-600">Capacité (C)</label>
+                                    <span className="font-bold text-blue-600 tabular-nums">{capacitance} μF</span>
                                 </div>
                                 <input 
+                                    id="rc-capacitance"
                                     type="range" min="100" max="5000" step="100" value={capacitance}
                                     onChange={(e) => { setCapacitance(parseFloat(e.target.value)); handleReset(); }}
-                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70"
                                 />
                             </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
-                                    <label className="font-medium text-slate-600">Tension (E)</label>
-                                    <span className="font-bold text-blue-600">{voltage} V</span>
+                                    <label htmlFor="rc-voltage" className="font-medium text-slate-600">Tension (E)</label>
+                                    <span className="font-bold text-blue-600 tabular-nums">{voltage} V</span>
                                 </div>
                                 <input 
+                                    id="rc-voltage"
                                     type="range" min="1" max="24" step="1" value={voltage}
                                     onChange={(e) => { setVoltage(parseFloat(e.target.value)); handleReset(); }}
-                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70"
                                 />
                             </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
-                                    <label className="font-medium text-slate-600">Zoom (Temps)</label>
-                                    <span className="font-bold text-slate-500">{timeRange} s</span>
+                                    <label htmlFor="rc-time-range" className="font-medium text-slate-600">Zoom (Temps)</label>
+                                    <span className="font-bold text-slate-500 tabular-nums">{timeRange} s</span>
                                 </div>
                                 <input 
+                                    id="rc-time-range"
                                     type="range" min="1" max="50" step="1" value={timeRange}
                                     onChange={(e) => setTimeRange(parseFloat(e.target.value))}
-                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-500"
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200/80"
                                 />
                             </div>
                         </div>
@@ -379,13 +399,15 @@ export const RCSimulator: React.FC = () => {
                         <div className="bg-slate-100 p-1 rounded-xl flex mt-4">
                             <button type="button" 
                                 onClick={() => { setIsCharging(true); handleReset(); }}
-                                className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${isCharging ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-bold transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70 motion-reduce:transition-none motion-reduce:active:scale-100 ${isCharging ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                aria-pressed={isCharging}
                             >
                                 <Zap size={16} /> Position 1 : Charge
                             </button>
                             <button type="button" 
                                 onClick={() => { setIsCharging(false); handleReset(); }}
-                                className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${!isCharging ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg py-2 text-sm font-bold transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-200/70 motion-reduce:transition-none motion-reduce:active:scale-100 ${!isCharging ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                aria-pressed={!isCharging}
                             >
                                 <Activity size={16} /> Position 2 : Décharge
                             </button>
@@ -401,13 +423,13 @@ export const RCSimulator: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4 mb-6">
                     <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col items-center justify-center">
                         <span className="text-xs font-bold text-slate-400 uppercase mb-1">Tension uC</span>
-                        <div className="text-3xl font-mono font-bold text-blue-600">
+                        <div className="text-3xl font-mono font-bold text-blue-600 tabular-nums">
                             {currentValues.uc?.toFixed(2)}<span className="text-sm text-slate-400 ml-1">V</span>
                         </div>
                     </div>
                     <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col items-center justify-center">
                         <span className="text-xs font-bold text-slate-400 uppercase mb-1">Intensité i</span>
-                        <div className="text-3xl font-mono font-bold text-orange-600">
+                        <div className="text-3xl font-mono font-bold text-orange-600 tabular-nums">
                             {currentValues.i_current?.toFixed(2)}<span className="text-sm text-slate-400 ml-1">mA</span>
                         </div>
                     </div>
@@ -417,13 +439,15 @@ export const RCSimulator: React.FC = () => {
                 <div className="flex gap-2 mb-4">
                     <button type="button" 
                         onClick={() => setShowTangent(!showTangent)}
-                        className={`flex-1 py-2 rounded-lg text-xs font-bold border flex items-center justify-center gap-2 ${showTangent ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500'}`}
+                        className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border py-2 text-xs font-bold transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200/70 motion-reduce:transition-none motion-reduce:active:scale-100 ${showTangent ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700'}`}
+                        aria-pressed={showTangent}
                     >
                         <TrendingUp size={14} /> {showTangent ? 'Masquer Tangente' : 'Voir Tangente'}
                     </button>
                     <button type="button" 
                         onClick={() => setShowEnergy(!showEnergy)}
-                        className={`flex-1 py-2 rounded-lg text-xs font-bold border flex items-center justify-center gap-2 ${showEnergy ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-white border-slate-200 text-slate-500'}`}
+                        className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border py-2 text-xs font-bold transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-yellow-200/80 motion-reduce:transition-none motion-reduce:active:scale-100 ${showEnergy ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700'}`}
+                        aria-pressed={showEnergy}
                     >
                         <Battery size={14} /> {showEnergy ? 'Masquer Énergie' : 'Voir Énergie'}
                     </button>
@@ -431,7 +455,7 @@ export const RCSimulator: React.FC = () => {
 
                 {/* Chart */}
                 <div className="flex-1 min-h-[300px] bg-white rounded-2xl border border-slate-100 p-2 shadow-inner relative">
-                    <div className="absolute top-4 right-4 z-10 bg-white/80 backdrop-blur px-2 py-1 rounded border border-slate-100 text-xs font-mono text-slate-500">
+                    <div className="absolute top-4 right-4 z-10 bg-white/80 backdrop-blur px-2 py-1 rounded border border-slate-100 text-xs font-mono text-slate-500 tabular-nums">
                         t = {time.toFixed(2)}s
                     </div>
                     <ResponsiveContainer width="100%" height="100%">

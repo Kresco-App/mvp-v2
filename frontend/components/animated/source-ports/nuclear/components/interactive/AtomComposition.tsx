@@ -3,7 +3,7 @@
 
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 const ELEMENTS = [
   { z: 1, symbol: 'H', name: 'Hydrogène' },
@@ -18,12 +18,18 @@ const ELEMENTS = [
   { z: 10, symbol: 'Ne', name: 'Néon' },
 ];
 
+const protonButtonClass = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-purple-100 bg-purple-50 text-base font-bold text-purple-600 shadow-sm transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out hover:-translate-y-px hover:bg-purple-100 hover:shadow-[0_6px_14px_rgba(126,34,206,0.12)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 disabled:hover:bg-purple-50 disabled:hover:shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200/70 motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100';
+const neutronButtonClass = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-base font-bold text-slate-600 shadow-sm transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out hover:-translate-y-px hover:bg-slate-100 hover:shadow-[0_6px_14px_rgba(15,23,42,0.1)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0 disabled:hover:bg-slate-50 disabled:hover:shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200/80 motion-reduce:transition-none motion-reduce:hover:translate-y-0 motion-reduce:active:scale-100';
+const smoothEase = [0.22, 1, 0.36, 1] as const;
 export const AtomComposition: React.FC = () => {
   const [protons, setProtons] = useState(6); // Start with Carbon
   const [neutrons, setNeutrons] = useState(6);
+  const shouldReduceMotion = useReducedMotion();
 
   const element = ELEMENTS.find(e => e.z === protons) || { symbol: '?', name: 'Inconnu' };
   const massNumber = protons + neutrons;
+  const particleTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.16, ease: smoothEase };
+  const numberTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.18, ease: smoothEase };
 
   return (
     <div className="bg-white p-4 md:p-8 rounded-xl shadow-lg border border-purple-100 flex flex-col md:flex-row items-center gap-6 md:gap-10">
@@ -33,17 +39,18 @@ export const AtomComposition: React.FC = () => {
         <div className="relative w-full max-w-[240px] aspect-square bg-slate-50 rounded-full border-4 border-slate-100 flex items-center justify-center overflow-hidden shadow-inner">
           {/* Nucleus Container */}
           <motion.div 
-            layout 
+            layout={!shouldReduceMotion}
             className="flex flex-wrap justify-center items-center content-center w-3/5 h-3/5 gap-0.5 md:gap-1"
           >
             <AnimatePresence mode='popLayout'>
                 {Array.from({ length: protons }).map((_, i) => (
                     <motion.div
                         key={`p-${i}`}
-                        initial={{ scale: 0, opacity: 0 }}
+                        initial={shouldReduceMotion ? false : { scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        layout
+                        exit={shouldReduceMotion ? { opacity: 0 } : { scale: 0, opacity: 0 }}
+                        transition={particleTransition}
+                        layout={!shouldReduceMotion}
                         className="w-4 h-4 md:w-6 md:h-6 rounded-full bg-rose-500 shadow-sm border border-rose-600 flex items-center justify-center text-[8px] md:text-[10px] text-white font-bold z-10 select-none"
                     >
                         +
@@ -52,10 +59,11 @@ export const AtomComposition: React.FC = () => {
                 {Array.from({ length: neutrons }).map((_, i) => (
                     <motion.div
                         key={`n-${i}`}
-                        initial={{ scale: 0, opacity: 0 }}
+                        initial={shouldReduceMotion ? false : { scale: 0, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        layout
+                        exit={shouldReduceMotion ? { opacity: 0 } : { scale: 0, opacity: 0 }}
+                        transition={particleTransition}
+                        layout={!shouldReduceMotion}
                         className="w-4 h-4 md:w-6 md:h-6 rounded-full bg-slate-500 shadow-sm border border-slate-600 flex items-center justify-center text-[8px] md:text-[10px] text-white font-bold select-none"
                     >
                         0
@@ -65,8 +73,8 @@ export const AtomComposition: React.FC = () => {
           </motion.div>
           
           {/* Decorative Electron Cloud Ring */}
-          <div className="absolute inset-0 rounded-full border border-dashed border-purple-200 opacity-40 animate-[spin_12s_linear_infinite]" />
-          <div className="absolute inset-4 rounded-full border border-dashed border-purple-200 opacity-30 animate-[spin_15s_linear_infinite_reverse]" />
+          <div className="absolute inset-0 rounded-full border border-dashed border-purple-200 opacity-40 animate-[spin_12s_linear_infinite] motion-reduce:animate-none" />
+          <div className="absolute inset-4 rounded-full border border-dashed border-purple-200 opacity-30 animate-[spin_15s_linear_infinite_reverse] motion-reduce:animate-none" />
         </div>
         
         <div className="mt-6 flex justify-center gap-4 text-xs flex-wrap">
@@ -93,13 +101,14 @@ export const AtomComposition: React.FC = () => {
                 <div className="relative group cursor-help">
                     <motion.span 
                         key={`A-${massNumber}`}
-                        initial={{ opacity: 0, y: -10 }}
+                        initial={shouldReduceMotion ? false : { opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
+                        transition={numberTransition}
                         className="text-3xl md:text-4xl text-purple-600 block"
                     >
                         {massNumber}
                     </motion.span>
-                    <span className="absolute right-full mr-2 md:mr-3 top-1/2 -translate-y-1/2 text-[10px] font-sans text-purple-400 font-normal opacity-0 group-hover:opacity-100 whitespace-nowrap transition-opacity bg-white px-2 py-1 rounded shadow border border-purple-100 z-20">Nombre de masse (A)</span>
+                    <span className="absolute right-full mr-2 md:mr-3 top-1/2 -translate-y-1/2 text-[10px] font-sans text-purple-400 font-normal opacity-0 group-hover:opacity-100 whitespace-nowrap transition-[opacity] duration-150 ease-out bg-white px-2 py-1 rounded shadow border border-purple-100 z-20 motion-reduce:transition-none">Nombre de masse (A)</span>
                 </div>
                 
                 <div className="w-full h-0.5 bg-purple-200 rounded-full opacity-30 my-0.5"></div>
@@ -107,13 +116,14 @@ export const AtomComposition: React.FC = () => {
                 <div className="relative group cursor-help">
                     <motion.span 
                         key={`Z-${protons}`}
-                        initial={{ opacity: 0, y: 10 }}
+                        initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
+                        transition={numberTransition}
                         className="text-3xl md:text-4xl text-yellow-500 block shadow-sm [text-shadow:1px_1px_0px_rgba(0,0,0,0.1)]"
                     >
                         {protons}
                     </motion.span>
-                    <span className="absolute right-full mr-2 md:mr-3 top-1/2 -translate-y-1/2 text-[10px] font-sans text-yellow-600 font-normal opacity-0 group-hover:opacity-100 whitespace-nowrap transition-opacity bg-white px-2 py-1 rounded shadow border border-yellow-100 z-20">Numéro atomique (Z)</span>
+                    <span className="absolute right-full mr-2 md:mr-3 top-1/2 -translate-y-1/2 text-[10px] font-sans text-yellow-600 font-normal opacity-0 group-hover:opacity-100 whitespace-nowrap transition-[opacity] duration-150 ease-out bg-white px-2 py-1 rounded shadow border border-yellow-100 z-20 motion-reduce:transition-none">Numéro atomique (Z)</span>
                 </div>
              </div>
              
@@ -121,8 +131,9 @@ export const AtomComposition: React.FC = () => {
              <div className="relative">
                  <motion.div 
                     key={`sym-${element.symbol}`}
-                    initial={{ scale: 0.8, opacity: 0, rotateX: 90 }}
+                    initial={shouldReduceMotion ? false : { scale: 0.8, opacity: 0, rotateX: 90 }}
                     animate={{ scale: 1, opacity: 1, rotateX: 0 }}
+                    transition={numberTransition}
                     className="text-6xl md:text-8xl font-serif font-bold text-slate-800 leading-none"
                  >
                     {element.symbol}
@@ -142,21 +153,26 @@ export const AtomComposition: React.FC = () => {
             <div className="space-y-2">
                 <div className="flex justify-between items-center">
                     <span className="text-sm font-bold text-purple-700">Protons (Z)</span>
-                    <span className="text-xs font-mono bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{protons}</span>
+                    <span className="text-xs font-mono tabular-nums bg-purple-100 text-purple-700 px-2 py-0.5 rounded">{protons}</span>
                 </div>
                 <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border border-purple-100 shadow-sm">
                     <button type="button" 
                         onClick={() => setProtons(Math.max(1, protons - 1))}
-                        className="w-8 h-8 flex items-center justify-center bg-purple-50 hover:bg-purple-100 text-purple-600 rounded-lg font-bold transition-colors border border-purple-100 touch-manipulation"
+                        className={protonButtonClass}
+                        disabled={protons <= 1}
+                        aria-label="Diminuer les protons"
                     >-</button>
                     <input 
                         type="range" min="1" max="10" value={protons} 
                         onChange={(e) => setProtons(parseInt(e.target.value))}
-                        className="flex-1 accent-purple-600 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+                        className="flex-1 accent-purple-600 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200/70"
+                        aria-label="Protons"
                     />
                     <button type="button" 
                         onClick={() => setProtons(Math.min(10, protons + 1))}
-                        className="w-8 h-8 flex items-center justify-center bg-purple-50 hover:bg-purple-100 text-purple-600 rounded-lg font-bold transition-colors border border-purple-100 touch-manipulation"
+                        className={protonButtonClass}
+                        disabled={protons >= 10}
+                        aria-label="Augmenter les protons"
                     >+</button>
                 </div>
             </div>
@@ -165,21 +181,26 @@ export const AtomComposition: React.FC = () => {
             <div className="space-y-2">
                 <div className="flex justify-between items-center">
                     <span className="text-sm font-bold text-slate-600">Neutrons (N)</span>
-                    <span className="text-xs font-mono bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{neutrons}</span>
+                    <span className="text-xs font-mono tabular-nums bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{neutrons}</span>
                 </div>
                 <div className="flex items-center gap-2 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm">
                     <button type="button" 
                         onClick={() => setNeutrons(Math.max(0, neutrons - 1))}
-                        className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg font-bold transition-colors border border-slate-100 touch-manipulation"
+                        className={neutronButtonClass}
+                        disabled={neutrons <= 0}
+                        aria-label="Diminuer les neutrons"
                     >-</button>
                     <input 
                         type="range" min="0" max="15" value={neutrons} 
                         onChange={(e) => setNeutrons(parseInt(e.target.value))}
-                        className="flex-1 accent-slate-600 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+                        className="flex-1 accent-slate-600 h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200/80"
+                        aria-label="Neutrons"
                     />
                     <button type="button" 
                         onClick={() => setNeutrons(Math.min(15, neutrons + 1))}
-                        className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg font-bold transition-colors border border-slate-100 touch-manipulation"
+                        className={neutronButtonClass}
+                        disabled={neutrons >= 15}
+                        aria-label="Augmenter les neutrons"
                     >+</button>
                 </div>
             </div>

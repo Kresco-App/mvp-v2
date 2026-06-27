@@ -52,7 +52,7 @@ export const ProgressTable: React.FC = () => {
                     fill="white"
                     stroke="#d97706"
                     strokeWidth="4"
-                    className="drop-shadow-lg transition-transform duration-200 group-hover:scale-110 [transform-box:fill-box] [transform-origin:center]"
+                    className="drop-shadow-lg transition-[cx] duration-150 ease-out [transform-box:fill-box] [transform-origin:center]"
                 />
             </svg>
         </div>
@@ -76,7 +76,7 @@ export const ProgressTable: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-600">
                 {/* Initial */}
-                <tr className={`transition-colors duration-300 ${advancement === 0 ? 'bg-[#fffbeb]' : 'bg-white'}`}>
+                <tr className={`transition-[background-color] duration-300 ease-out motion-reduce:transition-none ${advancement === 0 ? 'bg-[#fffbeb]' : 'bg-white'}`}>
                     <td className="p-5 font-bold text-slate-800 border-r border-slate-100">
                         État Initial <span className="block text-xs font-normal text-slate-400 mt-1 uppercase tracking-wide">x = 0</span>
                     </td>
@@ -88,7 +88,7 @@ export const ProgressTable: React.FC = () => {
                 </tr>
 
                 {/* In Progress */}
-                <tr className={`transition-colors duration-300 ${advancement > 0 && advancement < 100 ? 'bg-[#fffbeb]' : 'bg-white'}`}>
+                <tr className={`transition-[background-color] duration-300 ease-out motion-reduce:transition-none ${advancement > 0 && advancement < 100 ? 'bg-[#fffbeb]' : 'bg-white'}`}>
                     <td className="p-5 font-bold text-slate-800 border-r border-slate-100">
                         En cours <span className="block text-xs font-normal text-slate-400 mt-1 uppercase tracking-wide">x</span>
                     </td>
@@ -100,7 +100,7 @@ export const ProgressTable: React.FC = () => {
                 </tr>
 
                 {/* Final */}
-                 <tr className={`transition-colors duration-300 ${advancement === 100 ? 'bg-[#fffbeb]' : 'bg-white'}`}>
+                 <tr className={`transition-[background-color] duration-300 ease-out motion-reduce:transition-none ${advancement === 100 ? 'bg-[#fffbeb]' : 'bg-white'}`}>
                     <td className="p-5 font-bold text-slate-800 border-r border-slate-100">
                         État Final <span className="block text-xs font-normal text-slate-400 mt-1 uppercase tracking-wide">x = x<sub>éq</sub></span>
                     </td>

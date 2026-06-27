@@ -119,13 +119,13 @@ export const PrismSimulator: React.FC = () => {
               <div className="flex bg-slate-100 p-1 rounded-xl">
                 <button type="button"
                   onClick={() => setShowWhiteLight(false)}
-                  className={`w-1/2 px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${!showWhiteLight ? 'bg-white text-yellow-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
+                  className={`w-1/2 px-4 py-2 rounded-lg text-sm font-bold transition-[background-color,box-shadow,color] duration-150 ease-out flex items-center justify-center gap-2 ${!showWhiteLight ? 'bg-white text-yellow-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
                 >
                   <Droplet size={16} /> Laser
                 </button>
                 <button type="button"
                   onClick={() => setShowWhiteLight(true)}
-                  className={`w-1/2 px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${showWhiteLight ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
+                  className={`w-1/2 px-4 py-2 rounded-lg text-sm font-bold transition-[background-color,box-shadow,color] duration-150 ease-out flex items-center justify-center gap-2 ${showWhiteLight ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}
                 >
                   <Sun size={16} /> Soleil
                 </button>

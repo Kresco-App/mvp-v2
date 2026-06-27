@@ -3,7 +3,7 @@
 
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Check, X, ArrowRight, RefreshCw, HelpCircle, Target, Calculator, FlaskConical } from 'lucide-react';
 import { DifficultyBadge, type ExerciseState } from '../../../../shared/DifficultyBadge';
 
@@ -11,6 +11,7 @@ import { DifficultyBadge, type ExerciseState } from '../../../../shared/Difficul
 const PHCalculationExercise = () => {
   const [phInput, setPhInput] = useState('');
   const [status, setStatus] = useState<ExerciseState>('idle');
+  const shouldReduceMotion = useReducedMotion();
 
   // Question: Solution with [H3O+] = 1.0 x 10^-3 mol/L
   const correctPh = 3.0;
@@ -49,15 +50,15 @@ const PHCalculationExercise = () => {
         <motion.input
             type="number" 
             step="0.1"
-            className="w-24 border-2 border-slate-200 rounded-lg p-2 text-center font-bold text-lg focus:border-purple-500 outline-none"
+            className="w-24 rounded-lg border-2 border-slate-200 p-2 text-center text-lg font-bold tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-purple-500 focus-visible:ring-4 focus-visible:ring-purple-100"
             placeholder="?"
             value={phInput}
             onChange={e => setPhInput(e.target.value)}
             // Framer Motion for shake on incorrect
-            animate={status === 'incorrect' ? { x: [0, -5, 5, -5, 5, 0] } : { x: 0 }}
-            transition={{ duration: 0.3 }}
+            animate={status === 'incorrect' && !shouldReduceMotion ? { x: [0, -5, 5, -5, 5, 0] } : { x: 0 }}
+            transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.3 }}
         />
-        <button type="button" onClick={checkAnswer} className="bg-purple-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm">
+        <button type="button" onClick={checkAnswer} className="min-h-10 rounded-lg bg-purple-600 px-6 py-2 font-bold text-white shadow-sm transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-purple-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100">
             Vérifier
         </button>
       </div>
@@ -125,7 +126,7 @@ const PredominanceExercise = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         <motion.button
             onClick={() => checkAnswer('HA')}
-            className={`p-4 rounded-lg text-left font-medium border-2 transition-all flex items-center justify-between ${
+            className={`p-4 rounded-lg text-left font-medium border-2 transition-[background-color,border-color,color] duration-150 ease-out flex items-center justify-between ${
                 choice === 'HA' && status === 'correct' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' :
                 choice === 'HA' && status === 'incorrect' ? 'border-rose-500 bg-rose-50 text-rose-800' :
                 'border-slate-100 hover:border-purple-200 hover:bg-purple-50 text-slate-600'
@@ -138,7 +139,7 @@ const PredominanceExercise = () => {
         </motion.button>
         <motion.button
             onClick={() => checkAnswer('A-')}
-            className={`p-4 rounded-lg text-left font-medium border-2 transition-all flex items-center justify-between ${
+            className={`p-4 rounded-lg text-left font-medium border-2 transition-[background-color,border-color,color] duration-150 ease-out flex items-center justify-between ${
                 choice === 'A-' && status === 'correct' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' :
                 choice === 'A-' && status === 'incorrect' ? 'border-rose-500 bg-rose-50 text-rose-800' :
                 'border-slate-100 hover:border-purple-200 hover:bg-purple-50 text-slate-600'
@@ -216,7 +217,7 @@ const IndicatorChoiceExercise = () => {
             <motion.button
                 key={opt.id}
                 onClick={() => checkAnswer(opt.id)}
-                className={`p-4 rounded-lg text-left font-medium border-2 transition-all flex items-center justify-between ${
+                className={`p-4 rounded-lg text-left font-medium border-2 transition-[background-color,border-color,color] duration-150 ease-out flex items-center justify-between ${
                     choice === opt.id && status === 'correct' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' :
                     choice === opt.id && status === 'incorrect' ? 'border-rose-500 bg-rose-50 text-rose-800' :
                     'border-slate-100 hover:border-purple-200 hover:bg-purple-50 text-slate-600'

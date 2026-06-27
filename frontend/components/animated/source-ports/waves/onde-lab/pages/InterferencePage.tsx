@@ -110,19 +110,19 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                     
                     {/* Tab Navigation - Pill Style */}
                     <div className={`flex ${isDark ? 'bg-[#334155]' : 'bg-[#F1F5F9]'} rounded-full p-1 gap-1`}>
-                        <button type="button" onClick={() => onNavigate('single')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('single')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Onde Simple
                         </button>
-                        <button type="button" className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${accentBg} text-white shadow-sm`}>
+                        <button type="button" className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${accentBg} text-white shadow-sm`}>
                             Collision
                         </button>
-                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('longitudinal')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Longitudinale
                         </button>
-                        <button type="button" onClick={() => onNavigate('multimedium')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('multimedium')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Milieux
                         </button>
-                        <button type="button" onClick={() => onNavigate('circular')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${textSecondary} hover:${textPrimary}`}>
+                        <button type="button" onClick={() => onNavigate('circular')} className={`px-4 py-1.5 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${textSecondary} hover:${textPrimary}`}>
                             Circulaire
                         </button>
                     </div>
@@ -130,7 +130,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <button type="button"
                         onClick={toggleTheme}
-                        className={`px-3 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
+                        className={`px-3 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
                         title={isDark ? 'Mode clair' : 'Mode sombre'}
                     >
                         {isDark ? 'Clair' : 'Sombre'}
@@ -138,7 +138,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                     <button type="button"
                         onClick={() => setIsPlaying(!isPlaying)}
                         disabled={!pulsesLaunched}
-                        className={`px-4 py-2 rounded-full font-medium transition-all flex items-center gap-2 ${
+                        className={`px-4 py-2 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-2 ${
                             !pulsesLaunched 
                                 ? isDark ? 'bg-[#334155] text-[#64748B] cursor-not-allowed' : 'bg-[#F1F5F9] text-[#94A3B8] cursor-not-allowed'
                                 : isPlaying 
@@ -148,7 +148,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                     >
                         {isPlaying ? 'Pause' : 'Lecture'}
                     </button>
-                    <button type="button" onClick={handleRestart} className={`px-4 py-2 rounded-full transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>
+                    <button type="button" onClick={handleRestart} className={`px-4 py-2 rounded-full transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}>
                         Reset
                     </button>
                 </div>
@@ -230,7 +230,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                         
                         <button type="button"
                             onClick={handleSendBothPulses}
-                            className="w-full py-4 rounded-full bg-[#707FFF] text-white font-bold text-lg hover:bg-[#5563E8] transition-all"
+                            className="w-full py-4 rounded-full bg-[#707FFF] text-white font-bold text-lg hover:bg-[#5563E8] transition-[background-color,border-color,box-shadow,color] duration-150 ease-out"
                         >
                             Envoyer les Deux
                         </button>
@@ -238,13 +238,13 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                         <div className="flex gap-2">
                             <button type="button"
                                 onClick={handleSendPulse1}
-                                className={`flex-1 py-3 rounded-full font-medium transition-all ${isDark ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30' : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'}`}
+                                className={`flex-1 py-3 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50 hover:bg-blue-500/30' : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'}`}
                             >
                                 Pulse 1 →
                             </button>
                             <button type="button"
                                 onClick={handleSendPulse2}
-                                className={`flex-1 py-3 rounded-full font-medium transition-all ${isDark ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50 hover:bg-orange-500/30' : 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100'}`}
+                                className={`flex-1 py-3 rounded-full font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${isDark ? 'bg-orange-500/20 text-orange-400 border border-orange-500/50 hover:bg-orange-500/30' : 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100'}`}
                             >
                                 ← Pulse 2
                             </button>
@@ -261,7 +261,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                         <div className="flex gap-2">
                             <button type="button"
                                 onClick={() => setMode('constructive')}
-                                className={`flex-1 py-3 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-3 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     mode === 'constructive' 
                                         ? 'bg-green-500 text-white' 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
@@ -271,7 +271,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                             </button>
                             <button type="button"
                                 onClick={() => setMode('destructive')}
-                                className={`flex-1 py-3 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-3 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     mode === 'destructive' 
                                         ? 'bg-red-500 text-white' 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
@@ -341,7 +341,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                         <div className="space-y-2">
                             <button type="button"
                                 onClick={() => setShowResultant(!showResultant)}
-                                className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center gap-3 ${
+                                className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-3 ${
                                     showResultant 
                                         ? `${isDark ? 'bg-[#707FFF]/20' : 'bg-[#EEF0FF]'} ${accentLight} border ${isDark ? 'border-[#707FFF]/50' : 'border-[#707FFF]/30'}` 
                                         : isDark ? 'bg-[#475569] text-[#94A3B8] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#94A3B8] hover:bg-[#E2E8F0]'
@@ -352,7 +352,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                             </button>
                             <button type="button"
                                 onClick={() => setShowGhostWaves(!showGhostWaves)}
-                                className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center gap-3 ${
+                                className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center gap-3 ${
                                     showGhostWaves 
                                         ? `${isDark ? 'bg-[#475569]/50' : 'bg-[#F1F5F9]'} ${textSecondary} border ${isDark ? 'border-[#64748B]' : 'border-[#E2E8F0]'}` 
                                         : isDark ? 'bg-[#475569] text-[#94A3B8] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#94A3B8] hover:bg-[#E2E8F0]'
@@ -371,7 +371,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                                 <button type="button"
                                     key={key}
                                     onClick={() => set(!state)}
-                                    className={`py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-center gap-1 ${
+                                    className={`py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex items-center justify-center gap-1 ${
                                         state 
                                             ? 'bg-green-50 text-green-600 border border-green-200' 
                                             : isDark ? 'bg-[#475569] text-[#94A3B8] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#94A3B8] hover:bg-[#E2E8F0]'
@@ -389,7 +389,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                         <div className="flex gap-2">
                             <button type="button"
                                 onClick={() => setSpeedMode('normal')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     speedMode === 'normal' 
                                         ? `${accentBg} text-white shadow-sm` 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'
@@ -399,7 +399,7 @@ export default function InterferencePage({ onNavigate }: InterferencePageProps) 
                             </button>
                             <button type="button"
                                 onClick={() => setSpeedMode('slow')}
-                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-all ${
+                                className={`flex-1 py-2 px-3 rounded-full text-sm font-medium transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${
                                     speedMode === 'slow' 
                                         ? 'bg-amber-500 text-white shadow-sm' 
                                         : isDark ? 'bg-[#475569] text-[#E2E8F0] hover:bg-[#64748B]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'

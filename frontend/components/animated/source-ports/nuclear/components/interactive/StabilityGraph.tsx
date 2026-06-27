@@ -128,7 +128,7 @@ export const StabilityGraph: React.FC = () => {
                     stroke="none"
                     // Stable points larger
                     r={entry.type === 'stable' ? 4 : 3}
-                    className={entry.type === 'stable' ? 'transition-opacity opacity-100' : 'transition-opacity opacity-60 hover:opacity-100'}
+                    className={entry.type === 'stable' ? 'opacity-100 transition-[opacity] duration-150 ease-out motion-reduce:transition-none' : 'opacity-60 transition-[opacity] duration-150 ease-out hover:opacity-100 motion-reduce:transition-none'}
                 />
               ))}
             </Scatter>

@@ -3,7 +3,7 @@
 
 
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Scale, FlaskConical, Droplet, Calculator } from 'lucide-react';
 
 const FormulaItem = ({ title, formula, units }: any) => (
@@ -25,10 +25,13 @@ const FormulaItem = ({ title, formula, units }: any) => (
 );
 
 export const ChimieFormulas: React.FC = () => {
+  const shouldReduceMotion = useReducedMotion();
+  const cardHover = shouldReduceMotion ? undefined : { y: -2 };
+
   return (
     <div className="grid md:grid-cols-2 gap-6 my-8">
       {/* Card 1: Eau et pH */}
-      <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-purple-500">
+      <motion.div whileHover={cardHover} transition={{ duration: 0.15, ease: "easeOut" }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-purple-500">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-purple-100 p-2 rounded-lg text-purple-600"><Droplet size={20} /></div>
           <h4 className="font-bold text-lg text-slate-800">Eau & pH</h4>
@@ -59,7 +62,7 @@ export const ChimieFormulas: React.FC = () => {
       </motion.div>
 
       {/* Card 2: Acides, Bases et Constantes */}
-      <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-emerald-500">
+      <motion.div whileHover={cardHover} transition={{ duration: 0.15, ease: "easeOut" }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-emerald-500">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600"><FlaskConical size={20} /></div>
           <h4 className="font-bold text-lg text-slate-800">Acides & Bases</h4>
@@ -90,7 +93,7 @@ export const ChimieFormulas: React.FC = () => {
       </motion.div>
 
       {/* Card 3: Réactions Générales */}
-      <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-amber-500 md:col-span-2">
+      <motion.div whileHover={cardHover} transition={{ duration: 0.15, ease: "easeOut" }} className="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-amber-500 md:col-span-2">
         <div className="flex items-center gap-3 mb-6">
           <div className="bg-amber-100 p-2 rounded-lg text-amber-600"><Calculator size={20} /></div>
           <h4 className="font-bold text-lg text-slate-800">Constante d'Équilibre</h4>

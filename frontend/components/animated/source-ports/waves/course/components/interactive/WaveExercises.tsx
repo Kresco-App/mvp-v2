@@ -317,16 +317,16 @@ export const WaveExercises: React.FC = () => {
       {/* Controls */}
       <div className="flex flex-wrap gap-2 mb-6">
         <div className="flex p-1 bg-slate-100 rounded-lg">
-            <button type="button" onClick={() => setActiveTab('celerity')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'celerity' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>
+            <button type="button" onClick={() => setActiveTab('celerity')} className={`px-4 py-2 rounded-md text-sm font-bold transition-[background-color,box-shadow,color] duration-150 ease-out ${activeTab === 'celerity' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>
                 Célérité
             </button>
-            <button type="button" onClick={() => setActiveTab('delay')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${activeTab === 'delay' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>
+            <button type="button" onClick={() => setActiveTab('delay')} className={`px-4 py-2 rounded-md text-sm font-bold transition-[background-color,box-shadow,color] duration-150 ease-out ${activeTab === 'delay' ? 'bg-white shadow text-indigo-600' : 'text-slate-500'}`}>
                 Retard
             </button>
         </div>
         <div className="flex gap-1 ml-auto">
             {[1, 2, 3].map(l => (
-                <button type="button" key={l} onClick={() => setLevel(l)} className={`w-8 h-8 rounded-full text-xs font-bold border transition-all ${level === l ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200'}`}>
+                <button type="button" key={l} onClick={() => setLevel(l)} className={`w-8 h-8 rounded-full text-xs font-bold border transition-[background-color,border-color,color] duration-150 ease-out ${level === l ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200'}`}>
                     {l}
                 </button>
             ))}
@@ -349,10 +349,10 @@ export const WaveExercises: React.FC = () => {
           </div>
 
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-              <button type="button" onClick={togglePlay} className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full shadow-lg transition-all">
+              <button type="button" onClick={togglePlay} aria-pressed={gameState === 'running'} className="flex h-11 w-11 items-center justify-center rounded-full bg-indigo-600 p-3 text-white shadow-lg transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-500 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100">
                   {gameState === 'running' ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
               </button>
-              <button type="button" onClick={initProblem} className="p-3 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-full shadow-lg transition-all">
+              <button type="button" onClick={initProblem} aria-label="Reinitialiser l'exercice" className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white p-3 text-slate-600 shadow-lg transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 motion-reduce:transition-none motion-reduce:active:scale-100">
                   <RotateCcw size={20} />
               </button>
           </div>
@@ -365,9 +365,9 @@ export const WaveExercises: React.FC = () => {
             value={userAnswer}
             onChange={(e) => setUserAnswer(e.target.value)}
             placeholder={getPlaceholder()}
-            className="flex-1 p-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-lg"
+            className="flex-1 rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-lg tabular-nums outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out focus:bg-white focus-visible:ring-4 focus-visible:ring-indigo-100"
           />
-          <button type="button" onClick={handleCheck} className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2">
+          <button type="button" onClick={handleCheck} className="flex min-h-11 items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100">
               Vérifier <ArrowRight size={18} />
           </button>
       </div>

@@ -60,7 +60,7 @@ function lazyRenderer(loader: () => Promise<{ default: ComponentType<any> }>): A
     const mod = await loader()
     return adaptAnimatedRenderer(mod.default)
   }, {
-    loading: () => <FallbackAnimatedRenderer className="animate-pulse" />,
+    loading: () => <FallbackAnimatedRenderer className="motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none" />,
     ssr: false,
   }) as AnimatedRendererComponent
 
@@ -69,7 +69,7 @@ function lazyRenderer(loader: () => Promise<{ default: ComponentType<any> }>): A
 
 function lazyDirectRenderer(loader: () => Promise<{ default: AnimatedRendererComponent }>): AnimatedRendererComponent {
   const Renderer = dynamic(loader, {
-    loading: () => <FallbackAnimatedRenderer className="animate-pulse" />,
+    loading: () => <FallbackAnimatedRenderer className="motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none" />,
     ssr: false,
   }) as AnimatedRendererComponent
 

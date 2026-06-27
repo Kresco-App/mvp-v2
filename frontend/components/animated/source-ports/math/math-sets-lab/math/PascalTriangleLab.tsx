@@ -37,14 +37,6 @@ export default function PascalTriangleLab({ rows, stepSpeed, isPlaying, onComple
     // We do generation logic via effects
     const stepDuration = 1000 / stepSpeed;
 
-    useEffect(() => {
-        // Reset when rows change or playing starts from finish
-        setTriangleInfo([[1]]);
-        setCurrentRow(0);
-        setCurrentCol(0);
-        setStepPhase('idle');
-    }, [rows]);
-
     const performStep = () => {
         if (currentRow > maxTriangleRow) {
             if (onComplete) onComplete();
@@ -270,7 +262,7 @@ export default function PascalTriangleLab({ rows, stepSpeed, isPlaying, onComple
                                 initial={{ opacity: 0, scale: 0, x, y: y - 20 }}
                                 animate={{ opacity: 1, scale: nodeScale, x, y }}
                                 transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                                className={`absolute left-1/2 top-1/2 -ml-6 -mt-6 flex h-12 w-12 items-center justify-center rounded-full border-2 transition-colors duration-300 ${nodeStyle}`}
+                                className={`absolute left-1/2 top-1/2 -ml-6 -mt-6 flex h-12 w-12 items-center justify-center rounded-full border-2 transition-[background-color,border-color,color] duration-300 ease-out motion-reduce:transition-none ${nodeStyle}`}
                             >
                                 {val}
                             </motion.div>

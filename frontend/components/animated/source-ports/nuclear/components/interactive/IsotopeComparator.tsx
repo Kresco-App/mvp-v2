@@ -3,11 +3,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Check } from 'lucide-react';
 
 export const IsotopeComparator: React.FC = () => {
   const [activeIsotope, setActiveIsotope] = useState<'Cu63' | 'Cu65'>('Cu63');
+  const shouldReduceMotion = useReducedMotion();
 
   const Z = 29;
   const isotopes = {
@@ -16,6 +17,9 @@ export const IsotopeComparator: React.FC = () => {
   };
 
   const current = isotopes[activeIsotope];
+  const springTransition = shouldReduceMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 300, damping: 30 };
+  const particleTransition = shouldReduceMotion ? { duration: 0 } : { type: "spring" as const, stiffness: 300, damping: 25 };
+  const quickTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.2, ease: 'easeOut' as const };
   
   const generateParticles = (n: number) => {
     const particles = [];
@@ -49,7 +53,8 @@ export const IsotopeComparator: React.FC = () => {
                 <button type="button"
                     key={iso}
                     onClick={() => setActiveIsotope(iso)}
-                    className={`relative px-6 py-2.5 rounded-full font-bold text-sm md:text-base transition-colors duration-200 z-10 outline-none flex items-center gap-2 ${
+                    aria-pressed={activeIsotope === iso}
+                    className={`relative z-10 flex min-h-10 items-center gap-2 rounded-full px-6 py-2.5 text-sm font-bold outline-none transition-[background-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:text-base ${
                         activeIsotope === iso ? 'text-white' : 'text-slate-500 hover:text-purple-700'
                     }`}
                 >
@@ -57,7 +62,7 @@ export const IsotopeComparator: React.FC = () => {
                         <motion.div
                             layoutId="active-isotope-bg"
                             className="absolute inset-0 bg-purple-600 rounded-full shadow-lg shadow-purple-500/30 -z-10"
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                            transition={springTransition}
                         />
                     )}
                     <span className="relative z-10 flex items-center gap-2">
@@ -66,7 +71,7 @@ export const IsotopeComparator: React.FC = () => {
                             <motion.span 
                                 initial={{ scale: 0, opacity: 0 }}
                                 animate={{ scale: 1, opacity: 1 }}
-                                transition={{ delay: 0.1 }}
+                                transition={quickTransition}
                             >
                                 <Check size={16} strokeWidth={3} className="opacity-90" />
                             </motion.span>
@@ -83,7 +88,7 @@ export const IsotopeComparator: React.FC = () => {
         <div className="flex-1 flex justify-center w-full">
             <div className="relative w-48 h-48 md:w-64 md:h-64 bg-slate-50 rounded-full border-4 border-slate-100 flex items-center justify-center shadow-inner overflow-hidden">
                 <motion.div 
-                    layout
+                    layout={!shouldReduceMotion}
                     className="flex flex-wrap justify-center items-center content-center w-36 h-36 md:w-48 md:h-48 gap-0.5 md:gap-1"
                 >
                     <AnimatePresence mode='popLayout'>
@@ -98,7 +103,7 @@ export const IsotopeComparator: React.FC = () => {
                                     borderColor: p.isExtra ? '#d97706' : (p.type === 'proton' ? '#be123c' : '#475569'),
                                     zIndex: p.isExtra ? 20 : 1
                                 }}
-                                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                                transition={particleTransition}
                                 className={`
                                     w-4 h-4 md:w-5 md:h-5 rounded-full border shadow-sm flex items-center justify-center
                                     ${p.isExtra ? 'ring-2 ring-amber-200 ring-offset-1 z-20' : ''}
@@ -116,7 +121,7 @@ export const IsotopeComparator: React.FC = () => {
 
         {/* Data Card */}
         <div className="flex-1 w-full max-w-xs">
-            <div className="bg-slate-50 rounded-xl p-4 md:p-6 border border-slate-200 transition-colors">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 transition-[background-color,border-color] duration-200 ease-out md:p-6">
                 <div className="text-center mb-4 md:mb-6">
                     <span className="text-4xl md:text-5xl font-serif font-bold text-slate-800 flex justify-center items-baseline">
                         <div className="flex flex-col items-end mr-1">
@@ -124,11 +129,12 @@ export const IsotopeComparator: React.FC = () => {
                                 key={`A-disp-${current.A}`}
                                 initial={{ opacity: 0, y: 5 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className="text-2xl md:text-3xl text-purple-600 font-mono"
+                                transition={quickTransition}
+                                className="font-mono text-2xl tabular-nums text-purple-600 md:text-3xl"
                             >
                                 {current.A}
                             </motion.sup>
-                            <sub className="text-2xl md:text-3xl text-yellow-500 font-mono">{Z}</sub>
+                            <sub className="font-mono text-2xl tabular-nums text-yellow-500 md:text-3xl">{Z}</sub>
                         </div>
                         Cu
                     </span>
@@ -140,7 +146,7 @@ export const IsotopeComparator: React.FC = () => {
                             <div className="w-3 h-3 rounded-full bg-rose-600"></div>
                             <span className="font-bold text-slate-600">Protons (Z)</span>
                         </div>
-                        <span className="font-mono font-bold text-lg md:text-xl text-yellow-500">{Z}</span>
+                        <span className="font-mono text-lg font-bold tabular-nums text-yellow-500 md:text-xl">{Z}</span>
                     </div>
 
                     <div className="flex justify-between items-center p-2 md:p-3 bg-white rounded-lg border border-slate-100 shadow-sm relative overflow-hidden">
@@ -153,7 +159,8 @@ export const IsotopeComparator: React.FC = () => {
                                 <motion.span 
                                     initial={{ opacity: 0, x: 10 }}
                                     animate={{ opacity: 1, x: 0 }}
-                                    className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full"
+                                    transition={quickTransition}
+                                    className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold tabular-nums text-amber-600"
                                 >
                                     +2
                                 </motion.span>
@@ -162,7 +169,8 @@ export const IsotopeComparator: React.FC = () => {
                                 key={`N-val-${current.N}`}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className={`font-mono font-bold text-lg md:text-xl ${activeIsotope === 'Cu65' ? 'text-amber-600' : 'text-slate-600'}`}
+                                transition={quickTransition}
+                                className={`font-mono text-lg font-bold tabular-nums md:text-xl ${activeIsotope === 'Cu65' ? 'text-amber-600' : 'text-slate-600'}`}
                             >
                                 {current.N}
                             </motion.span>
@@ -175,7 +183,8 @@ export const IsotopeComparator: React.FC = () => {
                              key={`A-val-${current.A}`}
                              initial={{ opacity: 0, scale: 1.2 }}
                              animate={{ opacity: 1, scale: 1 }}
-                             className="font-mono font-bold text-lg md:text-xl text-purple-700"
+                             transition={quickTransition}
+                             className="font-mono text-lg font-bold tabular-nums text-purple-700 md:text-xl"
                         >
                             {current.A}
                         </motion.span>
@@ -189,6 +198,7 @@ export const IsotopeComparator: React.FC = () => {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
+                            transition={quickTransition}
                         >
                             {activeIsotope === 'Cu63' 
                                 ? "L'isotope le plus abondant dans la nature (69%)." 

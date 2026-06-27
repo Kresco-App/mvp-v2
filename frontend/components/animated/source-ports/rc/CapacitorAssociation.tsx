@@ -20,13 +20,13 @@ export const CapacitorAssociation: React.FC = () => {
         <div className="flex bg-slate-800 rounded-lg p-1">
           <button type="button"
             onClick={() => setMode('parallel')}
-            className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${mode === 'parallel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+            className={`px-4 py-2 rounded-md text-sm font-bold transition-[background-color,color] duration-150 ease-out ${mode === 'parallel' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
           >
             En Parallèle
           </button>
           <button type="button"
             onClick={() => setMode('series')}
-            className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${mode === 'series' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+            className={`px-4 py-2 rounded-md text-sm font-bold transition-[background-color,color] duration-150 ease-out ${mode === 'series' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
           >
             En Série
           </button>

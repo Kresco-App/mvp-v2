@@ -2,22 +2,8 @@
 
 import type { ComponentType } from 'react'
 import type { AnimatedRendererProps } from '../types'
-import {
-  OndeLabThemeProvider,
-  OndesCourseEmbed,
-  PeriodicWaveSimulator,
-  RopeWaveSimulator,
-  SoundWaveSimulator,
-  StroboscopeSimulator,
-  SuperpositionSimulator,
-  TimeDelaySimulator,
-  WaveAdvancedExercises,
-  WaveExercises,
-  WaveLab,
-  WavePeriodicExercises,
-  WavePeriodicFormulas,
-  WaveSimulator,
-} from '../source-ports/waves'
+import { ThemeProvider as OndeLabThemeProvider } from '../source-ports/waves/onde-lab/context/ThemeContext'
+import { lazySourceComponent } from './lazySourceComponent'
 
 type WaveComponentKey =
   | 'wave-simulator'
@@ -34,20 +20,24 @@ type WaveComponentKey =
   | 'wave-advanced-exercises'
   | 'onde-lab'
 
-const components: Record<Exclude<WaveComponentKey, 'onde-lab'>, ComponentType<any>> = {
-  'wave-simulator': WaveSimulator,
-  'rope-wave-simulator': RopeWaveSimulator,
-  'sound-wave-simulator': SoundWaveSimulator,
-  'superposition-simulator': SuperpositionSimulator,
-  'time-delay-simulator': TimeDelaySimulator,
-  'periodic-wave-simulator': PeriodicWaveSimulator,
-  'stroboscope-simulator': StroboscopeSimulator,
-  'wave-lab': WaveLab,
-  'wave-exercises': WaveExercises,
-  'wave-periodic-formulas': WavePeriodicFormulas,
-  'wave-periodic-exercises': WavePeriodicExercises,
-  'wave-advanced-exercises': WaveAdvancedExercises,
+const components: Record<Exclude<WaveComponentKey, 'onde-lab'>, ComponentType> = {
+  'wave-simulator': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/WaveSimulator').then((mod) => mod.WaveSimulator)),
+  'rope-wave-simulator': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/RopeWaveSimulator').then((mod) => mod.RopeWaveSimulator)),
+  'sound-wave-simulator': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/SoundWaveSimulator').then((mod) => mod.SoundWaveSimulator)),
+  'superposition-simulator': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/SuperpositionSimulator').then((mod) => mod.SuperpositionSimulator)),
+  'time-delay-simulator': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/TimeDelaySimulator').then((mod) => mod.TimeDelaySimulator)),
+  'periodic-wave-simulator': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/PeriodicWaveSimulator').then((mod) => mod.PeriodicWaveSimulator)),
+  'stroboscope-simulator': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/StroboscopeSimulator').then((mod) => mod.StroboscopeSimulator)),
+  'wave-lab': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/labs/WaveLab').then((mod) => mod.WaveLab)),
+  'wave-exercises': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/WaveExercises').then((mod) => mod.WaveExercises)),
+  'wave-periodic-formulas': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/WavePeriodicFormulas').then((mod) => mod.WavePeriodicFormulas)),
+  'wave-periodic-exercises': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/WavePeriodicExercises').then((mod) => mod.WavePeriodicExercises)),
+  'wave-advanced-exercises': lazySourceComponent(() => import('../source-ports/waves/course/components/interactive/advanced/WaveAdvancedExercises').then((mod) => mod.WaveAdvancedExercises)),
 }
+
+const OndesCourseEmbed = lazySourceComponent(
+  () => import('../source-ports/waves/onde-lab/components/OndesCourseEmbed').then((mod) => mod.default),
+)
 
 const aliases: Record<string, WaveComponentKey> = {
   wave_simulator: 'wave-simulator',

@@ -2,15 +2,8 @@
 
 import type { ComponentType } from 'react'
 import type { AnimatedRendererProps } from '../types'
-import {
-  FunctionExplorer,
-  MathSetsPage,
-  MathSetsThemeProvider,
-  PascalTriangleAnimation,
-  PascalTriangleLab,
-  SetsInclusionAnimation,
-  VariationsAnimation,
-} from '../source-ports/math'
+import { ThemeProvider as MathSetsThemeProvider } from '../source-ports/math/math-sets-lab/context/ThemeContext'
+import { lazySourceComponent } from './lazySourceComponent'
 
 type MathComponentKey =
   | 'sets-inclusion'
@@ -20,13 +13,17 @@ type MathComponentKey =
   | 'function-explorer'
   | 'math-sets-page'
 
-const components: Record<Exclude<MathComponentKey, 'math-sets-page'>, ComponentType<any>> = {
-  'sets-inclusion': SetsInclusionAnimation,
-  variations: VariationsAnimation,
-  'pascal-triangle-lab': PascalTriangleLab,
-  'pascal-triangle-animation': PascalTriangleAnimation,
-  'function-explorer': FunctionExplorer,
+const components: Record<Exclude<MathComponentKey, 'math-sets-page'>, ComponentType> = {
+  'sets-inclusion': lazySourceComponent(() => import('../source-ports/math/math-sets-lab/components/SetsInclusionAnimation').then((mod) => mod.default)),
+  variations: lazySourceComponent(() => import('../source-ports/math/math-sets-lab/components/VariationsAnimation').then((mod) => mod.default)),
+  'pascal-triangle-lab': lazySourceComponent(() => import('../source-ports/math/math-sets-lab/math/PascalTriangleLab').then((mod) => mod.default)),
+  'pascal-triangle-animation': lazySourceComponent(() => import('../source-ports/math/math-sets-lab/components/PascalTriangleAnimation').then((mod) => mod.default)),
+  'function-explorer': lazySourceComponent(() => import('../source-ports/math/course/components/math/FunctionExplorer').then((mod) => mod.FunctionExplorer)),
 }
+
+const MathSetsPage = lazySourceComponent(
+  () => import('../source-ports/math/math-sets-lab/pages/MathSetsPage').then((mod) => mod.default),
+)
 
 const aliases: Record<string, MathComponentKey> = {
   sets_inclusion: 'sets-inclusion',
@@ -66,12 +63,16 @@ function resolveComponentKey(props: AnimatedRendererProps): MathComponentKey {
 export default function MathSourceRenderer(props: AnimatedRendererProps) {
   const componentKey = resolveComponentKey(props)
 
-  return (
-    <MathSetsThemeProvider>
-      {componentKey === 'math-sets-page' ? <MathSetsPage onNavigate={() => undefined} initialMode="inclusion" /> : (() => {
-        const Component = components[componentKey]
-        return <Component />
-      })()}
-    </MathSetsThemeProvider>
-  )
+  if (componentKey === 'math-sets-page') {
+    return (
+      <MathSetsThemeProvider>
+        <MathSetsPage onNavigate={() => undefined} initialMode="inclusion" />
+      </MathSetsThemeProvider>
+    )
+  }
+
+  const Component = components[componentKey]
+  const content = <Component />
+
+  return componentKey === 'function-explorer' ? content : <MathSetsThemeProvider>{content}</MathSetsThemeProvider>
 }

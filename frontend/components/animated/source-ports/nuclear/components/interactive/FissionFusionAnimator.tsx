@@ -45,13 +45,13 @@ export const FissionFusionAnimator: React.FC = () => {
       <div className="flex p-1 bg-slate-100 rounded-xl mb-8 w-fit mx-auto">
           <button type="button" 
             onClick={() => { setMode('fission'); setIsPlaying(false); }}
-            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${mode === 'fission' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-[background-color,box-shadow,color] duration-150 ease-out ${mode === 'fission' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
               <Split size={16} /> Fission
           </button>
           <button type="button" 
             onClick={() => { setMode('fusion'); setIsPlaying(false); }}
-            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-all ${mode === 'fusion' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm transition-[background-color,box-shadow,color] duration-150 ease-out ${mode === 'fusion' ? 'bg-white text-sky-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
           >
               <Merge size={16} /> Fusion
           </button>
@@ -73,7 +73,7 @@ export const FissionFusionAnimator: React.FC = () => {
                   <FissionAnimation key={`fission-${key}`} />
               ) : mode === 'fission' && !isPlaying ? (
                   <div className="flex items-center gap-8">
-                      <div className="w-4 h-4 bg-slate-400 rounded-full animate-pulse"></div> {/* Neutron */}
+                      <div className="h-4 w-4 rounded-full bg-slate-400 motion-safe:animate-[pulse_1.5s_ease-in-out_infinite] motion-reduce:animate-none"></div> {/* Neutron */}
                       <div className="text-white text-2xl">&rarr;</div>
                       <div className="w-24 h-24 bg-orange-500 rounded-full shadow-[0_0_30px_rgba(249,115,22,0.4)] border-4 border-orange-400 flex items-center justify-center font-bold text-white text-xl">
                           <sup>235</sup>U
@@ -96,7 +96,7 @@ export const FissionFusionAnimator: React.FC = () => {
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4">
               <button type="button" 
                 onClick={handlePlay}
-                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-full backdrop-blur-md border border-white/10 transition-all font-bold"
+                className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-full backdrop-blur-md border border-white/10 transition-[background-color,border-color,color] duration-150 ease-out font-bold"
               >
                   <Play size={18} fill="currentColor" /> Lancer
               </button>

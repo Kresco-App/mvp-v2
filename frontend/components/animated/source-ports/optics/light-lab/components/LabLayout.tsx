@@ -45,9 +45,9 @@ export default function LabLayout({
     const currentAccent = accents[accentColor] || accents.amber;
 
     return (
-        <div className={`flex flex-col h-screen ${bg} text-slate-100 font-sans transition-colors duration-200`}>
+        <div className={`flex h-screen flex-col ${bg} font-sans text-slate-100 transition-[background-color,color] duration-200 ease-out motion-reduce:transition-none`}>
             {/* Header */}
-            <header className={`flex items-center justify-between px-6 py-3 ${headerBg} border-b ${borderColor} shadow-sm shrink-0 transition-colors duration-200`}>
+            <header className={`flex shrink-0 items-center justify-between border-b px-6 py-3 shadow-sm transition-[background-color,border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none ${headerBg} ${borderColor}`}>
                 <div className="flex items-center gap-4">
                     <h1 className={`text-xl font-bold ${currentAccent.title}`}>Labo Optique</h1>
                     
@@ -55,7 +55,8 @@ export default function LabLayout({
                     <div className={`flex ${isDark ? 'bg-[#334155]' : 'bg-[#F1F5F9]'} rounded-full p-1 gap-1`}>
                         <button type="button"
                             onClick={() => onNavigate('optics')}
-                            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+                            aria-pressed={currentPage === 'optics'}
+                            className={`min-h-10 rounded-full px-4 py-1.5 text-sm font-medium transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                                 currentPage === 'optics' ? 'bg-amber-500 text-white shadow-sm' : `${textSecondary} hover:${textPrimary}`
                             }`}
                         >
@@ -63,7 +64,8 @@ export default function LabLayout({
                         </button>
                         <button type="button"
                             onClick={() => onNavigate('diffraction')}
-                            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+                            aria-pressed={currentPage === 'diffraction'}
+                            className={`min-h-10 rounded-full px-4 py-1.5 text-sm font-medium transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                                 currentPage === 'diffraction' ? 'bg-cyan-500 text-white shadow-sm' : `${textSecondary} hover:${textPrimary}`
                             }`}
                         >
@@ -71,7 +73,8 @@ export default function LabLayout({
                         </button>
                         <button type="button"
                             onClick={() => onNavigate('prism')}
-                            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+                            aria-pressed={currentPage === 'prism'}
+                            className={`min-h-10 rounded-full px-4 py-1.5 text-sm font-medium transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                                 currentPage === 'prism' ? 'bg-purple-500 text-white shadow-sm' : `${textSecondary} hover:${textPrimary}`
                             }`}
                         >
@@ -84,7 +87,8 @@ export default function LabLayout({
                 <div className="flex items-center gap-2">
                     <button type="button"
                         onClick={toggleTheme}
-                        className={`px-3 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
+                        aria-label={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+                        className={`min-h-10 rounded-full px-3 py-2 font-medium transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${isDark ? 'bg-[#334155] text-yellow-400 hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'}`}
                         title={isDark ? 'Mode clair' : 'Mode sombre'}
                     >
                         {isDark ? 'Clair' : 'Sombre'}
@@ -96,13 +100,13 @@ export default function LabLayout({
             {/* Main Content */}
             <main className="flex flex-1 overflow-hidden">
                 {/* Canvas Area */}
-                <div className={`flex-1 flex flex-col ${canvasBg} relative overflow-hidden transition-colors duration-200`}>
+                <div className={`relative flex flex-1 flex-col overflow-hidden transition-[background-color] duration-200 ease-out motion-reduce:transition-none ${canvasBg}`}>
                      {canvasContent}
                 </div>
                 
                 {/* Controls Panel - Modern Sidebar Style */}
                 {controlsContent && (
-                    <aside className={`w-80 ${cardBg} border-l ${borderColor} overflow-y-auto p-4 space-y-4 shrink-0 transition-colors duration-200`}>
+                    <aside className={`w-80 shrink-0 space-y-4 overflow-y-auto border-l p-4 transition-[background-color,border-color] duration-200 ease-out motion-reduce:transition-none ${cardBg} ${borderColor}`}>
                         <h2 className={`text-lg font-bold ${textPrimary} mb-4 px-1`}>{title}</h2>
                         {controlsContent}
                     </aside>

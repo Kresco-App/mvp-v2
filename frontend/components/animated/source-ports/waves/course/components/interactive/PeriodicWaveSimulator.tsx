@@ -175,16 +175,33 @@ export const PeriodicWaveSimulator: React.FC = () => {
                 <div className="lg:col-span-1 mt-6 lg:mt-0 space-y-6">
                     <div className="flex justify-between items-center">
                         <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Waves size={20} /> Simulateur d'Onde</h3>
-                        <button type="button" onClick={() => setIsPlaying(!isPlaying)} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-700" title={isPlaying ? "Pause" : "Lecture"}>
+                        <button
+                            type="button"
+                            onClick={() => setIsPlaying((playing) => !playing)}
+                            className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 transition-[background-color,color,transform] duration-150 ease-out hover:bg-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-300/80 motion-reduce:transition-none motion-reduce:active:scale-100"
+                            title={isPlaying ? "Pause" : "Lecture"}
+                            aria-label={isPlaying ? "Mettre en pause" : "Lancer l'onde"}
+                            aria-pressed={isPlaying}
+                        >
                             {isPlaying ? <Pause size={20} /> : <Play size={20} />}
                         </button>
                     </div>
 
                     <div className="flex bg-slate-100 p-1 rounded-lg">
-                        <button type="button" onClick={() => setViewMode('spatial')} className={`w-1/2 px-3 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'spatial' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('spatial')}
+                            className={`flex min-h-10 w-1/2 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-bold transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200/70 motion-reduce:transition-none motion-reduce:active:scale-100 ${viewMode === 'spatial' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            aria-pressed={viewMode === 'spatial'}
+                        >
                             <Ruler size={16} /> Spatiale
                         </button>
-                        <button type="button" onClick={() => setViewMode('temporal')} className={`w-1/2 px-3 py-2 rounded-md text-sm font-bold flex items-center justify-center gap-2 transition-all ${viewMode === 'temporal' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500'}`}>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('temporal')}
+                            className={`flex min-h-10 w-1/2 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-bold transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-pink-200/70 motion-reduce:transition-none motion-reduce:active:scale-100 ${viewMode === 'temporal' ? 'bg-white text-pink-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            aria-pressed={viewMode === 'temporal'}
+                        >
                             <Clock size={16} /> Temporelle
                         </button>
                     </div>
@@ -200,9 +217,10 @@ export const PeriodicWaveSimulator: React.FC = () => {
                         <div>
                             <label className="flex justify-between text-sm font-bold text-slate-600 mb-3">
                                 <span>Fréquence (f)</span>
-                                <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200">{displayFrequency.toFixed(1)} Hz</span>
+                                <span className="font-mono tabular-nums bg-white px-2 py-0.5 rounded border border-slate-200">{displayFrequency.toFixed(1)} Hz</span>
                             </label>
                             <Slider
+                                aria-label="Frequence"
                                 value={[displayFrequency]}
                                 onValueChange={([value]) => {
                                     setDisplayFrequency(value);
@@ -214,9 +232,10 @@ export const PeriodicWaveSimulator: React.FC = () => {
                         <div>
                             <label className="flex justify-between text-sm font-bold text-slate-600 mb-3">
                                 <span>Longueur d'onde (λ)</span>
-                                <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200">{displayWavelength} px</span>
+                                <span className="font-mono tabular-nums bg-white px-2 py-0.5 rounded border border-slate-200">{displayWavelength} px</span>
                             </label>
                             <Slider
+                                aria-label="Longueur d'onde"
                                 value={[displayWavelength]}
                                 onValueChange={([value]) => {
                                     setDisplayWavelength(value);

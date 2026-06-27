@@ -126,7 +126,7 @@ export default function DiffractionSimulator() {
 
     window.addEventListener('mousemove', handlePointerMove)
     window.addEventListener('mouseup', handlePointerUp)
-    window.addEventListener('touchmove', handlePointerMove)
+    window.addEventListener('touchmove', handlePointerMove, { passive: true })
     window.addEventListener('touchend', handlePointerUp)
 
     return () => {
@@ -466,9 +466,10 @@ export default function DiffractionSimulator() {
             setSlitWidth(100)
             setDistance(2.0)
           }}
-          className="inline-flex items-center justify-center w-9 h-9 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+          aria-label="Reset diffraction simulator"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-slate-300 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-400/40 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100"
         >
-          <RefreshCw size={16} />
+          <RefreshCw size={16} aria-hidden="true" />
         </button>
       </div>
 

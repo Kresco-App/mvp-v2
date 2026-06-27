@@ -11,7 +11,7 @@ export const WaveSimulator: React.FC = () => {
       <div className="bg-slate-50 p-4 border-b border-slate-100 flex items-center justify-center gap-4">
         <button type="button"
           onClick={() => setActiveTab('transverse')}
-          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+          className={`px-4 py-2 rounded-lg font-medium text-sm transition-[background-color,box-shadow,color] duration-150 ease-out ${
             activeTab === 'transverse'
               ? 'bg-white shadow text-purple-600'
               : 'text-slate-500 hover:bg-white/50'
@@ -21,7 +21,7 @@ export const WaveSimulator: React.FC = () => {
         </button>
         <button type="button"
           onClick={() => setActiveTab('longitudinal')}
-          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+          className={`px-4 py-2 rounded-lg font-medium text-sm transition-[background-color,box-shadow,color] duration-150 ease-out ${
             activeTab === 'longitudinal'
               ? 'bg-white shadow text-emerald-600'
               : 'text-slate-500 hover:bg-white/50'

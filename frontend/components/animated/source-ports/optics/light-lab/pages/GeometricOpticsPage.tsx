@@ -254,7 +254,7 @@ export default function GeometricOpticsPage({
             ref={canvasRef} 
             width={600} 
             height={500} 
-            className="w-full h-full cursor-crosshair transition-colors duration-200"
+            className="h-full w-full cursor-crosshair transition-[background-color] duration-200 ease-out motion-reduce:transition-none"
         />
     );
 
@@ -309,16 +309,17 @@ export default function GeometricOpticsPage({
 
                 <div className="pt-2 border-t border-amber-500/10">
                     <button type="button"
-                        onClick={() => setShowAngles(!showAngles)}
-                        className={`w-full py-2 px-3 rounded-full text-sm font-medium transition-all flex items-center justify-between ${
+                        onClick={() => setShowAngles((visible) => !visible)}
+                        aria-pressed={showAngles}
+                        className={`flex min-h-10 w-full items-center justify-between rounded-full px-3 py-2 text-sm font-medium transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                             showAngles 
                                 ? 'bg-amber-500 text-white shadow-sm' 
                                 : isDark ? 'bg-[#475569] text-[#E2E8F0]' : 'bg-white text-[#64748B] border border-[#E2E8F0]'
                         }`}
                     >
                         <span>Visualiser les Angles</span>
-                        <div className={`w-8 h-4 rounded-full relative transition-colors ${showAngles ? 'bg-amber-300' : 'bg-slate-400'}`}>
-                            <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${showAngles ? 'left-4.5' : 'left-0.5'}`} />
+                        <div className={`relative h-4 w-8 rounded-full transition-[background-color] duration-150 ease-out motion-reduce:transition-none ${showAngles ? 'bg-amber-300' : 'bg-slate-400'}`}>
+                            <div className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white transition-[transform] duration-150 ease-out motion-reduce:transition-none ${showAngles ? 'translate-x-4' : 'translate-x-0'}`} />
                         </div>
                     </button>
                 </div>
@@ -359,7 +360,7 @@ export default function GeometricOpticsPage({
             headerActions={
                 <button type="button" 
                     onClick={() => { setAngleDeg(45); setN1(1.0); setN2(1.5); }}
-                    className={`px-4 py-2 rounded-full font-medium transition-all ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'} text-sm`}
+                    className={`px-4 py-2 rounded-full font-medium transition-[background-color,color] duration-150 ease-out ${isDark ? 'bg-[#334155] text-[#E2E8F0] hover:bg-[#475569]' : 'bg-[#F1F5F9] text-[#64748B] hover:bg-[#E2E8F0]'} text-sm`}
                 >
                     Reset
                 </button>

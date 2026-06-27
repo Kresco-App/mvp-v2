@@ -3,7 +3,7 @@
 
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { RotateCcw } from 'lucide-react';
 
 const TYPES = [
@@ -15,8 +15,12 @@ const TYPES = [
 export const RadioactivityVisualizer: React.FC = () => {
   const [activeType, setActiveType] = useState('alpha');
   const [key, setKey] = useState(0);
+  const shouldReduceMotion = useReducedMotion();
 
   const current = TYPES.find(t => t.id === activeType)!;
+  const quickTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.35, ease: 'easeOut' as const };
+  const emissionTransition = shouldReduceMotion ? { duration: 0 } : { duration: 1.2, delay: 0.45, ease: 'easeOut' as const };
+  const labelTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.2, delay: 1.25 };
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
@@ -25,7 +29,8 @@ export const RadioactivityVisualizer: React.FC = () => {
             <button type="button"
                 key={t.id}
                 onClick={() => { setActiveType(t.id); setKey(k => k+1); }}
-                className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${ 
+                aria-pressed={activeType === t.id}
+                className={`min-h-10 rounded-full px-4 py-2 text-sm font-bold transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                     activeType === t.id 
                     ? 'bg-indigo-600 text-white shadow-md' 
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -46,7 +51,7 @@ export const RadioactivityVisualizer: React.FC = () => {
                 <motion.div 
                     initial={{ scale: 1 }}
                     animate={{ scale: activeType === 'gamma' ? 1 : 0.9 }} // Shrink slightly if losing particle
-                    transition={{ duration: 0.5, delay: 0.5 }}
+                    transition={quickTransition}
                     className="w-24 h-24 bg-indigo-900 rounded-full shadow-xl flex items-center justify-center relative z-10"
                 >
                     <span className="text-white font-serif font-bold text-2xl">
@@ -54,8 +59,8 @@ export const RadioactivityVisualizer: React.FC = () => {
                     </span>
                     {activeType === 'gamma' && (
                         <motion.div 
-                            animate={{ opacity: [0,1,0], scale: [1, 1.2, 1] }}
-                            transition={{ repeat: Infinity, duration: 1 }}
+                            animate={shouldReduceMotion ? { opacity: 1, scale: 1 } : { opacity: [0,1,0], scale: [1, 1.2, 1] }}
+                            transition={shouldReduceMotion ? { duration: 0 } : { repeat: Infinity, duration: 1 }}
                             className="absolute inset-0 border-4 border-yellow-400 rounded-full opacity-0"
                         />
                     )}
@@ -65,12 +70,12 @@ export const RadioactivityVisualizer: React.FC = () => {
                 <motion.div
                     initial={{ x: 0, y: 0, opacity: 0, scale: 0.5 }}
                     animate={{ 
-                        x: 150, 
-                        y: -50, 
-                        opacity: [0, 1, 1, 0], 
+                        x: shouldReduceMotion ? 120 : 150,
+                        y: shouldReduceMotion ? -40 : -50,
+                        opacity: shouldReduceMotion ? 1 : [0, 1, 1, 0],
                         scale: 1 
                     }}
-                    transition={{ duration: 1.5, delay: 0.8, ease: "easeOut" }}
+                    transition={emissionTransition}
                     className={`absolute top-1/2 left-1/2 w-12 h-12 -mt-6 -ml-6 rounded-full flex items-center justify-center font-bold text-white shadow-lg z-20 ${current.color}`}
                 >
                     {current.particle}
@@ -80,7 +85,7 @@ export const RadioactivityVisualizer: React.FC = () => {
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ delay: 1.5 }}
+                    transition={labelTransition}
                     className="absolute -bottom-12 left-1/2 -translate-x-1/2 text-indigo-900 font-bold text-sm whitespace-nowrap"
                 >
                     {activeType === 'gamma' ? 'Noyau Stable' : 'Noyau Fils'}
@@ -90,7 +95,8 @@ export const RadioactivityVisualizer: React.FC = () => {
 
          <button type="button" 
             onClick={() => setKey(k => k+1)}
-            className="absolute bottom-4 right-4 p-2 bg-white rounded-full shadow text-indigo-600 hover:bg-indigo-50 transition-colors"
+            aria-label="Rejouer l'emission radioactive"
+            className="absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white text-indigo-600 shadow transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-50 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100"
          >
              <RotateCcw size={20} />
          </button>

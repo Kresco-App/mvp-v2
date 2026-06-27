@@ -20,7 +20,7 @@ export const TauDemonstration: React.FC = () => {
       <div className="grid lg:grid-cols-2 gap-10">
         {/* Derivation Steps */}
         <div className="space-y-6">
-          <div className="group bg-slate-50 hover:bg-white p-5 rounded-2xl border border-slate-200 hover:border-[#2E2E8A]/30 transition-all shadow-sm">
+          <div className="group bg-slate-50 hover:bg-white p-5 rounded-2xl border border-slate-200 hover:border-[#2E2E8A]/30 transition-[background-color,border-color] duration-150 ease-out shadow-sm">
             <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-3">
               <span className="bg-[#2E2E8A] text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-md shadow-indigo-900/20">1</span>
               Définition
@@ -31,7 +31,7 @@ export const TauDemonstration: React.FC = () => {
             </div>
           </div>
 
-          <div className="group bg-slate-50 hover:bg-white p-5 rounded-2xl border border-slate-200 hover:border-[#2E2E8A]/30 transition-all shadow-sm">
+          <div className="group bg-slate-50 hover:bg-white p-5 rounded-2xl border border-slate-200 hover:border-[#2E2E8A]/30 transition-[background-color,border-color] duration-150 ease-out shadow-sm">
             <h4 className="font-bold text-slate-700 mb-3 flex items-center gap-3">
               <span className="bg-[#2E2E8A] text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shadow-md shadow-indigo-900/20">2</span>
               Calcul à t = τ

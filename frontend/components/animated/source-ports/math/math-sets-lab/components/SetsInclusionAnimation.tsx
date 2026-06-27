@@ -64,7 +64,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
                 .attr('width', width)
                 .attr('height', actualHeight)
                 .attr('viewBox', [0, 0, width, actualHeight])
-                .attr('style', 'max-width: 100%; height: auto; transition: all 0.3s ease;');
+                .attr('style', 'max-width: 100%; height: auto; transition: opacity 300ms ease, transform 300ms ease;');
 
             const sets = [
                 { id: 'R', label: 'ℝ', name: 'Nombres Réels', desc: 'L\'ensemble de tous les nombres rationnels et irrationnels. Ils remplissent toute la droite numérique.', examples: 'π, e, √2, 0.333..., 42', color: '#EF4444', radius: Math.min(width, height) * 0.45 },
@@ -201,7 +201,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             // Tooltip div (invisible initially)
             const tooltip = select(containerRef.current)
                 .append('div')
-                .attr('class', 'absolute z-10 pointer-events-none opacity-0 transition-opacity duration-200 backdrop-blur-md rounded-lg p-2 text-xs border shadow-lg')
+                .attr('class', 'absolute z-10 pointer-events-none opacity-0 transition-[opacity] duration-200 ease-out motion-reduce:transition-none backdrop-blur-md rounded-lg p-2 text-xs border shadow-lg')
                 .style('background', isDark ? 'rgba(30, 41, 59, 0.8)' : 'rgba(255, 255, 255, 0.8)')
                 .style('border-color', isDark ? '#475569' : '#E2E8F0')
                 .style('color', isDark ? '#F1F5F9' : '#1E293B');
@@ -291,7 +291,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             <div ref={containerRef} className="w-full flex-1 relative min-h-[400px]" />
 
             {/* Info Panel for Selected Set */}
-            <div className={`w-full max-w-2xl mt-4 p-4 rounded-xl border transition-all duration-300 ${isDark ? 'bg-slate-800/50' : 'bg-white/50'} ${selectedSet ? selectedTone.border : 'border-transparent'} ${selectedSet ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none absolute bottom-0'}`}>
+            <div className={`w-full max-w-2xl mt-4 p-4 rounded-xl border transition-[background-color,border-color,opacity,transform] duration-150 ease-out motion-reduce:transition-none ${isDark ? 'bg-slate-800/50' : 'bg-white/50'} ${selectedSet ? selectedTone.border : 'border-transparent'} ${selectedSet ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none absolute bottom-0'}`}>
                 {selectedSet && (
                     <div className="flex items-start gap-4">
                         <div className={`text-4xl font-bold flex-shrink-0 ${selectedTone.text}`}>
@@ -312,7 +312,7 @@ export default function SetsInclusionAnimation({ speed = 1 }: SetsInclusionProps
             </div>
 
             {!selectedSet && (
-                <div className={`mt-4 text-sm font-medium animate-pulse ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div className={`mt-4 text-sm font-medium motion-safe:animate-[pulse_1.5s_ease-in-out_infinite] motion-reduce:animate-none ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                     Cliquez sur un ensemble ou survolez un nombre pour plus de détails
                 </div>
             )}

@@ -2,13 +2,14 @@
 
 /* eslint-disable react/no-unescaped-entities, @typescript-eslint/no-unused-vars, react-hooks/exhaustive-deps, react/display-name, prefer-const, @typescript-eslint/no-unused-expressions */
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 interface DecayDiagramsProps {
   type: 'alpha' | 'beta-minus' | 'beta-plus';
 }
 
 export const DecayDiagrams: React.FC<DecayDiagramsProps> = ({ type }) => {
+  const shouldReduceMotion = useReducedMotion();
   const configs = {
     alpha: {
       title: "Diagramme (N, Z) - Radioactivité α",
@@ -91,9 +92,9 @@ export const DecayDiagrams: React.FC<DecayDiagramsProps> = ({ type }) => {
 
         {/* Transition Vector */}
         <motion.line
-          initial={{ pathLength: 0 }}
+          initial={{ pathLength: shouldReduceMotion ? 1 : 0 }}
           animate={{ pathLength: 1 }}
-          transition={{ duration: 1.5, ease: "easeInOut", repeat: Infinity, repeatDelay: 2 }}
+          transition={shouldReduceMotion ? { duration: 0 } : { duration: 1.5, ease: "easeInOut", repeat: Infinity, repeatDelay: 2 }}
           x1={parentX} y1={parentY}
           x2={daughterX} y2={daughterY}
           stroke={config.color}

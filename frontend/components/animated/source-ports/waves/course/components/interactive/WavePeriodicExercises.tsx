@@ -117,7 +117,7 @@ export const WavePeriodicExercises: React.FC = () => {
                         key={idx}
                         onClick={() => !showFeedback && handleAnswer(idx)}
                         disabled={showFeedback}
-                        className={`p-4 rounded-xl text-left transition-all flex justify-between items-center ${
+                        className={`p-4 rounded-xl text-left transition-[background-color,border-color,color] duration-150 ease-out flex justify-between items-center ${
                             showFeedback
                                 ? idx === questions[currentQuestion].correct
                                     ? 'bg-green-100 border-2 border-green-400 text-green-800'
@@ -150,7 +150,7 @@ export const WavePeriodicExercises: React.FC = () => {
                 {showFeedback ? (
                     <button type="button" 
                         onClick={nextQuestion}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors shadow-lg shadow-indigo-200"
+                        className="flex min-h-11 items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white shadow-lg shadow-indigo-200 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 motion-reduce:transition-none motion-reduce:active:scale-100"
                     >
                         {currentQuestion === questions.length - 1 ? "Voir le Résultat" : "Question Suivante"} <ArrowRight size={18}/>
                     </button>
@@ -172,7 +172,7 @@ export const WavePeriodicExercises: React.FC = () => {
             <div className="flex justify-center gap-4">
                 <button type="button" 
                     onClick={resetQuiz}
-                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors"
+                    className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-100 px-6 py-3 font-bold text-slate-700 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 motion-reduce:transition-none motion-reduce:active:scale-100"
                 >
                     <RefreshCw size={18}/> Recommencer
                 </button>

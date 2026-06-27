@@ -159,7 +159,7 @@ export const DiffractionSimulator: React.FC = () => {
                 Huygens-Fresnel
             </span>
         </h3>
-        <button type="button" onClick={() => { setWavelength(40); setGapSize(40); }} className="text-slate-400 hover:text-slate-600 transition-colors">
+        <button type="button" onClick={() => { setWavelength(40); setGapSize(40); }} aria-label="Reinitialiser la diffraction" className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-100 hover:text-slate-600 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 motion-reduce:transition-none motion-reduce:active:scale-100">
             <RefreshCw size={18}/>
         </button>
       </div>

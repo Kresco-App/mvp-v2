@@ -10,7 +10,7 @@ import { Check, X, ArrowRight, RefreshCw, Calculator, ListChecks, HelpCircle } f
 const TabButton = ({ active, onClick, label, icon: Icon }: any) => (
   <button type="button"
     onClick={onClick}
-    className={`flex items-center gap-2 px-3 md:px-4 py-3 rounded-lg font-bold transition-all flex-1 md:flex-none justify-center text-sm md:text-base ${
+    className={`flex items-center gap-2 px-3 md:px-4 py-3 rounded-lg font-bold transition-[background-color,border-color,box-shadow,color] duration-150 ease-out flex-1 md:flex-none justify-center text-sm md:text-base ${
       active 
         ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' 
         : 'bg-white text-slate-500 hover:bg-blue-50 hover:text-blue-600 border border-slate-200'
@@ -92,14 +92,14 @@ const CalcExercise = () => {
            value={input}
            onChange={(e) => setInput(e.target.value)}
            placeholder="Votre réponse"
-           className="flex-1 border-2 border-slate-200 rounded-lg px-4 py-3 text-lg focus:border-blue-500 outline-none"
+            className="flex-1 rounded-lg border-2 border-slate-200 px-4 py-3 text-lg tabular-nums outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-blue-500 focus-visible:ring-4 focus-visible:ring-blue-100"
          />
          <span className="flex items-center font-bold text-slate-500">{question.unit}</span>
        </div>
 
        <AnimatePresence mode="wait">
         {feedback === 'idle' && (
-           <button type="button" onClick={checkAnswer} className="bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors w-full">
+           <button type="button" onClick={checkAnswer} className="min-h-11 w-full rounded-lg bg-blue-600 py-3 font-bold text-white transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-blue-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 motion-reduce:transition-none motion-reduce:active:scale-100">
              Valider
            </button>
         )}
@@ -110,7 +110,7 @@ const CalcExercise = () => {
              </div>
              <p className="text-emerald-600 mb-4">{question.explanation}</p>
              {qIndex < CALC_QUESTIONS.length - 1 ? (
-               <button type="button" onClick={next} className="bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 w-full">
+                <button type="button" onClick={next} className="min-h-10 w-full rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-emerald-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 motion-reduce:transition-none motion-reduce:active:scale-100">
                  Suivant <ArrowRight className="inline ml-1" size={16} />
                </button>
              ) : (
@@ -214,7 +214,7 @@ const QCMExercise = () => {
                key={i} 
                onClick={() => handleSelect(i)}
                disabled={isAnswered}
-               className={`w-full text-left p-4 rounded-lg border-2 font-medium transition-all ${style}`}
+               className={`w-full text-left p-4 rounded-lg border-2 font-medium transition-[background-color,border-color,color] duration-150 ease-out ${style}`}
              >
                {opt}
              </button>

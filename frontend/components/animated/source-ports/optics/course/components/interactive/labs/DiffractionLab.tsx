@@ -293,7 +293,7 @@ export const DiffractionLab: React.FC = () => {
                     </div>
 
                     {/* Validation Panel */}
-                    <div className={`mt-4 p-4 rounded-xl border transition-colors ${isMeasurementCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className={`mt-4 rounded-xl border p-4 transition-[background-color,border-color] duration-200 ease-out motion-reduce:transition-none ${isMeasurementCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
                         <div className="flex justify-between items-center">
                             <div>
                                 <h5 className="font-bold text-slate-800 text-sm">Vérification de la Mesure</h5>

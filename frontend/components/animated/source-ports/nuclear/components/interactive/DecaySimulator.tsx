@@ -3,7 +3,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Play, RefreshCw, ArrowRight, Zap } from 'lucide-react';
 
 interface DecaySimulatorProps {
@@ -25,11 +25,11 @@ const IsotopeSymbol = ({
 }) => (
   <div className={`flex flex-col items-center font-serif leading-none ${className}`}>
     <div className="flex items-center">
-      <div className="flex flex-col text-[0.6em] mr-0.5 font-semibold text-right">
+      <div className="mr-0.5 flex flex-col text-right text-[0.6em] font-semibold tabular-nums">
         <span>{A}</span>
         <span>{Z}</span>
       </div>
-      <span className={`text-xl md:text-2xl font-bold ${highlight ? 'scale-110 transition-transform' : ''}`}>
+      <span className={`text-xl font-bold md:text-2xl ${highlight ? 'scale-110 transition-[transform] duration-200 ease-out motion-reduce:scale-100 motion-reduce:transition-none' : ''}`}>
         {Symbol}
       </span>
     </div>
@@ -38,6 +38,7 @@ const IsotopeSymbol = ({
 
 export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
   const [status, setStatus] = useState<'initial' | 'animating' | 'decayed'>('initial');
+  const shouldReduceMotion = useReducedMotion();
 
   const reset = () => setStatus('initial');
   const start = () => setStatus('animating');
@@ -90,6 +91,9 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
 
   const config = configs[type];
   const isGamma = type === 'gamma';
+  const quickTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: 'easeOut' as const };
+  const nucleusTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.5, ease: 'easeOut' as const };
+  const emissionTransition = shouldReduceMotion ? { duration: 0 } : { duration: 1.2, ease: 'circOut' as const, delay: 0.1 };
 
   return (
     <div className="w-full max-w-2xl mx-auto my-6">
@@ -106,7 +110,8 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
           </h3>
           <button type="button"
             onClick={status === 'initial' ? start : reset}
-            className={`flex items-center gap-2 px-3 py-1.5 md:px-4 rounded-full font-bold text-xs md:text-sm transition-all ${
+            aria-label={status === 'initial' ? 'Lancer la simulation de decroissance' : 'Reinitialiser la simulation de decroissance'}
+            className={`flex min-h-10 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 md:px-4 md:text-sm ${
               status === 'initial' 
                 ? 'bg-purple-600 text-white hover:bg-purple-700 shadow-md hover:shadow-lg' 
                 : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
@@ -126,17 +131,17 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
             {/* Central Nucleus */}
             <div className="relative z-10">
                 <motion.div 
-                    layout
+                    layout={!shouldReduceMotion}
                     className={`
                         w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center border-4 shadow-xl
                         ${status === 'decayed' && !isGamma ? 'border-slate-400 bg-slate-200' : 'border-slate-300 bg-white'}
-                        ${status === 'animating' && isGamma ? 'animate-pulse border-yellow-400 shadow-yellow-200' : ''}
+                        ${status === 'animating' && isGamma ? 'motion-safe:animate-[pulse_1.5s_ease-in-out_infinite] motion-reduce:animate-none border-yellow-400 shadow-yellow-200' : ''}
                     `}
-                    animate={status === 'animating' ? {
+                    animate={status === 'animating' && !shouldReduceMotion ? {
                         scale: [1, 1.05, 0.95, 1.02, 1],
                         rotate: [0, -2, 2, -1, 1, 0]
                     } : {}}
-                    transition={{ duration: 0.5 }}
+                    transition={nucleusTransition}
                 >
                     <AnimatePresence mode="wait">
                         {status !== 'decayed' ? (
@@ -145,6 +150,7 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
                                 initial={{ opacity: 0, scale: 0.8 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 exit={{ opacity: 0, scale: 0.8 }}
+                                transition={quickTransition}
                                 className="text-slate-800"
                              >
                                 <IsotopeSymbol A={config.father.A} Z={config.father.Z} Symbol={config.father.Sym} />
@@ -154,6 +160,7 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
                                 key="son"
                                 initial={{ opacity: 0, scale: 1.2 }}
                                 animate={{ opacity: 1, scale: 1 }}
+                                transition={quickTransition}
                                 className="text-slate-800"
                              >
                                 <IsotopeSymbol A={config.son.A} Z={config.son.Z} Symbol={config.son.Sym} highlight />
@@ -164,8 +171,8 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
                     {/* Excited State Star for Gamma */}
                     {isGamma && status !== 'decayed' && (
                         <motion.div 
-                            animate={{ rotate: 360 }}
-                            transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                            animate={shouldReduceMotion ? { rotate: 0 } : { rotate: 360 }}
+                            transition={shouldReduceMotion ? { duration: 0 } : { repeat: Infinity, duration: 2, ease: "linear" }}
                             className="absolute -top-2 -right-2 text-yellow-500"
                         >
                             <Zap size={24} fill="currentColor" />
@@ -180,17 +187,13 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
                     <motion.div
                         initial={{ x: 0, y: 0, opacity: 0, scale: 0.5 }}
                         animate={{ 
-                            x: '120%', // Use percentage for responsive movement
-                            y: -40, 
-                            opacity: 1, 
+                            x: shouldReduceMotion ? '75%' : '120%', // Use percentage for responsive movement
+                            y: shouldReduceMotion ? -24 : -40,
+                            opacity: 1,
                             scale: 1,
-                            rotate: 360
+                            rotate: shouldReduceMotion ? 0 : 360
                         }}
-                        transition={{ 
-                            duration: 1.2, 
-                            ease: "circOut",
-                            delay: 0.1 
-                        }}
+                        transition={emissionTransition}
                         className={`absolute z-20 flex items-center justify-center w-10 h-10 md:w-14 md:h-14 rounded-full shadow-lg border-2 border-white ${config.particle.color}`}
                     >
                         <div className="text-white drop-shadow-md">
@@ -207,6 +210,7 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
                     height="50"
                     initial={{ opacity: 0, pathLength: 0 }}
                     animate={{ opacity: 1, pathLength: 1 }}
+                    transition={quickTransition}
                 >
                     <motion.path
                         d="M0,25 Q10,5 20,25 T40,25 T60,25 T80,25 T100,25 T120,25"
@@ -214,33 +218,33 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
                         stroke="#eab308"
                         strokeWidth="3"
                         initial={{ pathLength: 0, x: 0 }}
-                        animate={{ pathLength: 1, x: 100 }}
-                        transition={{ duration: 1.5, ease: "linear" }}
+                        animate={{ pathLength: 1, x: shouldReduceMotion ? 0 : 100 }}
+                        transition={shouldReduceMotion ? { duration: 0 } : { duration: 1.5, ease: "linear" }}
                     />
                 </motion.svg>
             )}
         </div>
 
         {/* Equation Footer */}
-        <div className={`p-4 md:p-6 ${config.equationColor} transition-colors duration-500`}>
+        <div className={`p-4 transition-[background-color,color] duration-300 ease-out md:p-6 ${config.equationColor}`}>
             <div className="flex flex-col items-center justify-center gap-2 md:gap-3">
                 <div className="text-xs md:text-sm font-semibold uppercase tracking-wider opacity-70 mb-1">
                     Équation de la réaction
                 </div>
                 <div className="flex items-center gap-2 md:gap-4 text-lg md:text-2xl flex-wrap justify-center">
-                    <div className={`transition-opacity duration-300 ${status === 'decayed' ? 'opacity-50' : 'opacity-100'}`}>
+                    <div className={`transition-[opacity] duration-300 ease-out motion-reduce:transition-none ${status === 'decayed' ? 'opacity-50' : 'opacity-100'}`}>
                         <IsotopeSymbol A={config.father.A} Z={config.father.Z} Symbol={config.father.Sym} />
                     </div>
                     
                     <ArrowRight className="text-slate-400" size={20} />
                     
-                    <div className={`transition-all duration-500 ${status === 'decayed' ? 'opacity-100 scale-110 font-bold' : 'opacity-30 blur-[1px]'}`}>
+                    <div className={`transition-[filter,opacity,transform] duration-300 ease-out motion-reduce:transition-none ${status === 'decayed' ? 'opacity-100 scale-110 font-bold motion-reduce:scale-100' : 'opacity-30 blur-[1px]'}`}>
                          <IsotopeSymbol A={config.son.A} Z={config.son.Z} Symbol={config.son.Sym} />
                     </div>
 
                     <span className="text-slate-400 font-light">+</span>
                     
-                    <div className={`transition-all duration-500 delay-100 flex items-center gap-2 ${status === 'decayed' ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4'}`}>
+                    <div className={`flex items-center gap-2 transition-[opacity,transform] duration-300 ease-out delay-100 motion-reduce:transition-none motion-reduce:delay-0 ${status === 'decayed' ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 motion-reduce:translate-x-0'}`}>
                         <div className={`px-3 py-1 rounded-lg bg-white shadow-sm border border-slate-200 ${isGamma ? 'text-yellow-600' : ''}`}>
                             <IsotopeSymbol A={config.particle.A} Z={config.particle.Z} Symbol={config.particle.Sym} />
                         </div>
@@ -251,6 +255,7 @@ export const DecaySimulator: React.FC<DecaySimulatorProps> = ({ type }) => {
                     <motion.div 
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: status === 'decayed' ? 1 : 0, height: status === 'decayed' ? 'auto' : 0 }}
+                        transition={quickTransition}
                         className="mt-2 text-xs md:text-sm bg-white/50 px-4 py-1 rounded-full border border-black/5 font-mono text-slate-600 text-center"
                     >
                         Mécanisme : {config.mechanism}

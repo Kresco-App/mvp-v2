@@ -2,18 +2,7 @@
 
 import type { ComponentType } from 'react'
 import type { AnimatedRendererProps } from '../types'
-import {
-  ChimieExercises,
-  ChimieFormulas,
-  DistributionChart,
-  IndicatorSimulator,
-  InteractiveWater,
-  KineticsCourse,
-  PHScale,
-  Predominance1D,
-  ProgressTable,
-  TitrationCurve,
-} from '../source-ports/chemistry'
+import { lazySourceComponent } from './lazySourceComponent'
 
 type ChemistryComponentKey =
   | 'kinetics-course'
@@ -27,17 +16,17 @@ type ChemistryComponentKey =
   | 'chimie-formulas'
   | 'chimie-exercises'
 
-const components: Record<ChemistryComponentKey, ComponentType<any>> = {
-  'kinetics-course': KineticsCourse,
-  'progress-table': ProgressTable,
-  'distribution-chart': DistributionChart,
-  'ph-scale': PHScale,
-  predominance: Predominance1D,
-  'titration-curve': TitrationCurve,
-  'indicator-simulator': IndicatorSimulator,
-  'interactive-water': InteractiveWater,
-  'chimie-formulas': ChimieFormulas,
-  'chimie-exercises': ChimieExercises,
+const components: Record<ChemistryComponentKey, ComponentType> = {
+  'kinetics-course': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/chemistry/KineticsCourse').then((mod) => mod.KineticsCourse)),
+  'progress-table': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/ProgressTable').then((mod) => mod.ProgressTable)),
+  'distribution-chart': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/DistributionChart').then((mod) => mod.DistributionChart)),
+  'ph-scale': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/PhScale').then((mod) => mod.PHScale)),
+  predominance: lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/Predominance1D').then((mod) => mod.Predominance1D)),
+  'titration-curve': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/TitrationCurve').then((mod) => mod.TitrationCurve)),
+  'indicator-simulator': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/IndicatorSimulator').then((mod) => mod.IndicatorSimulator)),
+  'interactive-water': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/InteractiveWater').then((mod) => mod.InteractiveWater)),
+  'chimie-formulas': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/ChimieFormulas').then((mod) => mod.ChimieFormulas)),
+  'chimie-exercises': lazySourceComponent(() => import('../source-ports/chemistry/components/interactive/ChimieExercises').then((mod) => mod.ChimieExercises)),
 }
 
 const aliases: Record<string, ChemistryComponentKey> = {

@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
 import { Play, Pause, RotateCcw, Clock } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 const TOTAL_ATOMS = 200;
 const MAX_TIME = 20; // Simulation duration in seconds
@@ -15,6 +15,7 @@ export const DecayLawGraph: React.FC = () => {
   const [halfLife, setHalfLife] = useState(4); // seconds
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const shouldReduceMotion = useReducedMotion();
 
   const atomRanks = ATOM_RANKS;
 
@@ -38,7 +39,9 @@ export const DecayLawGraph: React.FC = () => {
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  const togglePlay = () => setIsPlaying(!isPlaying);
+  const dotTransition = shouldReduceMotion ? { duration: 0 } : { duration: 0.35, ease: 'easeOut' as const };
+
+  const togglePlay = () => setIsPlaying((playing) => !playing);
   const reset = () => {
     setIsPlaying(false);
     setCurrentTime(0);
@@ -64,7 +67,8 @@ export const DecayLawGraph: React.FC = () => {
         <div className="flex items-center gap-4 w-full md:w-auto">
           <button type="button"
             onClick={togglePlay}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold text-white transition-all shadow-md ${
+            aria-pressed={isPlaying}
+            className={`flex min-h-10 items-center gap-2 rounded-full px-4 py-2 font-bold text-white shadow-md transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100 ${
               isPlaying ? 'bg-yellow-500 hover:bg-yellow-600 text-purple-900' : 'bg-purple-600 hover:bg-purple-700'
             }`}
           >
@@ -72,7 +76,8 @@ export const DecayLawGraph: React.FC = () => {
           </button>
           <button type="button"
             onClick={reset}
-            className="p-2 rounded-full bg-white text-purple-600 border border-purple-200 hover:bg-purple-100 transition-colors"
+            aria-label="Reinitialiser la simulation de decroissance"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-purple-200 bg-white text-purple-600 transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out hover:bg-purple-100 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 motion-reduce:transition-none motion-reduce:active:scale-100"
             title="Réinitialiser"
           >
             <RotateCcw size={18} />
@@ -81,11 +86,12 @@ export const DecayLawGraph: React.FC = () => {
 
         <div className="flex items-center gap-4 w-full md:w-auto">
            <div className="flex flex-col w-full">
-             <div className="flex justify-between text-xs font-bold text-purple-700 mb-1">
-                <span>Demi-vie (t<sub>1/2</sub>)</span>
-                <span>{halfLife} s</span>
+             <div className="mb-1 flex justify-between text-xs font-bold text-purple-700">
+                <label htmlFor="decay-half-life">Demi-vie (t<sub>1/2</sub>)</label>
+                <span className="tabular-nums">{halfLife} s</span>
              </div>
              <input
+                id="decay-half-life"
                 type="range"
                 min="1"
                 max="10"
@@ -95,7 +101,7 @@ export const DecayLawGraph: React.FC = () => {
                     setHalfLife(Number(e.target.value));
                     reset();
                 }}
-                className="w-full md:w-48 accent-purple-600 h-2 bg-purple-200 rounded-lg appearance-none cursor-pointer"
+                className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-purple-200 accent-purple-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-purple-200 md:w-48"
              />
            </div>
         </div>
@@ -110,7 +116,7 @@ export const DecayLawGraph: React.FC = () => {
                 Échantillon Radioactif
               </h4>
               <div className="text-right">
-                 <div className="text-xl md:text-2xl font-mono font-bold text-purple-600">{currentN}</div>
+                 <div className="font-mono text-xl font-bold tabular-nums text-purple-600 md:text-2xl">{currentN}</div>
                  <div className="text-xs text-slate-400 uppercase">Noyaux Restants</div>
               </div>
            </div>
@@ -128,7 +134,7 @@ export const DecayLawGraph: React.FC = () => {
                             scale: isActive ? 1 : 0.4,
                             opacity: isActive ? 1 : 0.3,
                         }}
-                        transition={{ duration: 0.5 }}
+                        transition={dotTransition}
                         className="w-2 h-2 md:w-3 md:h-3 rounded-full"
                     />
                   );
@@ -146,7 +152,7 @@ export const DecayLawGraph: React.FC = () => {
                     <div className="w-3 h-3 rounded-full bg-purple-500"></div>
                     Courbe de décroissance
                 </h4>
-                <div className="flex items-center gap-2 text-xs md:text-sm font-mono bg-purple-50 px-2 py-1 rounded text-purple-700">
+                <div className="flex items-center gap-2 rounded bg-purple-50 px-2 py-1 font-mono text-xs tabular-nums text-purple-700 md:text-sm">
                     <Clock size={14} />
                     <span>t = {currentTime.toFixed(1)} s</span>
                 </div>
