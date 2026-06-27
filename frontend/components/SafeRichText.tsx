@@ -2,7 +2,6 @@
 
 import React, { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import { sanitizeHtml } from '@/lib/sanitizeHtml'
 import { isSafeLinkHref } from '@/lib/urlSafety'
 
 const allowedElementTags = new Set([
@@ -41,20 +40,75 @@ type SafeRichTextProps = {
   fallbackText?: string
 }
 
+type SanitizeHtmlModule = typeof import('@/lib/sanitizeHtml')
+
+let sanitizeHtmlModulePromise: Promise<SanitizeHtmlModule> | null = null
+
 export default function SafeRichText({ html, fallbackText = '' }: SafeRichTextProps) {
   const [mounted, setMounted] = useState(false)
-  const sanitized = useMemo(() => sanitizeHtml(html), [html])
+  const [sanitizedState, setSanitizedState] = useState(() => ({
+    html,
+    value: readCachedSanitizedRichTextHtml(html),
+  }))
+  const sanitized = sanitizedState.html === html ? sanitizedState.value : readCachedSanitizedRichTextHtml(html)
+  const fallbackContent = useMemo(() => (
+    sanitized ? textFromSanitizedHtml(sanitized) || fallbackText : fallbackText || textFromRawHtml(html)
+  ), [fallbackText, html, sanitized])
+  const rendered = useMemo(() => {
+    if (!mounted || !sanitized || typeof DOMParser === 'undefined') return []
+    return renderSanitizedHtml(sanitized)
+  }, [mounted, sanitized])
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  if (!mounted || typeof DOMParser === 'undefined') {
-    return <>{textFromSanitizedHtml(sanitized) || fallbackText}</>
+  useEffect(() => {
+    const cached = readCachedSanitizedRichTextHtml(html)
+    if (cached !== null) {
+      setSanitizedState({ html, value: cached })
+      return
+    }
+
+    setSanitizedState({ html, value: null })
+    let cancelled = false
+    void loadSanitizeHtmlModule().then(({ sanitizeHtml }) => {
+      if (cancelled) return
+      const nextSanitized = writeCachedSanitizedRichTextHtml(html, sanitizeHtml(html))
+      setSanitizedState({ html, value: nextSanitized })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [html])
+
+  if (!mounted || !sanitized || typeof DOMParser === 'undefined') {
+    return <>{fallbackContent}</>
   }
 
-  const rendered = renderSanitizedHtml(sanitized)
   return <>{rendered.length > 0 ? rendered : fallbackText}</>
+}
+
+const SANITIZED_RICH_TEXT_CACHE_MAX = 128
+const sanitizedRichTextCache = new Map<string, string>()
+
+function readCachedSanitizedRichTextHtml(html: string) {
+  const cached = sanitizedRichTextCache.get(html)
+  return cached ?? null
+}
+
+function writeCachedSanitizedRichTextHtml(html: string, sanitized: string) {
+  if (sanitizedRichTextCache.size >= SANITIZED_RICH_TEXT_CACHE_MAX) {
+    const first = sanitizedRichTextCache.keys().next().value
+    if (first !== undefined) sanitizedRichTextCache.delete(first)
+  }
+  sanitizedRichTextCache.set(html, sanitized)
+  return sanitized
+}
+
+function loadSanitizeHtmlModule() {
+  sanitizeHtmlModulePromise ??= import('@/lib/sanitizeHtml')
+  return sanitizeHtmlModulePromise
 }
 
 export function renderSanitizedHtml(html: string): ReactNode[] {
@@ -78,6 +132,17 @@ export function textFromSanitizedHtml(html: string) {
   }
 
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function textFromRawHtml(html: string) {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, ' ')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function renderNode(node: ChildNode, key: string): ReactNode {

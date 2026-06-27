@@ -27,24 +27,25 @@ const SPECIALITES = [
   'Autre',
 ]
 
-const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
-const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-200 ease-out active:scale-[0.96] disabled:active:scale-100'
+const focusRingClass = 'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
+const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:active:scale-100 motion-reduce:transition-none motion-reduce:active:scale-100'
 const pageClass = 'relative flex min-h-[100svh] flex-col items-center justify-center overflow-y-auto bg-[var(--auth-bg)] px-5 py-6 sm:py-8'
 const panelClass = 'flex w-full max-w-[380px] flex-col items-center'
 const titleClass = 'mb-1 text-balance text-center text-[24px] font-bold text-[var(--auth-text)]'
 const sectionTitleClass = 'mb-1.5 text-balance text-center text-[22px] font-bold text-[var(--auth-text)]'
 const bodyClass = 'text-pretty text-center text-[14px] leading-normal text-[var(--auth-text-muted)]'
 const bodySpaciousClass = 'text-pretty text-center text-[14px] leading-[1.5] text-[var(--auth-text-muted)]'
-const inputClass = 'min-h-12 w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-[var(--auth-text-muted)] focus-visible:border-[var(--auth-input-border-focus)] focus-visible:bg-white focus-visible:shadow-[0_0_0_3px_rgba(69,61,238,0.12)]'
+const inputClass = 'min-h-12 w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out placeholder:text-[var(--auth-text-muted)] focus-visible:border-[var(--auth-input-border-focus)] focus-visible:bg-white focus-visible:shadow-[0_0_0_3px_rgba(69,61,238,0.12)] motion-reduce:transition-none'
 const labelClass = 'mb-1.5 block text-[13px] font-medium text-[var(--auth-text-hint)]'
 const primaryButtonClass = `flex min-h-12 w-full items-center justify-center gap-2 rounded-[14px] border-0 bg-[var(--auth-primary)] p-[14px] text-[15px] font-semibold text-white shadow-[0_8px_22px_rgba(69,61,238,0.18)] hover:bg-[#3a2fd3] disabled:cursor-not-allowed disabled:opacity-[0.45] disabled:shadow-none ${buttonMotionClass} ${focusRingClass}`
 const outlineButtonClass = `min-h-12 w-full rounded-[14px] border border-[var(--auth-outline-border)] bg-transparent p-[13px] text-[14px] font-medium text-[var(--auth-text)] hover:border-[var(--auth-outline-hover)] hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-[0.55] ${buttonMotionClass} ${focusRingClass}`
 const ghostButtonClass = `min-h-11 rounded-[12px] border-0 bg-transparent px-2 text-[14px] text-[var(--auth-text-muted)] hover:text-[var(--auth-text)] ${buttonMotionClass} ${focusRingClass}`
-const linkButtonClass = `rounded-md border-0 bg-transparent px-1 py-1 text-[14px] font-semibold text-[var(--auth-primary)] hover:text-[#3a2fd3] ${buttonMotionClass} ${focusRingClass}`
+const linkButtonClass = `inline-flex min-h-10 items-center rounded-md border-0 bg-transparent px-2 py-1 text-[14px] font-semibold text-[var(--auth-primary)] hover:text-[#3a2fd3] ${buttonMotionClass} ${focusRingClass}`
 const formClass = 'flex w-full flex-col gap-3.5'
 const socialRowClass = 'flex w-full gap-[11px]'
 const progressTrackClass = 'mb-7 h-[3px] w-full overflow-hidden rounded-full bg-[var(--auth-divider)]'
-const progressFillClass = 'h-full rounded-full bg-[var(--auth-primary)] transition-[width] duration-500 ease-out'
+const progressFillClass = 'h-full rounded-full bg-[var(--auth-primary)] transition-[width] duration-[260ms] ease-out motion-reduce:transition-none'
+const authPanelMotionClass = 'auth-reveal flex w-full flex-col items-center'
 const hiddenGoogleClass = 'pointer-events-none absolute -left-[9999px] -top-[9999px] w-px overflow-hidden opacity-0'
 const circleIconClass = 'mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--auth-card-selected-bg)]'
 const optionBaseClass = `flex w-full shrink-0 cursor-pointer items-center justify-between text-left ${buttonMotionClass} ${focusRingClass}`
@@ -86,15 +87,15 @@ function AppleIcon() {
 function LoadingText({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center justify-center gap-2" aria-live="polite">
-      <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+      <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
       {label}
     </span>
   )
 }
 
 function SocialBtn({
-  icon, label, onClick, disabled = false,
-}: { icon: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean }) {
+  icon, label, onClick, disabled = false, loading = false,
+}: { icon: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean; loading?: boolean }) {
   return (
     <button
       type="button"
@@ -105,8 +106,8 @@ function SocialBtn({
       className={cx('group relative h-12 flex-1 rounded-[14px] border-0 bg-transparent p-0 disabled:cursor-not-allowed disabled:opacity-[0.45]', buttonMotionClass, focusRingClass)}
     >
       <div className="absolute inset-0 rounded-[14px] bg-[#f4f4f5]" />
-      <div className="absolute inset-0 flex items-center justify-center rounded-[14px] border border-[#e4e4e7] bg-white transition-[border-color,box-shadow] duration-200 group-hover:border-[var(--auth-outline-hover)] group-hover:shadow-[0_8px_18px_rgba(24,24,27,0.06)]">
-        {icon}
+      <div className="absolute inset-0 flex items-center justify-center rounded-[14px] border border-[#e4e4e7] bg-white transition-[border-color,box-shadow] duration-150 ease-out group-hover:border-[var(--auth-outline-hover)] group-hover:shadow-[0_8px_18px_rgba(24,24,27,0.06)] motion-reduce:transition-none">
+        {loading ? <Loader2 size={17} className="animate-spin text-[var(--auth-primary)] motion-reduce:animate-none" aria-hidden="true" /> : <span aria-hidden="true">{icon}</span>}
       </div>
     </button>
   )
@@ -136,8 +137,10 @@ export function AuthPageView(controller: AuthPageController) {
     handleResend,
     handleSignup,
     hiddenGoogleRef,
+    authErrorVersion,
     loading,
     password,
+    pendingAction,
     pendingEmail,
     progressWidthClass,
     saveOnboarding,
@@ -165,7 +168,7 @@ export function AuthPageView(controller: AuthPageController) {
 
       <div className={panelClass}>
         <progress className="sr-only" aria-label="Progression d'inscription" value={progressStep} max={3} />
-        <div className={progressTrackClass} aria-hidden="true">
+        <div className={cx(progressTrackClass, 'auth-reveal')} data-auth-delay="1" aria-hidden="true">
           <div className={cx(progressFillClass, progressWidthClass)} />
         </div>
 
@@ -173,16 +176,19 @@ export function AuthPageView(controller: AuthPageController) {
           <button
             type="button"
             onClick={goBack}
-            className={cx('mb-4 flex min-h-10 items-center gap-1.5 self-start rounded-[12px] border-0 bg-transparent px-1 text-[14px] text-[var(--auth-text-muted)] hover:text-[var(--auth-text)]', buttonMotionClass, focusRingClass)}
+            className={cx('auth-reveal mb-4 flex min-h-10 items-center gap-1.5 self-start rounded-[12px] border-0 bg-transparent px-1 text-[14px] text-[var(--auth-text-muted)] hover:text-[var(--auth-text)]', buttonMotionClass, focusRingClass)}
+            data-auth-delay="2"
           >
             <ArrowLeft size={15} aria-hidden="true" /> Retour
           </button>
         )}
 
-        <KrescoLogo size={52} className="mb-5" />
+        <div className="auth-reveal" data-auth-delay="2">
+          <KrescoLogo size={52} className="mb-5" />
+        </div>
 
         {step === 'auth' && (
-          <>
+          <div key={authMode} className={authPanelMotionClass} data-auth-delay="3">
             {authMode === 'options' && (
               <>
                 <h1 className={titleClass}>{localizedCopy.auth.welcome}</h1>
@@ -191,14 +197,14 @@ export function AuthPageView(controller: AuthPageController) {
                 </p>
 
                 <div className={cx(socialRowClass, 'mb-1')}>
-                  <SocialBtn icon={<GoogleIcon />} label={localizedCopy.auth.continueWithGoogle} onClick={triggerGoogle} disabled={!googleReady || loading} />
+                  <SocialBtn icon={<GoogleIcon />} label={localizedCopy.auth.continueWithGoogle} onClick={triggerGoogle} disabled={!googleReady || loading} loading={pendingAction === 'google'} />
                   <SocialBtn icon={<FacebookIcon />} label={localizedCopy.auth.facebookComingSoon} disabled />
                   <SocialBtn icon={<AppleIcon />} label={localizedCopy.auth.appleComingSoon} disabled />
                 </div>
 
-                {loading && (
+                {pendingAction === 'google' && (
                   <p className="mt-2 inline-flex items-center gap-2 text-[12px] text-[var(--auth-text-muted)]" aria-live="polite">
-                    <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                    <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
                     {localizedCopy.auth.loginLoading}
                   </p>
                 )}
@@ -220,10 +226,17 @@ export function AuthPageView(controller: AuthPageController) {
                 <p className={cx(bodyClass, 'mb-6')}>{localizedCopy.auth.joinFree}</p>
 
                 <div className={cx(socialRowClass, 'mb-5')}>
-                  <SocialBtn icon={<GoogleIcon />} label={localizedCopy.auth.google} onClick={triggerGoogle} disabled={!googleReady || loading} />
+                  <SocialBtn icon={<GoogleIcon />} label={localizedCopy.auth.google} onClick={triggerGoogle} disabled={!googleReady || loading} loading={pendingAction === 'google'} />
                   <SocialBtn icon={<FacebookIcon />} label={localizedCopy.auth.facebook} disabled />
                   <SocialBtn icon={<AppleIcon />} label={localizedCopy.auth.apple} disabled />
                 </div>
+
+                {pendingAction === 'google' && (
+                  <p className="mb-4 inline-flex items-center gap-2 text-[12px] text-[var(--auth-text-muted)]" aria-live="polite">
+                    <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    {localizedCopy.auth.loginLoading}
+                  </p>
+                )}
 
                 <OrDivider className="mb-5" />
 
@@ -249,7 +262,7 @@ export function AuthPageView(controller: AuthPageController) {
                     </div>
                   </div>
                   <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
-                    {loading ? <LoadingText label={localizedCopy.auth.creating} /> : localizedCopy.auth.createAccountAction}
+                    {pendingAction === 'signup' ? <LoadingText label={localizedCopy.auth.creating} /> : localizedCopy.auth.createAccountAction}
                   </button>
                 </form>
                 <p className="mt-[18px] text-[14px] text-[var(--auth-text-muted)]">
@@ -272,7 +285,7 @@ export function AuthPageView(controller: AuthPageController) {
                   <br />{localizedCopy.auth.verifyEmailBody2}
                 </p>
                 <button type="button" onClick={handleResend} disabled={loading} className={cx(outlineButtonClass, 'mb-3.5 disabled:opacity-[0.6]')}>
-                  {loading ? <LoadingText label={localizedCopy.auth.resending} /> : localizedCopy.auth.resendEmail}
+                  {pendingAction === 'resend' ? <LoadingText label={localizedCopy.auth.resending} /> : localizedCopy.auth.resendEmail}
                 </button>
                 <button type="button" onClick={showOptions} className={ghostButtonClass}>
                   {localizedCopy.auth.backToHome}
@@ -286,14 +299,21 @@ export function AuthPageView(controller: AuthPageController) {
                 <p className={cx(bodyClass, 'mb-6')}>{localizedCopy.auth.welcomeBack}</p>
 
                 <div className={cx(socialRowClass, 'mb-5')}>
-                  <SocialBtn icon={<GoogleIcon />} label={localizedCopy.auth.google} onClick={triggerGoogle} disabled={!googleReady || loading} />
+                  <SocialBtn icon={<GoogleIcon />} label={localizedCopy.auth.google} onClick={triggerGoogle} disabled={!googleReady || loading} loading={pendingAction === 'google'} />
                   <SocialBtn icon={<FacebookIcon />} label={localizedCopy.auth.facebook} disabled />
                   <SocialBtn icon={<AppleIcon />} label={localizedCopy.auth.apple} disabled />
                 </div>
 
+                {pendingAction === 'google' && (
+                  <p className="mb-4 inline-flex items-center gap-2 text-[12px] text-[var(--auth-text-muted)]" aria-live="polite">
+                    <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    {localizedCopy.auth.loginLoading}
+                  </p>
+                )}
+
                 <OrDivider className="mb-5" />
 
-                <form onSubmit={handleLogin} className={formClass}>
+                <form key={`login-${authErrorVersion}`} onSubmit={handleLogin} className={cx(formClass, authErrorVersion > 0 && 'auth-error-shake')}>
                   <div>
                     <label htmlFor="login-email" className={labelClass}>{localizedCopy.auth.email}</label>
                     <input id="login-email" name="email" autoComplete="email" inputMode="email" spellCheck={false} aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
@@ -301,7 +321,7 @@ export function AuthPageView(controller: AuthPageController) {
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <label htmlFor="login-password" className="block text-[13px] font-medium text-[var(--auth-text-hint)]">{localizedCopy.auth.password}</label>
-                      <button type="button" onClick={showForgot} className={cx('rounded-md border-0 bg-transparent px-1 py-1 text-[12px] font-medium text-[var(--auth-primary)] hover:text-[#3a2fd3]', buttonMotionClass, focusRingClass)}>
+                      <button type="button" onClick={showForgot} className={cx('inline-flex min-h-10 items-center rounded-md border-0 bg-transparent px-2 py-1 text-[12px] font-medium text-[var(--auth-primary)] hover:text-[#3a2fd3]', buttonMotionClass, focusRingClass)}>
                         {localizedCopy.auth.forgotPassword}
                       </button>
                     </div>
@@ -316,7 +336,7 @@ export function AuthPageView(controller: AuthPageController) {
                     </div>
                   </div>
                   <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
-                    {loading ? <LoadingText label={localizedCopy.auth.loginLoading} /> : localizedCopy.auth.loginAction}
+                    {pendingAction === 'login' ? <LoadingText label={localizedCopy.auth.loginLoading} /> : localizedCopy.auth.loginAction}
                   </button>
                 </form>
 
@@ -341,7 +361,7 @@ export function AuthPageView(controller: AuthPageController) {
                     <input id="forgot-email" name="email" autoComplete="email" inputMode="email" spellCheck={false} aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
                   </div>
                   <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
-                    {loading ? <LoadingText label={localizedCopy.auth.resending} /> : localizedCopy.auth.sendLink}
+                    {pendingAction === 'forgot' ? <LoadingText label={localizedCopy.auth.resending} /> : localizedCopy.auth.sendLink}
                   </button>
                 </form>
                 <button type="button" onClick={showLogin} className={cx(linkButtonClass, 'mt-[18px] font-medium')}>
@@ -364,11 +384,11 @@ export function AuthPageView(controller: AuthPageController) {
                 </button>
               </div>
             )}
-          </>
+          </div>
         )}
 
         {step === 'niveau' && (
-          <>
+          <div key="niveau" className={authPanelMotionClass} data-auth-delay="3">
             <h1 className={sectionTitleClass}>{localizedCopy.auth.whatLevel}</h1>
             <p className={cx(bodyClass, 'mb-7')}>{localizedCopy.auth.helpsUsPersonalize}</p>
             <div className="mb-7 flex w-full flex-col gap-3">
@@ -395,11 +415,11 @@ export function AuthPageView(controller: AuthPageController) {
             <button type="button" onClick={goToFiliere} disabled={!selectedLevel} className={primaryButtonClass}>
               {localizedCopy.auth.continueBtn}
             </button>
-          </>
+          </div>
         )}
 
         {step === 'filiere' && (
-          <>
+          <div key="filiere" className={authPanelMotionClass} data-auth-delay="3">
             <h1 className={sectionTitleClass}>{localizedCopy.auth.whatSpecialty}</h1>
             <p className={cx(bodyClass, 'mb-5')}>{localizedCopy.auth.selectSpecialty}</p>
             <div className="mb-6 flex max-h-[360px] w-full flex-col gap-2 overflow-y-auto pr-1">
@@ -426,11 +446,11 @@ export function AuthPageView(controller: AuthPageController) {
             <button type="button" onClick={saveOnboarding} disabled={!canSubmitOnboarding(selectedLevel, selectedSpec, loading)} className={primaryButtonClass}>
               {loading ? <LoadingText label={localizedCopy.auth.saving} /> : localizedCopy.auth.start}
             </button>
-          </>
+          </div>
         )}
       </div>
 
-      <p className="mt-8 max-w-[360px] px-2 text-center text-[12px] leading-[1.5] text-[var(--auth-text-muted)]">
+      <p className="auth-reveal mt-8 max-w-[360px] px-2 text-center text-[12px] leading-[1.5] text-[var(--auth-text-muted)]" data-auth-delay="4">
         {localizedCopy.auth.termsSummary}
       </p>
     </main>

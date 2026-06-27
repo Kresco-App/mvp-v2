@@ -13,13 +13,17 @@ import {
   isStudentOnboardingRoute,
 } from '@/lib/authPolicy'
 import { replaceBrowserLocation } from '@/lib/browserNavigation'
-import { getMyProfile } from '@/lib/profile'
+import { getMyProfile, type ProfileUser } from '@/lib/profile'
+import { isStoredAuthSnapshot, type AuthUser } from '@/lib/authSession'
 
 type AuthGuardProps = {
   children: ReactNode
   requireRole?: string | null
   requireStaff?: boolean
 }
+
+const PROFILE_VERIFICATION_CACHE_TTL_MS = 45_000
+let cachedProfileVerification: { profile: ProfileUser; verifiedAt: number } | null = null
 
 function LoadingScreen({ message }: { message: string }) {
   return (
@@ -91,6 +95,38 @@ function isUnauthorizedError(error: unknown) {
   return status === 401 || status === 403
 }
 
+function readCachedProfileVerification(user: AuthUser | null) {
+  if (!user || (isStoredAuthSnapshot(user) && user.id == null && !user.email)) return null
+  if (!cachedProfileVerification) return null
+  if (Date.now() - cachedProfileVerification.verifiedAt > PROFILE_VERIFICATION_CACHE_TTL_MS) {
+    cachedProfileVerification = null
+    return null
+  }
+  if (!authUsersRepresentSameAccount(cachedProfileVerification.profile, user)) return null
+  return cachedProfileVerification.profile
+}
+
+function writeCachedProfileVerification(profile: ProfileUser) {
+  cachedProfileVerification = {
+    profile,
+    verifiedAt: Date.now(),
+  }
+}
+
+export function clearAuthGuardProfileVerificationCache() {
+  cachedProfileVerification = null
+}
+
+function authUsersRepresentSameAccount(cachedProfile: ProfileUser, currentUser: AuthUser) {
+  if (cachedProfile.id != null && currentUser.id != null) {
+    return String(cachedProfile.id) === String(currentUser.id)
+  }
+  if (cachedProfile.email && currentUser.email) {
+    return cachedProfile.email === currentUser.email
+  }
+  return false
+}
+
 export default function AuthGuard({ children, requireRole = null, requireStaff = false }: AuthGuardProps) {
   const token = useAuthStore((state) => state.token)
   const user = useAuthStore((state) => state.user)
@@ -110,12 +146,13 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
   }
 
   useEffect(() => {
-    hydrate()
-  }, [hydrate])
+    if (!isHydrated) hydrate()
+  }, [hydrate, isHydrated])
 
   useEffect(() => {
     if (!isHydrated) return
     if ((!token || !user) && verificationStateRef.current === 'verified') {
+      clearAuthGuardProfileVerificationCache()
       verificationStateRef.current = 'idle'
       setAccessState('pending')
     }
@@ -128,12 +165,14 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
     let cancelled = false
     verificationStateRef.current = 'checking'
     setAccessState('checking')
+    const cachedProfile = token ? readCachedProfileVerification(user) : null
 
     Promise.resolve()
-      .then(() => getMyProfile())
+      .then(() => cachedProfile ?? getMyProfile())
       .then((profile) => {
         if (cancelled) return
         if (!profile) throw new Error('Missing profile')
+        if (!cachedProfile) writeCachedProfileVerification(profile)
         if (token) updateUser(profile)
         else login(profile)
 
@@ -175,6 +214,7 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
       .catch((error) => {
         if (cancelled) return
         if (isUnauthorizedError(error)) {
+          clearAuthGuardProfileVerificationCache()
           verificationStateRef.current = 'denied'
           setAccessState('denied')
           void clearSession().finally(() => {

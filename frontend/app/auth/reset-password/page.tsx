@@ -1,28 +1,28 @@
 'use client'
 
 import { Suspense, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { toast } from 'sonner'
 import KrescoLogo from '@/components/KrescoLogo'
 import { Check, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { localizedCopy } from '@/lib/localization'
-import { confirmFirebasePasswordReset } from '@/lib/firebaseAuth'
+import { showToastError } from '@/lib/lazyToast'
 
-const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
-const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-200 ease-out active:scale-[0.96] disabled:active:scale-100'
+const focusRingClass = 'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
+const buttonMotionClass = 'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-150 ease-out active:scale-[0.96] disabled:active:scale-100 motion-reduce:transition-none motion-reduce:active:scale-100'
 const pageClass = 'flex min-h-[100svh] flex-col items-center justify-center overflow-y-auto bg-[var(--auth-bg)] p-6'
 const panelClass = 'flex w-full max-w-[380px] flex-col items-center'
-const inputClass = 'min-h-12 w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-[background-color,border-color,box-shadow] duration-200 placeholder:text-[var(--auth-text-muted)] focus:border-[var(--auth-input-border-focus)] focus:bg-white focus:shadow-[0_0_0_3px_rgba(69,61,238,0.12)]'
+const inputClass = 'min-h-12 w-full rounded-[14px] border border-[var(--auth-input-border)] bg-[var(--auth-input-bg)] px-4 py-[13px] text-[14px] text-[var(--auth-text)] outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out placeholder:text-[var(--auth-text-muted)] focus-visible:border-[var(--auth-input-border-focus)] focus-visible:bg-white focus-visible:shadow-[0_0_0_3px_rgba(69,61,238,0.12)] motion-reduce:transition-none'
 const labelClass = 'mb-1.5 block text-[13px] font-medium text-[var(--auth-text-hint)]'
 const primaryButtonClass = `flex min-h-12 w-full items-center justify-center gap-2 rounded-[14px] border-0 bg-[var(--auth-primary)] p-[14px] text-[15px] font-semibold text-white shadow-[0_8px_22px_rgba(69,61,238,0.18)] hover:bg-[#3a2fd3] disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none ${buttonMotionClass} ${focusRingClass}`
-const linkClass = `rounded-md text-[14px] font-semibold text-[var(--auth-primary)] no-underline hover:text-[#3a2fd3] ${buttonMotionClass} ${focusRingClass}`
+const linkClass = `inline-flex min-h-10 items-center rounded-md px-2 text-[14px] font-semibold text-[var(--auth-primary)] no-underline hover:text-[#3a2fd3] ${buttonMotionClass} ${focusRingClass}`
 
 function LoadingText({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center justify-center gap-2">
-      <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+    <output className="inline-flex items-center justify-center gap-2" aria-live="polite">
+      <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
       {label}
-    </span>
+    </output>
   )
 }
 
@@ -39,17 +39,18 @@ function ResetPasswordContent() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (password.length < 8) return toast.error(localizedCopy.auth.passwordMinPlaceholder)
-    if (password !== confirm) return toast.error(localizedCopy.auth.resetPasswordMismatch)
-    if (!oobCode) return toast.error(localizedCopy.auth.resetPasswordInvalidLinkTitle)
+    if (password.length < 8) return showToastError(localizedCopy.auth.passwordMinPlaceholder)
+    if (password !== confirm) return showToastError(localizedCopy.auth.resetPasswordMismatch)
+    if (!oobCode) return showToastError(localizedCopy.auth.resetPasswordInvalidLinkTitle)
 
     setLoading(true)
     try {
+      const { confirmFirebasePasswordReset } = await import('@/lib/firebaseAuth')
       await confirmFirebasePasswordReset(oobCode, password)
       setDone(true)
       setTimeout(() => router.replace('/'), 2500)
     } catch {
-      toast.error(localizedCopy.auth.resetPasswordInvalidLinkBody)
+      showToastError(localizedCopy.auth.resetPasswordInvalidLinkBody)
     } finally {
       setLoading(false)
     }
@@ -57,7 +58,7 @@ function ResetPasswordContent() {
 
   if (!oobCode) {
     return (
-      <div className={pageClass}>
+      <main id="main-content" tabIndex={-1} className={pageClass}>
         <div className="w-full max-w-[380px] text-center" role="alert">
           <KrescoLogo size={52} className="mb-6" />
           <h1 className="mb-2 text-[20px] font-bold text-[var(--auth-text)]">{localizedCopy.auth.resetPasswordInvalidLinkTitle}</h1>
@@ -68,12 +69,12 @@ function ResetPasswordContent() {
             {localizedCopy.auth.backToLogin}
           </a>
         </div>
-      </div>
+      </main>
     )
   }
 
   return (
-    <div className={pageClass}>
+    <main id="main-content" tabIndex={-1} className={pageClass}>
       <div className={panelClass}>
         <KrescoLogo size={52} className="mb-5" />
 
@@ -87,10 +88,10 @@ function ResetPasswordContent() {
           </div>
         ) : (
           <>
-            <h1 className="mb-1.5 text-center text-[22px] font-bold text-[var(--auth-text)]">
+            <h1 className="mb-1.5 text-balance text-center text-[22px] font-bold text-[var(--auth-text)]">
               {localizedCopy.auth.resetPasswordTitle}
             </h1>
-            <p className="mb-6 text-center text-[14px] leading-[1.55] text-[var(--auth-text-muted)]">
+            <p className="mb-6 text-pretty text-center text-[14px] leading-[1.55] text-[var(--auth-text-muted)]">
               {localizedCopy.auth.resetPasswordBody}
             </p>
 
@@ -100,6 +101,9 @@ function ResetPasswordContent() {
                 <div className="relative">
                   <input
                     id="reset-password"
+                    name="new-password"
+                    autoComplete="new-password"
+                    spellCheck={false}
                     aria-label={localizedCopy.auth.resetPasswordTitle}
                     type={showPassword ? 'text' : 'password'}
                     value={password}
@@ -124,6 +128,9 @@ function ResetPasswordContent() {
                 <label htmlFor="reset-password-confirm" className={labelClass}>{localizedCopy.auth.resetPasswordConfirmLabel}</label>
                 <input
                   id="reset-password-confirm"
+                  name="new-password-confirm"
+                  autoComplete="new-password"
+                  spellCheck={false}
                   aria-label={localizedCopy.auth.resetPasswordConfirmLabel}
                   aria-describedby={confirm && confirm !== password ? 'reset-password-confirm-error' : undefined}
                   aria-invalid={confirm && confirm !== password ? 'true' : undefined}
@@ -132,7 +139,7 @@ function ResetPasswordContent() {
                   onChange={e => setConfirm(e.target.value)}
                   placeholder={localizedCopy.auth.resetPasswordConfirmPlaceholder}
                   required
-                  className={`${inputClass} ${confirm && confirm !== password ? 'border-[#c10007] focus:border-[#c10007]' : ''}`}
+                  className={`${inputClass} ${confirm && confirm !== password ? 'border-[#c10007] focus-visible:border-[#c10007]' : ''}`}
                 />
                 {confirm && confirm !== password && (
                   <p id="reset-password-confirm-error" className="mt-1 text-[12px] text-[#c10007]">{localizedCopy.auth.resetPasswordMismatch}</p>
@@ -148,13 +155,13 @@ function ResetPasswordContent() {
               </button>
             </form>
 
-            <a href="/" className={`mt-5 rounded-md px-1 py-1 text-[14px] text-[var(--auth-text-muted)] no-underline hover:text-[var(--auth-text)] ${buttonMotionClass} ${focusRingClass}`}>
+            <Link href="/" className={`mt-5 inline-flex min-h-10 items-center rounded-md px-2 py-1 text-[14px] text-[var(--auth-text-muted)] no-underline hover:text-[var(--auth-text)] ${buttonMotionClass} ${focusRingClass}`}>
               {localizedCopy.auth.backToLogin}
-            </a>
+            </Link>
           </>
         )}
       </div>
-    </div>
+    </main>
   )
 }
 
@@ -162,7 +169,7 @@ export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
       <div className="flex min-h-[100svh] items-center justify-center bg-[var(--auth-bg)]" role="status" aria-label={localizedCopy.auth.loading}>
-        <Loader2 size={34} className="animate-spin text-[var(--auth-primary)]" aria-hidden="true" />
+        <Loader2 size={34} className="animate-spin motion-reduce:animate-none text-[var(--auth-primary)]" aria-hidden="true" />
       </div>
     }>
       <ResetPasswordContent />

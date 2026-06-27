@@ -21,7 +21,7 @@ function mockFirebaseRealtime({ configured = true } = {}) {
   const collectionMock = vi.fn((...args: unknown[]) => ({ kind: 'collection', args }))
   const firestore = {}
 
-  vi.doMock('@/lib/firebaseAuth', () => ({
+  vi.doMock('@/lib/firebaseConfig', () => ({
     firebasePublicAuthConfig: vi.fn(() => (configured
       ? {
         apiKey: 'api-key',
@@ -30,6 +30,8 @@ function mockFirebaseRealtime({ configured = true } = {}) {
         projectId: 'kresco',
       }
       : null)),
+  }))
+  vi.doMock('@/lib/firebaseApp', () => ({
     getFirebaseApp: vi.fn(() => ({ name: 'kresco-web' })),
   }))
   vi.doMock('@firebase/firestore', () => ({
@@ -53,7 +55,8 @@ afterEach(() => {
   vi.resetModules()
   vi.useRealTimers()
   vi.doUnmock('@/lib/apiClient')
-  vi.doUnmock('@/lib/firebaseAuth')
+  vi.doUnmock('@/lib/firebaseApp')
+  vi.doUnmock('@/lib/firebaseConfig')
   vi.doUnmock('@firebase/firestore')
 })
 
@@ -97,14 +100,14 @@ describe('Firestore realtime facade', () => {
       onMessage,
     })
 
-    await vi.dynamicImportSettled()
-
-    expect(collectionMock).toHaveBeenCalledWith(
-      firestore,
-      'realtimeChannels',
-      'kresco%3Auser%3A1%3Anotifications',
-      'events',
-    )
+    await waitFor(() => {
+      expect(collectionMock).toHaveBeenCalledWith(
+        firestore,
+        'realtimeChannels',
+        'kresco%3Auser%3A1%3Anotifications',
+        'events',
+      )
+    })
     expect(snapshots).toHaveLength(1)
 
     snapshots[0]({ docChanges: () => [] })
@@ -144,9 +147,9 @@ describe('Firestore realtime facade', () => {
       onMessage: vi.fn(),
     })
 
-    await vi.dynamicImportSettled()
-
-    expect(collectionMock).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(collectionMock).toHaveBeenCalledTimes(2)
+    })
     cleanup()
     expect(unsubscribe).toHaveBeenCalledTimes(2)
   })
@@ -160,6 +163,75 @@ describe('Firestore realtime facade', () => {
     const poll = vi.fn()
     const cleanup = subscribeKrescoRealtime({
       channelName: 'kresco:user:1:notifications',
+      onMessage: vi.fn(),
+      fallback: {
+        intervalMs: 1000,
+        poll,
+      },
+    })
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(poll).toHaveBeenCalledTimes(1)
+
+    cleanup()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(poll).toHaveBeenCalledTimes(1)
+  })
+
+  it('pauses fallback polling while the document is hidden and catches up when visible', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+    const visibility = mockDocumentVisibility(true)
+    mockFirebaseRealtime({ configured: false })
+
+    const { subscribeKrescoRealtime } = await import('@/lib/realtime')
+    const poll = vi.fn()
+    const cleanup = subscribeKrescoRealtime({
+      channelName: 'kresco:user:1:notifications',
+      onMessage: vi.fn(),
+      fallback: {
+        intervalMs: 1000,
+        poll,
+      },
+    })
+
+    try {
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(poll).not.toHaveBeenCalled()
+
+      visibility.setHidden(false)
+      visibility.dispatchVisibilityChange()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(poll).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(poll).toHaveBeenCalledTimes(2)
+
+      visibility.setHidden(true)
+      visibility.dispatchVisibilityChange()
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(poll).toHaveBeenCalledTimes(2)
+
+      cleanup()
+      visibility.setHidden(false)
+      visibility.dispatchVisibilityChange()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(poll).toHaveBeenCalledTimes(2)
+    } finally {
+      cleanup()
+      visibility.restore()
+    }
+  })
+
+  it('shares one fallback poller across multi-channel subscriptions', async () => {
+    vi.useFakeTimers()
+    vi.resetModules()
+    mockFirebaseRealtime({ configured: false })
+
+    const { subscribeKrescoRealtimeChannels } = await import('@/lib/realtime')
+    const poll = vi.fn()
+    const cleanup = subscribeKrescoRealtimeChannels({
+      channelNames: ['kresco:test:a', 'kresco:test:b'],
       onMessage: vi.fn(),
       fallback: {
         intervalMs: 1000,
@@ -190,3 +262,53 @@ describe('Firestore realtime facade', () => {
     expect(getJson).toHaveBeenCalledWith('/realtime/subscriptions')
   })
 })
+
+async function waitFor(assertion: () => void) {
+  let lastError: unknown
+  for (let index = 0; index < 30; index += 1) {
+    try {
+      assertion()
+      return
+    } catch (error) {
+      lastError = error
+      await vi.dynamicImportSettled()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+  }
+  throw lastError
+}
+
+function mockDocumentVisibility(initialHidden: boolean) {
+  const previousDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const listeners = new Set<() => void>()
+  const documentMock = {
+    hidden: initialHidden,
+    addEventListener: vi.fn((eventName: string, listener: () => void) => {
+      if (eventName === 'visibilitychange') listeners.add(listener)
+    }),
+    removeEventListener: vi.fn((eventName: string, listener: () => void) => {
+      if (eventName === 'visibilitychange') listeners.delete(listener)
+    }),
+  }
+
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: documentMock,
+  })
+
+  return {
+    setHidden(hidden: boolean) {
+      documentMock.hidden = hidden
+    },
+    dispatchVisibilityChange() {
+      listeners.forEach((listener) => listener())
+    },
+    restore() {
+      if (previousDescriptor) {
+        Object.defineProperty(globalThis, 'document', previousDescriptor)
+      } else {
+        Reflect.deleteProperty(globalThis, 'document')
+      }
+    },
+  }
+}

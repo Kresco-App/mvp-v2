@@ -4,6 +4,9 @@ import { getJson } from '@/lib/apiClient'
 const NON_RETRYABLE_STATUSES = new Set([400, 401, 403, 404, 409, 422])
 export const API_DATA_ERROR_RETRY_COUNT = 2
 export const API_DATA_ERROR_RETRY_INTERVAL_MS = 1500
+export const API_DATA_DEDUPING_INTERVAL_MS = 30_000
+export const API_DATA_FOCUS_THROTTLE_INTERVAL_MS = 60_000
+export const API_DATA_LOADING_TIMEOUT_MS = 4_000
 
 export async function apiSWRFetcher<T = unknown>(url: string): Promise<T> {
   return getJson<T>(url)
@@ -35,9 +38,13 @@ export function apiDataErrorMessage(error: unknown, fallback: string) {
 
 export const apiSWRConfig: SWRConfiguration = {
   fetcher: apiSWRFetcher,
-  revalidateOnFocus: true,
+  keepPreviousData: true,
+  revalidateIfStale: false,
+  revalidateOnFocus: false,
   revalidateOnReconnect: true,
-  dedupingInterval: 5000,
+  dedupingInterval: API_DATA_DEDUPING_INTERVAL_MS,
+  focusThrottleInterval: API_DATA_FOCUS_THROTTLE_INTERVAL_MS,
+  loadingTimeout: API_DATA_LOADING_TIMEOUT_MS,
   errorRetryCount: API_DATA_ERROR_RETRY_COUNT,
   errorRetryInterval: API_DATA_ERROR_RETRY_INTERVAL_MS,
   onErrorRetry: (error, _key, config, revalidate, { retryCount }) => {
@@ -49,4 +56,13 @@ export const apiSWRConfig: SWRConfiguration = {
       revalidate({ retryCount })
     }, config.errorRetryInterval ?? API_DATA_ERROR_RETRY_INTERVAL_MS)
   },
+}
+
+export const liveApiSWRConfig: SWRConfiguration = {
+  keepPreviousData: true,
+  revalidateIfStale: true,
+  revalidateOnFocus: true,
+  revalidateOnReconnect: true,
+  dedupingInterval: 2_000,
+  focusThrottleInterval: 10_000,
 }

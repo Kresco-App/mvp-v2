@@ -9,7 +9,9 @@ describe('Google auth callback isolation', () => {
     expect(source).not.toContain('window.handleGoogleCredential')
     expect(source).not.toContain('handleGoogleCredential: (response: any) => void')
     expect(source).not.toContain('accounts.google.com/gsi/client')
-    expect(source).toContain('getFirebaseGoogleIdToken')
+    expect(source).toContain('startFirebaseGoogleRedirect')
+    expect(source).toContain('getFirebaseGoogleRedirectIdToken')
+    expect(source).not.toContain('signInWithPopup')
   })
 
   it('keeps the landing page as a thin auth shell', () => {

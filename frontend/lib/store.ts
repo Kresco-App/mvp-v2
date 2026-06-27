@@ -1,7 +1,6 @@
 'use client'
 
 import { create } from 'zustand'
-import { mutate } from 'swr'
 import {
   KRESCO_COOKIE_SESSION,
   KRESCO_CSRF_HEADER,
@@ -14,14 +13,19 @@ import {
   updateStoredAuthUser,
   writeStoredAuthSession,
 } from './authSession'
+import { clearStoredClientSessionCaches } from './clientSessionCache'
 import type { AuthUser } from './authSession'
 import { getBackendUrl } from './apiConfig'
-import { signOutFirebaseAuth } from './firebaseAuth'
 
 type AuthUserPatch = Partial<AuthUser> & Record<string, unknown>
 
 const AUTH_STORAGE_KEYS = new Set([KRESCO_TOKEN_KEY, KRESCO_USER_KEY])
 const LOGOUT_REVOCATION_ERROR = 'We could not revoke your server session. Please sign in again to finish logging out.'
+
+type SwrModule = typeof import('swr')
+type ApiDataCacheModule = typeof import('./apiDataCache')
+type TopicInteractionCacheModule = typeof import('./topicInteractionCache')
+type TopNavBadgeCacheModule = typeof import('./topNavBadgeCache')
 
 type AuthStoreState = {
   user: AuthUser | null
@@ -86,10 +90,62 @@ async function requestServerLogout() {
   }
 }
 
+let swrModulePromise: Promise<SwrModule> | null = null
+let apiDataCacheModulePromise: Promise<ApiDataCacheModule> | null = null
+let topicInteractionCacheModulePromise: Promise<TopicInteractionCacheModule> | null = null
+let topNavBadgeCacheModulePromise: Promise<TopNavBadgeCacheModule> | null = null
+
+function loadSwrModule() {
+  swrModulePromise ??= import('swr')
+  return swrModulePromise
+}
+
+function loadApiDataCacheModule() {
+  apiDataCacheModulePromise ??= import('./apiDataCache')
+  return apiDataCacheModulePromise
+}
+
+function loadTopicInteractionCacheModule() {
+  topicInteractionCacheModulePromise ??= import('./topicInteractionCache')
+  return topicInteractionCacheModulePromise
+}
+
+function loadTopNavBadgeCacheModule() {
+  topNavBadgeCacheModulePromise ??= import('./topNavBadgeCache')
+  return topNavBadgeCacheModulePromise
+}
+
+async function clearRuntimeClientDataCaches() {
+  const [apiDataCache, topicInteractionCache, topNavBadgeCache] = await Promise.all([
+    loadApiDataCacheModule().catch(() => null),
+    loadTopicInteractionCacheModule().catch(() => null),
+    loadTopNavBadgeCacheModule().catch(() => null),
+  ])
+
+  apiDataCache?.clearApiDataSessionCache()
+  topicInteractionCache?.clearTopicInteractionCache()
+  topNavBadgeCache?.clearTopNavBadgeCache()
+}
+
+function clearClientDataCachesAfterLogin() {
+  clearStoredClientSessionCaches()
+  void clearRuntimeClientDataCaches().catch(() => undefined)
+}
+
+async function clearSwrCache() {
+  const { mutate } = await loadSwrModule()
+  await mutate(() => true, undefined, { revalidate: false })
+}
+
 async function clearClientAuthState(set: (state: Partial<AuthStoreState>) => void) {
+  const { signOutFirebaseAuth } = await import('./firebaseAuth')
   await signOutFirebaseAuth().catch(() => undefined)
   clearStoredAuthSession()
-  await mutate(() => true, undefined, { revalidate: false })
+  clearStoredClientSessionCaches()
+  await Promise.all([
+    clearRuntimeClientDataCaches(),
+    clearSwrCache().catch(() => undefined),
+  ])
   set({ token: null, user: null, logoutError: null, isLoggingOut: false })
 }
 
@@ -112,6 +168,7 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
     const isLegacySignature = typeof userOrToken === 'string'
     const user = isLegacySignature ? userOrCsrfToken as AuthUser : userOrToken
     const nextCsrfToken = isLegacySignature ? csrfToken : userOrCsrfToken as string | null | undefined
+    clearClientDataCachesAfterLogin()
     writeStoredAuthSession(user, nextCsrfToken)
     set({ token: KRESCO_COOKIE_SESSION, user, logoutError: null, isLoggingOut: false })
   },

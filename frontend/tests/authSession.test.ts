@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mutate } from 'swr'
 
@@ -22,6 +24,11 @@ import {
   resolveAuthSuccess,
 } from '@/lib/authPolicy'
 import { getAuthRedirect, isProtectedRoute } from '@/lib/authRedirect'
+import { apiDataSessionStorageKey } from '@/lib/apiDataCache'
+import {
+  TOPIC_INTERACTION_SESSION_CACHE_KEY_PREFIX,
+  TOP_NAV_BADGE_SESSION_CACHE_KEY_PREFIX,
+} from '@/lib/clientSessionCache'
 import {
   KRESCO_COOKIE_SESSION,
   KRESCO_CSRF_COOKIE,
@@ -207,7 +214,7 @@ describe('auth policy decisions', () => {
 
   it('centralizes student professor-chat eligibility', () => {
     expect(canUseStudentProfessorChat({ role: 'student', tier: 'vip' })).toBe(true)
-    expect(canUseStudentProfessorChat({ role: 'student', tier: ' platinum ' })).toBe(true)
+    expect(canUseStudentProfessorChat({ role: 'student', tier: ' vip ' })).toBe(true)
     expect(canUseStudentProfessorChat({ role: 'student', tier: 'pro' })).toBe(false)
     expect(canUseStudentProfessorChat({ role: 'professor', tier: 'vip' })).toBe(false)
     expect(AUTH_ROUTES.studentProfessorChat).toBe('/professor-chat')
@@ -254,6 +261,28 @@ describe('auth session JWT helpers', () => {
     document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
     expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: snapshot })
     expect(isStoredAuthSnapshot(snapshot)).toBe(true)
+  })
+
+  it('reuses parsed stored auth snapshots while still noticing direct storage changes', () => {
+    clearStoredAuthSession()
+    const studentSnapshot = storedAuthSnapshot({ role: 'student', is_staff: false })
+    const adminSnapshot = storedAuthSnapshot({ role: 'admin', is_staff: true })
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentSnapshot))
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+    const parseSpy = vi.spyOn(JSON, 'parse')
+
+    try {
+      expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: studentSnapshot })
+      expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: studentSnapshot })
+      expect(parseSpy).toHaveBeenCalledTimes(1)
+
+      localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(adminSnapshot))
+
+      expect(readStoredAuthSession()).toEqual({ token: KRESCO_COOKIE_SESSION, user: adminSnapshot })
+      expect(parseSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      parseSpy.mockRestore()
+    }
   })
 
   it('scrubs full user cache entries when reading stored auth', () => {
@@ -308,10 +337,25 @@ describe('auth session JWT helpers', () => {
 })
 
 describe('auth store session writes', () => {
+  it('keeps SWR and feature cache reset modules behind dynamic auth transitions', () => {
+    const source = readFileSync(join(process.cwd(), 'lib', 'store.ts'), 'utf8').replace(/\r\n?/g, '\n')
+
+    expect(source).not.toMatch(/from ['"]swr['"]/)
+    expect(source).not.toMatch(/from ['"]\.\/apiDataCache['"]/)
+    expect(source).not.toMatch(/from ['"]\.\/topicInteractionCache['"]/)
+    expect(source).not.toMatch(/from ['"]\.\/topNavBadgeCache['"]/)
+    expect(source).toContain("import('swr')")
+    expect(source).toContain("import('./apiDataCache')")
+    expect(source).toContain("import('./topicInteractionCache')")
+    expect(source).toContain("import('./topNavBadgeCache')")
+    expect(source).toContain("from './clientSessionCache'")
+  })
+
   it('keeps full user data in memory but only writes auth hints to localStorage', () => {
     const user = { id: 1, email: 'student@kresco.local', role: 'student' }
 
     clearStoredAuthSession()
+    sessionStorage.setItem(apiDataSessionStorageKey('/courses/topics'), '{"data":[]}')
     useAuthStore.setState({ token: null, user: null, isHydrated: false })
     useAuthStore.getState().login(user, 'csrf-token')
 
@@ -319,6 +363,26 @@ describe('auth store session writes', () => {
     expect(useAuthStore.getState().user).toEqual(user)
     expect(JSON.parse(localStorage.getItem(KRESCO_USER_KEY) || '{}')).toEqual(storedAuthSnapshot(user))
     expect(sessionStorage.getItem(KRESCO_CSRF_KEY)).toBe('csrf-token')
+    expect(sessionStorage.getItem(apiDataSessionStorageKey('/courses/topics'))).toBeNull()
+  })
+
+  it('clears persisted client feature caches synchronously on login', () => {
+    const user = { id: 10, email: 'fresh@kresco.local', role: 'student' }
+    const topicCacheKey = `${TOPIC_INTERACTION_SESSION_CACHE_KEY_PREFIX}${encodeURIComponent('topic:7')}`
+    const topNavCacheKey = `${TOP_NAV_BADGE_SESSION_CACHE_KEY_PREFIX}${encodeURIComponent('notifications:10')}`
+
+    clearStoredAuthSession()
+    sessionStorage.setItem(apiDataSessionStorageKey('/courses/topics'), '{"data":[]}')
+    sessionStorage.setItem(topicCacheKey, '{"data":[]}')
+    sessionStorage.setItem(topNavCacheKey, '{"data":[]}')
+    sessionStorage.setItem('kresco:unrelated', 'keep')
+    useAuthStore.setState({ token: null, user: null, isHydrated: false })
+    useAuthStore.getState().login(user, 'csrf-token')
+
+    expect(sessionStorage.getItem(apiDataSessionStorageKey('/courses/topics'))).toBeNull()
+    expect(sessionStorage.getItem(topicCacheKey)).toBeNull()
+    expect(sessionStorage.getItem(topNavCacheKey)).toBeNull()
+    expect(sessionStorage.getItem('kresco:unrelated')).toBe('keep')
   })
 
   it('syncs the in-memory auth session when another tab clears shared storage', () => {
@@ -398,6 +462,7 @@ describe('auth store session writes', () => {
     const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })))
     vi.stubGlobal('fetch', fetchMock)
     writeStoredAuthSession(user, 'logout-csrf')
+    sessionStorage.setItem(apiDataSessionStorageKey('/courses/topics'), '{"data":[]}')
     useAuthStore.setState({
       token: KRESCO_COOKIE_SESSION,
       user,
@@ -436,6 +501,7 @@ describe('auth store session writes', () => {
     expect(useAuthStore.getState().logoutError).toBeNull()
     expect(useAuthStore.getState().isLoggingOut).toBe(false)
     expect(localStorage.getItem(KRESCO_USER_KEY)).toBeNull()
+    expect(sessionStorage.getItem(apiDataSessionStorageKey('/courses/topics'))).toBeNull()
     expect(readCsrfToken()).toBeNull()
   })
 

@@ -42,4 +42,11 @@ describe('auth page localization wiring', () => {
     expect(source).toContain('canSubmitOnboarding(selectedLevel, selectedSpec, loading)')
     expect(source).not.toContain('disabled={!selectedSpec || loading}')
   })
+
+  it('keeps Google loading separate from email signup copy', () => {
+    const source = readFileSync(join(process.cwd(), 'components', 'auth', 'AuthPageView.tsx'), 'utf8')
+
+    expect(source).toContain("pendingAction === 'signup' ? <LoadingText label={localizedCopy.auth.creating} />")
+    expect(source).toContain("pendingAction === 'google' &&")
+  })
 })

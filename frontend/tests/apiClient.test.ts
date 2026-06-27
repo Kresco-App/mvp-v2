@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -15,9 +15,14 @@ vi.mock('@/lib/axios', () => ({
   default: mocks,
 }))
 
-import { apiJsonClient, deleteJson, getJson, patchJson, postJson } from '@/lib/apiClient'
+import { apiJsonClient, clearApiClientInFlightRequests, deleteJson, getJson, patchJson, postJson } from '@/lib/apiClient'
 
 describe('apiClient transport wrapper', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearApiClientInFlightRequests()
+  })
+
   it('unwraps data while preserving request config for each HTTP verb', async () => {
     mocks.get.mockResolvedValueOnce({ data: { ok: 'get' } })
     mocks.post.mockResolvedValueOnce({ data: { ok: 'post' } })
@@ -48,6 +53,50 @@ describe('apiClient transport wrapper', () => {
     expect(mocks.post).toHaveBeenCalledWith('/adapter', { plan: 'pro' }, { params: { plan: 'pro' } })
   })
 
+  it('deduplicates matching in-flight GET requests', async () => {
+    let resolveRequest!: (value: { data: { ok: string } }) => void
+    mocks.get.mockReturnValueOnce(new Promise<{ data: { ok: string } }>((resolve) => {
+      resolveRequest = resolve
+    }))
+
+    const first = getJson('/shared', { params: { limit: 10, subject: 'math' } })
+    const second = getJson('/shared', { params: { subject: 'math', limit: 10 } })
+
+    await flushPromises()
+
+    expect(mocks.get).toHaveBeenCalledTimes(1)
+    expect(mocks.get).toHaveBeenCalledWith('/shared', { params: { limit: 10, subject: 'math' } })
+
+    resolveRequest({ data: { ok: 'shared' } })
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: 'shared' }, { ok: 'shared' }])
+  })
+
+  it('clears GET dedupe entries after a request settles', async () => {
+    mocks.get
+      .mockResolvedValueOnce({ data: { ok: 'first' } })
+      .mockResolvedValueOnce({ data: { ok: 'second' } })
+
+    await expect(getJson('/repeat')).resolves.toEqual({ ok: 'first' })
+    await expect(getJson('/repeat')).resolves.toEqual({ ok: 'second' })
+
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not deduplicate GET requests with independent cancellation config', async () => {
+    const firstController = new AbortController()
+    const secondController = new AbortController()
+    mocks.get
+      .mockResolvedValueOnce({ data: { ok: 'first' } })
+      .mockResolvedValueOnce({ data: { ok: 'second' } })
+
+    const first = getJson('/cancellable', { signal: firstController.signal })
+    const second = getJson('/cancellable', { signal: secondController.signal })
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ ok: 'first' }, { ok: 'second' }])
+    expect(mocks.get).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps high-traffic shared surfaces off direct axios imports', () => {
     for (const pathname of [
       ['lib', 'apiData.ts'],
@@ -60,8 +109,13 @@ describe('apiClient transport wrapper', () => {
     ]) {
       const source = readFileSync(join(process.cwd(), ...pathname), 'utf8')
       expect(source, pathname.join('/')).not.toMatch(/from ['"]@\/lib\/axios['"]/)
-    }
-  })
+  }
+})
+
+async function flushPromises() {
+  await Promise.resolve()
+  await Promise.resolve()
+}
 
   it('keeps production frontend code behind the shared API client abstraction', () => {
     const frontendRoot = process.cwd()

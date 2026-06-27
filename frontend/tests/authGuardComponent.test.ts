@@ -4,7 +4,7 @@ import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import AuthGuard from '@/components/AuthGuard'
+import AuthGuard, { clearAuthGuardProfileVerificationCache } from '@/components/AuthGuard'
 import ProfessorAuthGate from '@/components/professor/ProfessorAuthGate'
 import { replaceBrowserLocation } from '@/lib/browserNavigation'
 import { getMyProfile } from '@/lib/profile'
@@ -63,6 +63,7 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  clearAuthGuardProfileVerificationCache()
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(null, { status: 204 }))))
   localStorage.clear()
   document.cookie = `${KRESCO_USER_ROLE_COOKIE}=; Path=/; Max-Age=0`
@@ -167,6 +168,37 @@ describe('AuthGuard component behavior', () => {
       is_staff: false,
     })
     expect(replaceBrowserLocationMock).not.toHaveBeenCalled()
+  })
+
+  it('reuses a fresh verified profile across quick protected route remounts', async () => {
+    localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(studentUser))
+    document.cookie = `${KRESCO_USER_ROLE_COOKIE}=student; Path=/`
+    getMyProfileMock.mockResolvedValueOnce(studentUser as never)
+
+    const first = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'First child')),
+    )
+
+    await waitFor(() => {
+      expect(first.container.textContent).toContain('First child')
+    })
+    expect(getMyProfileMock).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      first.root.unmount()
+    })
+    first.container.remove()
+    mountedRoots = mountedRoots.filter((entry) => entry.root !== first.root)
+    getMyProfileMock.mockClear()
+
+    const second = renderComponent(
+      React.createElement(AuthGuard, null, React.createElement('main', null, 'Second child')),
+    )
+
+    await waitFor(() => {
+      expect(second.container.textContent).toContain('Second child')
+    })
+    expect(getMyProfileMock).not.toHaveBeenCalled()
   })
 
   it('restarts profile verification when auth state changes during an in-flight check', async () => {

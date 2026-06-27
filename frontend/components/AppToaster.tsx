@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { ComponentType } from 'react'
+import { APP_TOASTER_REQUEST_EVENT, isAppToasterRequested } from '@/lib/lazyToast'
 
 type ToasterComponent = ComponentType<{
   position?: 'top-right'
@@ -17,17 +18,22 @@ export default function AppToaster() {
 
   useEffect(() => {
     let alive = true
+    let loadStarted = false
 
     const load = () => {
+      if (loadStarted) return
+      loadStarted = true
       void import('sonner').then((mod) => {
         if (alive) setToaster(() => mod.Toaster as ToasterComponent)
       })
     }
 
-    const timeoutId = window.setTimeout(load, 500)
+    window.addEventListener(APP_TOASTER_REQUEST_EVENT, load)
+    if (isAppToasterRequested()) load()
+
     return () => {
       alive = false
-      window.clearTimeout(timeoutId)
+      window.removeEventListener(APP_TOASTER_REQUEST_EVENT, load)
     }
   }, [])
 

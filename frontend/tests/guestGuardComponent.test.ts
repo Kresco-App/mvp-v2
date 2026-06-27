@@ -63,8 +63,20 @@ describe('GuestGuard component behavior', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Guest child')
     })
-    expect(mocks.authState.hydrate).toHaveBeenCalledTimes(1)
+    expect(mocks.authState.hydrate).not.toHaveBeenCalled()
     expect(mocks.routerReplace).not.toHaveBeenCalled()
+  })
+
+  it('hydrates the auth store only when it has not already hydrated', async () => {
+    mocks.authState.isHydrated = false
+
+    renderComponent(
+      React.createElement(GuestGuard, null, React.createElement('main', null, 'Guest child')),
+    )
+
+    await waitFor(() => {
+      expect(mocks.authState.hydrate).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('redirects minimal stored student snapshots to the authenticated destination', async () => {

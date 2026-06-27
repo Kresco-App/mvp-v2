@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,6 +45,16 @@ afterEach(() => {
 })
 
 describe('Firebase auth action pages', () => {
+  it('defers Firebase Auth SDK imports until action execution', () => {
+    const verifySource = source('app', 'auth', 'verify-email', 'page.tsx')
+    const resetSource = source('app', 'auth', 'reset-password', 'page.tsx')
+
+    expect(verifySource).not.toContain("from '@/lib/firebaseAuth'")
+    expect(resetSource).not.toContain("from '@/lib/firebaseAuth'")
+    expect(verifySource).toContain("const { applyFirebaseEmailVerification } = await import('@/lib/firebaseAuth')")
+    expect(resetSource).toContain("const { confirmFirebasePasswordReset } = await import('@/lib/firebaseAuth')")
+  })
+
   it('treats missing email verification action code as an invalid link', async () => {
     const { container } = renderPage(React.createElement(VerifyEmailPage))
 
@@ -92,4 +104,8 @@ async function waitFor(assertion: () => void) {
     }
   }
   throw lastError
+}
+
+function source(...parts: string[]) {
+  return readFileSync(join(process.cwd(), ...parts), 'utf8').replace(/\r\n?/g, '\n')
 }

@@ -1,7 +1,8 @@
 import type { Firestore, QueryDocumentSnapshot, Unsubscribe } from '@firebase/firestore'
 
 import { getJson } from './apiClient'
-import { firebasePublicAuthConfig, getFirebaseApp } from './firebaseAuth'
+import { getFirebaseApp } from './firebaseApp'
+import { firebasePublicAuthConfig } from './firebaseConfig'
 
 export type RealtimeMessage = {
   id?: string
@@ -19,12 +20,14 @@ type RealtimeProvider = 'firestore' | 'disabled'
 type RealtimeFallback = {
   intervalMs: number
   poll: () => void | Promise<void>
+  initialPoll?: boolean
 }
 
 type RealtimeSubscriptionOptions = {
   channelName: string
   onMessage: (message: RealtimeMessage) => void
   fallback?: RealtimeFallback
+  fallbackController?: RealtimeFallbackController
   beforeSubscribe?: () => void | Promise<void>
 }
 
@@ -33,6 +36,7 @@ type RealtimeFailureContext = {
   operation: string
 }
 
+type RealtimeFallbackController = ReturnType<typeof createRealtimeFallbackPoller>
 type FirestoreSdk = typeof import('@firebase/firestore')
 
 let firestoreMisconfiguredForSession = false
@@ -66,9 +70,10 @@ function createRealtimeFallbackPoller(
 ) {
   let fallbackTimer: ReturnType<typeof setInterval> | null = null
   let pollInFlight = false
+  let removeVisibilityListener: (() => void) | null = null
 
   const runPoll = async () => {
-    if (!fallback || pollInFlight || isStopped()) return
+    if (!fallback || pollInFlight || isStopped() || isRealtimeDocumentHidden()) return
     pollInFlight = true
     try {
       await fallback.poll()
@@ -79,23 +84,64 @@ function createRealtimeFallbackPoller(
     }
   }
 
-  const startFallback = fallback
-    ? (runNow: boolean) => {
-        if (fallbackTimer !== null || isStopped()) return
-        if (runNow) void runPoll()
-        fallbackTimer = globalThis.setInterval(() => {
-          void runPoll()
-        }, fallback.intervalMs)
-      }
-    : undefined
+  const startInterval = () => {
+    if (!fallback || fallbackTimer !== null || isStopped() || isRealtimeDocumentHidden()) return
+    fallbackTimer = globalThis.setInterval(() => {
+      void runPoll()
+    }, fallback.intervalMs)
+  }
 
-  const stopFallback = () => {
+  const stopInterval = () => {
     if (fallbackTimer === null) return
     globalThis.clearInterval(fallbackTimer)
     fallbackTimer = null
   }
 
+  const handleVisibilityChange = () => {
+    if (isStopped()) return
+    if (isRealtimeDocumentHidden()) {
+      stopInterval()
+      return
+    }
+
+    startInterval()
+    void runPoll()
+  }
+
+  const ensureVisibilityListener = () => {
+    if (!fallback || removeVisibilityListener) return
+    removeVisibilityListener = subscribeRealtimeVisibilityChange(handleVisibilityChange)
+  }
+
+  const startFallback = fallback
+    ? (runNow: boolean) => {
+        if (isStopped()) return
+        ensureVisibilityListener()
+        if (runNow) void runPoll()
+        startInterval()
+      }
+    : undefined
+
+  const stopFallback = () => {
+    stopInterval()
+    removeVisibilityListener?.()
+    removeVisibilityListener = null
+  }
+
   return { runPoll, startFallback, stopFallback }
+}
+
+function isRealtimeDocumentHidden() {
+  return typeof document !== 'undefined' && document.hidden
+}
+
+function subscribeRealtimeVisibilityChange(listener: () => void) {
+  if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') {
+    return () => {}
+  }
+
+  document.addEventListener('visibilitychange', listener)
+  return () => document.removeEventListener('visibilitychange', listener)
 }
 
 export function isKrescoRealtimeEnabled() {
@@ -168,23 +214,25 @@ function subscribeKrescoFirestore({
   channelName,
   onMessage,
   fallback,
+  fallbackController,
   beforeSubscribe,
 }: RealtimeSubscriptionOptions) {
   let stopped = false
   let unsubscribe: Unsubscribe | null = null
   let sawInitialSnapshot = false
-  const { runPoll, startFallback, stopFallback } = createRealtimeFallbackPoller(
+  const localFallbackController = fallbackController ?? createRealtimeFallbackPoller(
     fallback,
     () => stopped,
     { channelName, operation: 'firestore-fallback-poll' },
   )
+  const { runPoll, startFallback, stopFallback } = localFallbackController
 
   const firebaseConfig = firebasePublicAuthConfig()
   if (!firebaseConfig || firestoreMisconfiguredForSession) {
     startFallback?.(false)
     return () => {
       stopped = true
-      stopFallback()
+      if (!fallbackController) stopFallback()
     }
   }
 
@@ -207,7 +255,7 @@ function subscribeKrescoFirestore({
           stopFallback()
           if (!sawInitialSnapshot) {
             sawInitialSnapshot = true
-            void runPoll()
+            if (fallback?.initialPoll !== false) void runPoll()
             return
           }
           for (const change of snapshot.docChanges()) {
@@ -234,7 +282,7 @@ function subscribeKrescoFirestore({
 
   return () => {
     stopped = true
-    stopFallback()
+    if (!fallbackController) stopFallback()
     unsubscribe?.()
   }
 }
@@ -265,14 +313,25 @@ function subscribeKrescoFirestoreChannels({
     }
   }
 
+  let stopped = false
+  const fallbackController = fallback
+    ? createRealtimeFallbackPoller(
+      fallback,
+      () => stopped,
+      { operation: 'firestore-channel-group-fallback-poll' },
+    )
+    : undefined
   const cleanups = uniqueChannelNames.map((channelName) => subscribeKrescoFirestore({
     channelName,
     onMessage,
     beforeSubscribe,
     fallback,
+    fallbackController,
   }))
 
   return () => {
+    stopped = true
+    fallbackController?.stopFallback()
     cleanups.forEach((cleanup) => cleanup())
   }
 }

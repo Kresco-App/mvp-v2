@@ -26,8 +26,8 @@ export default function GuestGuard({ children, authenticatedRedirectMode = 'all'
   const isHydrated = useAuthStore((state) => state.isHydrated)
 
   useEffect(() => {
-    hydrate()
-  }, [hydrate])
+    if (!isHydrated) hydrate()
+  }, [hydrate, isHydrated])
 
   useEffect(() => {
     if (!isHydrated || !token || !user) return

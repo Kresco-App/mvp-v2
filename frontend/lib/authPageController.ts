@@ -2,24 +2,17 @@
 
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import { patchJson, postJson } from '@/lib/apiClient'
 import { resolveAuthSuccess } from '@/lib/authPolicy'
 import { isStoredAuthSnapshot } from '@/lib/authSession'
 import { useAuthStore } from '@/lib/store'
-import { apiDataErrorMessage } from '@/lib/apiData'
-import {
-  createFirebaseEmailUser,
-  getFirebaseEmailPasswordIdToken,
-  getFirebaseGoogleIdToken,
-  isFirebaseEmailNotVerifiedError,
-  isFirebaseGoogleAuthConfigured,
-  resendFirebaseEmailVerification,
-  sendFirebasePasswordReset,
-} from '@/lib/firebaseAuth'
+import { apiDataErrorMessage, apiErrorStatus } from '@/lib/apiData'
+import { isFirebaseGoogleAuthConfigured } from '@/lib/firebaseConfig'
 
 export type AuthStep = 'auth' | 'niveau' | 'filiere'
 export type AuthMode = 'options' | 'login' | 'signup' | 'verify-pending' | 'forgot' | 'forgot-sent'
+export type AuthPendingAction = 'google' | 'signup' | 'login' | 'forgot' | 'resend'
 
 type OnboardingUserLike = {
   niveau?: string | null
@@ -29,6 +22,27 @@ type OnboardingUserLike = {
 type AuthResolutionHandler = (nextUser: unknown, mode?: 'push' | 'replace') => void
 
 const UNVERIFIED_EMAIL_LOGIN_DETAIL = 'Veuillez verifier votre email avant de vous connecter'
+const AUTH_ACTION_TIMEOUT_MS = 20_000
+
+class AuthActionTimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AuthActionTimeoutError'
+  }
+}
+
+function withAuthActionTimeout<T>(operation: Promise<T>, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new AuthActionTimeoutError(message))
+    }, AUTH_ACTION_TIMEOUT_MS)
+  })
+
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId)
+  })
+}
 
 export function normalizeEmailInput(value: string) {
   return value.trim().toLowerCase()
@@ -38,6 +52,43 @@ export function isUnverifiedEmailLoginError(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const response = (error as { response?: { status?: number; data?: { detail?: unknown } } }).response
   return response?.status === 403 && response.data?.detail === UNVERIFIED_EMAIL_LOGIN_DETAIL
+}
+
+export function loginErrorMessage(error: unknown) {
+  if (isCredentialErrorLike(error)) return 'Email ou mot de passe incorrect.'
+
+  const status = apiErrorStatus(error)
+  if (status && status >= 500) {
+    return apiDataErrorMessage(error, 'Serveur indisponible. Verifiez que le backend est lance.')
+  }
+  return apiDataErrorMessage(error, 'Email ou mot de passe incorrect.')
+}
+
+function isCredentialErrorLike(error: unknown) {
+  const code = (error as { code?: unknown })?.code
+  if (typeof code === 'string') {
+    return [
+      'auth/invalid-credential',
+      'auth/invalid-email',
+      'auth/missing-password',
+      'auth/user-not-found',
+      'auth/wrong-password',
+    ].includes(code)
+  }
+
+  if (error instanceof Error) {
+    return /auth\/(invalid-credential|invalid-email|missing-password|user-not-found|wrong-password)/i.test(error.message)
+  }
+
+  return false
+}
+
+function isFirebaseEmailNotVerifiedErrorLike(error: unknown): error is { email: string } {
+  return (
+    error instanceof Error &&
+    error.name === 'FirebaseEmailNotVerifiedError' &&
+    typeof (error as { email?: unknown }).email === 'string'
+  )
 }
 
 export function getOnboardingSelections(user: OnboardingUserLike | null | undefined) {
@@ -100,7 +151,7 @@ function useOnboardingForm({
 
   async function saveOnboarding() {
     if (!canSubmitOnboarding(selectedLevel, selectedSpec, loading)) {
-      toast.error('Selectionnez votre niveau et votre filiere.')
+      showToastError('Selectionnez votre niveau et votre filiere.')
       return
     }
 
@@ -111,7 +162,7 @@ function useOnboardingForm({
       const resolution = resolveAuthSuccess(data, nextDestination)
       router.push(resolution.action === 'redirect' ? resolution.destination : '/home')
     } catch {
-      toast.error('Erreur lors de la sauvegarde.')
+      showToastError('Erreur lors de la sauvegarde.')
       setLoading(false)
     }
   }
@@ -136,109 +187,201 @@ function useAuthForm({
 }) {
   const login = useAuthStore((state) => state.login)
   const hiddenGoogleRef = useRef<HTMLDivElement>(null)
-  const [loading, setLoading] = useState(false)
+  const googleRedirectHandledRef = useRef(false)
+  const googleFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingActionRef = useRef<AuthPendingAction | null>(null)
+  const [pendingAction, setPendingAction] = useState<AuthPendingAction | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fullName, setFullName] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [pendingEmail, setPendingEmail] = useState('')
   const [googleReady, setGoogleReady] = useState(false)
+  const [authErrorVersion, setAuthErrorVersion] = useState(0)
 
   useEffect(() => {
     setGoogleReady(isFirebaseGoogleAuthConfigured())
   }, [])
 
+  useEffect(() => {
+    pendingActionRef.current = pendingAction
+  }, [pendingAction])
+
+  useEffect(() => {
+    return () => {
+      if (googleFallbackTimerRef.current) clearTimeout(googleFallbackTimerRef.current)
+    }
+  }, [])
+
+  const completeFirebaseSession = useCallback(async (credential: string) => {
+    const data = await postJson<any>('/auth/firebase-session', { credential })
+    login(data.user, data.csrf_token)
+    showToastSuccess(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
+    onAuthResolution(data.user)
+  }, [login, onAuthResolution])
+
+  useEffect(() => {
+    if (!googleReady || googleRedirectHandledRef.current) return
+    googleRedirectHandledRef.current = true
+
+    let alive = true
+    async function consumeGoogleRedirect() {
+      try {
+        const { getFirebaseGoogleRedirectIdToken } = await import('@/lib/firebaseAuth')
+        const credential = await getFirebaseGoogleRedirectIdToken()
+        if (!credential || !alive) return
+        setPendingAction('google')
+        await completeFirebaseSession(credential)
+      } catch (err: any) {
+        if (alive) showToastError(apiDataErrorMessage(err, 'Connexion Google echouee.'))
+      } finally {
+        if (alive) setPendingAction(null)
+      }
+    }
+
+    void consumeGoogleRedirect()
+    return () => { alive = false }
+  }, [completeFirebaseSession, googleReady])
+
   async function triggerGoogle() {
-    if (!googleReady || loading) return
-    setLoading(true)
+    if (!googleReady || pendingAction) return
+    pendingActionRef.current = 'google'
+    setPendingAction('google')
+    if (googleFallbackTimerRef.current) clearTimeout(googleFallbackTimerRef.current)
+    googleFallbackTimerRef.current = setTimeout(() => {
+      googleFallbackTimerRef.current = null
+      if (pendingActionRef.current === 'google') {
+        showToastError('Connexion Google interrompue. Reessayez ou utilisez votre email.')
+        pendingActionRef.current = null
+        setPendingAction(null)
+      }
+    }, 12000)
     try {
-      const credential = await getFirebaseGoogleIdToken()
-      const data = await postJson<any>('/auth/firebase-session', { credential })
-      login(data.user, data.csrf_token)
-      toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
-      onAuthResolution(data.user)
+      const { startFirebaseGoogleRedirect } = await import('@/lib/firebaseAuth')
+      await startFirebaseGoogleRedirect()
     } catch (err: any) {
-      toast.error(apiDataErrorMessage(err, 'Connexion Google echouee.'))
+      showToastError(apiDataErrorMessage(err, 'Connexion Google echouee.'))
     } finally {
-      setLoading(false)
+      if (googleFallbackTimerRef.current) {
+        clearTimeout(googleFallbackTimerRef.current)
+        googleFallbackTimerRef.current = null
+      }
+      pendingActionRef.current = null
+      setPendingAction(null)
     }
   }
 
+  function clearPendingGoogleAction() {
+    if (pendingActionRef.current !== 'google') return
+    if (googleFallbackTimerRef.current) {
+      clearTimeout(googleFallbackTimerRef.current)
+      googleFallbackTimerRef.current = null
+    }
+    pendingActionRef.current = null
+    setPendingAction((current) => (current === 'google' ? null : current))
+  }
+
   function resetForm() {
+    clearPendingGoogleAction()
     setEmail('')
     setPassword('')
     setFullName('')
     setShowPassword(false)
+    setAuthErrorVersion(0)
   }
 
   async function handleSignup(e: FormEvent) {
     e.preventDefault()
-    if (!fullName.trim()) return toast.error('Entrez votre nom complet')
-    if (password.length < 8) return toast.error('Mot de passe trop court (min. 8 caracteres)')
-    setLoading(true)
+    if (pendingAction) return
+    if (!fullName.trim()) return showToastError('Entrez votre nom complet')
+    if (password.length < 8) return showToastError('Mot de passe trop court (min. 8 caracteres)')
+    setPendingAction('signup')
     try {
+      const { createFirebaseEmailUser } = await import('@/lib/firebaseAuth')
       const normalizedEmail = normalizeEmailInput(email)
-      const firebaseEmail = await createFirebaseEmailUser(normalizedEmail, password, fullName)
+      const firebaseEmail = await withAuthActionTimeout(
+        createFirebaseEmailUser(normalizedEmail, password, fullName),
+        'Creation du compte trop longue. Reessayez.',
+      )
       setPendingEmail(normalizeEmailInput(firebaseEmail))
       setAuthMode('verify-pending')
-      toast.success('Email de verification envoye !')
+      showToastSuccess('Email de verification envoye !')
     } catch (err: any) {
-      toast.error(apiDataErrorMessage(err, 'Erreur lors de la creation du compte.'))
+      showToastError(apiDataErrorMessage(err, 'Erreur lors de la creation du compte.'))
     } finally {
-      setLoading(false)
+      setPendingAction(null)
     }
   }
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
-    setLoading(true)
+    if (pendingAction) return
+    setPendingAction('login')
     try {
+      const { getFirebaseEmailPasswordIdToken } = await import('@/lib/firebaseAuth')
       const normalizedEmail = normalizeEmailInput(email)
-      const credential = await getFirebaseEmailPasswordIdToken(normalizedEmail, password)
-      const data = await postJson<any>('/auth/firebase-session', { credential })
+      const credential = await withAuthActionTimeout(
+        getFirebaseEmailPasswordIdToken(normalizedEmail, password),
+        'Connexion trop longue. Reessayez.',
+      )
+      const data = await withAuthActionTimeout(
+        postJson<any>('/auth/firebase-session', { credential }),
+        'Connexion trop longue. Reessayez.',
+      )
       login(data.user, data.csrf_token)
-      toast.success(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
+      showToastSuccess(`Bienvenue, ${data.user.full_name?.split(' ')[0] || ''} !`)
       onAuthResolution(data.user)
     } catch (err: any) {
-      if (isFirebaseEmailNotVerifiedError(err) || isUnverifiedEmailLoginError(err)) {
-        setPendingEmail(normalizeEmailInput(isFirebaseEmailNotVerifiedError(err) ? err.email : email))
+      if (isFirebaseEmailNotVerifiedErrorLike(err) || isUnverifiedEmailLoginError(err)) {
+        setPendingEmail(normalizeEmailInput(isFirebaseEmailNotVerifiedErrorLike(err) ? err.email : email))
         setAuthMode('verify-pending')
-        toast.error('Verifiez votre email avant de vous connecter.')
+        showToastError('Verifiez votre email avant de vous connecter.')
       } else {
-        toast.error(apiDataErrorMessage(err, 'Email ou mot de passe incorrect.'))
+        setAuthErrorVersion((version) => version + 1)
+        showToastError(loginErrorMessage(err))
       }
     } finally {
-      setLoading(false)
+      setPendingAction(null)
     }
   }
 
   async function handleForgot(e: FormEvent) {
     e.preventDefault()
-    setLoading(true)
+    if (pendingAction) return
+    setPendingAction('forgot')
     try {
-      await sendFirebasePasswordReset(normalizeEmailInput(email))
+      const { sendFirebasePasswordReset } = await import('@/lib/firebaseAuth')
+      await withAuthActionTimeout(
+        sendFirebasePasswordReset(normalizeEmailInput(email)),
+        'Envoi trop long. Reessayez.',
+      )
       setAuthMode('forgot-sent')
     } catch (err) {
-      toast.error(apiDataErrorMessage(err, 'Impossible d\'envoyer le lien de reinitialisation.'))
+      showToastError(apiDataErrorMessage(err, 'Impossible d\'envoyer le lien de reinitialisation.'))
     } finally {
-      setLoading(false)
+      setPendingAction(null)
     }
   }
 
   async function handleResend() {
+    if (pendingAction) return
     if (!pendingEmail) return
     if (!password) {
-      toast.error("Entrez votre mot de passe pour renvoyer l'email.")
+      showToastError("Entrez votre mot de passe pour renvoyer l'email.")
       return
     }
-    setLoading(true)
+    setPendingAction('resend')
     try {
-      await resendFirebaseEmailVerification(normalizeEmailInput(pendingEmail), password)
-      toast.success('Email renvoye !')
+      const { resendFirebaseEmailVerification } = await import('@/lib/firebaseAuth')
+      await withAuthActionTimeout(
+        resendFirebaseEmailVerification(normalizeEmailInput(pendingEmail), password),
+        'Envoi trop long. Reessayez.',
+      )
+      showToastSuccess('Email renvoye !')
     } catch {
-      toast.error('Impossible d\'envoyer l\'email.')
+      showToastError('Impossible d\'envoyer l\'email.')
     } finally {
-      setLoading(false)
+      setPendingAction(null)
     }
   }
 
@@ -251,8 +394,10 @@ function useAuthForm({
     handleResend,
     handleSignup,
     hiddenGoogleRef,
-    loading,
+    authErrorVersion,
+    loading: Boolean(pendingAction),
     password,
+    pendingAction,
     pendingEmail,
     resetForm,
     setEmail,
@@ -339,8 +484,10 @@ export function useAuthPageController() {
     handleResend: authForm.handleResend,
     handleSignup: authForm.handleSignup,
     hiddenGoogleRef: authForm.hiddenGoogleRef,
+    authErrorVersion: authForm.authErrorVersion,
     loading,
     password: authForm.password,
+    pendingAction: authForm.pendingAction,
     pendingEmail: authForm.pendingEmail,
     progressWidthClass: flow.progressWidthClass,
     saveOnboarding: onboarding.saveOnboarding,

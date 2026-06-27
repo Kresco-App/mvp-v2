@@ -5,11 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import KrescoLogo from '@/components/KrescoLogo'
 import { Check, Loader2, TriangleAlert } from 'lucide-react'
 import { localizedCopy } from '@/lib/localization'
-import { applyFirebaseEmailVerification } from '@/lib/firebaseAuth'
 
 const pageClass = 'flex min-h-[100svh] flex-col items-center justify-center overflow-y-auto bg-[var(--auth-bg)] p-6'
 const panelClass = 'flex w-full max-w-[380px] flex-col items-center text-center'
-const focusRingClass = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
+const focusRingClass = 'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white'
 
 function VerifyEmailContent() {
   const router = useRouter()
@@ -29,17 +28,23 @@ function VerifyEmailContent() {
       }
     }
 
-    applyFirebaseEmailVerification(oobCode)
-      .then(() => {
+    const actionCode = oobCode
+
+    async function verifyEmail() {
+      try {
+        const { applyFirebaseEmailVerification } = await import('@/lib/firebaseAuth')
+        await applyFirebaseEmailVerification(actionCode)
         if (cancelled) return
         setStatus('success')
         redirectTimer = setTimeout(() => router.replace('/'), 2500)
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return
         setStatus('error')
         setErrorMsg(localizedCopy.auth.verifyEmailInvalidBody)
-      })
+      }
+    }
+
+    void verifyEmail()
 
     return () => {
       cancelled = true
@@ -54,7 +59,7 @@ function VerifyEmailContent() {
 
         {status === 'loading' && (
           <div role="status">
-            <Loader2 size={40} className="mx-auto mb-5 animate-spin text-[var(--auth-primary)]" aria-hidden="true" />
+            <Loader2 size={40} className="mx-auto mb-5 animate-spin motion-reduce:animate-none text-[var(--auth-primary)]" aria-hidden="true" />
             <p className="text-[15px] text-[var(--auth-text-muted)]">{localizedCopy.auth.verifyEmailChecking}</p>
           </div>
         )}
@@ -93,7 +98,7 @@ export default function VerifyEmailPage() {
   return (
     <Suspense fallback={
       <div className="flex min-h-[100svh] items-center justify-center bg-[var(--auth-bg)]" role="status" aria-label={localizedCopy.auth.loading}>
-        <Loader2 size={34} className="animate-spin text-[var(--auth-primary)]" aria-hidden="true" />
+        <Loader2 size={34} className="animate-spin motion-reduce:animate-none text-[var(--auth-primary)]" aria-hidden="true" />
       </div>
     }>
       <VerifyEmailContent />

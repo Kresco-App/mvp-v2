@@ -8,6 +8,7 @@ import {
   canSubmitOnboarding,
   getOnboardingSelections,
   isUnverifiedEmailLoginError,
+  loginErrorMessage,
   normalizeEmailInput,
   useAuthPageController,
 } from '@/lib/authPageController'
@@ -38,11 +39,12 @@ const mocks = vi.hoisted(() => {
     postJson: vi.fn(),
     createFirebaseEmailUser: vi.fn(),
     getFirebaseEmailPasswordIdToken: vi.fn(),
-    getFirebaseGoogleIdToken: vi.fn(),
+    getFirebaseGoogleRedirectIdToken: vi.fn(),
     isFirebaseEmailNotVerifiedError: vi.fn(),
     isFirebaseGoogleAuthConfigured: vi.fn(),
     resendFirebaseEmailVerification: vi.fn(),
     sendFirebasePasswordReset: vi.fn(),
+    startFirebaseGoogleRedirect: vi.fn(),
     toastError: vi.fn(),
     toastSuccess: vi.fn(),
   }
@@ -68,11 +70,15 @@ vi.mock('@/lib/apiClient', () => ({
 vi.mock('@/lib/firebaseAuth', () => ({
   createFirebaseEmailUser: mocks.createFirebaseEmailUser,
   getFirebaseEmailPasswordIdToken: mocks.getFirebaseEmailPasswordIdToken,
-  getFirebaseGoogleIdToken: mocks.getFirebaseGoogleIdToken,
+  getFirebaseGoogleRedirectIdToken: mocks.getFirebaseGoogleRedirectIdToken,
   isFirebaseEmailNotVerifiedError: mocks.isFirebaseEmailNotVerifiedError,
-  isFirebaseGoogleAuthConfigured: mocks.isFirebaseGoogleAuthConfigured,
   resendFirebaseEmailVerification: mocks.resendFirebaseEmailVerification,
   sendFirebasePasswordReset: mocks.sendFirebasePasswordReset,
+  startFirebaseGoogleRedirect: mocks.startFirebaseGoogleRedirect,
+}))
+
+vi.mock('@/lib/firebaseConfig', () => ({
+  isFirebaseGoogleAuthConfigured: mocks.isFirebaseGoogleAuthConfigured,
 }))
 
 vi.mock('@/lib/store', () => ({
@@ -104,11 +110,12 @@ beforeEach(() => {
   mocks.postJson.mockResolvedValue({ data: {} })
   mocks.createFirebaseEmailUser.mockResolvedValue('student@example.com')
   mocks.getFirebaseEmailPasswordIdToken.mockResolvedValue('firebase-id-token')
-  mocks.getFirebaseGoogleIdToken.mockResolvedValue('firebase-google-token')
+  mocks.getFirebaseGoogleRedirectIdToken.mockResolvedValue(null)
   mocks.isFirebaseEmailNotVerifiedError.mockReturnValue(false)
   mocks.isFirebaseGoogleAuthConfigured.mockReturnValue(true)
   mocks.resendFirebaseEmailVerification.mockResolvedValue(undefined)
   mocks.sendFirebasePasswordReset.mockResolvedValue(undefined)
+  mocks.startFirebaseGoogleRedirect.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -151,9 +158,108 @@ describe('auth page login error handling', () => {
     })).toBe(false)
     expect(isUnverifiedEmailLoginError(new Error('Network failed'))).toBe(false)
   })
+
+  it('does not present backend failures as wrong credentials', async () => {
+    const backendError = { response: { status: 500, data: {} } }
+    expect(loginErrorMessage(backendError)).toBe('Serveur indisponible. Verifiez que le backend est lance. (500)')
+    mocks.postJson.mockRejectedValueOnce(backendError)
+
+    renderController()
+
+    await act(async () => {
+      latestController?.showLogin()
+      latestController?.setEmail('student@example.com')
+      latestController?.setPassword('password123')
+    })
+
+    await act(async () => {
+      await latestController?.handleLogin({
+        preventDefault: () => undefined,
+      } as unknown as React.FormEvent)
+    })
+
+    expect(mocks.getFirebaseEmailPasswordIdToken).toHaveBeenCalledWith('student@example.com', 'password123')
+    expect(mocks.toastError).toHaveBeenCalledWith('Serveur indisponible. Verifiez que le backend est lance. (500)')
+  })
+
+  it('presents Firebase credential failures as a clean login toast', async () => {
+    const firebaseError = { code: 'auth/invalid-credential', message: 'Firebase: Error (auth/invalid-credential).' }
+    expect(loginErrorMessage(firebaseError)).toBe('Email ou mot de passe incorrect.')
+
+    mocks.getFirebaseEmailPasswordIdToken.mockRejectedValueOnce(firebaseError)
+
+    renderController()
+
+    await act(async () => {
+      latestController?.showLogin()
+      latestController?.setEmail('student@example.com')
+      latestController?.setPassword('bad-password')
+    })
+
+    await act(async () => {
+      await latestController?.handleLogin({
+        preventDefault: () => undefined,
+      } as unknown as React.FormEvent)
+    })
+
+    expect(mocks.toastError).toHaveBeenCalledWith('Email ou mot de passe incorrect.')
+    expect(latestController?.authErrorVersion).toBe(1)
+  })
+
+  it('clears the visible auth error trigger when switching forms', async () => {
+    mocks.getFirebaseEmailPasswordIdToken.mockRejectedValueOnce({ code: 'auth/invalid-credential' })
+
+    renderController()
+
+    await act(async () => {
+      latestController?.showLogin()
+      latestController?.setEmail('student@example.com')
+      latestController?.setPassword('bad-password')
+    })
+
+    await act(async () => {
+      await latestController?.handleLogin({
+        preventDefault: () => undefined,
+      } as unknown as React.FormEvent)
+    })
+
+    expect(latestController?.authErrorVersion).toBe(1)
+
+    await act(async () => {
+      latestController?.showSignup()
+    })
+
+    expect(latestController?.authErrorVersion).toBe(0)
+  })
 })
 
 describe('auth page onboarding state', () => {
+  it('exchanges a returned Firebase Google redirect credential for an app session', async () => {
+    mocks.getFirebaseGoogleRedirectIdToken.mockResolvedValueOnce('firebase-google-token')
+    mocks.postJson.mockResolvedValueOnce({
+      user: {
+        role: 'student',
+        full_name: 'Google Student',
+        niveau: '2bac',
+        filiere: 'Sciences Math B',
+      },
+      csrf_token: 'csrf-token',
+    })
+
+    renderController()
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledWith('/auth/firebase-session', {
+        credential: 'firebase-google-token',
+      })
+      expect(mocks.authState.login).toHaveBeenCalledWith(
+        expect.objectContaining({ full_name: 'Google Student' }),
+        'csrf-token',
+      )
+      expect(mocks.routerPush).toHaveBeenCalledWith('/home')
+    })
+  })
+
   it('does not infer onboarding from minimal stored auth snapshots', async () => {
     mocks.authState.user = {
       [KRESCO_STORED_AUTH_SNAPSHOT]: true,
@@ -221,6 +327,140 @@ describe('auth page onboarding state', () => {
     })
     expect(latestController?.authMode).toBe('forgot')
     expect(mocks.toastError).toHaveBeenCalledWith('Firebase reset unavailable')
+  })
+
+  it('marks Google auth separately from email account creation while redirect is pending', async () => {
+    mocks.startFirebaseGoogleRedirect.mockImplementationOnce(
+      () => new Promise<void>(() => undefined),
+    )
+
+    renderController()
+
+    await act(async () => {
+      latestController?.showSignup()
+    })
+
+    act(() => {
+      void latestController?.triggerGoogle()
+    })
+
+    await waitFor(() => {
+      expect(latestController?.pendingAction).toBe('google')
+      expect(latestController?.loading).toBe(true)
+    })
+  })
+
+  it('recovers when the Google redirect never completes', async () => {
+    vi.useFakeTimers()
+    mocks.startFirebaseGoogleRedirect.mockImplementationOnce(
+      () => new Promise<void>(() => undefined),
+    )
+
+    try {
+      renderController()
+
+      await act(async () => {
+        latestController?.showSignup()
+      })
+
+      act(() => {
+        void latestController?.triggerGoogle()
+      })
+
+      expect(latestController?.pendingAction).toBe('google')
+
+      await act(async () => {
+        vi.advanceTimersByTime(12000)
+      })
+
+      expect(latestController?.pendingAction).toBe(null)
+      expect(latestController?.loading).toBe(false)
+      expect(mocks.toastError).toHaveBeenCalledWith('Connexion Google interrompue. Reessayez ou utilisez votre email.')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels stale Google loading when the user switches to email auth', async () => {
+    vi.useFakeTimers()
+    mocks.startFirebaseGoogleRedirect.mockImplementationOnce(
+      () => new Promise<void>(() => undefined),
+    )
+
+    try {
+      renderController()
+
+      await act(async () => {
+        latestController?.showSignup()
+      })
+
+      act(() => {
+        void latestController?.triggerGoogle()
+      })
+
+      expect(latestController?.pendingAction).toBe('google')
+      expect(latestController?.loading).toBe(true)
+
+      await act(async () => {
+        latestController?.showLogin()
+      })
+
+      expect(latestController?.authMode).toBe('login')
+      expect(latestController?.pendingAction).toBe(null)
+      expect(latestController?.loading).toBe(false)
+
+      await act(async () => {
+        vi.advanceTimersByTime(12000)
+      })
+
+      expect(mocks.toastError).not.toHaveBeenCalledWith('Connexion Google interrompue. Reessayez ou utilisez votre email.')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('recovers when email account creation never resolves', async () => {
+    vi.useFakeTimers()
+    mocks.createFirebaseEmailUser.mockImplementationOnce(
+      () => new Promise<string>(() => undefined),
+    )
+
+    try {
+      renderController()
+
+      await act(async () => {
+        latestController?.showSignup()
+        latestController?.setFullName('Kresco Student')
+        latestController?.setEmail('student@example.com')
+        latestController?.setPassword('password123')
+      })
+
+      let signupPromise: Promise<void> | undefined
+      act(() => {
+        signupPromise = latestController?.handleSignup({
+          preventDefault: () => undefined,
+        } as unknown as React.FormEvent)
+      })
+
+      expect(latestController?.pendingAction).toBe('signup')
+      expect(latestController?.loading).toBe(true)
+
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(mocks.createFirebaseEmailUser).toHaveBeenCalledWith('student@example.com', 'password123', 'Kresco Student')
+
+      await act(async () => {
+        vi.advanceTimersByTime(20_000)
+        await signupPromise
+      })
+
+      expect(latestController?.pendingAction).toBe(null)
+      expect(latestController?.loading).toBe(false)
+      expect(mocks.toastError).toHaveBeenCalledWith('Creation du compte trop longue. Reessayez.')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps onboarding loading active until navigation starts after a successful save', async () => {

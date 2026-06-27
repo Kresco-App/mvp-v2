@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import ApiDataProvider from '@/components/ApiDataProvider'
 
 export const metadata: Metadata = {
   title: 'Révision Studio - Kresco Admin',
@@ -6,5 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function StudioReviewRouteLayout({ children }: { children: React.ReactNode }) {
-  return children
+  return <ApiDataProvider>{children}</ApiDataProvider>
 }

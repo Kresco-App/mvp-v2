@@ -24,7 +24,7 @@ export const AUTH_ROUTES = {
   professorLogin: '/professor/login',
 } as const
 
-const STUDENT_PROFESSOR_CHAT_TIERS = new Set(['vip', 'platinum'])
+const STUDENT_PROFESSOR_CHAT_TIERS = new Set(['vip'])
 
 function normalizeTier(tier: string | null | undefined) {
   return String(tier ?? '').trim().toLowerCase()

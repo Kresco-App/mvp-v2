@@ -11,6 +11,12 @@ export const KRESCO_AUTH_SESSION_EVENT = 'kresco:auth-session'
 
 const DEFAULT_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24
 const BASE64URL_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+const BASE64URL_INDEX_BY_CHAR = new Map(Array.from(BASE64URL_CHARS, (char, index) => [char, index]))
+const STORED_AUTH_SNAPSHOT_KEYS = new Set([
+  KRESCO_STORED_AUTH_SNAPSHOT,
+  'role',
+  'is_staff',
+])
 
 export type AuthUser = {
   id?: string | number
@@ -35,7 +41,66 @@ export type StoredAuthSession = {
   user: AuthUser | null
 }
 
-let csrfTokenCache: string | null = null
+let csrfTokenCache: string | null | undefined
+let cookieCacheSource: string | null = null
+let cookieCache = new Map<string, string>()
+const storedJsonParseCache = new Map<string, { raw: string; value: unknown }>()
+
+function safeLocalStorageGetItem(key: string) {
+  if (typeof window === 'undefined') return null
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeLocalStorageSetItem(key: string, value: string) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(key, value)
+    storedJsonParseCache.delete(key)
+  } catch {
+    // Storage can be disabled or full; auth falls back to cookie session state.
+  }
+}
+
+function safeLocalStorageRemoveItem(key: string) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.removeItem(key)
+    storedJsonParseCache.delete(key)
+  } catch {
+    // Ignore unavailable storage.
+  }
+}
+
+function safeSessionStorageGetItem(key: string) {
+  if (typeof window === 'undefined') return null
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function safeSessionStorageSetItem(key: string, value: string) {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // Ignore unavailable storage.
+  }
+}
+
+function safeSessionStorageRemoveItem(key: string) {
+  if (typeof window === 'undefined') return
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    // Ignore unavailable storage.
+  }
+}
 
 export function sanitizeStoredAuthUser(user: AuthUser | null | undefined): AuthUser | null {
   if (!user || typeof user !== 'object') return null
@@ -53,13 +118,34 @@ export function isStoredAuthSnapshot(user: AuthUser | null | undefined) {
   return user?.[KRESCO_STORED_AUTH_SNAPSHOT] === true
 }
 
-function readStoredJson<T = unknown>(key: string): T | null {
-  if (typeof window === 'undefined') return null
+function isSanitizedStoredAuthUser(user: AuthUser | null | undefined) {
+  if (!user || typeof user !== 'object' || !isStoredAuthSnapshot(user)) return false
 
+  for (const key of Object.keys(user)) {
+    if (!STORED_AUTH_SNAPSHOT_KEYS.has(key)) return false
+    if (key === 'role' && typeof user.role !== 'string') return false
+    if (key === 'is_staff' && typeof user.is_staff !== 'boolean') return false
+  }
+
+  return true
+}
+
+function readStoredJson<T = unknown>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) as T : null
+    const raw = safeLocalStorageGetItem(key)
+    if (!raw) {
+      storedJsonParseCache.delete(key)
+      return null
+    }
+
+    const cached = storedJsonParseCache.get(key)
+    if (cached?.raw === raw) return cached.value as T
+
+    const value = JSON.parse(raw) as T
+    storedJsonParseCache.set(key, { raw, value })
+    return value
   } catch {
+    storedJsonParseCache.delete(key)
     return null
   }
 }
@@ -67,30 +153,45 @@ function readStoredJson<T = unknown>(key: string): T | null {
 function readCookie(name: string) {
   if (typeof document === 'undefined') return null
 
-  const prefix = `${encodeURIComponent(name)}=`
-  const cookie = document.cookie
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(prefix))
+  const source = document.cookie
+  if (cookieCacheSource !== source) {
+    cookieCacheSource = source
+    cookieCache = new Map()
 
-  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null
+    for (const part of source.split(';')) {
+      const trimmed = part.trim()
+      const separatorIndex = trimmed.indexOf('=')
+      if (separatorIndex <= 0) continue
+      cookieCache.set(
+        trimmed.slice(0, separatorIndex),
+        decodeURIComponent(trimmed.slice(separatorIndex + 1)),
+      )
+    }
+  }
+
+  return cookieCache.get(encodeURIComponent(name)) ?? null
 }
 
 export function readCsrfToken() {
-  if (csrfTokenCache) return csrfTokenCache
+  if (csrfTokenCache !== undefined) return csrfTokenCache
+
   const cookieToken = readCookie(KRESCO_CSRF_COOKIE)
-  if (cookieToken) return cookieToken
+  if (cookieToken) {
+    csrfTokenCache = cookieToken
+    return cookieToken
+  }
 
   if (typeof window === 'undefined') return null
-  return sessionStorage.getItem(KRESCO_CSRF_KEY)
+  csrfTokenCache = safeSessionStorageGetItem(KRESCO_CSRF_KEY)
+  return csrfTokenCache
 }
 
 export function writeCsrfToken(token?: string | null) {
   csrfTokenCache = token || null
   if (typeof window === 'undefined') return
 
-  if (token) sessionStorage.setItem(KRESCO_CSRF_KEY, token)
-  else sessionStorage.removeItem(KRESCO_CSRF_KEY)
+  if (token) safeSessionStorageSetItem(KRESCO_CSRF_KEY, token)
+  else safeSessionStorageRemoveItem(KRESCO_CSRF_KEY)
 }
 
 function decodeBase64Url(value: string) {
@@ -101,8 +202,8 @@ function decodeBase64Url(value: string) {
   for (const char of value) {
     if (char === '=') break
 
-    const index = BASE64URL_CHARS.indexOf(char)
-    if (index === -1) return null
+    const index = BASE64URL_INDEX_BY_CHAR.get(char)
+    if (index === undefined) return null
 
     buffer = (buffer << 6) | index
     bits += 6
@@ -186,20 +287,24 @@ function getCookieSecureAttribute() {
 }
 
 export function clearAuthCookie() {
+  writeCsrfToken(null)
   if (typeof document === 'undefined') return
 
   const secure = getCookieSecureAttribute()
-  document.cookie = `${KRESCO_TOKEN_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0${secure}`
-  document.cookie = `${KRESCO_USER_ROLE_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0${secure}`
-  document.cookie = `${KRESCO_CSRF_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0${secure}`
-  writeCsrfToken(null)
+  const domain = process.env.NEXT_PUBLIC_AUTH_COOKIE_DOMAIN?.trim()
+  for (const cookieName of [KRESCO_TOKEN_COOKIE, KRESCO_USER_ROLE_COOKIE, KRESCO_CSRF_COOKIE]) {
+    document.cookie = `${cookieName}=; Path=/; SameSite=Lax; Max-Age=0${secure}`
+    if (domain) {
+      document.cookie = `${cookieName}=; Path=/; Domain=${domain}; SameSite=Lax; Max-Age=0${secure}`
+    }
+  }
 }
 
 export function clearStoredAuthSession() {
   if (typeof window === 'undefined') return
 
-  localStorage.removeItem(KRESCO_TOKEN_KEY)
-  localStorage.removeItem(KRESCO_USER_KEY)
+  safeLocalStorageRemoveItem(KRESCO_TOKEN_KEY)
+  safeLocalStorageRemoveItem(KRESCO_USER_KEY)
   clearAuthCookie()
   window.dispatchEvent(new Event(KRESCO_AUTH_SESSION_EVENT))
 }
@@ -207,17 +312,16 @@ export function clearStoredAuthSession() {
 export function readStoredAuthSession(): StoredAuthSession {
   if (typeof window === 'undefined') return { token: null, user: null }
 
-  localStorage.removeItem(KRESCO_TOKEN_KEY)
+  safeLocalStorageRemoveItem(KRESCO_TOKEN_KEY)
 
   const storedUser = readStoredJson<AuthUser>(KRESCO_USER_KEY)
   const user = sanitizeStoredAuthUser(storedUser)
   if (storedUser && user) {
-    const sanitized = JSON.stringify(user)
-    if (JSON.stringify(storedUser) !== sanitized) {
-      localStorage.setItem(KRESCO_USER_KEY, sanitized)
+    if (!isSanitizedStoredAuthUser(storedUser)) {
+      safeLocalStorageSetItem(KRESCO_USER_KEY, JSON.stringify(user))
     }
   } else if (storedUser) {
-    localStorage.removeItem(KRESCO_USER_KEY)
+    safeLocalStorageRemoveItem(KRESCO_USER_KEY)
   }
   const hasCookieSession = Boolean(readCookie(KRESCO_USER_ROLE_COOKIE))
 
@@ -230,18 +334,18 @@ export function readStoredAuthSession(): StoredAuthSession {
 export function writeStoredAuthSession(user: AuthUser, csrfToken?: string | null) {
   if (typeof window === 'undefined') return
 
-  localStorage.removeItem(KRESCO_TOKEN_KEY)
+  safeLocalStorageRemoveItem(KRESCO_TOKEN_KEY)
   const authSnapshot = sanitizeStoredAuthUser(user)
-  if (authSnapshot) localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(authSnapshot))
-  else localStorage.removeItem(KRESCO_USER_KEY)
+  if (authSnapshot) safeLocalStorageSetItem(KRESCO_USER_KEY, JSON.stringify(authSnapshot))
+  else safeLocalStorageRemoveItem(KRESCO_USER_KEY)
   if (csrfToken !== undefined) writeCsrfToken(csrfToken)
 }
 
 export function updateStoredAuthUser(user: AuthUser) {
   if (typeof window === 'undefined') return
 
-  localStorage.removeItem(KRESCO_TOKEN_KEY)
+  safeLocalStorageRemoveItem(KRESCO_TOKEN_KEY)
   const authSnapshot = sanitizeStoredAuthUser(user)
-  if (authSnapshot) localStorage.setItem(KRESCO_USER_KEY, JSON.stringify(authSnapshot))
-  else localStorage.removeItem(KRESCO_USER_KEY)
+  if (authSnapshot) safeLocalStorageSetItem(KRESCO_USER_KEY, JSON.stringify(authSnapshot))
+  else safeLocalStorageRemoveItem(KRESCO_USER_KEY)
 }

@@ -38,29 +38,46 @@ afterEach(() => {
   container?.remove()
   root = null
   container = null
+  vi.restoreAllMocks()
 })
 
 describe('ClientErrorReporter', () => {
-  it('reports global window errors and unhandled rejections', () => {
+  it('reports global window errors and unhandled rejections', async () => {
+    const rejectionListeners: Array<(event: PromiseRejectionEvent) => void> = []
+    const originalAddEventListener = window.addEventListener.bind(window)
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
+      if (type === 'unhandledrejection' && typeof listener === 'function') {
+        rejectionListeners.push(listener as (event: PromiseRejectionEvent) => void)
+      }
+      originalAddEventListener(type, listener, options)
+    })
+
     act(() => {
       root?.render(React.createElement(ClientErrorReporter))
     })
+    expect(rejectionListeners.length).toBeGreaterThan(0)
+    const rejectionReporter = rejectionListeners.find((listener) => String(listener).includes('reportUnknownClientError'))
+    expect(rejectionReporter).toEqual(expect.any(Function))
 
-    window.dispatchEvent(new ErrorEvent('error', {
-      message: 'window failed',
-      error: new Error('window failed'),
-    }))
-    const rejection = new Event('unhandledrejection') as PromiseRejectionEvent
-    Object.defineProperty(rejection, 'reason', {
-      configurable: true,
-      value: new Error('promise failed'),
+    await act(async () => {
+      window.dispatchEvent(new ErrorEvent('error', {
+        message: 'window failed',
+        error: new Error('window failed'),
+      }))
+      rejectionReporter?.({
+        reason: new Error('promise failed'),
+      } as PromiseRejectionEvent)
+      await Promise.resolve()
+      await Promise.resolve()
     })
-    window.dispatchEvent(rejection)
 
-    expect(mocks.reportClientError).toHaveBeenCalledWith(expect.objectContaining({
-      source: 'window-error',
-      message: 'window failed',
-    }))
-    expect(mocks.reportUnknownClientError).toHaveBeenCalledWith('unhandled-rejection', expect.any(Error))
+    await vi.waitFor(() => {
+      expect(mocks.reportClientError).toHaveBeenCalledWith(expect.objectContaining({
+        source: 'window-error',
+        message: 'window failed',
+      }))
+      expect(mocks.reportUnknownClientError).toHaveBeenCalledWith('unhandled-rejection', expect.any(Error))
+    })
+    addEventListenerSpy.mockRestore()
   })
 })

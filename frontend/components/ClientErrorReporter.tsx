@@ -1,28 +1,52 @@
 'use client'
 
 import { useEffect } from 'react'
-import { reportClientError, reportUnknownClientError } from '@/lib/clientTelemetry'
+
+type ClientTelemetryModule = typeof import('@/lib/clientTelemetry')
+
+let clientTelemetryModulePromise: Promise<ClientTelemetryModule> | null = null
+
+function loadClientTelemetry() {
+  clientTelemetryModulePromise ??= import('@/lib/clientTelemetry')
+  return clientTelemetryModulePromise
+}
 
 export default function ClientErrorReporter() {
   useEffect(() => {
+    const handledUnhandledRejections = new WeakSet<PromiseRejectionEvent>()
+    const previousUnhandledRejection = window.onunhandledrejection
+
     function handleWindowError(event: ErrorEvent) {
-      reportClientError({
-        source: 'window-error',
-        message: event.message || event.error?.message || 'Window error',
-        stack: event.error?.stack,
-        route: window.location.pathname,
+      void loadClientTelemetry().then(({ reportClientError }) => {
+        reportClientError({
+          source: 'window-error',
+          message: event.message || event.error?.message || 'Window error',
+          stack: event.error?.stack,
+          route: window.location.pathname,
+        })
       })
     }
 
     function handleUnhandledRejection(event: PromiseRejectionEvent) {
-      reportUnknownClientError('unhandled-rejection', event.reason)
+      if (handledUnhandledRejections.has(event)) return
+      handledUnhandledRejections.add(event)
+      void loadClientTelemetry().then(({ reportUnknownClientError }) => {
+        reportUnknownClientError('unhandled-rejection', event.reason)
+      })
     }
 
     window.addEventListener('error', handleWindowError)
     window.addEventListener('unhandledrejection', handleUnhandledRejection)
+    window.onunhandledrejection = (event) => {
+      if (typeof previousUnhandledRejection === 'function') previousUnhandledRejection.call(window, event)
+      handleUnhandledRejection(event)
+    }
     return () => {
       window.removeEventListener('error', handleWindowError)
       window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+      if (window.onunhandledrejection !== previousUnhandledRejection) {
+        window.onunhandledrejection = previousUnhandledRejection
+      }
     }
   }, [])
 

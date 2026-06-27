@@ -1,15 +1,23 @@
 import { useEffect } from 'react'
-import {
-  listKrescoRealtimeSubscriptions,
-  subscribeKrescoRealtimeChannels,
-  userNotificationsChannelName,
-} from '@/lib/realtime'
+
+type RealtimeModule = typeof import('@/lib/realtime')
 
 type NotificationChannelsSubscriptionOptions = {
   userId: number | string | null | undefined
   onMessage: (isActive: () => boolean) => void
   fallbackPoll?: (isActive: () => boolean) => void | Promise<void>
   fallbackIntervalMs?: number
+}
+
+let realtimeModulePromise: Promise<RealtimeModule> | null = null
+
+function loadRealtimeModule() {
+  realtimeModulePromise ??= import('@/lib/realtime')
+  return realtimeModulePromise
+}
+
+function fallbackUserNotificationsChannelName(userId: number | string) {
+  return `kresco:user:${userId}:notifications`
 }
 
 export function useNotificationChannelsSubscription({
@@ -21,7 +29,7 @@ export function useNotificationChannelsSubscription({
   useEffect(() => {
     if (!userId) return
 
-    const fallbackUserChannel = userNotificationsChannelName(userId)
+    const fallbackUserChannel = fallbackUserNotificationsChannelName(userId)
     let cleanup = () => {}
     let stopped = false
     const isActive = () => !stopped
@@ -31,27 +39,29 @@ export function useNotificationChannelsSubscription({
     const fallback = fallbackPoll
       ? {
         intervalMs: fallbackIntervalMs,
+        initialPoll: false,
         poll: () => fallbackPoll(isActive),
       }
       : undefined
 
-    void listKrescoRealtimeSubscriptions()
-      .then(({ notification_channels }) => {
+    void loadRealtimeModule()
+      .then(async ({ listKrescoRealtimeSubscriptions, subscribeKrescoRealtimeChannels }) => {
+        let channelNames = [fallbackUserChannel]
+        try {
+          const subscriptions = await listKrescoRealtimeSubscriptions()
+          channelNames = subscriptions.notification_channels
+        } catch {
+          channelNames = [fallbackUserChannel]
+        }
+
         if (stopped) return
         cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: notification_channels,
+          channelNames,
           onMessage: refresh,
           fallback,
         })
       })
-      .catch(() => {
-        if (stopped) return
-        cleanup = subscribeKrescoRealtimeChannels({
-          channelNames: [fallbackUserChannel],
-          onMessage: refresh,
-          fallback,
-        })
-      })
+      .catch(() => undefined)
 
     return () => {
       stopped = true
