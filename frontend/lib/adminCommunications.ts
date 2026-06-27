@@ -1,13 +1,13 @@
 export type AdminCommunicationsSummary = {
   total_conversations: number
   open_conversations: number
+  total_professors: number
+  students_in_private_chats: number
   unread_for_professors: number
   unread_for_students: number
+  messages_total: number
   messages_7d: number
-  live_sessions_live: number
-  pending_live_interactions: number
-  open_reports: number
-  urgent_open_reports: number
+  matched_conversations: number
 }
 
 export type AdminChatConversation = {
@@ -43,49 +43,25 @@ export type AdminChatMessage = {
   read_at: string | null
 }
 
-export type AdminLiveInteraction = {
-  interaction_id: number
-  live_session_id: number
-  session_title: string
-  kind: string
-  status: string
+export type AdminProfessorChatGroup = {
   professor_user_id: number
   professor_name: string
-  student_user_id: number
-  student_name: string
-  body: string
-  answer: string
-  created_at: string | null
-  answered_at: string | null
-}
-
-export type AdminReportQueueItem = {
-  report_id: number
-  target_type: string
-  target_id: string
-  reason: string
-  status: string
-  priority: string
-  title: string
-  description: string
-  reporter_user_id: number
-  reporter_name: string
-  assigned_to_user_id: number | null
-  assigned_to_name: string
-  created_at: string | null
-  updated_at: string | null
+  conversation_count: number
+  open_conversations: number
+  unread_for_professor: number
+  unread_for_student: number
+  messages_shown: number
+  last_message_at: string | null
+  conversations: AdminChatConversation[]
 }
 
 export type AdminCommunications = {
   generated_at: string
   summary: AdminCommunicationsSummary
+  search_query: string
   chat_conversations_by_status: Record<string, number>
-  live_interactions_by_status: Record<string, number>
-  reports_by_status: Record<string, number>
-  reports_by_priority: Record<string, number>
+  professors: AdminProfessorChatGroup[]
   conversations: AdminChatConversation[]
-  live_interactions: AdminLiveInteraction[]
-  reports: AdminReportQueueItem[]
 }
 
 export const EMPTY_ADMIN_COMMUNICATIONS: AdminCommunications = {
@@ -93,28 +69,20 @@ export const EMPTY_ADMIN_COMMUNICATIONS: AdminCommunications = {
   summary: {
     total_conversations: 0,
     open_conversations: 0,
+    total_professors: 0,
+    students_in_private_chats: 0,
     unread_for_professors: 0,
     unread_for_students: 0,
+    messages_total: 0,
     messages_7d: 0,
-    live_sessions_live: 0,
-    pending_live_interactions: 0,
-    open_reports: 0,
-    urgent_open_reports: 0,
+    matched_conversations: 0,
   },
+  search_query: '',
   chat_conversations_by_status: {},
-  live_interactions_by_status: {},
-  reports_by_status: {},
-  reports_by_priority: {},
+  professors: [],
   conversations: [],
-  live_interactions: [],
-  reports: [],
 }
 
 export function communicationAttentionTotal(summary: AdminCommunicationsSummary) {
-  return summary.unread_for_professors + summary.pending_live_interactions + summary.open_reports
-}
-
-export function urgentReportRate(summary: AdminCommunicationsSummary) {
-  if (!summary.open_reports) return 0
-  return Math.round((summary.urgent_open_reports / summary.open_reports) * 100)
+  return summary.unread_for_professors + summary.unread_for_students
 }

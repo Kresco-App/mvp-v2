@@ -135,6 +135,10 @@ export async function listManualPaymentTransactions(
   return data
 }
 
+export async function listPendingManualPaymentReviews(limit = 50) {
+  return listManualPaymentTransactions(apiJsonClient, 'pending_manual_review', limit)
+}
+
 export async function approveManualPaymentTransaction(
   apiClient: Pick<AdminFinanceApiClient, 'post'> = apiJsonClient,
   transactionId: number,
@@ -147,6 +151,10 @@ export async function approveManualPaymentTransaction(
   return data
 }
 
+export async function approveManualPaymentReview(transactionId: number, reason: string) {
+  return approveManualPaymentTransaction(apiJsonClient, transactionId, { reason })
+}
+
 export async function rejectManualPaymentTransaction(
   apiClient: Pick<AdminFinanceApiClient, 'post'> = apiJsonClient,
   transactionId: number,
@@ -157,6 +165,10 @@ export async function rejectManualPaymentTransaction(
     { reason: review.reason.trim() },
   )
   return data
+}
+
+export async function rejectManualPaymentReview(transactionId: number, reason: string) {
+  return rejectManualPaymentTransaction(apiJsonClient, transactionId, { reason })
 }
 
 export async function reconcileManualPaymentTransaction(

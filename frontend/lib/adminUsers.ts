@@ -31,9 +31,56 @@ export type AdminUserAccessRow = {
   permissions: AdminUserPermission[]
   payment_count: number
   paid_revenue_centimes: number
+  ai_quota_used_month: number
   latest_payment_at: string | null
   last_login: string | null
   created_at: string | null
+}
+
+export type AdminStudentAccountUpdateInput = {
+  full_name?: string
+  email?: string
+  niveau?: string
+  filiere?: string
+  tier?: 'basic' | 'pro' | 'vip'
+  is_active?: boolean
+  is_email_verified?: boolean
+}
+
+export type AdminStudentAccountCreateInput = {
+  full_name: string
+  email: string
+  niveau?: string
+  filiere?: string
+  tier: 'basic' | 'pro' | 'vip'
+  is_active: boolean
+  is_email_verified: boolean
+}
+
+export type AdminManualAccessGrantAction = 'grant' | 'revoke'
+
+export type AdminManualAccessGrantInput = {
+  user_id: number
+  subject_id: number
+  action: AdminManualAccessGrantAction
+  reason: string
+  starts_at?: string | null
+  ends_at?: string | null
+}
+
+export type AdminManualAccessGrant = {
+  id: number
+  user_id: number
+  subject_id: number
+  action: AdminManualAccessGrantAction
+  status: string
+  entitlement_id: number | null
+  starts_at: string | null
+  ends_at: string | null
+  reason: string
+  created_by_user_id: number
+  metadata: Record<string, unknown>
+  created_at: string
 }
 
 export type AdminUserPermission = {

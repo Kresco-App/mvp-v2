@@ -13,7 +13,7 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import {
   getAdminChangeRequest,
   listAdminChangeRequests,
@@ -25,10 +25,15 @@ import {
 import {
   AdminPageHeader,
   AdminRefreshButton,
+  AdminTableActionButton,
   adminMetricStripThreeClass,
   adminMetricTileClass,
+  adminMotionSafeClass,
   adminPageClass,
   adminPanelClass,
+  adminPanelHeaderClass,
+  adminPrimaryButtonClass,
+  adminSpinnerClass,
 } from './AdminDesign'
 
 const STATUS_TABS = [
@@ -48,8 +53,8 @@ const OP_LABELS: Record<string, string> = {
 }
 const OP_COLORS: Record<string, string> = {
   create: 'bg-[#f0fdf4] text-[#16a34a]',
-  update_fields: 'bg-[#f0f0ff] text-[#5b60f9]',
-  update_content: 'bg-[#f0f0ff] text-[#5b60f9]',
+  update_fields: 'bg-[color:var(--primary-soft)] text-[color:var(--primary)]',
+  update_content: 'bg-[color:var(--primary-soft)] text-[color:var(--primary)]',
   delete: 'bg-[#fef2f2] text-[#ef4444]',
   reorder: 'bg-[#fff7ed] text-[#f5900b]',
 }
@@ -68,6 +73,13 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: 'Rejeté',
 }
 
+const CHANGE_REVIEW_DATE_FORMATTER = new Intl.DateTimeFormat('fr-FR', {
+  day: '2-digit',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
 function statusLabel(status: string) {
   return STATUS_LABELS[status] ?? status
 }
@@ -83,18 +95,12 @@ function formatDate(value?: string | null): string {
   if (!value) return 'Non revu'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Date inconnue'
-  return new Intl.DateTimeFormat('fr-FR', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+  return CHANGE_REVIEW_DATE_FORMATTER.format(date)
 }
 
 function QueueMetric({
   label,
   value,
-  hint,
 }: {
   label: string
   value: string | number
@@ -104,7 +110,6 @@ function QueueMetric({
     <div className={adminMetricTileClass}>
       <p className="m-0 text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
       <p className="m-0 mt-1 text-[22px] font-black leading-none text-[#3f3f46]">{value}</p>
-      <p className="m-0 mt-1 text-[12px] font-bold text-[#a1a1aa]">{hint}</p>
     </div>
   )
 }
@@ -112,7 +117,6 @@ function QueueMetric({
 function DetailMetric({
   label,
   value,
-  hint,
 }: {
   label: string
   value: string | number
@@ -122,14 +126,12 @@ function DetailMetric({
     <div className="min-w-0">
       <p className="m-0 text-[10.5px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
       <p className="m-0 mt-1 text-[19px] font-black leading-none text-[#3f3f46]">{value}</p>
-      <p className="m-0 mt-1 truncate text-[11.5px] font-bold text-[#a1a1aa]">{hint}</p>
     </div>
   )
 }
 
 function InlineState({
   title,
-  detail,
   action,
 }: {
   title: string
@@ -140,14 +142,13 @@ function InlineState({
     <div className="rounded-[14px] border-[2px] border-dashed border-[#e4e4e7] bg-white p-6 text-center">
       <ClipboardList size={24} className="mx-auto text-[#d4d4d8]" />
       <p className="m-0 mt-2 text-[14px] font-black text-[#52525c]">{title}</p>
-      <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">{detail}</p>
       {action && (
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-[10px] border-[2px] border-[#e4e4e7] px-3 py-1.5 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+          className={`mt-3 inline-flex items-center gap-1.5 rounded-[10px] border-[2px] border-[#e4e4e7] px-3 py-1.5 text-[12px] font-black text-[#52525c] transition-[border-color,color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] active:scale-[0.96] ${adminMotionSafeClass}`}
         >
-          <RefreshCcw size={13} />
+          <RefreshCcw size={13} aria-hidden="true" />
           {action.label}
         </button>
       )}
@@ -170,7 +171,7 @@ function OperationCard({
   const isPending = op.status === 'pending'
 
   return (
-    <div className={`rounded-[12px] border-[2px] px-3.5 py-3 transition ${
+    <div className={`rounded-[12px] border-[2px] px-3.5 py-3 transition-[background-color,border-color] duration-150 ease-out motion-reduce:transition-none ${
       isPending && decision === 'reject'
         ? 'border-[#fecaca] bg-[#fff7f7]'
         : isPending && decision === 'approve'
@@ -215,30 +216,30 @@ function OperationCard({
 
       {isPending && (
         <div className="mt-2.5 flex flex-wrap gap-2">
-          <button
-            type="button"
+          <AdminTableActionButton
             onClick={() => onDecide('approve')}
             disabled={disabled}
-            className={`inline-flex items-center gap-1 rounded-[9px] border-[2px] px-2.5 py-1 text-[12px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+            tone="success"
+            className={`h-8 px-3 ${
               decision === 'approve'
-                ? 'border-[#16a34a] bg-[#16a34a] text-white'
-                : 'border-[#e4e4e7] text-[#52525c] hover:border-[#16a34a]'
+                ? 'border-[#16a34a] bg-white text-[#059669] hover:bg-[#ecfdf5]'
+                : ''
             }`}
           >
             <Check size={13} /> Approuver
-          </button>
-          <button
-            type="button"
+          </AdminTableActionButton>
+          <AdminTableActionButton
             onClick={() => onDecide('reject')}
             disabled={disabled}
-            className={`inline-flex items-center gap-1 rounded-[9px] border-[2px] px-2.5 py-1 text-[12px] font-black transition disabled:cursor-not-allowed disabled:opacity-60 ${
+            tone="danger"
+            className={`h-8 px-3 ${
               decision === 'reject'
-                ? 'border-[#ef4444] bg-[#ef4444] text-white'
-                : 'border-[#e4e4e7] text-[#52525c] hover:border-[#ef4444]'
+                ? 'border-[#ef4444] bg-white text-[#dc2626] hover:bg-[#fef2f2]'
+                : ''
             }`}
           >
             <X size={13} /> Rejeter
-          </button>
+          </AdminTableActionButton>
         </div>
       )}
     </div>
@@ -275,7 +276,7 @@ export default function ChangeReviewBoard() {
       setSelectedId(null)
       setDetail(null)
       setListError('Impossible de charger les demandes.')
-      toast.error('Impossible de charger les demandes.')
+      showToastError('Impossible de charger les demandes.')
     } finally {
       setLoadingList(false)
     }
@@ -314,7 +315,7 @@ export default function ChangeReviewBoard() {
         if (!alive) return
         setDetail(null)
         setDetailError('Impossible de charger le détail de cette demande.')
-        toast.error('Impossible de charger le détail.')
+        showToastError('Impossible de charger le détail.')
       })
       .finally(() => {
         if (alive) setDetailLoading(false)
@@ -328,17 +329,17 @@ export default function ChangeReviewBoard() {
     const pendingOps = detail.operations.filter((op) => op.status === 'pending')
     const payload = pendingOps.map((op) => ({ operation_id: op.id, decision: decisions[op.id] ?? 'approve' }))
     if (payload.length === 0) {
-      toast.error('Aucune opération en attente.')
+      showToastError('Aucune opération en attente.')
       return
     }
     setApplying(true)
     try {
       const updated = await reviewAdminChangeRequest(detail.id, payload, adminNote)
       setDetail(updated)
-      toast.success('Décisions appliquées.')
+      showToastSuccess('Décisions appliquées.')
       await refreshList()
     } catch {
-      toast.error('Échec de l’application des décisions.')
+      showToastError('Échec de l’application des décisions.')
     } finally {
       setApplying(false)
     }
@@ -372,9 +373,7 @@ export default function ChangeReviewBoard() {
     <div className={adminPageClass}>
       <AdminPageHeader
         icon={ShieldCheck}
-        eyebrow="Admin / Reviews"
         title="Révision des modifications"
-        description="Approuvez ou rejetez les opérations proposées par les professeurs."
         action={<AdminRefreshButton loading={loadingList} onClick={() => void refreshList()} label="Actualiser" />}
       />
 
@@ -394,10 +393,11 @@ export default function ChangeReviewBoard() {
               setSelectedId(null)
               setDetail(null)
             }}
-            className={`rounded-[10px] px-3 py-1.5 text-[13px] font-black transition ${
+            aria-pressed={status === tab.value}
+            className={`rounded-[10px] px-3 py-1.5 text-[13px] font-black transition-[background-color,border-color,color,transform] duration-150 ease-out focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] active:scale-[0.96] ${adminMotionSafeClass} ${
               status === tab.value
-                ? 'bg-[#5b60f9] text-white'
-                : 'border-[2px] border-[#e4e4e7] text-[#52525c] hover:border-[#5b60f9]'
+                ? 'bg-[color:var(--primary)] text-white'
+                : 'border-[2px] border-[#e4e4e7] text-[#52525c] hover:border-[color:var(--primary)]'
             }`}
           >
             {tab.label}
@@ -407,19 +407,18 @@ export default function ChangeReviewBoard() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
         <div className={adminPanelClass}>
-          <div className="border-b border-[#f4f4f5] px-4 py-3">
+          <div className={adminPanelHeaderClass}>
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="m-0 text-[14px] font-black text-[#3f3f46]">File de révision</p>
-                <p className="m-0 text-[12px] font-semibold text-[#a1a1aa]">{activeStatusLabel} · plus récentes d’abord</p>
               </div>
-              <FileDiff size={17} className="text-[#5b60f9]" />
+              <FileDiff size={17} className="text-[color:var(--primary)]" />
             </div>
           </div>
           <div className="flex max-h-[680px] flex-col gap-2 overflow-y-auto p-3">
             {loadingList ? (
               <div className="grid h-40 place-items-center text-[#a1a1aa]">
-                <Loader2 className="animate-spin" />
+                <Loader2 className={adminSpinnerClass} />
               </div>
             ) : listError ? (
               <InlineState
@@ -435,13 +434,13 @@ export default function ChangeReviewBoard() {
                   key={item.id}
                   type="button"
                   onClick={() => setSelectedId(item.id)}
-                  className={`rounded-[14px] border-[2px] bg-white px-4 py-3 text-left transition ${
-                    selectedId === item.id ? 'border-[#5b60f9] shadow-[0_10px_28px_rgba(91,96,249,0.12)]' : 'border-[#e4e4e7] hover:border-[#c7c7cc]'
+                  className={`rounded-[14px] border-[2px] bg-white px-4 py-3 text-left transition-[border-color,box-shadow,transform] duration-150 ease-out focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100 ${
+                    selectedId === item.id ? 'border-[color:var(--primary)] shadow-[0_10px_28px_rgba(69,61,238,0.12)]' : 'border-[#e4e4e7] hover:border-[#c7c7cc]'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <span className="min-w-0 truncate text-[14px] font-black text-[#3f3f46]">#{item.id} · {item.offering_title}</span>
-                    <span className="grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-[#5b60f9] px-2 text-[11px] font-black text-white">
+                    <span className="grid h-6 min-w-6 shrink-0 place-items-center rounded-full bg-[color:var(--primary)] px-2 text-[11px] font-black text-white">
                       {item.pending_count || item.operation_count}
                     </span>
                   </div>
@@ -453,7 +452,6 @@ export default function ChangeReviewBoard() {
                     <span>·</span>
                     <span>{formatDate(item.created_at)}</span>
                   </div>
-                  {item.summary && <p className="m-0 mt-1.5 line-clamp-2 text-[12.5px] font-medium text-[#a1a1aa]">{item.summary}</p>}
                 </button>
               ))
             )}
@@ -464,7 +462,7 @@ export default function ChangeReviewBoard() {
           {detailLoading ? (
             <div className="grid h-full min-h-[360px] place-items-center text-[#a1a1aa]">
               <div className="flex items-center gap-2 text-[13px] font-black">
-                <Loader2 size={18} className="animate-spin" />
+                <Loader2 size={18} className={adminSpinnerClass} />
                 Chargement de la demande
               </div>
             </div>
@@ -482,7 +480,7 @@ export default function ChangeReviewBoard() {
             </div>
           ) : (
             <div className="flex flex-col">
-              <div className="border-b border-[#f4f4f5] px-5 py-4">
+              <div className={`${adminPanelHeaderClass} lg:flex-col`}>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Demande #{detail.id}</h2>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${STATUS_BADGE[detail.status] ?? 'bg-[#f4f4f5] text-[#71717b]'}`}>
@@ -496,7 +494,6 @@ export default function ChangeReviewBoard() {
                   <span className="inline-flex items-center gap-1"><Clock3 size={12} /> {formatDate(detail.created_at)}</span>
                   {detail.reviewed_at && <span>Revu {formatDate(detail.reviewed_at)}</span>}
                 </div>
-                {detail.summary && <p className="m-0 mt-2 text-[13px] font-medium text-[#52525c]">{detail.summary}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-[#f4f4f5] bg-[#fbfbfc] px-5 py-3 sm:grid-cols-4">
@@ -529,7 +526,7 @@ export default function ChangeReviewBoard() {
                     onChange={(event) => setAdminNote(event.target.value)}
                     placeholder="Note de revue (optionnelle)…"
                     rows={2}
-                    className="min-h-[48px] min-w-0 flex-1 resize-none rounded-[12px] border-[2px] border-[#e4e4e7] px-3 py-2.5 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+                    className="min-h-[48px] min-w-0 flex-1 resize-none rounded-[12px] border-[2px] border-[#e4e4e7] px-3 py-2.5 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[color:var(--primary)]"
                   />
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <span className="text-[12px] font-bold text-[#a1a1aa]">
@@ -539,9 +536,9 @@ export default function ChangeReviewBoard() {
                       type="button"
                       onClick={apply}
                       disabled={applying}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-5 text-[14px] font-black text-white transition hover:bg-[#4a4fe0] disabled:cursor-not-allowed disabled:bg-[#d4d4d8]"
+                      className={`${adminPrimaryButtonClass} h-11 px-5 text-[14px]`}
                     >
-                      {applying ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                      {applying ? <Loader2 size={16} className={adminSpinnerClass} /> : <Check size={16} aria-hidden="true" />}
                       Appliquer ({selectedStats.approve}/{selectedStats.pending})
                     </button>
                   </div>

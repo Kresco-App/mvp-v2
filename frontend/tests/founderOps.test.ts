@@ -9,19 +9,25 @@ import {
   getFounderDashboard,
   getRedemptionTemplates,
   getStaffPaymentDashboard,
+  getStaffPaymentProfiles,
   getStaffPaymentRequests,
+  moneyInputToCentimes,
+  normalizeFounderGrowthRows,
   numberValue,
   recordEntries,
+  upsertStaffPaymentProfile,
 } from '@/lib/founderOps'
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
   postJson: vi.fn(),
+  putJson: vi.fn(),
 }))
 
 vi.mock('@/lib/apiClient', () => ({
   getJson: mocks.getJson,
   postJson: mocks.postJson,
+  putJson: mocks.putJson,
 }))
 
 beforeEach(() => {
@@ -39,12 +45,16 @@ describe('founder operations utilities', () => {
     await getFounderDashboard('2026/06 + VIP')
     await getRedemptionTemplates(true)
     await getStaffPaymentRequests(17)
+    await getStaffPaymentProfiles(9)
     await getStaffPaymentDashboard(12)
+    await upsertStaffPaymentProfile(31, { monthly_code_limit: 50 })
 
     expect(mocks.getJson).toHaveBeenNthCalledWith(1, '/admin/founder-dashboard?month=2026%2F06%20%2B%20VIP')
     expect(mocks.getJson).toHaveBeenNthCalledWith(2, '/admin/redemption-templates?include_archived=true')
     expect(mocks.getJson).toHaveBeenNthCalledWith(3, '/admin/staff-payment-requests?limit=17')
-    expect(mocks.getJson).toHaveBeenNthCalledWith(4, '/staff/payments/dashboard?limit=12')
+    expect(mocks.getJson).toHaveBeenNthCalledWith(4, '/admin/staff-payment-profiles?limit=9')
+    expect(mocks.getJson).toHaveBeenNthCalledWith(5, '/staff/payments/dashboard?limit=12')
+    expect(mocks.putJson).toHaveBeenCalledWith('/admin/staff-payment-profiles/31', { monthly_code_limit: 50 })
   })
 
   it('keeps empty dashboard fallbacks structurally aligned with backend contracts', () => {
@@ -80,8 +90,11 @@ describe('founder operations utilities', () => {
     expect(numberValue('42')).toBe(0)
     expect(formatNumber(1234567)).toBe('1,234,567')
     expect(formatNumber('1234567')).toBe('0')
-    expect(formatMoneyCentimes(123456)).toBe('1,235 MAD')
-    expect(formatMoneyCentimes(null)).toBe('0 MAD')
+    expect(formatMoneyCentimes(123456)).toBe('1,234.56 MAD')
+    expect(formatMoneyCentimes(null)).toBe('0.00 MAD')
+    expect(moneyInputToCentimes('1,200')).toBe(120000)
+    expect(moneyInputToCentimes('99,50')).toBe(9950)
+    expect(moneyInputToCentimes('1 200,50')).toBe(120050)
   })
 
   it('normalizes record entries for compact ranked founder charts', () => {
@@ -93,5 +106,47 @@ describe('founder operations utilities', () => {
       { key: 'b', value: 4 },
       { key: 'c', value: 3 },
     ])
+  })
+
+  it('normalizes student growth totals from explicit API totals or fallback totals', () => {
+    expect(
+      normalizeFounderGrowthRows(
+        [
+          { date: '2026-06-01', new_students: 2, total_students: 8 },
+          { date: '2026-06-02', new_students: 4, total_students: 12 },
+        ],
+        12,
+      ).map((row) => row.total_students),
+    ).toEqual([8, 12])
+
+    expect(
+      normalizeFounderGrowthRows(
+        [
+          { date: '2026-06-01', new_students: 2, total_students: 0 },
+          { date: '2026-06-02', new_students: 4, total_students: 0 },
+        ],
+        12,
+      ).map((row) => row.total_students),
+    ).toEqual([8, 12])
+
+    expect(
+      normalizeFounderGrowthRows(
+        [
+          { date: '2026-05-01', new_students: 0, total_students: 0 },
+          { date: '2026-05-02', new_students: 0, total_students: 0 },
+        ],
+        12,
+      ).map((row) => row.total_students),
+    ).toEqual([0, 0])
+
+    expect(
+      normalizeFounderGrowthRows(
+        [
+          { date: '2026-06-01', new_students: 0 },
+          { date: '2026-06-02', new_students: 3 },
+        ],
+        8,
+      ).map((row) => row.total_students),
+    ).toEqual([5, 8])
   })
 })

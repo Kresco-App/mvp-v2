@@ -22,10 +22,8 @@ vi.mock('@/lib/apiClient', () => ({
   getJson: mocks.apiGet,
 }))
 
-vi.mock('sonner', () => ({
-  toast: {
-    error: mocks.toastError,
-  },
+vi.mock('@/lib/lazyToast', () => ({
+  showToastError: mocks.toastError,
 }))
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -68,8 +66,19 @@ describe('AdminCoursesPage shared subject discovery', () => {
       expect(container.textContent).toContain('Physique')
       expect(container.textContent).toContain('6 topics / 18 items')
       expect(container.textContent).toContain('Content readiness')
-      expect(container.textContent).toContain('Publishing gaps')
-      expect(container.textContent).toContain('topic items without tabs')
+      expect(container.textContent).toContain('Publish blockers')
+      expect(container.textContent).toContain('Publish queue')
+      expect(container.textContent).toContain('Publish readiness')
+      expect(container.textContent).toContain('88% ready')
+      expect(container.textContent).toContain('30 of 34 items ready')
+      expect(container.textContent).toContain('Largest collection: Contenus')
+      expect(container.textContent).toContain('Content state')
+      expect(container.textContent).toContain('Open work')
+      expect(container.textContent).toContain('2 open')
+      expect(container.textContent).toContain('Items missing workspace tabs')
+      expect(container.querySelector('[aria-label="Contenus readiness state"]')).toBeTruthy()
+      expect(container.textContent).not.toContain('Admin / Courses')
+      expect(container.textContent).not.toContain('calendar events')
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/courses/subjects')
     expect(mocks.apiGet).toHaveBeenCalledWith('/admin/overview')
@@ -155,6 +164,8 @@ const overviewFixture = {
     topics: { published: 6 },
     topic_items: { published: 18, draft: 2 },
     resources: { published: 4, draft: 1 },
+    exams: { scheduled: 2, draft: 1 },
+    calendar_events: { draft: 3 },
   },
   access_billing: {},
   ops_readiness: {

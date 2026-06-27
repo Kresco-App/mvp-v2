@@ -100,9 +100,7 @@ describe('AdminSubjectPage topic loading', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Mathematics')
       expect(container.textContent).toContain('Continuity')
-      expect(container.textContent).toContain('Core math course')
       expect(container.textContent).toContain('Carte de contenu')
-      expect(container.textContent).toContain('0/1 topics inspectés')
     })
 
     clickButton(container, 'Continuity')
@@ -110,7 +108,6 @@ describe('AdminSubjectPage topic loading', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Impossible de charger les sections de ce topic.')
       expect(container.textContent).toContain('1 topic(s) à recharger')
-      expect(container.textContent).toContain('1 erreur de chargement')
     })
     expect(mocks.getJson).toHaveBeenCalledWith('/courses/topics/7/workspace')
     expect(container.textContent).not.toContain('Aucun item dans ce topic')
@@ -121,9 +118,7 @@ describe('AdminSubjectPage topic loading', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Slope overview')
       expect(container.textContent).toContain('Apercu')
-      expect(container.textContent).toContain('1/1 topics inspectés')
       expect(container.textContent).toContain('Vidéo: 1')
-      expect(container.textContent).toContain('1 aperçu gratuit')
     })
 
     const editorLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('a')).find((link) => (

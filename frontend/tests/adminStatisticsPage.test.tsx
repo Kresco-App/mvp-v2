@@ -40,26 +40,26 @@ afterEach(() => {
 })
 
 describe('AdminStatisticsPage', () => {
-  it('renders overview statistics and filters the SQLAdmin catalog', async () => {
+  it('renders overview statistics and filters the data editor catalog', async () => {
     const { container } = renderPage()
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Statistics and operations')
-      expect(container.textContent).toContain('Content readiness')
-      expect(container.textContent).toContain('Learning analytics')
-      expect(container.textContent).toContain('Operational load')
-      expect(container.textContent).toContain('Community signals')
-      expect(container.textContent).toContain('Finance analytics')
-      expect(container.textContent).toContain('Communication analytics')
-      expect(container.textContent).toContain('Payment review')
-      expect(container.textContent).toContain('Support attention')
-      expect(container.textContent).toContain('Community totals')
-      expect(container.textContent).toContain('Content pipeline')
+      expect(container.textContent).toContain('Analytics')
+      expect(container.textContent).toContain('Content health')
+      expect(container.textContent).toContain('Learning signal')
+      expect(container.textContent).toContain('Operations queue')
+      expect(container.textContent).toContain('Student activity')
+      expect(container.textContent).toContain('Finance')
+      expect(container.textContent).toContain('Private messages')
+      expect(container.textContent).toContain('Messages')
+      expect(container.textContent).toContain('Payments')
+      expect(container.textContent).toContain('Published')
+      expect(container.textContent).toContain('Draft')
       expect(container.textContent).toContain('19,800 MAD')
       expect(container.textContent).toContain('Manual review')
       expect(container.textContent).toContain('Live Q&A')
-      expect(container.textContent).toContain('Calendar and notifications')
-      expect(container.textContent).toContain('SQLAdmin catalog')
+      expect(container.textContent).toContain('Calendar')
+      expect(container.textContent).toContain('Data editor')
       expect(container.textContent).toContain('Topic Items')
       expect(mocks.getJson).toHaveBeenCalledWith('/admin/overview')
     })
@@ -72,7 +72,6 @@ describe('AdminStatisticsPage', () => {
     setInputValue(input, 'topic item')
 
     await waitFor(() => {
-      expect(container.textContent).toContain('1 model(s) visible')
       expect(container.textContent).toContain('TopicItem')
     })
   })

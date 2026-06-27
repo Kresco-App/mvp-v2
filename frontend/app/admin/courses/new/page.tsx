@@ -3,13 +3,14 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, BookOpen, Check, FileText, Loader2, Plus, X } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 
 import {
   AdminPageHeader,
   adminButtonClass,
   adminPageClass,
   adminPanelClass,
+  adminPrimaryButtonClass,
 } from '@/components/admin/AdminDesign'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { postJson } from '@/lib/apiClient'
@@ -48,7 +49,7 @@ export default function NewCoursePage() {
 
   async function handleCreate() {
     if (!subject.title.trim()) {
-      toast.error('Le titre de la matiere est requis')
+      showToastError('Le titre de la matiere est requis')
       return
     }
     setCreating(true)
@@ -59,18 +60,18 @@ export default function NewCoursePage() {
       })
       const subjectId = createdSubject.id
 
-      for (const topic of validTopics) {
-        await postJson('/courses/topics', {
+      await Promise.all(validTopics.map((topic) => (
+        postJson('/courses/topics', {
           subject_id: subjectId,
           title: topic.title,
           order: topic.order,
         })
-      }
+      )))
 
-      toast.success('Cours cree avec succes !')
+      showToastSuccess('Cours cree avec succes !')
       router.push(`/admin/courses/${subjectId}`)
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Erreur lors de la creation'))
+      showToastError(apiDataErrorMessage(error, 'Erreur lors de la creation'))
     } finally {
       setCreating(false)
     }
@@ -80,9 +81,7 @@ export default function NewCoursePage() {
     <main className={adminPageClass}>
       <AdminPageHeader
         icon={BookOpen}
-        eyebrow="Admin / Cours"
         title="Nouveau cours"
-        description="Creez la matiere, ajoutez les premiers sujets, puis verifiez le recapitulatif avant envoi."
         action={(
           <>
           <button
@@ -94,7 +93,7 @@ export default function NewCoursePage() {
             <ArrowLeft size={16} />
             Retour
           </button>
-        <span className="rounded-full bg-[#f0f0ff] px-3 py-1.5 text-[12px] font-black text-[#5b60f9]">
+        <span className="rounded-full bg-[color:var(--primary-soft)] px-3 py-1.5 text-[12px] font-black text-[color:var(--primary)]">
           Etape {step} / {STEPS.length}
         </span>
           </>
@@ -113,9 +112,9 @@ export default function NewCoursePage() {
                 type="button"
                 disabled={currentStep.id > step}
                 onClick={() => setStep(currentStep.id)}
-                className={`flex min-h-[48px] items-center gap-3 rounded-[12px] px-3 text-left transition disabled:cursor-not-allowed ${
+                className={`flex min-h-[48px] items-center gap-3 rounded-[12px] px-3 text-left transition-[background-color,color,opacity] duration-150 ease-out disabled:cursor-not-allowed ${
                   isActive
-                    ? 'bg-[#5b60f9] text-white'
+                    ? 'bg-[color:var(--primary)] text-white'
                     : isDone
                       ? 'bg-[#f0fdf4] text-[#16a34a] hover:bg-[#dcfce7]'
                       : 'bg-[#fbfbfc] text-[#a1a1aa]'
@@ -137,7 +136,6 @@ export default function NewCoursePage() {
           <div className="space-y-5">
             <div>
               <h2 className="m-0 text-[17px] font-black text-[#3f3f46]">Informations sur la matiere</h2>
-              <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Ce titre apparaitra dans les espaces admin et eleves.</p>
             </div>
 
             <div>
@@ -148,7 +146,7 @@ export default function NewCoursePage() {
                 value={subject.title}
                 onChange={(event) => setSubject((value) => ({ ...value, title: event.target.value }))}
                 placeholder="ex: Physique-Chimie"
-                className="w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-4 py-3 text-[14px] font-semibold text-[#3f3f46] outline-none transition placeholder:text-[#d4d4d8] focus:border-[#5b60f9]"
+                className="w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-4 py-3 text-[14px] font-semibold text-[#3f3f46] outline-none transition-[border-color] duration-150 ease-out placeholder:text-[#d4d4d8] focus:border-[color:var(--primary)]"
               />
             </div>
 
@@ -161,7 +159,7 @@ export default function NewCoursePage() {
                 onChange={(event) => setSubject((value) => ({ ...value, description: event.target.value }))}
                 placeholder="Description du cours (optionnel)"
                 rows={3}
-                className="w-full resize-none rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-4 py-3 text-[14px] font-semibold text-[#3f3f46] outline-none transition placeholder:text-[#d4d4d8] focus:border-[#5b60f9]"
+                className="w-full resize-none rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-4 py-3 text-[14px] font-semibold text-[#3f3f46] outline-none transition-[border-color] duration-150 ease-out placeholder:text-[#d4d4d8] focus:border-[color:var(--primary)]"
               />
             </div>
 
@@ -169,12 +167,12 @@ export default function NewCoursePage() {
               type="button"
               onClick={() => {
                 if (!subject.title.trim()) {
-                  toast.error('Titre requis')
+                  showToastError('Titre requis')
                   return
                 }
                 setStep(2)
               }}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] text-[14px] font-black text-white transition hover:bg-[#4b50e8]"
+              className={`${adminPrimaryButtonClass} h-11 w-full`}
             >
               Suivant <ArrowRight size={15} />
             </button>
@@ -186,15 +184,14 @@ export default function NewCoursePage() {
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="m-0 text-[17px] font-black text-[#3f3f46]">Sujets</h2>
-                <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Ajoutez les sujets du cours. Vous pourrez ajouter des items ensuite.</p>
               </div>
-              <span className="rounded-full bg-[#f4f4f5] px-3 py-1 text-[12px] font-black text-[#71717b]">{validTopics.length} pret(s)</span>
+              <span className="rounded-full bg-[#f4f4f5] px-3 py-1 text-[12px] font-black text-[#71717b] tabular-nums">{validTopics.length} pret(s)</span>
             </div>
 
             <div className="space-y-3">
               {topics.map((topic, index) => (
                 <div key={topic.id} className="flex items-center gap-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-[#f4f4f5] text-[13px] font-black text-[#71717b]">{index + 1}</span>
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-[#f4f4f5] text-[13px] font-black text-[#71717b] tabular-nums">{index + 1}</span>
                   <input
                     aria-label={`Titre du sujet ${index + 1}`}
                     value={topic.title}
@@ -204,13 +201,13 @@ export default function NewCoursePage() {
                       setTopics(next)
                     }}
                     placeholder={`Sujet ${index + 1}`}
-                    className="min-w-0 flex-1 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-4 py-2.5 text-[14px] font-semibold text-[#3f3f46] outline-none transition placeholder:text-[#d4d4d8] focus:border-[#5b60f9]"
+                    className="min-w-0 flex-1 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-4 py-2.5 text-[14px] font-semibold text-[#3f3f46] outline-none transition-[border-color] duration-150 ease-out placeholder:text-[#d4d4d8] focus:border-[color:var(--primary)]"
                   />
                   {topics.length > 1 && (
                     <button
                       type="button"
                       onClick={() => setTopics((previous) => previous.filter((_, topicIndex) => topicIndex !== index).map((item, topicIndex) => ({ ...item, order: topicIndex + 1 })))}
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] text-[#a1a1aa] transition hover:bg-[#fef2f2] hover:text-[#ef4444]"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] text-[#a1a1aa] transition-[background-color,color,transform] duration-150 ease-out hover:bg-[#fef2f2] hover:text-[#ef4444] active:scale-[0.96]"
                       aria-label={`Supprimer le sujet ${index + 1}`}
                     >
                       <X size={15} />
@@ -223,7 +220,7 @@ export default function NewCoursePage() {
             <button
               type="button"
               onClick={() => setTopics((previous) => [...previous, { id: `topic-${Date.now()}-${previous.length + 1}`, title: '', order: previous.length + 1 }])}
-              className="inline-flex items-center gap-2 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-black text-[#5b60f9] transition hover:border-[#5b60f9]"
+              className="inline-flex min-h-10 items-center gap-2 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-black text-[color:var(--primary)] transition-[border-color,transform] duration-150 ease-out hover:border-[color:var(--primary)] active:scale-[0.96]"
             >
               <Plus size={14} /> Ajouter un sujet
             </button>
@@ -232,14 +229,14 @@ export default function NewCoursePage() {
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="h-11 flex-1 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white text-[14px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+                className="h-11 flex-1 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white text-[14px] font-black text-[#52525c] transition-[border-color,color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] active:scale-[0.96]"
               >
                 Retour
               </button>
               <button
                 type="button"
                 onClick={() => setStep(3)}
-                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] text-[14px] font-black text-white transition hover:bg-[#4b50e8]"
+                className={`${adminPrimaryButtonClass} h-11 flex-1`}
               >
                 Suivant <ArrowRight size={15} />
               </button>
@@ -251,7 +248,6 @@ export default function NewCoursePage() {
           <div className="space-y-5">
             <div>
               <h2 className="m-0 text-[17px] font-black text-[#3f3f46]">Confirmation</h2>
-              <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Verifiez les donnees avant de creer la matiere.</p>
             </div>
 
             <div className="space-y-4 rounded-[14px] border border-[#f4f4f5] bg-[#fbfbfc] p-5">
@@ -282,7 +278,7 @@ export default function NewCoursePage() {
               <button
                 type="button"
                 onClick={() => setStep(2)}
-                className="h-11 flex-1 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white text-[14px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+                className="h-11 flex-1 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white text-[14px] font-black text-[#52525c] transition-[border-color,color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] active:scale-[0.96]"
               >
                 Retour
               </button>
@@ -290,9 +286,9 @@ export default function NewCoursePage() {
                 type="button"
                 onClick={handleCreate}
                 disabled={creating}
-                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-[12px] bg-[#16a34a] text-[14px] font-black text-white transition hover:bg-[#15803d] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-[12px] bg-[#16a34a] text-[14px] font-black text-white transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-[#15803d] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100"
               >
-                {creating ? <><Loader2 size={15} className="animate-spin" /> Creation...</> : <><Check size={15} /> Creer le cours</>}
+                {creating ? <><Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> Creation...</> : <><Check size={15} /> Creer le cours</>}
               </button>
             </div>
           </div>

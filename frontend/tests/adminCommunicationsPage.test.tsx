@@ -8,12 +8,10 @@ import AdminCommunicationsPage from '@/app/admin/communications/page'
 
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
-  patchJson: vi.fn(),
 }))
 
 vi.mock('@/lib/apiClient', () => ({
   getJson: mocks.getJson,
-  patchJson: mocks.patchJson,
 }))
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -22,10 +20,13 @@ let mountedRoot: { root: Root; container: HTMLDivElement } | null = null
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.history.replaceState(null, '', '/')
   document.body.innerHTML = ''
   mountedRoot = null
-  mocks.getJson.mockResolvedValue(communicationsFixture)
-  mocks.patchJson.mockResolvedValue({ id: 61, status: 'in_review' })
+  mocks.getJson.mockImplementation((url: string) => {
+    if (url.includes('q=proof')) return Promise.resolve(searchFixture)
+    return Promise.resolve(communicationsFixture)
+  })
 })
 
 afterEach(() => {
@@ -39,46 +40,75 @@ afterEach(() => {
 })
 
 describe('AdminCommunicationsPage', () => {
-  it('renders communication queues with tab switching and search', async () => {
+  it('renders professor-first private chats and searches through the API', async () => {
     const { container } = renderPage()
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Communications')
-      expect(container.textContent).toContain('Response pressure')
-      expect(container.textContent).toContain('Stale chats')
-      expect(container.textContent).toContain('Unassigned')
+      expect(container.textContent).toContain('Private messages')
+      expect(container.textContent).toContain('Professor backlog')
+      expect(container.textContent).toContain('Awaiting professor')
+      expect(container.textContent).toContain('Awaiting student')
+      expect(container.textContent).toContain('7d messages')
+      expect(container.textContent).toContain('Professor inbox')
+      expect(container.textContent).toContain('Prof Kresco')
       expect(container.textContent).toContain('Comms Student')
-      expect(container.textContent).toContain('Message transcript')
+      expect(container.textContent).toContain('4 awaiting professor')
+      expect(container.textContent).toContain('1 awaiting student')
+      expect(container.textContent).toContain('Messages')
       expect(container.textContent).toContain('Here is the professor answer.')
-      expect(container.textContent).toContain('9')
+      expect(container.textContent).not.toContain('Reports')
+      expect(container.textContent).not.toContain('Questions live')
+      expect(container.textContent).not.toContain('Search private chats')
+      expect(container.textContent).not.toContain('STUDENT')
+      expect(container.textContent).not.toContain('Private transcript')
+      expect(container.textContent).not.toContain('Professor unread')
+      expect(container.textContent).not.toContain('Student unread')
+      expect(container.textContent).not.toContain('Unread prof')
+      expect(container.textContent).not.toContain('Needs reply')
       expect(mocks.getJson).toHaveBeenCalledWith('/admin/communications?limit=100')
+      expect(container.textContent).toContain('1-5 / 10')
     })
 
-    clickButton(container, 'Live')
+    clickButton(container, 'Next')
+
     await waitFor(() => {
-      expect(container.textContent).toContain('Can you repeat the proof?')
+      expect(container.textContent).toContain('6-10 / 10')
     })
 
-    clickButton(container, 'Reports')
-    await waitFor(() => {
-      expect(container.textContent).toContain('Comms report')
-      expect(container.textContent).toContain('Live chat needs moderation')
-    })
-
-    clickButton(container, 'Start review')
-    await waitFor(() => {
-      expect(mocks.patchJson).toHaveBeenCalledWith('/admin/reports/61', { status: 'in_review' })
-      expect(container.textContent).toContain('In review')
-    })
-
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="Rechercher dans les communications"]')
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Search private messages"]')
     if (!input) throw new Error('Expected search input')
 
-    setInputValue(input, 'missing')
+    setInputValue(input, 'proof')
+    clickButton(container, 'Search')
 
     await waitFor(() => {
-      expect(container.textContent).toContain('0 ligne(s) affichee(s)')
-      expect(container.textContent).not.toContain('Comms report')
+      expect(mocks.getJson).toHaveBeenCalledWith('/admin/communications?limit=100&q=proof')
+      expect(container.textContent).toContain('match')
+      expect(container.textContent).toContain('Proof Student')
+      expect(container.textContent).toContain('The proof step is unclear.')
+      expect(container.textContent).not.toContain('Comms Student')
+    })
+
+    clickButton(container, 'Clear')
+
+    await waitFor(() => {
+      expect(mocks.getJson).toHaveBeenLastCalledWith('/admin/communications?limit=100')
+      expect(container.textContent).toContain('Comms Student')
+      expect(container.textContent).not.toContain('Proof Student')
+    })
+  })
+
+  it('hydrates private message search from account context URL', async () => {
+    window.history.replaceState(null, '', '/admin/communications?student_id=23&q=proof')
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      const input = container.querySelector<HTMLInputElement>('input[aria-label="Search private messages"]')
+      expect(input?.value).toBe('proof')
+      expect(mocks.getJson).toHaveBeenCalledWith('/admin/communications?limit=100&q=proof')
+      expect(mocks.getJson).not.toHaveBeenCalledWith('/admin/communications?limit=100')
+      expect(container.textContent).toContain('Proof Student')
+      expect(container.textContent).toContain('The proof step is unclear.')
     })
   })
 })
@@ -127,105 +157,137 @@ async function waitFor(assertion: () => void, timeoutMs = 2000) {
   throw lastError
 }
 
+const baseConversation = {
+  conversation_id: 41,
+  status: 'open',
+  course_offering_id: 11,
+  course_title: 'Physics 2BAC',
+  professor_user_id: 7,
+  professor_name: 'Prof Kresco',
+  student_user_id: 22,
+  student_name: 'Comms Student',
+  unread_for_professor: 4,
+  unread_for_student: 1,
+  last_message_preview: 'Please check this private question.',
+  last_message_at: '2026-06-20T01:50:00Z',
+  updated_at: '2026-06-20T01:50:00Z',
+  messages: [
+    {
+      message_id: 901,
+      conversation_id: 41,
+      sender_user_id: 22,
+      sender_name: 'Comms Student',
+      sender_role: 'student',
+      body: 'Please check this private question.',
+      attachment_url: '',
+      attachment_name: '',
+      attachment_mime_type: '',
+      attachment_size: 0,
+      status: 'sent',
+      created_at: '2026-06-20T01:45:00Z',
+      read_at: null,
+    },
+    {
+      message_id: 902,
+      conversation_id: 41,
+      sender_user_id: 7,
+      sender_name: 'Prof Kresco',
+      sender_role: 'professor',
+      body: 'Here is the professor answer.',
+      attachment_url: '',
+      attachment_name: '',
+      attachment_mime_type: '',
+      attachment_size: 0,
+      status: 'sent',
+      created_at: '2026-06-20T01:50:00Z',
+      read_at: null,
+    },
+    ...Array.from({ length: 8 }, (_, index) => ({
+      message_id: 903 + index,
+      conversation_id: 41,
+      sender_user_id: index % 2 ? 7 : 22,
+      sender_name: index % 2 ? 'Prof Kresco' : 'Comms Student',
+      sender_role: index % 2 ? 'professor' : 'student',
+      body: `Follow up ${index + 1}`,
+      attachment_url: '',
+      attachment_name: '',
+      attachment_mime_type: '',
+      attachment_size: 0,
+      status: 'sent',
+      created_at: '2026-06-20T01:55:00Z',
+      read_at: null,
+    })),
+  ],
+}
+
 const communicationsFixture = {
   generated_at: '2026-06-20T02:00:00Z',
   summary: {
     total_conversations: 2,
     open_conversations: 1,
+    total_professors: 1,
+    students_in_private_chats: 2,
     unread_for_professors: 4,
     unread_for_students: 1,
+    messages_total: 12,
     messages_7d: 12,
-    live_sessions_live: 1,
-    pending_live_interactions: 2,
-    open_reports: 3,
-    urgent_open_reports: 1,
+    matched_conversations: 1,
   },
+  search_query: '',
   chat_conversations_by_status: { open: 1, closed: 1 },
-  live_interactions_by_status: { pending: 2, answered: 1 },
-  reports_by_status: { open: 3 },
-  reports_by_priority: { urgent: 1, normal: 2 },
-  conversations: [
+  professors: [
     {
-      conversation_id: 41,
-      status: 'open',
-      course_offering_id: 11,
-      course_title: 'Physics 2BAC',
       professor_user_id: 7,
       professor_name: 'Prof Kresco',
-      student_user_id: 22,
-      student_name: 'Comms Student',
+      conversation_count: 1,
+      open_conversations: 1,
       unread_for_professor: 4,
       unread_for_student: 1,
-      last_message_preview: 'Please check this live question.',
+      messages_shown: 2,
       last_message_at: '2026-06-20T01:50:00Z',
-      updated_at: '2026-06-20T01:50:00Z',
-      messages: [
-        {
-          message_id: 901,
-          conversation_id: 41,
-          sender_user_id: 22,
-          sender_name: 'Comms Student',
-          sender_role: 'student',
-          body: 'Please check this live question.',
-          attachment_url: '',
-          attachment_name: '',
-          attachment_mime_type: '',
-          attachment_size: 0,
-          status: 'sent',
-          created_at: '2026-06-20T01:45:00Z',
-          read_at: null,
-        },
-        {
-          message_id: 902,
-          conversation_id: 41,
-          sender_user_id: 7,
-          sender_name: 'Prof Kresco',
-          sender_role: 'professor',
-          body: 'Here is the professor answer.',
-          attachment_url: '',
-          attachment_name: '',
-          attachment_mime_type: '',
-          attachment_size: 0,
-          status: 'sent',
-          created_at: '2026-06-20T01:50:00Z',
-          read_at: null,
-        },
-      ],
+      conversations: [baseConversation],
     },
   ],
-  live_interactions: [
+  conversations: [baseConversation],
+}
+
+const searchConversation = {
+  ...baseConversation,
+  conversation_id: 42,
+  student_user_id: 23,
+  student_name: 'Proof Student',
+  last_message_preview: 'The proof step is unclear.',
+  messages: [
     {
-      interaction_id: 51,
-      live_session_id: 9,
-      session_title: 'Comms Live Session',
-      kind: 'question',
-      status: 'pending',
+      ...baseConversation.messages[0],
+      message_id: 903,
+      conversation_id: 42,
+      sender_user_id: 23,
+      sender_name: 'Proof Student',
+      body: 'The proof step is unclear.',
+    },
+  ],
+}
+
+const searchFixture = {
+  ...communicationsFixture,
+  search_query: 'proof',
+  summary: {
+    ...communicationsFixture.summary,
+    matched_conversations: 1,
+  },
+  professors: [
+    {
       professor_user_id: 7,
       professor_name: 'Prof Kresco',
-      student_user_id: 22,
-      student_name: 'Comms Student',
-      body: 'Can you repeat the proof?',
-      answer: '',
-      created_at: '2026-06-20T01:55:00Z',
-      answered_at: null,
+      conversation_count: 1,
+      open_conversations: 1,
+      unread_for_professor: 1,
+      unread_for_student: 0,
+      messages_shown: 1,
+      last_message_at: '2026-06-20T01:55:00Z',
+      conversations: [searchConversation],
     },
   ],
-  reports: [
-    {
-      report_id: 61,
-      target_type: 'live_message',
-      target_id: '51',
-      reason: 'bug',
-      status: 'open',
-      priority: 'urgent',
-      title: 'Comms report',
-      description: 'Live chat needs moderation',
-      reporter_user_id: 22,
-      reporter_name: 'Comms Student',
-      assigned_to_user_id: null,
-      assigned_to_name: '',
-      created_at: '2026-06-20T01:56:00Z',
-      updated_at: '2026-06-20T01:56:00Z',
-    },
-  ],
+  conversations: [searchConversation],
 }

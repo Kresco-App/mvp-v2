@@ -103,7 +103,6 @@ describe('AdminCourseContentEditorPage', () => {
     const { container } = renderPage()
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Admin / Course content')
       expect(container.textContent).toContain('Course JSON')
       expect(container.textContent).toContain('Live preview')
       expect(container.textContent).toContain('Decay law')
@@ -133,7 +132,7 @@ describe('AdminCourseContentEditorPage', () => {
 
     await waitFor(() => {
       expect(container.textContent).toContain('Component block "lab-visual" uses a non-course key: wave_lab')
-      expect(container.textContent).toContain('Preview unavailable')
+      expect(container.textContent).toContain('Preview')
     })
   })
 

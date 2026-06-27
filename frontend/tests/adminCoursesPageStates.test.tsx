@@ -15,10 +15,8 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.routerPush }),
 }))
 
-vi.mock('sonner', () => ({
-  toast: {
-    error: mocks.toastError,
-  },
+vi.mock('@/lib/lazyToast', () => ({
+  showToastError: mocks.toastError,
 }))
 
 vi.mock('@/lib/apiClient', () => ({
@@ -87,7 +85,7 @@ describe('AdminCoursesPage cached state rendering', () => {
     const { container } = renderAdminCoursesPage()
 
     expect(container.textContent).toContain('Aucun cours trouve.')
-    expect(container.textContent).toContain('Publishing gaps')
+    expect(container.textContent).toContain('Publish blockers')
     const createLink = Array.from(container.querySelectorAll<HTMLAnchorElement>('a')).find((link) => (
       link.textContent?.includes('Nouveau cours')
     ))

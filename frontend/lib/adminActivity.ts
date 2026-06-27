@@ -44,7 +44,7 @@ export const EMPTY_ADMIN_ACTIVITY: AdminActivity = {
 }
 
 export function formatActivityLabel(value: string) {
-  return value.replaceAll('_', ' ').replaceAll('-', ' ')
+  return value.replaceAll('_', ' ').replaceAll('-', ' ').replaceAll(':', ' / ')
 }
 
 export function activityMatches(entry: AdminActivityEntry, query: string) {

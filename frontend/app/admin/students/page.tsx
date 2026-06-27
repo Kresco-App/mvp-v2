@@ -7,11 +7,14 @@ import {
   ArrowDownRight,
   BadgePlus,
   BookOpenCheck,
+  CheckCircle2,
+  Clock,
   Loader2,
   RotateCcw,
   Trophy,
   UserRound,
   Users,
+  type LucideIcon,
 } from 'lucide-react'
 
 import {
@@ -19,13 +22,20 @@ import {
   AdminPageHeader,
   AdminRefreshButton,
   AdminSearchBox,
+  AdminTable,
   adminMetricStripClass,
   adminMetricTileClass,
   adminPageClass,
   adminPanelClass,
+  adminPrimaryButtonClass,
+  adminTableCellClass,
+  adminTableHeadCellClass,
+  adminTableHeadClass,
+  adminTableHeadRowClass,
+  adminTableRowClass,
 } from '@/components/admin/AdminDesign'
 import { getJson, postJson } from '@/lib/apiClient'
-import { formatNumber, numberValue, percent, recordEntries } from '@/lib/adminOverview'
+import { formatNumber, numberValue, percent } from '@/lib/adminOverview'
 import {
   EMPTY_STUDENT_PROGRESS,
   EMPTY_XP_AUDIT,
@@ -40,34 +50,30 @@ import {
 
 const card = adminPanelClass
 
-const STATUS_LABELS: Record<string, string> = {
-  completed: 'Completed',
-  in_progress: 'In progress',
-  low_quiz_pass: 'Low quiz pass',
-  no_activity: 'No activity',
-  no_progress: 'No progress',
-  no_quiz_attempts: 'No quiz attempts',
-  not_started: 'Not started',
-  opened: 'Opened',
-  started: 'Started',
-  zero_xp: 'Zero XP',
-}
-
 export default function AdminStudentsPage() {
   const [data, setData] = useState<AdminStudentProgress>(EMPTY_STUDENT_PROGRESS)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [nonce, setNonce] = useState(0)
   const [query, setQuery] = useState('')
+  const [requestedStudentId, setRequestedStudentId] = useState('')
   const [selectedUserId, setSelectedUserId] = useState('')
   const [xpAudit, setXpAudit] = useState<AdminXpAudit>(EMPTY_XP_AUDIT)
   const [xpLoading, setXpLoading] = useState(false)
   const [xpError, setXpError] = useState('')
   const [xpNonce, setXpNonce] = useState(0)
   const [xpAmount, setXpAmount] = useState('50')
-  const [xpReason, setXpReason] = useState('Admin XP correction')
+  const [xpReason, setXpReason] = useState('Admin XP adjustment')
   const [xpBusy, setXpBusy] = useState(false)
   const [xpMessage, setXpMessage] = useState('')
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const incomingQuery = params.get('q')?.trim() ?? ''
+    const incomingStudentId = params.get('student_id')?.trim() ?? ''
+    if (incomingQuery) setQuery(incomingQuery)
+    if (incomingStudentId) setRequestedStudentId(incomingStudentId)
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -81,7 +87,7 @@ export default function AdminStudentsPage() {
       .catch(() => {
         if (!alive) return
         setData(EMPTY_STUDENT_PROGRESS)
-        setError('Impossible de charger la progression des élèves.')
+        setError('Could not load student progress.')
       })
       .finally(() => {
         if (alive) setLoading(false)
@@ -95,9 +101,12 @@ export default function AdminStudentsPage() {
       return
     }
     if (!data.students.some((student) => String(student.user_id) === selectedUserId)) {
-      setSelectedUserId(String(data.students[0].user_id))
+      const requestedStudent = requestedStudentId
+        ? data.students.find((student) => String(student.user_id) === requestedStudentId)
+        : null
+      setSelectedUserId(String(requestedStudent?.user_id ?? data.students[0].user_id))
     }
-  }, [data.students, selectedUserId])
+  }, [data.students, requestedStudentId, selectedUserId])
 
   useEffect(() => {
     if (!selectedUserId) {
@@ -118,7 +127,7 @@ export default function AdminStudentsPage() {
       .catch(() => {
         if (!alive) return
         setXpAudit(EMPTY_XP_AUDIT)
-        setXpError('Could not load XP audit for this student.')
+        setXpError('Could not load XP check for this student.')
       })
       .finally(() => {
         if (alive) setXpLoading(false)
@@ -133,6 +142,7 @@ export default function AdminStudentsPage() {
   const selectedStudent = data.students.find((student) => String(student.user_id) === selectedUserId) ?? null
   const summary = data.summary
   const learningRisk = useMemo(() => buildLearningRisk(data.students), [data.students])
+  const attentionStudents = useMemo(() => buildAttentionStudents(data.students), [data.students])
 
   async function submitXpAdjustment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -144,7 +154,7 @@ export default function AdminStudentsPage() {
       return
     }
     if (reason.length < 3) {
-      setXpError('A correction reason is required.')
+      setXpError('An adjustment reason is required.')
       return
     }
 
@@ -165,7 +175,7 @@ export default function AdminStudentsPage() {
       setXpMessage(`XP updated to ${formatNumber(adjustment.total_xp)}.`)
       setXpNonce((value) => value + 1)
     } catch {
-      setXpError('Could not apply XP correction. Check xp:adjust access and the target total.')
+      setXpError('Could not apply XP adjustment. Check xp:adjust access and the target total.')
     } finally {
       setXpBusy(false)
     }
@@ -175,9 +185,7 @@ export default function AdminStudentsPage() {
     <main className={adminPageClass}>
       <AdminPageHeader
         icon={Users}
-        eyebrow="Admin / Students"
-        title="Progression élèves"
-        description="Track activity, XP, quiz outcomes and work time by student."
+        title="Student health"
         syncLabel={data.generated_at ? `Last sync: ${new Date(data.generated_at).toLocaleString('fr-FR')}` : undefined}
         action={<AdminRefreshButton loading={loading} label="Refresh" onClick={() => setNonce((value) => value + 1)} />}
       />
@@ -190,83 +198,65 @@ export default function AdminStudentsPage() {
       )}
 
       <section className={adminMetricStripClass}>
-        <StatTile icon={Users} label="Élèves" value={formatNumber(summary.total_students)} hint={`${formatNumber(summary.active_students_7d)} actifs 7j`} loading={loading} />
-        <StatTile icon={BookOpenCheck} label="Couverture" value={percent(studentProgressCoverage(summary))} hint={`${formatNumber(summary.students_with_progress)} avec progression`} loading={loading} />
-        <StatTile icon={Trophy} label="XP total" value={formatNumber(summary.total_xp)} hint={`${formatNumber(summary.completed_topic_items)} items complétés`} loading={loading} />
-        <StatTile icon={Activity} label="Quiz pass" value={percent(quizPassRate(summary))} hint={`${formatNumber(summary.quiz_attempts)} tentatives`} loading={loading} />
+        <StatTile icon={Users} label="Students" value={formatNumber(summary.total_students)} loading={loading} />
+        <StatTile icon={BookOpenCheck} label="Coverage" value={percent(studentProgressCoverage(summary))} loading={loading} />
+        <StatTile icon={Trophy} label="XP total" value={formatNumber(summary.total_xp)} loading={loading} />
+        <StatTile icon={Activity} label="Quiz pass" value={percent(quizPassRate(summary))} loading={loading} />
       </section>
 
-      <div className="mb-5 grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className={`${card} p-5`}>
-          <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Progression globale</h2>
-          <p className="m-0 mt-0.5 mb-4 text-[13px] font-semibold text-[#a1a1aa]">Répartition des statuts de progression.</p>
-          <BarList data={recordEntries(data.progress_by_status, 6)} emptyLabel="Aucun statut de progression." />
-        </section>
-
-        <section className={`${card} p-5`}>
-          <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Volume de travail</h2>
-          <p className="m-0 mt-0.5 mb-4 text-[13px] font-semibold text-[#a1a1aa]">Signal de temps, quiz et complétion.</p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <MiniMetric label="Watch min" value={formatNumber(summary.total_watch_minutes)} />
-            <MiniMetric label="Quiz passés" value={formatNumber(summary.quiz_passed)} />
-            <MiniMetric label="À relancer" value={formatNumber(Math.max(summary.total_students - summary.active_students_7d, 0))} tone="warn" />
+      <section className={`${card} mb-5 overflow-hidden`}>
+        <div className="grid xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="border-b border-[#f4f4f5] p-5 xl:border-b-0 xl:border-r">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Learning health</h2>
+              <span className="rounded-full bg-[#fff7ed] px-3 py-1 text-[12px] font-black text-[#f5900b] tabular-nums">
+                {formatNumber(learningRisk.total)} to review
+              </span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <HealthSignal icon={Clock} label="No activity" value={learningRisk.noActivity} detail="No recent learning session." />
+              <HealthSignal icon={BookOpenCheck} label="No progress" value={learningRisk.noProgress} detail="No progress rows yet." />
+              <HealthSignal icon={Activity} label="No quiz" value={learningRisk.noQuizAttempts} detail="No quiz attempts." />
+              <HealthSignal icon={Trophy} label="Zero XP" value={learningRisk.zeroXp} detail="No XP earned yet." />
+            </div>
           </div>
-        </section>
-      </div>
 
-      <section className={`${card} mb-5 p-5`}>
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Eleves a risque</h2>
-            <p className="m-0 mt-0.5 text-[13px] font-semibold text-[#a1a1aa]">
-              Signaux derives des lignes eleves pour prioriser les relances et corrections.
-            </p>
+          <div className="p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Attention queue</h2>
+              <span className="rounded-full bg-[#f4f4f5] px-3 py-1 text-[12px] font-black text-[#71717a] tabular-nums">
+                {formatNumber(attentionStudents.length)} shown
+              </span>
+            </div>
+            <AttentionStudentList students={attentionStudents} />
           </div>
-          <span className="rounded-full bg-[#fff7ed] px-3 py-1 text-[12px] font-black text-[#f5900b]">
-            {formatNumber(learningRisk.total)} signal(s)
-          </span>
         </div>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniMetric label="Sans activite" value={formatNumber(learningRisk.noActivity)} tone={learningRisk.noActivity ? 'warn' : 'default'} />
-            <MiniMetric label="Sans progression" value={formatNumber(learningRisk.noProgress)} tone={learningRisk.noProgress ? 'warn' : 'default'} />
-            <MiniMetric label="Sans quiz" value={formatNumber(learningRisk.noQuizAttempts)} tone={learningRisk.noQuizAttempts ? 'warn' : 'default'} />
-            <MiniMetric label="XP zero" value={formatNumber(learningRisk.zeroXp)} tone={learningRisk.zeroXp ? 'warn' : 'default'} />
-          </div>
-          <BarList
-            data={recordEntries({
-              no_activity: learningRisk.noActivity,
-              no_progress: learningRisk.noProgress,
-              no_quiz_attempts: learningRisk.noQuizAttempts,
-              zero_xp: learningRisk.zeroXp,
-              low_quiz_pass: learningRisk.lowQuizPass,
-            }, 6)}
-            emptyLabel="Aucun signal de risque."
-          />
+
+        <div className="grid border-t border-[#f4f4f5] md:grid-cols-3">
+          <MiniMetric label="Watch minutes" value={formatNumber(summary.total_watch_minutes)} />
+          <MiniMetric label="Quiz passed" value={formatNumber(summary.quiz_passed)} />
+          <MiniMetric label="Inactive 7d" value={formatNumber(Math.max(summary.total_students - summary.active_students_7d, 0))} tone="warn" />
         </div>
       </section>
 
       <section className={`${card} mb-5 p-5`}>
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#f0f0ff] text-[#5b60f9]">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
               <BadgePlus size={18} />
             </span>
             <div className="min-w-0">
-              <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">XP correction</h2>
-              <p className="m-0 mt-0.5 text-[13px] font-semibold text-[#a1a1aa]">
-                Adjust student XP with an audited reason and review the latest XP transactions.
-              </p>
+              <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">XP adjustments</h2>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setXpNonce((value) => value + 1)}
             disabled={!selectedStudent || xpLoading}
-            className="inline-flex h-9 w-fit items-center gap-2 rounded-[11px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 w-fit items-center gap-2 rounded-[11px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[border-color,color,opacity,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100"
           >
-            {xpLoading ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
-            Refresh audit
+            {xpLoading ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" /> : <RotateCcw size={14} />}
+            Refresh XP check
           </button>
         </div>
 
@@ -281,8 +271,8 @@ export default function AdminStudentsPage() {
                   setXpMessage('')
                 }}
                 disabled={!data.students.length || loading}
-                aria-label="Select student for XP correction"
-                className="h-11 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-bold text-[#3f3f46] outline-none transition focus:border-[#5b60f9] disabled:cursor-not-allowed disabled:bg-[#f4f4f5] disabled:text-[#a1a1aa]"
+                aria-label="Select student for XP adjustment"
+                className="h-11 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-bold text-[#3f3f46] outline-none transition-[background-color,border-color,color] duration-150 ease-out focus:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:bg-[#f4f4f5] disabled:text-[#a1a1aa]"
               >
                 {data.students.map((student) => (
                   <option key={student.user_id} value={String(student.user_id)}>
@@ -302,8 +292,8 @@ export default function AdminStudentsPage() {
                   step="1"
                   min="-10000"
                   max="10000"
-                  aria-label="XP correction amount"
-                  className="h-11 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-bold text-[#3f3f46] outline-none transition focus:border-[#5b60f9]"
+                  aria-label="XP adjustment amount"
+                  className="h-11 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-bold text-[#3f3f46] outline-none transition-[border-color] duration-150 ease-out focus:border-[color:var(--primary)]"
                 />
               </label>
               <label className="grid gap-1.5">
@@ -311,8 +301,8 @@ export default function AdminStudentsPage() {
                 <input
                   value={xpReason}
                   onChange={(event) => setXpReason(event.target.value)}
-                  aria-label="XP correction reason"
-                  className="h-11 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-bold text-[#3f3f46] outline-none transition placeholder:text-[#c0c0c7] focus:border-[#5b60f9]"
+                  aria-label="XP adjustment reason"
+                  className="h-11 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-bold text-[#3f3f46] outline-none transition-[border-color] duration-150 ease-out placeholder:text-[#c0c0c7] focus:border-[color:var(--primary)]"
                 />
               </label>
             </div>
@@ -321,10 +311,10 @@ export default function AdminStudentsPage() {
               <button
                 type="submit"
                 disabled={!selectedStudent || xpBusy}
-                className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-[13px] font-black text-white transition hover:bg-[#484cf0] disabled:cursor-not-allowed disabled:bg-[#c0c0c7]"
+                className={adminPrimaryButtonClass}
               >
-                {xpBusy ? <Loader2 size={15} className="animate-spin" /> : <BadgePlus size={15} />}
-                Apply correction
+                {xpBusy ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <BadgePlus size={15} />}
+                Apply adjustment
               </button>
               {xpMessage && <span className="text-[12px] font-bold text-[#16a34a]">{xpMessage}</span>}
               {xpError && <span className="text-[12px] font-bold text-[#b45309]">{xpError}</span>}
@@ -348,15 +338,15 @@ export default function AdminStudentsPage() {
 
             {xpLoading ? (
               <div className="grid gap-2">
-                {[1, 2, 3].map((item) => <div key={item} className="h-12 animate-pulse rounded-[10px] bg-[#f4f4f5]" />)}
+                {[1, 2, 3].map((item) => <div key={item} className="h-12 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[10px] bg-[#f4f4f5]" />)}
               </div>
             ) : (
               <>
                 <div className="mb-3 grid gap-2 sm:grid-cols-4">
-                  <AuditMetric label="Stored" value={formatNumber(xpAudit.stored_total_xp)} />
-                  <AuditMetric label="Tx sum" value={formatNumber(xpAudit.transaction_sum_xp)} />
-                  <AuditMetric label="Delta" value={formatNumber(xpAudit.delta_xp)} tone={xpAudit.has_total_mismatch ? 'warn' : 'default'} />
-                  <AuditMetric label="Adjust." value={formatNumber(xpAudit.adjustment_count)} />
+                  <AuditMetric label="Profile XP" value={formatNumber(xpAudit.stored_total_xp)} />
+                  <AuditMetric label="Earned XP" value={formatNumber(xpAudit.transaction_sum_xp)} />
+                  <AuditMetric label="Difference" value={formatNumber(xpAudit.delta_xp)} tone={xpAudit.has_total_mismatch ? 'warn' : 'default'} />
+                  <AuditMetric label="Manual edits" value={formatNumber(xpAudit.adjustment_count)} />
                 </div>
                 <div className="grid gap-2">
                   {xpAudit.transactions.length ? xpAudit.transactions.slice(0, 4).map((transaction) => (
@@ -374,7 +364,7 @@ export default function AdminStudentsPage() {
                     </div>
                   )) : (
                     <div className="grid min-h-[96px] place-items-center rounded-[10px] border border-dashed border-[#e4e4e7] bg-white px-4 text-center">
-                      <p className="m-0 text-[12px] font-bold text-[#a1a1aa]">No XP transactions loaded.</p>
+                      <p className="m-0 text-[12px] font-bold text-[#a1a1aa]">No XP.</p>
                     </div>
                   )}
                 </div>
@@ -387,10 +377,9 @@ export default function AdminStudentsPage() {
       <section className={`${card} overflow-hidden`}>
         <div className="flex flex-col gap-3 border-b border-[#f4f4f5] p-5 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Élèves</h2>
-            <p className="m-0 mt-0.5 text-[13px] font-semibold text-[#a1a1aa]">{formatNumber(filteredStudents.length)} ligne(s) affichée(s)</p>
+            <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Students</h2>
           </div>
-          <AdminSearchBox value={query} onChange={setQuery} placeholder="Search a student" label="Rechercher un élève" className="md:w-[320px]" />
+          <AdminSearchBox value={query} onChange={setQuery} placeholder="Search a student" label="Search students" className="md:w-[320px]" />
         </div>
 
         {loading ? (
@@ -398,29 +387,26 @@ export default function AdminStudentsPage() {
             {[1, 2, 3, 4].map((item) => <SkeletonRow key={item} />)}
           </div>
         ) : filteredStudents.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[920px] border-collapse text-left">
-              <thead className="bg-[#fbfbfc]">
-                <tr className="text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">
-                  <th className="px-5 py-3">Élève</th>
-                  <th className="px-4 py-3">XP</th>
-                  <th className="px-4 py-3">Progression</th>
-                  <th className="px-4 py-3">Quiz</th>
-                  <th className="px-4 py-3">Temps</th>
-                  <th className="px-4 py-3">Dernière activité</th>
+          <AdminTable minWidthClass="min-w-[920px]">
+            <thead className={adminTableHeadClass}>
+              <tr className={adminTableHeadRowClass}>
+                  <th className={adminTableHeadCellClass}>Student</th>
+                  <th className={adminTableHeadCellClass}>XP</th>
+                  <th className={adminTableHeadCellClass}>Progress</th>
+                  <th className={adminTableHeadCellClass}>Quiz</th>
+                  <th className={adminTableHeadCellClass}>Time</th>
+                  <th className={adminTableHeadCellClass}>Last activity</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredStudents.map((student) => <StudentRow key={student.user_id} student={student} />)}
               </tbody>
-            </table>
-          </div>
+          </AdminTable>
         ) : (
           <div className="grid min-h-[260px] place-items-center p-8 text-center">
             <div>
               <UserRound size={30} className="mx-auto mb-3 text-[#d4d4d8]" />
-              <p className="m-0 text-[15px] font-black text-[#3f3f46]">Aucun élève trouvé.</p>
-              <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Essayez un autre filtre ou actualisez les données.</p>
+              <p className="m-0 text-[15px] font-black text-[#3f3f46]">No students.</p>
             </div>
           </div>
         )}
@@ -433,66 +419,123 @@ function StatTile({
   icon: Icon,
   label,
   value,
-  hint,
   loading,
 }: {
-  icon: typeof Users
+  icon: LucideIcon
   label: string
   value: ReactNode
-  hint: string
   loading: boolean
 }) {
   return (
     <div className={adminMetricTileClass}>
       <div className="flex items-center gap-2.5">
-        <span className="grid h-9 w-9 place-items-center rounded-[11px] bg-[#f0f0ff] text-[#5b60f9]"><Icon size={17} /></span>
+        <span className="grid h-9 w-9 place-items-center rounded-[11px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]"><Icon size={17} /></span>
         <span className="text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</span>
       </div>
       <p className="m-0 mt-3 text-[24px] font-black leading-none text-[#3f3f46]">{loading ? '-' : value}</p>
-      <p className="m-0 mt-1 text-[12px] font-bold text-[#a1a1aa]">{hint}</p>
     </div>
   )
 }
 
+function HealthSignal({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: LucideIcon
+  label: string
+  value: number
+  detail: string
+}) {
+  const hasSignal = value > 0
+
+  return (
+    <div className={`min-h-[98px] rounded-[14px] px-4 py-3 transition-[background-color,box-shadow] duration-150 ease-out ${
+      hasSignal
+        ? 'bg-[#fff7ed] shadow-[inset_0_0_0_1px_rgba(245,144,11,0.18)]'
+        : 'bg-[#f0fdf4] shadow-[inset_0_0_0_1px_rgba(22,163,74,0.14)]'
+    }`}>
+      <div className="flex items-start justify-between gap-3">
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-white ${hasSignal ? 'text-[#f5900b]' : 'text-[#16a34a]'}`}>
+          <Icon size={16} />
+        </span>
+        <span className={`text-[24px] font-black leading-none tabular-nums ${hasSignal ? 'text-[#f5900b]' : 'text-[#16a34a]'}`}>
+          {formatNumber(value)}
+        </span>
+      </div>
+      <p className="m-0 mt-3 text-[13px] font-black text-[#3f3f46]">{label}</p>
+      <p className="m-0 mt-1 text-pretty text-[12px] font-semibold leading-5 text-[#71717a]">{hasSignal ? detail : 'Clear'}</p>
+    </div>
+  )
+}
+
+function AttentionStudentList({
+  students,
+}: {
+  students: Array<{ student: AdminStudentProgressRow; signals: string[] }>
+}) {
+  if (!students.length) {
+    return (
+      <div className="grid min-h-[220px] place-items-center rounded-[14px] border border-dashed border-[#e4e4e7] bg-[#fbfbfc] px-4 text-center">
+        <div>
+          <CheckCircle2 size={28} className="mx-auto mb-3 text-[#16a34a]" />
+          <p className="m-0 text-[14px] font-black text-[#3f3f46]">No students need review.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-2">
+      {students.map(({ student, signals }) => (
+        <div key={student.user_id} className="grid gap-3 rounded-[14px] bg-[#fbfbfc] px-3 py-3 shadow-[inset_0_0_0_1px_#ececf0] md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          <div className="min-w-0">
+            <p className="m-0 truncate text-[13px] font-black text-[#3f3f46]">{student.full_name || student.email}</p>
+            <p className="m-0 mt-0.5 truncate text-[12px] font-semibold text-[#a1a1aa]">{student.email}</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {signals.slice(0, 3).map((signal) => <SignalBadge key={signal} label={signal} />)}
+              {signals.length > 3 && <SignalBadge label={`+${signals.length - 3}`} />}
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-right md:w-[210px]">
+            <AttentionMetric label="XP" value={formatNumber(student.total_xp)} />
+            <AttentionMetric label="Quiz" value={student.quiz_attempts ? percent(Math.round((student.quiz_passed / student.quiz_attempts) * 100)) : '0%'} />
+            <AttentionMetric label="Seen" value={student.last_activity_at ? formatDate(student.last_activity_at) : 'None'} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function AttentionMetric({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <span className="min-w-0">
+      <span className="block text-[10px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</span>
+      <span className="mt-0.5 block truncate text-[12px] font-black text-[#3f3f46] tabular-nums">{value}</span>
+    </span>
+  )
+}
+
+function SignalBadge({ label }: { label: string }) {
+  return <span className="rounded-full bg-[#fff7ed] px-2 py-1 text-[11px] font-black text-[#f5900b]">{label}</span>
+}
+
 function MiniMetric({ label, value, tone = 'default' }: { label: string; value: ReactNode; tone?: 'default' | 'warn' }) {
   return (
-    <div className="rounded-[12px] border border-[#f4f4f5] bg-[#fbfbfc] px-3 py-3">
+    <div className="border-b border-[#f4f4f5] px-5 py-4 last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0">
       <p className="m-0 text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
-      <p className={`m-0 mt-1 text-[20px] font-black leading-none ${tone === 'warn' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</p>
+      <p className={`m-0 mt-1 text-[20px] font-black leading-none tabular-nums ${tone === 'warn' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</p>
     </div>
   )
 }
 
 function AuditMetric({ label, value, tone = 'default' }: { label: string; value: ReactNode; tone?: 'default' | 'warn' }) {
   return (
-    <div className="rounded-[10px] border border-[#ececf0] bg-white px-3 py-2">
+    <div className="rounded-[10px] bg-white px-3 py-2 shadow-[inset_0_0_0_1px_#ececf0]">
       <p className="m-0 text-[10px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
-      <p className={`m-0 mt-1 text-[15px] font-black leading-none ${tone === 'warn' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</p>
-    </div>
-  )
-}
-
-function BarList({ data, emptyLabel }: { data: Array<{ key: string; value: number }>; emptyLabel: string }) {
-  const max = Math.max(...data.map((item) => item.value), 1)
-  if (!data.length) {
-    return <p className="m-0 rounded-[12px] border border-dashed border-[#e4e4e7] px-3 py-5 text-center text-[13px] font-semibold text-[#a1a1aa]">{emptyLabel}</p>
-  }
-  return (
-    <div className="grid gap-3">
-      {data.map((item) => {
-        const width = Math.max(5, Math.round((item.value / max) * 100))
-        return (
-          <div key={item.key}>
-            <div className="mb-1 flex justify-between gap-3 text-[12.5px] font-bold">
-              <span className="text-[#52525c]">{STATUS_LABELS[item.key] ?? item.key}</span>
-              <span className="text-[#a1a1aa]">{formatNumber(item.value)}</span>
-            </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-[#f4f4f5]">
-              <div className="h-full rounded-full bg-[#5b60f9]" style={{ width: `${width}%` }} />
-            </div>
-          </div>
-        )
-      })}
+      <p className={`m-0 mt-1 text-[15px] font-black leading-none tabular-nums ${tone === 'warn' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</p>
     </div>
   )
 }
@@ -525,40 +568,40 @@ function StudentRow({ student }: { student: AdminStudentProgressRow }) {
   const needsAttention = student.progress_records === 0 || !student.last_activity_at
 
   return (
-    <tr className="border-t border-[#f4f4f5] text-[13px]">
-      <td className="px-5 py-4">
+    <tr className={adminTableRowClass}>
+      <td className={adminTableCellClass}>
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#f0f0ff] text-[13px] font-black text-[#5b60f9]">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[color:var(--primary-soft)] text-[13px] font-black text-[color:var(--primary)]">
             {student.full_name?.[0]?.toUpperCase() || <UserRound size={16} />}
           </span>
           <span className="min-w-0">
             <span className="block truncate font-black text-[#3f3f46]">{student.full_name || student.email}</span>
             <span className="mt-0.5 block truncate text-[12px] font-semibold text-[#a1a1aa]">
-              {student.niveau || 'Niveau -'} · {student.filiere || 'Filière -'} · {student.tier}
+              {student.niveau || 'Level -'} / {student.filiere || 'Track -'} / {student.tier}
             </span>
           </span>
         </div>
       </td>
-      <td className="px-4 py-4">
+      <td className={adminTableCellClass}>
         <p className="m-0 font-black text-[#3f3f46]">{formatNumber(student.total_xp)}</p>
         <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">{formatNumber(student.streak_days)} streak</p>
       </td>
-      <td className="px-4 py-4">
-        <p className="m-0 font-black text-[#3f3f46]">{formatNumber(student.completed_items)} complétés</p>
-        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">{formatNumber(student.in_progress_items)} en cours</p>
+      <td className={adminTableCellClass}>
+        <p className="m-0 font-black text-[#3f3f46]">{formatNumber(student.completed_items)} completed</p>
+        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">{formatNumber(student.in_progress_items)} in progress</p>
       </td>
-      <td className="px-4 py-4">
+      <td className={adminTableCellClass}>
         <p className="m-0 font-black text-[#3f3f46]">{percent(passRate)}</p>
-        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">{formatNumber(student.quiz_attempts)} tentatives</p>
+        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">{formatNumber(student.quiz_attempts)} attempts</p>
       </td>
-      <td className="px-4 py-4">
+      <td className={adminTableCellClass}>
         <p className="m-0 font-black text-[#3f3f46]">{formatNumber(student.watched_minutes)} min</p>
-        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">Score moy. {formatNumber(numberValue(student.average_quiz_score))}</p>
+        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">Avg score {formatNumber(numberValue(student.average_quiz_score))}</p>
       </td>
-      <td className="px-4 py-4">
+      <td className={adminTableCellClass}>
         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-black ${needsAttention ? 'bg-[#fff7ed] text-[#f5900b]' : 'bg-[#f0fdf4] text-[#16a34a]'}`}>
           {needsAttention ? <ArrowDownRight size={12} /> : <Activity size={12} />}
-          {student.last_activity_at ? new Date(student.last_activity_at).toLocaleDateString('fr-FR') : 'À relancer'}
+          {student.last_activity_at ? new Date(student.last_activity_at).toLocaleDateString('fr-FR') : 'Follow up'}
         </span>
       </td>
     </tr>
@@ -568,12 +611,12 @@ function StudentRow({ student }: { student: AdminStudentProgressRow }) {
 function SkeletonRow() {
   return (
     <div className="flex items-center gap-4 border-t border-[#f4f4f5] px-5 py-4 first:border-t-0">
-      <div className="h-10 w-10 animate-pulse rounded-[12px] bg-[#f4f4f5]" />
+      <div className="h-10 w-10 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[12px] bg-[#f4f4f5]" />
       <div className="min-w-0 flex-1">
-        <div className="h-4 w-48 animate-pulse rounded-full bg-[#f4f4f5]" />
-        <div className="mt-2 h-3 w-32 animate-pulse rounded-full bg-[#f4f4f5]" />
+        <div className="h-4 w-48 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#f4f4f5]" />
+        <div className="mt-2 h-3 w-32 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#f4f4f5]" />
       </div>
-      <div className="hidden h-4 w-24 animate-pulse rounded-full bg-[#f4f4f5] sm:block" />
+      <div className="hidden h-4 w-24 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#f4f4f5] sm:block" />
     </div>
   )
 }
@@ -609,4 +652,28 @@ function buildLearningRisk(students: AdminStudentProgressRow[]) {
     lowQuizPass,
     total: noActivity + noProgress + noQuizAttempts + zeroXp + lowQuizPass,
   }
+}
+
+function buildAttentionStudents(students: AdminStudentProgressRow[]) {
+  return students
+    .map((student) => ({ student, signals: buildStudentLearningSignals(student) }))
+    .filter((item) => item.signals.length > 0)
+    .sort((left, right) => {
+      if (right.signals.length !== left.signals.length) return right.signals.length - left.signals.length
+      return right.student.total_xp - left.student.total_xp
+    })
+    .slice(0, 5)
+}
+
+function buildStudentLearningSignals(student: AdminStudentProgressRow) {
+  const signals: string[] = []
+  if (!student.last_activity_at) signals.push('No activity')
+  if (student.progress_records === 0) signals.push('No progress')
+  if (student.quiz_attempts === 0) signals.push('No quiz')
+  if (student.total_xp === 0) signals.push('Zero XP')
+  if (student.quiz_attempts > 0) {
+    const passRate = Math.round((student.quiz_passed / student.quiz_attempts) * 100)
+    if (passRate < 60) signals.push('Low quiz pass')
+  }
+  return signals
 }

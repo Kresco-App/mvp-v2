@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { ArrowLeft, CheckCircle2, ClipboardCheck, Code2, Copy, Loader2, Plus, Settings2, Sparkles, TriangleAlert } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 
 import {
   AdminPageHeader,
@@ -12,6 +12,7 @@ import {
   adminMetricTileClass,
   adminPageClass,
   adminPanelClass,
+  adminPrimaryButtonClass,
 } from '@/components/admin/AdminDesign'
 import { cn } from '@/lib/utils'
 
@@ -213,7 +214,7 @@ export default function ActivityBuilderPage() {
 
   function handleGenerate() {
     if (validation.missing.length > 0) {
-      toast.error(`Champs à compléter: ${validation.missing.join(', ')}`)
+      showToastError(`Champs à compléter: ${validation.missing.join(', ')}`)
       setOutput(null)
       return
     }
@@ -223,7 +224,7 @@ export default function ActivityBuilderPage() {
       activity_data: buildActivityData(),
     }, null, 2)
     setOutput(json)
-    toast.success('Activity JSON prêt.')
+    showToastSuccess('Activity JSON prêt.')
   }
 
   async function handleCopy() {
@@ -231,9 +232,9 @@ export default function ActivityBuilderPage() {
     setCopying(true)
     try {
       await navigator.clipboard.writeText(output)
-      toast.success('JSON copié dans le presse-papiers.')
+      showToastSuccess('JSON copié dans le presse-papiers.')
     } catch {
-      toast.error('Impossible de copier le JSON.')
+      showToastError('Impossible de copier le JSON.')
     } finally {
       setCopying(false)
     }
@@ -248,9 +249,7 @@ export default function ActivityBuilderPage() {
     <div className={adminPageClass}>
       <AdminPageHeader
         icon={Sparkles}
-        eyebrow="Admin / Cours"
         title="Créateur d’activités"
-        description="Préparez un payload contrôlé avant de le coller dans les contenus de cours."
         action={(
           <>
           <button
@@ -265,7 +264,7 @@ export default function ActivityBuilderPage() {
         <button
           type="button"
           onClick={handleGenerate}
-          className="inline-flex h-11 items-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-[13px] font-black text-white transition hover:bg-[#4b50e8]"
+          className={`${adminPrimaryButtonClass} h-11`}
         >
           <Code2 size={15} />
           Générer le JSON
@@ -293,9 +292,9 @@ export default function ActivityBuilderPage() {
                 key={type.id}
                 onClick={() => resetOutputOnTypeChange(type.id)}
                 className={cn(
-                  'rounded-[14px] border-[2px] px-4 py-3 text-left transition',
+                  'rounded-[14px] border-[2px] px-4 py-3 text-left transition-[background-color,border-color] duration-150 ease-out',
                   selectedType === type.id
-                    ? 'border-[#5b60f9] bg-[#f0f0ff] text-[#3a2fd3]'
+                    ? 'border-[color:var(--primary)] bg-[color:var(--primary-soft)] text-[color:var(--primary)]'
                     : 'border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#c7c7cc]',
                 )}
               >
@@ -309,10 +308,9 @@ export default function ActivityBuilderPage() {
         <section className={adminPanelClass}>
           <div className="border-b border-[#f4f4f5] px-5 py-4">
             <div className="flex items-center gap-2">
-              <Settings2 size={17} className="text-[#5b60f9]" />
+              <Settings2 size={17} className="text-[color:var(--primary)]" />
               <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Configuration</h2>
             </div>
-            <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">{selectedMeta.desc}</p>
           </div>
           <div className="grid gap-4 px-5 py-4">
             {selectedType === 'multiple_choice' && (
@@ -358,18 +356,17 @@ export default function ActivityBuilderPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <ClipboardCheck size={17} className="text-[#5b60f9]" />
+                  <ClipboardCheck size={17} className="text-[color:var(--primary)]" />
                   <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Contrôle et sortie</h2>
                 </div>
-                <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">Validez les champs avant copie vers le contenu.</p>
               </div>
               <button
                 type="button"
                 onClick={handleCopy}
                 disabled={!output || copying}
-                className="inline-flex h-10 items-center gap-2 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[border-color,color,opacity] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {copying ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
+                {copying ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" /> : <Copy size={14} />}
                 Copier
               </button>
             </div>
@@ -385,14 +382,13 @@ export default function ActivityBuilderPage() {
                   <div>
                     <Code2 size={28} className="mx-auto text-[#d4d4d8]" />
                     <p className="m-0 mt-2 text-[14px] font-black text-[#52525c]">Aucun JSON généré</p>
-                    <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">Complétez les champs requis puis générez la sortie.</p>
                   </div>
                 </div>
               )}
             </div>
             {output && (
               <div className="rounded-[14px] border border-[#f4f4f5] bg-[#fbfbfc] px-4 py-3 text-[12.5px] font-semibold text-[#71717b]">
-                Utilisation: créez ou ouvrez un item de cours, choisissez une section `activity`, puis collez ce JSON dans la configuration de l’activité.
+                activity JSON
               </div>
             )}
           </div>
@@ -405,7 +401,6 @@ export default function ActivityBuilderPage() {
 function StatusTile({
   label,
   value,
-  hint,
   tone = 'default',
 }: {
   label: string
@@ -417,7 +412,6 @@ function StatusTile({
     <div className={adminMetricTileClass}>
       <p className="m-0 text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
       <p className={cn('m-0 mt-1 text-[22px] font-black leading-none', tone === 'good' ? 'text-[#16a34a]' : 'text-[#3f3f46]')}>{value}</p>
-      <p className="m-0 mt-1 text-[12px] font-bold text-[#a1a1aa]">{hint}</p>
     </div>
   )
 }
@@ -464,14 +458,14 @@ function TextInput({ value, onChange, placeholder, ariaLabel }: { value: string;
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className="h-10 w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-semibold text-[#3f3f46] outline-none transition placeholder:text-[#d4d4d8] focus:border-[#5b60f9]"
+      className="h-10 w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-semibold text-[#3f3f46] outline-none transition-[border-color] duration-150 ease-out placeholder:text-[#d4d4d8] focus:border-[color:var(--primary)]"
     />
   )
 }
 
 function AddButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="inline-flex items-center gap-1.5 text-[12px] font-black text-[#5b60f9] transition hover:text-[#3a2fd3]">
+    <button type="button" onClick={onClick} className="inline-flex items-center gap-1.5 text-[12px] font-black text-[color:var(--primary)] transition-[color] duration-150 ease-out hover:text-[color:var(--primary)]">
       <Plus size={13} />
       {children}
     </button>
@@ -503,7 +497,7 @@ function MCQBuilder({
                 type="radio"
                 checked={option.is_correct}
                 onChange={() => onOptionsChange(options.map((row, rowIndex) => ({ ...row, is_correct: rowIndex === index })))}
-                className="h-4 w-4 accent-[#5b60f9]"
+                className="h-4 w-4 accent-[color:var(--primary)]"
               />
               <TextInput
                 ariaLabel={`Option ${index + 1}`}
@@ -547,7 +541,7 @@ function TrueFalseBuilder({
               key={String(value)}
               onClick={() => onAnswerChange(value)}
               className={cn(
-                'h-10 rounded-[12px] border-[2px] text-[13px] font-black transition',
+                'h-10 rounded-[12px] border-[2px] text-[13px] font-black transition-[background-color,border-color,color] duration-150 ease-out',
                 answer === value
                   ? value ? 'border-[#16a34a] bg-[#16a34a] text-white' : 'border-[#ef4444] bg-[#ef4444] text-white'
                   : 'border-[#e4e4e7] text-[#52525c] hover:border-[#c7c7cc]',
@@ -720,7 +714,7 @@ function DragDropBuilder({
                 aria-label={`Bonne réponse zone ${index + 1}`}
                 value={zone.correctItemId}
                 onChange={(event) => onZonesChange(zones.map((row, rowIndex) => (rowIndex === index ? { ...row, correctItemId: event.target.value } : row)))}
-                className="h-10 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-2 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+                className="h-10 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-2 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[color:var(--primary)]"
               >
                 {items.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
               </select>
@@ -750,7 +744,7 @@ function SimulatorBuilder({
           aria-label="Simulator type"
           value={simType}
           onChange={(event) => onTypeChange(event.target.value as 'wave' | 'prism' | 'diffraction')}
-          className="h-10 w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+          className="h-10 w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[color:var(--primary)]"
         >
           <option value="wave">Onde transversale</option>
           <option value="prism">Prisme (dispersion)</option>

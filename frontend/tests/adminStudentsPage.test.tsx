@@ -22,6 +22,7 @@ let mountedRoot: { root: Root; container: HTMLDivElement } | null = null
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.history.replaceState(null, '', '/')
   document.body.innerHTML = ''
   mountedRoot = null
   mocks.getJson.mockImplementation((url: string) => (
@@ -35,7 +36,7 @@ beforeEach(() => {
     amount: 50,
     requested_amount: 50,
     reason: 'admin_adjustment',
-    description: 'Manual score correction',
+    description: 'Manual score adjustment',
     idempotency_key: 'admin-xp:1:test',
     actor_user_id: 7,
     total_xp: 950,
@@ -54,51 +55,68 @@ afterEach(() => {
 })
 
 describe('AdminStudentsPage', () => {
-  it('renders student progress summary and searchable rows', async () => {
+  it('renders student health summary and searchable rows', async () => {
     const { container } = renderPage()
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Progression élèves')
+      expect(container.textContent).toContain('Student health')
       expect(container.textContent).toContain('70%')
       expect(container.textContent).toContain('75%')
       expect(container.textContent).toContain('Sara Benali')
       expect(container.textContent).toContain('Youssef El Idrissi')
       expect(mocks.getJson).toHaveBeenCalledWith('/admin/student-progress?limit=100')
-      expect(container.textContent).toContain('Eleves a risque')
-      expect(container.textContent).toContain('Sans progression')
-      expect(container.textContent).toContain('XP zero')
-      expect(container.textContent).toContain('XP correction')
+      expect(container.textContent).toContain('Learning health')
+      expect(container.textContent).toContain('Attention queue')
+      expect(container.textContent).toContain('No progress')
+      expect(container.textContent).toContain('Zero XP')
+      expect(container.textContent).toContain('XP adjustments')
     })
 
-    setInputValue(container, 'input[aria-label="Rechercher un élève"]', 'Youssef')
+    setInputValue(container, 'input[aria-label="Search students"]', 'Youssef')
 
     await waitFor(() => {
       expect(container.querySelector('tbody')?.textContent).not.toContain('Sara Benali')
       expect(container.textContent).toContain('Youssef El Idrissi')
-      expect(container.textContent).toContain('1 ligne(s) affichée(s)')
+      expect(container.textContent).toContain('Students')
     })
   })
-  it('loads XP audit and submits a student XP correction', async () => {
+
+  it('loads XP check and submits a student XP adjustment', async () => {
     const { container } = renderPage()
 
     await waitFor(() => {
-      expect(container.textContent).toContain('XP correction')
-      expect(container.textContent).toContain('manual correction')
+      expect(container.textContent).toContain('XP adjustments')
+      expect(container.textContent).toContain('manual adjustment')
       expect(mocks.getJson).toHaveBeenCalledWith('/admin/xp-audit?user_id=1&limit=8')
     })
 
-    setInputValue(container, 'input[aria-label="XP correction amount"]', '50')
-    setInputValue(container, 'input[aria-label="XP correction reason"]', 'Manual score correction')
-    clickButton(container, 'Apply correction')
+    setInputValue(container, 'input[aria-label="XP adjustment amount"]', '50')
+    setInputValue(container, 'input[aria-label="XP adjustment reason"]', 'Manual score adjustment')
+    clickButton(container, 'Apply adjustment')
 
     await waitFor(() => {
       expect(mocks.postJson).toHaveBeenCalledWith('/admin/xp-adjustments', expect.objectContaining({
         user_id: 1,
         amount: 50,
-        reason: 'Manual score correction',
+        reason: 'Manual score adjustment',
       }))
       expect(container.textContent).toContain('XP updated to 950.')
-      expect(container.textContent).toContain('950 XP in progress table')
+      expect(container.textContent).toContain('Balanced')
+    })
+  })
+
+  it('hydrates search and selected student from account context URL', async () => {
+    window.history.replaceState(null, '', '/admin/students?student_id=2&q=youssef%40example.com')
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      const searchInput = container.querySelector<HTMLInputElement>('input[placeholder="Search a student"]')
+      const selectedStudent = container.querySelector<HTMLSelectElement>('select[aria-label="Select student for XP adjustment"]')
+      expect(searchInput?.value).toBe('youssef@example.com')
+      expect(selectedStudent?.value).toBe('2')
+      expect(container.querySelector('tbody')?.textContent).toContain('Youssef El Idrissi')
+      expect(container.querySelector('tbody')?.textContent).not.toContain('Sara Benali')
+      expect(mocks.getJson).toHaveBeenCalledWith('/admin/xp-audit?user_id=2&limit=8')
     })
   })
 })
@@ -233,7 +251,7 @@ const xpAuditFixture = {
       amount: 50,
       requested_amount: 50,
       reason: 'admin_adjustment',
-      description: 'manual correction',
+      description: 'manual adjustment',
       subject_id: null,
       topic_id: null,
       topic_section_id: null,

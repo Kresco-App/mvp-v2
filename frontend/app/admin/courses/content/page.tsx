@@ -29,7 +29,7 @@ import {
   Table2,
   TriangleAlert,
 } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 
 import {
   CourseContentRenderer,
@@ -45,6 +45,7 @@ import {
   adminButtonClass,
   adminPageClass,
   adminPanelClass,
+  adminPrimaryButtonClass,
 } from '@/components/admin/AdminDesign'
 import { getJson } from '@/lib/apiClient'
 
@@ -101,7 +102,7 @@ type CourseBlockTemplateGroup = {
 const editorIndent = 2
 const card = adminPanelClass
 const secondaryButton = `${adminButtonClass} no-underline`
-const primaryButton = 'inline-flex h-10 items-center gap-1.5 rounded-[12px] bg-[#5b60f9] px-4 text-[12px] font-black text-white transition hover:bg-[#4b50e8]'
+const primaryButton = adminPrimaryButtonClass
 
 const blockTemplateGroups: CourseBlockTemplateGroup[] = [
   {
@@ -318,7 +319,8 @@ export default function AdminCourseContentEditorPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
-  const localDraftKey = topicId && itemId ? `kresco.course-content-draft.${topicId}.${itemId}` : ''
+  const localDraftKey = topicId && itemId ? courseContentDraftStorageKey(topicId, itemId) : ''
+  const legacyLocalDraftKey = topicId && itemId ? legacyCourseContentDraftStorageKey(topicId, itemId) : ''
 
   const loadWorkspace = useCallback(async () => {
     if (!topicId || !itemId) {
@@ -340,18 +342,18 @@ export default function AdminCourseContentEditorPage() {
       setWorkspace(data)
       setActiveItem(item)
 
-      const localDraft = localDraftKey ? window.localStorage.getItem(localDraftKey) : null
+      const localDraft = localDraftKey ? readCourseContentDraft(localDraftKey, legacyLocalDraftKey) : null
       const courseTab = item.tabs.find((tab) => isCourseTab(tab))
       const courseDocument = courseDocumentFromConfig(courseTab?.config_json)
       const nextDocument = courseDocument ?? buildStarterCourseDocument(data, item)
       setSourceJson(localDraft || JSON.stringify(nextDocument, null, editorIndent))
     } catch {
       setLoadError('Could not load this topic item.')
-      toast.error('Could not load Course editor data.')
+      showToastError('Could not load Course editor data.')
     } finally {
       setLoading(false)
     }
-  }, [itemId, localDraftKey, topicId])
+  }, [itemId, legacyLocalDraftKey, localDraftKey, topicId])
 
   useEffect(() => {
     void loadWorkspace()
@@ -363,13 +365,16 @@ export default function AdminCourseContentEditorPage() {
 
   function saveLocalDraft() {
     if (!localDraftKey) return
-    window.localStorage.setItem(localDraftKey, sourceJson)
-    toast.success('Course draft saved locally.')
+    if (writeCourseContentDraft(localDraftKey, legacyLocalDraftKey, sourceJson)) {
+      showToastSuccess('Course draft saved locally.')
+    } else {
+      showToastError('Could not save Course draft locally.')
+    }
   }
 
   async function copyJson() {
     await navigator.clipboard.writeText(sourceJson)
-    toast.success('Course JSON copied.')
+    showToastSuccess('Course JSON copied.')
   }
 
   function downloadJson() {
@@ -389,7 +394,7 @@ export default function AdminCourseContentEditorPage() {
     const courseDocument = courseDocumentFromConfig(courseTab?.config_json)
     const nextDocument = courseDocument ?? buildStarterCourseDocument(workspace, activeItem)
     setSourceJson(JSON.stringify(nextDocument, null, editorIndent))
-    toast.success('Editor reset from workspace data.')
+    showToastSuccess('Editor reset from workspace data.')
   }
 
   function useStarterTemplate() {
@@ -399,7 +404,7 @@ export default function AdminCourseContentEditorPage() {
 
   function insertBlockTemplate(template: CourseBlockTemplate) {
     if (!parsed.document || parsed.error) {
-      toast.error('Fix the Course JSON before inserting a block.')
+      showToastError('Fix the Course JSON before inserting a block.')
       return
     }
 
@@ -410,7 +415,7 @@ export default function AdminCourseContentEditorPage() {
       blocks: [...parsed.document.blocks, block],
     }
     setSourceJson(JSON.stringify(nextDocument, null, editorIndent))
-    toast.success(`${template.label} block inserted.`)
+    showToastSuccess(`${template.label} block inserted.`)
   }
 
   if (loading) {
@@ -418,9 +423,8 @@ export default function AdminCourseContentEditorPage() {
       <main className={adminPageClass}>
         <div className={`${card} grid min-h-[360px] place-items-center`}>
           <div className="text-center">
-            <Loader2 size={28} className="mx-auto animate-spin text-[#5b60f9]" />
+            <Loader2 size={28} className="mx-auto animate-spin motion-reduce:animate-none text-[color:var(--primary)]" />
             <p className="m-0 mt-3 text-[13px] font-black text-[#52525c]">Chargement de l&apos;éditeur Course</p>
-            <p className="m-0 mt-1 text-[12px] font-semibold text-[#a1a1aa]">Workspace, item actif et brouillon local.</p>
           </div>
         </div>
       </main>
@@ -431,9 +435,7 @@ export default function AdminCourseContentEditorPage() {
     <main className={adminPageClass}>
       <AdminPageHeader
         icon={BookOpen}
-        eyebrow="Admin / Course content"
         title={activeItem?.title ?? 'Course document editor'}
-        description={`${workspace?.subject_title ?? 'Course content'} · éditeur JSON local avec aperçu étudiant.`}
         action={(
           <>
           <Link href={backHref} className={secondaryButton}>
@@ -466,7 +468,6 @@ export default function AdminCourseContentEditorPage() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Course JSON</h2>
-                <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Brouillon local du document Course généré.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button type="button" onClick={useStarterTemplate} className={secondaryButton}>
@@ -493,7 +494,7 @@ export default function AdminCourseContentEditorPage() {
                 spellCheck={false}
                 value={sourceJson}
                 onChange={(event) => setSourceJson(event.target.value)}
-                className="h-[calc(100vh-335px)] min-h-[420px] w-full resize-y rounded-[14px] border-[2px] border-[#e4e4e7] bg-white p-4 font-mono text-[12px] leading-6 text-[#3f3f46] outline-none transition placeholder:text-[#c0c0c7] focus:border-[#5b60f9]"
+                className="h-[calc(100vh-335px)] min-h-[420px] w-full resize-y rounded-[14px] border-[2px] border-[#e4e4e7] bg-white p-4 font-mono text-[12px] leading-6 text-[#3f3f46] outline-none transition-[border-color] duration-150 ease-out placeholder:text-[#c0c0c7] focus:border-[color:var(--primary)]"
               />
             )}
 
@@ -506,10 +507,9 @@ export default function AdminCourseContentEditorPage() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="m-0 flex items-center gap-2 text-[16px] font-black text-[#3f3f46]">
-                  <Eye size={16} className="text-[#5b60f9]" />
+                  <Eye size={16} className="text-[color:var(--primary)]" />
                   Live preview
                 </h2>
-                <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">Même renderer que l&apos;onglet Course côté élève.</p>
               </div>
               <StatusBadge parsed={parsed} />
             </div>
@@ -521,8 +521,7 @@ export default function AdminCourseContentEditorPage() {
                 <div className="grid min-h-[320px] place-items-center text-center">
                   <div>
                     <FileCode2 size={32} className="mx-auto mb-3 text-[#d4d4d8]" />
-                    <p className="m-0 text-[14px] font-black text-[#3f3f46]">Preview unavailable</p>
-                    <p className="m-0 mt-2 text-[12px] font-semibold text-[#a1a1aa]">Fix the JSON or validation issue to render the Course document.</p>
+                    <p className="m-0 text-[14px] font-black text-[#3f3f46]">Preview</p>
                   </div>
                 </div>
               )}
@@ -546,9 +545,8 @@ function BlockSelectorPanel({
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Block selector</h2>
-          <p className="m-0 mt-1 text-[13px] font-semibold text-[#a1a1aa]">{blockTemplateGroups.reduce((total, group) => total + group.templates.length, 0)} variants prêts à insérer.</p>
         </div>
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] bg-[#f0f0ff] text-[#5b60f9]">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
           <Plus size={16} />
         </span>
       </div>
@@ -562,13 +560,13 @@ function BlockSelectorPanel({
                 return (
                   <button
                     aria-label={`Insert ${template.label} block`}
-                    className="group flex min-h-[58px] items-start gap-3 rounded-[12px] border border-[#f4f4f5] bg-[#fbfbfc] px-3 py-3 text-left transition hover:border-[#5b60f9] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="group flex min-h-[58px] items-start gap-3 rounded-[12px] border border-[#f4f4f5] bg-[#fbfbfc] px-3 py-3 text-left transition-[background-color,border-color,opacity] duration-150 ease-out hover:border-[color:var(--primary)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canInsert}
                     key={template.id}
                     type="button"
                     onClick={() => onInsert(template)}
                   >
-                    <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-[10px] bg-[#f0f0ff] text-[#5b60f9] transition group-hover:bg-[#5b60f9] group-hover:text-white">
+                    <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-[10px] bg-[color:var(--primary-soft)] text-[color:var(--primary)] transition-[background-color,color] duration-150 ease-out group-hover:bg-[color:var(--primary)] group-hover:text-white">
                       <Icon size={15} />
                     </span>
                     <span className="min-w-0">
@@ -725,6 +723,40 @@ function isCourseTab(tab: TopicTab) {
   return type === 'course' || label.includes('course')
 }
 
+function courseContentDraftStorageKey(topicId: number, itemId: number) {
+  return `kresco:course-content-draft:v1:${topicId}:${itemId}`
+}
+
+function legacyCourseContentDraftStorageKey(topicId: number, itemId: number) {
+  return `kresco.course-content-draft.${topicId}.${itemId}`
+}
+
+function readCourseContentDraft(storageKey: string, legacyStorageKey: string) {
+  try {
+    const current = window.localStorage.getItem(storageKey)
+    if (current !== null) return current
+
+    const legacy = window.localStorage.getItem(legacyStorageKey)
+    if (legacy !== null) {
+      window.localStorage.setItem(storageKey, legacy)
+      window.localStorage.removeItem(legacyStorageKey)
+    }
+    return legacy
+  } catch {
+    return null
+  }
+}
+
+function writeCourseContentDraft(storageKey: string, legacyStorageKey: string, sourceJson: string) {
+  try {
+    window.localStorage.setItem(storageKey, sourceJson)
+    window.localStorage.removeItem(legacyStorageKey)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function buildStarterCourseDocument(workspace: TopicWorkspace, item: TopicItem): CourseDocument {
   const documentId = `${workspace.slug ?? `topic-${workspace.id}`}/${slugify(item.title)}`
   return {
@@ -810,7 +842,7 @@ function buildTemplateBlock(template: CourseBlockTemplate, existingBlocks: Cours
 }
 
 function cloneRecord(value: Record<string, unknown>) {
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+  return structuredClone(value) as Record<string, unknown>
 }
 
 function uniqueBlockId(baseId: string, existingBlocks: CourseContentBlock[]) {

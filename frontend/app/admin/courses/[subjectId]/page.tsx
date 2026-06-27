@@ -17,15 +17,17 @@ import {
   Puzzle,
   Video,
 } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError } from '@/lib/lazyToast'
 
 import {
   AdminPageHeader,
+  AdminProgressBar,
   adminButtonClass,
   adminMetricStripClass,
   adminMetricTileClass,
   adminPageClass,
   adminPanelClass,
+  adminPrimaryButtonClass,
 } from '@/components/admin/AdminDesign'
 import { getJson } from '@/lib/apiClient'
 import { cn } from '@/lib/utils'
@@ -106,7 +108,7 @@ export default function AdminSubjectPage() {
         setSubject(subjectData)
         setTopics(Array.isArray(topicsData) ? topicsData : [])
       } catch {
-        toast.error('Matiere introuvable')
+        showToastError('Matiere introuvable')
         router.push('/admin/courses')
       } finally {
         setLoading(false)
@@ -128,7 +130,7 @@ export default function AdminSubjectPage() {
       const workspace = await getJson<TopicWorkspace>(`/courses/topics/${topicId}/workspace`)
       setTopicSections((previous) => ({ ...previous, [topicId]: workspace.sections ?? [] }))
     } catch {
-      toast.error('Impossible de charger les items du topic')
+      showToastError('Impossible de charger les items du topic')
       setTopicSectionErrors((previous) => ({ ...previous, [topicId]: true }))
     } finally {
       setLoadingTopicIds((previous) => {
@@ -191,7 +193,7 @@ export default function AdminSubjectPage() {
       <main className={adminPageClass}>
         <div className="flex min-h-[360px] items-center justify-center">
           <div className="flex items-center gap-2 text-[13px] font-black text-[#71717b]">
-            <Loader2 size={16} className="animate-spin text-[#5b60f9]" />
+            <Loader2 size={16} className="animate-spin motion-reduce:animate-none text-[color:var(--primary)]" />
             Chargement du cours...
           </div>
         </div>
@@ -203,15 +205,13 @@ export default function AdminSubjectPage() {
     <main className={adminPageClass}>
       <AdminPageHeader
         icon={BookOpen}
-        eyebrow="Admin / Cours"
         title={subject?.title ?? 'Cours'}
-        description={subject?.description ?? 'Inspectez la couverture, les sections et les items avant edition.'}
         action={(
           <>
             <Link href="/admin/courses" className={`${adminButtonClass} no-underline`}>
               Cours
             </Link>
-            <Link href="/admin/courses/activities" className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-[13px] font-black text-white no-underline transition hover:bg-[#4b50e8]">
+            <Link href="/admin/courses/activities" className={`${adminPrimaryButtonClass} no-underline`}>
               <Puzzle size={15} /> Builder activite
             </Link>
           </>
@@ -234,9 +234,6 @@ export default function AdminSubjectPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="m-0 text-[15px] font-black text-[#3f3f46]">Carte de contenu</h2>
-            <p className="m-0 mt-1 text-[12.5px] font-semibold text-[#a1a1aa]">
-              {contentStats.loadedTopicCount}/{topics.length} topics inspectés · {contentStats.loadedSections} sections · {loadedItems} items
-            </p>
           </div>
           {contentStats.topicErrorCount > 0 && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff7ed] px-3 py-1.5 text-[12px] font-black text-[#c2410c]">
@@ -245,9 +242,7 @@ export default function AdminSubjectPage() {
             </span>
           )}
         </div>
-        <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#f4f4f5]">
-          <div className="h-full rounded-full bg-[#5b60f9]" style={{ width: `${contentStats.loadedTopicCoverage}%` }} />
-        </div>
+        <AdminProgressBar value={contentStats.loadedTopicCoverage} className="mt-3 bg-[#f4f4f5]" />
         <div className="mt-3 flex flex-wrap gap-2">
           {contentStats.itemTypeEntries.length ? (
             contentStats.itemTypeEntries.map(([type, count]) => (
@@ -256,7 +251,7 @@ export default function AdminSubjectPage() {
               </span>
             ))
           ) : (
-            <span className="text-[12.5px] font-semibold text-[#a1a1aa]">Développez un topic pour voir la répartition des items.</span>
+            <span className="text-[12.5px] font-semibold text-[#a1a1aa]">-</span>
           )}
         </div>
       </section>
@@ -275,17 +270,17 @@ export default function AdminSubjectPage() {
                 type="button"
                 onClick={() => toggleTopic(topic.id)}
                 aria-expanded={isExpanded}
-                className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-[#fbfbfc]"
+                className="flex w-full items-center gap-3 px-5 py-4 text-left transition-[background-color,transform] duration-150 ease-out hover:bg-[#fbfbfc] active:scale-[0.96]"
               >
                 <GripVertical size={15} className="shrink-0 text-[#d4d4d8]" />
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-[#f0f0ff] text-[#5b60f9]">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
                   <BookOpen size={16} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] font-black text-[#3f3f46]">{topic.title}</span>
                   <span className="mt-0.5 block text-[12px] font-semibold text-[#a1a1aa]">Ordre {topic.order}</span>
                 </span>
-                {isLoadingTopic && <Loader2 size={15} className="shrink-0 animate-spin text-[#5b60f9]" />}
+                {isLoadingTopic && <Loader2 size={15} className="shrink-0 animate-spin motion-reduce:animate-none text-[color:var(--primary)]" />}
                 {isExpanded
                   ? <ChevronDown size={16} className="shrink-0 text-[#a1a1aa]" />
                   : <ChevronRight size={16} className="shrink-0 text-[#a1a1aa]" />}
@@ -295,7 +290,7 @@ export default function AdminSubjectPage() {
                 <div className="border-t border-[#f4f4f5]">
                   {isLoadingTopic ? (
                     <div className="flex justify-center py-6">
-                      <Loader2 size={18} className="animate-spin text-[#5b60f9]" />
+                      <Loader2 size={18} className="animate-spin motion-reduce:animate-none text-[color:var(--primary)]" />
                     </div>
                   ) : hasTopicSectionError ? (
                     <div className="flex flex-col items-center gap-3 px-5 py-8 text-center text-[13px] font-semibold text-[#71717b]">
@@ -304,7 +299,7 @@ export default function AdminSubjectPage() {
                       <button
                         type="button"
                         onClick={() => { void loadTopicSections(topic.id) }}
-                        className="rounded-[10px] border-[2px] border-[#e4e4e7] bg-white px-3 py-1.5 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+                        className="min-h-10 rounded-[10px] border-[2px] border-[#e4e4e7] bg-white px-3 py-1.5 text-[12px] font-black text-[#52525c] transition-[border-color,color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] active:scale-[0.96]"
                       >
                         Reessayer
                       </button>
@@ -334,12 +329,12 @@ export default function AdminSubjectPage() {
                             {item.is_free_preview && (
                               <span className="rounded-full bg-[#f0fdf4] px-2 py-0.5 text-[10px] font-black text-[#16a34a]">Apercu</span>
                             )}
-                            <Link href={`/topics/${topic.id}`} className="grid h-8 w-8 place-items-center rounded-[10px] text-[#a1a1aa] transition hover:bg-[#f4f4f5] hover:text-[#3f3f46]" title="Previsualiser" aria-label={`Previsualiser ${item.title}`}>
+                            <Link href={`/topics/${topic.id}`} className="grid h-10 w-10 place-items-center rounded-[10px] text-[#a1a1aa] transition-[background-color,color,transform] duration-150 ease-out hover:bg-[#f4f4f5] hover:text-[#3f3f46] active:scale-[0.96]" title="Previsualiser" aria-label={`Previsualiser ${item.title}`}>
                               <Eye size={14} />
                             </Link>
                             <Link
                               href={`/admin/courses/content?subjectId=${subjectId}&topicId=${topic.id}&itemId=${item.id}`}
-                              className="grid h-8 w-8 place-items-center rounded-[10px] text-[#5b60f9] transition hover:bg-[#f0f0ff]"
+                              className="grid h-10 w-10 place-items-center rounded-[10px] text-[color:var(--primary)] transition-[background-color,transform] duration-150 ease-out hover:bg-[color:var(--primary-soft)] active:scale-[0.96]"
                               title="Modifier le cours"
                               aria-label={`Modifier le cours ${item.title}`}
                             >
@@ -372,7 +367,6 @@ export default function AdminSubjectPage() {
 function StatTile({
   label,
   value,
-  hint,
   tone = 'default',
 }: {
   label: string
@@ -384,7 +378,6 @@ function StatTile({
     <div className={adminMetricTileClass}>
       <p className="m-0 text-[12px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]">{label}</p>
       <p className={`m-0 mt-2 text-[24px] font-black leading-none ${tone === 'warn' ? 'text-[#f5900b]' : 'text-[#3f3f46]'}`}>{value}</p>
-      <p className="m-0 mt-1 text-[12px] font-bold text-[#a1a1aa]">{hint}</p>
     </div>
   )
 }

@@ -5,36 +5,26 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AdminFinancePage from '@/app/admin/finance/page'
+import AdminFinanceExpensesPage from '@/app/admin/finance/expenses/page'
+import AdminFinanceRevenuePage from '@/app/admin/finance/revenue/page'
 
 const mocks = vi.hoisted(() => ({
-  listManualPaymentTransactions: vi.fn(),
-  listFinanceLedgerEntries: vi.fn(),
-  listPaymentProviderEvents: vi.fn(),
-  listManualPaymentReconciliationImports: vi.fn(),
-  approveManualPaymentTransaction: vi.fn(),
-  rejectManualPaymentTransaction: vi.fn(),
-  reconcileManualPaymentTransaction: vi.fn(),
-  importManualPaymentReconciliation: vi.fn(),
-  parseManualPaymentImportRows: vi.fn(),
+  getJson: vi.fn(),
+  postJson: vi.fn(),
+  putJson: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }))
 
-vi.mock('@/lib/adminFinance', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/adminFinance')>()
-  return {
-    ...actual,
-    listManualPaymentTransactions: mocks.listManualPaymentTransactions,
-    listFinanceLedgerEntries: mocks.listFinanceLedgerEntries,
-    listPaymentProviderEvents: mocks.listPaymentProviderEvents,
-    listManualPaymentReconciliationImports: mocks.listManualPaymentReconciliationImports,
-    approveManualPaymentTransaction: mocks.approveManualPaymentTransaction,
-    rejectManualPaymentTransaction: mocks.rejectManualPaymentTransaction,
-    reconcileManualPaymentTransaction: mocks.reconcileManualPaymentTransaction,
-    importManualPaymentReconciliation: mocks.importManualPaymentReconciliation,
-    parseManualPaymentImportRows: mocks.parseManualPaymentImportRows,
-  }
-})
+vi.mock('@/lib/apiClient', () => ({
+  apiJsonClient: {
+    get: async (path: string) => ({ data: await mocks.getJson(path) }),
+    post: async (path: string, body: unknown) => ({ data: await mocks.postJson(path, body) }),
+  },
+  getJson: mocks.getJson,
+  postJson: mocks.postJson,
+  putJson: mocks.putJson,
+}))
 
 vi.mock('sonner', () => ({
   toast: {
@@ -51,73 +41,18 @@ beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
   mountedRoot = null
-  mocks.listManualPaymentTransactions.mockResolvedValue([
-    {
-      id: 42,
-      user_id: 9,
-      provider: 'cashplus',
-      payment_method: 'cashplus',
-      status: 'pending_manual_review',
-      plan: 'pro',
-      amount_centimes: 9900,
-      currency: 'MAD',
-      reference_code: 'KRESCO-CASH-42',
-      provider_reference: null,
-      instructions: {},
-      created_at: '2026-06-15T00:00:00Z',
-      updated_at: '2026-06-15T00:00:00Z',
-      expires_at: null,
-      confirmed_at: null,
-      metadata: { proofs: [{ provider_reference: 'CASH-REF-42' }] },
-    },
-  ])
-  mocks.listFinanceLedgerEntries.mockResolvedValue([
-    {
-      id: 101,
-      transaction_id: 42,
-      user_id: 9,
-      entry_type: 'payment_confirmed',
-      amount_centimes: 9900,
-      currency: 'MAD',
-      reason: 'Finance confirmation',
-      metadata: { actor_user_id: 1 },
-      created_at: '2026-06-15T00:01:00Z',
-    },
-  ])
-  mocks.listPaymentProviderEvents.mockResolvedValue([
-    {
-      id: 201,
-      transaction_id: 42,
-      provider: 'cashplus',
-      event_id: 'manual-approval-42',
-      event_type: 'manual.approved',
-      status: 'failed',
-      payload: { reason: 'Finance confirmation' },
-      received_at: '2026-06-15T00:01:00Z',
-      processed_at: '2026-06-15T00:01:00Z',
-    },
-  ])
-  mocks.listManualPaymentReconciliationImports.mockResolvedValue([
-    {
-      id: 301,
-      provider: 'bank_transfer',
-      payment_method: 'bank_transfer',
-      source_name: 'bank-report-2026-06',
-      status: 'processed',
-      row_count: 2,
-      matched_count: 1,
-      mismatch_count: 1,
-      unmatched_count: 1,
-      duplicate_count: 0,
-      error_count: 0,
-      created_by_user_id: 1,
-      created_at: '2026-06-15T00:01:00Z',
-    },
-  ])
-  vi.stubGlobal('URL', {
-    createObjectURL: vi.fn(() => 'blob:finance-audit'),
-    revokeObjectURL: vi.fn(),
+  mocks.getJson.mockImplementation(async (path: string) => {
+    if (path.startsWith('/admin/founder-dashboard')) return founderDashboardFixture
+    if (path === '/payments/manual-payment-requests?status=pending_manual_review&limit=50') return [manualPaymentFixture]
+    throw new Error(`Unexpected GET ${path}`)
   })
+  mocks.postJson.mockImplementation(async (path: string, input: Record<string, unknown>) => {
+    if (path === '/admin/finance/expenses') return { id: 901, ...input, currency: 'MAD', created_at: '2026-06-20T12:00:00Z', updated_at: '2026-06-20T12:00:00Z' }
+    if (path === '/payments/manual-payment-requests/99/approve') return { ...manualPaymentFixture, status: 'paid' }
+    if (path === '/payments/manual-payment-requests/99/reject') return { ...manualPaymentFixture, status: 'failed' }
+    throw new Error(`Unexpected POST ${path}`)
+  })
+  mocks.putJson.mockResolvedValue({})
 })
 
 afterEach(() => {
@@ -128,352 +63,134 @@ afterEach(() => {
     mountedRoot.container.remove()
   }
   mountedRoot = null
-  vi.unstubAllGlobals()
 })
 
 describe('AdminFinancePage', () => {
-  it('loads the manual payment queue and approves a pending transaction', async () => {
-    mocks.approveManualPaymentTransaction.mockResolvedValue({
-      id: 42,
-      user_id: 9,
-      provider: 'cashplus',
-      payment_method: 'cashplus',
-      status: 'paid',
-      plan: 'pro',
-      amount_centimes: 9900,
-      currency: 'MAD',
-      reference_code: 'KRESCO-CASH-42',
-      provider_reference: 'CASH-REF-42',
-      instructions: {},
-      created_at: '2026-06-15T00:00:00Z',
-      updated_at: '2026-06-15T00:01:00Z',
-      expires_at: null,
-      confirmed_at: '2026-06-15T00:01:00Z',
-      metadata: {},
-    })
-
+  it('renders founder finance metrics, charts, and manual payment review', async () => {
     const { container } = renderPage()
 
     await waitFor(() => {
-      expect(container.textContent).toContain('KRESCO-CASH-42')
-      expect(container.textContent).toContain('Payment status')
-      expect(container.textContent).toContain('Rail mix')
-      expect(container.textContent).toContain('Audit health')
-      expect(container.textContent).toContain('Provider failed')
-      expect(container.textContent).toContain('Import mismatch')
-      expect(container.textContent).toContain('Unmatched')
-      expect(container.textContent).toContain('Paid revenue')
-      expect(container.textContent).toContain('proofs: 1')
-      expect(container.textContent).toContain('Finance audit trail')
-      expect(container.textContent).toContain('payment_confirmed')
-      expect(container.textContent).toContain('manual.approved')
-      expect(container.textContent).toContain('bank-report-2026-06')
+      expect(container.textContent).toContain('Finance')
+      expect(container.textContent).toContain('Overview')
+      expect(container.textContent).toContain('Payment review')
+      expect(container.textContent).toContain('KRESCO-BANK-99')
+      expect(container.textContent).toContain('BANK-REF-99')
+      expect(container.textContent).toContain('9,900.00 MAD')
+      expect(container.textContent).toContain('1,980.00 MAD')
+      expect(container.textContent).not.toContain('Staff payments')
+      expect(container.textContent).not.toContain('Expense')
+      expect(container.textContent).not.toContain('Code template')
+      expect(container.textContent).not.toContain('Template #')
+      expect(container.textContent).not.toContain('Package')
+      expect(container.textContent).not.toContain('Staff allowances')
+      expect(container.textContent).not.toContain('Allowed package IDs')
+    })
+
+    expect(mocks.getJson).toHaveBeenCalledWith(expect.stringMatching(/^\/admin\/founder-dashboard\?month=\d{4}-\d{2}$/))
+    expect(mocks.getJson).toHaveBeenCalledWith('/payments/manual-payment-requests?status=pending_manual_review&limit=50')
+    expect(mocks.getJson).not.toHaveBeenCalledWith('/admin/staff-payment-requests?limit=100')
+    expect(mocks.getJson).not.toHaveBeenCalledWith('/admin/staff-payment-profiles?limit=100')
+    expect(mocks.getJson).not.toHaveBeenCalledWith('/admin/redemption-templates?include_archived=false')
+  })
+
+  it('approves pending manual payments from the finance workspace', async () => {
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('KRESCO-BANK-99')
     })
 
     await clickButton(container, 'Approve')
 
-    expect(mocks.approveManualPaymentTransaction).toHaveBeenCalledWith(
-      undefined,
-      42,
-      { reason: 'Finance confirmation' },
-    )
-    await waitFor(() => {
-      expect(container.textContent).not.toContain('KRESCO-CASH-42')
-      expect(container.textContent).toContain('No manual payments in this filter.')
+    expect(mocks.postJson).toHaveBeenCalledWith('/payments/manual-payment-requests/99/approve', {
+      reason: 'Confirmed from founder finance workspace.',
     })
-    expect(mocks.toastSuccess).toHaveBeenCalledWith('Payment approved.')
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Manual payment KRESCO-BANK-99 approved.')
   })
 
-  it('loads transaction-scoped audit rows and exports loaded CSV', async () => {
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
-    const { container } = renderPage()
+  it('submits expenses through founder ops APIs', async () => {
+    const { container } = renderPage('expenses')
 
     await waitFor(() => {
-      expect(container.textContent).toContain('KRESCO-CASH-42')
+      expect(container.textContent).toContain('Expense')
+      expect(container.textContent).toContain('Expenses')
+      expect(container.textContent).toContain('Vercel')
+      expect(container.textContent).not.toContain('Package')
     })
 
-    await clickButton(container, 'Audit trail')
-    await waitFor(() => {
-      expect(mocks.listFinanceLedgerEntries).toHaveBeenLastCalledWith(undefined, 25, 42)
-      expect(mocks.listPaymentProviderEvents).toHaveBeenLastCalledWith(undefined, 25, 42)
-      expect(container.textContent).toContain('Scoped to transaction #42')
-      expect(mocks.listManualPaymentReconciliationImports).toHaveBeenCalledTimes(1)
-      expect(container.textContent).not.toContain('bank-report-2026-06')
-    })
+    await setField(container, 'Expense amount in MAD', '123.45')
+    await setField(container, 'Expense vendor', 'OpenAI')
+    await setField(container, 'Expense description', 'AI tutoring credits')
+    await clickButton(container, 'Add expense')
 
-    await clickButton(container, 'CSV')
-
-    expect(URL.createObjectURL).toHaveBeenCalled()
-    expect(clickSpy).toHaveBeenCalled()
-    clickSpy.mockRestore()
-  })
-
-  it('ignores stale all-audit responses after selecting a transaction scope', async () => {
-    const globalLedger = deferred<unknown[]>()
-    const globalEvents = deferred<unknown[]>()
-    mocks.listFinanceLedgerEntries
-      .mockReturnValueOnce(globalLedger.promise)
-      .mockResolvedValueOnce([
-        {
-          id: 102,
-          transaction_id: 42,
-          user_id: 9,
-          entry_type: 'scoped_payment_confirmed',
-          amount_centimes: 9900,
-          currency: 'MAD',
-          reason: 'Scoped row',
-          metadata: {},
-          created_at: '2026-06-15T00:01:00Z',
-        },
-      ])
-    mocks.listPaymentProviderEvents
-      .mockReturnValueOnce(globalEvents.promise)
-      .mockResolvedValueOnce([
-        {
-          id: 202,
-          transaction_id: 42,
-          provider: 'cashplus',
-          event_id: 'scoped-event',
-          event_type: 'scoped.manual.approved',
-          status: 'processed',
-          payload: {},
-          received_at: '2026-06-15T00:01:00Z',
-          processed_at: '2026-06-15T00:01:00Z',
-        },
-      ])
-
-    const { container } = renderPage()
-    await waitFor(() => {
-      expect(container.textContent).toContain('KRESCO-CASH-42')
-    })
-
-    await clickButton(container, 'Audit trail')
-    await waitFor(() => {
-      expect(container.textContent).toContain('scoped_payment_confirmed')
-      expect(container.textContent).toContain('scoped.manual.approved')
-      expect(container.textContent).toContain('Scoped to transaction #42')
-    })
-
-    await act(async () => {
-      globalLedger.resolve([
-        {
-          id: 103,
-          transaction_id: null,
-          user_id: null,
-          entry_type: 'global_stale_entry',
-          amount_centimes: 0,
-          currency: 'MAD',
-          reason: 'Stale row',
-          metadata: {},
-          created_at: '2026-06-15T00:00:00Z',
-        },
-      ])
-      globalEvents.resolve([
-        {
-          id: 203,
-          transaction_id: null,
-          provider: 'bank_transfer',
-          event_id: 'global-stale-event',
-          event_type: 'global.stale.event',
-          status: 'processed',
-          payload: {},
-          received_at: '2026-06-15T00:00:00Z',
-          processed_at: '2026-06-15T00:00:00Z',
-        },
-      ])
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-
-    expect(container.textContent).toContain('scoped_payment_confirmed')
-    expect(container.textContent).not.toContain('global_stale_entry')
-    expect(container.textContent).not.toContain('global.stale.event')
-  })
-
-  it('keeps review reasons scoped to the selected payment card', async () => {
-    mocks.listManualPaymentTransactions.mockResolvedValue([
-      {
-        id: 42,
-        user_id: 9,
-        provider: 'cashplus',
-        payment_method: 'cashplus',
-        status: 'pending_manual_review',
-        plan: 'pro',
-        amount_centimes: 9900,
-        currency: 'MAD',
-        reference_code: 'KRESCO-CASH-42',
-        provider_reference: null,
-        instructions: {},
-        created_at: '2026-06-15T00:00:00Z',
-        updated_at: '2026-06-15T00:00:00Z',
-        expires_at: null,
-        confirmed_at: null,
-        metadata: {},
-      },
-      {
-        id: 43,
-        user_id: 10,
-        provider: 'cashplus',
-        payment_method: 'cashplus',
-        status: 'pending_manual_review',
-        plan: 'pro',
-        amount_centimes: 9900,
-        currency: 'MAD',
-        reference_code: 'KRESCO-CASH-43',
-        provider_reference: null,
-        instructions: {},
-        created_at: '2026-06-15T00:00:00Z',
-        updated_at: '2026-06-15T00:00:00Z',
-        expires_at: null,
-        confirmed_at: null,
-        metadata: {},
-      },
-    ])
-    mocks.approveManualPaymentTransaction.mockResolvedValue({
-      id: 43,
-      user_id: 10,
-      provider: 'cashplus',
-      payment_method: 'cashplus',
+    expect(mocks.postJson).toHaveBeenCalledWith('/admin/finance/expenses', expect.objectContaining({
+      amount_centimes: 12345,
+      category: 'hosting',
+      description: 'AI tutoring credits',
+      source: 'manual',
       status: 'paid',
-      plan: 'pro',
-      amount_centimes: 9900,
-      currency: 'MAD',
-      reference_code: 'KRESCO-CASH-43',
-      provider_reference: 'CASH-43',
-      instructions: {},
-      created_at: '2026-06-15T00:00:00Z',
-      updated_at: '2026-06-15T00:01:00Z',
-      expires_at: null,
-      confirmed_at: '2026-06-15T00:01:00Z',
-      metadata: {},
-    })
+      vendor: 'OpenAI',
+    }))
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('Expense added.')
+    expect(mocks.postJson).not.toHaveBeenCalledWith('/admin/redemption-templates', expect.anything())
+  })
 
-    const { container } = renderPage()
+  it('keeps the revenue deep-dive focused on finance data', async () => {
+    const { container } = renderPage('revenue')
+
     await waitFor(() => {
-      expect(container.textContent).toContain('KRESCO-CASH-43')
-    })
-
-    setInputValue(container, 'input[aria-label="Review reason for KRESCO-CASH-42"]', 'wrong receipt')
-    setInputValue(container, 'input[aria-label="Review reason for KRESCO-CASH-43"]', 'confirmed cashplus batch')
-    await clickButtonInCard(container, 'KRESCO-CASH-43', 'Approve')
-
-    expect(mocks.approveManualPaymentTransaction).toHaveBeenCalledWith(
-      undefined,
-      43,
-      { reason: 'confirmed cashplus batch' },
-    )
-    await waitFor(() => {
-      expect(container.textContent).toContain('KRESCO-CASH-42')
-      expect(container.textContent).not.toContain('KRESCO-CASH-43')
+      expect(container.textContent).toContain('Revenue')
+      expect(container.textContent).toContain('Revenue mix')
+      expect(container.textContent).toContain('Payment review')
+      expect(container.textContent).not.toContain('Staff payments')
+      expect(container.textContent).not.toContain('Code template')
+      expect(container.textContent).not.toContain('Expense')
     })
   })
 
-  it('submits single reconciliation and normalized import rows', async () => {
-    mocks.reconcileManualPaymentTransaction.mockResolvedValue({
-      id: 50,
-      user_id: 10,
-      provider: 'bank_transfer',
-      payment_method: 'bank_transfer',
-      status: 'paid',
-      plan: 'pro',
-      amount_centimes: 9900,
-      currency: 'MAD',
-      reference_code: 'KRESCO-BANK-50',
-      provider_reference: 'BANK-50',
-      instructions: {},
-      created_at: '2026-06-15T00:00:00Z',
-      updated_at: '2026-06-15T00:01:00Z',
-      expires_at: null,
-      confirmed_at: '2026-06-15T00:01:00Z',
-      metadata: {},
-    })
-    mocks.parseManualPaymentImportRows.mockReturnValue([
-      { reference_code: 'KRESCO-BANK-51', amount_centimes: 9900, provider_reference: 'BANK-51' },
-    ])
-    mocks.importManualPaymentReconciliation.mockResolvedValue({
-      matched_count: 1,
-      mismatch_count: 0,
-      unmatched_count: 0,
-      duplicate_count: 0,
-      rows: [],
-    })
-
-    const { container } = renderPage()
-    await waitFor(() => {
-      expect(container.textContent).toContain('KRESCO-CASH-42')
-    })
-
-    setInputValue(container, 'input[placeholder="KRESCO-BANK-..."]', 'KRESCO-BANK-50')
-    setInputValue(container, 'input[placeholder="Bank/Cash receipt ref"]', 'BANK-50')
-    await clickButton(container, 'Reconcile payment')
-
-    expect(mocks.reconcileManualPaymentTransaction).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        payment_method: 'bank_transfer',
-        reference_code: 'KRESCO-BANK-50',
-        amount_centimes: 9900,
-        provider_reference: 'BANK-50',
-      }),
-    )
-
-    setInputValue(container, 'textarea', '[{"reference_code":"KRESCO-BANK-51","amount_centimes":9900,"provider_reference":"BANK-51"}]')
-    await clickButton(container, 'Import rows')
-
-    expect(mocks.parseManualPaymentImportRows).toHaveBeenCalled()
-    expect(mocks.importManualPaymentReconciliation).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        payment_method: 'bank_transfer',
-        rows: [{ reference_code: 'KRESCO-BANK-51', amount_centimes: 9900, provider_reference: 'BANK-51' }],
-      }),
-    )
-    await waitFor(() => {
-      expect(container.textContent).toContain('1 matched, 0 mismatched, 0 unmatched, 0 duplicate.')
-    })
-  })
 })
 
-function renderPage() {
+function renderPage(view?: 'overview' | 'expenses' | 'revenue') {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
   mountedRoot = { root, container }
+  const Component = view === 'expenses'
+    ? AdminFinanceExpensesPage
+    : view === 'revenue'
+      ? AdminFinanceRevenuePage
+      : AdminFinancePage
 
   act(() => {
-    root.render(React.createElement(AdminFinancePage))
+    root.render(React.createElement(Component))
   })
 
   return { container, root }
 }
 
-function setInputValue(container: HTMLElement, selector: string, value: string) {
-  const input = container.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | null
-  if (!input) throw new Error(`input not found: ${selector}`)
-  const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
-  const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
-  act(() => {
-    valueSetter?.call(input, value)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+async function setField(container: HTMLElement, label: string, value: string) {
+  const field = container.querySelector(`[aria-label="${label}"]`) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
+  expect(field, `missing field ${label}`).not.toBeNull()
+  const prototype = field instanceof HTMLTextAreaElement
+    ? window.HTMLTextAreaElement.prototype
+    : field instanceof HTMLSelectElement
+      ? window.HTMLSelectElement.prototype
+      : window.HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
+  await act(async () => {
+    setter?.call(field, value)
+    field?.dispatchEvent(new Event('input', { bubbles: true }))
+    field?.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
   })
 }
 
-async function clickButton(container: HTMLElement, name: string) {
-  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes(name))
-  if (!button) throw new Error(`button not found: ${name}`)
+async function clickButton(container: HTMLElement, text: string) {
+  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes(text))
+  expect(button, `missing button ${text}`).toBeTruthy()
   await act(async () => {
-    button.click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  })
-}
-
-async function clickButtonInCard(container: HTMLElement, referenceCode: string, name: string) {
-  const card = Array.from(container.querySelectorAll('article')).find((item) => item.textContent?.includes(referenceCode))
-  if (!card) throw new Error(`card not found: ${referenceCode}`)
-  const button = Array.from(card.querySelectorAll('button')).find((item) => item.textContent?.includes(name))
-  if (!button) throw new Error(`button not found: ${name}`)
-  await act(async () => {
-    button.click()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
   })
 }
 
@@ -486,19 +203,101 @@ async function waitFor(assertion: () => void) {
     } catch (error) {
       lastError = error
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        await flushPromises()
       })
     }
   }
   throw lastError
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((promiseResolve, promiseReject) => {
-    resolve = promiseResolve
-    reject = promiseReject
-  })
-  return { promise, resolve, reject }
+async function flushPromises() {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+const founderDashboardFixture = {
+  generated_at: '2026-06-20T10:00:00Z',
+  month: '2026-06',
+  metrics: [],
+  growth_by_day: [],
+  students_by_status: {},
+  students_by_tier: {},
+  students_by_track: {},
+  finance: {
+    paid_revenue_centimes: 990000,
+    previous_paid_revenue_centimes: 850000,
+    staff_collected_revenue_centimes: 198000,
+    staff_redeemed_revenue_centimes: 198000,
+    expenses_centimes: 50000,
+    open_refunds_centimes: 0,
+    profit_centimes: 940000,
+    mrr_centimes: 990000,
+    arr_centimes: 11880000,
+    paid_users: 12,
+    active_entitlements: 12,
+    expenses_by_category: { hosting: 50000 },
+    revenue_by_rail: { cashplus: 240000, cmi: 750000 },
+    revenue_by_plan: { pro: 990000 },
+  },
+  engagement: {
+    active_students_7d: 0,
+    video_events_month: 0,
+    approx_video_watch_minutes: 0,
+    live_sessions_month: 0,
+    live_joined_students_month: 0,
+    live_questions_month: 0,
+    quiz_attempts_month: 0,
+    total_xp: 0,
+    ai_quota_units_month: 0,
+  },
+  messages: {
+    private_conversations: 0,
+    private_messages_month: 0,
+    unread_for_professors: 0,
+    professors_with_chats: 0,
+  },
+  staff_codes: {
+    generated_month: 20,
+    redeemed_month: 8,
+    unused_total: 12,
+    collected_staff_revenue_centimes: 198000,
+    redeemed_staff_revenue_centimes: 198000,
+  },
+  expenses: [
+    {
+      id: 501,
+      expense_month: '2026-06',
+      expense_date: '2026-06-18',
+      category: 'hosting',
+      vendor: 'Vercel',
+      description: 'Frontend hosting',
+      amount_centimes: 50000,
+      currency: 'MAD',
+      source: 'manual',
+      status: 'paid',
+      created_by_user_id: 1,
+      metadata: {},
+      created_at: '2026-06-18T12:00:00Z',
+      updated_at: '2026-06-18T12:00:00Z',
+    },
+  ],
+}
+
+const manualPaymentFixture = {
+  id: 99,
+  user_id: 44,
+  provider: 'manual',
+  payment_method: 'bank_transfer',
+  status: 'pending_manual_review',
+  plan: 'pro',
+  amount_centimes: 9900,
+  currency: 'MAD',
+  reference_code: 'KRESCO-BANK-99',
+  provider_reference: 'BANK-REF-99',
+  instructions: {},
+  metadata: {},
+  created_at: '2026-06-19T10:00:00Z',
+  updated_at: '2026-06-19T10:00:00Z',
+  expires_at: null,
+  confirmed_at: null,
 }
