@@ -9,11 +9,13 @@ import {
   type FigmaProfileStats,
   type FigmaProfileSubject,
   type FigmaProfileXP,
-  type PermanentSidebarCalendarDay,
-  type PermanentSidebarCountdownUnit,
-  type PermanentSidebarLeaderboardEntry,
-  type PermanentSidebarLiveEvent,
-} from '@/components/figma'
+} from '@/lib/profileViewModel'
+import type {
+  PermanentSidebarCalendarDay,
+  PermanentSidebarCountdownUnit,
+  PermanentSidebarLeaderboardEntry,
+  PermanentSidebarLiveEvent,
+} from '@/lib/permanentSidebarViewModel'
 
 export const PROFILE_ME_KEY = '/profile/me'
 export const PROFILE_XP_KEY = '/progress/xp'

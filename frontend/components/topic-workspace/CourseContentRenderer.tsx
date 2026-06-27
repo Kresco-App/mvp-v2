@@ -1,262 +1,45 @@
 'use client'
 
-import { Component, type ReactNode } from 'react'
+import { Component, memo, type ReactNode } from 'react'
+import dynamic from 'next/dynamic'
 import Image from 'next/image'
-import { AnimatedContentRenderer } from '@/components/animated/registry'
-import { Latex } from '@/components/animated/shared/Latex'
-import type { AnimatedJsonValue, AnimatedLessonConfig } from '@/components/animated/types'
+import type { AnimatedLessonConfig, AnimatedRendererProps } from '@/components/animated/types'
+import { useNearViewport } from '@/hooks/useNearViewport'
+import {
+  isAllowedCourseComponentKey as isAllowedCourseComponentKeyFromDocument,
+  normalizeCourseComponentKey as normalizeCourseComponentKeyFromDocument,
+  type CourseBlockDisplay,
+  type CourseBlockTone,
+  type CourseCalloutBlock,
+  type CourseCalloutVariant,
+  type CourseCardsBlock,
+  type CourseCodeBlock,
+  type CourseComparisonBlock,
+  type CourseComponentBlock,
+  type CourseContentBlock,
+  type CourseDefinitionBlock,
+  type CourseDocument,
+  type CourseEquationSetBlock,
+  type CourseFormulaBlock,
+  type CourseHeadingBlock,
+  type CourseImageBlock,
+  type CourseKeyValueGridBlock,
+  type CourseListBlock,
+  type CourseParagraphBlock,
+  type CoursePropertyBlock,
+  type CourseQuoteBlock,
+  type CourseStepsBlock,
+  type CourseTableBlock,
+  type CourseTimelineBlock,
+} from '@/lib/courseContentDocument'
 
-type CourseBlockDisplay = 'inline' | 'panel' | 'full_width' | 'compact' | 'hero' | 'boxed'
-type CourseBlockTone = 'neutral' | 'purple' | 'blue' | 'green' | 'amber' | 'red' | 'slate'
-type CourseCalloutVariant = 'tip' | 'warning' | 'success' | 'info' | 'exam'
-type CourseListStyle = 'bullet' | 'numbered' | 'check'
-type CourseQuoteVariant = 'plain' | 'accent' | 'source'
-
-type CourseBlockBase = {
-  id: string
-  type: string
-  display?: CourseBlockDisplay
-  tone?: CourseBlockTone
-}
-
-export type CourseHeadingBlock = CourseBlockBase & {
-  type: 'heading'
-  text: string
-  level?: 2 | 3 | 4
-}
-
-export type CourseParagraphBlock = CourseBlockBase & {
-  type: 'paragraph'
-  text: string
-}
-
-export type CourseDefinitionBlock = CourseBlockBase & {
-  type: 'definition'
-  title: string
-  body: string
-}
-
-export type CoursePropertyBlock = CourseBlockBase & {
-  type: 'property'
-  title: string
-  body: string
-}
-
-export type CourseFormulaBlock = CourseBlockBase & {
-  type: 'formula'
-  latex: string
-  caption?: string
-}
-
-export type CourseCalloutBlock = CourseBlockBase & {
-  type: 'callout'
-  title?: string
-  body: string
-  variant?: CourseCalloutVariant
-}
-
-export type CourseDividerBlock = CourseBlockBase & {
-  type: 'divider'
-}
-
-export type CourseComponentBlock = CourseBlockBase & {
-  type: 'component'
-  key: string
-  title?: string
-  description?: string
-  props?: Record<string, AnimatedJsonValue>
-}
-
-export type CourseImageBlock = CourseBlockBase & {
-  type: 'image'
-  src?: string
-  asset_key?: string
-  alt: string
-  caption?: string
-}
-
-export type CourseCardsBlock = CourseBlockBase & {
-  type: 'cards'
-  layout?: 'one_column' | 'two_column' | 'three_column'
-  items: Array<{
-    id?: string
-    title: string
-    body: string
-    tone?: CourseBlockTone
-  }>
-}
-
-export type CourseComparisonBlock = CourseBlockBase & {
-  type: 'comparison'
-  columns: Array<{
-    id?: string
-    title: string
-    body: string
-    tone?: CourseBlockTone
-  }>
-}
-
-export type CourseStepsBlock = CourseBlockBase & {
-  type: 'steps'
-  steps: Array<{
-    id?: string
-    title: string
-    body: string
-  }>
-}
-
-export type CourseListBlock = CourseBlockBase & {
-  type: 'list'
-  title?: string
-  style?: CourseListStyle
-  items: Array<{
-    id?: string
-    text: string
-  }>
-}
-
-export type CourseTableBlock = CourseBlockBase & {
-  type: 'table'
-  title?: string
-  columns: string[]
-  rows: string[][]
-}
-
-export type CourseTimelineBlock = CourseBlockBase & {
-  type: 'timeline'
-  title?: string
-  items: Array<{
-    id?: string
-    marker?: string
-    title: string
-    body: string
-  }>
-}
-
-export type CourseEquationSetBlock = CourseBlockBase & {
-  type: 'equation_set'
-  title?: string
-  equations: Array<{
-    id?: string
-    label?: string
-    latex: string
-    caption?: string
-  }>
-}
-
-export type CourseQuoteBlock = CourseBlockBase & {
-  type: 'quote'
-  body: string
-  cite?: string
-  variant?: CourseQuoteVariant
-}
-
-export type CourseKeyValueGridBlock = CourseBlockBase & {
-  type: 'key_value_grid'
-  columns?: 2 | 3
-  items: Array<{
-    id?: string
-    label: string
-    value: string
-    caption?: string
-    tone?: CourseBlockTone
-  }>
-}
-
-export type CourseCodeBlock = CourseBlockBase & {
-  type: 'code'
-  language?: string
-  filename?: string
-  code: string
-  caption?: string
-}
-
-export type CourseContentBlock =
-  | CourseHeadingBlock
-  | CourseParagraphBlock
-  | CourseDefinitionBlock
-  | CoursePropertyBlock
-  | CourseFormulaBlock
-  | CourseCalloutBlock
-  | CourseDividerBlock
-  | CourseComponentBlock
-  | CourseImageBlock
-  | CourseCardsBlock
-  | CourseComparisonBlock
-  | CourseStepsBlock
-  | CourseListBlock
-  | CourseTableBlock
-  | CourseTimelineBlock
-  | CourseEquationSetBlock
-  | CourseQuoteBlock
-  | CourseKeyValueGridBlock
-  | CourseCodeBlock
-
-export type CourseDocument = {
-  id?: string
-  schema_version?: number
-  blocks: CourseContentBlock[]
-}
-
-const allowedCourseComponentKeys = new Set([
-  'animated_lesson',
-  'structured_lesson',
-  'interactive_component',
-  'wave_periodicity',
-  'periodicite_interactive_course',
-  'nucleus_composition',
-  'nucleus_composition_interactive_course',
-  'atom_composition',
-  'nucleus_builder',
-  'isotope_comparator',
-  'stability_graph',
-  'decay_simulator',
-  'decay_law_graph',
-  'decay_diagrams',
-  'half_life_explanation',
-  'formula_summary',
-  'radioactivity_visualizer',
-  'radioactivity_formulas',
-  'tau_demonstration',
-  'soddy_law_demonstrator',
-  'particle_identification_method',
-  'mass_energy_scale',
-  'mass_energy_demonstration',
-  'aston_curve',
-  'fission_fusion_animator',
-  'nuclear_formulas',
-  'nucleus_stability_explorer',
-  'wave_source_simulator',
-  'wave_simulator_source',
-  'rope_wave_simulator',
-  'sound_wave_simulator',
-  'superposition_simulator',
-  'time_delay_simulator',
-  'periodic_wave_simulator',
-  'stroboscope_simulator',
-  'wave_periodic_formulas',
-  'light_diffraction_simulator',
-  'diffraction_simulator',
-  'prism_simulator',
-  'light_formulas',
-  'kinetics_course',
-  'progress_table',
-  'distribution_chart',
-  'ph_scale',
-  'predominance',
-  'titration_curve',
-  'indicator_simulator',
-  'interactive_water',
-  'chimie_formulas',
-  'sets_inclusion',
-  'sets_inclusion_animation',
-  'variations',
-  'variations_animation',
-  'pascal_triangle_animation',
-  'function_explorer',
-  'rc_formulas',
-  'capacitor_association',
-])
+export {
+  courseDocumentFromConfig,
+  hasCourseDocument,
+  isAllowedCourseComponentKey,
+  normalizeCourseComponentKey,
+} from '@/lib/courseContentDocument'
+export type { CourseContentBlock, CourseDocument } from '@/lib/courseContentDocument'
 
 const toneClasses: Record<CourseBlockTone, string> = {
   neutral: 'border-[#e4e4e7] bg-white text-[#3f3f46]',
@@ -275,32 +58,21 @@ const calloutToneByVariant: Record<CourseCalloutVariant, CourseBlockTone> = {
   info: 'blue',
   exam: 'purple',
 }
+const EAGER_COURSE_BLOCK_COUNT = 4
+const COURSE_BLOCK_ROOT_MARGIN = '900px'
+const courseBlockContainmentClass = '[content-visibility:auto] [contain-intrinsic-size:auto_240px]'
+const Latex = dynamic(
+  () => import('@/components/animated/shared/Latex').then((module) => module.Latex),
+  { ssr: false },
+)
 
-export function courseDocumentFromConfig(config: unknown): CourseDocument | null {
-  const direct = courseDocumentFromRecord(config)
-  if (direct) return direct
-
-  if (!isRecord(config)) return null
-
-  return (
-    courseDocumentFromRecord(config.course) ??
-    courseDocumentFromRecord(config.course_document) ??
-    null
-  )
-}
-
-export function hasCourseDocument(config: unknown) {
-  return Boolean(courseDocumentFromConfig(config))
-}
-
-export function normalizeCourseComponentKey(value: unknown) {
-  if (typeof value !== 'string') return ''
-  return value.trim().toLowerCase().replace(/[\s-]+/g, '_')
-}
-
-export function isAllowedCourseComponentKey(value: unknown) {
-  return allowedCourseComponentKeys.has(normalizeCourseComponentKey(value))
-}
+const DeferredAnimatedContentRenderer = dynamic<AnimatedRendererProps>(
+  () => import('@/components/animated/registry').then((module) => module.AnimatedContentRenderer),
+  {
+    ssr: false,
+    loading: () => <CourseComponentLoading />,
+  },
+)
 
 export function CourseContentRenderer({
   document,
@@ -321,28 +93,61 @@ export function CourseContentRenderer({
   return (
     <div className={`grid w-full max-w-[1057px] gap-6 ${className}`} data-course-content-document={document.id ?? ''}>
       {document.blocks.map((block, index) => (
-        <CourseBlockRenderer block={block} key={block.id || `${block.type}-${index}`} />
+        <CourseBlockFrame block={block} eager={index < EAGER_COURSE_BLOCK_COUNT} key={block.id || `${block.type}-${index}`} />
       ))}
     </div>
   )
 }
 
-function courseDocumentFromRecord(value: unknown): CourseDocument | null {
-  if (!isRecord(value)) return null
+const CourseBlockFrame = memo(function CourseBlockFrame({
+  block,
+  eager,
+}: {
+  block: CourseContentBlock
+  eager: boolean
+}) {
+  const { nearViewport, ref } = useNearViewport<HTMLDivElement>({ rootMargin: COURSE_BLOCK_ROOT_MARGIN })
+  const shouldRenderBlock = eager || nearViewport
 
-  const rawBlocks = Array.isArray(value.blocks)
-    ? value.blocks
-    : Array.isArray(value.course_blocks)
-      ? value.course_blocks
-      : null
+  return (
+    <div ref={ref} className={`min-w-0 ${courseBlockContainmentClass}`} data-course-block-type={block.type}>
+      {shouldRenderBlock ? (
+        <CourseBlockRenderer block={block} />
+      ) : (
+        <div
+          aria-hidden="true"
+          data-course-block-placeholder
+          style={{ minHeight: courseBlockPlaceholderHeight(block) }}
+        />
+      )}
+    </div>
+  )
+})
 
-  if (!rawBlocks) return null
+function courseBlockPlaceholderHeight(block: CourseContentBlock) {
+  if (block.type === 'component') return block.display === 'hero' ? 420 : 260
+  if (block.type === 'table') return 280
+  if (block.type === 'cards' || block.type === 'comparison' || block.type === 'steps') return 240
+  if (block.type === 'image') return 320
+  if (block.type === 'equation_set' || block.type === 'key_value_grid' || block.type === 'timeline') return 220
+  if (block.type === 'heading' || block.type === 'divider') return 48
+  return 160
+}
 
-  return {
-    id: typeof value.id === 'string' ? value.id : undefined,
-    schema_version: typeof value.schema_version === 'number' ? value.schema_version : undefined,
-    blocks: rawBlocks.filter(isRecord) as CourseContentBlock[],
-  }
+function CourseBlockEmptyState({ message = 'This block has no displayable content yet.' }: { message?: string }) {
+  return (
+    <div className="rounded-[14px] border border-dashed border-[#d4d4d8] bg-[#f7f8fb] px-4 py-4 text-[13px] font-bold leading-6 text-[#71717b]">
+      {message}
+    </div>
+  )
+}
+
+function CourseComponentLoading() {
+  return (
+    <div className="min-h-[160px] rounded-[14px] border border-dashed border-[#d4d4d8] bg-[#f8fafc] px-4 py-5 text-[13px] font-black text-[#71717b]" role="status">
+      Loading interactive component...
+    </div>
+  )
 }
 
 function CourseBlockRenderer({ block }: { block: CourseContentBlock }) {
@@ -478,10 +283,10 @@ function CalloutBlock({ block }: { block: CourseCalloutBlock }) {
 }
 
 function CourseComponentBlockRenderer({ block }: { block: CourseComponentBlock }) {
-  const rendererKey = normalizeCourseComponentKey(block.key)
+  const rendererKey = normalizeCourseComponentKeyFromDocument(block.key)
   const rawKey = typeof block.key === 'string' ? block.key : ''
 
-  if (!allowedCourseComponentKeys.has(rendererKey)) {
+  if (!isAllowedCourseComponentKeyFromDocument(rendererKey)) {
     return (
       <div role="alert" className="min-w-0 break-words rounded-[14px] border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-[13px] font-bold text-[#991b1b]">
         Unknown Course component key: <code>{rawKey || 'missing'}</code>
@@ -504,7 +309,7 @@ function CourseComponentBlockRenderer({ block }: { block: CourseComponentBlock }
       title={block.title}
     >
       <CourseComponentErrorBoundary rendererKey={rendererKey} title={block.title}>
-        <AnimatedContentRenderer rendererKey={rendererKey} config={config} className="min-w-0" />
+        <DeferredAnimatedContentRenderer rendererKey={rendererKey} config={config} className="min-w-0" />
       </CourseComponentErrorBoundary>
     </ComponentDisplay>
   )
@@ -656,26 +461,36 @@ function ImageBlock({ block }: { block: CourseImageBlock }) {
 
   return (
     <figure className="m-0">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <Image src={src} alt={block.alt} width={1200} height={675} unoptimized loading="lazy" className="kresco-media-outline max-h-[520px] w-full rounded-[16px] object-contain" />
+      <Image
+        src={src}
+        alt={block.alt}
+        width={1200}
+        height={675}
+        unoptimized
+        loading="lazy"
+        className="kresco-media-outline max-h-[520px] w-full rounded-[16px] object-contain"
+      />
       {block.caption && <figcaption className="mt-2 break-words text-center text-[12px] font-bold text-[#71717b]">{block.caption}</figcaption>}
     </figure>
   )
 }
 
 function CardsBlock({ block }: { block: CourseCardsBlock }) {
+  const items = Array.isArray(block.items) ? block.items : []
   const gridClass = block.layout === 'three_column'
     ? 'md:grid-cols-3'
     : block.layout === 'one_column'
       ? 'grid-cols-1'
       : 'md:grid-cols-2'
 
+  if (items.length === 0) return <CourseBlockEmptyState message="This card group has no items yet." />
+
   return (
     <div className={`grid gap-4 ${gridClass}`}>
-      {block.items.map((item, index) => (
+      {items.map((item, index) => (
         <section className={`rounded-[14px] border p-4 ${toneClasses[item.tone ?? block.tone ?? 'neutral']}`} key={item.id ?? `${block.id}-${index}`}>
-          <h4 className="m-0 text-[15px] font-black">{item.title}</h4>
-          <p className="m-0 mt-2 text-[13px] font-semibold leading-6">
+          <h4 className="m-0 break-words text-[15px] font-black">{item.title}</h4>
+          <p className="m-0 mt-2 break-words text-[13px] font-semibold leading-6">
             <InlineMathText text={item.body} />
           </p>
         </section>
@@ -685,12 +500,16 @@ function CardsBlock({ block }: { block: CourseCardsBlock }) {
 }
 
 function ComparisonBlock({ block }: { block: CourseComparisonBlock }) {
+  const columns = Array.isArray(block.columns) ? block.columns : []
+
+  if (columns.length === 0) return <CourseBlockEmptyState message="This comparison has no columns yet." />
+
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      {block.columns.map((column, index) => (
+      {columns.map((column, index) => (
         <section className={`rounded-[14px] border p-4 ${toneClasses[column.tone ?? block.tone ?? 'neutral']}`} key={column.id ?? `${block.id}-${index}`}>
-          <h4 className="m-0 text-[15px] font-black">{column.title}</h4>
-          <p className="m-0 mt-2 text-[13px] font-semibold leading-6">
+          <h4 className="m-0 break-words text-[15px] font-black">{column.title}</h4>
+          <p className="m-0 mt-2 break-words text-[13px] font-semibold leading-6">
             <InlineMathText text={column.body} />
           </p>
         </section>
@@ -701,14 +520,16 @@ function ComparisonBlock({ block }: { block: CourseComparisonBlock }) {
 
 function StepsBlock({ block }: { block: CourseStepsBlock }) {
   const steps = Array.isArray(block.steps) ? block.steps : []
+  if (steps.length === 0) return <CourseBlockEmptyState message="This step list has no steps yet." />
+
   return (
     <ol className="m-0 grid list-none gap-3 p-0">
       {steps.map((step, index) => (
         <li className="grid grid-cols-[32px_1fr] gap-3 rounded-[14px] border border-[#e4e4e7] bg-white p-4" key={step.id ?? `${block.id}-${index}`}>
           <span className="grid h-8 w-8 place-items-center rounded-full bg-[#3a2fd3] text-[12px] font-black text-white">{index + 1}</span>
-          <div>
-            <h4 className="m-0 text-[15px] font-black text-[#3f3f46]">{step.title}</h4>
-            <p className="m-0 mt-1 text-[13px] font-semibold leading-6 text-[#52525c]">
+          <div className="min-w-0">
+            <h4 className="m-0 break-words text-[15px] font-black text-[#3f3f46]">{step.title}</h4>
+            <p className="m-0 mt-1 break-words text-[13px] font-semibold leading-6 text-[#52525c]">
               <InlineMathText text={step.body} />
             </p>
           </div>
@@ -723,14 +544,15 @@ function ListBlock({ block }: { block: CourseListBlock }) {
   const style = block.style ?? 'bullet'
   return (
     <section className="rounded-[16px] border border-[#e4e4e7] bg-white p-5">
-      {block.title && <h4 className="m-0 text-[16px] font-black text-[#27272a]">{block.title}</h4>}
+      {block.title && <h4 className="m-0 break-words text-[16px] font-black text-[#27272a]">{block.title}</h4>}
+      {items.length === 0 && <CourseBlockEmptyState message="This list has no items yet." />}
       <ol className="m-0 mt-3 grid list-none gap-2 p-0">
         {items.map((item, index) => (
           <li className="grid grid-cols-[28px_1fr] gap-3 text-[14px] font-semibold leading-6 text-[#52525c]" key={item.id ?? `${block.id}-${index}`}>
             <span className={`mt-0.5 grid h-6 w-6 place-items-center rounded-full text-[11px] font-black ${style === 'check' ? 'bg-[#dcfce7] text-[#166534]' : 'bg-[#edf1ff] text-[#453dee]'}`}>
               {style === 'check' ? 'ok' : style === 'numbered' ? index + 1 : '-'}
             </span>
-            <span><InlineMathText text={item.text} /></span>
+            <span className="min-w-0 break-words"><InlineMathText text={item.text} /></span>
           </li>
         ))}
       </ol>
@@ -741,6 +563,8 @@ function ListBlock({ block }: { block: CourseListBlock }) {
 function TableBlock({ block }: { block: CourseTableBlock }) {
   const columns = Array.isArray(block.columns) ? block.columns : []
   const rows = Array.isArray(block.rows) ? block.rows : []
+  if (columns.length === 0 || rows.length === 0) return <CourseBlockEmptyState message="This table has no rows yet." />
+
   return (
     <figure className="m-0 overflow-hidden rounded-[16px] border border-[#d4d4d8] bg-white">
       {block.title && <figcaption className="border-b border-[#e4e4e7] px-4 py-3 text-left text-[13px] font-black uppercase tracking-[0.08em] text-[#52525c]">{block.title}</figcaption>}
@@ -772,6 +596,8 @@ function TableBlock({ block }: { block: CourseTableBlock }) {
 
 function TimelineBlock({ block }: { block: CourseTimelineBlock }) {
   const items = Array.isArray(block.items) ? block.items : []
+  if (items.length === 0) return <CourseBlockEmptyState message="This timeline has no items yet." />
+
   return (
     <section className="rounded-[16px] border border-[#e4e4e7] bg-white p-5">
       {block.title && <h4 className="m-0 text-[16px] font-black text-[#27272a]">{block.title}</h4>}
@@ -782,9 +608,9 @@ function TimelineBlock({ block }: { block: CourseTimelineBlock }) {
               <span className="grid h-8 w-8 place-items-center rounded-full bg-[#453dee] text-[11px] font-black text-white">{item.marker ?? index + 1}</span>
               {index < items.length - 1 && <span className="mt-2 h-full min-h-[28px] w-px bg-[#d4d4d8]" />}
             </div>
-            <div className="pb-2">
-              <h4 className="m-0 text-[15px] font-black text-[#27272a]">{item.title}</h4>
-              <p className="m-0 mt-1 text-[13px] font-semibold leading-6 text-[#52525c]">
+            <div className="min-w-0 pb-2">
+              <h4 className="m-0 break-words text-[15px] font-black text-[#27272a]">{item.title}</h4>
+              <p className="m-0 mt-1 break-words text-[13px] font-semibold leading-6 text-[#52525c]">
                 <InlineMathText text={item.body} />
               </p>
             </div>
@@ -799,7 +625,8 @@ function EquationSetBlock({ block }: { block: CourseEquationSetBlock }) {
   const equations = Array.isArray(block.equations) ? block.equations : []
   return (
     <section className="rounded-[16px] border border-[#ddd6fe] bg-[#fbfaff] p-5">
-      {block.title && <h4 className="m-0 text-[16px] font-black text-[#4c1d95]">{block.title}</h4>}
+      {block.title && <h4 className="m-0 break-words text-[16px] font-black text-[#4c1d95]">{block.title}</h4>}
+      {equations.length === 0 && <CourseBlockEmptyState message="This equation set has no equations yet." />}
       <div className="mt-4 grid gap-3">
         {equations.map((equation, index) => (
           <figure className="m-0 rounded-[14px] border border-[#e9d5ff] bg-white px-4 py-4 text-center" key={equation.id ?? `${block.id}-${index}`}>
@@ -834,13 +661,15 @@ function QuoteBlock({ block }: { block: CourseQuoteBlock }) {
 function KeyValueGridBlock({ block }: { block: CourseKeyValueGridBlock }) {
   const items = Array.isArray(block.items) ? block.items : []
   const gridClass = block.columns === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
+  if (items.length === 0) return <CourseBlockEmptyState message="This key-value grid has no items yet." />
+
   return (
     <dl className={`m-0 grid gap-3 ${gridClass}`}>
       {items.map((item, index) => (
         <div className={`rounded-[14px] border p-4 ${toneClasses[item.tone ?? block.tone ?? 'neutral']}`} key={item.id ?? `${block.id}-${index}`}>
-          <dt className="text-[11px] font-black uppercase tracking-[0.08em] opacity-70">{item.label}</dt>
-          <dd className="m-0 mt-2 text-[20px] font-black leading-tight"><InlineMathText text={item.value} /></dd>
-          {item.caption && <dd className="m-0 mt-2 text-[12px] font-semibold leading-5 opacity-80"><InlineMathText text={item.caption} /></dd>}
+          <dt className="break-words text-[11px] font-black uppercase tracking-[0.08em] opacity-70">{item.label}</dt>
+          <dd className="m-0 mt-2 break-words text-[20px] font-black leading-tight"><InlineMathText text={item.value} /></dd>
+          {item.caption && <dd className="m-0 mt-2 break-words text-[12px] font-semibold leading-5 opacity-80"><InlineMathText text={item.caption} /></dd>}
         </div>
       ))}
     </dl>
@@ -883,8 +712,16 @@ function InlineMathText({ text }: { text: string }) {
   )
 }
 
+type InlineMathPart = { kind: 'text' | 'math'; value: string }
+
+const INLINE_MATH_PARTS_CACHE_MAX = 256
+const inlineMathPartsCache = new Map<string, InlineMathPart[]>()
+
 function splitInlineMath(text: string) {
-  const parts: Array<{ kind: 'text' | 'math'; value: string }> = []
+  const cached = inlineMathPartsCache.get(text)
+  if (cached) return cached
+
+  const parts: InlineMathPart[] = []
   let buffer = ''
   let math = ''
   let inMath = false
@@ -913,9 +750,15 @@ function splitInlineMath(text: string) {
   }
   if (buffer) parts.push({ kind: 'text', value: buffer.replace(/\\\$/g, '$') })
 
+  rememberInlineMathParts(text, parts)
   return parts
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+function rememberInlineMathParts(text: string, parts: InlineMathPart[]) {
+  if (inlineMathPartsCache.size >= INLINE_MATH_PARTS_CACHE_MAX) {
+    const first = inlineMathPartsCache.keys().next().value
+    if (first !== undefined) inlineMathPartsCache.delete(first)
+  }
+
+  inlineMathPartsCache.set(text, parts)
 }

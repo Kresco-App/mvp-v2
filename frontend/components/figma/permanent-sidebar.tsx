@@ -1,19 +1,16 @@
 'use client'
 
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { toast } from 'sonner'
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
-import { Check, ChevronLeft, ChevronRight, Clock3, Trophy, Zap } from 'lucide-react'
+import useSWR from 'swr'
+import { Check, Clock3, Trophy, Zap } from 'lucide-react'
 import { getJson, postJson } from '@/lib/apiClient'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import {
   buildPermanentSidebarCalendarDays,
   buildStrikeDays,
-  getCalendarDayKey,
-  getCalendarStart,
-  getCalendarWindow,
   getLeaderboardAvatarSrc,
   getQuestProgressPercent,
   getQuestTone,
@@ -26,7 +23,6 @@ import {
   permanentSidebarQuestDefaults,
   permanentSidebarStrikeDefaults,
   toClientSidebarData,
-  wrapIndex,
   type FigmaDailyQuest,
   type PermanentSidebarCalendarDay,
   type PermanentSidebarCountdownUnit,
@@ -36,13 +32,16 @@ import {
   type PermanentSidebarSection,
   type PermanentSidebarStrikeDay,
 } from '@/lib/permanentSidebarViewModel'
+import { CalendarCard, ChronoCard, PermanentSidebarCard, sidebarCardHeightClass } from './permanent-sidebar-cards'
 import { SkeletonBlock } from './skeletons'
 
-const sidebarCalendarSlideTransition = { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] } as const
-const sidebarCalendarDayTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.72 } as const
-const sidebarSectionTransition = { duration: 0.18, ease: [0.2, 0.8, 0.2, 1] } as const
-const sidebarSummaryCache = new Map<string, PermanentSidebarData>()
-const sidebarSummaryRequests = new Map<string, Promise<PermanentSidebarData>>()
+export { CalendarArrow, CalendarCard, ChronoCard, PermanentSidebarCard } from './permanent-sidebar-cards'
+export { PermanentSidebarPanelTitle } from './permanent-sidebar-title'
+
+const SIDEBAR_SUMMARY_DEDUPING_INTERVAL_MS = 60_000
+const sidebarNumberFormatter = new Intl.NumberFormat()
+const sidebarTapMotion = 'transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100'
+const sidebarRowMotion = 'transition-[background-color,box-shadow,color,transform] duration-150 ease-out motion-reduce:transition-none'
 
 export type PermanentSidebarProps = {
   data?: PermanentSidebarData
@@ -85,36 +84,22 @@ export function PermanentSidebar({
   sections = permanentSidebarDefaultSections,
   className = '',
 }: PermanentSidebarProps) {
-  const [loadedData, setLoadedData] = useState<PermanentSidebarData | null>(() => (
-    autoLoad ? sidebarSummaryCache.get(dataEndpoint) ?? null : null
-  ))
-  const [loading, setLoading] = useState(autoLoad && !sidebarSummaryCache.has(dataEndpoint))
-
-  useEffect(() => {
-    if (!autoLoad) {
-      setLoading(false)
-      return
-    }
-
-    let alive = true
-    const cachedData = sidebarSummaryCache.get(dataEndpoint) ?? null
-    if (cachedData) setLoadedData(cachedData)
-    setLoading(!cachedData)
-
-    loadPermanentSidebarData(dataEndpoint)
-      .then((summaryData) => {
-        if (alive) setLoadedData(summaryData)
-      })
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [autoLoad, dataEndpoint])
+  const sidebarQuery = useSWR<PermanentSidebarData>(
+    autoLoad ? dataEndpoint : null,
+    fetchPermanentSidebarData,
+    {
+      dedupingInterval: SIDEBAR_SUMMARY_DEDUPING_INTERVAL_MS,
+      keepPreviousData: true,
+      revalidateIfStale: true,
+      revalidateOnFocus: false,
+    },
+  )
+  const loadedData = sidebarQuery.data ?? null
+  const loading = autoLoad && sidebarQuery.isLoading && !loadedData
+  const mutateSidebarData = sidebarQuery.mutate
 
   const [claimingQuestId, setClaimingQuestId] = useState<FigmaDailyQuest['id'] | null>(null)
+  const sidebarData = data ?? loadedData
 
   // Default quest action: claim the XP reward for a completed-but-unclaimed quest.
   // (Backend DailyQuest.completed means "reward claimed"; claimable = progress
@@ -134,29 +119,26 @@ export function PermanentSidebar({
       try {
         const result = await postJson<{ xp_awarded?: number }>(`/progress/daily-quests/${quest.id}/claim`)
         const refreshed = await getJson<FigmaDailyQuest[]>('/progress/daily-quests')
-        setLoadedData((prev) => {
-          const next = { ...(prev ?? sidebarSummaryCache.get(dataEndpoint) ?? {}), quests: refreshed }
-          sidebarSummaryCache.set(dataEndpoint, next)
-          return next
+        void mutateSidebarData((current) => ({ ...(current ?? sidebarData ?? {}), quests: refreshed }), {
+          revalidate: false,
         })
-        toast.success(
+        showToastSuccess(
           result?.xp_awarded ? `Récompense réclamée : +${result.xp_awarded} XP` : 'Récompense réclamée !',
         )
       } catch {
-        toast.error('Impossible de réclamer cette récompense pour le moment.')
+        showToastError('Impossible de réclamer cette récompense pour le moment.')
       } finally {
         setClaimingQuestId(null)
       }
     },
-    [claimingQuestId, dataEndpoint],
+    [claimingQuestId, mutateSidebarData, sidebarData],
   )
 
-  const sidebarData = data ?? loadedData
   const visibleChronoUnits = chronoUnits ?? sidebarData?.chronoUnits ?? permanentSidebarCountdownDefaults
   const visibleCalendarDays = calendarDays ?? sidebarData?.calendarDays ?? permanentSidebarCalendarDefaults
   const visibleLiveEvents = liveEvents ?? sidebarData?.liveEvents ?? permanentSidebarLiveEventDefaults
   const visibleStrikeDays = strikeDays ?? sidebarData?.strikeDays ?? permanentSidebarStrikeDefaults
-  const visibleQuests = useMemo(() => normalizeQuests(quests ?? sidebarData?.quests ?? []), [quests, sidebarData?.quests])
+  const visibleQuests = quests ?? sidebarData?.quests ?? []
   const sourceLeaderboard = leaderboardEntries ?? sidebarData?.leaderboardEntries ?? []
   const visibleLeaderboard = sourceLeaderboard.length > 0 ? sourceLeaderboard : permanentSidebarLeaderboardDefaults
   const hasDirectSectionData = {
@@ -172,8 +154,8 @@ export function PermanentSidebar({
 
   return (
     <aside className={`flex w-[351px] shrink-0 flex-col items-start gap-[14px] pb-[120px] pt-11 max-[1180px]:hidden ${className}`} aria-label="Permanent sidebar" aria-busy={loading}>
-      {sections.map((section, index) => (
-        <SidebarSectionSlot key={section} index={index} loading={shouldSkeletonSection(section)} section={section}>
+      {sections.map((section) => (
+        <SidebarSectionSlot key={section} loading={shouldSkeletonSection(section)} section={section}>
           {section === 'chrono' && <ChronoCard units={visibleChronoUnits} />}
           {section === 'calendar' && (
             <CalendarCard
@@ -192,23 +174,6 @@ export function PermanentSidebar({
       ))}
     </aside>
   )
-}
-
-function loadPermanentSidebarData(dataEndpoint: string) {
-  const existing = sidebarSummaryRequests.get(dataEndpoint)
-  if (existing) return existing
-
-  const request = fetchPermanentSidebarData(dataEndpoint)
-    .then((summaryData) => {
-      sidebarSummaryCache.set(dataEndpoint, summaryData)
-      return summaryData
-    })
-    .finally(() => {
-      sidebarSummaryRequests.delete(dataEndpoint)
-    })
-
-  sidebarSummaryRequests.set(dataEndpoint, request)
-  return request
 }
 
 async function fetchPermanentSidebarData(dataEndpoint: string): Promise<PermanentSidebarData> {
@@ -233,31 +198,25 @@ async function fetchPermanentSidebarData(dataEndpoint: string): Promise<Permanen
 
 function SidebarSectionSlot({
   children,
-  index,
   loading,
   section,
 }: {
   children: ReactNode
-  index: number
   loading: boolean
   section: PermanentSidebarSection
 }) {
-  const reduceMotion = useReducedMotion()
-
   return (
-    <AnimatePresence mode="popLayout" initial={false}>
-      <motion.div
-        key={`${section}-${loading ? 'loading' : 'ready'}`}
-        layout
-        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
-        animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-        exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
-        transition={{ ...sidebarSectionTransition, delay: loading ? 0 : Math.min(index * 0.035, 0.14) }}
-      >
-        {loading ? <PermanentSidebarSectionSkeleton section={section} /> : children}
-      </motion.div>
-    </AnimatePresence>
+    <div style={sidebarSectionContainmentStyle(section)}>
+      {loading ? <PermanentSidebarSectionSkeleton section={section} /> : children}
+    </div>
   )
+}
+
+function sidebarSectionContainmentStyle(section: PermanentSidebarSection): CSSProperties {
+  return {
+    contentVisibility: 'auto',
+    containIntrinsicSize: `auto ${sidebarSkeletonHeight(section)}px`,
+  }
 }
 
 function PermanentSidebarSectionSkeleton({ section }: { section: PermanentSidebarSection }) {
@@ -358,214 +317,6 @@ function CalendarSidebarSkeletonBody() {
   )
 }
 
-export function PermanentSidebarCard({
-  title,
-  subtitle,
-  height,
-  children,
-}: {
-  title: string
-  subtitle: string
-  height: number
-  children: ReactNode
-}) {
-  return (
-    <section className={`kresco-enter w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none ${sidebarCardHeightClass(height)}`}>
-      <PanelTitle title={title} subtitle={subtitle} />
-      {children}
-    </section>
-  )
-}
-
-function sidebarCardHeightClass(height: number) {
-  if (height === 157) return 'h-[157px]'
-  if (height === 305) return 'h-[305px]'
-  if (height === 330) return 'h-[330px]'
-  if (height === 360) return 'h-[360px]'
-  if (height === 390) return 'h-[390px]'
-  if (height === 415) return 'h-[415px]'
-  if (height === 430) return 'h-[430px]'
-  if (height === 455) return 'min-h-[455px]'
-  if (height === 663) return 'h-[663px]'
-  return 'min-h-[157px]'
-}
-
-function PanelTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return <PermanentSidebarPanelTitle title={title} subtitle={subtitle} />
-}
-
-export function PermanentSidebarPanelTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div className="grid w-full gap-1 leading-[1.1]">
-      <strong className="text-[16px] font-bold tracking-[0.24px] text-[#3f3f46]">{title}</strong>
-      <span className="text-[14px] font-semibold tracking-[0.21px] text-[#71717b]">{subtitle}</span>
-    </div>
-  )
-}
-
-export function ChronoCard({
-  units = permanentSidebarCountdownDefaults,
-  title = 'Chrono',
-  subtitle = 'Counting the days for the future!',
-}: {
-  units?: PermanentSidebarCountdownUnit[]
-  title?: string
-  subtitle?: string
-}) {
-  return (
-    <PermanentSidebarCard title={title} subtitle={subtitle} height={157}>
-      <div className="mt-6 flex h-[54px] w-full items-center justify-center gap-1.5 text-center text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#52525c]">
-        {units.map((item) => (
-          <div className="kresco-hover-lift flex h-[54px] w-[58px] shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg bg-[#f4f4f5] px-2 hover:bg-[#eceef2]" key={item.label}>
-            <span className="tabular-nums">{item.value}</span>
-            <span className="whitespace-nowrap">{item.label}</span>
-          </div>
-        ))}
-      </div>
-    </PermanentSidebarCard>
-  )
-}
-
-export function CalendarCard({
-  days = permanentSidebarCalendarDefaults,
-  events = permanentSidebarLiveEventDefaults,
-  windowSize = 5,
-  liveHref = '/live',
-  title = 'Calendar',
-  subtitle = 'Stay up to date with everything!',
-  onDaySelect,
-  onWindowChange,
-}: {
-  days?: PermanentSidebarCalendarDay[]
-  events?: PermanentSidebarLiveEvent[]
-  windowSize?: number
-  liveHref?: string
-  title?: string
-  subtitle?: string
-  onDaySelect?: (day: PermanentSidebarCalendarDay) => void
-  onWindowChange?: (days: PermanentSidebarCalendarDay[]) => void
-}) {
-  const calendarLayoutId = useId()
-  const reduceMotion = useReducedMotion()
-  const safeDays = days.length > 0 ? days : permanentSidebarCalendarDefaults
-  const initialActiveIndex = Math.max(0, safeDays.findIndex((day) => day.active))
-  const [activeIndex, setActiveIndex] = useState(initialActiveIndex)
-  const [windowStart, setWindowStart] = useState(getCalendarStart(initialActiveIndex, safeDays.length, windowSize))
-  const [windowDirection, setWindowDirection] = useState<-1 | 0 | 1>(0)
-  const visibleDays = getCalendarWindow(safeDays, windowStart, windowSize)
-  const visibleDayKey = visibleDays.map(getCalendarDayKey).join('|')
-
-  useEffect(() => {
-    const nextActiveIndex = Math.max(0, safeDays.findIndex((day) => day.active))
-    const nextStart = getCalendarStart(nextActiveIndex, safeDays.length, windowSize)
-    setActiveIndex(nextActiveIndex)
-    setWindowStart(nextStart)
-    setWindowDirection(0)
-    onWindowChange?.(getCalendarWindow(safeDays, nextStart, windowSize))
-  }, [days, onWindowChange, safeDays, windowSize])
-
-  function moveWindow(direction: -1 | 1) {
-    setWindowDirection(direction)
-    setWindowStart((current) => {
-      const next = wrapIndex(current + direction, safeDays.length)
-      onWindowChange?.(getCalendarWindow(safeDays, next, windowSize))
-      return next
-    })
-  }
-
-  function selectDay(day: PermanentSidebarCalendarDay) {
-    const nextIndex = safeDays.findIndex((item) => getCalendarDayKey(item) === getCalendarDayKey(day))
-    if (nextIndex >= 0) setActiveIndex(nextIndex)
-    onDaySelect?.(day)
-  }
-
-  return (
-    <PermanentSidebarCard title={title} subtitle={subtitle} height={415}>
-      <div className="mt-6 flex w-full items-center gap-2">
-        <CalendarArrow direction="left" onClick={() => moveWindow(-1)} />
-        <div className="relative h-12 min-w-0 flex-1 overflow-hidden text-center text-[14px] font-bold leading-[1.1] tracking-[0.21px]">
-          <LayoutGroup id={calendarLayoutId}>
-            <AnimatePresence initial={false} custom={windowDirection}>
-              <motion.div
-                key={visibleDayKey}
-                custom={windowDirection}
-                initial={reduceMotion ? { opacity: 0 } : { opacity: 0, x: windowDirection === 0 ? 0 : windowDirection * 18 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: windowDirection === 0 ? 0 : windowDirection * -18 }}
-                transition={sidebarCalendarSlideTransition}
-                className="absolute inset-0 flex items-center gap-1.5"
-              >
-                {visibleDays.map((day) => {
-                  const isActive = safeDays[activeIndex] && getCalendarDayKey(safeDays[activeIndex]) === getCalendarDayKey(day)
-                  return (
-                    <motion.button
-                      className={`relative flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg bg-[#f4f4f5] transition-colors duration-200 ${
-                        isActive ? 'text-[#edf1ff]' : 'text-[#52525c] hover:bg-[#eceef2]'
-                      }`}
-                      key={getCalendarDayKey(day)}
-                      type="button"
-                      onClick={() => selectDay(day)}
-                      whileHover={reduceMotion ? undefined : { y: -1 }}
-                      whileTap={reduceMotion ? undefined : { scale: 0.96 }}
-                    >
-                      {isActive && (
-                        <motion.span
-                          layoutId={`sidebar-calendar-active-day-${visibleDayKey}`}
-                          className="absolute inset-[3px] rounded-[7px] bg-[#5b60f9] shadow-[0_6px_14px_rgba(91,96,249,0.2)]"
-                          transition={sidebarCalendarDayTransition}
-                        />
-                      )}
-                      <span className="relative z-10 tabular-nums">{day.value}</span>
-                      <span className="relative z-10">{day.label}</span>
-                    </motion.button>
-                  )
-                })}
-              </motion.div>
-            </AnimatePresence>
-          </LayoutGroup>
-        </div>
-        <CalendarArrow direction="right" onClick={() => moveWindow(1)} />
-      </div>
-      <div className="mt-8 grid gap-2">
-        {events.length > 0 ? events.slice(0, 2).map((event) => (
-          <Link
-            className="kresco-hover-lift grid min-h-[62px] grid-cols-[1fr_auto] items-center gap-3 rounded-lg bg-[#f4f4f5] px-3 text-left no-underline hover:bg-[#eef2ff]"
-            href={event.href || liveHref}
-            key={event.id}
-          >
-            <span className="grid min-w-0 gap-1">
-              <strong className="truncate text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#3f3f46]">{event.title}</strong>
-              <span className="truncate text-[12px] font-semibold leading-[1.1] tracking-[0.18px] text-[#71717b]">{event.subject}</span>
-            </span>
-            <span className="whitespace-nowrap text-[12px] font-bold leading-none tracking-[0.18px] text-[#453dee]">{event.startsAt || event.starts_at}</span>
-          </Link>
-        )) : (
-          <div className="grid min-h-[132px] place-items-center rounded-lg bg-[#f4f4f5] px-4 text-center text-[13px] font-bold leading-[1.2] tracking-[0.18px] text-[#71717b]">
-            No upcoming live sessions
-          </div>
-        )}
-      </div>
-    </PermanentSidebarCard>
-  )
-}
-
-export function CalendarArrow({ direction, onClick }: { direction: 'left' | 'right'; onClick?: () => void }) {
-  const Icon = direction === 'left' ? ChevronLeft : ChevronRight
-  const reduceMotion = useReducedMotion()
-  return (
-    <motion.button
-      className="kresco-hover-lift grid h-10 w-10 shrink-0 place-items-center rounded-[12px] border-0 bg-[#f4f4f5] text-[#27272f] shadow-[0_2px_0_rgba(0,0,0,0.2)] active:translate-y-px active:shadow-none"
-      type="button"
-      aria-label={direction === 'left' ? 'Previous days' : 'Next days'}
-      onClick={onClick}
-      whileHover={reduceMotion ? undefined : { y: -1 }}
-      whileTap={reduceMotion ? undefined : { scale: 0.96, y: 1 }}
-    >
-      <Icon size={15} strokeWidth={3} />
-    </motion.button>
-  )
-}
-
 export function WeeklyStrikeCard({
   days = permanentSidebarStrikeDefaults,
   title = 'Weekly Strike',
@@ -582,13 +333,14 @@ export function WeeklyStrikeCard({
       <div className="mt-6 flex h-[54px] w-full items-start gap-1.5">
         {days.map((day) => (
           <button
-            className={`grid h-[54px] w-10 shrink-0 justify-items-center gap-2 border-0 bg-transparent p-0 text-center transition-transform duration-150 active:scale-[0.96] ${day.done ? 'text-[#f5900b]' : 'text-[#71717b]'}`}
+            aria-label={`${day.label}${day.done ? ' completed' : ' not completed'}`}
+            className={`group grid h-[54px] w-10 shrink-0 justify-items-center gap-2 rounded-xl border-0 bg-transparent p-0 text-center ${sidebarTapMotion} hover:bg-[#f7f8fb] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 ${day.done ? 'text-[#f5900b]' : 'text-[#71717b]'}`}
             key={day.label}
             type="button"
             onClick={() => onDaySelect?.(day)}
           >
             <span className="text-[14px] font-bold leading-[1.1] tracking-[0.21px]">{day.label}</span>
-            <span className={`grid h-7 w-7 place-items-center rounded-full ${day.done ? 'bg-[#f5900b]' : 'bg-[#e4e4e7]'} text-white`}>
+            <span className={`grid h-7 w-7 place-items-center rounded-full ${day.done ? 'bg-[#f5900b] shadow-[0_6px_12px_rgba(245,144,11,0.24)]' : 'bg-[#e4e4e7]'} text-white transition-[background-color,box-shadow,transform] duration-150 ease-out group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100`}>
               {day.done && <Check className="text-white" color="#ffffff" size={18} strokeWidth={3.4} />}
             </span>
           </button>
@@ -614,7 +366,11 @@ export function DailyQuestPanel({
   return (
     <PermanentSidebarCard title={title} subtitle={subtitle} height={305}>
       <div className="mt-8 grid w-full gap-6">
-        {visibleQuests.slice(0, 3).map((quest, index) => {
+        {visibleQuests.length === 0 ? (
+          <div className="grid min-h-[160px] place-items-center rounded-lg bg-[#f4f4f5] px-4 text-center text-[13px] font-bold leading-[1.25] tracking-[0.18px] text-[#71717b]">
+            No quests available
+          </div>
+        ) : visibleQuests.slice(0, 3).map((quest, index) => {
           const tone = getQuestTone(quest.quest_type, index, 'sidebar')
           const Icon = questIcon(quest.quest_type)
           const pct = getQuestProgressPercent(quest)
@@ -647,9 +403,7 @@ export function LeaderboardPanel({
   href?: string
 }) {
   const globalEntries = useMemo(() => sortLeaderboardEntries(entries), [entries])
-  const visibleEntries = globalEntries.filter((entry) => entry.rank <= 5).slice(0, 5)
-  const currentEntry = globalEntries.find((entry) => entry.is_current_user)
-  const pinnedCurrent = currentEntry && !visibleEntries.some((entry) => entry.user_id === currentEntry.user_id) ? currentEntry : null
+  const { visibleEntries, pinnedCurrent } = useMemo(() => deriveLeaderboardRows(globalEntries), [globalEntries])
 
   return (
     <PermanentSidebarCard title={title} subtitle={subtitle} height={pinnedCurrent ? 390 : 330}>
@@ -695,20 +449,41 @@ function LeaderboardPanelRow({
 
   return (
     <Link
-      className={`grid h-[38px] w-full grid-cols-[25px_34px_minmax(0,1fr)] items-center gap-3 rounded-xl px-1.5 py-0 no-underline transition-[background-color,box-shadow] duration-150 ease-out hover:bg-[#f7f8fb] ${zoneClass} ${currentClass || (pinned ? 'shadow-[inset_3px_0_0_#453dee]' : '')}`}
+      className={`grid h-[38px] w-full grid-cols-[25px_34px_minmax(0,1fr)] items-center gap-3 rounded-xl px-1.5 py-0 no-underline ${sidebarRowMotion} hover:translate-x-0.5 hover:bg-[#f7f8fb] hover:shadow-[var(--shadow-border)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:hover:translate-x-0 ${zoneClass} ${currentClass || (pinned ? 'shadow-[inset_3px_0_0_#453dee]' : '')}`}
       href={entry.href || href}
     >
       <RankMarker rank={entry.rank || index + 1} />
       <LeaderboardAvatar entry={entry} index={index} small />
       <div className="grid min-w-0 gap-0.5">
         <strong className="truncate text-[14px] font-bold leading-[0.95] tracking-[0.18px]">{entry.full_name}{entry.is_current_user ? ' (you)' : ''}</strong>
-        <span className="whitespace-nowrap text-[12px] font-semibold leading-[1.05] tracking-[0.16px] text-[#71717b] tabular-nums">{entry.total_xp.toLocaleString()} point</span>
+        <span className="whitespace-nowrap text-[12px] font-semibold leading-[1.05] tracking-[0.16px] text-[#71717b] tabular-nums">{sidebarNumberFormatter.format(entry.total_xp)} point</span>
       </div>
     </Link>
   )
 }
 
+function deriveLeaderboardRows(entries: PermanentSidebarLeaderboardEntry[]) {
+  const visibleEntries: PermanentSidebarLeaderboardEntry[] = []
+  let currentEntry: PermanentSidebarLeaderboardEntry | null = null
+
+  for (const entry of entries) {
+    if (entry.rank <= 5 && visibleEntries.length < 5) {
+      visibleEntries.push(entry)
+    }
+    if (entry.is_current_user) {
+      currentEntry = entry
+    }
+  }
+
+  const pinnedCurrent = currentEntry && !visibleEntries.some((entry) => entry.user_id === currentEntry.user_id)
+    ? currentEntry
+    : null
+
+  return { visibleEntries, pinnedCurrent }
+}
+
 function sortLeaderboardEntries(entries: PermanentSidebarLeaderboardEntry[]) {
+  if (entries.length <= 1) return entries
   return [...entries].sort((a, b) => (a.rank || 0) - (b.rank || 0) || a.user_id - b.user_id)
 }
 
@@ -757,15 +532,15 @@ function DailyQuestRow({
 }) {
   return (
     <button
-      className={`grid w-full grid-cols-[32px_1fr] gap-4 border-0 bg-transparent p-0 text-left transition-transform duration-150 active:scale-[0.96] hover:translate-x-0.5 ${index === 1 ? 'min-h-14' : 'min-h-[41px]'}`}
+      className={`group grid w-full grid-cols-[32px_1fr] gap-4 rounded-xl border-0 bg-transparent p-0 text-left ${sidebarRowMotion} hover:translate-x-0.5 hover:bg-[#f7f8fb] hover:shadow-[var(--shadow-border)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:hover:translate-x-0 ${index === 1 ? 'min-h-14' : 'min-h-[41px]'}`}
       type="button"
       onClick={onClick}
     >
-      <span className={`grid h-8 w-8 place-items-center rounded-full border-2 border-current ${questToneClass(tone)}`}>
+      <span className={`grid h-8 w-8 place-items-center rounded-full border-2 border-current ${questToneClass(tone)} transition-[background-color,transform] duration-150 ease-out group-hover:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100`}>
         <Icon size={18} strokeWidth={2.6} />
       </span>
       <div className="min-w-0">
-        <strong className={`block text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#3f3f46] ${index === 1 ? 'max-w-[210px]' : ''}`}>
+        <strong className={`line-clamp-2 break-words text-[14px] font-bold leading-[1.1] tracking-[0.21px] text-[#3f3f46] ${index === 1 ? 'max-w-[210px]' : ''}`}>
           {quest.title}
         </strong>
         <span className="mt-3 block h-[14px] w-full overflow-hidden rounded-[4px] bg-[#f4f4f5]">

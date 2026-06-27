@@ -64,11 +64,15 @@ export function FigmaHomeMain({
   subjects,
   continueTopics,
   loading,
+  onSubjectPreload,
+  onTopicPreload,
 }: {
   firstName: string
   subjects: FigmaHomeSubject[]
   continueTopics: FigmaHomeTopic[]
   loading?: boolean
+  onSubjectPreload?: (href: string) => void
+  onTopicPreload?: (topicId: FigmaHomeTopic['id']) => void
 }) {
   return (
     <div className="w-full pt-[32px]">
@@ -89,7 +93,12 @@ export function FigmaHomeMain({
         ) : continueTopics.length > 0 ? (
           <div className="grid max-w-[984px] grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] gap-[24px]">
             {continueTopics.slice(0, 2).map((topic, index) => (
-              <FigmaContinueTopicCard key={topic.id} topic={topic} index={index} />
+              <FigmaContinueTopicCard
+                key={topic.id}
+                topic={topic}
+                index={index}
+                onPreload={onTopicPreload ? () => onTopicPreload(topic.id) : undefined}
+              />
             ))}
           </div>
         ) : (
@@ -117,7 +126,12 @@ export function FigmaHomeMain({
         ) : subjects.length > 0 ? (
           <div className="grid grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-[20px]">
             {subjects.map((subject, index) => (
-              <FigmaSubjectShortcutCard key={subject.id} subject={subject} index={index} />
+              <FigmaSubjectShortcutCard
+                key={subject.id}
+                subject={subject}
+                index={index}
+                onPreload={onSubjectPreload ? () => onSubjectPreload(subject.href ?? `/home/${subject.id}`) : undefined}
+              />
             ))}
           </div>
         ) : (
@@ -189,15 +203,29 @@ export function FigmaHomeProgressCard({
   )
 }
 
-function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index: number }) {
+function FigmaContinueTopicCard({
+  topic,
+  index,
+  onPreload,
+}: {
+  topic: FigmaHomeTopic
+  index: number
+  onPreload?: () => void
+}) {
   const href = topic.href ?? `/topics/${topic.id}`
   const progress = clampPercent(topic.progress_pct ?? (index === 0 ? 12 : 46))
   const progressTone = index % 2 === 0 ? '#5b60f9' : '#f5900b'
   const isMathCard = index % 2 === 0
 
   return (
-    <Link href={href} className="group block w-full max-w-[480px] no-underline">
-      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-center justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition-[border-color,box-shadow] duration-200 ease-out group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)]">
+    <Link
+      href={href}
+      className="group block w-full max-w-[480px] no-underline"
+      onFocus={onPreload}
+      onMouseOver={onPreload}
+      onPointerEnter={onPreload}
+    >
+      <article className="kresco-enter relative flex h-[110px] w-full max-w-[480px] items-center justify-end gap-[32px] overflow-hidden rounded-[16px] border-[2px] border-[#e4e4e7] bg-white pl-[16px] shadow-[0_4px_0_rgba(24,24,27,0.12)] transition-[border-color,box-shadow] duration-150 ease-out group-hover:border-[#d7d7dc] group-hover:shadow-[0_7px_0_rgba(69,61,238,0.14),0_16px_30px_rgba(24,24,27,0.08)] motion-reduce:transition-none">
         <div className="min-w-0 flex-1 self-stretch pt-[16px] pr-[18px]">
           <h3 className="m-0 line-clamp-1 text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">{topic.title}</h3>
           <p className="m-0 mt-[4px] line-clamp-2 max-w-[300px] text-[14px] font-semibold leading-[1.1] tracking-[0.21px] text-[#71717b]">
@@ -227,13 +255,27 @@ function FigmaContinueTopicCard({ topic, index }: { topic: FigmaHomeTopic; index
   )
 }
 
-function FigmaSubjectShortcutCard({ subject, index }: { subject: FigmaHomeSubject; index: number }) {
+function FigmaSubjectShortcutCard({
+  subject,
+  index,
+  onPreload,
+}: {
+  subject: FigmaHomeSubject
+  index: number
+  onPreload?: () => void
+}) {
   const Icon = subjectIcon(subject.title, index)
   const href = subject.href ?? `/home/${subject.id}`
 
   return (
-    <Link href={href} className="group block min-w-0 no-underline">
-      <article className="kresco-enter grid h-[194px] w-full min-w-0 place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition-[border-color,box-shadow] duration-200 ease-out group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)]">
+    <Link
+      href={href}
+      className="group block min-w-0 no-underline"
+      onFocus={onPreload}
+      onMouseOver={onPreload}
+      onPointerEnter={onPreload}
+    >
+      <article className="kresco-enter grid h-[194px] w-full min-w-0 place-items-center content-center gap-[24px] rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-[14px] pb-[28px] pt-[35px] text-center shadow-[0_5px_0_rgba(24,24,27,0.12)] transition-[border-color,box-shadow] duration-150 ease-out group-hover:border-[#d7d7dc] group-hover:shadow-[0_8px_0_rgba(69,61,238,0.12),0_16px_28px_rgba(24,24,27,0.07)] motion-reduce:transition-none">
         <div className="relative grid h-[68px] w-[78px] place-items-center">
           <SubjectIconScene icon={Icon} index={index} />
         </div>

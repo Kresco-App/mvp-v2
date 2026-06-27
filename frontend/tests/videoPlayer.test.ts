@@ -47,4 +47,13 @@ describe('VideoPlayer VdoCipher URL construction', () => {
     expect(source).not.toContain('mock-otp-token')
     expect(source).not.toContain('Apercu video local')
   })
+
+  it('defers VdoCipher stream startup until the player is near the viewport', () => {
+    const source = readFileSync(join(process.cwd(), 'components', 'VideoPlayer.tsx'), 'utf8')
+
+    expect(source).toContain("import { useNearViewport } from '@/hooks/useNearViewport'")
+    expect(source).toContain('const { nearViewport, ref: viewportRef } = useNearViewport<HTMLDivElement>()')
+    expect(source).toContain('if (!nearViewport) return undefined')
+    expect(source).toContain('<div ref={viewportRef}')
+  })
 })

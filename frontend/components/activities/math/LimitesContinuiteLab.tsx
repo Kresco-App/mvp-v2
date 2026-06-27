@@ -43,6 +43,8 @@ const DEFAULT_EXERCISES: Exercise[] = [
   },
 ]
 
+const labControlMotionClass = 'transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+
 export default function LimitesContinuiteLab({
   title,
   prompt,
@@ -104,7 +106,7 @@ export default function LimitesContinuiteLab({
         </div>
         <button type="button"
           onClick={reset}
-          className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
+          className={`min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 ${labControlMotionClass}`}
         >
           Reessayer
         </button>
@@ -142,7 +144,7 @@ export default function LimitesContinuiteLab({
               key={option}
               onClick={() => !submitted && setSelected(option)}
               className={[
-                'w-full text-left rounded-xl border-2 px-4 py-3 text-sm font-medium transition',
+                `w-full rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${labControlMotionClass}`,
                 submitted
                   ? correctChoice
                     ? 'border-green-500/60 bg-green-500/15 text-green-300'
@@ -172,14 +174,14 @@ export default function LimitesContinuiteLab({
           <button type="button"
             onClick={submit}
             disabled={!selected}
-            className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className={`min-h-10 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 ${labControlMotionClass}`}
           >
             Verifier
           </button>
         ) : (
           <button type="button"
             onClick={next}
-            className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition"
+            className={`min-h-10 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 ${labControlMotionClass}`}
           >
             {index < items.length - 1 ? 'Question suivante' : 'Voir le resultat'}
           </button>

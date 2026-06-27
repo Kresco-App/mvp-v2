@@ -1,4 +1,5 @@
 import useSWR from 'swr'
+import { liveApiSWRConfig } from '@/lib/apiData'
 import {
   getStudentProfessorChat,
   listStudentProfessorMessages,
@@ -67,7 +68,7 @@ export function useStudentProfessorChatData(activeConversationId: number | null)
   const statusQuery = useSWR<StudentProfessorChatStatus>(
     STUDENT_PROFESSOR_CHAT_KEY,
     () => getStudentProfessorChat(),
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
 
   const messageQuery = useSWR<StudentProfessorMessagesEnvelope, unknown, StudentProfessorMessagesSWRKey | null>(
@@ -77,7 +78,7 @@ export function useStudentProfessorChatData(activeConversationId: number | null)
       const messages = await listStudentProfessorMessages(conversationId)
       return { conversationId, messages }
     },
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
 
   const activeEnvelope = messageQuery.data?.conversationId === activeConversationId

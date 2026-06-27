@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import useSWR, { type KeyedMutator } from 'swr'
-import { liveSessionChannelName, refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime } from '@/lib/realtime'
+import { liveApiSWRConfig } from '@/lib/apiData'
 import { isLiveInteraction, mergeLiveInteraction, mergeLiveInteractions, sortLiveInteractions } from '@/lib/liveInteractions'
 import {
   getProfessorLiveEmbed,
@@ -18,6 +18,8 @@ import {
   type ProfessorLiveSession,
   type StudentLiveSession,
 } from '@/lib/professor'
+
+type RealtimeModule = typeof import('@/lib/realtime')
 
 export const PROFESSOR_OFFERINGS_KEY = '/professor/offerings'
 export const PROFESSOR_LIVE_SESSIONS_KEY = '/professor/live-sessions'
@@ -51,6 +53,13 @@ type LiveSessionRealtimeOptions = {
   fallbackPoll?: () => Promise<unknown>
 }
 
+let realtimeModulePromise: Promise<RealtimeModule> | null = null
+
+function loadRealtimeModule() {
+  realtimeModulePromise ??= import('@/lib/realtime')
+  return realtimeModulePromise
+}
+
 export function positiveSessionId(value: number | string | null | undefined) {
   const numeric = typeof value === 'number' ? value : Number(value)
   return Number.isInteger(numeric) && numeric > 0 ? numeric : null
@@ -80,17 +89,17 @@ export function useProfessorLiveScheduleData() {
   const offeringsQuery = useSWR<CourseOffering[]>(
     PROFESSOR_OFFERINGS_KEY,
     () => listProfessorOfferings(),
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
   const sessionsQuery = useSWR<ProfessorLiveSession[]>(
     PROFESSOR_LIVE_SESSIONS_KEY,
     () => listProfessorLiveSessions(),
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
   const providerConfigQuery = useSWR<LiveProviderConfig>(
     PROFESSOR_LIVE_PROVIDER_CONFIG_KEY,
     () => getProfessorLiveProviderConfig(),
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
 
   const mutateAll = useCallback(async () => {
@@ -123,7 +132,7 @@ export function useProfessorLiveControlData(sessionIdValue: number | string | nu
   const sessionsQuery = useSWR<ProfessorLiveSession[]>(
     sessionId ? PROFESSOR_LIVE_SESSIONS_KEY : null,
     () => listProfessorLiveSessions(),
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
   const embedQuery = useSWR<LiveEmbedEnvelope, unknown, SessionKey<typeof PROFESSOR_LIVE_EMBED_RESOURCE> | null>(
     professorLiveEmbedSWRKey(sessionId),
@@ -131,7 +140,7 @@ export function useProfessorLiveControlData(sessionIdValue: number | string | nu
       const embed = await getProfessorLiveEmbed(key[1])
       return { sessionId: key[1], embed }
     },
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
   const interactionsQuery = useSWR<LiveInteractionsEnvelope, unknown, SessionKey<typeof PROFESSOR_LIVE_INTERACTIONS_RESOURCE> | null>(
     professorLiveInteractionsSWRKey(sessionId),
@@ -139,7 +148,7 @@ export function useProfessorLiveControlData(sessionIdValue: number | string | nu
       const interactions = await listProfessorLiveInteractions(key[1])
       return { sessionId: key[1], interactions: sortLiveInteractions(interactions) }
     },
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
   const embedEnvelope = embedQuery.data?.sessionId === sessionId ? embedQuery.data : null
   const interactionsEnvelope = interactionsQuery.data?.sessionId === sessionId ? interactionsQuery.data : null
@@ -173,8 +182,8 @@ export function useProfessorLiveControlData(sessionIdValue: number | string | nu
 export function useStudentLiveScheduleData() {
   const sessionsQuery = useSWR<StudentLiveSession[]>(
     STUDENT_LIVE_SESSIONS_KEY,
-    async () => (await listStudentLiveSessions()).sort(compareStudentLiveSessions),
-    { keepPreviousData: true },
+    async () => sortStudentLiveSessions(await listStudentLiveSessions()),
+    liveApiSWRConfig,
   )
 
   return {
@@ -189,8 +198,8 @@ export function useStudentLiveRoomData(sessionIdValue: number | string | null | 
   const sessionId = positiveSessionId(sessionIdValue)
   const sessionsQuery = useSWR<StudentLiveSession[]>(
     sessionId ? STUDENT_LIVE_SESSIONS_KEY : null,
-    async () => (await listStudentLiveSessions()).sort(compareStudentLiveSessions),
-    { keepPreviousData: true },
+    async () => sortStudentLiveSessions(await listStudentLiveSessions()),
+    liveApiSWRConfig,
   )
   const session = sessionsQuery.data?.find((item) => item.id === sessionId) ?? null
   const embedQuery = useSWR<LiveEmbedEnvelope, unknown, SessionKey<typeof STUDENT_LIVE_EMBED_RESOURCE> | null>(
@@ -199,7 +208,7 @@ export function useStudentLiveRoomData(sessionIdValue: number | string | null | 
       const embed = await getStudentLiveEmbed(key[1])
       return { sessionId: key[1], embed }
     },
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
   const interactionsQuery = useSWR<LiveInteractionsEnvelope, unknown, SessionKey<typeof STUDENT_LIVE_INTERACTIONS_RESOURCE> | null>(
     studentLiveInteractionsSWRKey(sessionId),
@@ -207,7 +216,7 @@ export function useStudentLiveRoomData(sessionIdValue: number | string | null | 
       const interactions = await listStudentLiveInteractions(key[1])
       return { sessionId: key[1], interactions: sortLiveInteractions(interactions) }
     },
-    { keepPreviousData: true },
+    liveApiSWRConfig,
   )
   const embedEnvelope = embedQuery.data?.sessionId === sessionId ? embedQuery.data : null
   const interactionsEnvelope = interactionsQuery.data?.sessionId === sessionId ? interactionsQuery.data : null
@@ -247,6 +256,8 @@ export function useLiveSessionRealtimeSubscription({
 }: LiveSessionRealtimeOptions) {
   useEffect(() => {
     if (!sessionId) return
+    let stopped = false
+    let unsubscribe: (() => void) | null = null
 
     const handleEvent = (message: { name?: string; data?: unknown }) => {
       if (message.name?.startsWith('live.session.')) {
@@ -262,24 +273,35 @@ export function useLiveSessionRealtimeSubscription({
       }
     }
 
-    return subscribeKrescoRealtime({
-      channelName: liveSessionChannelName(sessionId),
-      onMessage: handleEvent,
-      beforeSubscribe: refreshKrescoRealtimeAuthorization,
-      fallback: {
-        intervalMs: 5000,
-        poll: async () => {
-          if (fallbackPoll) {
-            await fallbackPoll()
-            return
-          }
-          await mutateInteractions(
-            (current) => refreshInteractions(current, sessionId),
-            { revalidate: false },
-          )
-        },
-      },
-    })
+    void loadRealtimeModule()
+      .then(({ refreshKrescoRealtimeAuthorization, subscribeKrescoRealtime }) => {
+        if (stopped) return
+        unsubscribe = subscribeKrescoRealtime({
+          channelName: liveSessionChannelName(sessionId),
+          onMessage: handleEvent,
+          beforeSubscribe: refreshKrescoRealtimeAuthorization,
+          fallback: {
+            intervalMs: 5000,
+            initialPoll: false,
+            poll: async () => {
+              if (fallbackPoll) {
+                await fallbackPoll()
+                return
+              }
+              await mutateInteractions(
+                (current) => refreshInteractions(current, sessionId),
+                { revalidate: false },
+              )
+            },
+          },
+        })
+      })
+      .catch(() => undefined)
+
+    return () => {
+      stopped = true
+      unsubscribe?.()
+    }
   }, [fallbackPoll, mutateAll, mutateInteractions, refreshInteractions, sessionId])
 }
 
@@ -324,4 +346,12 @@ function compareStudentLiveSessions(a: StudentLiveSession, b: StudentLiveSession
   const right = statusOrder[b.status] ?? 3
   if (left !== right) return left - right
   return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
+}
+
+function sortStudentLiveSessions(sessions: StudentLiveSession[]) {
+  return [...sessions].sort(compareStudentLiveSessions)
+}
+
+function liveSessionChannelName(liveSessionId: number | string) {
+  return `kresco:live:${liveSessionId}`
 }

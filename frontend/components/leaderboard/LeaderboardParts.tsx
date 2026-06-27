@@ -134,7 +134,7 @@ export function LeagueMarker({ league, active }: { league: ReturnType<typeof get
   return (
     <div
       aria-current={active ? 'true' : undefined}
-      className={`flex shrink-0 items-center justify-center rounded-full transition-transform duration-150 ${active ? 'h-20 w-20 sm:h-[92px] sm:w-[92px]' : 'h-14 w-14 sm:h-16 sm:w-16'} ${leagueRingClasses(league.color, active)}`}
+      className={`flex shrink-0 items-center justify-center rounded-full transition-[transform] duration-150 ease-out motion-reduce:transition-none ${active ? 'h-20 w-20 sm:h-[92px] sm:w-[92px]' : 'h-14 w-14 sm:h-16 sm:w-16'} ${leagueRingClasses(league.color, active)}`}
       title={league.majorLabel}
     >
       {!imageFailed ? (
@@ -163,7 +163,7 @@ export const LeaderboardRow = memo(function LeaderboardRow({ entry, compact = fa
   return (
     <div
       className={[
-        'flex items-center gap-2.5 rounded-[10px] border transition-[background] duration-150',
+        'flex items-center gap-2.5 rounded-[10px] border transition-[background-color,border-color] duration-150 ease-out motion-reduce:transition-none',
         compact ? 'px-2 py-1.5' : 'px-3.5 py-2.5',
         highlight ? 'border-[color:rgba(69,61,238,0.15)] bg-[color:var(--primary-soft)]' : 'border-transparent bg-transparent',
       ].join(' ')}
@@ -213,7 +213,7 @@ export const LeaderboardListRow = memo(function LeaderboardListRow({
   return (
     <div
       className={[
-        'flex items-center gap-3 px-4 py-3 transition-colors duration-150 sm:gap-[14px] sm:px-5',
+        'flex items-center gap-3 px-4 py-3 transition-[background-color,border-color] duration-150 ease-out motion-reduce:transition-none sm:gap-[14px] sm:px-5',
         !isLast ? 'border-b border-[color:var(--border)]' : 'border-b-0',
         'border-l-[3px]',
         zoneClass,
@@ -231,7 +231,7 @@ export const LeaderboardListRow = memo(function LeaderboardListRow({
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        <Zap size={13} color="#f59e0b" fill="#f59e0b" />
+        <Zap size={13} color="#f59e0b" fill="#f59e0b" aria-hidden="true" />
         <span className="text-sm font-bold text-amber-500 tabular-nums">
           {scoreValue.toLocaleString()}
         </span>
@@ -244,17 +244,17 @@ export const LeaderboardListRow = memo(function LeaderboardListRow({
 function RankBadge({ rank, small = false }: { rank: number; small?: boolean }) {
   if (rank === 1) return (
     <div aria-label={`Rang ${rank}`} className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[rgba(245,158,11,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
-      <Crown size={small ? 13 : 16} color="#f59e0b" />
+      <Crown size={small ? 13 : 16} color="#f59e0b" aria-hidden="true" />
     </div>
   )
   if (rank === 2) return (
     <div aria-label={`Rang ${rank}`} className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(148,163,184,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
-      <Medal size={small ? 13 : 16} color="#94a3b8" />
+      <Medal size={small ? 13 : 16} color="#94a3b8" aria-hidden="true" />
     </div>
   )
   if (rank === 3) return (
     <div aria-label={`Rang ${rank}`} className={`flex shrink-0 items-center justify-center rounded-full bg-[rgba(217,119,6,0.12)] ${small ? 'h-6 w-6' : 'h-8 w-8'}`}>
-      <Medal size={small ? 13 : 16} color="#d97706" />
+      <Medal size={small ? 13 : 16} color="#d97706" aria-hidden="true" />
     </div>
   )
   return (

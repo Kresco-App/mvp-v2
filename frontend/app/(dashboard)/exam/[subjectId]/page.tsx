@@ -1,8 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { toast } from 'sonner'
+import { showToastError } from '@/lib/lazyToast'
 import {
   Clock,
   AlertTriangle,
@@ -18,12 +18,16 @@ import {
 import { postJson } from '@/lib/apiClient'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { examQuizFingerprint, useExamDraft, type RestoredExamDraft } from '@/lib/examDraft'
-import { NO_EXAM_QUIZ_MESSAGE, useExamQuizData, type ExamResult } from '@/lib/examData'
+import { NO_EXAM_QUIZ_MESSAGE, useExamQuizData, type ExamQuestion, type ExamResult } from '@/lib/examData'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import RouteErrorState from '@/components/RouteErrorState'
 
 const EXAM_DURATION_MINUTES = 45
 const EXAM_DURATION_SECONDS = EXAM_DURATION_MINUTES * 60
+
+function isExamDocumentHidden() {
+  return typeof document !== 'undefined' && document.hidden
+}
 
 export default function ExamPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
@@ -109,7 +113,7 @@ export default function ExamPage() {
     }
     if (loadError === lastLoadErrorToastRef.current) return
     lastLoadErrorToastRef.current = loadError
-    toast.error(loadError)
+    showToastError(loadError)
   }, [loadError])
 
   async function retryExam() {
@@ -130,7 +134,7 @@ export default function ExamPage() {
       const data = await postJson<ExamResult>(`/quizzes/${activeQuiz.id}/submit`, { answers: answersRef.current })
       setResult(data)
     } catch {
-      toast.error('Erreur lors de la soumission de l\'examen.')
+      showToastError('Erreur lors de la soumission de l\'examen.')
       setSubmitted(false)
       submitCalledRef.current = false
     } finally {
@@ -140,20 +144,67 @@ export default function ExamPage() {
 
   useEffect(() => {
     if (!started || submitted || startedAt === null) return
+    let interval: ReturnType<typeof setInterval> | null = null
     const updateTime = () => {
       const remaining = examRemainingSeconds(startedAt)
       setTimeLeft(remaining)
       if (remaining <= 0) void handleSubmit()
+      return remaining
+    }
+    const stopTimer = () => {
+      if (interval === null) return
+      clearInterval(interval)
+      interval = null
+    }
+    const startTimer = () => {
+      if (interval !== null || isExamDocumentHidden()) return
+      interval = setInterval(() => {
+        if (updateTime() <= 0) stopTimer()
+      }, 1000)
+    }
+    const handleVisibilityChange = () => {
+      const remaining = updateTime()
+      if (isExamDocumentHidden() || remaining <= 0) {
+        stopTimer()
+        return
+      }
+      startTimer()
     }
 
-    updateTime()
-    const interval = setInterval(updateTime, 1000)
-    return () => clearInterval(interval)
+    if (updateTime() > 0) startTimer()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      stopTimer()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [started, startedAt, submitted, handleSubmit])
 
   const startExam = useCallback(() => {
     setStartedAt(current => current ?? Date.now())
     setStarted(true)
+  }, [])
+
+  const selectQuestionIndex = useCallback((index: number) => {
+    setCurrentIdx(index)
+  }, [])
+
+  const answerQuestion = useCallback((questionId: number, optionId: number) => {
+    setAnswers((current) => (
+      current[questionId] === optionId
+        ? current
+        : { ...current, [questionId]: optionId }
+    ))
+  }, [])
+
+  const goToPreviousQuestion = useCallback(() => {
+    setCurrentIdx((current) => Math.max(0, current - 1))
+  }, [])
+
+  const goToNextQuestion = useCallback(() => {
+    setCurrentIdx((current) => {
+      const lastIndex = Math.max(0, (quizRef.current?.questions.length ?? 1) - 1)
+      return Math.min(lastIndex, current + 1)
+    })
   }, [])
 
   const resetExamAttempt = useCallback(() => {
@@ -248,13 +299,13 @@ export default function ExamPage() {
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
           <button type="button"
             onClick={() => router.back()}
-            className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-700 px-4 text-sm font-black text-slate-300 transition hover:bg-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
+            className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-700 px-4 text-sm font-black text-slate-300 transition-[background-color,transform] duration-150 ease-out hover:bg-slate-950 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Annuler
           </button>
           <button type="button"
             onClick={startExam}
-            className="inline-flex h-12 items-center justify-center rounded-xl bg-kresco px-4 text-sm font-black text-white transition hover:bg-kresco/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-kresco px-4 text-sm font-black text-white transition-[background-color,transform] duration-150 ease-out hover:bg-kresco/90 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Commencer
           </button>
@@ -301,13 +352,13 @@ export default function ExamPage() {
         <div className="mt-7 grid gap-3 sm:grid-cols-2">
           <button type="button"
             onClick={() => router.push('/home')}
-            className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-700 px-4 text-sm font-black text-slate-300 transition hover:bg-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
+            className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-700 px-4 text-sm font-black text-slate-300 transition-[background-color,transform] duration-150 ease-out hover:bg-slate-950 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Retour a l&apos;accueil
           </button>
           <button type="button"
             onClick={resetExamAttempt}
-            className="inline-flex h-12 items-center justify-center rounded-xl bg-kresco px-4 text-sm font-black text-white transition hover:bg-kresco/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
+            className="inline-flex h-12 items-center justify-center rounded-xl bg-kresco px-4 text-sm font-black text-white transition-[background-color,transform] duration-150 ease-out hover:bg-kresco/90 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
           >
             Reessayer
           </button>
@@ -337,7 +388,7 @@ export default function ExamPage() {
       <div className="pointer-events-none shrink-0 border-b border-slate-800 bg-slate-900/95 px-4 py-3 shadow-lg shadow-black/10 sm:px-6">
         <div className="flex flex-wrap items-center gap-3 sm:gap-5">
         <div className="flex items-center gap-2 text-sm font-black tracking-[0.08em] text-white">
-          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+          <div className="w-2 h-2 bg-red-500 rounded-full motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none" />
           MODE EXAMEN
         </div>
         <div
@@ -354,13 +405,13 @@ export default function ExamPage() {
               y="0"
               width={progressPct}
               height="1"
-              className={`transition-[fill] duration-1000 ${isUrgent ? 'fill-red-500' : 'fill-kresco'}`}
+              className={`transition-[fill] duration-150 ease-out motion-reduce:transition-none ${isUrgent ? 'fill-red-500' : 'fill-kresco'}`}
             />
           </svg>
         </div>
         <div
           aria-live="polite"
-          className={`flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm font-black ${isUrgent ? 'text-red-300 animate-pulse' : 'text-white'}`}
+          className={`flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-2 font-mono text-sm font-black ${isUrgent ? 'text-red-300 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none' : 'text-white'}`}
         >
           <Clock size={14} />
           {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
@@ -378,25 +429,12 @@ export default function ExamPage() {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Navigation des questions */}
         <nav aria-label="Questions" className="shrink-0 border-b border-slate-800 bg-slate-900 p-3 md:w-24 md:overflow-y-auto md:border-b-0 md:border-r">
-          <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible md:pb-0">
-            {quiz.questions.map((q, i) => (
-              <button type="button"
-                key={q.id}
-                onClick={() => setCurrentIdx(i)}
-                aria-current={i === questionIndex ? 'step' : undefined}
-                aria-label={`Question ${i + 1}${answers[q.id] ? ', repondue' : ', sans reponse'}`}
-                className={`relative h-9 w-9 flex-none rounded-xl text-xs font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco ${
-                  i === questionIndex ? 'bg-kresco text-white shadow-lg shadow-kresco/25' :
-                  answers[q.id] ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
-                }`}
-              >
-                {i + 1}
-                {answers[q.id] && i !== questionIndex && (
-                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-slate-900 bg-green-300" aria-hidden="true" />
-                )}
-              </button>
-            ))}
-          </div>
+          <ExamQuestionNavigator
+            answers={answers}
+            currentIndex={questionIndex}
+            questions={quiz.questions}
+            onSelectQuestion={selectQuestionIndex}
+          />
         </nav>
 
         {/* Question principale */}
@@ -406,91 +444,167 @@ export default function ExamPage() {
           message="Retry the question panel without leaving the exam."
           homeHref="/home"
         >
-          <main className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
-              <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl shadow-black/10 sm:p-6">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="m-0 text-sm font-black text-slate-400">Question {questionIndex + 1} sur {total}</p>
-                  <span className={`rounded-xl px-3 py-1.5 text-xs font-black ${answers[question.id] ? 'bg-green-500/15 text-green-300' : 'bg-slate-800 text-slate-400'}`}>
-                    {answers[question.id] ? 'Repondue' : 'Sans reponse'}
-                  </span>
-                </div>
-                <h1 className="m-0 text-xl font-black leading-relaxed text-white sm:text-2xl">{question.text}</h1>
-              </section>
-
-              {question.options.length > 0 ? (
-                <div className="grid gap-3" role="radiogroup" aria-label={`Reponses pour la question ${questionIndex + 1}`}>
-                  {question.options.map(opt => {
-                    const selected = answers[question.id] === opt.id
-                    return (
-                      <button type="button"
-                        key={opt.id}
-                        role="radio"
-                        aria-checked={selected}
-                        onClick={() => setAnswers(a => ({ ...a, [question.id]: opt.id }))}
-                        className={`scroll-mt-28 flex w-full items-start gap-3 rounded-2xl border-2 px-4 py-4 text-left text-sm font-semibold leading-relaxed transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco sm:px-5 ${
-                          selected
-                            ? 'border-kresco bg-kresco/10 text-white shadow-lg shadow-kresco/10'
-                            : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:bg-slate-900 hover:text-white'
-                        }`}
-                      >
-                        <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${selected ? 'border-kresco bg-kresco text-white' : 'border-slate-600 text-transparent'}`} aria-hidden="true">
-                          <CheckCircle2 size={14} />
-                        </span>
-                        <span>{opt.text}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : (
-                <section role="alert" className="rounded-2xl border border-amber-500/30 bg-amber-950/30 p-4 text-sm font-semibold leading-relaxed text-amber-100">
-                  Cette question n&apos;a pas encore de choix de reponse publies. Vous pouvez passer a la question suivante ou soumettre si vous avez termine.
-                </section>
-              )}
-
-              <footer className="flex flex-col gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:items-center sm:justify-between">
-                <button type="button"
-                  onClick={() => setCurrentIdx(Math.max(0, questionIndex - 1))}
-                  disabled={questionIndex === 0}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-800 px-4 text-sm font-black text-slate-300 transition hover:bg-slate-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                >
-                  <ArrowLeft size={14} />
-                  Precedent
-                </button>
-                <p className="m-0 text-center text-xs font-semibold text-slate-500 sm:flex-1">
-                  {unanswered === 0 ? 'Toutes les questions ont une reponse.' : `${unanswered} question${unanswered > 1 ? 's' : ''} sans reponse.`}
-                </p>
-                {questionIndex < total - 1 ? (
-                  <button type="button"
-                    onClick={() => setCurrentIdx(questionIndex + 1)}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-kresco px-5 text-sm font-black text-white transition hover:bg-kresco/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
-                  >
-                    Suivant <ArrowRight size={14} />
-                  </button>
-                ) : (
-                  <button type="button"
-                    onClick={handleSubmit}
-                    disabled={submitting}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 text-sm font-black text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Soumettre l&apos;examen
-                  </button>
-                )}
-              </footer>
-            </div>
-          </main>
+          <ExamQuestionPanel
+            answerId={answers[question.id]}
+            question={question}
+            questionIndex={questionIndex}
+            submitting={submitting}
+            total={total}
+            unanswered={unanswered}
+            onAnswer={answerQuestion}
+            onNext={goToNextQuestion}
+            onPrevious={goToPreviousQuestion}
+            onSubmit={handleSubmit}
+          />
         </ErrorBoundary>
       </div>
     </div>
   )
 }
 
+const ExamQuestionNavigator = memo(function ExamQuestionNavigator({
+  answers,
+  currentIndex,
+  questions,
+  onSelectQuestion,
+}: {
+  answers: Record<number, number>
+  currentIndex: number
+  questions: ExamQuestion[]
+  onSelectQuestion: (index: number) => void
+}) {
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible md:pb-0">
+      {questions.map((question, index) => {
+        const answered = Boolean(answers[question.id])
+        return (
+          <button type="button"
+            key={question.id}
+            onClick={() => onSelectQuestion(index)}
+            aria-current={index === currentIndex ? 'step' : undefined}
+            aria-label={`Question ${index + 1}${answered ? ', repondue' : ', sans reponse'}`}
+            className={`relative h-10 w-10 flex-none rounded-xl text-xs font-black transition-[background-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco ${
+              index === currentIndex ? 'bg-kresco text-white shadow-lg shadow-kresco/25' :
+              answered ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            {index + 1}
+            {answered && index !== currentIndex && (
+              <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border border-slate-900 bg-green-300" aria-hidden="true" />
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+})
+
+const ExamQuestionPanel = memo(function ExamQuestionPanel({
+  answerId,
+  question,
+  questionIndex,
+  submitting,
+  total,
+  unanswered,
+  onAnswer,
+  onNext,
+  onPrevious,
+  onSubmit,
+}: {
+  answerId: number | undefined
+  question: ExamQuestion
+  questionIndex: number
+  submitting: boolean
+  total: number
+  unanswered: number
+  onAnswer: (questionId: number, optionId: number) => void
+  onNext: () => void
+  onPrevious: () => void
+  onSubmit: () => void
+}) {
+  return (
+    <main className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl shadow-black/10 sm:p-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="m-0 text-sm font-black text-slate-400">Question {questionIndex + 1} sur {total}</p>
+            <span className={`rounded-xl px-3 py-1.5 text-xs font-black ${answerId ? 'bg-green-500/15 text-green-300' : 'bg-slate-800 text-slate-400'}`}>
+              {answerId ? 'Repondue' : 'Sans reponse'}
+            </span>
+          </div>
+          <h1 className="m-0 text-xl font-black leading-relaxed text-white sm:text-2xl">{question.text}</h1>
+        </section>
+
+        {question.options.length > 0 ? (
+          <div className="grid gap-3" role="radiogroup" aria-label={`Reponses pour la question ${questionIndex + 1}`}>
+            {question.options.map(opt => {
+              const selected = answerId === opt.id
+              return (
+                <button type="button"
+                  key={opt.id}
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => onAnswer(question.id, opt.id)}
+                  className={`scroll-mt-28 flex w-full items-start gap-3 rounded-2xl border-2 px-4 py-4 text-left text-sm font-semibold leading-relaxed transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco sm:px-5 ${
+                    selected
+                      ? 'border-kresco bg-kresco/10 text-white shadow-lg shadow-kresco/10'
+                      : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:bg-slate-900 hover:text-white'
+                  }`}
+                >
+                  <span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full border ${selected ? 'border-kresco bg-kresco text-white' : 'border-slate-600 text-transparent'}`} aria-hidden="true">
+                    <CheckCircle2 size={14} />
+                  </span>
+                  <span>{opt.text}</span>
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <section role="alert" className="rounded-2xl border border-amber-500/30 bg-amber-950/30 p-4 text-sm font-semibold leading-relaxed text-amber-100">
+            Cette question n&apos;a pas encore de choix de reponse publies. Vous pouvez passer a la question suivante ou soumettre si vous avez termine.
+          </section>
+        )}
+
+        <footer className="flex flex-col gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <button type="button"
+            onClick={onPrevious}
+            disabled={questionIndex === 0}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-800 px-4 text-sm font-black text-slate-300 transition-[background-color,color,opacity,transform] duration-150 ease-out hover:bg-slate-900 hover:text-white active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-35 disabled:active:scale-100"
+          >
+            <ArrowLeft size={14} />
+            Precedent
+          </button>
+          <p className="m-0 text-center text-xs font-semibold text-slate-500 sm:flex-1">
+            {unanswered === 0 ? 'Toutes les questions ont une reponse.' : `${unanswered} question${unanswered > 1 ? 's' : ''} sans reponse.`}
+          </p>
+          {questionIndex < total - 1 ? (
+            <button type="button"
+              onClick={onNext}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-kresco px-5 text-sm font-black text-white transition-[background-color,transform] duration-150 ease-out hover:bg-kresco/90 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-kresco"
+            >
+              Suivant <ArrowRight size={14} />
+            </button>
+          ) : (
+            <button type="button"
+              onClick={onSubmit}
+              disabled={submitting}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-green-600 px-5 text-sm font-black text-white transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-green-700 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100"
+            >
+              Soumettre l&apos;examen
+            </button>
+          )}
+        </footer>
+      </div>
+    </main>
+  )
+})
+
 function ExamLoadingState({ title, message }: { title: string; message: string }) {
   return (
     <div className="fixed inset-0 z-[1000] grid place-items-center bg-slate-950 px-6 text-white">
       <section className="w-full max-w-md rounded-[24px] border border-slate-800 bg-slate-900 p-6 text-center shadow-2xl shadow-black/30">
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-kresco/10 text-kresco">
-          <Loader2 size={26} className="animate-spin" />
+          <Loader2 size={26} className="animate-spin motion-reduce:animate-none" />
         </div>
         <h1 className="m-0 mt-5 text-xl font-black text-white">{title}</h1>
         <p className="m-0 mt-2 text-sm font-semibold leading-relaxed text-slate-400">{message}</p>

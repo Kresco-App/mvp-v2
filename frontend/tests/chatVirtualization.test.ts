@@ -35,7 +35,7 @@ describe('chat virtualization helpers', () => {
   })
 
   it('increments older-message visibility without exceeding the total count', () => {
-    expect(nextVisibleChatMessageCount(120, 250)).toBe(120 + CHAT_OLDER_MESSAGE_BATCH_SIZE)
+    expect(nextVisibleChatMessageCount(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT, 250)).toBe(CHAT_INITIAL_VISIBLE_MESSAGE_COUNT + CHAT_OLDER_MESSAGE_BATCH_SIZE)
     expect(nextVisibleChatMessageCount(220, 250)).toBe(250)
   })
 

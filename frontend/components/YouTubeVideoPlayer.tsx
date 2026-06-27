@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
 import { AlertCircle } from 'lucide-react'
+import { showToastError } from '@/lib/lazyToast'
+import { useNearViewport } from '@/hooks/useNearViewport'
 import { useVideoProgress } from '@/hooks/useVideoProgress'
 
 const YOUTUBE_API_SRC = 'https://www.youtube.com/iframe_api'
@@ -123,6 +124,7 @@ export default function YouTubeVideoPlayer({
   onProgress,
   onComplete,
 }: YouTubeVideoPlayerProps) {
+  const { nearViewport, ref: viewportRef } = useNearViewport<HTMLDivElement>()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const playerRef = useRef<YouTubePlayer | null>(null)
   const initialSeekDoneRef = useRef(false)
@@ -163,6 +165,7 @@ export default function YouTubeVideoPlayer({
     clearProgressInterval()
     setLoading(true)
     setError(null)
+    if (!nearViewport) return undefined
 
     let cancelled = false
 
@@ -202,7 +205,7 @@ export default function YouTubeVideoPlayer({
               const msg = 'YouTube video unavailable.'
               setError(msg)
               setLoading(false)
-              toast.error(msg)
+              showToastError(msg)
             },
           },
         })
@@ -213,7 +216,7 @@ export default function YouTubeVideoPlayer({
         const msg = (err as Error)?.message || 'Failed to load YouTube player.'
         setError(msg)
         setLoading(false)
-        toast.error(msg)
+        showToastError(msg)
       })
 
     return () => {
@@ -223,11 +226,11 @@ export default function YouTubeVideoPlayer({
       playerRef.current?.destroy?.()
       playerRef.current = null
     }
-  }, [clearProgressInterval, currentResumeSeconds, currentWatchedSeconds, lessonId, reportCompletion, saveProgress, syncProgress, videoId])
+  }, [clearProgressInterval, currentResumeSeconds, currentWatchedSeconds, lessonId, nearViewport, reportCompletion, saveProgress, syncProgress, videoId])
 
   if (error) {
     return (
-      <div className="flex h-full min-h-[260px] items-center justify-center bg-slate-950">
+      <div ref={viewportRef} className="flex h-full min-h-[260px] items-center justify-center bg-slate-950">
         <div className="flex max-w-xs flex-col items-center gap-3 p-8 text-center">
           <AlertCircle size={36} className="text-red-400" />
           <p className="font-semibold text-white">Video unavailable</p>
@@ -238,11 +241,11 @@ export default function YouTubeVideoPlayer({
   }
 
   return (
-    <div className="relative h-full min-h-[260px] bg-slate-950">
+    <div ref={viewportRef} className="relative h-full min-h-[260px] bg-slate-950">
       {loading && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950">
           <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            <div className="h-8 w-8 animate-spin motion-reduce:animate-none rounded-full border-2 border-white border-t-transparent" />
             <span className="text-sm text-slate-400">Loading YouTube video...</span>
           </div>
         </div>

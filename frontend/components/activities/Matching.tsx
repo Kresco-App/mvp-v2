@@ -15,9 +15,10 @@ interface Props {
   onComplete?: (correct: boolean) => void
 }
 
+const activityControlMotionClass = 'transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+
 export default function Matching({ question, pairs, onComplete }: Props) {
-  const shuffledRight = [...pairs].sort(() => Math.random() - 0.5)
-  const [rightItems] = useState(shuffledRight)
+  const [rightItems] = useState(() => pairs.toSorted(() => Math.random() - 0.5))
   const [selected, setSelected] = useState<{ leftId: string | null; rightId: string | null }>({ leftId: null, rightId: null })
   const [matches, setMatches] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
@@ -70,7 +71,7 @@ export default function Matching({ question, pairs, onComplete }: Props) {
               <button type="button"
                 key={pair.id}
                 onClick={() => matchedRightId ? removeMatch(pair.id) : selectLeft(pair.id)}
-                className={`w-full text-left text-sm px-4 py-3 rounded-xl border-2 transition font-medium ${
+                className={`w-full rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${activityControlMotionClass} ${
                   selected.leftId === pair.id ? 'border-indigo-500 bg-indigo-500/15 text-indigo-300' :
                   submitted
                     ? isCorrect ? 'border-green-500/50 bg-green-500/10 text-green-300'
@@ -103,7 +104,7 @@ export default function Matching({ question, pairs, onComplete }: Props) {
                 key={rightId}
                 onClick={() => selectRight(rightId)}
                 disabled={isMatched}
-                className={`w-full text-left text-sm px-4 py-3 rounded-xl border-2 transition font-medium ${
+                className={`w-full rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${activityControlMotionClass} ${
                   submitted
                     ? isCorrect ? 'border-green-500/50 bg-green-500/10 text-green-300'
                     : isWrong ? 'border-red-500/50 bg-red-500/10 text-red-300'
@@ -134,14 +135,14 @@ export default function Matching({ question, pairs, onComplete }: Props) {
           <button type="button"
             onClick={handleSubmit}
             disabled={!allMatched}
-            className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className={`min-h-10 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 ${activityControlMotionClass}`}
           >
             Verifier
           </button>
         ) : (
           <button type="button"
             onClick={() => { setMatches({}); setSubmitted(false) }}
-            className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
+            className={`min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 ${activityControlMotionClass}`}
           >
             Reessayer
           </button>

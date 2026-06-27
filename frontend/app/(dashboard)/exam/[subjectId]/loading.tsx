@@ -5,7 +5,7 @@ export default function ExamLoading() {
     <div className="fixed inset-0 z-[1000] grid place-items-center bg-slate-950 px-6 text-white">
       <section className="w-full max-w-md rounded-[24px] border border-slate-800 bg-slate-900 p-6 text-center shadow-2xl shadow-black/30">
         <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-kresco/10 text-kresco">
-          <Loader2 size={26} className="animate-spin" />
+          <Loader2 size={26} className="animate-spin motion-reduce:animate-none" />
         </div>
         <h1 className="m-0 mt-5 text-xl font-black text-white">Preparation de l&apos;examen</h1>
         <p className="m-0 mt-2 text-sm font-semibold leading-relaxed text-slate-400">

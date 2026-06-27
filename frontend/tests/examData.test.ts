@@ -44,7 +44,7 @@ afterEach(() => {
 
 describe('exam SWR data', () => {
   it('builds discovery keys defensively', () => {
-    expect(examQuizDiscoverySWRKey(12)).toEqual(['exam-quiz-discovery', '12'])
+    expect(examQuizDiscoverySWRKey(12)).toBe('/quizzes/subjects/12/discovery')
     expect(examQuizDiscoverySWRKey('')).toBeNull()
   })
 
@@ -93,6 +93,30 @@ describe('exam SWR data', () => {
     expect(container.textContent).toContain('quiz: none')
     expect(container.textContent).toContain('loading: yes')
   })
+
+  it('reuses cached quiz discovery across remounts with the same SWR cache', async () => {
+    const cache = new Map()
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/quizzes/subjects/1/discovery') {
+        return { data: { subjectId: '1', quiz: quizFixture(101, 'Cached quiz') } }
+      }
+      throw new Error(`unexpected url ${url}`)
+    })
+
+    const first = renderExamHarness(cache, { revalidateIfStale: false })
+    await waitFor(() => {
+      expect(first.container.textContent).toContain('quiz: Cached quiz')
+    })
+    expect(mocks.apiGet).toHaveBeenCalledTimes(1)
+
+    unmountExamHarness(first.root)
+    mocks.apiGet.mockImplementation(() => new Promise(() => undefined))
+
+    const second = renderExamHarness(cache, { revalidateIfStale: false })
+
+    expect(second.container.textContent).toContain('quiz: Cached quiz')
+    expect(mocks.apiGet).toHaveBeenCalledTimes(1)
+  })
 })
 
 function ExamHarness() {
@@ -116,7 +140,7 @@ function ExamHarness() {
   )
 }
 
-function renderExamHarness() {
+function renderExamHarness(cache = new Map(), swrOverrides: Record<string, unknown> = {}) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -128,9 +152,10 @@ function renderExamHarness() {
       {
         value: {
           ...apiSWRConfig,
-          provider: () => new Map(),
+          provider: () => cache,
           dedupingInterval: 0,
           errorRetryCount: 0,
+          ...swrOverrides,
         },
       },
       React.createElement(ExamHarness),
@@ -138,6 +163,16 @@ function renderExamHarness() {
   })
 
   return { container, root }
+}
+
+function unmountExamHarness(root: Root) {
+  const entry = mountedRoots.find((item) => item.root === root)
+  if (!entry) return
+  act(() => {
+    entry.root.unmount()
+  })
+  entry.container.remove()
+  mountedRoots = mountedRoots.filter((item) => item.root !== root)
 }
 
 function quizFixture(id: number, title: string) {

@@ -39,7 +39,7 @@ export const NO_EXAM_QUIZ_MESSAGE = 'Aucun quiz disponible pour cette matiere.'
 
 export function examQuizDiscoverySWRKey(subjectId: string | number | null | undefined) {
   const normalized = normalizeExamSubjectId(subjectId)
-  return normalized ? ['exam-quiz-discovery', normalized] as const : null
+  return normalized ? `/quizzes/subjects/${encodeURIComponent(normalized)}/discovery` : null
 }
 
 export async function loadExamQuiz(subjectId: string | number): Promise<ExamQuizDiscovery> {
@@ -65,7 +65,7 @@ export function useExamQuizData(subjectId: string | number | null | undefined) {
   const key = examQuizDiscoverySWRKey(subjectId)
   const query = useSWR<ExamQuizDiscovery>(
     key,
-    (keyArg: readonly ['exam-quiz-discovery', string]) => loadExamQuiz(keyArg[1]),
+    () => loadExamQuiz(normalized ?? ''),
     { keepPreviousData: true },
   )
   const discovery = query.data?.subjectId === normalized ? query.data : null

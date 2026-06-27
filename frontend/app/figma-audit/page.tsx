@@ -1,21 +1,13 @@
 'use client'
 
-import {
-  ChapterRail,
-  CourseContentRail,
-  CourseProgressHeader,
-  FigmaNavbar,
-  FigmaProgressBar,
-  FigmaSegmentedChoice,
-  LearningTabBar,
-  PermanentSidebar,
-  RailCard,
-  VideoLearningWorkspace,
-  VideoPlayerFrame,
-  figmaLessonItems,
-  figmaWorkspaceTabs,
-} from '@/components/figma'
 import { QuizPrimitiveShowcase } from '@/components/quiz/QuizPrimitiveShowcase'
+import { figmaLessonItems, figmaWorkspaceTabs } from '@/components/figma/data'
+import { FigmaNavbar } from '@/components/figma/navbar'
+import { PermanentSidebar } from '@/components/figma/permanent-sidebar'
+import { FigmaProgressBar } from '@/components/figma/progress'
+import { ChapterRail, CourseContentRail, CourseProgressHeader, RailCard } from '@/components/figma/rail'
+import { FigmaSegmentedChoice, LearningTabBar } from '@/components/figma/tabs'
+import { VideoLearningWorkspace, VideoPlayerFrame } from '@/components/figma/workspace'
 import { nextImageOptimizerSrc } from '@/lib/nextImageOptimizer'
 import type { ReactNode } from 'react'
 

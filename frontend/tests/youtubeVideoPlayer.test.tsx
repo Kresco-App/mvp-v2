@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,11 +10,13 @@ import YouTubeVideoPlayer, { buildYouTubePlayerVars } from '@/components/YouTube
 
 const mocks = vi.hoisted(() => ({
   postJson: vi.fn(() => Promise.resolve({})),
+  postJsonKeepalive: vi.fn(() => null),
   toastError: vi.fn(),
 }))
 
 vi.mock('@/lib/apiClient', () => ({
   postJson: mocks.postJson,
+  postJsonKeepalive: mocks.postJsonKeepalive,
 }))
 
 vi.mock('sonner', () => ({
@@ -40,10 +44,12 @@ let currentTime = 0
 let duration = 100
 let destroyMock = vi.fn()
 let seekToMock = vi.fn()
+const originalDocumentHidden = Object.getOwnPropertyDescriptor(document, 'hidden')
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
+  setDocumentHidden(false)
   document.body.innerHTML = ''
   capturedOptions = null
   currentTime = 0
@@ -75,6 +81,7 @@ afterEach(() => {
   }
   delete window.YT
   delete window.onYouTubeIframeAPIReady
+  restoreDocumentHidden()
   vi.useRealTimers()
 })
 
@@ -87,6 +94,15 @@ describe('YouTubeVideoPlayer', () => {
       enablejsapi: 1,
       origin: window.location.origin,
     })
+  })
+
+  it('defers YouTube iframe API startup until the player is near the viewport', () => {
+    const source = readFileSync(join(process.cwd(), 'components', 'YouTubeVideoPlayer.tsx'), 'utf8')
+
+    expect(source).toContain("import { useNearViewport } from '@/hooks/useNearViewport'")
+    expect(source).toContain('const { nearViewport, ref: viewportRef } = useNearViewport<HTMLDivElement>()')
+    expect(source).toContain('if (!nearViewport) return undefined')
+    expect(source).toContain('<div ref={viewportRef}')
   })
 
   it('reports progress and completion from YouTube player state', async () => {
@@ -142,6 +158,63 @@ describe('YouTubeVideoPlayer', () => {
     })
   })
 
+  it('pauses progress interval writes while hidden and catches up when visible again', async () => {
+    const onProgress = vi.fn()
+
+    renderPlayer({ onProgress })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    act(() => {
+      capturedOptions?.events.onReady()
+    })
+
+    currentTime = 12
+    act(() => {
+      capturedOptions?.events.onStateChange({ data: 1 })
+    })
+
+    currentTime = 42
+    await act(async () => {
+      setDocumentHidden(true)
+      document.dispatchEvent(new Event('visibilitychange'))
+      await Promise.resolve()
+    })
+
+    expect(mocks.postJson).toHaveBeenCalledWith('/courses/topic-items/101/progress', {
+      watched_seconds: 42,
+    })
+
+    mocks.postJson.mockClear()
+    currentTime = 75
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90000)
+    })
+
+    expect(mocks.postJson).not.toHaveBeenCalled()
+
+    await act(async () => {
+      setDocumentHidden(false)
+      document.dispatchEvent(new Event('visibilitychange'))
+      await Promise.resolve()
+    })
+
+    expect(onProgress).toHaveBeenLastCalledWith(75, 0.75)
+    expect(mocks.postJson).toHaveBeenCalledWith('/courses/topic-items/101/progress', {
+      watched_seconds: 75,
+    })
+
+    mocks.postJson.mockClear()
+    currentTime = 88
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000)
+    })
+
+    expect(mocks.postJson).toHaveBeenCalledWith('/courses/topic-items/101/progress', {
+      watched_seconds: 88,
+    })
+  })
+
   it('seeks to the resume checkpoint when the player is ready', async () => {
     renderPlayer({ resumeSeconds: 37 })
     await act(async () => {
@@ -189,4 +262,20 @@ function renderPlayer(props: {
   })
 
   return { container, root }
+}
+
+function setDocumentHidden(hidden: boolean) {
+  Object.defineProperty(document, 'hidden', {
+    configurable: true,
+    value: hidden,
+  })
+}
+
+function restoreDocumentHidden() {
+  if (originalDocumentHidden) {
+    Object.defineProperty(document, 'hidden', originalDocumentHidden)
+    return
+  }
+
+  delete (document as unknown as { hidden?: boolean }).hidden
 }

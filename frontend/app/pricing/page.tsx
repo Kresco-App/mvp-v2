@@ -3,11 +3,11 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { CheckCircle2, Crown, Zap, BookOpen, Award, ArrowLeft, CreditCard, Landmark, Store, Receipt } from 'lucide-react'
-import { toast } from 'sonner'
 import { useAuthStore } from '@/lib/store'
 import { apiJsonClient } from '@/lib/apiClient'
 import { localizedCopy } from '@/lib/localization'
 import { submitManualPaymentProof } from '@/lib/manualPayments'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import {
   DEFAULT_PAYMENT_METHOD,
   createProPaymentRequest,
@@ -26,6 +26,9 @@ const paymentMethodIcons: Record<PaymentMethod, typeof CreditCard> = {
   cashplus: Store,
   ashplus: Receipt,
 }
+
+const pricingControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/25 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+const pricingFieldMotionClass = 'transition-[border-color,box-shadow] duration-150 ease-out focus:border-amber-300 focus:ring-4 focus:ring-amber-300/15 motion-reduce:transition-none'
 
 type PaymentSupportState = {
   method: PaymentMethod
@@ -131,12 +134,12 @@ export default function PricingPage() {
     if (result.status === 'pending_manual_review') {
       setPendingRequest(result.request)
       setPaymentSupport(null)
-      toast.success(pricingCopy.pendingToast)
+      showToastSuccess(pricingCopy.pendingToast)
       return
     }
 
     setPaymentSupport({ method: selectedPaymentMethod, message: result.message })
-    toast.error(result.message)
+    showToastError(result.message)
   }
 
   async function handleProofSubmit(event: FormEvent<HTMLFormElement>) {
@@ -144,7 +147,7 @@ export default function PricingPage() {
     if (!pendingRequest || isSubmittingProof) return
 
     if (!proofReference.trim() && !proofUrl.trim()) {
-      toast.error(pricingCopy.proofRequired)
+      showToastError(pricingCopy.proofRequired)
       return
     }
 
@@ -160,11 +163,11 @@ export default function PricingPage() {
 
     if (result.status === 'success') {
       setProofSubmitted(true)
-      toast.success(pricingCopy.proofSubmitted)
+      showToastSuccess(pricingCopy.proofSubmitted)
       return
     }
 
-    toast.error(result.message)
+    showToastError(result.message)
   }
 
   return (
@@ -174,9 +177,9 @@ export default function PricingPage() {
         <div className="max-w-4xl mx-auto mb-6">
           <Link
             href="/home"
-            className="inline-flex items-center gap-2 text-slate-500 hover:text-white text-sm transition-colors"
+            className={`inline-flex min-h-10 items-center gap-2 rounded-xl px-2 text-sm text-slate-500 hover:text-white ${pricingControlMotionClass}`}
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={16} aria-hidden="true" />
             {pricingCopy.backHome}
           </Link>
         </div>
@@ -184,13 +187,13 @@ export default function PricingPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
             <div className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 text-sm font-semibold px-4 py-1.5 rounded-full mb-5">
-              <Crown size={14} />
+              <Crown size={14} aria-hidden="true" />
               {pricingCopy.badge}
             </div>
-            <h1 className="text-4xl font-bold text-white mb-4">
+            <h1 className="mb-4 text-balance text-4xl font-bold text-white">
               {pricingCopy.title}
             </h1>
-            <p className="text-slate-500 text-lg max-w-md mx-auto leading-relaxed">
+            <p className="mx-auto max-w-md text-pretty text-lg leading-relaxed text-slate-500">
               {pricingCopy.subtitle}
             </p>
           </div>
@@ -200,7 +203,7 @@ export default function PricingPage() {
             <div className="bg-slate-900 rounded-2xl border border-slate-700 p-8 shadow-sm">
               <div className="mb-6">
                 <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center mb-4">
-                  <BookOpen size={20} className="text-slate-400" />
+                  <BookOpen size={20} className="text-slate-400" aria-hidden="true" />
                 </div>
                 <h2 className="text-xl font-bold text-white mb-1">{pricingCopy.freePlan}</h2>
                 <div className="flex items-baseline gap-1">
@@ -212,7 +215,7 @@ export default function PricingPage() {
               <ul className="space-y-3 mb-8">
                 {pricingCopy.freeFeatures.map(f => (
                   <li key={f} className="flex items-center gap-3 text-sm text-slate-400">
-                    <CheckCircle2 size={16} className="text-slate-400 flex-shrink-0" />
+                    <CheckCircle2 size={16} className="text-slate-400 flex-shrink-0" aria-hidden="true" />
                     {f}
                   </li>
                 ))}
@@ -231,7 +234,7 @@ export default function PricingPage() {
               <div className="relative">
                 <div className="mb-6">
                   <div className="w-10 h-10 bg-indigo-600/20 rounded-xl flex items-center justify-center mb-4">
-                    <Crown size={20} className="text-indigo-400" />
+                    <Crown size={20} className="text-indigo-400" aria-hidden="true" />
                   </div>
                   <div className="flex items-center gap-2 mb-2">
                     <h2 className="text-xl font-bold text-white">{pricingCopy.proPlan}</h2>
@@ -250,7 +253,7 @@ export default function PricingPage() {
                 <ul className="space-y-3 mb-8">
                   {pricingCopy.proFeatures.map(f => (
                     <li key={f} className="flex items-center gap-3 text-sm text-slate-300">
-                      <CheckCircle2 size={16} className="text-indigo-400 flex-shrink-0" />
+                      <CheckCircle2 size={16} className="text-indigo-400 flex-shrink-0" aria-hidden="true" />
                       {f}
                     </li>
                   ))}
@@ -258,7 +261,7 @@ export default function PricingPage() {
 
                 {user?.is_pro ? (
                   <div className="w-full py-3 rounded-xl bg-green-500/20 text-green-400 text-sm font-bold text-center">
-                    <CheckCircle2 size={16} className="inline mr-2" />
+                    <CheckCircle2 size={16} className="inline mr-2" aria-hidden="true" />
                     {pricingCopy.proActive}
                   </div>
                 ) : (
@@ -279,15 +282,15 @@ export default function PricingPage() {
                               setPaymentSupport(null)
                               clearProofForm()
                             }}
-                            className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                            className={`min-h-10 rounded-xl border px-3 py-3 text-left ${pricingControlMotionClass} ${
                               isSelected
-                                ? 'border-indigo-400 bg-indigo-500/15 text-white'
+                                ? 'border-indigo-400 bg-indigo-500/15 text-white shadow-[inset_0_0_0_1px_rgba(129,140,248,0.22)]'
                                 : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500'
                             }`}
                             aria-pressed={isSelected}
                           >
                             <span className="flex items-center gap-2 text-sm font-semibold">
-                              <Icon size={16} />
+                              <Icon size={16} aria-hidden="true" />
                               {method.label}
                             </span>
                             <span className="mt-1 block text-xs text-slate-500">{method.description}</span>
@@ -298,9 +301,9 @@ export default function PricingPage() {
                     <button type="button"
                       onClick={() => handlePaymentRequest()}
                       disabled={isCreatingPayment}
-                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                      className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 ${pricingControlMotionClass}`}
                     >
-                      <Zap size={16} />
+                      <Zap size={16} aria-hidden="true" />
                       {isCreatingPayment ? pricingCopy.creatingPayment : pricingCopy.checkout}
                     </button>
                   </div>
@@ -319,13 +322,13 @@ export default function PricingPage() {
                         type="button"
                         onClick={() => handlePaymentRequest()}
                         disabled={isCreatingPayment}
-                        className="rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-400 disabled:bg-slate-700 disabled:text-slate-400"
+                        className={`min-h-10 rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white hover:bg-red-400 disabled:bg-slate-700 disabled:text-slate-400 ${pricingControlMotionClass}`}
                       >
                         {isCreatingPayment ? pricingCopy.creatingPayment : pricingCopy.supportRetry}
                       </button>
                       <a
                         href={`mailto:support@kresco.ma?subject=${encodeURIComponent(`Paiement ${paymentSupport.method}`)}`}
-                        className="rounded-xl border border-red-300 px-4 py-2 text-center text-sm font-bold text-red-700 transition hover:bg-red-100"
+                        className={`inline-flex min-h-10 items-center justify-center rounded-xl border border-red-300 px-4 py-2 text-center text-sm font-bold text-red-700 hover:bg-red-100 ${pricingControlMotionClass}`}
                       >
                         {pricingCopy.supportContact}
                       </a>
@@ -337,7 +340,7 @@ export default function PricingPage() {
                   <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-50">
                     <p className="font-semibold">{pendingRequest.instructions.title ?? pricingCopy.pendingTitle}</p>
                     <p className="mt-1 text-amber-100/80">{pricingCopy.pendingReference}: {pendingRequest.reference_code}</p>
-                    <p className="mt-1 text-amber-100/80">{pricingCopy.pendingAmount}: {(pendingRequest.amount_centimes / 100).toFixed(2)} {pendingRequest.currency}</p>
+                    <p className="mt-1 text-amber-100/80 tabular-nums">{pricingCopy.pendingAmount}: {(pendingRequest.amount_centimes / 100).toFixed(2)} {pendingRequest.currency}</p>
                     {pendingRequest.instructions.steps?.length ? (
                       <ul className="mt-3 space-y-1 text-xs text-amber-100/80">
                         {pendingRequest.instructions.steps.map((step) => (
@@ -354,7 +357,7 @@ export default function PricingPage() {
                           id="manual-proof-reference"
                           value={proofReference}
                           onChange={(event) => setProofReference(event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          className={`mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none ${pricingFieldMotionClass}`}
                           placeholder={pricingCopy.proofReferencePlaceholder}
                         />
                       </div>
@@ -366,7 +369,7 @@ export default function PricingPage() {
                           id="manual-proof-payer"
                           value={proofPayerName}
                           onChange={(event) => setProofPayerName(event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          className={`mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none ${pricingFieldMotionClass}`}
                           placeholder={pricingCopy.proofPayerNamePlaceholder}
                         />
                       </div>
@@ -378,7 +381,7 @@ export default function PricingPage() {
                           id="manual-proof-url"
                           value={proofUrl}
                           onChange={(event) => setProofUrl(event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          className={`mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none ${pricingFieldMotionClass}`}
                           placeholder={pricingCopy.proofUrlPlaceholder}
                         />
                       </div>
@@ -390,7 +393,7 @@ export default function PricingPage() {
                           id="manual-proof-notes"
                           value={proofNotes}
                           onChange={(event) => setProofNotes(event.target.value)}
-                          className="mt-1 min-h-20 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-amber-300"
+                          className={`mt-1 min-h-20 w-full rounded-lg border border-amber-500/30 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none ${pricingFieldMotionClass}`}
                           placeholder={pricingCopy.proofNotesPlaceholder}
                         />
                       </div>
@@ -400,7 +403,7 @@ export default function PricingPage() {
                       <button
                         type="submit"
                         disabled={isSubmittingProof || proofSubmitted}
-                        className="w-full rounded-xl bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-amber-300 disabled:bg-slate-700 disabled:text-slate-400"
+                        className={`min-h-10 w-full rounded-xl bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:bg-slate-700 disabled:text-slate-400 ${pricingControlMotionClass}`}
                       >
                         {isSubmittingProof ? pricingCopy.proofSubmitting : pricingCopy.proofSubmit}
                       </button>
@@ -422,7 +425,7 @@ export default function PricingPage() {
               { icon: CheckCircle2, ...pricingCopy.stats[2] },
             ].map(({ icon: Icon, value, label }) => (
               <div key={label} className="bg-slate-900 rounded-2xl border border-slate-800 p-5 shadow-sm">
-                <Icon size={20} className="text-indigo-600 mx-auto mb-2" />
+                <Icon size={20} className="text-indigo-600 mx-auto mb-2" aria-hidden="true" />
                 <div className="text-2xl font-bold text-white">{value}</div>
                 <div className="text-slate-400 text-sm">{label}</div>
               </div>

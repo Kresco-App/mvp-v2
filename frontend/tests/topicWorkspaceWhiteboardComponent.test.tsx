@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -138,6 +140,16 @@ afterEach(() => {
 })
 
 describe('TopicWorkspaceWhiteboard component', () => {
+  it('loads Excalidraw styles with the lazy whiteboard chunk instead of the topic route', () => {
+    const whiteboardSource = readFileSync(join(process.cwd(), 'components', 'topic-workspace', 'TopicWorkspaceWhiteboard.tsx'), 'utf8')
+    const topicLayoutPath = join(process.cwd(), 'app', '(dashboard)', 'topics', '[topicId]', 'layout.tsx')
+
+    expect(whiteboardSource).toContain("import '@excalidraw/excalidraw/index.css'")
+    if (existsSync(topicLayoutPath)) {
+      expect(readFileSync(topicLayoutPath, 'utf8')).not.toContain('@excalidraw/excalidraw/index.css')
+    }
+  })
+
   it('keeps Excalidraw callback and option props stable across status rerenders', () => {
     const { root } = renderWhiteboard()
     const firstProps = mocks.excalidrawProps.at(-1)

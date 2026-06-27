@@ -1,13 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { toast } from 'sonner'
+import { useSWRConfig } from 'swr'
 import { ArrowRight, BookOpen, CalendarDays, FileText, GraduationCap, Layers3, Lock, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
-import { apiDataErrorMessage } from '@/lib/apiData'
-import { useExamBankData, type Exam, type ExamBankFilters, type ExamProblem } from '@/lib/courseDiscoveryData'
-import { SkeletonBlock } from '@/components/figma'
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
+import { examProblemDetailSWRKey, useExamBankData, type Exam, type ExamBankFilters, type ExamProblem, type ExamProblemDetail } from '@/lib/courseDiscoveryData'
+import { showToastError } from '@/lib/lazyToast'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
+import { SkeletonBlock } from '@/components/figma/skeletons'
 
 const skeletonAnimationDelayClasses = ['[animation-delay:0ms]', '[animation-delay:60ms]', '[animation-delay:120ms]'] as const
 
@@ -28,6 +30,7 @@ type SubjectExamSection = {
 const EXAM_SEARCH_DEBOUNCE_MS = 280
 const MAX_EXAMS_RENDERED = 72
 const MAX_PROGRESS_DOTS = 8
+const offscreenExamCardClass = '[content-visibility:auto] [contain-intrinsic-size:344px_300px]'
 const progressFilterOptions: { value: NonNullable<ExamBankFilters['progressStatus']>; label: string }[] = [
   { value: '', label: 'All progress' },
   { value: 'not_started', label: 'Not started' },
@@ -45,6 +48,7 @@ export default function ExamBankPage() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const searchKey = searchParams.toString()
   const routeQuery = searchParams.get('q')?.trim() || ''
   const routeProgressFilter = validProgressFilter(searchParams.get('progress_status'))
@@ -54,6 +58,7 @@ export default function ExamBankPage() {
   const [progressFilter, setProgressFilter] = useState<NonNullable<ExamBankFilters['progressStatus']>>(routeProgressFilter)
   const [savedFilter, setSavedFilter] = useState<SavedFilter>(routeSavedFilter)
   const [expandedSubjects, setExpandedSubjects] = useState<Set<string>>(() => new Set())
+  const preloadedProblemDetailKeysRef = useRef<Set<string>>(new Set())
   const lastErrorToastRef = useRef('')
 
   useEffect(() => {
@@ -83,7 +88,7 @@ export default function ExamBankPage() {
     const message = apiDataErrorMessage(error, 'Could not load Exam Bank.')
     if (message === lastErrorToastRef.current) return
     lastErrorToastRef.current = message
-    toast.error(message)
+    showToastError(message)
   }, [error])
 
   useEffect(() => {
@@ -105,7 +110,9 @@ export default function ExamBankPage() {
     const currentUrl = searchKey ? `${pathname}?${searchKey}` : pathname
 
     if (nextUrl !== currentUrl) {
-      router.replace(nextUrl, { scroll: false })
+      startTransition(() => {
+        router.replace(nextUrl, { scroll: false })
+      })
     }
   }, [pathname, progressFilter, query, router, savedFilter, searchKey])
 
@@ -113,10 +120,10 @@ export default function ExamBankPage() {
     return exams.slice(0, MAX_EXAMS_RENDERED).map(toVisibleExam).sort(compareVisibleExams)
   }, [exams])
   const groupedExamSections = useMemo(() => groupExamsBySubject(visibleExams), [visibleExams])
+  const examSummary = useMemo(() => summarizeVisibleExams(visibleExams), [visibleExams])
   const isCapped = exams.length > MAX_EXAMS_RENDERED
   const showInitialLoading = loading && exams.length === 0
-  const totalProblems = visibleExams.reduce((total, exam) => total + exam.totalProblemCount, 0)
-  const completedProblems = visibleExams.reduce((total, exam) => total + exam.completedProblemCount, 0)
+  const { totalProblems, completedProblems } = examSummary
   const hasActiveFilters = Boolean(queryInput.trim() || progressFilter || savedFilter !== 'all')
 
   function resetFilters() {
@@ -125,45 +132,58 @@ export default function ExamBankPage() {
     setSavedFilter('all')
   }
 
-  function toggleSubject(subjectKey: string) {
+  const toggleSubject = useCallback((subjectKey: string) => {
     setExpandedSubjects((current) => {
       const next = new Set(current)
       if (next.has(subjectKey)) next.delete(subjectKey)
       else next.add(subjectKey)
       return next
     })
-  }
+  }, [])
+
+  const preloadProblemDetail = useCallback((problemId: number | null) => {
+    if (!problemId) return
+    const preloadKey = examProblemDetailSWRKey(problemId)
+    if (!preloadKey || hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (preloadedProblemDetailKeysRef.current.has(preloadKey)) return
+
+    preloadedProblemDetailKeysRef.current.add(preloadKey)
+    const request = apiSWRFetcher<ExamProblemDetail>(preloadKey).catch((preloadError) => {
+      preloadedProblemDetailKeysRef.current.delete(preloadKey)
+      throw preloadError
+    })
+
+    void mutateSWRCache(preloadKey, request, { populateCache: true, revalidate: false })
+  }, [mutateSWRCache, swrCache])
 
   useEffect(() => {
     if (!routeProblemId || exams.length === 0) return
     const parentExam = exams.find((exam) => exam.problems.some((problem) => problem.id === routeProblemId))
     if (!parentExam) return
-    router.replace(`/exam-bank/${parentExam.id}?problem=${routeProblemId}`, { scroll: false })
+    startTransition(() => {
+      router.replace(`/exam-bank/${parentExam.id}?problem=${routeProblemId}`, { scroll: false })
+    })
   }, [exams, routeProblemId, router])
 
   return (
     <main className="pt-[32px] sm:pt-[44px]">
-      <header className="mb-10">
-        <section className="relative overflow-hidden rounded-[24px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-5 py-6 shadow-[0_12px_32px_rgba(24,24,27,0.06)] sm:px-7 sm:py-7">
-          <div className="pointer-events-none absolute -right-8 -top-12 text-[150px] font-black leading-none tracking-[-10px] text-[color:var(--primary-soft)]" aria-hidden="true">BAC</div>
-          <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-            <div className="flex min-w-0 items-start gap-4">
-              <span className="grid size-12 shrink-0 place-items-center rounded-[16px] bg-[color:var(--primary)] text-white shadow-[0_8px_18px_rgba(69,61,238,0.22)]">
+      <header className="mb-8">
+        <section className="flex flex-col gap-5 border-b border-[color:var(--border)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-[14px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
                 <GraduationCap size={24} strokeWidth={2.5} />
-              </span>
-              <div>
-                <p className="m-0 text-[12px] font-black uppercase tracking-[1.8px] text-[color:var(--primary)]">Exam Bank</p>
-                <h1 className="m-0 mt-1 text-[34px] font-black leading-[1.05] tracking-[-0.7px] text-[color:var(--text-primary)] sm:text-[40px]">Bac exams, built for real practice</h1>
-                <p className="m-0 mt-2 max-w-[640px] text-[14px] font-semibold leading-6 text-[color:var(--text-hint)] sm:text-[15px]">
-                  Pick a subject, work problem by problem, and return exactly where you stopped.
-                </p>
-              </div>
+            </span>
+            <div className="min-w-0">
+              <h1 className="m-0 text-[28px] font-black leading-tight text-[color:var(--text-primary)]">Exam Bank</h1>
+              <p className="m-0 mt-1 max-w-[560px] text-[14px] font-semibold leading-6 text-[color:var(--text-hint)]">
+                BAC practice by subject, year, and progress.
+              </p>
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
-              <BankMetric icon={<CalendarDays size={16} />} label="Exams" value={visibleExams.length} />
-              <BankMetric icon={<Layers3 size={16} />} label="Problems" value={totalProblems} />
-              <BankMetric icon={<BookOpen size={16} />} label="Completed" value={completedProblems} />
-            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
+            <BankMetric icon={<CalendarDays size={16} />} label="Exams" value={visibleExams.length} />
+            <BankMetric icon={<Layers3 size={16} />} label="Problems" value={totalProblems} />
+            <BankMetric icon={<BookOpen size={16} />} label="Done" value={completedProblems} />
           </div>
         </section>
 
@@ -175,23 +195,23 @@ export default function ExamBankPage() {
                 aria-label="Search exam bank"
                 value={queryInput}
                 onChange={(event) => setQueryInput(event.target.value)}
-                className="h-[46px] w-full rounded-[13px] border border-transparent bg-[color:var(--surface-input)] pl-[42px] pr-[16px] text-[15px] font-bold text-[color:var(--text-primary)] outline-none placeholder:text-[color:var(--text-tertiary)] focus:border-[color:var(--primary)] focus:bg-white focus:ring-4 focus:ring-[color:var(--primary-soft)]"
+                className="h-[46px] w-full rounded-[13px] border border-transparent bg-[color:var(--surface-input)] pl-[42px] pr-[16px] text-[15px] font-bold text-[color:var(--text-primary)] outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out placeholder:text-[color:var(--text-tertiary)] focus:border-[color:var(--primary)] focus:bg-white focus:ring-4 focus:ring-[color:var(--primary-soft)]"
                 placeholder="Search by subject, year, or session"
                 type="search"
               />
             </div>
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-              <label className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-[13px] bg-[color:var(--surface-input)] px-3 text-[color:var(--text-tertiary)] sm:w-[190px]">
+              <label className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-[13px] bg-[color:var(--surface-input)] px-3 text-[color:var(--text-tertiary)] transition-[background-color,box-shadow] duration-150 ease-out focus-within:bg-white focus-within:ring-4 focus-within:ring-[color:var(--primary-soft)] sm:w-[190px]">
                 <SlidersHorizontal size={15} />
                 <select aria-label="Filter exam bank by progress" value={progressFilter} onChange={(event) => setProgressFilter(validProgressFilter(event.target.value))} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold text-[color:var(--text-secondary)] outline-none">
                   {progressFilterOptions.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
-              <select aria-label="Filter exam bank by saved state" value={savedFilter} onChange={(event) => setSavedFilter(validSavedFilter(event.target.value))} className="h-[46px] rounded-[13px] border-0 bg-[color:var(--surface-input)] px-4 text-[14px] font-bold text-[color:var(--text-secondary)] outline-none focus:ring-4 focus:ring-[color:var(--primary-soft)] sm:w-[155px]">
+              <select aria-label="Filter exam bank by saved state" value={savedFilter} onChange={(event) => setSavedFilter(validSavedFilter(event.target.value))} className="h-[46px] rounded-[13px] border-0 bg-[color:var(--surface-input)] px-4 text-[14px] font-bold text-[color:var(--text-secondary)] outline-none transition-[background-color,box-shadow] duration-150 ease-out focus:bg-white focus:ring-4 focus:ring-[color:var(--primary-soft)] sm:w-[155px]">
                 {savedFilterOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
               {hasActiveFilters && (
-                <button type="button" onClick={resetFilters} className="inline-flex h-[46px] items-center justify-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-4 text-[13px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
+                <button type="button" onClick={resetFilters} className="inline-flex h-[46px] items-center justify-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-4 text-[13px] font-black text-[color:var(--text-secondary)] transition-[background-color,border-color,color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:bg-[color:var(--primary-soft)] hover:text-[color:var(--primary)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
                   <RotateCcw size={14} /> Reset
                 </button>
               )}
@@ -234,27 +254,51 @@ export default function ExamBankPage() {
             </p>
           )}
           {groupedExamSections.map((section) => (
-            <section key={section.key}>
-              <SubjectDivider
-                title={section.title}
-                examCount={section.exams.length}
-                expanded={expandedSubjects.has(section.key)}
-                onToggle={() => toggleSubject(section.key)}
-              />
-              <div className="figma-course-grid">
-                {(expandedSubjects.has(section.key) ? section.exams : section.exams.slice(0, 3)).map((exam, index) => (
-                  <div key={exam.id} className={!expandedSubjects.has(section.key) && index > 0 ? 'max-[760px]:hidden' : ''}>
-                    <ExamCard exam={exam} index={index} />
-                  </div>
-                ))}
-              </div>
-            </section>
+            <ExamSubjectSection
+              key={section.key}
+              expanded={expandedSubjects.has(section.key)}
+              section={section}
+              onProblemDetailPreload={preloadProblemDetail}
+              onToggleSubject={toggleSubject}
+            />
           ))}
         </div>
       )}
     </main>
   )
 }
+
+const ExamSubjectSection = memo(function ExamSubjectSection({
+  expanded,
+  onProblemDetailPreload,
+  section,
+  onToggleSubject,
+}: {
+  expanded: boolean
+  onProblemDetailPreload: (problemId: number | null) => void
+  section: SubjectExamSection
+  onToggleSubject: (subjectKey: string) => void
+}) {
+  const visibleExams = expanded ? section.exams : section.exams.slice(0, 3)
+
+  return (
+    <section>
+      <SubjectDivider
+        title={section.title}
+        examCount={section.exams.length}
+        expanded={expanded}
+        onToggle={() => onToggleSubject(section.key)}
+      />
+      <div className="figma-course-grid">
+        {visibleExams.map((exam, index) => (
+          <div key={exam.id} className={!expanded && index > 0 ? 'max-[760px]:hidden' : ''}>
+            <ExamCard exam={exam} index={index} onProblemDetailPreload={onProblemDetailPreload} />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+})
 
 function SubjectDivider({ title, examCount, expanded, onToggle }: { title: string; examCount: number; expanded: boolean; onToggle: () => void }) {
   return (
@@ -266,7 +310,7 @@ function SubjectDivider({ title, examCount, expanded, onToggle }: { title: strin
       <div className="ml-auto flex shrink-0 items-center gap-2">
         <span className="rounded-full bg-[color:var(--surface-hover)] px-3 py-1.5 text-[12px] font-black text-[color:var(--text-hint)]">{examCount} {examCount === 1 ? 'exam' : 'exams'}</span>
         {examCount > 3 && (
-          <button type="button" onClick={onToggle} className="h-8 rounded-full border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--primary)] hover:border-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
+          <button type="button" onClick={onToggle} className="h-8 rounded-full border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--primary)] transition-[background-color,border-color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:bg-[color:var(--primary-soft)] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
             {expanded ? 'Show latest' : `View all ${examCount}`}
           </button>
         )}
@@ -277,9 +321,12 @@ function SubjectDivider({ title, examCount, expanded, onToggle }: { title: strin
 
 function BankMetric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
   return (
-    <div className="rounded-[14px] border border-[color:var(--border)] bg-white/90 px-3 py-3 backdrop-blur-sm">
-      <span className="flex items-center gap-1.5 text-[color:var(--primary)]">{icon}<span className="text-[10px] font-black uppercase tracking-[1px] text-[color:var(--text-tertiary)]">{label}</span></span>
-      <strong className="mt-1 block text-[22px] font-black leading-none text-[color:var(--text-primary)]">{value}</strong>
+    <div className="flex min-w-0 items-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-3 py-2.5">
+      <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">{icon}</span>
+      <span className="min-w-0">
+        <strong className="block text-[17px] font-black leading-none text-[color:var(--text-primary)]">{value}</strong>
+        <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.7px] text-[color:var(--text-tertiary)]">{label}</span>
+      </span>
     </div>
   )
 }
@@ -295,7 +342,7 @@ function SubjectDividerSkeleton() {
 
 function ExamCardSkeleton({ index }: { index: number }) {
   return (
-    <article className={`kresco-enter relative h-[300px] w-full max-w-[344.33px] overflow-hidden rounded-[16px] border-2 border-[#e4e4e7] bg-white p-[18px] shadow-[0_3.75px_0_#d9dadd] ${skeletonAnimationDelayClasses[index % skeletonAnimationDelayClasses.length]}`}>
+    <article className={`kresco-enter relative h-[300px] w-full max-w-[344.33px] overflow-hidden rounded-[16px] border-2 border-[#e4e4e7] bg-white p-[18px] shadow-[0_3.75px_0_#d9dadd] ${offscreenExamCardClass} ${skeletonAnimationDelayClasses[index % skeletonAnimationDelayClasses.length]}`}>
       <SkeletonBlock className="h-9 w-32 rounded-[12px]" />
       <SkeletonBlock className="mt-8 h-6 w-44 rounded-[8px]" />
       <SkeletonBlock className="mt-3 h-14 w-28 rounded-[12px]" />
@@ -305,7 +352,7 @@ function ExamCardSkeleton({ index }: { index: number }) {
   )
 }
 
-function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
+function ExamCard({ exam, index, onProblemDetailPreload }: { exam: VisibleExam; index: number; onProblemDetailPreload: (problemId: number | null) => void }) {
   const sessionLabel = examSessionLabel(exam.session)
   const sessionTone = examSessionTone(exam.session)
   const actionLabel = examActionLabel(exam)
@@ -314,7 +361,7 @@ function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
   const href = exam.firstProblemId ? `/exam-bank/${exam.id}?problem=${exam.firstProblemId}` : ''
 
   return (
-    <article className={`kresco-enter group relative flex min-h-[286px] w-full max-w-[344.33px] flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition-[border-color,box-shadow] duration-150 ease-out hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)] ${showLocked ? 'opacity-80' : ''}`}>
+    <article className={`kresco-enter group relative flex min-h-[286px] w-full max-w-[344.33px] flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition-[border-color,box-shadow] duration-150 ease-out hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)] ${offscreenExamCardClass} ${showLocked ? 'opacity-80' : ''}`}>
       <div className={`absolute inset-y-0 left-0 w-1.5 ${sessionTone.accent}`} />
       <div className="pointer-events-none absolute -right-2 top-7 text-[76px] font-black leading-none tracking-[-5px] text-[color:var(--surface-hover)]" aria-hidden="true">{exam.year}</div>
       <div className="relative flex items-start justify-between gap-3">
@@ -346,24 +393,27 @@ function ExamCard({ exam, index }: { exam: VisibleExam; index: number }) {
           )}
         </div>
 
-        <div className="h-2 w-full overflow-hidden rounded-full bg-[color:var(--surface-hover)]" aria-label={`Progress ${exam.completedProblemCount} of ${exam.totalProblemCount || 0} problems completed`}>
-          <span
-            className="kresco-progress-fill block h-full rounded-full bg-[color:var(--primary)]"
-            style={{ width: `${exam.progressPercent}%` }}
-          />
-        </div>
+        <progress
+          className="kresco-progress-fill h-2 w-full overflow-hidden rounded-full bg-[color:var(--surface-hover)] accent-[color:var(--primary)]"
+          max={100}
+          value={exam.progressPercent}
+          aria-label={`Progress ${exam.completedProblemCount} of ${exam.totalProblemCount || 0} problems completed`}
+        />
 
         <ExamProblemDots problems={exam.problems} />
 
         {href ? (
           <Link
             href={href}
+            onFocus={() => onProblemDetailPreload(exam.firstProblemId)}
+            onMouseOver={() => onProblemDetailPreload(exam.firstProblemId)}
+            onPointerEnter={() => onProblemDetailPreload(exam.firstProblemId)}
             className={`mt-3.5 flex h-[44px] w-full items-center justify-between rounded-[13px] px-4 text-[14px] font-black text-white no-underline transition-[background-color,filter,transform] duration-150 ease-out active:scale-[0.96] ${
               exam.completedProblemCount === exam.totalProblemCount && exam.totalProblemCount > 0 ? 'bg-[color:var(--warning)]' : 'bg-[color:var(--primary)]'
             }`}
           >
-            <span className="inline-flex items-center gap-2"><FileText size={15} strokeWidth={2.7} />{actionLabel}</span>
-            <ArrowRight size={16} strokeWidth={2.7} className="transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+            <span className="inline-flex items-center gap-2"><FileText size={15} strokeWidth={2.7} aria-hidden="true" />{actionLabel}</span>
+            <ArrowRight size={16} strokeWidth={2.7} className="transition-[transform] duration-150 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" aria-hidden="true" />
           </Link>
         ) : (
           <span className="mt-3.5 flex h-[44px] w-full items-center justify-center rounded-[13px] bg-[color:var(--surface-hover)] px-4 text-center text-[14px] font-black text-[color:var(--text-hint)]">
@@ -403,9 +453,19 @@ function ExamProblemDots({ problems }: { problems: ExamProblem[] }) {
 
 function toVisibleExam(exam: Exam): VisibleExam {
   const totalProblemCount = exam.problems.length
-  const completedProblemCount = exam.problems.filter((problem) => problem.progress_status === 'completed').length
-  const openedProblemCount = exam.problems.filter((problem) => problem.progress_status === 'opened').length
-  const firstProblemId = exam.problems.find((problem) => problem.can_access !== false)?.id ?? exam.problems[0]?.id ?? null
+  let completedProblemCount = 0
+  let openedProblemCount = 0
+  let firstAccessibleProblemId: number | null = null
+
+  for (const problem of exam.problems) {
+    if (problem.progress_status === 'completed') completedProblemCount += 1
+    else if (problem.progress_status === 'opened') openedProblemCount += 1
+    if (firstAccessibleProblemId === null && problem.can_access !== false) {
+      firstAccessibleProblemId = problem.id
+    }
+  }
+
+  const firstProblemId = firstAccessibleProblemId ?? exam.problems[0]?.id ?? null
 
   return {
     ...exam,
@@ -415,6 +475,18 @@ function toVisibleExam(exam: Exam): VisibleExam {
     progressPercent: totalProblemCount > 0 ? Math.round((completedProblemCount / totalProblemCount) * 100) : 0,
     firstProblemId,
   }
+}
+
+function summarizeVisibleExams(exams: VisibleExam[]) {
+  let totalProblems = 0
+  let completedProblems = 0
+
+  for (const exam of exams) {
+    totalProblems += exam.totalProblemCount
+    completedProblems += exam.completedProblemCount
+  }
+
+  return { totalProblems, completedProblems }
 }
 
 function groupExamsBySubject(exams: VisibleExam[]): SubjectExamSection[] {

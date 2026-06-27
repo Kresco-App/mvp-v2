@@ -2,8 +2,8 @@
 
 import { useCallback, useState } from 'react'
 import { Download, ExternalLink, Eye, X } from 'lucide-react'
-import { toast } from 'sonner'
 import { apiDataErrorMessage } from '@/lib/apiData'
+import { showToastError } from '@/lib/lazyToast'
 import {
   hasTopicWorkspaceResourceUrl,
   isTopicWorkspaceResourceOpenUnavailable,
@@ -15,6 +15,7 @@ import { resolvedTabContentId } from '@/components/topic-workspace/TopicWorkspac
 import { sanitizeNavigationUrl } from '@/lib/urlSafety'
 
 const RESOURCE_FORMAT_LABEL = 'PDF'
+const topicResourceControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
 
 function downloadTopicWorkspaceFile(url: string, name: string) {
   const anchor = document.createElement('a')
@@ -50,7 +51,7 @@ export function TopicWorkspaceResourcePanel({
         tab_content_id: tabContentId,
       })
       if (!resolvedUrl) {
-        toast.error('This resource does not expose a usable URL.')
+        showToastError('This resource does not expose a usable URL.')
         return
       }
       if (action === 'preview') {
@@ -66,7 +67,7 @@ export function TopicWorkspaceResourcePanel({
       if (isTopicWorkspaceResourceOpenUnavailable(error)) {
         const fallbackUrl = sanitizeNavigationUrl(resource.url)
         if (!fallbackUrl) {
-          toast.error('This resource does not expose a usable URL.')
+          showToastError('This resource does not expose a usable URL.')
           return
         }
         if (action === 'preview') {
@@ -78,7 +79,7 @@ export function TopicWorkspaceResourcePanel({
         }
         return
       }
-      toast.error(apiDataErrorMessage(error, 'Could not open this resource.'))
+      showToastError(apiDataErrorMessage(error, 'Could not open this resource.'))
     } finally {
       setActiveAction(null)
     }
@@ -97,27 +98,27 @@ export function TopicWorkspaceResourcePanel({
               type="button"
               onClick={() => void runResourceAction('open')}
               disabled={activeAction !== null}
-              className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,transform] duration-200 hover:bg-[#2f27b8] active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#d4d4d8] disabled:active:scale-100"
+              className={`inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#d4d4d8] ${topicResourceControlMotionClass}`}
             >
-              <ExternalLink size={13} />
+              <ExternalLink size={13} aria-hidden="true" />
               Open
             </button>
             <button
               type="button"
               onClick={() => void runResourceAction('preview')}
               disabled={activeAction !== null}
-              className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:active:scale-100"
+              className={`inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:cursor-not-allowed disabled:text-[#a1a1aa] ${topicResourceControlMotionClass}`}
             >
-              <Eye size={13} />
+              <Eye size={13} aria-hidden="true" />
               Preview
             </button>
             <button
               type="button"
               onClick={() => void runResourceAction('download')}
               disabled={activeAction !== null}
-              className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:active:scale-100"
+              className={`inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:cursor-not-allowed disabled:text-[#a1a1aa] ${topicResourceControlMotionClass}`}
             >
-              <Download size={13} />
+              <Download size={13} aria-hidden="true" />
               Download
             </button>
           </div>
@@ -130,10 +131,10 @@ export function TopicWorkspaceResourcePanel({
             <button
               type="button"
               onClick={() => setPreviewUrl('')}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] transition-[background-color,transform] duration-200 hover:bg-[#f8f9fc] active:scale-[0.96]"
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] hover:bg-[#f8f9fc] ${topicResourceControlMotionClass}`}
               aria-label="Close resource preview"
             >
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
           <iframe
@@ -141,6 +142,7 @@ export function TopicWorkspaceResourcePanel({
             src={previewUrl}
             loading="lazy"
             referrerPolicy="no-referrer"
+            sandbox="allow-scripts allow-forms allow-popups allow-downloads"
             className="h-[420px] w-full border-0 bg-white"
           />
         </div>

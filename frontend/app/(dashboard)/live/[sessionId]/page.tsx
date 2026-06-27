@@ -1,11 +1,11 @@
 'use client'
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, HelpCircle, ListChecks, MessageCircle, Radio, RotateCcw, Send } from 'lucide-react'
-import { toast } from 'sonner'
-import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/realtime'
+import { showToastError } from '@/lib/lazyToast'
+import { useNotificationChannelsSubscription } from '@/hooks/useNotificationChannelsSubscription'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import {
   refreshStudentLiveInteractionsEnvelope,
@@ -25,6 +25,8 @@ import {
   createStudentLiveInteraction,
 } from '@/lib/professor'
 import { useAuthStore } from '@/lib/store'
+
+const liveRoomInteractionContainmentClass = '[content-visibility:auto] [contain-intrinsic-size:0_96px]'
 
 export default function LiveSessionRoomPage() {
   const router = useRouter()
@@ -61,23 +63,24 @@ export default function LiveSessionRoomPage() {
     : ''
 
   useEffect(() => {
-    if (embedError) toast.error(apiDataErrorMessage(embedError, 'Could not open the VdoCipher live player.'))
+    if (embedError) showToastError(apiDataErrorMessage(embedError, 'Could not open the VdoCipher live player.'))
   }, [embedError])
 
-  useEffect(() => {
-    if (!user?.id) return
-    const refresh = () => void mutateSessions()
-    return subscribeKrescoRealtime({
-      channelName: userNotificationsChannelName(user.id),
-      onMessage: refresh,
-      fallback: {
-        intervalMs: 5000,
-        poll: async () => {
-          await mutateSessions()
-        },
-      },
-    })
-  }, [mutateSessions, user?.id])
+  const refreshSessions = useCallback((isActive: () => boolean) => {
+    if (!isActive()) return
+    void mutateSessions()
+  }, [mutateSessions])
+
+  const pollSessions = useCallback(async (isActive: () => boolean) => {
+    if (!isActive()) return
+    await mutateSessions()
+  }, [mutateSessions])
+
+  useNotificationChannelsSubscription({
+    userId: user?.id,
+    onMessage: refreshSessions,
+    fallbackPoll: pollSessions,
+  })
 
   useLiveSessionRealtimeSubscription({
     sessionId: numericSessionId,
@@ -97,11 +100,11 @@ export default function LiveSessionRoomPage() {
     const body = interactionBody.trim()
     if (pageError) return
     if (!canInteract) {
-      toast.error(`This live session is not accepting new ${activePanel === 'question' ? 'questions' : 'messages'}.`)
+      showToastError(`This live session is not accepting new ${activePanel === 'question' ? 'questions' : 'messages'}.`)
       return
     }
     if (!body) {
-      toast.error(activePanel === 'question' ? 'Write your question first.' : 'Write your message first.')
+      showToastError(activePanel === 'question' ? 'Write your question first.' : 'Write your message first.')
       return
     }
     setSendingInteraction(true)
@@ -113,7 +116,7 @@ export default function LiveSessionRoomPage() {
       )
       setInteractionBody('')
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, activePanel === 'question' ? 'Could not send your question.' : 'Could not send your message.'))
+      showToastError(apiDataErrorMessage(error, activePanel === 'question' ? 'Could not send your question.' : 'Could not send your message.'))
     } finally {
       setSendingInteraction(false)
     }
@@ -133,14 +136,14 @@ export default function LiveSessionRoomPage() {
           <div className="min-w-0">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <button
-                className="inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[13px] font-black text-[#52525c] transition hover:bg-[#f7f7f9]"
+                className="inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[13px] font-black text-[#52525c] transition-[background-color,transform] duration-150 ease-out hover:bg-[#f7f7f9] active:scale-[0.96]"
                 type="button"
                 onClick={() => router.back()}
               >
                 <ArrowLeft size={16} />
                 Back
               </button>
-              <Link className="inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[13px] font-black text-[#52525c] no-underline transition hover:bg-[#f7f7f9]" href="/live">
+              <Link className="inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[13px] font-black text-[#52525c] no-underline transition-[background-color,transform] duration-150 ease-out hover:bg-[#f7f7f9] active:scale-[0.96]" href="/live">
                 <ListChecks size={16} />
                 Live schedule
               </Link>
@@ -159,7 +162,7 @@ export default function LiveSessionRoomPage() {
 
         <section className="grid h-[calc(100vh-205px)] min-h-[620px] gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
           <article className="min-h-0 min-w-0 overflow-hidden">
-            <div className="relative h-full min-h-[420px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-[#111113] shadow-none transition-shadow duration-300 hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)]">
+            <div className="relative h-full min-h-[420px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-[#111113] shadow-none transition-[box-shadow] duration-150 ease-out hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)] motion-reduce:transition-none">
               {loading || embedLoading ? (
                 <div className="absolute inset-0 grid place-items-center text-[14px] font-black text-white">
                   Opening live player...
@@ -204,11 +207,11 @@ export default function LiveSessionRoomPage() {
               ] as const).map(([kind, label, count]) => (
                 <button
                   key={kind}
-                  className={`h-11 rounded-[12px] text-[13px] font-black transition ${activePanel === kind ? 'border-2 border-[#18181b] bg-[#453dee] text-white shadow-[0_2px_0_#18181b]' : 'border-2 border-transparent text-[#71717b] hover:bg-[#f7f8fb]'}`}
+                  className={`h-11 rounded-[12px] text-[13px] font-black transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] ${activePanel === kind ? 'border-2 border-[#18181b] bg-[#453dee] text-white shadow-[0_2px_0_#18181b]' : 'border-2 border-transparent text-[#71717b] hover:bg-[#f7f8fb]'}`}
                   type="button"
                   onClick={() => setActivePanel(kind)}
                 >
-                  {label} {count > 0 ? count : ''}
+                  {label} {count > 0 ? <span className="tabular-nums">{count}</span> : ''}
                 </button>
               ))}
             </div>
@@ -231,7 +234,7 @@ export default function LiveSessionRoomPage() {
               ) : (
                 <div className={activePanel === 'message' ? 'flex min-h-full flex-col justify-end gap-3' : 'grid gap-3'}>
                   {activeItems.map((item) => activePanel === 'message' ? (
-                    <article key={item.id} className="flex items-start gap-3">
+                    <article key={item.id} className={`flex items-start gap-3 ${liveRoomInteractionContainmentClass}`}>
                       <div className="grid size-8 shrink-0 place-items-center rounded-full bg-[#f4f4ff] text-[11px] font-black text-[#453dee]">
                         {liveInteractionInitials(item.student_name)}
                       </div>
@@ -244,7 +247,7 @@ export default function LiveSessionRoomPage() {
                       </div>
                     </article>
                   ) : (
-                    <article key={item.id} className="rounded-[14px] border border-[#e4e4e7] p-4">
+                    <article key={item.id} className={`rounded-[14px] border border-[#e4e4e7] p-4 ${liveRoomInteractionContainmentClass}`}>
                       <div className="flex items-start justify-between gap-3">
                         <p className="m-0 truncate text-[13px] font-black text-[#3f3f46]">{item.student_name || 'Student'}</p>
                         <p className={`m-0 shrink-0 rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${item.status === 'answered' ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#fef3c7] text-[#a16207]'}`}>{item.status}</p>

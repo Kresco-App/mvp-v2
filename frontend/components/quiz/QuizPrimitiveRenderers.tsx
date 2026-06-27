@@ -10,9 +10,12 @@ import {
   RotateCcw,
   X,
 } from 'lucide-react'
-import { motion, Reorder, type PanInfo } from 'framer-motion'
+import { motion, Reorder, useReducedMotion, type PanInfo } from 'framer-motion'
 import { Feedback } from './QuizPrimitiveShared'
 import type { QuizPrimitiveQuestion, QuizPrimitiveOption as Option } from '@/lib/quizPrimitiveViewModel'
+
+const quizPrimitiveControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+const quizPrimitiveSurfaceMotionClass = 'transition-[background-color,border-color,box-shadow,color] duration-150 ease-out motion-reduce:transition-none'
 
 export function QuestionRenderer({ question }: { question: QuizPrimitiveQuestion }) {
   switch (question.type) {
@@ -59,14 +62,23 @@ function ChoiceQuestion({ question }: { question: Extract<QuizPrimitiveQuestion,
             key={option.id}
             type="button"
             onClick={() => setSelected(option.id)}
-            className={`overflow-hidden rounded-[14px] border-2 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 active:scale-[0.96] ${
+            className={`overflow-hidden rounded-[14px] border-2 text-left ${quizPrimitiveControlMotionClass} ${
               active ? 'border-[#453dee] bg-[#eef2ff]' : 'border-[#e4e4e7] bg-white hover:border-[#b9bcff]'
             }`}
           >
-            {option.image && <Image src={option.image} alt="" width={320} height={112} unoptimized className="kresco-media-outline h-28 w-full object-cover" />}
+            {option.image && (
+              <Image
+                src={option.image}
+                alt=""
+                width={320}
+                height={112}
+                unoptimized
+                className="kresco-media-outline h-28 w-full object-cover"
+              />
+            )}
             <span className="flex min-h-[54px] items-center justify-between gap-3 px-4 py-3">
               <strong className="text-[13px] font-black text-[#3f3f46]">{option.label}</strong>
-              {active && (correct ? <Check size={18} className="text-[#16a34a]" /> : <X size={18} className="text-[#dc2626]" />)}
+              {active && (correct ? <Check size={18} className="text-[#16a34a]" aria-hidden="true" /> : <X size={18} className="text-[#dc2626]" aria-hidden="true" />)}
             </span>
           </button>
         )
@@ -91,13 +103,13 @@ function MultiSelectQuestion({ question }: { question: Extract<QuizPrimitiveQues
             key={option.id}
             type="button"
             onClick={() => toggle(option.id)}
-            className={`flex min-h-[64px] items-center justify-between gap-3 rounded-[14px] border-2 px-4 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 active:scale-[0.96] ${
+            className={`flex min-h-[64px] items-center justify-between gap-3 rounded-[14px] border-2 px-4 py-3 text-left ${quizPrimitiveControlMotionClass} ${
               active ? 'border-[#453dee] bg-[#eef2ff]' : 'border-[#e4e4e7] bg-white hover:border-[#b9bcff]'
             }`}
           >
             <span className="text-[14px] font-black text-[#3f3f46]">{option.label}</span>
             <span className={`grid h-6 w-6 place-items-center rounded-[8px] border-2 ${active ? 'border-[#453dee] bg-[#453dee] text-white' : 'border-[#d4d4d8] bg-white text-transparent'}`}>
-              <Check size={15} />
+              <Check size={15} aria-hidden="true" />
             </span>
           </button>
         )
@@ -167,7 +179,7 @@ function SliderQuestion({ question }: { question: Extract<QuizPrimitiveQuestion,
       <button
         type="button"
         onClick={() => setAttempted(true)}
-        className="min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] transition-[background-color,box-shadow,transform] duration-150 ease-out active:scale-[0.96]"
+        className={`min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] ${quizPrimitiveControlMotionClass}`}
       >
         Validate estimate
       </button>
@@ -231,7 +243,7 @@ function FormulaBuilderQuestion({ question }: { question: Extract<QuizPrimitiveQ
                 type="button"
                 layout
                 onClick={() => setBuilt((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-                className="rounded-[10px] bg-[#eef2ff] px-3 py-2 text-[18px] font-black text-[#453dee] ring-1 ring-[#cfd3ff] transition-transform duration-200 active:scale-[0.96]"
+                className={`rounded-[10px] bg-[#eef2ff] px-3 py-2 text-[18px] font-black text-[#453dee] ring-1 ring-[#cfd3ff] ${quizPrimitiveControlMotionClass}`}
               >
                 {token?.label ?? id}
               </motion.button>
@@ -241,10 +253,10 @@ function FormulaBuilderQuestion({ question }: { question: Extract<QuizPrimitiveQ
         <button
           type="button"
           onClick={() => setBuilt([])}
-          className="grid h-11 w-11 place-items-center rounded-[12px] bg-white text-[#71717b] ring-1 ring-[#e4e4e7] transition-[color,transform] duration-200 hover:text-[#453dee] active:scale-[0.96]"
+          className={`grid h-11 w-11 place-items-center rounded-[12px] bg-white text-[#71717b] ring-1 ring-[#e4e4e7] hover:text-[#453dee] ${quizPrimitiveControlMotionClass}`}
           aria-label="Reset formula"
         >
-          <RotateCcw size={18} />
+          <RotateCcw size={18} aria-hidden="true" />
         </button>
       </div>
       <div className="grid grid-cols-4 gap-2 max-[760px]:grid-cols-2">
@@ -253,7 +265,7 @@ function FormulaBuilderQuestion({ question }: { question: Extract<QuizPrimitiveQ
             key={token.id}
             type="button"
             onClick={() => addToken(token.id)}
-            className="min-h-[52px] rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[16px] font-black text-[#3f3f46] transition-[background-color,border-color,color,transform] duration-150 ease-out hover:border-[#453dee] hover:bg-[#eef2ff] hover:text-[#453dee] active:scale-[0.96]"
+            className={`min-h-[52px] rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-[16px] font-black text-[#3f3f46] hover:border-[#453dee] hover:bg-[#eef2ff] hover:text-[#453dee] ${quizPrimitiveControlMotionClass}`}
           >
             {token.label}
           </button>
@@ -279,7 +291,7 @@ function ErrorSpottingQuestion({ question }: { question: Extract<QuizPrimitiveQu
               key={line.id}
               type="button"
               onClick={() => setSelected(line.id)}
-              className={`rounded-[12px] border-2 px-4 py-3 text-left text-[14px] font-black transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] ${
+              className={`rounded-[12px] border-2 px-4 py-3 text-left text-[14px] font-black ${quizPrimitiveControlMotionClass} ${
                 active
                   ? correct
                     ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]'
@@ -289,7 +301,7 @@ function ErrorSpottingQuestion({ question }: { question: Extract<QuizPrimitiveQu
             >
               <span className="flex items-center justify-between gap-3">
                 <span>{line.label}</span>
-                {active && (correct ? <Check size={17} /> : <X size={17} />)}
+                {active && (correct ? <Check size={17} aria-hidden="true" /> : <X size={17} aria-hidden="true" />)}
               </span>
             </button>
           )
@@ -302,6 +314,7 @@ function ErrorSpottingQuestion({ question }: { question: Extract<QuizPrimitiveQu
 
 function OrderingQuestion({ question }: { question: Extract<QuizPrimitiveQuestion, { type: 'ordering' }> }) {
   const [items, setItems] = useState(question.items)
+  const reduceMotion = useReducedMotion()
 
   return (
     <Reorder.Group
@@ -316,15 +329,15 @@ function OrderingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
           value={item}
           layout
           whileDrag={{
-            scale: 1.025,
+            scale: reduceMotion ? 1 : 1.025,
             boxShadow: '0 18px 38px rgba(24, 24, 27, 0.16)',
             zIndex: 20,
           }}
-          transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+          transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 36 }}
           className="grid cursor-grab grid-cols-[34px_24px_minmax(0,1fr)] items-center gap-3 rounded-[14px] border border-[#e4e4e7] bg-white px-3 py-3 active:cursor-grabbing"
         >
           <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-[#f7f8fb] text-[13px] font-black text-[#71717b] tabular-nums">{index + 1}</span>
-          <GripVertical size={17} className="text-[#9f9fa9]" />
+          <GripVertical size={17} className="text-[#9f9fa9]" aria-hidden="true" />
           <strong className="truncate text-[14px] font-black text-[#3f3f46]">{item.label}</strong>
         </Reorder.Item>
       ))}
@@ -351,6 +364,7 @@ function MatchingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
   ), [matched])
   const matchedCount = Object.keys(matched).length
   const selectedLabel = selected ? labelById.get(selected.id) : null
+  const reduceMotion = useReducedMotion()
 
   function isMatched(id: string) {
     return matchedIds.has(id)
@@ -401,7 +415,7 @@ function MatchingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
           <motion.span
             className="block h-full rounded-full bg-[#453dee]"
             animate={{ width: `${(matchedCount / question.left.length) * 100}%` }}
-            transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
           />
         </div>
       </div>
@@ -425,11 +439,11 @@ function MatchingQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
         <div className="relative grid place-items-center max-[760px]:hidden" aria-hidden="true">
           <div className="absolute inset-y-10 w-px bg-[#e4e4e7]" />
           <motion.div
-            animate={selected ? { scale: [1, 1.12, 1], opacity: 1 } : { scale: 1, opacity: 0.38 }}
-            transition={{ duration: 0.35 }}
+            animate={selected && !reduceMotion ? { scale: [1, 1.12, 1], opacity: 1 } : { scale: 1, opacity: selected ? 1 : 0.38 }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.35 }}
             className="relative z-[1] grid h-10 w-10 place-items-center rounded-full border-2 border-[#e4e4e7] bg-white text-[#453dee] shadow-[0_8px_22px_rgba(24,24,27,0.08)]"
           >
-            <MoveRight size={19} strokeWidth={2.7} />
+            <MoveRight size={19} strokeWidth={2.7} aria-hidden="true" />
           </motion.div>
         </div>
         <div className="grid content-start gap-2">
@@ -481,14 +495,16 @@ function MatchingTile({
   recent: boolean
   onClick: () => void
 }) {
+  const reduceMotion = useReducedMotion()
+
   return (
     <motion.button
       type="button"
       onClick={onClick}
       disabled={matched}
-      animate={wrong ? { x: [0, -6, 6, -3, 3, 0], scale: [1, 1.015, 1] } : recent && matched ? { scale: [1, 1.035, 1] } : { scale: 1 }}
-      transition={{ duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
-      className={`min-h-[58px] rounded-[14px] border-2 px-4 text-left text-[16px] font-black transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] disabled:active:scale-100 ${
+      animate={reduceMotion ? { scale: 1, x: 0 } : wrong ? { x: [0, -6, 6, -3, 3, 0], scale: [1, 1.015, 1] } : recent && matched ? { scale: [1, 1.035, 1] } : { scale: 1 }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.2, 0.8, 0.2, 1] }}
+      className={`min-h-[58px] rounded-[14px] border-2 px-4 text-left text-[16px] font-black ${quizPrimitiveControlMotionClass} ${
         matched
           ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d] opacity-60'
           : wrong
@@ -507,7 +523,7 @@ function MatchingTile({
           </span>
           <span className="truncate">{label}</span>
         </span>
-        {matched ? <Check size={17} /> : wrong ? <X size={17} /> : selected ? <CircleDot size={17} /> : null}
+        {matched ? <Check size={17} aria-hidden="true" /> : wrong ? <X size={17} aria-hidden="true" /> : selected ? <CircleDot size={17} aria-hidden="true" /> : null}
       </span>
     </motion.button>
   )
@@ -633,7 +649,7 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
 
   return (
     <div className="grid gap-4">
-      <div className={`rounded-[14px] px-4 py-3 text-[13px] font-black transition-[background-color,color] duration-200 ${
+      <div className={`rounded-[14px] px-4 py-3 text-[13px] font-black ${quizPrimitiveSurfaceMotionClass} ${
         draggedItem ? 'bg-[#eef2ff] text-[#453dee]' : 'bg-[#f7f8fb] text-[#71717b]'
       }`}>
         {draggedItem ? `Dragging ${draggedItem.label}. Drop it into a highlighted family.` : 'Grab a token and drop it into the right family.'}
@@ -642,7 +658,7 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
       <div className="grid grid-cols-[220px_minmax(0,1fr)] gap-4 max-[760px]:grid-cols-1">
       <div
         ref={poolRef}
-        className={`relative grid min-h-[210px] content-start gap-2 rounded-[16px] border-2 border-dashed p-3 transition-[background-color,border-color,box-shadow] duration-200 ${
+        className={`relative grid min-h-[210px] content-start gap-2 rounded-[16px] border-2 border-dashed p-3 ${quizPrimitiveSurfaceMotionClass} ${
           activeZone === 'pool'
             ? 'z-10 border-[#453dee] bg-[#eef2ff] shadow-[0_10px_24px_rgba(58,47,211,0.08)]'
             : 'border-[#e4e4e7] bg-[#f7f8fb]'
@@ -682,7 +698,7 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
               ref={(node) => {
                 zoneRefs.current[zone.id] = node
               }}
-              className={`relative min-h-[210px] overflow-visible rounded-[16px] border-2 border-dashed p-3 transition-[background-color,border-color,box-shadow] duration-200 ${
+              className={`relative min-h-[210px] overflow-visible rounded-[16px] border-2 border-dashed p-3 ${quizPrimitiveSurfaceMotionClass} ${
                 activeZone === zone.id
                   ? 'z-10 border-[#453dee] bg-[#eef2ff] shadow-[0_12px_28px_rgba(58,47,211,0.10)]'
                   : 'border-[#cfd3ff] bg-[#f7f8fb]'
@@ -711,7 +727,7 @@ function DragDropQuestion({ question }: { question: Extract<QuizPrimitiveQuestio
                 ))}
                 {activeZone === zone.id && activeInsertIndex === visibleZoneItems.length && <DropSlot />}
                 {zoneItems.length === 0 && activeZone !== zone.id && (
-                  <span className={`rounded-[12px] px-3 py-8 text-center text-[12px] font-black transition-[background-color,color] duration-200 ${
+                  <span className={`rounded-[12px] px-3 py-8 text-center text-[12px] font-black ${quizPrimitiveSurfaceMotionClass} ${
                     activeZone === zone.id
                       ? 'bg-white text-[#453dee]'
                       : 'bg-white text-[#9f9fa9]'
@@ -748,6 +764,8 @@ function DragToken({
   onDragEnd: (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => void
   setTokenRef: (node: HTMLButtonElement | null) => void
 }) {
+  const reduceMotion = useReducedMotion()
+
   return (
     <motion.button
       ref={setTokenRef}
@@ -762,11 +780,11 @@ function DragToken({
       }}
       onDrag={onDrag}
       onDragEnd={onDragEnd}
-      whileHover={{ y: -2, boxShadow: '0 10px 24px rgba(24, 24, 27, 0.10)' }}
-      whileTap={{ scale: 0.96 }}
+      whileHover={reduceMotion ? undefined : { y: -2, boxShadow: '0 10px 24px rgba(24, 24, 27, 0.10)' }}
+      whileTap={reduceMotion ? undefined : { scale: 0.96 }}
       animate={{
-        scale: dragging ? 1.035 : 1,
-        rotate: dragging ? -0.7 : 0,
+        scale: !reduceMotion && dragging ? 1.035 : 1,
+        rotate: !reduceMotion && dragging ? -0.7 : 0,
         opacity: 1,
         boxShadow: dragging
           ? '0 24px 46px rgba(24, 24, 27, 0.24), 0 0 0 3px rgba(69, 61, 238, 0.10)'
@@ -774,7 +792,7 @@ function DragToken({
             ? '0 6px 16px rgba(24, 24, 27, 0.06)'
             : '0 4px 12px rgba(24, 24, 27, 0.04)',
       }}
-      transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+      transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 36 }}
       data-kresco-drag-surface="true"
       className={`kresco-drag-surface relative ${dragging ? 'z-30' : 'z-[1]'} flex min-h-[44px] cursor-grab select-none items-center gap-2 rounded-[12px] border px-3 py-2 text-left text-[12px] font-black active:cursor-grabbing ${
         assigned
@@ -785,22 +803,24 @@ function DragToken({
       }`}
     >
       <span className={`grid h-6 w-6 flex-none place-items-center rounded-[8px] ${dragging ? 'bg-[#453dee] text-white' : assigned ? 'bg-white/70' : 'bg-[#f7f8fb] text-[#9f9fa9]'}`}>
-        <GripVertical size={15} />
+        <GripVertical size={15} aria-hidden="true" />
       </span>
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {assigned && (correct ? <Check size={15} /> : <X size={15} />)}
+      {assigned && (correct ? <Check size={15} aria-hidden="true" /> : <X size={15} aria-hidden="true" />)}
     </motion.button>
   )
 }
 
 function DropSlot() {
+  const reduceMotion = useReducedMotion()
+
   return (
     <motion.div
       layout
       initial={{ height: 0, opacity: 0 }}
       animate={{ height: 44, opacity: 1 }}
       exit={{ height: 0, opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 520, damping: 38 }}
+      transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 38 }}
       className="rounded-[12px] bg-white/80 shadow-[inset_0_0_0_2px_rgba(69,61,238,0.22)]"
     />
   )
@@ -1003,7 +1023,7 @@ function HotspotQuestion({ question }: { question: Extract<QuizPrimitiveQuestion
         <button
           type="button"
           onClick={validate}
-          className="min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] transition-[background-color,box-shadow,transform] duration-150 ease-out active:scale-[0.96]"
+          className={`min-h-[46px] rounded-[12px] bg-[#453dee] px-4 text-[13px] font-black text-white shadow-[0_10px_24px_rgba(58,47,211,0.18)] ${quizPrimitiveControlMotionClass}`}
         >
           Validate region
         </button>

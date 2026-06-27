@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
-import React, { act } from 'react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import React, { act, type ComponentType, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TabPanel } from '@/components/topic-workspace/TopicWorkspacePanels'
+import { clearTopicInteractionCache } from '@/lib/topicInteractionCache'
 import type { TabContent, TopicItem } from '@/lib/topicWorkspaceViewModel'
 import { buildTabContent, buildTopicItem, buildTopicResource } from './factories/topicWorkspace'
 
@@ -25,6 +28,40 @@ vi.mock('next/image', () => ({
     void _priority
     void _unoptimized
     return React.createElement('img', props)
+  },
+}))
+
+vi.mock('next/dynamic', () => ({
+  default: <Props extends object>(
+    loader: () => Promise<ComponentType<Props> | { default?: ComponentType<Props> }>,
+    options?: { loading?: (props: Props) => ReactNode },
+  ) => {
+    function DynamicComponent(props: Props) {
+      const [Component, setComponent] = React.useState<ComponentType<Props> | null>(null)
+
+      React.useEffect(() => {
+        let mounted = true
+
+        loader().then((loaded) => {
+          const resolved = typeof loaded === 'function' ? loaded : loaded.default
+          if (mounted && resolved) {
+            setComponent(() => resolved)
+          }
+        })
+
+        return () => {
+          mounted = false
+        }
+      }, [])
+
+      if (!Component) {
+        return options?.loading?.(props) ?? null
+      }
+
+      return React.createElement(Component, props)
+    }
+
+    return DynamicComponent
   },
 }))
 
@@ -107,6 +144,7 @@ const commentsTab: TabContent = buildTabContent({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  clearTopicInteractionCache()
   document.body.innerHTML = ''
   Object.defineProperty(window, 'open', {
     value: vi.fn(),
@@ -129,6 +167,16 @@ afterEach(() => {
 })
 
 describe('TopicWorkspacePanels', () => {
+  it('keeps rich course and animated renderers out of the base tab panel module', () => {
+    const source = readFileSync(join(process.cwd(), 'components', 'topic-workspace', 'TopicWorkspacePanels.tsx'), 'utf8')
+
+    expect(source).not.toContain('import { AnimatedContentRenderer }')
+    expect(source).not.toContain("from '@/components/topic-workspace/CourseContentRenderer'")
+    expect(source).toContain("import('@/components/animated/registry')")
+    expect(source).toContain("import('@/components/topic-workspace/CourseContentRenderer')")
+    expect(source).toContain("from '@/lib/courseContentDocument'")
+  })
+
   it('does not expose protected tab content in locked previews', () => {
     const lockedItem: TopicItem = {
       ...baseItem,
@@ -216,6 +264,28 @@ describe('TopicWorkspacePanels', () => {
     expect(commentBody?.className).toContain('break-words')
   })
 
+  it('keeps comments warm when the comments tab remounts for the same item', async () => {
+    const cachedComment = commentFixture({ body: 'Cached comment body' })
+    mocks.getJson.mockResolvedValue([cachedComment])
+
+    const firstPanel = renderPanel(commentsTab, baseItem)
+
+    await waitFor(() => {
+      expect(firstPanel.container.textContent).toContain('Cached comment body')
+    })
+    expect(mocks.getJson).toHaveBeenCalledTimes(1)
+
+    unmountCurrentPanel()
+    mocks.getJson.mockClear()
+
+    const secondPanel = renderPanel(commentsTab, baseItem)
+
+    await waitFor(() => {
+      expect(secondPanel.container.textContent).toContain('Cached comment body')
+    })
+    expect(mocks.getJson).not.toHaveBeenCalled()
+  })
+
   it('shows ratings, reactions, and expandable replies in the comments panel', async () => {
     const parentComment = commentFixture({ id: 7, body: 'This explanation helped.', reply_count: 1 })
     const reply = commentFixture({ id: 8, parent_id: 7, body: 'Same here.', author: { id: 4, full_name: 'Youssef El Idrissi', avatar_url: '' } })
@@ -252,6 +322,16 @@ describe('TopicWorkspacePanels', () => {
     await waitFor(() => {
       expect(container.textContent).toContain('Same here.')
     })
+    const parentThread = container.querySelector('article')
+    const parentMain = parentThread?.querySelector('[data-comment-main]')
+    const replyLane = parentThread?.querySelector('[data-comment-replies]')
+    expect(parentMain?.textContent).toContain('This explanation helped.')
+    expect(parentMain?.textContent).not.toContain('Same here.')
+    expect(replyLane?.textContent).toContain('Same here.')
+    expect(parentMain?.className).toContain('min-w-0')
+    expect(parentMain?.className).toContain('w-full')
+    expect(replyLane?.className).toContain('w-full')
+    expect(replyLane?.className).not.toContain('sm:ml-12')
     expect(mocks.getJson).toHaveBeenCalledWith('/interactions/comments', expect.objectContaining({
       params: expect.objectContaining({ topic_item_id: 101, parent_id: 7 }),
     }))
@@ -344,7 +424,7 @@ describe('TopicWorkspacePanels', () => {
     })
   })
 
-  it('renders typed Course document blocks instead of the plain Course fallback', () => {
+  it('renders typed Course document blocks instead of the plain Course fallback', async () => {
     const courseTab = buildTabContent({
       id: 21,
       label: 'Course',
@@ -364,16 +444,18 @@ describe('TopicWorkspacePanels', () => {
 
     const { container } = renderPanel(courseTab, baseItem)
 
-    expect(container.textContent).toContain('Loi de décroissance')
-    expect(container.textContent).toContain('La désintégration est un phénomène aléatoire.')
-    expect(container.textContent).toContain('Définition')
-    expect(container.textContent).toContain('Demi-vie')
-    expect(container.textContent).toContain('Loi exponentielle')
-    expect(container.textContent).toContain('Attention aux unités')
-    expect(container.textContent).not.toContain('Plain fallback body')
+    await waitFor(() => {
+      expect(container.textContent).toContain('Loi de décroissance')
+      expect(container.textContent).toContain('La désintégration est un phénomène aléatoire.')
+      expect(container.textContent).toContain('Définition')
+      expect(container.textContent).toContain('Demi-vie')
+      expect(container.textContent).toContain('Loi exponentielle')
+      expect(container.textContent).toContain('Attention aux unités')
+      expect(container.textContent).not.toContain('Plain fallback body')
+    })
   })
 
-  it('renders allowlisted Course component blocks through the animated registry', () => {
+  it('renders allowlisted Course component blocks through the animated registry', async () => {
     const courseTab = buildTabContent({
       id: 22,
       label: 'Course',
@@ -396,14 +478,16 @@ describe('TopicWorkspacePanels', () => {
 
     const { container } = renderPanel(courseTab, baseItem)
 
-    expect(container.textContent).toContain('animated')
-    expect(container.textContent).toContain('Decay graph')
-    expect(container.textContent).toContain('Interactive model under the lesson video.')
-    expect(container.querySelector('[data-course-component-key="decay_law_graph"]')).not.toBeNull()
-    expect(container.querySelector('[data-course-component-display="inline"]')).not.toBeNull()
+    await waitFor(() => {
+      expect(container.textContent).toContain('animated')
+      expect(container.textContent).toContain('Decay graph')
+      expect(container.textContent).toContain('Interactive model under the lesson video.')
+      expect(container.querySelector('[data-course-component-key="decay_law_graph"]')).not.toBeNull()
+      expect(container.querySelector('[data-course-component-display="inline"]')).not.toBeNull()
+    })
   })
 
-  it('keeps Course component renderer failures local to the animated block', () => {
+  it('keeps Course component renderer failures local to the animated block', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const courseTab = buildTabContent({
@@ -421,16 +505,18 @@ describe('TopicWorkspacePanels', () => {
 
       const { container } = renderPanel(courseTab, baseItem)
 
-      expect(container.textContent).toContain('Interactive component unavailable')
-      expect(container.textContent).toContain('Decay simulator could not load')
-      expect(container.textContent).toContain('Component: decay_simulator')
-      expect(container.textContent).toContain('Lesson text remains readable.')
+      await waitFor(() => {
+        expect(container.textContent).toContain('Interactive component unavailable')
+        expect(container.textContent).toContain('Decay simulator could not load')
+        expect(container.textContent).toContain('Component: decay_simulator')
+        expect(container.textContent).toContain('Lesson text remains readable.')
+      })
     } finally {
       consoleError.mockRestore()
     }
   })
 
-  it('rejects non-course component keys inside Course documents', () => {
+  it('rejects non-course component keys inside Course documents', async () => {
     const courseTab = buildTabContent({
       id: 23,
       label: 'Course',
@@ -445,11 +531,13 @@ describe('TopicWorkspacePanels', () => {
 
     const { container } = renderPanel(courseTab, baseItem)
 
-    expect(container.textContent).toContain('Unknown Course component key')
-    expect(container.textContent).toContain('wave_lab')
+    await waitFor(() => {
+      expect(container.textContent).toContain('Unknown Course component key')
+      expect(container.textContent).toContain('wave_lab')
+    })
   })
 
-  it('renders rich Course structure blocks', () => {
+  it('renders rich Course structure blocks', async () => {
     const courseTab = buildTabContent({
       id: 24,
       label: 'Course',
@@ -470,15 +558,17 @@ describe('TopicWorkspacePanels', () => {
 
     const { container } = renderPanel(courseTab, baseItem)
 
-    expect(container.textContent).toContain('Checklist')
-    expect(container.textContent).toContain('Check units')
-    expect(container.textContent).toContain('Values')
-    expect(container.textContent).toContain('Initial state')
-    expect(container.textContent).toContain('Relations')
-    expect(container.textContent).toContain('Equality')
-    expect(container.textContent).toContain('Remember the model.')
-    expect(container.textContent).toContain('Half-life')
-    expect(container.textContent).toContain('solve()')
+    await waitFor(() => {
+      expect(container.textContent).toContain('Checklist')
+      expect(container.textContent).toContain('Check units')
+      expect(container.textContent).toContain('Values')
+      expect(container.textContent).toContain('Initial state')
+      expect(container.textContent).toContain('Relations')
+      expect(container.textContent).toContain('Equality')
+      expect(container.textContent).toContain('Remember the model.')
+      expect(container.textContent).toContain('Half-life')
+      expect(container.textContent).toContain('solve()')
+    })
   })
 })
 
@@ -501,6 +591,16 @@ function renderPanel(tab: TabContent, item: TopicItem) {
   return { container, root, onNoteSaved }
 }
 
+function unmountCurrentPanel() {
+  if (!mountedRoot) return
+  const current = mountedRoot
+  mountedRoot = null
+  act(() => {
+    current.root.unmount()
+  })
+  current.container.remove()
+}
+
 function buttonByText(container: HTMLElement, text: string) {
   return Array.from(container.querySelectorAll('button')).find((button) => (
     button.textContent?.includes(text)
@@ -510,6 +610,9 @@ function buttonByText(container: HTMLElement, text: string) {
 async function flushPromises() {
   await Promise.resolve()
   await Promise.resolve()
+  await new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 0)
+  })
 }
 
 function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {

@@ -30,6 +30,9 @@ interface Props {
   onComplete: (answers: Record<string, number>) => Promise<SectionQuizResult>
 }
 
+const sectionQuizControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+const sectionQuizBadgeMotionClass = 'transition-[background-color,border-color,color] duration-150 ease-out motion-reduce:transition-none'
+
 export default function SectionQuiz({ data, passScore, onComplete }: Props) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [selectedOption, setSelectedOption] = useState<number | null>(null)
@@ -113,8 +116,8 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
             finalPassed ? 'bg-green-500/20' : 'bg-red-500/20'
           )}>
             {finalPassed
-              ? <Trophy size={36} className="text-green-400" />
-              : <XCircle size={36} className="text-red-400" />
+              ? <Trophy size={36} className="text-green-400" aria-hidden="true" />
+              : <XCircle size={36} className="text-red-400" aria-hidden="true" />
             }
           </div>
           <h3 className={cn(
@@ -133,9 +136,9 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           {!finalPassed && (
             <button type="button"
               onClick={handleRetry}
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 text-sm font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-slate-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              className={`inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-800 px-6 py-3 text-sm font-semibold text-white hover:bg-slate-700 ${sectionQuizControlMotionClass}`}
             >
-              <RotateCcw size={14} />
+              <RotateCcw size={14} aria-hidden="true" />
               Reessayer
             </button>
           )}
@@ -205,12 +208,12 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
                 role="radio"
                 aria-checked={isSelected}
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-sm font-medium transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:active:scale-100 sm:px-5',
+                  `flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left text-sm font-medium sm:px-5 ${sectionQuizControlMotionClass}`,
                   optionClasses,
                   submitting && 'opacity-50 cursor-not-allowed'
                 )}
               >
-                <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs font-bold transition-colors', optionBadgeClasses)} aria-hidden="true">
+                <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded-full border text-xs font-bold', sectionQuizBadgeMotionClass, optionBadgeClasses)} aria-hidden="true">
                   {optionLetter}
                 </span>
                 <span className="flex-1 leading-relaxed">{option.text}</span>
@@ -224,7 +227,7 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
             role="alert"
             className="mt-5 flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
           >
-            <XCircle size={16} className="mt-0.5 shrink-0 text-red-300" />
+            <XCircle size={16} className="mt-0.5 shrink-0 text-red-300" aria-hidden="true" />
             <p className="m-0">{submitError}</p>
           </div>
         )}
@@ -234,11 +237,11 @@ export default function SectionQuiz({ data, passScore, onComplete }: Props) {
           <button type="button"
             onClick={handleNext}
             disabled={selectedOption === null || submitting}
-            className="inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition-[background-color,opacity,transform] duration-200 hover:bg-indigo-700 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100 sm:w-auto"
+            className={`inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto ${sectionQuizControlMotionClass}`}
           >
-            {submitting && <Loader2 size={14} className="animate-spin" />}
+            {submitting && <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
             {actionLabel}
-            {!submitting && <ArrowRight size={14} />}
+            {!submitting && <ArrowRight size={14} aria-hidden="true" />}
           </button>
         </div>
       </div>

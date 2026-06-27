@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Award, BookCheck, Bookmark, Camera, ChevronRight, Clock3, Flame, LayoutDashboard, Loader2, LockKeyhole, Pencil, Save, Settings, ShieldCheck, Star, StickyNote, Trophy, X, Zap } from 'lucide-react'
+import { Award, Bell, BookCheck, Bookmark, Camera, ChevronRight, Clock3, CreditCard, Download, Flame, KeyRound, Languages, LayoutDashboard, Loader2, LockKeyhole, Mail, Monitor, Palette, Pencil, Save, Settings, ShieldCheck, Smartphone, Star, StickyNote, Trash2, Trophy, X, Zap } from 'lucide-react'
 import {
   DEFAULT_PROFILE_AVATAR_URL,
   DEFAULT_PROFILE_BANNER_URL,
@@ -40,7 +40,7 @@ import {
 import {
   CalendarCard,
   ChronoCard,
-} from './permanent-sidebar'
+} from './permanent-sidebar-cards'
 import type { PermanentSidebarLeaderboardEntry } from '@/lib/permanentSidebarViewModel'
 import { useEscapeKey } from '@/hooks/useClickOutside'
 
@@ -59,6 +59,7 @@ export type FigmaProfileProps = {
   editError?: string | null
   onSaveProfile?: (draft: FigmaProfileEditDraft) => void | Promise<void>
   onSelectMedia?: (kind: FigmaProfileMediaKind, draft: FigmaProfileEditDraft) => string | undefined | Promise<string | undefined>
+  onRoutePreload?: (href: string) => void
 }
 
 const PROFILE_BADGE_VISIBLE_ITEMS = 6
@@ -109,6 +110,25 @@ function profileToneBgClass(tone: string) {
   }
 }
 
+function profileToneAccentClass(tone: string) {
+  switch (tone) {
+    case '#009966':
+      return 'is-tone-success'
+    case '#c4d1ff':
+      return 'is-tone-muted'
+    case '#51a2ff':
+      return 'is-tone-sky'
+    case '#707fff':
+      return 'is-tone-indigo'
+    case '#ffd61a':
+      return 'is-tone-gold'
+    case '#ff8904':
+      return 'is-tone-orange'
+    default:
+      return 'is-tone-primary'
+  }
+}
+
 export function FigmaProfile({
   user,
   xp,
@@ -124,6 +144,7 @@ export function FigmaProfile({
   editError,
   onSaveProfile,
   onSelectMedia,
+  onRoutePreload,
 }: FigmaProfileProps) {
   const visibleSubjects = useMemo(() => normalizeSubjects(subjects), [subjects])
   const allBadges = useMemo(
@@ -297,8 +318,8 @@ export function FigmaProfile({
           ) : null}
 
           {activeView === 'badges' ? <ProfileBadgePanel badges={allBadges} summary={badgeSummary} variant="collection" /> : null}
-          {activeView === 'saved' ? <ProfileSavedItemsView saves={saves} /> : null}
-          {activeView === 'notes' ? <ProfileNotesView notes={notes} /> : null}
+          {activeView === 'saved' ? <ProfileSavedItemsView onRoutePreload={onRoutePreload} saves={saves} /> : null}
+          {activeView === 'notes' ? <ProfileNotesView notes={notes} onRoutePreload={onRoutePreload} /> : null}
           {activeView === 'settings' ? (
             <ProfileSettingsView
               draft={baseDraft}
@@ -506,9 +527,8 @@ function ProfileBadgePanel({
       <div className="figma-profile-awards-list">
         {badges.map((badge, index) => (
           <article
-            className={`figma-profile-award${badge.earned ? '' : ' is-locked'}`}
+            className={`figma-profile-award ${profileToneAccentClass(profileBadgeTone(badge, index))}${badge.earned ? '' : ' is-locked'}`}
             key={badge.slug}
-            style={{ '--profile-badge-accent': profileBadgeTone(badge, index) } as CSSProperties}
           >
             <span className="figma-profile-award-icon" aria-hidden="true">
               <ProfileBadgeGlyph badge={badge} size={19} />
@@ -524,7 +544,13 @@ function ProfileBadgePanel({
   )
 }
 
-function ProfileSavedItemsView({ saves }: { saves: FigmaProfileSavedItem[] }) {
+function ProfileSavedItemsView({
+  onRoutePreload,
+  saves,
+}: {
+  onRoutePreload?: (href: string) => void
+  saves: FigmaProfileSavedItem[]
+}) {
   const items = useMemo(() => buildProfileSaveHubItems(saves, PROFILE_COLLECTION_LIMIT), [saves])
 
   return (
@@ -537,7 +563,7 @@ function ProfileSavedItemsView({ saves }: { saves: FigmaProfileSavedItem[] }) {
       {items.length > 0 ? (
         <div className="figma-profile-collection-list">
           {items.map((item) => (
-            <ProfileCollectionLink item={item} key={item.id} />
+            <ProfileCollectionLink item={item} key={item.id} onRoutePreload={onRoutePreload} />
           ))}
         </div>
       ) : (
@@ -547,7 +573,13 @@ function ProfileSavedItemsView({ saves }: { saves: FigmaProfileSavedItem[] }) {
   )
 }
 
-function ProfileNotesView({ notes }: { notes: FigmaProfileNote[] }) {
+function ProfileNotesView({
+  notes,
+  onRoutePreload,
+}: {
+  notes: FigmaProfileNote[]
+  onRoutePreload?: (href: string) => void
+}) {
   const items = useMemo(() => buildProfileNoteHubItems(notes, PROFILE_COLLECTION_LIMIT), [notes])
 
   return (
@@ -560,7 +592,7 @@ function ProfileNotesView({ notes }: { notes: FigmaProfileNote[] }) {
       {items.length > 0 ? (
         <div className="figma-profile-collection-list">
           {items.map((item) => (
-            <ProfileCollectionLink item={item} key={item.id} />
+            <ProfileCollectionLink item={item} key={item.id} onRoutePreload={onRoutePreload} />
           ))}
         </div>
       ) : (
@@ -582,9 +614,25 @@ function ProfileCollectionHead({ icon, title, meta }: { icon: ReactNode; title: 
   )
 }
 
-function ProfileCollectionLink({ item }: { item: FigmaProfileHubItem }) {
+function ProfileCollectionLink({
+  item,
+  onRoutePreload,
+}: {
+  item: FigmaProfileHubItem
+  onRoutePreload?: (href: string) => void
+}) {
+  function preloadDestination() {
+    onRoutePreload?.(item.href)
+  }
+
   return (
-    <Link href={item.href} className="figma-profile-collection-row">
+    <Link
+      href={item.href}
+      className="figma-profile-collection-row"
+      onFocus={preloadDestination}
+      onMouseOver={preloadDestination}
+      onPointerEnter={preloadDestination}
+    >
       <span className="figma-profile-hub-copy">
         <strong>{item.title}</strong>
         <small>{item.meta}</small>
@@ -625,6 +673,35 @@ function ProfileSettingsView({
   user: FigmaProfileUser | null
   username: string
 }) {
+  const accountRows = [
+    { label: 'Display name', value: draft.full_name },
+    { label: 'Username', value: username },
+    { label: 'Email', value: user?.email || 'Not set' },
+    { label: 'Joined', value: joined.replace(/^Joined\s+/, '') },
+    { label: 'Level', value: draft.level || 'Not set' },
+    { label: 'Track', value: draft.track || 'Not set' },
+  ]
+  const learningRows = [
+    { icon: <Languages size={17} strokeWidth={2.4} />, title: 'Language', detail: 'French interface, Moroccan curriculum' },
+    { icon: <BookCheck size={17} strokeWidth={2.4} />, title: 'Study goal', detail: 'BAC prep with weekly progress pacing' },
+    { icon: <Palette size={17} strokeWidth={2.4} />, title: 'Theme', detail: 'System theme, Kresco accent colors' },
+    { icon: <Monitor size={17} strokeWidth={2.4} />, title: 'Workspace density', detail: 'Comfortable cards and compact tables' },
+  ]
+  const notificationRows = [
+    { icon: <Bell size={17} strokeWidth={2.4} />, title: 'Learning reminders', detail: 'Daily streaks, saved notes, and unfinished lessons' },
+    { icon: <Mail size={17} strokeWidth={2.4} />, title: 'Email updates', detail: 'Receipts, account alerts, and course changes' },
+    { icon: <Smartphone size={17} strokeWidth={2.4} />, title: 'Live session alerts', detail: 'Before class starts and when a professor replies' },
+  ]
+  const securityRows = [
+    { icon: <KeyRound size={17} strokeWidth={2.4} />, title: 'Password and sign-in', detail: 'Manage login methods and active sessions' },
+    { icon: <ShieldCheck size={17} strokeWidth={2.4} />, title: 'Profile visibility', detail: 'Leaderboard, saved activity, and public badge visibility' },
+  ]
+  const accountActions = [
+    { icon: <CreditCard size={17} strokeWidth={2.4} />, title: 'Plan and invoices', detail: 'Subscription, manual payments, and receipts' },
+    { icon: <Download size={17} strokeWidth={2.4} />, title: 'Export learning data', detail: 'Download notes, saved items, and progress history' },
+    { icon: <Trash2 size={17} strokeWidth={2.4} />, title: 'Delete account', detail: 'Request account deletion and data removal', danger: true },
+  ]
+
   return (
     <section className="figma-profile-settings" aria-label="Profile settings">
       <div className="figma-profile-settings-head">
@@ -639,14 +716,43 @@ function ProfileSettingsView({
           </button>
         ) : null}
       </div>
-      <div className="figma-profile-settings-grid">
-        <ProfileSettingField label="Display name" value={draft.full_name} />
-        <ProfileSettingField label="Username" value={username} />
-        <ProfileSettingField label="Email" value={user?.email || 'Not set'} />
-        <ProfileSettingField label="Joined" value={joined.replace(/^Joined\s+/, '')} />
-        <ProfileSettingField label="Level" value={draft.level || 'Not set'} />
-        <ProfileSettingField label="Track" value={draft.track || 'Not set'} />
+      <ProfileSettingsSection title="Account" meta="Identity and school profile">
+        <div className="figma-profile-settings-grid">
+          {accountRows.map((row) => <ProfileSettingField key={row.label} label={row.label} value={row.value} />)}
+        </div>
+      </ProfileSettingsSection>
+      <ProfileSettingsSection title="Learning" meta="Default study experience">
+        <div className="figma-profile-settings-list">
+          {learningRows.map((row) => <ProfileSettingsRow key={row.title} {...row} />)}
+        </div>
+      </ProfileSettingsSection>
+      <ProfileSettingsSection title="Notifications" meta="Reminders and alerts">
+        <div className="figma-profile-settings-list">
+          {notificationRows.map((row) => <ProfileSettingsRow key={row.title} {...row} />)}
+        </div>
+      </ProfileSettingsSection>
+      <ProfileSettingsSection title="Privacy and security" meta="Access and visibility">
+        <div className="figma-profile-settings-list">
+          {securityRows.map((row) => <ProfileSettingsRow key={row.title} {...row} />)}
+        </div>
+      </ProfileSettingsSection>
+      <ProfileSettingsSection title="Billing and data" meta="Payments, exports, and account control">
+        <div className="figma-profile-settings-list">
+          {accountActions.map((row) => <ProfileSettingsRow key={row.title} {...row} />)}
+        </div>
+      </ProfileSettingsSection>
+    </section>
+  )
+}
+
+function ProfileSettingsSection({ children, meta, title }: { children: ReactNode; meta: string; title: string }) {
+  return (
+    <section className="figma-profile-settings-section">
+      <div className="figma-profile-settings-section-head">
+        <strong>{title}</strong>
+        <small>{meta}</small>
       </div>
+      {children}
     </section>
   )
 }
@@ -657,6 +763,29 @@ function ProfileSettingField({ label, value }: { label: string; value: string })
       <small>{label}</small>
       <strong>{value}</strong>
     </article>
+  )
+}
+
+function ProfileSettingsRow({
+  danger = false,
+  detail,
+  icon,
+  title,
+}: {
+  danger?: boolean
+  detail: string
+  icon: ReactNode
+  title: string
+}) {
+  return (
+    <button type="button" className={`figma-profile-settings-row${danger ? ' is-danger' : ''}`}>
+      <span className="figma-profile-settings-row-icon">{icon}</span>
+      <span className="figma-profile-settings-row-copy">
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </span>
+      <ChevronRight size={16} strokeWidth={2.4} />
+    </button>
   )
 }
 
@@ -720,7 +849,7 @@ function ProfileEditStyles() {
         top: 162px;
         z-index: 2;
         display: inline-flex;
-        min-height: 36px;
+        min-height: 40px;
         align-items: center;
         justify-content: center;
         gap: 7px;
@@ -735,6 +864,9 @@ function ProfileEditStyles() {
         letter-spacing: 0;
         box-shadow: 0 10px 24px rgba(24,24,27,0.14);
         cursor: pointer;
+        transition-property: background-color, border-color, box-shadow, color, opacity, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
       .figma-profile-edit-trigger:disabled,
@@ -743,6 +875,24 @@ function ProfileEditStyles() {
       .figma-profile-edit-actions button:disabled {
         cursor: not-allowed;
         opacity: 0.62;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-edit-trigger:not(:disabled):hover {
+          border-color: rgba(255,255,255,0.92);
+          background: #ffffff;
+          box-shadow: 0 14px 30px rgba(24,24,27,0.16);
+          transform: translateY(-1px);
+        }
+      }
+
+      .figma-profile-edit-trigger:not(:disabled):active {
+        transform: scale(0.96);
+      }
+
+      .figma-profile-edit-trigger:focus-visible {
+        outline: 3px solid rgba(91,96,249,0.24);
+        outline-offset: 2px;
       }
 
       .figma-profile-edit-layer {
@@ -798,8 +948,8 @@ function ProfileEditStyles() {
 
       .figma-profile-icon-button {
         display: grid;
-        width: 38px;
-        height: 38px;
+        width: 40px;
+        height: 40px;
         flex: 0 0 auto;
         place-items: center;
         border: 2px solid #e4e4e7;
@@ -807,6 +957,26 @@ function ProfileEditStyles() {
         background: #ffffff;
         color: #52525c;
         cursor: pointer;
+        transition-property: background-color, border-color, color, opacity, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-icon-button:not(:disabled):hover {
+          border-color: #c4d1ff;
+          background: #f7f8ff;
+          color: #453dee;
+        }
+      }
+
+      .figma-profile-icon-button:not(:disabled):active {
+        transform: scale(0.96);
+      }
+
+      .figma-profile-icon-button:focus-visible {
+        outline: 3px solid rgba(91,96,249,0.24);
+        outline-offset: 2px;
       }
 
       .figma-profile-edit-preview {
@@ -884,6 +1054,25 @@ function ProfileEditStyles() {
         font-size: 12px;
         font-weight: 900;
         cursor: pointer;
+        transition-property: background-color, color, opacity, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-media-button:not(:disabled):hover {
+          background: #dff4ff;
+          transform: translateY(-1px);
+        }
+      }
+
+      .figma-profile-media-button:not(:disabled):active {
+        transform: scale(0.96);
+      }
+
+      .figma-profile-media-button:focus-visible {
+        outline: 3px solid rgba(18,146,207,0.22);
+        outline-offset: 2px;
       }
 
       .figma-profile-edit-error {
@@ -942,7 +1131,9 @@ function ProfileEditStyles() {
         padding: 0 10px;
         text-align: left;
         cursor: pointer;
-        transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+        transition-property: background-color, color, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
       .figma-profile-view-nav button:hover,
@@ -959,6 +1150,16 @@ function ProfileEditStyles() {
       .figma-profile-view-nav button.is-active {
         background: #eef2ff;
         color: #453dee;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-view-nav button:hover {
+          transform: translateY(-1px);
+        }
+      }
+
+      .figma-profile-view-nav button:active {
+        transform: scale(0.96);
       }
 
       .figma-profile-view-nav button span {
@@ -988,7 +1189,9 @@ function ProfileEditStyles() {
 
       .figma-profile-badge {
         color: #ffffff;
-        transition: transform 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+        transition-property: box-shadow, opacity, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
       .figma-profile-badge.is-locked {
@@ -996,8 +1199,10 @@ function ProfileEditStyles() {
         box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 0.42);
       }
 
-      .figma-profile-badge:hover {
-        transform: translateY(-1px);
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-badge:hover {
+          transform: translateY(-1px);
+        }
       }
 
       .figma-profile-awards {
@@ -1058,13 +1263,41 @@ function ProfileEditStyles() {
         border-radius: 14px;
         background: #ffffff;
         padding: 12px;
-        transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        transition-property: border-color, box-shadow, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
-      .figma-profile-award:hover {
-        border-color: color-mix(in srgb, var(--profile-badge-accent) 38%, #e4e4e7);
-        box-shadow: 0 10px 22px rgba(24,24,27,0.08);
-        transform: translateY(-1px);
+      .figma-profile-award.is-tone-success {
+        --profile-badge-accent: #009966;
+      }
+
+      .figma-profile-award.is-tone-muted {
+        --profile-badge-accent: #c4d1ff;
+      }
+
+      .figma-profile-award.is-tone-sky {
+        --profile-badge-accent: #51a2ff;
+      }
+
+      .figma-profile-award.is-tone-indigo {
+        --profile-badge-accent: #707fff;
+      }
+
+      .figma-profile-award.is-tone-gold {
+        --profile-badge-accent: #ffd61a;
+      }
+
+      .figma-profile-award.is-tone-orange {
+        --profile-badge-accent: #ff8904;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-award:hover {
+          border-color: color-mix(in srgb, var(--profile-badge-accent) 38%, #e4e4e7);
+          box-shadow: 0 10px 22px rgba(24,24,27,0.08);
+          transform: translateY(-1px);
+        }
       }
 
       .figma-profile-award.is-locked {
@@ -1288,6 +1521,8 @@ function ProfileEditStyles() {
       }
 
       .figma-profile-collection-row {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 82px;
         display: grid;
         min-width: 0;
         min-height: 82px;
@@ -1300,19 +1535,31 @@ function ProfileEditStyles() {
         color: #3f3f46;
         padding: 14px 16px;
         text-decoration: none;
-        transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+        transition-property: border-color, box-shadow, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
-      .figma-profile-collection-row:hover,
       .figma-profile-collection-row:focus-visible {
         border-color: #c4d1ff;
         box-shadow: 0 12px 24px rgba(24,24,27,0.08);
-        transform: translateY(-1px);
       }
 
       .figma-profile-collection-row:focus-visible {
         outline: 3px solid rgba(91,96,249,0.24);
         outline-offset: 2px;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-collection-row:hover {
+          border-color: #c4d1ff;
+          box-shadow: 0 12px 24px rgba(24,24,27,0.08);
+          transform: translateY(-1px);
+        }
+      }
+
+      .figma-profile-collection-row:active {
+        transform: scale(0.96);
       }
 
       .figma-profile-collection-row > svg {
@@ -1339,7 +1586,7 @@ function ProfileEditStyles() {
 
       .figma-profile-settings-head button {
         display: inline-flex;
-        min-height: 38px;
+        min-height: 40px;
         align-items: center;
         justify-content: center;
         gap: 7px;
@@ -1351,11 +1598,66 @@ function ProfileEditStyles() {
         font-size: 12px;
         font-weight: 900;
         cursor: pointer;
+        transition-property: background-color, color, opacity, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-settings-head button:not(:disabled):hover {
+          background: #3a2fd3;
+          transform: translateY(-1px);
+        }
+      }
+
+      .figma-profile-settings-head button:not(:disabled):active {
+        transform: scale(0.96);
+      }
+
+      .figma-profile-settings-head button:focus-visible {
+        outline: 3px solid rgba(69, 61, 238, 0.18);
+        outline-offset: 2px;
       }
 
       .figma-profile-settings-head button:disabled {
         cursor: not-allowed;
         opacity: 0.62;
+      }
+
+      .figma-profile-settings-section {
+        display: grid;
+        gap: 12px;
+        border-top: 1px solid #ececf0;
+        padding-top: 16px;
+      }
+
+      .figma-profile-settings-section:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .figma-profile-settings-section-head {
+        display: flex;
+        min-width: 0;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .figma-profile-settings-section-head strong {
+        color: #27272a;
+        font-size: 15px;
+        font-weight: 950;
+        line-height: 1.1;
+      }
+
+      .figma-profile-settings-section-head small {
+        min-width: 0;
+        color: #9f9fa9;
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1.3;
+        text-align: right;
       }
 
       .figma-profile-settings-grid {
@@ -1397,6 +1699,155 @@ function ProfileEditStyles() {
         overflow-wrap: anywhere;
       }
 
+      .figma-profile-settings-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .figma-profile-settings-row {
+        display: flex;
+        min-height: 58px;
+        width: 100%;
+        min-width: 0;
+        align-items: center;
+        gap: 12px;
+        border: 1px solid #e9e9ef;
+        border-radius: 14px;
+        background: #ffffff;
+        color: #52525c;
+        padding: 10px 12px;
+        text-align: left;
+        cursor: pointer;
+        transition-property: background-color, border-color, box-shadow, color, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
+      .figma-profile-settings-row:hover {
+        border-color: #dcdcf8;
+        background: #fbfbff;
+      }
+
+      .figma-profile-settings-row:focus-visible {
+        outline: 3px solid rgba(69, 61, 238, 0.16);
+        outline-offset: 2px;
+      }
+
+      .figma-profile-settings-row.is-danger {
+        border-color: #fee2e2;
+        color: #b91c1c;
+      }
+
+      .figma-profile-settings-row.is-danger:hover {
+        border-color: #fecaca;
+        background: #fff7f7;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-settings-row:hover {
+          box-shadow: 0 8px 18px rgba(24,24,27,0.06);
+          transform: translateY(-1px);
+        }
+      }
+
+      .figma-profile-settings-row:active {
+        transform: scale(0.96);
+      }
+
+      .figma-profile-settings-row-icon {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 11px;
+        background: #f4f4ff;
+        color: #453dee;
+      }
+
+      .figma-profile-settings-row.is-danger .figma-profile-settings-row-icon {
+        background: #fff1f2;
+        color: #b91c1c;
+      }
+
+      .figma-profile-settings-row-copy {
+        display: grid;
+        min-width: 0;
+        flex: 1 1 auto;
+        gap: 3px;
+      }
+
+      .figma-profile-settings-row-copy strong,
+      .figma-profile-settings-row-copy small {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .figma-profile-settings-row-copy strong {
+        color: #3f3f46;
+        font-size: 13px;
+        font-weight: 950;
+        line-height: 1.2;
+      }
+
+      .figma-profile-settings-row.is-danger .figma-profile-settings-row-copy strong {
+        color: #b91c1c;
+      }
+
+      .figma-profile-settings-row-copy small {
+        color: #8b8b98;
+        font-size: 12px;
+        font-weight: 750;
+        line-height: 1.3;
+        white-space: nowrap;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .figma-profile-edit-trigger,
+        .figma-profile-icon-button,
+        .figma-profile-media-button,
+        .figma-profile-view-nav button,
+        .figma-profile-badge,
+        .figma-profile-award,
+        .figma-profile-collection-row,
+        .figma-profile-settings-head button,
+        .figma-profile-settings-row {
+          transition-property: none;
+        }
+
+        .figma-profile-spin {
+          animation: none;
+        }
+
+        .figma-profile-edit-trigger:hover,
+        .figma-profile-edit-trigger:focus-visible,
+        .figma-profile-edit-trigger:active,
+        .figma-profile-icon-button:hover,
+        .figma-profile-icon-button:focus-visible,
+        .figma-profile-icon-button:active,
+        .figma-profile-media-button:hover,
+        .figma-profile-media-button:focus-visible,
+        .figma-profile-media-button:active,
+        .figma-profile-view-nav button:hover,
+        .figma-profile-view-nav button:focus-visible,
+        .figma-profile-view-nav button:active,
+        .figma-profile-badge:hover,
+        .figma-profile-award:hover,
+        .figma-profile-collection-row:hover,
+        .figma-profile-collection-row:focus-visible,
+        .figma-profile-collection-row:active,
+        .figma-profile-settings-head button:hover,
+        .figma-profile-settings-head button:focus-visible,
+        .figma-profile-settings-head button:active,
+        .figma-profile-settings-row:hover,
+        .figma-profile-settings-row:focus-visible,
+        .figma-profile-settings-row:active {
+          transform: none;
+        }
+      }
+
       @media (max-width: 520px) {
         .figma-profile-awards-head {
           align-items: flex-start;
@@ -1421,6 +1872,16 @@ function ProfileEditStyles() {
         .figma-profile-settings-head {
           align-items: flex-start;
           flex-direction: column;
+        }
+
+        .figma-profile-settings-section-head {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .figma-profile-settings-section-head small {
+          text-align: left;
         }
 
         .figma-profile-settings-head button {

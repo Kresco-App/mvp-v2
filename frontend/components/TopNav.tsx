@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
-import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion'
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useSWRConfig } from 'swr'
 import {
   Bell,
   BookOpen,
@@ -24,15 +24,35 @@ import {
   Zap,
 } from 'lucide-react'
 import KrescoWordmark from '@/components/KrescoWordmark'
-import { subscribeKrescoRealtime, userNotificationsChannelName } from '@/lib/realtime'
 import { AUTH_ROUTES, canUseStudentProfessorChat } from '@/lib/authPolicy'
 import { isActiveNavHref } from '@/lib/navigationPolicy'
-import { deleteAllNotifications, deleteNotification, listNotifications, markAllNotificationsRead, markNotificationRead, type NotificationItem } from '@/lib/notifications'
-import { getStudentProfessorChat, type StudentProfessorChatStatus } from '@/lib/professor'
+import type { NotificationItem } from '@/lib/notifications'
 import { useAuthStore } from '@/lib/store'
+import { showToastError, showToastInfo } from '@/lib/lazyToast'
+import { preloadStudentRouteData } from '@/lib/studentRoutePreload'
 import { useDismissable } from '@/hooks/useClickOutside'
+import {
+  deleteAllTopNavNotifications,
+  deleteTopNavNotification,
+  loadTopNavNotifications,
+  loadTopNavProfessorChatUnread,
+  markAllTopNavNotificationsRead,
+  markTopNavNotificationRead,
+  readTopNavNotificationCache,
+  readTopNavProfessorChatCache,
+  writeCurrentNotificationCache,
+} from '@/lib/topNavBadgeCache'
 
-const links = [
+type RealtimeModule = typeof import('@/lib/realtime')
+
+type TopNavLink = {
+  href: string
+  label: string
+  Icon: typeof Home
+  prefetch?: false
+}
+
+const links: TopNavLink[] = [
   { href: '/home', label: 'Home', Icon: Home },
   { href: '/courses', label: 'Courses', Icon: BookOpen },
   { href: '/exam-bank', label: 'Exam Bank', Icon: ClipboardList },
@@ -40,25 +60,59 @@ const links = [
   { href: '/calendar', label: 'Calendar', Icon: CalendarDays },
   { href: '/classement', label: 'Leaderboard', Icon: Trophy },
   { href: '/live', label: 'Live', Icon: Video },
-  { href: '/zed', label: 'Zed Mode', Icon: Zap },
+  { href: '/zed', label: 'Zed Mode', Icon: Zap, prefetch: false },
 ]
 
-const professorChatLink = { href: AUTH_ROUTES.studentProfessorChat, label: 'Professor Chat', Icon: MessageCircle }
+const professorChatLink: TopNavLink = { href: AUTH_ROUTES.studentProfessorChat, label: 'Professor Chat', Icon: MessageCircle }
 
 const professorStudentLinks = [
   ...links,
   professorChatLink,
 ]
 
-const notificationPanelTransition = { type: 'spring', stiffness: 420, damping: 34, mass: 0.8 } as const
-const notificationRowTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.72 } as const
-const topNavIndicatorTransition = { type: 'spring', stiffness: 520, damping: 44, mass: 0.7 } as const
-const contextualIconTransition = { type: 'spring', duration: 0.3, bounce: 0 } as const
+const DROPDOWN_CLOSE_MS = 150
+const NAV_PRELOAD_INTENT_DEDUP_MS = 1500
+const controlMotion = 'transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
+const dropdownMotionClass = '[--dropdown-close-dur:150ms] [--dropdown-open-dur:220ms] [--dropdown-pre-scale:0.97]'
+const spinnerMotionClass = 'animate-spin motion-reduce:animate-none'
+
+function TopNavIconSwap({
+  busy,
+  idle,
+  busyIcon,
+  className = 'h-4 w-4',
+}: {
+  busy: boolean
+  idle: ReactNode
+  busyIcon: ReactNode
+  className?: string
+}) {
+  return (
+    <span className={`t-icon-swap ${className}`} data-state={busy ? 'b' : 'a'} aria-hidden="true">
+      <span className="t-icon" data-icon="a">{idle}</span>
+      <span className="t-icon" data-icon="b">{busyIcon}</span>
+    </span>
+  )
+}
+
+let realtimeModulePromise: Promise<RealtimeModule> | null = null
+
+function scheduleTopNavIdleWork(work: () => void) {
+  if (typeof window === 'undefined') return () => {}
+
+  if (typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(work, { timeout: 1500 })
+    return () => window.cancelIdleCallback?.(handle)
+  }
+
+  const handle = window.setTimeout(work, 0)
+  return () => window.clearTimeout(handle)
+}
 
 export default function TopNav() {
   const pathname = usePathname()
   const router = useRouter()
-  const reduceMotion = useReducedMotion()
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -72,22 +126,58 @@ export default function TopNav() {
   const [deletingAll, setDeletingAll] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
   const notificationsRef = useRef<HTMLDivElement | null>(null)
+  const accountMenuRef = useRef<HTMLDivElement | null>(null)
+  const preloadedNavHrefsRef = useRef<Map<string, number>>(new Map())
+  const notificationDropdown = useDropdownPresence(notificationsOpen)
+  const accountDropdown = useDropdownPresence(menuOpen)
   const canUseProfessorChat = canUseStudentProfessorChat(user)
+  const topNavCacheKey = user?.id == null ? null : String(user.id)
   const desktopNavLinks = links
   const menuNavLinks = canUseProfessorChat ? professorStudentLinks : links
+  const notificationsLabel = unreadCount > 0 ? `Notifications, ${unreadCount > 9 ? '9 plus' : unreadCount} unread` : 'Notifications'
 
   function active(href: string | null) {
     return isActiveNavHref(pathname, href, [AUTH_ROUTES.studentHome])
   }
 
+  const preloadNavHref = useCallback((href: string, isActive: boolean) => {
+    if (isActive) return
+    const now = Date.now()
+    const lastPreloadAt = preloadedNavHrefsRef.current.get(href)
+    if (lastPreloadAt !== undefined && now - lastPreloadAt < NAV_PRELOAD_INTENT_DEDUP_MS) return
+    preloadedNavHrefsRef.current.set(href, now)
+    preloadStudentRouteData(href, mutateSWRCache, { cache: swrCache })
+  }, [mutateSWRCache, swrCache])
+
+  useEffect(() => {
+    preloadedNavHrefsRef.current.clear()
+  }, [user?.id])
+
   useEffect(() => {
     setPendingHref(null)
   }, [pathname])
 
+  useEffect(() => {
+    if (topNavCacheKey === null) return
+
+    const cachedNotifications = readTopNavNotificationCache(topNavCacheKey)
+    if (cachedNotifications) {
+      setNotifications(cachedNotifications.notifications)
+      setUnreadCount(cachedNotifications.unread_count)
+    }
+
+    if (!canUseProfessorChat) {
+      setProfessorChatUnreadCount(0)
+      return
+    }
+
+    const cachedUnreadCount = readTopNavProfessorChatCache(topNavCacheKey)
+    if (cachedUnreadCount !== null) setProfessorChatUnreadCount(cachedUnreadCount)
+  }, [canUseProfessorChat, topNavCacheKey])
+
   function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string, isActive: boolean) {
     if (
-      isActive
-      || event.defaultPrevented
+      event.defaultPrevented
       || event.metaKey
       || event.ctrlKey
       || event.shiftKey
@@ -97,6 +187,13 @@ export default function TopNav() {
       return
     }
 
+    if (isActive) {
+      setMenuOpen(false)
+      setNotificationsOpen(false)
+      return
+    }
+
+    preloadNavHref(href, isActive)
     setPendingHref(href)
     setMenuOpen(false)
     setNotificationsOpen(false)
@@ -108,72 +205,114 @@ export default function TopNav() {
     }
   }
 
-  async function showInfoToast(message: string) {
-    const { toast } = await import('sonner')
-    toast.info(message)
-  }
+  const refreshNotifications = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+    if (topNavCacheKey === null) return
 
-  async function showErrorToast(message: string) {
-    const { toast } = await import('sonner')
-    toast.error(message)
-  }
+    const cached = readTopNavNotificationCache(topNavCacheKey)
+    if (cached) {
+      setNotifications(cached.notifications)
+      setUnreadCount(cached.unread_count)
+    }
 
-  const refreshNotifications = useCallback(async () => {
     try {
-      const data = await listNotifications()
+      const data = await loadTopNavNotifications(topNavCacheKey, { force })
       setNotifications(data.notifications)
       setUnreadCount(data.unread_count)
     } catch {
-      setNotifications([])
-      setUnreadCount(0)
+      if (!cached) {
+        setNotifications([])
+        setUnreadCount(0)
+      }
     }
-  }, [])
+  }, [topNavCacheKey])
 
-  const refreshProfessorChatUnread = useCallback(async () => {
+  const refreshProfessorChatUnread = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+    if (topNavCacheKey === null) return
+
     if (!canUseProfessorChat) {
       setProfessorChatUnreadCount(0)
       return
     }
 
-    try {
-      const data = await getStudentProfessorChat()
-      setProfessorChatUnreadCount(studentProfessorChatUnreadCount(data))
-    } catch {
-      setProfessorChatUnreadCount(0)
-    }
-  }, [canUseProfessorChat])
+    const cachedUnreadCount = readTopNavProfessorChatCache(topNavCacheKey)
+    if (cachedUnreadCount !== null) setProfessorChatUnreadCount(cachedUnreadCount)
 
-  const refreshTopNavData = useCallback(async () => {
+    try {
+      const unreadCount = await loadTopNavProfessorChatUnread(topNavCacheKey, { force })
+      setProfessorChatUnreadCount(unreadCount)
+    } catch {
+      if (cachedUnreadCount === null) setProfessorChatUnreadCount(0)
+    }
+  }, [canUseProfessorChat, topNavCacheKey])
+
+  const refreshTopNavData = useCallback(async (options?: { force?: boolean }) => {
     await Promise.allSettled([
-      refreshNotifications(),
-      refreshProfessorChatUnread(),
+      refreshNotifications(options),
+      refreshProfessorChatUnread(options),
     ])
   }, [refreshNotifications, refreshProfessorChatUnread])
 
   useEffect(() => {
     if (!user?.id) return
-    void refreshTopNavData()
+    return scheduleTopNavIdleWork(() => {
+      void refreshTopNavData()
+    })
   }, [refreshTopNavData, user?.id])
 
   useEffect(() => {
-    if (!user?.id) return
-    const refresh = () => void refreshTopNavData()
-    return subscribeKrescoRealtime({
-      channelName: userNotificationsChannelName(user.id),
-      onMessage: refresh,
-      fallback: { intervalMs: 5000, poll: refreshTopNavData },
+    const userId = user?.id
+    if (!userId) return
+    const refresh = () => void refreshTopNavData({ force: true })
+    let stopped = false
+    let unsubscribe: (() => void) | null = null
+
+    const cancelStartup = scheduleTopNavIdleWork(() => {
+      void loadRealtimeModule().then(({ subscribeKrescoRealtime, userNotificationsChannelName }) => {
+        if (stopped) return
+        unsubscribe = subscribeKrescoRealtime({
+          channelName: userNotificationsChannelName(userId),
+          onMessage: refresh,
+          fallback: { intervalMs: 5000, poll: refreshTopNavData },
+        })
+      })
     })
+
+    return () => {
+      stopped = true
+      cancelStartup()
+      unsubscribe?.()
+    }
   }, [refreshTopNavData, user?.id])
 
   useDismissable(notificationsRef, () => setNotificationsOpen(false), {
     enabled: notificationsOpen,
     eventName: 'mousedown',
+    closeOnEscape: false,
   })
+
+  useDismissable(accountMenuRef, () => setMenuOpen(false), {
+    enabled: menuOpen,
+    eventName: 'mousedown',
+    closeOnEscape: false,
+  })
+
+  useEffect(() => {
+    if (!menuOpen && !notificationsOpen) return
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setMenuOpen(false)
+      setNotificationsOpen(false)
+    }
+
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [menuOpen, notificationsOpen])
 
   async function openNotifications() {
     setNotificationsOpen((value) => !value)
     setMenuOpen(false)
-    await refreshNotifications()
+    await refreshNotifications({ force: true })
   }
 
   async function readNotification(item: NotificationItem) {
@@ -181,21 +320,27 @@ export default function TopNav() {
 
     const previousNotifications = notifications
     const previousUnreadCount = unreadCount
-    setReadingIds((current) => new Set(current).add(item.id))
-    setNotifications((current) => current.map((notification) => (
+    const nextNotifications = notifications.map((notification) => (
       notification.id === item.id ? { ...notification, is_read: true } : notification
-    )))
-    setUnreadCount((current) => Math.max(0, current - 1))
+    ))
+    const nextUnreadCount = Math.max(0, unreadCount - 1)
+    setReadingIds((current) => new Set(current).add(item.id))
+    setNotifications(nextNotifications)
+    setUnreadCount(nextUnreadCount)
+    writeCurrentNotificationCache(topNavCacheKey, nextNotifications, nextUnreadCount)
 
     try {
-      const updated = await markNotificationRead(item.id)
-      setNotifications((current) => current.map((notification) => (
+      const updated = await markTopNavNotificationRead(item.id)
+      const updatedNotifications = notifications.map((notification) => (
         notification.id === updated.id ? updated : notification
-      )))
+      ))
+      setNotifications(updatedNotifications)
+      writeCurrentNotificationCache(topNavCacheKey, updatedNotifications, nextUnreadCount)
     } catch {
       setNotifications(previousNotifications)
       setUnreadCount(previousUnreadCount)
-      await showErrorToast('Could not mark notification read.')
+      writeCurrentNotificationCache(topNavCacheKey, previousNotifications, previousUnreadCount)
+      showToastError('Could not mark notification read.')
     } finally {
       setReadingIds((current) => {
         const next = new Set(current)
@@ -210,16 +355,19 @@ export default function TopNav() {
 
     const previousNotifications = notifications
     const previousUnreadCount = unreadCount
+    const nextNotifications = notifications.map((notification) => ({ ...notification, is_read: true }))
     setMarkingAllRead(true)
-    setNotifications((current) => current.map((notification) => ({ ...notification, is_read: true })))
+    setNotifications(nextNotifications)
     setUnreadCount(0)
+    writeCurrentNotificationCache(topNavCacheKey, nextNotifications, 0)
 
     try {
-      await markAllNotificationsRead()
+      await markAllTopNavNotificationsRead()
     } catch {
       setNotifications(previousNotifications)
       setUnreadCount(previousUnreadCount)
-      await showErrorToast('Could not mark notifications read.')
+      writeCurrentNotificationCache(topNavCacheKey, previousNotifications, previousUnreadCount)
+      showToastError('Could not mark notifications read.')
     } finally {
       setMarkingAllRead(false)
     }
@@ -230,18 +378,22 @@ export default function TopNav() {
 
     const previousNotifications = notifications
     const previousUnreadCount = unreadCount
+    const nextNotifications = notifications.filter((notification) => notification.id !== item.id)
+    const nextUnreadCount = item.is_read ? unreadCount : Math.max(0, unreadCount - 1)
     setDeletingIds((current) => new Set(current).add(item.id))
-    setNotifications((current) => current.filter((notification) => notification.id !== item.id))
-    if (!item.is_read) setUnreadCount((current) => Math.max(0, current - 1))
+    setNotifications(nextNotifications)
+    if (!item.is_read) setUnreadCount(nextUnreadCount)
+    writeCurrentNotificationCache(topNavCacheKey, nextNotifications, nextUnreadCount)
     try {
-      await deleteNotification(item.id)
+      await deleteTopNavNotification(item.id)
     } catch (error) {
       if (isNotFoundError(error)) {
         return
       }
       setNotifications(previousNotifications)
       setUnreadCount(previousUnreadCount)
-      await showErrorToast('Could not delete notification.')
+      writeCurrentNotificationCache(topNavCacheKey, previousNotifications, previousUnreadCount)
+      showToastError('Could not delete notification.')
     } finally {
       setDeletingIds((current) => {
         const next = new Set(current)
@@ -260,12 +412,14 @@ export default function TopNav() {
     setDeletingIds(new Set(notifications.map((item) => item.id)))
     setNotifications([])
     setUnreadCount(0)
+    writeCurrentNotificationCache(topNavCacheKey, [], 0)
     try {
-      await deleteAllNotifications()
+      await deleteAllTopNavNotifications()
     } catch {
       setNotifications(previousNotifications)
       setUnreadCount(previousUnreadCount)
-      await showErrorToast('Could not clear notifications.')
+      writeCurrentNotificationCache(topNavCacheKey, previousNotifications, previousUnreadCount)
+      showToastError('Could not clear notifications.')
     } finally {
       setDeletingAll(false)
       setDeletingIds(new Set())
@@ -280,48 +434,48 @@ export default function TopNav() {
         </Link>
 
         <div className="hidden h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden md:flex">
-          <LayoutGroup id="top-nav-tabs">
-            {desktopNavLinks.map(({ href, label, Icon }) => {
-              const isActive = active(href)
-              const content = (
-                <>
-                  {isActive && (
-                    <motion.span
-                      layoutId="top-nav-active-pill"
-                      transition={topNavIndicatorTransition}
-                      className="absolute inset-0 rounded-[14px] bg-[#f0f0ff] shadow-[inset_0_0_0_1px_rgba(91,96,249,0.13)]"
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-2">
-                    <Icon size={16} strokeWidth={2.2} />
-                    <span>{label}</span>
-                  </span>
-                  {isActive && (
-                    <motion.span
-                      layoutId="top-nav-active-indicator"
-                      transition={topNavIndicatorTransition}
-                      className="absolute -bottom-3 left-5 right-5 h-0.5 rounded-full bg-[#3a2fd3]"
-                    />
-                  )}
-                </>
-              )
-              const className = `relative flex h-10 shrink-0 items-center justify-center gap-2 overflow-visible rounded-[14px] px-3.5 text-[13px] font-black no-underline outline-none transition-[background-color,box-shadow,color,transform] duration-200 focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 ${
-                isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f7f7ff] hover:text-[#3a2fd3]'
-              }`
-              if (!href) {
-                return (
-                  <button key={label} type="button" onClick={() => void showInfoToast(`${label} coming soon`)} className={`${className} border-0 bg-transparent`}>
-                    {content}
-                  </button>
-                )
-              }
+          {desktopNavLinks.map(({ href, label, Icon, prefetch }) => {
+            const isActive = active(href)
+            const content = (
+              <>
+                {isActive && (
+                  <span className="absolute inset-0 rounded-[14px] bg-[#f0f0ff] shadow-[inset_0_0_0_1px_rgba(91,96,249,0.13)]" />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <Icon size={16} strokeWidth={2.2} />
+                  <span>{label}</span>
+                </span>
+                {isActive && (
+                  <span className="absolute -bottom-3 left-5 right-5 h-0.5 rounded-full bg-[#3a2fd3]" />
+                )}
+              </>
+            )
+            const className = `relative flex h-10 shrink-0 items-center justify-center gap-2 overflow-visible rounded-[14px] px-3.5 text-[13px] font-black no-underline outline-none ${controlMotion} focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 ${
+              isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f7f7ff] hover:text-[#3a2fd3]'
+            }`
+            if (!href) {
               return (
-                <Link key={href} href={href} onClick={(event) => handleNavClick(event, href, isActive)} aria-current={isActive ? 'page' : undefined} className={className}>
+                <button key={label} type="button" onClick={() => showToastInfo(`${label} coming soon`)} className={`${className} border-0 bg-transparent`}>
                   {content}
-                </Link>
+                </button>
               )
-            })}
-          </LayoutGroup>
+            }
+            return (
+              <Link
+                key={href}
+                href={href}
+                prefetch={prefetch}
+                onClick={(event) => handleNavClick(event, href, isActive)}
+                onFocus={() => preloadNavHref(href, isActive)}
+                onMouseOver={() => preloadNavHref(href, isActive)}
+                onPointerEnter={() => preloadNavHref(href, isActive)}
+                aria-current={isActive ? 'page' : undefined}
+                className={className}
+              >
+                {content}
+              </Link>
+            )
+          })}
         </div>
 
         <div className="flex h-full min-w-0 flex-1 items-center justify-end gap-1 md:flex-none">
@@ -330,7 +484,7 @@ export default function TopNav() {
             aria-label="Navigation menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition-[background-color,color,transform] duration-150 hover:bg-[#f4f4f5] active:scale-[0.96] md:hidden"
+            className={`grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] ${controlMotion} hover:bg-[#f4f4f5] md:hidden`}
           >
             <Menu size={19} aria-hidden="true" />
           </button>
@@ -340,97 +494,87 @@ export default function TopNav() {
               title="Professor Chat"
               aria-label={professorChatUnreadCount > 0 ? `Professor Chat, ${professorChatUnreadCount > 9 ? '9 plus' : professorChatUnreadCount} unread` : 'Professor Chat'}
               onClick={(event) => handleNavClick(event, AUTH_ROUTES.studentProfessorChat, active(AUTH_ROUTES.studentProfessorChat))}
+              onFocus={() => preloadNavHref(AUTH_ROUTES.studentProfessorChat, active(AUTH_ROUTES.studentProfessorChat))}
+              onMouseOver={() => preloadNavHref(AUTH_ROUTES.studentProfessorChat, active(AUTH_ROUTES.studentProfessorChat))}
+              onPointerEnter={() => preloadNavHref(AUTH_ROUTES.studentProfessorChat, active(AUTH_ROUTES.studentProfessorChat))}
               aria-current={active(AUTH_ROUTES.studentProfessorChat) ? 'page' : undefined}
-              className={`relative hidden h-11 w-11 place-items-center rounded-[14px] no-underline outline-none transition-[background-color,box-shadow,color,transform] duration-150 active:scale-[0.96] sm:grid ${
+              className={`relative hidden h-11 w-11 place-items-center rounded-[14px] no-underline outline-none ${controlMotion} sm:grid ${
                 active(AUTH_ROUTES.studentProfessorChat)
                   ? 'bg-[#f0f0ff] text-[#3a2fd3] shadow-[inset_0_0_0_1px_rgba(91,96,249,0.13)]'
                   : 'text-[#52525c] hover:bg-[#f4f4f5] hover:text-[#3a2fd3]'
               }`}
             >
               <MessageCircle size={18} aria-hidden="true" />
-              <AnimatePresence initial={false}>
-                {professorChatUnreadCount > 0 && (
-                  <motion.span
-                    key="professor-chat-count"
-                    initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                    transition={contextualIconTransition}
-                    className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white"
-                  >
-                    {professorChatUnreadCount > 9 ? '9+' : professorChatUnreadCount}
-                  </motion.span>
-                )}
-              </AnimatePresence>
+              {professorChatUnreadCount > 0 && (
+                <span className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white tabular-nums">
+                  {professorChatUnreadCount > 9 ? '9+' : professorChatUnreadCount}
+                </span>
+              )}
             </Link>
           )}
           <div ref={notificationsRef} className="relative hidden sm:block">
             <button
               type="button"
               title="Notifications"
-              aria-label="Notifications"
+              aria-label={notificationsLabel}
               aria-haspopup="dialog"
               aria-expanded={notificationsOpen}
               onClick={() => void openNotifications()}
-              className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition-[background-color,color,transform] duration-150 hover:bg-[#f4f4f5] active:scale-[0.96]"
+              className={`relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] ${controlMotion} hover:bg-[#f4f4f5]`}
             >
               <Bell size={18} aria-hidden="true" />
-              <AnimatePresence initial={false}>
-                {unreadCount > 0 && (
-                  <motion.span
-                    key="notifications-count"
-                    initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                    transition={contextualIconTransition}
-                    className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white"
-                  >
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </motion.span>
-                )}
-              </AnimatePresence>
+              {unreadCount > 0 && (
+                <span className="absolute right-2 top-2 grid h-4 min-w-4 place-items-center rounded-full bg-[#f5900b] px-1 text-[10px] font-black leading-none text-white tabular-nums">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
-            <AnimatePresence initial={false}>
-              {notificationsOpen && (
-                <motion.div
+            {notificationDropdown.present && (
+                <div
                   role="dialog"
                   aria-label="Notifications"
-                  initial={{ opacity: 0, y: -8, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                  transition={notificationPanelTransition}
-                  className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(360px,calc(100vw-2rem))] origin-top-right rounded-[16px] border border-[#e4e4e7] bg-white p-2 shadow-[0_18px_40px_rgba(24,24,27,0.16)]"
+                  data-origin="top-right"
+                  className={`t-dropdown ${notificationDropdown.stateClass} ${dropdownMotionClass} absolute right-0 top-[calc(100%+10px)] z-50 w-[min(360px,calc(100vw-2rem))] rounded-[16px] border border-[#e4e4e7] bg-white p-2 shadow-[0_18px_40px_rgba(24,24,27,0.16)]`}
                 >
                   <div className="flex items-center justify-between gap-3 border-b border-[#f4f4f5] px-3 py-2">
                     <div className="min-w-0">
                       <strong className="block truncate text-sm font-black text-[#3f3f46]">Notifications</strong>
-                      <motion.span layout className="block text-[11px] font-bold text-[#71717b]">{unreadCount === 0 ? 'All caught up' : `${unreadCount} unread`}</motion.span>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
                         onClick={() => void markAllRead()}
                         disabled={unreadCount === 0 || markingAllRead || deletingAll}
-                        className="inline-flex h-10 items-center gap-1 rounded-[10px] border-0 bg-transparent px-2 text-[12px] font-black text-[#453dee] transition-[background-color,color,transform] hover:bg-[#f4f4f5] active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:hover:bg-transparent disabled:active:scale-100"
+                        className={`inline-flex h-10 items-center gap-1 rounded-[10px] border-0 bg-transparent px-2 text-[12px] font-black text-[#453dee] ${controlMotion} hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:hover:bg-transparent disabled:active:scale-100`}
                         title="Mark all notifications read"
                       >
-                        {markingAllRead ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <CheckCheck size={14} aria-hidden="true" />}
+                        <TopNavIconSwap
+                          busy={markingAllRead}
+                          idle={<CheckCheck size={14} aria-hidden="true" />}
+                          busyIcon={<Loader2 size={14} className={markingAllRead ? spinnerMotionClass : undefined} aria-hidden="true" />}
+                          className="h-3.5 w-3.5"
+                        />
                         Read
                       </button>
                       <button
                         type="button"
                         onClick={() => void removeAllNotifications()}
                         disabled={notifications.length === 0 || deletingAll}
-                        className="grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] transition-[background-color,color,transform] hover:bg-red-50 hover:text-red-500 active:scale-[0.96] disabled:cursor-not-allowed disabled:text-[#d4d4d8] disabled:hover:bg-transparent disabled:active:scale-100"
+                        className={`grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] ${controlMotion} hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:text-[#d4d4d8] disabled:hover:bg-transparent disabled:active:scale-100`}
                         title="Delete all notifications"
                         aria-label="Delete all notifications"
                       >
-                        {deletingAll ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : <Trash2 size={15} aria-hidden="true" />}
+                        <TopNavIconSwap
+                          busy={deletingAll}
+                          idle={<Trash2 size={15} aria-hidden="true" />}
+                          busyIcon={<Loader2 size={15} className={deletingAll ? spinnerMotionClass : undefined} aria-hidden="true" />}
+                          className="h-4 w-4"
+                        />
                       </button>
                       <button
                         type="button"
                         onClick={() => setNotificationsOpen(false)}
-                        className="grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] transition-[background-color,color,transform] duration-150 hover:bg-[#f4f4f5] hover:text-[#3f3f46] active:scale-[0.96]"
+                        className={`grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#71717b] ${controlMotion} hover:bg-[#f4f4f5] hover:text-[#3f3f46]`}
                         title="Close notifications"
                         aria-label="Close notifications"
                       >
@@ -439,31 +583,20 @@ export default function TopNav() {
                     </div>
                   </div>
                   <div className="max-h-[360px] overflow-y-auto py-1">
-                    <AnimatePresence mode="popLayout" initial={false}>
                       {notifications.length === 0 ? (
-                        <motion.p
-                          key="notifications-empty"
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          transition={{ duration: 0.16 }}
-                          className="m-0 px-3 py-5 text-sm font-bold text-[#71717b]"
-                        >
-                          No notifications yet.
-                        </motion.p>
+                        <div className="grid min-h-[92px] place-items-center px-3 py-5 text-center">
+                          <p className="m-0 text-sm font-black text-[#71717b]">
+                            No notifications
+                          </p>
+                        </div>
                       ) : (
                         notifications.map((item) => {
                           const isReading = readingIds.has(item.id)
                           const isDeleting = deletingIds.has(item.id)
                           return (
-                            <motion.div
+                            <div
                               key={item.id}
-                              layout
-                              initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                              transition={notificationRowTransition}
-                              className="group grid grid-cols-[1fr_40px] items-center gap-1 rounded-xl hover:bg-[#f4f4f5] focus-within:bg-[#f4f4f5]"
+                              className="group grid grid-cols-[1fr_40px] items-center gap-1 rounded-xl transition-[background-color,box-shadow] duration-150 ease-out hover:bg-[#f4f4f5] focus-within:bg-[#f4f4f5] focus-within:shadow-[var(--shadow-border)] motion-reduce:transition-none"
                             >
                               <button
                                 type="button"
@@ -473,29 +606,16 @@ export default function TopNav() {
                               >
                                 <span className="flex items-center justify-between gap-3">
                                   <strong className="min-w-0 truncate text-sm font-black text-[#3f3f46]">{item.title}</strong>
-                                  <AnimatePresence initial={false}>
-                                    {isReading ? (
-                                      <motion.span
-                                        key="reading"
-                                        initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                                        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                                        exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                                        transition={contextualIconTransition}
-                                        className="grid h-4 w-4 shrink-0 place-items-center text-[#a1a1aa]"
-                                      >
-                                        <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-                                      </motion.span>
-                                    ) : !item.is_read && (
-                                      <motion.span
-                                        key="unread"
-                                        initial={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                                        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                                        exit={{ opacity: 0, scale: 0.25, filter: 'blur(4px)' }}
-                                        transition={contextualIconTransition}
-                                        className="h-2 w-2 shrink-0 rounded-full bg-[#f5900b]"
+                                  {(isReading || !item.is_read) && (
+                                    <span className="grid h-4 w-4 shrink-0 place-items-center text-[#a1a1aa]">
+                                      <TopNavIconSwap
+                                        busy={isReading}
+                                        idle={<span className="h-2 w-2 rounded-full bg-[#f5900b]" />}
+                                        busyIcon={<Loader2 size={12} className={isReading ? spinnerMotionClass : undefined} aria-hidden="true" />}
+                                        className="h-4 w-4"
                                       />
-                                    )}
-                                  </AnimatePresence>
+                                    </span>
+                                  )}
                                 </span>
                                 <span className="line-clamp-2 text-[12px] font-bold leading-[1.35] text-[#71717b]">{item.body}</span>
                               </button>
@@ -503,116 +623,132 @@ export default function TopNav() {
                                 type="button"
                                 onClick={() => void removeNotification(item)}
                                 disabled={isDeleting || deletingAll}
-                                className="mr-1 grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#a1a1aa] opacity-0 transition-[background-color,color,opacity,transform] duration-150 hover:bg-red-50 hover:text-red-500 active:scale-[0.96] group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:active:scale-100"
+                                className={`mr-1 grid h-10 w-10 place-items-center rounded-[10px] border-0 bg-transparent text-[#a1a1aa] opacity-0 ${controlMotion} hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:active:scale-100`}
                                 title="Delete notification"
                                 aria-label={`Delete notification: ${item.title}`}
                               >
-                                <Trash2 size={14} aria-hidden="true" />
+                                <TopNavIconSwap
+                                  busy={isDeleting}
+                                  idle={<Trash2 size={14} aria-hidden="true" />}
+                                  busyIcon={<Loader2 size={14} className={isDeleting ? spinnerMotionClass : undefined} aria-hidden="true" />}
+                                  className="h-3.5 w-3.5"
+                                />
                               </button>
-                            </motion.div>
+                            </div>
                           )
                         })
                       )}
-                    </AnimatePresence>
                   </div>
-                </motion.div>
+                </div>
               )}
-            </AnimatePresence>
           </div>
-          <div className="relative">
+          <div ref={accountMenuRef} className="relative">
             <button
               type="button"
               aria-label="Account menu"
+              aria-haspopup="menu"
+              aria-controls={menuOpen ? 'account-menu' : undefined}
               aria-expanded={menuOpen}
               onClick={() => {
                 setMenuOpen((value) => !value)
                 setNotificationsOpen(false)
               }}
-              className="grid h-11 w-11 place-items-center overflow-hidden rounded-[14px] border border-[#e4e4e7] bg-[#e4e4e7] text-sm font-black text-[#3a2fd3] transition-[background-color,border-color,color,transform] duration-150 hover:border-[#d4d4d8] hover:bg-[#f4f4f5] active:scale-[0.96]"
+              className={`grid h-11 w-11 place-items-center overflow-hidden rounded-[14px] border border-[#e4e4e7] bg-[#e4e4e7] text-sm font-black text-[#3a2fd3] ${controlMotion} hover:border-[#d4d4d8] hover:bg-[#f4f4f5]`}
             >
               {user?.full_name?.[0]?.toUpperCase() || <User size={18} aria-hidden="true" />}
             </button>
-            <AnimatePresence initial={false}>
-              {menuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                  transition={notificationPanelTransition}
-                  className="absolute right-0 top-[calc(100%+10px)] w-64 origin-top-right rounded-2xl border border-[#e4e4e7] bg-white p-2 shadow-[0_18px_40px_rgba(24,24,27,0.16)]"
+            {accountDropdown.present && (
+                <div
+                  id="account-menu"
+                  role="menu"
+                  aria-label="Account menu"
+                  data-origin="top-right"
+                  className={`t-dropdown ${accountDropdown.stateClass} ${dropdownMotionClass} absolute right-0 top-[calc(100%+10px)] w-64 rounded-2xl border border-[#e4e4e7] bg-white p-2 shadow-[0_18px_40px_rgba(24,24,27,0.16)]`}
                 >
                   <div className="grid gap-1 border-b border-[#f4f4f5] pb-2 md:hidden">
-                    {menuNavLinks.map(({ href, label, Icon }, index) => {
+                    {menuNavLinks.map(({ href, label, Icon, prefetch }) => {
                       const isActive = active(href)
                       return (
-                        <motion.div
+                        <Link
                           key={href}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.015, duration: 0.14 }}
+                          href={href}
+                          prefetch={prefetch}
+                          onClick={(event) => handleNavClick(event, href, isActive)}
+                          onFocus={() => preloadNavHref(href, isActive)}
+                          onMouseOver={() => preloadNavHref(href, isActive)}
+                          onPointerEnter={() => preloadNavHref(href, isActive)}
+                          role="menuitem"
+                          className={`flex min-h-10 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold no-underline ${controlMotion} ${
+                            isActive ? 'bg-[#f0f0ff] text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
+                          }`}
+                          aria-current={isActive ? 'page' : undefined}
                         >
-                          <Link
-                            href={href}
-                            onClick={(event) => handleNavClick(event, href, isActive)}
-                            className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold no-underline transition-[background-color,color] duration-150 ${
-                              isActive ? 'bg-[#f0f0ff] text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
-                            }`}
-                            aria-current={isActive ? 'page' : undefined}
-                          >
-                            <Icon size={15} aria-hidden="true" />
-                            {label}
-                          </Link>
-                        </motion.div>
+                          <Icon size={15} aria-hidden="true" />
+                          {label}
+                        </Link>
                       )
                     })}
                   </div>
-                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.14 }} className="border-b border-[#f4f4f5] px-3 py-3">
+                  <div className="border-b border-[#f4f4f5] px-3 py-3">
                     <p className="m-0 truncate text-sm font-black text-[#3f3f46]">{user?.full_name || 'Student'}</p>
                     <p className="m-0 mt-1 truncate text-xs font-bold text-[#71717b]">{user?.email}</p>
-                  </motion.div>
-                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.025, duration: 0.14 }}>
-                    <Link href="/profile" onClick={() => setMenuOpen(false)} className="mt-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#52525c] no-underline transition-[background-color,color] duration-150 hover:bg-[#f4f4f5]">
-                      <User size={15} aria-hidden="true" />
-                      Profile
-                    </Link>
-                  </motion.div>
-                  <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04, duration: 0.14 }}>
-                    <button type="button" onClick={doLogout} className="flex w-full items-center gap-2 rounded-xl border-0 bg-transparent px-3 py-2 text-left text-sm font-bold text-red-500 transition-[background-color,color] duration-150 hover:bg-red-50">
-                      <LogOut size={15} aria-hidden="true" />
-                      Log out
-                    </button>
-                  </motion.div>
-                </motion.div>
+                  </div>
+                  <Link
+                    href="/profile"
+                    onClick={() => setMenuOpen(false)}
+                    onFocus={() => preloadNavHref('/profile', active('/profile'))}
+                    onMouseOver={() => preloadNavHref('/profile', active('/profile'))}
+                    onPointerEnter={() => preloadNavHref('/profile', active('/profile'))}
+                    role="menuitem"
+                    className={`mt-2 flex min-h-10 items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold text-[#52525c] no-underline ${controlMotion} hover:bg-[#f4f4f5]`}
+                  >
+                    <User size={15} aria-hidden="true" />
+                    Profile
+                  </Link>
+                  <button type="button" onClick={doLogout} role="menuitem" className={`flex min-h-10 w-full items-center gap-2 rounded-xl border-0 bg-transparent px-3 py-2 text-left text-sm font-bold text-red-500 ${controlMotion} hover:bg-red-50`}>
+                    <LogOut size={15} aria-hidden="true" />
+                    Log out
+                  </button>
+                </div>
               )}
-            </AnimatePresence>
           </div>
         </div>
       </div>
-      <AnimatePresence initial={false}>
-        {pendingHref && (
-          <motion.div
-            key="top-nav-loading-rail"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
-            className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-0.5 overflow-hidden bg-[#eef0ff]"
-          >
-            {reduceMotion ? (
-              <span className="absolute inset-y-0 left-0 w-full rounded-full bg-[#5b60f9]" />
-            ) : (
-              <motion.span
-                className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-[#5b60f9]"
-                initial={{ x: '-120%' }}
-                animate={{ x: '320%' }}
-                transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
-              />
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {pendingHref && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[-1px] h-0.5 overflow-hidden bg-[#eef0ff]">
+          <span className="kresco-route-progress absolute inset-y-0 left-0 w-1/3 rounded-full bg-[#5b60f9]" />
+        </div>
+      )}
     </nav>
   )
+}
+
+function useDropdownPresence(open: boolean) {
+  const [present, setPresent] = useState(open)
+  const [closing, setClosing] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setPresent(true)
+      setClosing(false)
+      return
+    }
+
+    if (!present) return
+
+    setClosing(true)
+    const timeout = window.setTimeout(() => {
+      setPresent(false)
+      setClosing(false)
+    }, DROPDOWN_CLOSE_MS)
+
+    return () => window.clearTimeout(timeout)
+  }, [open, present])
+
+  return {
+    present,
+    stateClass: open && !closing ? 'is-open' : closing ? 'is-closing' : '',
+  }
 }
 
 function isNotFoundError(error: unknown) {
@@ -622,10 +758,7 @@ function isNotFoundError(error: unknown) {
     && (error as { response?: { status?: number } }).response?.status === 404
 }
 
-function studentProfessorChatUnreadCount(status: StudentProfessorChatStatus) {
-  if (!status.eligible) return 0
-  if (status.teacher_threads?.length) {
-    return status.teacher_threads.reduce((total, thread) => total + Math.max(0, thread.unread_count), 0)
-  }
-  return status.conversations.reduce((total, conversation) => total + Math.max(0, conversation.unread_for_student), 0)
+function loadRealtimeModule() {
+  realtimeModulePromise ??= import('@/lib/realtime')
+  return realtimeModulePromise
 }

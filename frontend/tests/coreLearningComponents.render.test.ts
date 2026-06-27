@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SectionQuiz from '@/components/SectionQuiz'
-import VideoPlayer from '@/components/VideoPlayer'
+import VideoPlayer, { clearLessonStreamDataCache } from '@/components/VideoPlayer'
+import { KRESCO_CSRF_HEADER, writeCsrfToken } from '@/lib/authSession'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -34,6 +35,7 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  clearLessonStreamDataCache()
   mountedRoots = []
   document.body.innerHTML = ''
 })
@@ -47,6 +49,9 @@ afterEach(() => {
   }
   mountedRoots = []
   delete window.VdoPlayer
+  vi.unstubAllGlobals()
+  writeCsrfToken(null)
+  sessionStorage.clear()
 })
 
 describe('core learning component rendering', () => {
@@ -196,6 +201,45 @@ describe('core learning component rendering', () => {
     expect(onComplete).toHaveBeenCalledTimes(1)
   })
 
+  it('reuses fresh VdoCipher stream metadata across quick remounts', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'provider-otp', playback_info: 'provider-playback' } })
+    mocks.apiPost.mockResolvedValue({ data: {} })
+    const firstVideo = document.createElement('video')
+    const secondVideo = document.createElement('video')
+    const getInstance = vi.fn()
+      .mockReturnValueOnce({ video: firstVideo, destroy: vi.fn() })
+      .mockReturnValueOnce({ video: secondVideo, destroy: vi.fn() })
+    window.VdoPlayer = { getInstance }
+
+    const first = renderComponent(React.createElement(VideoPlayer, {
+      lessonId: 42,
+      durationSeconds: 120,
+      onProgress: vi.fn(),
+      onComplete: vi.fn(),
+    }))
+    await waitFor(() => {
+      expect(getInstance).toHaveBeenCalledTimes(1)
+    })
+    expect(first.container.querySelector('iframe')?.getAttribute('src')).toContain('provider-otp')
+    expect(mocks.apiGet).toHaveBeenCalledTimes(1)
+
+    unmountComponent(first.root)
+
+    const second = renderComponent(React.createElement(VideoPlayer, {
+      lessonId: 42,
+      durationSeconds: 120,
+      onProgress: vi.fn(),
+      onComplete: vi.fn(),
+    }))
+
+    expect(second.container.textContent).not.toContain('Chargement de la video')
+    await waitFor(() => {
+      expect(getInstance).toHaveBeenCalledTimes(2)
+    })
+    expect(second.container.querySelector('iframe')?.getAttribute('src')).toContain('provider-otp')
+    expect(mocks.apiGet).toHaveBeenCalledTimes(1)
+  })
+
   it('lets VideoPlayer provider completion retry after a failed save', async () => {
     mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'provider-otp', playback_info: 'provider-playback' } })
     mocks.apiPost
@@ -273,6 +317,93 @@ describe('core learning component rendering', () => {
     })
   })
 
+  it('deduplicates VdoCipher progress flushes for the same watched second', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'mock-otp-token', playback_info: 'mock-playback' } })
+    mocks.apiPost.mockResolvedValue({ data: {} })
+    const fakeVideo = document.createElement('video')
+    Object.defineProperty(fakeVideo, 'duration', { value: 120, configurable: true })
+    const getInstance = vi.fn(() => ({
+      video: fakeVideo,
+      destroy: vi.fn(),
+    }))
+    window.VdoPlayer = { getInstance }
+
+    const { root } = renderComponent(React.createElement(VideoPlayer, {
+      lessonId: 42,
+      durationSeconds: 120,
+      resumeSeconds: 47,
+      onProgress: vi.fn(),
+      onComplete: vi.fn(),
+    }))
+
+    await waitFor(() => {
+      expect(getInstance).toHaveBeenCalledTimes(1)
+    })
+
+    fakeVideo.currentTime = 63
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+      await flushPromises()
+    })
+
+    unmountComponent(root)
+    await act(async () => {
+      await flushPromises()
+    })
+
+    const progressWrites = mocks.apiPost.mock.calls.filter(([path]) => path === '/courses/topic-items/42/progress')
+    expect(progressWrites).toHaveLength(1)
+    expect(progressWrites[0]?.[1]).toEqual({ watched_seconds: 63 })
+  })
+
+  it('uses keepalive progress saves on pagehide when CSRF is already available', async () => {
+    mocks.apiGet.mockResolvedValueOnce({ data: { otp: 'mock-otp-token', playback_info: 'mock-playback' } })
+    mocks.apiPost.mockResolvedValue({ data: {} })
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+    writeCsrfToken('csrf-token')
+    const fakeVideo = document.createElement('video')
+    Object.defineProperty(fakeVideo, 'duration', { value: 120, configurable: true })
+    const getInstance = vi.fn(() => ({
+      video: fakeVideo,
+      destroy: vi.fn(),
+    }))
+    window.VdoPlayer = { getInstance }
+
+    renderComponent(React.createElement(VideoPlayer, {
+      lessonId: 42,
+      durationSeconds: 120,
+      resumeSeconds: 47,
+      onProgress: vi.fn(),
+      onComplete: vi.fn(),
+    }))
+
+    await waitFor(() => {
+      expect(getInstance).toHaveBeenCalledTimes(1)
+    })
+
+    fakeVideo.currentTime = 63
+    await act(async () => {
+      window.dispatchEvent(new Event('pagehide'))
+      await flushPromises()
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${window.location.origin}/api/courses/topic-items/42/progress`,
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'include',
+        keepalive: true,
+        headers: expect.objectContaining({
+          [KRESCO_CSRF_HEADER]: 'csrf-token',
+        }) as Record<string, string>,
+        body: JSON.stringify({ watched_seconds: 63 }),
+      }),
+    )
+    const progressWrites = mocks.apiPost.mock.calls.filter(([path]) => path === '/courses/topic-items/42/progress')
+    expect(progressWrites).toHaveLength(0)
+  })
+
 })
 
 function renderComponent(element: React.ReactElement) {
@@ -286,6 +417,16 @@ function renderComponent(element: React.ReactElement) {
   })
 
   return { container, root }
+}
+
+function unmountComponent(root: Root) {
+  const entry = mountedRoots.find((item) => item.root === root)
+  if (!entry) return
+  act(() => {
+    entry.root.unmount()
+  })
+  entry.container.remove()
+  mountedRoots = mountedRoots.filter((item) => item.root !== root)
 }
 
 function buttonByText(container: HTMLElement, text: string) {

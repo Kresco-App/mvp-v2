@@ -28,6 +28,7 @@ describe('calendar view model helpers', () => {
     expect(findCalendarEventById([event], 7)).toBe(event)
     expect(eventsForWeek([event], weekStart)).toEqual([event])
     expect(eventsForWeek([event], new Date(2026, 5, 1))).toEqual([])
+    expect(eventsForWeek([{ id: 8, starts_at: 'not-a-date' }], weekStart)).toEqual([])
   })
 
   it('keeps month grids monday-aligned and fixed size', () => {
@@ -42,13 +43,19 @@ describe('calendar view model helpers', () => {
     const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8').replace(/\r\n?/g, '\n')
     const hookSource = readFileSync(join(process.cwd(), 'hooks', 'useNotificationChannelsSubscription.ts'), 'utf8')
 
-    expect(source).toContain('const loadEventsForWeekRef = useRef(loadEventsForWeek)')
-    expect(source).toContain('useEffect(() => {\n    loadEventsForWeekRef.current = loadEventsForWeek\n  }, [loadEventsForWeek])')
+    expect(source).toContain('const retryEventsRef = useRef(retryEvents)')
+    expect(source).toContain('useEffect(() => {\n    retryEventsRef.current = retryEvents\n  }, [retryEvents])')
     expect(source).toContain('useNotificationChannelsSubscription({')
-    expect(source).toContain('void loadEventsForWeekRef.current(isActive)')
+    expect(source).toContain('retryEventsRef.current = retryEvents')
+    expect(source).toContain('void retryEventsRef.current().catch(() => undefined)')
+    expect(source).not.toContain("import { getJson } from '@/lib/apiClient'")
+    expect(source).not.toContain('getJson<CalendarEvent[]>')
     expect(source).not.toContain('listKrescoRealtimeSubscriptions')
     expect(hookSource).toContain('listKrescoRealtimeSubscriptions()')
-    expect(hookSource).toContain('channelNames: [fallbackUserChannel]')
+    expect(hookSource).not.toContain("from '@/lib/realtime'")
+    expect(hookSource).toContain("import('@/lib/realtime')")
+    expect(hookSource).toContain('fallbackUserNotificationsChannelName')
+    expect(hookSource).toContain('channelNames = [fallbackUserChannel]')
     expect(source).not.toContain('}, [loadEventsForWeek, user?.id])')
   })
 
@@ -57,6 +64,14 @@ describe('calendar view model helpers', () => {
 
     expect(source).not.toContain("|| 'Khalid'")
     expect(source).not.toContain("Hello {firstName}")
-    expect(source).toContain('No scheduled sessions this week')
+    expect(source).toContain('No sessions this week')
+    expect(source).not.toContain('Your calendar is clear for this range')
+  })
+
+  it('keeps the Calendar page out of the full permanent sidebar bundle', () => {
+    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'calendar', 'page.tsx'), 'utf8')
+
+    expect(source).toContain("from '@/components/figma/permanent-sidebar-title'")
+    expect(source).not.toContain("from '@/components/figma/permanent-sidebar'")
   })
 })

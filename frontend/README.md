@@ -21,6 +21,28 @@ Open:
 http://127.0.0.1:3000
 ```
 
+For subdomain routing, use one dev server and either:
+
+```text
+http://kresco.test:3000
+http://app.kresco.test:3000
+http://admin.kresco.test:3000
+http://prof.kresco.test:3000
+http://staff.kresco.test:3000
+```
+
+after adding the matching hosts-file entries to `127.0.0.1`, or use the no-hosts-file fallback:
+
+```text
+http://kresco.lvh.me:3000
+http://app.kresco.lvh.me:3000
+http://admin.kresco.lvh.me:3000
+http://prof.kresco.lvh.me:3000
+http://staff.kresco.lvh.me:3000
+```
+
+Validate the mirror with `npm run check:local-subdomains:kresco-test` or `npm run check:local-subdomains` after the dev server is running.
+
 ## Current Verification
 
 ```bash

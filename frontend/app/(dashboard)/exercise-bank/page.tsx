@@ -1,15 +1,21 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import Image from 'next/image'
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
+import dynamic from 'next/dynamic'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { toast } from 'sonner'
+import { useSWRConfig } from 'swr'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import { AlertTriangle, ArrowRight, ArrowUpDown, BookOpenCheck, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Dumbbell, Layers3, LibraryBig, Loader2, Lock, NotebookPen, RotateCcw, Search, SlidersHorizontal, Star, Trophy } from 'lucide-react'
-import { PermanentSidebar, type FigmaDailyQuest } from '@/components/figma'
-import { apiDataErrorMessage } from '@/lib/apiData'
+import type { FigmaDailyQuest } from '@/lib/permanentSidebarViewModel'
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
 import { useCourseSubjectsData, type CourseSubject } from '@/lib/courseDiscoveryData'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
+import { useSharedMediaQuery } from '@/hooks/useSharedMediaQuery'
 import {
+  exerciseBankSWRKey,
+  exerciseDetailSWRKey,
   revealExercise,
   saveExercise,
   selfGradeExercise,
@@ -20,6 +26,7 @@ import {
   type ExerciseListItem,
   type ExerciseSelfGrade,
 } from '@/lib/exerciseBankData'
+import { sanitizeNavigationUrl } from '@/lib/urlSafety'
 
 const difficultyOptions = ['', 'easy', 'medium', 'hard', 'bac']
 const selfGradeOptions = ['', 'not_started', 'again', 'partial', 'mastered']
@@ -36,11 +43,24 @@ const exerciseSidebarQuests: FigmaDailyQuest[] = [
   { id: 'notes', quest_type: 'study_time', title: 'Save one revision note', progress: 0, target: 1 },
 ]
 const EXERCISES_PER_PAGE = 9
+const EXERCISE_SEARCH_ROUTE_DEBOUNCE_MS = 220
+const DESKTOP_EXERCISE_SIDEBAR_QUERY = '(min-width: 1181px)'
+const exerciseSearchTextCache = new WeakMap<ExerciseListItem, string>()
+const DeferredPermanentSidebar = dynamic(
+  () => import('@/components/figma/permanent-sidebar').then((mod) => mod.PermanentSidebar),
+  {
+    ssr: false,
+    loading: () => <ExerciseSidebarPlaceholder />,
+  },
+)
+const exerciseControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,filter,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+const exerciseFieldMotionClass = 'transition-[background-color,border-color,box-shadow] duration-150 ease-out motion-reduce:transition-none'
 
 export default function ExerciseBankPage() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const searchKey = searchParams.toString()
   const routeSubjectId = numberParam(searchParams.get('subject'))
   const routeExerciseId = numberParam(searchParams.get('exercise'))
@@ -52,15 +72,27 @@ export default function ExerciseBankPage() {
   const [selfGrade, setSelfGrade] = useState(searchParams.get('self_grade') || '')
   const [savedOnly, setSavedOnly] = useState(searchParams.get('saved') === 'true')
   const [queryInput, setQueryInput] = useState(routeQuery)
+  const deferredQueryInput = useDeferredValue(queryInput)
   const [sortBy, setSortBy] = useState<ExerciseSortKey>(routeSort)
+  const deferredSortBy = useDeferredValue(sortBy)
   const [notesDraft, setNotesDraft] = useState('')
   const [notesDirty, setNotesDirty] = useState(false)
   const [notesExerciseId, setNotesExerciseId] = useState<number | null>(null)
   const [mutating, setMutating] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const lastErrorRef = useRef('')
+  const searchRouteSyncTimerRef = useRef<number | null>(null)
+  const preloadedExerciseListKeysRef = useRef<Set<string> | null>(null)
+  const preloadedExerciseDetailKeysRef = useRef<Set<string> | null>(null)
+  if (preloadedExerciseListKeysRef.current === null) {
+    preloadedExerciseListKeysRef.current = new Set<string>()
+  }
+  if (preloadedExerciseDetailKeysRef.current === null) {
+    preloadedExerciseDetailKeysRef.current = new Set<string>()
+  }
   const { subjects, loading: loadingSubjects, error: subjectsError, retry: retrySubjects } = useCourseSubjectsData()
   const subjectOptions = useMemo(() => subjectOptionsFromSubjects(subjects), [subjects])
+  const activeSubjectId = selectedSubjectId ?? subjectOptions[0]?.id ?? null
 
   useEffect(() => {
     setSelectedSubjectId(routeSubjectId)
@@ -72,21 +104,19 @@ export default function ExerciseBankPage() {
     setSortBy(routeSort)
   }, [routeExerciseId, routeQuery, routeSort, routeSubjectId, searchKey, searchParams])
 
-  useEffect(() => {
-    if (selectedSubjectId || subjectOptions.length === 0) return
-    setSelectedSubjectId(subjectOptions[0].id)
-  }, [selectedSubjectId, subjectOptions])
-
   const filters = useMemo(() => ({
     difficulty: difficulty || undefined,
     selfGrade: selfGrade || undefined,
     saved: savedOnly ? true : null,
   }), [difficulty, savedOnly, selfGrade])
-  const list = useExerciseBankData(selectedSubjectId, filters)
+  const list = useExerciseBankData(activeSubjectId, filters)
   const detail = useExerciseDetail(selectedExerciseId)
-  const selectedSubject = subjectOptions.find((subject) => subject.id === selectedSubjectId) ?? subjectOptions[0] ?? null
+  const selectedSubject = subjectOptions.find((subject) => subject.id === activeSubjectId) ?? subjectOptions[0] ?? null
   const selectedExercise = detail.exercise
-  const visibleExercises = useMemo(() => sortExerciseItems(filterExerciseItems(list.items, queryInput), sortBy), [list.items, queryInput, sortBy])
+  const visibleExercises = useMemo(
+    () => sortExerciseItems(filterExerciseItems(list.items, deferredQueryInput), deferredSortBy),
+    [deferredQueryInput, deferredSortBy, list.items],
+  )
   const pageCount = Math.max(1, Math.ceil(visibleExercises.length / EXERCISES_PER_PAGE))
   const safeCurrentPage = Math.min(currentPage, pageCount)
   const pageStart = (safeCurrentPage - 1) * EXERCISES_PER_PAGE
@@ -100,7 +130,7 @@ export default function ExerciseBankPage() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [difficulty, queryInput, savedOnly, selectedSubjectId, selfGrade, sortBy])
+  }, [activeSubjectId, difficulty, queryInput, savedOnly, selfGrade, sortBy])
 
   useEffect(() => {
     if (!detail.exercise) return
@@ -122,7 +152,7 @@ export default function ExerciseBankPage() {
     const message = apiDataErrorMessage(error, 'Could not load exercise bank.')
     if (lastErrorRef.current === message) return
     lastErrorRef.current = message
-    toast.error(message)
+    showToastError(message)
   }, [detail.error, list.error, subjectsError])
 
   useEffect(() => {
@@ -137,9 +167,22 @@ export default function ExerciseBankPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [hasUnsavedNotes])
 
-  function syncRoute(next: Partial<RouteState>) {
+  useEffect(() => () => {
+    if (!searchRouteSyncTimerRef.current) return
+    window.clearTimeout(searchRouteSyncTimerRef.current)
+    searchRouteSyncTimerRef.current = null
+  }, [])
+
+  function clearPendingSearchRouteSync() {
+    if (!searchRouteSyncTimerRef.current) return
+    window.clearTimeout(searchRouteSyncTimerRef.current)
+    searchRouteSyncTimerRef.current = null
+  }
+
+  function syncRoute(next: Partial<RouteState>, { clearPendingSearch = true } = {}) {
+    if (clearPendingSearch) clearPendingSearchRouteSync()
     const state: RouteState = {
-      subject: selectedSubjectId,
+      subject: activeSubjectId,
       exercise: selectedExerciseId,
       difficulty,
       selfGrade,
@@ -157,7 +200,17 @@ export default function ExerciseBankPage() {
     if (state.query.trim()) params.set('q', state.query.trim())
     if (state.sort !== 'recommended') params.set('sort', state.sort)
     const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    startTransition(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    })
+  }
+
+  function scheduleSearchRouteSync(value: string) {
+    clearPendingSearchRouteSync()
+    searchRouteSyncTimerRef.current = window.setTimeout(() => {
+      searchRouteSyncTimerRef.current = null
+      syncRoute({ query: value, exercise: null }, { clearPendingSearch: false })
+    }, EXERCISE_SEARCH_ROUTE_DEBOUNCE_MS)
   }
 
   function selectSubject(subjectId: number) {
@@ -172,6 +225,40 @@ export default function ExerciseBankPage() {
     if (!confirmDiscardNotes()) return
     setSelectedExerciseId(exerciseId)
     syncRoute({ exercise: exerciseId })
+  }
+
+  function preloadSubjectExerciseList(subjectId: number) {
+    if (!subjectId || subjectId === activeSubjectId) return
+    const preloadKey = exerciseBankSWRKey(subjectId, filters)
+    if (preloadKey && hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (!preloadKey || preloadedExerciseListKeysRef.current?.has(preloadKey)) return
+
+    preloadedExerciseListKeysRef.current?.add(preloadKey)
+    const request = apiSWRFetcher(preloadKey)
+    void request.catch(() => {
+      preloadedExerciseListKeysRef.current?.delete(preloadKey)
+    })
+    void mutateSWRCache(preloadKey, request, {
+      populateCache: true,
+      revalidate: false,
+    })
+  }
+
+  function preloadExercise(exerciseId: number) {
+    if (!exerciseId || exerciseId === selectedExerciseId) return
+    const preloadKey = exerciseDetailSWRKey(exerciseId)
+    if (preloadKey && hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (!preloadKey || preloadedExerciseDetailKeysRef.current?.has(preloadKey)) return
+
+    preloadedExerciseDetailKeysRef.current?.add(preloadKey)
+    const request = apiSWRFetcher<ExerciseDetail>(preloadKey)
+    void request.catch(() => {
+      preloadedExerciseDetailKeysRef.current?.delete(preloadKey)
+    })
+    void mutateSWRCache(preloadKey, request, {
+      populateCache: true,
+      revalidate: false,
+    })
   }
 
   function closeExercise() {
@@ -192,7 +279,8 @@ export default function ExerciseBankPage() {
 
   function updateSearchQuery(value: string) {
     setQueryInput(value)
-    syncRoute({ query: value, exercise: null })
+    setSelectedExerciseId(null)
+    scheduleSearchRouteSync(value)
   }
 
   function updateSort(value: string) {
@@ -219,7 +307,7 @@ export default function ExerciseBankPage() {
       const result = await revealExercise(selectedExerciseId)
       await detail.retry(result.exercise, { revalidate: false })
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Could not reveal correction.'))
+      showToastError(apiDataErrorMessage(error, 'Could not reveal correction.'))
     } finally {
       setMutating(false)
     }
@@ -245,9 +333,9 @@ export default function ExerciseBankPage() {
           items: current.items.map((item) => item.id === result.exercise.id ? { ...item, ...result.exercise } : item),
         }
       }, { revalidate: false })
-      toast.success(result.xp_awarded > 0 ? `+${result.xp_awarded} XP` : 'Self-grade saved')
+      showToastSuccess(result.xp_awarded > 0 ? `+${result.xp_awarded} XP` : 'Self-grade saved')
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Could not save self-grade.'))
+      showToastError(apiDataErrorMessage(error, 'Could not save self-grade.'))
     } finally {
       setMutating(false)
     }
@@ -261,16 +349,16 @@ export default function ExerciseBankPage() {
       await detail.retry(result.exercise, { revalidate: false })
       const removeFromSavedOnlyList = list.key?.includes('saved=true') && !result.exercise.saved
       await list.retry({
-        subject_id: selectedSubjectId ?? result.exercise.subject_id,
+        subject_id: activeSubjectId ?? result.exercise.subject_id,
         topic_id: null,
         total: removeFromSavedOnlyList ? Math.max(0, list.total - 1) : list.total,
         items: removeFromSavedOnlyList
           ? list.items.filter((item) => item.id !== result.exercise.id)
           : list.items.map((item) => item.id === result.exercise.id ? { ...item, ...result.exercise } : item),
       }, { revalidate: false })
-      toast.success(result.exercise.saved ? 'Exercise saved' : 'Exercise unsaved')
+      showToastSuccess(result.exercise.saved ? 'Exercise saved' : 'Exercise unsaved')
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Could not update saved state.'))
+      showToastError(apiDataErrorMessage(error, 'Could not update saved state.'))
     } finally {
       setMutating(false)
     }
@@ -285,9 +373,9 @@ export default function ExerciseBankPage() {
       setNotesExerciseId(result.exercise.id)
       setNotesDraft(result.exercise.notes || '')
       setNotesDirty(false)
-      toast.success('Notes saved')
+      showToastSuccess('Notes saved')
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Could not save notes.'))
+      showToastError(apiDataErrorMessage(error, 'Could not save notes.'))
     } finally {
       setMutating(false)
     }
@@ -300,25 +388,24 @@ export default function ExerciseBankPage() {
     <div className="figma-courses-container">
       <div className="figma-courses-grid">
         <main className="min-w-0 pt-[44px]">
-          <header className="mb-7 rounded-[24px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_12px_32px_rgba(24,24,27,0.06)] sm:p-7">
+          <header className="mb-7 border-b border-[color:var(--border)] pb-5">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div className="flex min-w-0 items-start gap-4">
-                <span className="grid size-12 shrink-0 place-items-center rounded-[16px] bg-[color:var(--primary)] text-white shadow-[0_8px_18px_rgba(69,61,238,0.22)]">
+                <span className="grid size-11 shrink-0 place-items-center rounded-[14px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
                   <LibraryBig size={23} strokeWidth={2.5} />
                 </span>
-                <div>
-                  <p className="m-0 text-[12px] font-black uppercase tracking-[1.8px] text-[color:var(--primary)]">Exercise Bank</p>
-                  <h1 className="m-0 mt-1 text-[32px] font-black leading-[1.05] tracking-[-0.6px] text-[color:var(--text-primary)] sm:text-[38px]">
-                    {selectedExerciseId ? 'Practice workspace' : 'Build fluency, one problem at a time'}
+                <div className="min-w-0">
+                  <h1 className="m-0 text-[28px] font-black leading-tight text-[color:var(--text-primary)]">
+                    {selectedExerciseId ? 'Practice workspace' : 'Exercise Bank'}
                   </h1>
-                  <p className="m-0 mt-2 max-w-[620px] text-[14px] font-semibold leading-6 text-[color:var(--text-hint)]">
-                    {selectedExerciseId ? 'Solve, reveal the correction, and leave a useful note for your next review.' : 'Choose a subject, narrow the set, and keep your revision status visible.'}
+                  <p className="m-0 mt-1 max-w-[560px] text-[14px] font-semibold leading-6 text-[color:var(--text-hint)]">
+                    {selectedExerciseId ? 'Solve, review, and save revision notes.' : 'Practice by subject, filter, and revision status.'}
                   </p>
                 </div>
               </div>
             {selectedExerciseId && (
-              <button type="button" onClick={closeExercise} className="inline-flex h-11 items-center justify-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-4 text-sm font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
-                <ChevronLeft size={16} />
+              <button type="button" onClick={closeExercise} className={`inline-flex h-11 items-center justify-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-4 text-sm font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] ${exerciseControlMotionClass}`}>
+                <ChevronLeft size={16} aria-hidden="true" />
                 Back to list
               </button>
             )}
@@ -355,8 +442,11 @@ export default function ExerciseBankPage() {
                     <button
                       key={subject.id}
                       type="button"
+                      onFocus={() => preloadSubjectExerciseList(subject.id)}
                       onClick={() => selectSubject(subject.id)}
-                      className={`min-h-[58px] min-w-[160px] shrink-0 snap-start rounded-[16px] border px-4 py-2.5 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] ${subject.id === selectedSubjectId ? 'border-[color:var(--primary)] bg-[color:var(--primary-soft)] text-[color:var(--primary)] shadow-[0_5px_14px_rgba(69,61,238,0.10)]' : 'border-[color:var(--border)] bg-[color:var(--surface-card)] text-[color:var(--text-primary)] hover:border-[color:var(--primary)]'}`}
+                      onMouseOver={() => preloadSubjectExerciseList(subject.id)}
+                      onPointerEnter={() => preloadSubjectExerciseList(subject.id)}
+                      className={`min-h-[58px] min-w-[160px] shrink-0 snap-start rounded-[16px] border px-4 py-2.5 text-left ${exerciseControlMotionClass} ${subject.id === activeSubjectId ? 'border-[color:var(--primary)] bg-[color:var(--primary-soft)] text-[color:var(--primary)] shadow-[0_5px_14px_rgba(69,61,238,0.10)]' : 'border-[color:var(--border)] bg-[color:var(--surface-card)] text-[color:var(--text-primary)] hover:border-[color:var(--primary)]'}`}
                     >
                       <span className="block max-w-[190px] truncate text-[14px] font-black leading-[1.15]">{subject.title}</span>
                       <span className="mt-1.5 block whitespace-nowrap text-[11px] font-bold text-[color:var(--text-hint)]">{subject.topicCount} topics available</span>
@@ -370,7 +460,7 @@ export default function ExerciseBankPage() {
                 </div>
               </section>
 
-              <section className="mb-7 rounded-[18px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-3 shadow-[0_5px_18px_rgba(24,24,27,0.04)]" aria-label="Exercise controls">
+              <section className="mb-7 border-y border-[color:var(--border)] py-3" aria-label="Exercise controls">
                 <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center">
                   <label className="relative h-[46px] min-w-0 flex-1">
                     <Search size={16} className="pointer-events-none absolute left-[15px] top-1/2 -translate-y-1/2 text-[color:var(--text-tertiary)]" />
@@ -398,7 +488,7 @@ export default function ExerciseBankPage() {
                   <button
                     type="button"
                     onClick={() => { setSavedOnly(!savedOnly); syncRoute({ saved: !savedOnly, exercise: null }) }}
-                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border px-3.5 text-[13px] font-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] ${savedOnly ? 'border-[color:var(--warning)] bg-[color:var(--warning-soft)] text-[color:var(--warning)]' : 'border-[color:var(--border)] bg-white text-[color:var(--text-secondary)] hover:border-[color:var(--primary)]'}`}
+                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border px-3.5 text-[13px] font-black ${exerciseControlMotionClass} ${savedOnly ? 'border-[color:var(--warning)] bg-[color:var(--warning-soft)] text-[color:var(--warning)]' : 'border-[color:var(--border)] bg-white text-[color:var(--text-secondary)] hover:border-[color:var(--primary)]'}`}
                   >
                     <Star size={15} fill={savedOnly ? 'currentColor' : 'none'} />
                     Saved
@@ -406,7 +496,7 @@ export default function ExerciseBankPage() {
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-white px-3.5 text-[13px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]"
+                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-white px-3.5 text-[13px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] ${exerciseControlMotionClass}`}
                   >
                     <RotateCcw size={15} />
                     Reset
@@ -451,6 +541,7 @@ export default function ExerciseBankPage() {
                       index={pageStart + index + 1}
                       subjectTitle={selectedSubject?.title}
                       onOpen={() => openExercise(exercise.id)}
+                      onPreload={() => preloadExercise(exercise.id)}
                     />
                   ))}
                   {visibleExercises.length === 0 && (
@@ -491,9 +582,30 @@ export default function ExerciseBankPage() {
             />
           )}
         </main>
-        <PermanentSidebar autoLoad={false} quests={exerciseSidebarQuests} sections={['quests', 'leaderboard']} />
+        <ExerciseBankSidebar />
       </div>
     </div>
+  )
+}
+
+function ExerciseBankSidebar() {
+  const shouldLoadSidebar = useExerciseBankDesktopSidebar()
+
+  if (!shouldLoadSidebar) return <ExerciseSidebarPlaceholder />
+
+  return <DeferredPermanentSidebar autoLoad={false} quests={exerciseSidebarQuests} sections={['quests', 'leaderboard']} />
+}
+
+function useExerciseBankDesktopSidebar() {
+  return useSharedMediaQuery(DESKTOP_EXERCISE_SIDEBAR_QUERY)
+}
+
+function ExerciseSidebarPlaceholder() {
+  return (
+    <aside
+      aria-hidden="true"
+      className="w-[351px] shrink-0 pb-[120px] pt-11 max-[1180px]:hidden"
+    />
   )
 }
 
@@ -501,11 +613,13 @@ function ExerciseCard({
   exercise,
   index,
   onOpen,
+  onPreload,
   subjectTitle,
 }: {
   exercise: ExerciseListItem
   index: number
   onOpen: () => void
+  onPreload: () => void
   subjectTitle?: string
 }) {
   const locked = exercise.can_access === false
@@ -514,8 +628,11 @@ function ExerciseCard({
   const topic = topicLabel(exercise)
 
   return (
-    <article className="kresco-enter group relative flex min-h-[250px] w-full flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition-[border-color,box-shadow] duration-150 ease-out hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)]">
-      <div className="absolute inset-x-0 top-0 h-1 bg-[color:var(--primary-soft)]"><span className={`block h-full ${difficultyAccentClass(exercise.difficulty)}`} style={{ width: `${difficultyLevel(exercise.difficulty) * 33.333}%` }} /></div>
+    <article
+      className="kresco-enter group relative flex min-h-[250px] w-full flex-col overflow-hidden rounded-[20px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-5 shadow-[0_8px_24px_rgba(24,24,27,0.055)] transition-[border-color,box-shadow] duration-150 ease-out hover:border-[color:var(--primary)] hover:shadow-[0_14px_30px_rgba(69,61,238,0.12)]"
+      onPointerEnter={onPreload}
+    >
+      <div className="absolute inset-x-0 top-0 h-1 bg-[color:var(--primary-soft)]"><span className={`block h-full ${difficultyAccentClass(exercise.difficulty)} ${difficultyTrackWidthClass(exercise.difficulty)}`} /></div>
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[color:var(--primary-soft)] text-[12px] font-black text-[color:var(--primary)]">{String(index).padStart(2, '0')}</span>
@@ -539,9 +656,9 @@ function ExerciseCard({
         <span className={`ml-auto rounded-full px-2.5 py-1.5 ${statusPillClass(exercise.self_grade)}`}>{status}</span>
       </div>
 
-      <button type="button" onClick={onOpen} className="mt-4 flex h-11 w-full items-center justify-between rounded-[13px] bg-[color:var(--primary)] px-4 text-[14px] font-black text-white hover:brightness-[1.04] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)]">
+      <button type="button" onClick={onOpen} onFocus={onPreload} className={`mt-4 flex h-11 w-full items-center justify-between rounded-[13px] bg-[color:var(--primary)] px-4 text-[14px] font-black text-white hover:brightness-[1.04] ${exerciseControlMotionClass}`}>
         <span>{cta}</span>
-        <ArrowRight size={16} className="transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+        <ArrowRight size={16} className="transition-[transform] duration-150 ease-out motion-reduce:transition-none motion-reduce:group-hover:translate-x-0 group-hover:translate-x-0.5" aria-hidden="true" />
       </button>
     </article>
   )
@@ -592,6 +709,7 @@ function ExerciseDetailView({
   const correctionRevealed = exercise.reveal_count > 0
   const notesChanged = notesDirty && notesDraft.trim() !== (exercise.notes || '').trim()
   const canSaveNotes = exercise.can_save_notes
+  const solutionVideoUrl = sanitizeNavigationUrl(exercise.solution_video_url, { allowRelative: false })
 
   return (
     <article className="grid gap-5" aria-busy={mutating}>
@@ -612,8 +730,8 @@ function ExerciseDetailView({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className={`inline-flex h-9 items-center rounded-[8px] px-3 text-xs font-black ${statusPillClass(exercise.self_grade)}`}>{gradeLabel(exercise.self_grade)}</span>
-            <button type="button" disabled={mutating} onClick={onToggleSaved} className="inline-flex h-9 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#52525c] transition hover:bg-[#f4f4f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-60">
-              {mutating ? <Loader2 size={14} className="animate-spin" /> : <Star size={14} fill={exercise.saved ? 'currentColor' : 'none'} />}
+            <button type="button" disabled={mutating} onClick={onToggleSaved} className={`inline-flex h-10 items-center gap-2 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-3 text-xs font-black text-[#52525c] hover:bg-[#f4f4f5] disabled:cursor-not-allowed disabled:opacity-60 ${exerciseControlMotionClass}`}>
+              {mutating ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Star size={14} fill={exercise.saved ? 'currentColor' : 'none'} aria-hidden="true" />}
               {mutating ? 'Saving...' : exercise.saved ? 'Saved' : 'Save'}
             </button>
           </div>
@@ -631,7 +749,15 @@ function ExerciseDetailView({
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
                   {exercise.assets.map((asset) => (
                     <figure key={asset.id} className="m-0 rounded-[14px] border border-[#e4e4e7] bg-[#fafafa] p-3">
-                      <Image src={asset.url} alt={asset.alt_text || asset.caption || 'Exercise asset'} width={640} height={280} unoptimized loading="lazy" className="kresco-media-outline max-h-[280px] w-full rounded-[10px] object-contain" />
+                      <Image
+                        src={asset.url}
+                        alt={asset.alt_text || asset.caption || 'Exercise asset'}
+                        width={640}
+                        height={280}
+                        unoptimized
+                        loading="lazy"
+                        className="kresco-media-outline max-h-[280px] w-full rounded-[10px] object-contain"
+                      />
                       {asset.caption && <figcaption className="mt-2 text-xs font-bold text-[#71717b]">{asset.caption}</figcaption>}
                     </figure>
                   ))}
@@ -644,8 +770,8 @@ function ExerciseDetailView({
               title="Correction"
               subtitle={correctionRevealed ? 'Read the correction, then self-grade honestly.' : 'Try the exercise first, then reveal the correction.'}
               action={!correctionRevealed ? (
-                <button type="button" disabled={mutating} onClick={onReveal} className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#f5900b] px-4 text-sm font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fed7aa] disabled:cursor-not-allowed disabled:opacity-60">
-                  {mutating && <Loader2 size={14} className="animate-spin" />}
+                <button type="button" disabled={mutating} onClick={onReveal} className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#f5900b] px-4 text-sm font-black text-white hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60 ${exerciseControlMotionClass}`}>
+                  {mutating && <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                   {mutating ? 'Revealing...' : 'Reveal correction'}
                 </button>
               ) : null}
@@ -653,11 +779,11 @@ function ExerciseDetailView({
               {correctionRevealed ? (
                 <>
                   <RichBody body={exercise.solution_body} empty="No written correction body is available yet." />
-                  {exercise.solution_video_url && (
-                    <Link href={exercise.solution_video_url} className="mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#eef2ff] px-4 text-sm font-black text-[#3a2fd3]">
-                      <BookOpenCheck size={16} />
+                  {solutionVideoUrl && (
+                    <a href={solutionVideoUrl} target="_blank" rel="noopener noreferrer" className={`mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#eef2ff] px-4 text-sm font-black text-[#3a2fd3] no-underline hover:bg-[#e0e7ff] ${exerciseControlMotionClass}`}>
+                      <BookOpenCheck size={16} aria-hidden="true" />
                       Video correction
-                    </Link>
+                    </a>
                   )}
                 </>
               ) : (
@@ -690,8 +816,8 @@ function ExerciseDetailView({
                     {canSaveNotes ? 'Keep revision reminders for this exercise.' : 'Unlock this subject to write and save private revision notes.'}
                   </p>
                 </div>
-                <button type="button" disabled={!canSaveNotes || mutating || !notesChanged} onClick={onSaveNotes} className="inline-flex h-9 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-3 text-xs font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-60">
-                  {mutating && <Loader2 size={14} className="animate-spin" />}
+                <button type="button" disabled={!canSaveNotes || mutating || !notesChanged} onClick={onSaveNotes} className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-3 text-xs font-black text-white hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60 ${exerciseControlMotionClass}`}>
+                  {mutating && <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                   {mutating ? 'Saving...' : canSaveNotes ? 'Save notes' : 'Locked'}
                 </button>
               </div>
@@ -700,7 +826,7 @@ function ExerciseDetailView({
                 value={notesDraft}
                 onChange={(event) => onNotesChange(event.target.value)}
                 disabled={!canSaveNotes}
-                className="mt-4 min-h-[170px] w-full resize-y rounded-[14px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4 text-sm font-semibold leading-6 text-[#3f3f46] outline-none transition focus:border-[#5b60f9] disabled:cursor-not-allowed disabled:bg-[color:var(--surface-disabled)] disabled:text-[color:var(--text-hint)]"
+                className={`mt-4 min-h-[170px] w-full resize-y rounded-[14px] border-2 border-[#e4e4e7] bg-[#fafafa] p-4 text-sm font-semibold leading-6 text-[#3f3f46] outline-none focus:border-[#5b60f9] disabled:cursor-not-allowed disabled:bg-[color:var(--surface-disabled)] disabled:text-[color:var(--text-hint)] ${exerciseFieldMotionClass}`}
                 placeholder={canSaveNotes ? 'Add reminders, traps, or formulas to revisit...' : 'Private notes require access to this subject.'}
               />
             </section>
@@ -717,7 +843,7 @@ function ExerciseDetailView({
                     type="button"
                     disabled={mutating || !correctionRevealed}
                     onClick={() => onGrade(grade)}
-                    className={`h-10 rounded-[12px] border-2 px-4 text-sm font-black capitalize transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff] disabled:cursor-not-allowed disabled:opacity-55 ${exercise.self_grade === grade ? 'border-[#5b60f9] bg-[#f4f4ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:bg-[#f4f4f5]'}`}
+                    className={`h-10 rounded-[12px] border-2 px-4 text-sm font-black capitalize disabled:cursor-not-allowed disabled:opacity-55 ${exerciseControlMotionClass} ${exercise.self_grade === grade ? 'border-[#5b60f9] bg-[#f4f4ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:bg-[#f4f4f5]'}`}
                   >
                     {gradeLabel(grade)}
                   </button>
@@ -786,7 +912,7 @@ function LockedExercisePreview({ exercise }: { exercise: ExerciseDetail }) {
           <p className="m-0 mt-2 text-sm font-bold text-[#71717b]">Unlock this subject to access the statement, diagrams, correction, video, and revision filters for this exercise.</p>
         </div>
       </div>
-      <Link href="/pricing" className="mt-6 inline-flex h-11 items-center rounded-[12px] bg-[#5b60f9] px-5 text-sm font-black text-white">
+      <Link href="/pricing" className={`mt-6 inline-flex h-11 items-center rounded-[12px] bg-[#5b60f9] px-5 text-sm font-black text-white hover:brightness-[1.03] ${exerciseControlMotionClass}`}>
         View unlock options
       </Link>
     </section>
@@ -796,7 +922,7 @@ function LockedExercisePreview({ exercise }: { exercise: ExerciseDetail }) {
 function FilterSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return (
     <label className="inline-flex h-[46px] min-w-0 items-center gap-2 rounded-[13px] bg-[color:var(--surface-input)] px-3 text-[color:var(--text-tertiary)] sm:w-[150px]">
-      <SlidersHorizontal size={14} />
+      <SlidersHorizontal size={14} aria-hidden="true" />
       <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-bold capitalize text-[color:var(--text-secondary)] outline-none">
         {options.map((option) => <option key={option || 'all'} value={option}>{option ? option.replace('_', ' ') : 'All'}</option>)}
       </select>
@@ -806,9 +932,12 @@ function FilterSelect({ label, value, options, onChange }: { label: string; valu
 
 function ExerciseMetric({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
   return (
-    <div className="rounded-[14px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-3">
-      <span className="flex items-center gap-1.5 text-[color:var(--primary)]">{icon}<span className="text-[10px] font-black uppercase tracking-[1px] text-[color:var(--text-tertiary)]">{label}</span></span>
-      <strong className="mt-1 block text-[22px] font-black leading-none text-[color:var(--text-primary)]">{value}</strong>
+    <div className="flex min-w-0 items-center gap-2 rounded-[13px] border border-[color:var(--border)] bg-white px-3 py-2.5">
+      <span className="grid size-8 shrink-0 place-items-center rounded-[10px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">{icon}</span>
+      <span className="min-w-0">
+        <strong className="block text-[17px] font-black leading-none text-[color:var(--text-primary)]">{value}</strong>
+        <span className="mt-1 block truncate text-[10px] font-black uppercase tracking-[0.7px] text-[color:var(--text-tertiary)]">{label}</span>
+      </span>
     </div>
   )
 }
@@ -831,12 +960,12 @@ function ExercisePagination({
     <nav aria-label="Exercise pages" className="mt-2 flex flex-col gap-3 rounded-[16px] border border-[color:var(--border)] bg-[color:var(--surface-card)] p-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between xl:col-span-3">
       <p className="m-0 text-[12px] font-bold text-[color:var(--text-hint)]">Showing {pageStart + 1}–{pageEnd} of {total}</p>
       <div className="flex items-center gap-2">
-        <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} className="inline-flex h-9 items-center gap-1.5 rounded-[11px] border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-45">
-          <ChevronLeft size={14} /> Previous
+        <button type="button" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)} className={`inline-flex h-10 items-center gap-1.5 rounded-[11px] border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-45 ${exerciseControlMotionClass}`}>
+          <ChevronLeft size={14} aria-hidden="true" /> Previous
         </button>
-        <span className="px-2 text-[12px] font-black text-[color:var(--text-primary)]">{currentPage} / {pageCount}</span>
-        <button type="button" disabled={currentPage >= pageCount} onClick={() => onPageChange(currentPage + 1)} className="inline-flex h-9 items-center gap-1.5 rounded-[11px] border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-45">
-          Next <ChevronRight size={14} />
+        <span className="px-2 text-[12px] font-black text-[color:var(--text-primary)] tabular-nums">{currentPage} / {pageCount}</span>
+        <button type="button" disabled={currentPage >= pageCount} onClick={() => onPageChange(currentPage + 1)} className={`inline-flex h-10 items-center gap-1.5 rounded-[11px] border border-[color:var(--border)] bg-white px-3 text-[12px] font-black text-[color:var(--text-secondary)] hover:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:opacity-45 ${exerciseControlMotionClass}`}>
+          Next <ChevronRight size={14} aria-hidden="true" />
         </button>
       </div>
     </nav>
@@ -861,7 +990,7 @@ function RetryableState({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-white text-[#dc2626]">
-            <AlertTriangle size={20} />
+            <AlertTriangle size={20} aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <p className="m-0 text-sm font-black text-[#3f3f46]">{title}</p>
@@ -871,7 +1000,7 @@ function RetryableState({
         <button
           type="button"
           onClick={() => void onRetry()}
-          className="inline-flex h-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[#fecaca] bg-white px-4 text-sm font-black text-[#b91c1c] transition hover:bg-[#fff1f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fecaca]"
+          className={`inline-flex h-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[#fecaca] bg-white px-4 text-sm font-black text-[#b91c1c] hover:bg-[#fff1f2] ${exerciseControlMotionClass}`}
         >
           Retry
         </button>
@@ -906,13 +1035,13 @@ function ExerciseEmptyState({
           <button
             type="button"
             onClick={onResetFilters}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
+            className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white hover:brightness-[1.03] ${exerciseControlMotionClass}`}
           >
-            <RotateCcw size={15} />
+            <RotateCcw size={15} aria-hidden="true" />
             Reset filters
           </button>
         ) : (
-          <Link href="/courses" className="inline-flex h-10 items-center justify-center rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c7c8ff]">
+          <Link href="/courses" className={`inline-flex h-10 items-center justify-center rounded-[12px] bg-[#5b60f9] px-4 text-sm font-black text-white hover:brightness-[1.03] ${exerciseControlMotionClass}`}>
             Open courses
           </Link>
         )}
@@ -943,6 +1072,13 @@ function difficultyAccentClass(difficulty: string) {
   if (normalized === 'hard' || normalized === 'bac') return 'bg-[color:var(--danger)]'
   if (normalized === 'medium') return 'bg-[color:var(--warning)]'
   return 'bg-[color:var(--success)]'
+}
+
+function difficultyTrackWidthClass(difficulty: string) {
+  const level = difficultyLevel(difficulty)
+  if (level >= 3) return 'w-full'
+  if (level === 2) return 'w-2/3'
+  return 'w-1/3'
 }
 
 function StatusDot({ grade, locked }: { grade: ExerciseSelfGrade; locked: boolean }) {
@@ -1011,17 +1147,23 @@ function validExerciseSort(value: string | null): ExerciseSortKey {
 
 function filterExerciseItems(items: ExerciseListItem[], query: string) {
   const normalizedQuery = query.trim().toLowerCase()
-  if (!normalizedQuery) return items
+  if (!normalizedQuery || items.length === 0) return items
   return items.filter((item) => exerciseSearchText(item).includes(normalizedQuery))
 }
 
 function exerciseSearchText(item: ExerciseListItem) {
-  return [
+  if (exerciseSearchTextCache.has(item)) {
+    return exerciseSearchTextCache.get(item) ?? ''
+  }
+
+  const searchText = [
     item.title,
     item.summary,
     item.difficulty,
     (item.concept_slugs ?? []).join(' '),
   ].join(' ').toLowerCase()
+  exerciseSearchTextCache.set(item, searchText)
+  return searchText
 }
 
 function topicLabel(item: ExerciseListItem) {

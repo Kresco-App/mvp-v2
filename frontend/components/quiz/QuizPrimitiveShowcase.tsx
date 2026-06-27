@@ -46,13 +46,13 @@ export function QuizPrimitiveShowcase() {
                       key={question.id}
                       type="button"
                       onClick={() => setActiveId(question.id)}
-                      className={`grid grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-[12px] border px-3 py-3 text-left transition-[background-color,border-color,box-shadow,color,transform] duration-200 active:scale-[0.96] ${
+                      className={`grid grid-cols-[22px_minmax(0,1fr)] items-center gap-3 rounded-[12px] border px-3 py-3 text-left transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100 ${
                         active
                           ? 'border-[#453dee] bg-white text-[#453dee] shadow-[0_10px_26px_rgba(58,47,211,0.10)]'
                           : 'border-transparent bg-transparent text-[#52525c] hover:bg-white'
                       }`}
                     >
-                      <Icon size={18} strokeWidth={2.5} />
+                      <Icon size={18} strokeWidth={2.5} aria-hidden="true" />
                       <span className="min-w-0">
                         <strong className="block truncate text-[13px] font-black leading-tight">{question.title}</strong>
                         <small className="block truncate text-[11px] font-bold text-[#9f9fa9]">{question.type}</small>
@@ -71,7 +71,7 @@ export function QuizPrimitiveShowcase() {
               <h3 className="m-0 text-[18px] font-black text-[#3f3f46]">Schema preview</h3>
               <p className="m-0 mt-1 text-[13px] font-bold text-[#71717b]">Same renderer, different data payloads.</p>
             </div>
-            <Sparkles size={20} className="text-[#453dee]" />
+            <Sparkles size={20} className="text-[#453dee]" aria-hidden="true" />
           </div>
           <pre className="m-0 max-h-[470px] overflow-auto rounded-[14px] bg-[#27272a] p-4 text-[12px] font-semibold leading-6 text-[#f4f4f5]">
             {JSON.stringify(schemaPreview(activeQuestion), null, 2)}

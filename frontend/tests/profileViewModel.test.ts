@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -29,6 +31,10 @@ import {
   scoreTone,
   toProfileSubject,
 } from '@/lib/profileViewModel'
+
+function source(...parts: string[]) {
+  return readFileSync(join(process.cwd(), ...parts), 'utf8').replace(/\r\n?/g, '\n')
+}
 
 describe('profile view model helpers', () => {
   it('normalizes and scores subjects for the radar view', () => {
@@ -181,5 +187,17 @@ describe('profile view model helpers', () => {
     expect(profileTargetLabel('tab_content')).toBe('Lesson section')
     expect(profileTargetLabel('')).toBe('Saved item')
     expect(normalizeProfileSaveTags(['  Exam prep  ', 'exam prep', '', ' Physics '])).toEqual(['Exam prep', 'Physics'])
+  })
+
+  it('caches repeated fixed-format profile date labels', () => {
+    const profileViewModelSource = source('lib', 'profileViewModel.ts')
+
+    expect(profileViewModelSource).toContain('const PROFILE_DATE_CACHE_MAX = 256')
+    expect(profileViewModelSource).toContain('const joinedDateCache = new Map<string, string>()')
+    expect(profileViewModelSource).toContain('const profileHubDateCache = new Map<string, string>()')
+    expect(profileViewModelSource).toContain('const cached = joinedDateCache.get(cacheKey)')
+    expect(profileViewModelSource).toContain('const cached = profileHubDateCache.get(cacheKey)')
+    expect(profileViewModelSource).toContain('rememberProfileDateLabel(joinedDateCache')
+    expect(profileViewModelSource).toContain('rememberProfileDateLabel(profileHubDateCache')
   })
 })

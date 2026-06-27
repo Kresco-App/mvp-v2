@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { AnimatePresence, LayoutGroup, motion } from 'framer-motion'
-import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
-import { toast } from 'sonner'
-import { getJson } from '@/lib/apiClient'
+import { useSWRConfig } from 'swr'
+import { ChevronLeft, ChevronRight, ExternalLink, Video } from 'lucide-react'
 import { useNotificationChannelsSubscription } from '@/hooks/useNotificationChannelsSubscription'
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
+import { calendarEventsSWRKey, useCalendarEventDetailData, useCalendarEventsData, type CalendarEvent } from '@/lib/calendarData'
+import { showToastError } from '@/lib/lazyToast'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
 import {
   addDays,
   addMonths,
@@ -22,115 +24,95 @@ import {
   startOfWeek,
 } from '@/lib/calendarViewModel'
 import { useAuthStore } from '@/lib/store'
-import { PermanentSidebarPanelTitle } from '@/components/figma'
+import { PermanentSidebarPanelTitle } from '@/components/figma/permanent-sidebar-title'
 import { CalendarPageSkeleton } from '@/components/figma/skeletons'
-
-type CalendarEvent = {
-  id: number
-  event_type: 'live_session' | 'study_block'
-  title: string
-  subtitle: string
-  teacher_name: string
-  subject_id?: number | null
-  subject_title: string
-  topic_id?: number | null
-  topic_title: string
-  starts_at: string
-  ends_at: string
-  description: string
-  preparation_href: string
-  join_url: string
-  status: string
-  color: string
-}
+import { sanitizeNavigationUrl } from '@/lib/urlSafety'
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const miniDayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const hours = Array.from({ length: 24 }, (_, index) => index)
+const hourLabels = hours.map((hour) => `${String(hour).padStart(2, '0')}:00`)
 const hourHeight = 80
 const calendarColumnWidth = 100 / 7
-const miniCalendarSelectionTransition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.7 } as const
+const calendarTimeFormatter = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' })
+const calendarEventDateFormatter = new Intl.DateTimeFormat([], { weekday: 'short', month: 'short', day: 'numeric' })
+const calendarMonthFormatter = new Intl.DateTimeFormat([], { month: 'short', year: 'numeric' })
+const calendarWeekStartFormatter = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' })
+const calendarWeekEndFormatter = new Intl.DateTimeFormat([], { month: 'short', day: 'numeric', year: 'numeric' })
+const calendarDayLabelFormatter = new Intl.DateTimeFormat([], {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+})
+const calendarEventControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
 
 export default function CalendarPage() {
   const searchParams = useSearchParams()
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const searchKey = searchParams.toString()
   const requestedEventId = useMemo(() => parseCalendarEventId(new URLSearchParams(searchKey)), [searchKey])
   const user = useAuthStore((state) => state.user)
   const [selectedDate, setSelectedDate] = useState(() => startOfDay(new Date()))
-  const [events, setEvents] = useState<CalendarEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
-  const [loading, setLoading] = useState(true)
   const calendarScrollRef = useRef<HTMLDivElement | null>(null)
+  const preloadedWeekKeysRef = useRef<Set<string>>(new Set())
 
   const selectedWeekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
+  const selectedWeekEnd = useMemo(() => addDays(selectedWeekStart, 6), [selectedWeekStart])
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index)), [selectedWeekStart])
-  const weekEvents = useMemo(() => eventsForWeek(events, selectedWeekStart), [events, selectedWeekStart])
   const calendarTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', [])
+  const calendarRange = useMemo(() => ({
+    start: selectedWeekStart,
+    end: selectedWeekEnd,
+    timezone: calendarTimeZone,
+  }), [calendarTimeZone, selectedWeekEnd, selectedWeekStart])
+  const {
+    events,
+    loading: eventsLoading,
+    error: eventsError,
+    isValidating: eventsValidating,
+    retry: retryEvents,
+  } = useCalendarEventsData(calendarRange)
+  const {
+    event: requestedEvent,
+    error: requestedEventError,
+  } = useCalendarEventDetailData(requestedEventId)
+  const weekEvents = useMemo(() => eventsForWeek(events, selectedWeekStart), [events, selectedWeekStart])
   const weekRangeLabel = useMemo(() => formatWeekRange(weekDays), [weekDays])
   const weekSummary = weekEvents.length === 1 ? '1 scheduled item' : `${weekEvents.length} scheduled items`
+  const calendarBusy = eventsLoading || eventsValidating
 
-  function jumpToToday() {
-    setSelectedDate(startOfDay(new Date()))
-  }
+  useEffect(() => {
+    if (!requestedEventId || !requestedEvent) return
+    setSelectedEvent(requestedEvent)
+    const eventDate = dateForCalendarEvent(requestedEvent)
+    if (eventDate) {
+      setSelectedDate((current) => (
+        isSameCalendarDay(current, eventDate) ? current : eventDate
+      ))
+    }
+  }, [requestedEvent, requestedEventId])
 
   useEffect(() => {
     if (!requestedEventId) return
-    let alive = true
-
-    getJson<CalendarEvent>(`/calendar/events/${requestedEventId}`)
-      .then((event) => {
-        if (!alive) return
-        setSelectedEvent(event)
-        const eventDate = dateForCalendarEvent(event)
-        if (eventDate) setSelectedDate(eventDate)
-      })
-      .catch(() => {
-        if (!alive) return
-        setSelectedEvent(null)
-        toast.error('Unable to load event details. Please try again.')
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [requestedEventId])
-
-  const loadEventsForWeek = useCallback(async (alive: () => boolean) => {
-    setLoading(true)
-    try {
-      const data = await getJson<CalendarEvent[]>('/calendar/events', {
-        params: {
-          start: formatCalendarDate(selectedWeekStart),
-          end: formatCalendarDate(addDays(selectedWeekStart, 6)),
-          timezone: calendarTimeZone,
-        },
-      })
-      if (!alive()) return
-      const nextEvents = Array.isArray(data) ? data : []
-      setEvents(nextEvents)
-      if (requestedEventId) {
-        setSelectedEvent(findCalendarEventById(nextEvents, requestedEventId))
-      }
-    } catch {
-      toast.error('Could not load calendar events.')
-    } finally {
-      if (alive()) setLoading(false)
-    }
-  }, [calendarTimeZone, requestedEventId, selectedWeekStart])
-  const loadEventsForWeekRef = useRef(loadEventsForWeek)
+    const matchingEvent = findCalendarEventById(events, requestedEventId)
+    if (matchingEvent) setSelectedEvent(matchingEvent)
+  }, [events, requestedEventId])
 
   useEffect(() => {
-    loadEventsForWeekRef.current = loadEventsForWeek
-  }, [loadEventsForWeek])
+    if (!eventsError) return
+    showToastError(apiDataErrorMessage(eventsError, 'Could not load calendar events.'))
+  }, [eventsError])
 
   useEffect(() => {
-    let alive = true
-    void loadEventsForWeek(() => alive)
-    return () => { alive = false }
-  }, [loadEventsForWeek])
+    if (!requestedEventError) return
+    setSelectedEvent(null)
+    showToastError(apiDataErrorMessage(requestedEventError, 'Unable to load event details. Please try again.'))
+  }, [requestedEventError])
 
   useEffect(() => {
-    if (loading) return
+    if (calendarBusy) return
     const scrollContainer = calendarScrollRef.current
     if (!scrollContainer) return
     if (weekEvents.length === 0) {
@@ -143,10 +125,17 @@ export default function CalendarPage() {
       return Math.min(current, startsAt.getHours() * 60 + startsAt.getMinutes())
     }, 24 * 60)
     scrollContainer.scrollTop = Math.max(0, (earliest / 60) * hourHeight - hourHeight)
-  }, [loading, weekEvents])
+  }, [calendarBusy, weekEvents])
+
+  const retryEventsRef = useRef(retryEvents)
+
+  useEffect(() => {
+    retryEventsRef.current = retryEvents
+  }, [retryEvents])
 
   const refreshSubscribedEvents = useCallback((isActive: () => boolean) => {
-    void loadEventsForWeekRef.current(isActive)
+    if (!isActive()) return
+    void retryEventsRef.current().catch(() => undefined)
   }, [])
 
   useNotificationChannelsSubscription({
@@ -158,7 +147,32 @@ export default function CalendarPage() {
     setSelectedDate((current) => addDays(current, direction * 7))
   }
 
-  if (loading && events.length === 0) {
+  function preloadAdjacentWeek(direction: -1 | 1) {
+    const start = addDays(selectedWeekStart, direction * 7)
+    const key = calendarEventsSWRKey({
+      start,
+      end: addDays(start, 6),
+      timezone: calendarTimeZone,
+    })
+    if (key && hasSuccessfulSWRCacheData(key, swrCache)) return
+    if (!key || preloadedWeekKeysRef.current.has(key)) return
+
+    preloadedWeekKeysRef.current.add(key)
+    const request = apiSWRFetcher<CalendarEvent[]>(key)
+    void request.catch(() => {
+      preloadedWeekKeysRef.current.delete(key)
+    })
+    void mutateSWRCache(key, request, {
+      populateCache: true,
+      revalidate: false,
+    })
+  }
+
+  function jumpToToday() {
+    setSelectedDate(startOfDay(new Date()))
+  }
+
+  if (eventsLoading && events.length === 0) {
     return <CalendarPageSkeleton />
   }
 
@@ -184,13 +198,29 @@ export default function CalendarPage() {
                 {weekRangeLabel}
               </div>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => moveWeek(-1)} className="grid h-10 w-10 place-items-center rounded-[12px] border border-[#e4e4e7] bg-white text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
+                <button
+                  type="button"
+                  aria-label="Previous week"
+                  onClick={() => moveWeek(-1)}
+                  onFocus={() => preloadAdjacentWeek(-1)}
+                  onMouseOver={() => preloadAdjacentWeek(-1)}
+                  onPointerEnter={() => preloadAdjacentWeek(-1)}
+                  className={`grid h-10 w-10 place-items-center rounded-[12px] border border-[#e4e4e7] bg-white text-[#52525c] hover:bg-[#f7f8fb] ${calendarEventControlMotionClass}`}
+                >
                   <ChevronLeft size={18} strokeWidth={2.6} />
                 </button>
-                <button type="button" onClick={jumpToToday} className="h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-bold text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
+                <button type="button" onClick={jumpToToday} className={`h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-bold text-[#52525c] hover:bg-[#f7f8fb] ${calendarEventControlMotionClass}`}>
                   Today
                 </button>
-                <button type="button" onClick={() => moveWeek(1)} className="grid h-10 w-10 place-items-center rounded-[12px] border border-[#e4e4e7] bg-white text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
+                <button
+                  type="button"
+                  aria-label="Next week"
+                  onClick={() => moveWeek(1)}
+                  onFocus={() => preloadAdjacentWeek(1)}
+                  onMouseOver={() => preloadAdjacentWeek(1)}
+                  onPointerEnter={() => preloadAdjacentWeek(1)}
+                  className={`grid h-10 w-10 place-items-center rounded-[12px] border border-[#e4e4e7] bg-white text-[#52525c] hover:bg-[#f7f8fb] ${calendarEventControlMotionClass}`}
+                >
                   <ChevronRight size={18} strokeWidth={2.6} />
                 </button>
               </div>
@@ -207,7 +237,7 @@ export default function CalendarPage() {
                   ))}
                 </div>
 
-                <div ref={calendarScrollRef} className="relative flex max-h-[calc(100vh-260px)] min-h-[420px] overflow-y-auto overflow-x-hidden max-[760px]:max-h-[560px] max-[480px]:min-h-[360px]">
+                <div ref={calendarScrollRef} className="relative flex max-h-[calc(100vh-260px)] min-h-[420px] overflow-y-auto overflow-x-hidden [contain:layout_paint] max-[760px]:max-h-[560px] max-[480px]:min-h-[360px]">
                   <div className="w-14 shrink-0">
                     {hours.map((hour) => (
                       <div key={hour} className="-mt-0.5 flex h-20 items-end border-2 border-[#e4e4e7] px-1.5 pb-1.5">
@@ -231,32 +261,31 @@ export default function CalendarPage() {
                         onSelect={setSelectedEvent}
                       />
                     ))}
-                    {!loading && weekEvents.length === 0 && (
-                      <div className="absolute inset-x-4 top-16 z-10 rounded-[14px] border border-[#dfe2ea] bg-white px-5 py-4 text-left shadow-[0_14px_35px_rgba(24,24,27,0.08)] max-[640px]:inset-x-2 max-[640px]:top-10">
-                        <div className="flex items-start gap-3">
-                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#eef2ff] text-[#5b60f9]">
-                            <CalendarDays size={20} strokeWidth={2.6} />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="m-0 text-[15px] font-black leading-[1.25] text-[#3f3f46]">No scheduled sessions this week</p>
-                            <p className="m-0 mt-1 max-w-[420px] text-[12px] font-bold leading-[1.35] text-[#71717b]">
-                              Your calendar is clear for this range. Jump back to today or browse nearby weeks for live sessions and study blocks.
-                            </p>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button type="button" onClick={jumpToToday} className="h-10 rounded-[12px] border border-[#e4e4e7] bg-[#5b60f9] px-3 text-[12px] font-black text-white transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#484cf0]">
-                                Today
-                              </button>
-                              <button type="button" onClick={() => moveWeek(1)} className="h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:bg-[#f7f8fb]">
-                                Next week
-                              </button>
-                            </div>
+                    {!calendarBusy && weekEvents.length === 0 && (
+                      <div className="absolute inset-x-4 top-16 z-10 rounded-[14px] bg-white px-4 py-3 text-left shadow-[0_12px_28px_rgba(24,24,27,0.08),0_0_0_1px_rgba(24,24,27,0.08)] max-[640px]:inset-x-2 max-[640px]:top-10">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="m-0 text-[14px] font-black leading-[1.2] text-[#3f3f46]">No sessions this week</p>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={jumpToToday} className={`h-10 rounded-[12px] bg-[#5b60f9] px-4 text-[12px] font-black text-white shadow-[0_8px_18px_rgba(91,96,249,0.22)] hover:bg-[#484cf0] ${calendarEventControlMotionClass}`}>
+                              Go to today
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveWeek(1)}
+                              onFocus={() => preloadAdjacentWeek(1)}
+                              onMouseOver={() => preloadAdjacentWeek(1)}
+                              onPointerEnter={() => preloadAdjacentWeek(1)}
+                              className={`h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[12px] font-black text-[#52525c] hover:bg-[#f7f8fb] ${calendarEventControlMotionClass}`}
+                            >
+                              Next week
+                            </button>
                           </div>
                         </div>
                       </div>
                     )}
-                    {loading && (
+                    {calendarBusy && (
                       <div className="absolute inset-0 grid place-items-center bg-white/60">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#5b60f9] border-t-transparent" />
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#5b60f9] border-t-transparent motion-reduce:animate-none" />
                       </div>
                     )}
                   </div>
@@ -319,18 +348,16 @@ function MiniCalendarCard({
   onSelectDate: (date: Date) => void
 }) {
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1))
-  const [monthDirection, setMonthDirection] = useState(0)
   const days = useMemo(() => buildMonthGrid(visibleMonth), [visibleMonth])
   const today = useMemo(() => startOfDay(new Date()), [])
   const selectedWeekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate])
-  const visibleMonthKey = `${visibleMonth.getFullYear()}-${visibleMonth.getMonth()}`
   const eventDayKeys = useMemo(() => {
-    return new Set(
-      events
-        .map((event) => dateForCalendarEvent(event))
-        .filter((date): date is Date => Boolean(date))
-        .map((date) => formatCalendarDate(date)),
-    )
+    const keys = new Set<string>()
+    for (const event of events) {
+      const date = dateForCalendarEvent(event)
+      if (date) keys.add(formatCalendarDate(date))
+    }
+    return keys
   }, [events])
 
   useEffect(() => {
@@ -339,13 +366,11 @@ function MiniCalendarCard({
       if (currentMonth.getFullYear() === nextMonth.getFullYear() && currentMonth.getMonth() === nextMonth.getMonth()) {
         return currentMonth
       }
-      setMonthDirection(nextMonth.getTime() > currentMonth.getTime() ? 1 : -1)
       return nextMonth
     })
   }, [selectedDate])
 
   function moveVisibleMonth(direction: -1 | 1) {
-    setMonthDirection(direction)
     setVisibleMonth((currentMonth) => addMonths(currentMonth, direction))
   }
 
@@ -354,38 +379,27 @@ function MiniCalendarCard({
       <PermanentSidebarPanelTitle title="Calendar" subtitle="Stay up to date with everything!" />
       <div className="mt-6 flex items-start py-1.5">
         <div className="flex min-w-0 flex-1 items-center overflow-hidden px-3">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.strong
-              key={visibleMonthKey}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
-              className="text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#3f3f46]"
-            >
-              {formatMonth(visibleMonth)}
-            </motion.strong>
-          </AnimatePresence>
+          <strong className="text-[16px] font-bold leading-[1.2] tracking-[0.16px] text-[#3f3f46]">
+            {formatMonth(visibleMonth)}
+          </strong>
         </div>
         <div className="flex shrink-0 gap-1">
-          <motion.button
+          <button
             type="button"
             onClick={() => moveVisibleMonth(-1)}
-            className="grid h-10 w-10 place-items-center rounded-[12px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
-            whileTap={{ scale: 0.96 }}
+            className={`grid h-10 w-10 place-items-center rounded-[12px] border-0 bg-transparent text-[#3f3f46] hover:bg-[#f4f4f5] ${calendarEventControlMotionClass}`}
             aria-label="Previous month"
           >
             <ChevronLeft size={18} strokeWidth={3} />
-          </motion.button>
-          <motion.button
+          </button>
+          <button
             type="button"
             onClick={() => moveVisibleMonth(1)}
-            className="grid h-10 w-10 place-items-center rounded-[12px] border-0 bg-transparent text-[#3f3f46] outline-none transition-colors hover:bg-[#f4f4f5] focus-visible:ring-2 focus-visible:ring-[#c7c8ff]"
-            whileTap={{ scale: 0.96 }}
+            className={`grid h-10 w-10 place-items-center rounded-[12px] border-0 bg-transparent text-[#3f3f46] hover:bg-[#f4f4f5] ${calendarEventControlMotionClass}`}
             aria-label="Next month"
           >
             <ChevronRight size={18} strokeWidth={3} />
-          </motion.button>
+          </button>
         </div>
       </div>
       <div className="mt-2 grid grid-cols-7">
@@ -395,151 +409,110 @@ function MiniCalendarCard({
           </div>
         ))}
       </div>
-      <LayoutGroup id="mini-calendar">
-        <div className="relative mt-1 min-h-[270px] overflow-hidden">
-          <AnimatePresence initial={false} custom={monthDirection} mode="wait">
-            <motion.div
-              key={visibleMonthKey}
-              custom={monthDirection}
-              initial={{ opacity: 0, x: monthDirection >= 0 ? 14 : -14 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: monthDirection >= 0 ? -14 : 14 }}
-              transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
-              className="absolute inset-0 grid grid-cols-7 gap-y-1"
-            >
-              {days.map((day) => {
-                const isSelected = isSameCalendarDay(day.date, selectedDate)
-                const isCurrentMonth = day.date.getMonth() === visibleMonth.getMonth()
-                const isToday = isSameCalendarDay(day.date, today)
-                const isSelectedWeek = isSameCalendarDay(startOfWeek(day.date), selectedWeekStart)
-                const hasEvents = eventDayKeys.has(formatCalendarDate(day.date))
-                const dayLabel = day.date.toLocaleDateString([], {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric',
-                })
+      <div className="relative mt-1 grid min-h-[270px] grid-cols-7 gap-y-1 overflow-hidden">
+        {days.map((day) => {
+          const isSelected = isSameCalendarDay(day.date, selectedDate)
+          const isCurrentMonth = day.date.getMonth() === visibleMonth.getMonth()
+          const isToday = isSameCalendarDay(day.date, today)
+          const isSelectedWeek = isSameCalendarDay(startOfWeek(day.date), selectedWeekStart)
+          const hasEvents = eventDayKeys.has(formatCalendarDate(day.date))
+          const dayLabel = calendarDayLabelFormatter.format(day.date)
 
-                return (
-                  <div key={day.date.toISOString()} className="grid h-11 place-items-center">
-                    <motion.button
-                      type="button"
-                      onClick={() => onSelectDate(startOfDay(day.date))}
-                      className={`relative grid h-10 w-10 place-items-center overflow-hidden rounded-[11px] border-0 bg-transparent p-0 text-[16px] font-bold leading-[1.2] tracking-[0.16px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[#c7c8ff] ${
-                        isSelected
-                          ? 'text-white'
-                          : isCurrentMonth
-                            ? 'text-[#3f3f46] hover:bg-[#f7f7ff]'
-                            : 'text-[#a1a1aa] hover:bg-[#fafafa]'
-                      }`}
-                      whileHover={{ y: -1 }}
-                      whileTap={{ scale: 0.96 }}
-                      transition={miniCalendarSelectionTransition}
-                      aria-current={isToday ? 'date' : undefined}
-                      aria-pressed={isSelected}
-                      aria-label={`${dayLabel}${isToday ? ', today' : ''}${hasEvents ? ', scheduled items' : ''}`}
-                    >
-                      {isSelectedWeek && !isSelected && (
-                        <motion.span
-                          layout
-                          className="absolute inset-1 rounded-[9px] bg-[#f7f7ff]"
-                          transition={miniCalendarSelectionTransition}
-                        />
-                      )}
-                      {isToday && !isSelected && (
-                        <span className="absolute inset-[3px] rounded-[9px] ring-2 ring-[#d4d4ff]" />
-                      )}
-                      {isSelected && (
-                        <motion.span
-                          layoutId="mini-calendar-selected-day"
-                          className="absolute inset-0 rounded-[11px] bg-[#4f46f8] shadow-[0_10px_20px_rgba(79,70,248,0.25)]"
-                          transition={miniCalendarSelectionTransition}
-                        />
-                      )}
-                      <span className="relative z-10">{day.date.getDate()}</span>
-                      {(isToday || hasEvents) && (
-                        <span
-                          className={`absolute bottom-1.5 z-10 h-1 w-1 rounded-full ${
-                            isSelected ? 'bg-white' : hasEvents ? 'bg-[#5b60f9]' : 'bg-[#4f46f8]'
-                          }`}
-                        />
-                      )}
-                    </motion.button>
-                  </div>
-                )
-              })}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </LayoutGroup>
+          return (
+            <div key={day.date.toISOString()} className="grid h-11 place-items-center">
+              <button
+                type="button"
+                onClick={() => onSelectDate(startOfDay(day.date))}
+                className={`relative grid h-10 w-10 place-items-center overflow-hidden rounded-[11px] border-0 p-0 text-[16px] font-bold leading-[1.2] tracking-[0.16px] hover:-translate-y-px motion-reduce:hover:translate-y-0 ${calendarEventControlMotionClass} ${
+                  isSelected
+                    ? 'bg-[#4f46f8] text-white shadow-[0_10px_20px_rgba(79,70,248,0.25)]'
+                    : isSelectedWeek
+                      ? 'bg-[#f7f7ff] text-[#3f3f46] hover:bg-[#eeeeff]'
+                      : isCurrentMonth
+                        ? 'bg-transparent text-[#3f3f46] hover:bg-[#f7f7ff]'
+                        : 'bg-transparent text-[#a1a1aa] hover:bg-[#fafafa]'
+                }`}
+                aria-current={isToday ? 'date' : undefined}
+                aria-pressed={isSelected}
+                aria-label={`${dayLabel}${isToday ? ', today' : ''}${hasEvents ? ', scheduled items' : ''}`}
+              >
+                {isToday && !isSelected && (
+                  <span className="absolute inset-[3px] rounded-[9px] ring-2 ring-[#d4d4ff]" />
+                )}
+                <span className="relative z-10">{day.date.getDate()}</span>
+                {(isToday || hasEvents) && (
+                  <span
+                    className={`absolute bottom-1.5 z-10 h-1 w-1 rounded-full ${
+                      isSelected ? 'bg-white' : hasEvents ? 'bg-[#5b60f9]' : 'bg-[#4f46f8]'
+                    }`}
+                  />
+                )}
+              </button>
+            </div>
+          )
+        })}
+      </div>
     </section>
   )
 }
 
 function EventDetailCard({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
+  const preparationHref = sanitizeRelativeAppHref(event.preparation_href)
+  const joinUrl = sanitizeNavigationUrl(event.join_url, { allowRelative: false })
+
   return (
-    <motion.section
+    <section
       key={event.id}
-      initial={{ opacity: 0, y: 10, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
       className="w-[351px] rounded-2xl border-2 border-[#e4e4e7] bg-white px-[18px] pb-6 pt-[18px] shadow-none max-[1180px]:w-full"
     >
       <div className="flex items-start justify-between gap-3">
         <PermanentSidebarPanelTitle title="Event Details" subtitle={event.event_type === 'live_session' ? 'Live preparation' : 'Study block'} />
-        <motion.button type="button" onClick={onClose} className="h-10 rounded-[10px] border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b]" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
+        <button type="button" onClick={onClose} className={`h-10 rounded-[10px] border-0 bg-[#f4f4f5] px-3 text-[12px] font-bold text-[#71717b] hover:bg-[#e9e9ef] ${calendarEventControlMotionClass}`}>
           Close
-        </motion.button>
+        </button>
       </div>
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2, delay: 0.04, ease: [0.2, 0.8, 0.2, 1] }}
-        className={`mt-6 rounded-lg p-3 text-white ${calendarEventToneClass(event)}`}
-      >
+      <div className={`mt-6 rounded-lg p-3 text-white ${calendarEventToneClass(event)}`}>
         <div className="mb-2 flex items-center gap-2 text-[12px] font-bold text-[#c4d1ff]">
-          <Video size={14} />
+          <Video size={14} aria-hidden="true" />
           {event.status}
         </div>
         <h2 className="m-0 text-[16px] font-bold leading-[1.2] tracking-[0.16px]">{event.title}</h2>
         <p className="m-0 mt-3 text-[12px] font-bold leading-[1.2] tracking-[0.12px] text-[#c4d1ff]">{event.teacher_name || event.subtitle}</p>
-      </motion.div>
+      </div>
       <div className="mt-5 grid gap-3 text-[14px] font-bold leading-[1.2] tracking-[0.14px]">
-        <InfoRow index={0} label="Time" value={`${formatEventDate(new Date(event.starts_at))} - ${formatTime(new Date(event.ends_at))}`} />
-        <InfoRow index={1} label="Subject" value={event.subject_title || event.subtitle || '-'} />
-        <InfoRow index={2} label="Topic" value={event.topic_title || '-'} />
+        <InfoRow label="Time" value={`${formatEventDate(new Date(event.starts_at))} - ${formatTime(new Date(event.ends_at))}`} />
+        <InfoRow label="Subject" value={event.subject_title || event.subtitle || '-'} />
+        <InfoRow label="Topic" value={event.topic_title || '-'} />
       </div>
       {event.description && (
-        <motion.p
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.18, delay: 0.14, ease: [0.2, 0.8, 0.2, 1] }}
-          className="m-0 mt-5 text-[14px] font-semibold leading-[1.35] tracking-[0.14px] text-[#71717b]"
-        >
+        <p className="m-0 mt-5 text-[14px] font-semibold leading-[1.35] tracking-[0.14px] text-[#71717b]">
           {event.description}
-        </motion.p>
+        </p>
       )}
       <div className="mt-5 grid gap-2">
-        {event.preparation_href && (
-          <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
-            <Link href={event.preparation_href} className="figma-button h-11 w-full shadow-none">
+        {preparationHref && (
+          <Link href={preparationHref} className={`figma-button h-11 w-full shadow-none ${calendarEventControlMotionClass}`}>
             Prepare
-            <ExternalLink size={15} />
-            </Link>
-          </motion.div>
+            <ExternalLink size={15} aria-hidden="true" />
+          </Link>
         )}
-        {event.join_url ? (
-          <motion.a href={event.join_url} className="figma-button secondary h-11" target="_blank" rel="noreferrer" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }}>
-              Join session
-          </motion.a>
+        {joinUrl ? (
+          <a href={joinUrl} className={`figma-button secondary h-11 ${calendarEventControlMotionClass}`} target="_blank" rel="noopener noreferrer">
+            Join session
+          </a>
         ) : (
           <button type="button" disabled className="h-11 rounded-[14px] border-0 bg-[#f4f4f5] text-[13px] font-black text-[#9f9fa9]">
             Join unavailable
           </button>
         )}
       </div>
-    </motion.section>
+    </section>
   )
+}
+
+function sanitizeRelativeAppHref(value?: string | null) {
+  const href = sanitizeNavigationUrl(value, { allowRelative: true })
+  return href.startsWith('/') ? href : ''
 }
 
 function calendarEventToneClass(event: CalendarEvent) {
@@ -549,39 +522,34 @@ function calendarEventToneClass(event: CalendarEvent) {
   return 'calendar-event-tone-purple'
 }
 
-function InfoRow({ label, value, index = 0 }: { label: string; value: string; index?: number }) {
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, x: 6 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.18, delay: 0.08 + index * 0.035, ease: [0.2, 0.8, 0.2, 1] }}
-      className="flex items-center justify-between gap-3 rounded-lg bg-[#f4f4f5] px-3 py-2"
-    >
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-[#f4f4f5] px-3 py-2">
       <span className="text-[#9f9fa9]">{label}</span>
       <span className="min-w-0 truncate text-right text-[#3f3f46] tabular-nums">{value}</span>
-    </motion.div>
+    </div>
   )
 }
 
 function formatHour(hour: number) {
-  return `${String(hour).padStart(2, '0')}:00`
+  return hourLabels[hour] ?? `${String(hour).padStart(2, '0')}:00`
 }
 
 function formatTime(date: Date) {
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return calendarTimeFormatter.format(date)
 }
 
 function formatEventDate(date: Date) {
-  return `${date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} ${formatTime(date)}`
+  return `${calendarEventDateFormatter.format(date)} ${formatTime(date)}`
 }
 
 function formatMonth(date: Date) {
-  return date.toLocaleDateString([], { month: 'short', year: 'numeric' })
+  return calendarMonthFormatter.format(date)
 }
 
 function formatWeekRange(days: Date[]) {
   const first = days[0]
   const last = days[days.length - 1]
-  return `${first.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${last.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`
+  return `${calendarWeekStartFormatter.format(first)} - ${calendarWeekEndFormatter.format(last)}`
 }
 

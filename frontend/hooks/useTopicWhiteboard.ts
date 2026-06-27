@@ -1,10 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { toast } from 'sonner'
 import type { ExcalidrawInitialDataState } from '@excalidraw/excalidraw/types'
 import { apiDataErrorMessage, apiErrorStatus } from '@/lib/apiData'
 import { getJson, putJson } from '@/lib/apiClient'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
+import { readTopicInteractionCache, writeTopicInteractionCache } from '@/lib/topicInteractionCache'
 
 export type CanvasTargetType = 'topic_item' | 'exercise' | 'exam_problem'
 export type CanvasScene = {
@@ -39,7 +40,17 @@ type LocalCanvasDraft = {
   updatedAt: number
 }
 
+type LoadedCanvasState = {
+  scene: CanvasScene
+  sceneVersion: number
+  lastSyncedAt: string | null
+  isDirty: boolean
+  syncStatus: CanvasSyncStatus
+  serializedScene: string
+}
+
 const AUTOSAVE_DELAY_MS = 1600
+const LOCAL_DRAFT_WRITE_DELAY_MS = 400
 const EMPTY_CANVAS_SCENE: CanvasScene = {
   type: 'excalidraw',
   version: 1,
@@ -50,6 +61,7 @@ const EMPTY_CANVAS_SCENE: CanvasScene = {
   },
   files: {},
 }
+const EMPTY_CANVAS_SCENE_SERIALIZED = serializeScene(EMPTY_CANVAS_SCENE)
 
 export function useTopicWhiteboard({
   targetType,
@@ -71,9 +83,25 @@ export function useTopicWhiteboard({
   const isDirtyRef = useRef(false)
   const savingRef = useRef(false)
   const loadedRef = useRef(false)
-  const initialSerializedScene = serializeScene(scene)
-  const lastSerializedSceneRef = useRef(initialSerializedScene)
-  const currentSerializedSceneRef = useRef(initialSerializedScene)
+  const lastSerializedSceneRef = useRef(EMPTY_CANVAS_SCENE_SERIALIZED)
+  const currentSerializedSceneRef = useRef(EMPTY_CANVAS_SCENE_SERIALIZED)
+  const pendingLocalDraftRef = useRef<LocalCanvasDraft | null>(null)
+  const localDraftWriteTimeoutRef = useRef<number | null>(null)
+
+  const applyLoadedCanvasState = useCallback((loadedState: LoadedCanvasState) => {
+    lastSerializedSceneRef.current = loadedState.serializedScene
+    currentSerializedSceneRef.current = loadedState.serializedScene
+    sceneRef.current = loadedState.scene
+    sceneVersionRef.current = loadedState.sceneVersion
+    isDirtyRef.current = loadedState.isDirty
+    loadedRef.current = true
+    setScene(loadedState.scene)
+    setSceneVersion(loadedState.sceneVersion)
+    setLastSyncedAt(loadedState.lastSyncedAt)
+    setIsDirty(loadedState.isDirty)
+    setSyncStatus(loadedState.syncStatus)
+    setSceneLoadKey((value) => value + 1)
+  }, [])
 
   useEffect(() => {
     sceneRef.current = scene
@@ -87,11 +115,74 @@ export function useTopicWhiteboard({
     isDirtyRef.current = isDirty
   }, [isDirty])
 
+  const flushPendingLocalDraft = useCallback(() => {
+    if (localDraftWriteTimeoutRef.current !== null) {
+      window.clearTimeout(localDraftWriteTimeoutRef.current)
+      localDraftWriteTimeoutRef.current = null
+    }
+
+    const pendingDraft = pendingLocalDraftRef.current
+    if (!pendingDraft) return
+
+    pendingLocalDraftRef.current = null
+    writeLocalCanvasDraft(draftKey, pendingDraft)
+  }, [draftKey])
+
+  const writeLocalDraftNow = useCallback((draft: LocalCanvasDraft) => {
+    if (localDraftWriteTimeoutRef.current !== null) {
+      window.clearTimeout(localDraftWriteTimeoutRef.current)
+      localDraftWriteTimeoutRef.current = null
+    }
+
+    pendingLocalDraftRef.current = null
+    writeLocalCanvasDraft(draftKey, draft)
+  }, [draftKey])
+
+  const scheduleLocalDraftWrite = useCallback((draft: LocalCanvasDraft) => {
+    pendingLocalDraftRef.current = draft
+    if (localDraftWriteTimeoutRef.current !== null) return
+
+    localDraftWriteTimeoutRef.current = window.setTimeout(() => {
+      localDraftWriteTimeoutRef.current = null
+      const pendingDraft = pendingLocalDraftRef.current
+      if (!pendingDraft) return
+
+      pendingLocalDraftRef.current = null
+      writeLocalCanvasDraft(draftKey, pendingDraft)
+    }, LOCAL_DRAFT_WRITE_DELAY_MS)
+  }, [draftKey])
+
+  useEffect(() => {
+    return () => {
+      flushPendingLocalDraft()
+    }
+  }, [flushPendingLocalDraft])
+
+  useEffect(() => {
+    window.addEventListener('pagehide', flushPendingLocalDraft)
+    return () => window.removeEventListener('pagehide', flushPendingLocalDraft)
+  }, [flushPendingLocalDraft])
+
   useEffect(() => {
     const controller = new AbortController()
+    const cacheKey = canvasDocumentCacheKey(targetType, targetId)
+    const cachedDocument = readTopicInteractionCache<CanvasDocument>(cacheKey)
+    const localDraftAtLoad = readLocalCanvasDraft(draftKey)
+    let hydratedSerializedScene: string | null = null
+
     loadedRef.current = false
-    setSyncStatus('loading')
     setErrorMessage('')
+
+    if (cachedDocument.hit || localDraftAtLoad) {
+      const loadedState = resolveLoadedCanvasState(
+        cachedDocument.hit ? cachedDocument.data : null,
+        localDraftAtLoad,
+      )
+      hydratedSerializedScene = loadedState.serializedScene
+      applyLoadedCanvasState(loadedState)
+    } else {
+      setSyncStatus('loading')
+    }
 
     getJson<CanvasDocument>('/interactions/canvas', {
       params: {
@@ -102,42 +193,28 @@ export function useTopicWhiteboard({
     })
       .then((document) => {
         if (controller.signal.aborted) return
-        const localDraft = readLocalCanvasDraft(draftKey)
-        const serverUpdatedAt = timestampMs(document.updated_at)
-        const shouldUseLocalDraft = Boolean(localDraft?.dirty && localDraft.updatedAt >= serverUpdatedAt)
-        const nextScene = normalizeCanvasScene(shouldUseLocalDraft && localDraft ? localDraft.scene : document.scene_json)
-        const nextVersion = shouldUseLocalDraft && localDraft ? localDraft.baseVersion : document.scene_version
+        writeTopicInteractionCache(cacheKey, document)
 
-        lastSerializedSceneRef.current = serializeScene(nextScene)
-        currentSerializedSceneRef.current = lastSerializedSceneRef.current
-        sceneRef.current = nextScene
-        sceneVersionRef.current = nextVersion
-        isDirtyRef.current = shouldUseLocalDraft
-        loadedRef.current = true
-        setScene(nextScene)
-        setSceneVersion(nextVersion)
-        setLastSyncedAt(document.updated_at ?? null)
-        setIsDirty(shouldUseLocalDraft)
-        setSyncStatus(shouldUseLocalDraft ? 'offline' : 'saved')
-        setSceneLoadKey((value) => value + 1)
+        const userEditedHydratedScene = Boolean(
+          hydratedSerializedScene
+          && isDirtyRef.current
+          && currentSerializedSceneRef.current !== hydratedSerializedScene
+        )
+        if (userEditedHydratedScene) return
+
+        applyLoadedCanvasState(resolveLoadedCanvasState(document, readLocalCanvasDraft(draftKey)))
       })
       .catch((error) => {
         if (controller.signal.aborted) return
         const localDraft = readLocalCanvasDraft(draftKey)
         if (localDraft) {
-          const nextScene = normalizeCanvasScene(localDraft.scene)
-          lastSerializedSceneRef.current = serializeScene(nextScene)
-          currentSerializedSceneRef.current = lastSerializedSceneRef.current
-          sceneRef.current = nextScene
-          sceneVersionRef.current = localDraft.baseVersion
-          isDirtyRef.current = localDraft.dirty
-          loadedRef.current = true
-          setScene(nextScene)
-          setSceneVersion(localDraft.baseVersion)
-          setIsDirty(localDraft.dirty)
-          setSyncStatus('offline')
+          applyLoadedCanvasState(resolveLoadedCanvasState(null, localDraft))
           setErrorMessage(apiDataErrorMessage(error, 'Loaded your local whiteboard draft.'))
-          setSceneLoadKey((value) => value + 1)
+          return
+        }
+        if (loadedRef.current) {
+          setSyncStatus('offline')
+          setErrorMessage(apiDataErrorMessage(error, 'Showing cached whiteboard.'))
           return
         }
         loadedRef.current = true
@@ -148,7 +225,7 @@ export function useTopicWhiteboard({
     return () => {
       controller.abort()
     }
-  }, [draftKey, targetId, targetType])
+  }, [applyLoadedCanvasState, draftKey, targetId, targetType])
 
   const saveCanvas = useCallback(async (options: { notify?: boolean } = {}) => {
     if (!loadedRef.current || savingRef.current || !isDirtyRef.current) return
@@ -156,7 +233,7 @@ export function useTopicWhiteboard({
     if (sceneContainsDataUrl(currentScene)) {
       setSyncStatus('error')
       setErrorMessage('Images need media storage before they can be saved on this whiteboard.')
-      if (options.notify) toast.error('Images need media storage before saving.')
+      if (options.notify) showToastError('Images need media storage before saving.')
       return
     }
 
@@ -182,23 +259,23 @@ export function useTopicWhiteboard({
       setLastSyncedAt(document.updated_at ?? null)
       setIsDirty(false)
       setSyncStatus('saved')
-      writeLocalCanvasDraft(draftKey, {
+      writeLocalDraftNow({
         scene: nextScene,
         baseVersion: document.scene_version,
         dirty: false,
         updatedAt: Date.now(),
       })
-      if (options.notify) toast.success('Whiteboard saved.')
+      if (options.notify) showToastSuccess('Whiteboard saved.')
     } catch (error) {
       const status = apiErrorStatus(error)
       const nextStatus: CanvasSyncStatus = status === 409 ? 'conflict' : 'error'
       setSyncStatus(nextStatus)
       setErrorMessage(apiDataErrorMessage(error, status === 409 ? 'This whiteboard changed elsewhere.' : 'Could not sync whiteboard.'))
-      if (options.notify) toast.error(apiDataErrorMessage(error, 'Could not sync whiteboard.'))
+      if (options.notify) showToastError(apiDataErrorMessage(error, 'Could not sync whiteboard.'))
     } finally {
       savingRef.current = false
     }
-  }, [draftKey, targetId, targetType])
+  }, [targetId, targetType, writeLocalDraftNow])
 
   useEffect(() => {
     if (!isDirty || syncStatus === 'saving' || syncStatus === 'loading') return
@@ -228,13 +305,13 @@ export function useTopicWhiteboard({
     setIsDirty(true)
     setSyncStatus(sceneContainsDataUrl(nextScene) ? 'error' : 'dirty')
     setErrorMessage(sceneContainsDataUrl(nextScene) ? 'Images need media storage before they can be saved on this whiteboard.' : '')
-    writeLocalCanvasDraft(draftKey, {
+    scheduleLocalDraftWrite({
       scene: nextScene,
       baseVersion: sceneVersionRef.current,
       dirty: true,
       updatedAt: Date.now(),
     })
-  }, [draftKey])
+  }, [scheduleLocalDraftWrite])
 
   const reloadFromServer = useCallback(() => {
     window.location.reload()
@@ -326,6 +403,35 @@ function writeLocalCanvasDraft(key: string, draft: LocalCanvasDraft) {
   } catch {
     // localStorage is a best-effort safety buffer; backend sync remains the source of truth.
   }
+}
+
+function resolveLoadedCanvasState(document: CanvasDocument | null, localDraft: LocalCanvasDraft | null): LoadedCanvasState {
+  const serverUpdatedAt = document ? timestampMs(document.updated_at) : 0
+  const shouldUseLocalDraft = Boolean(
+    localDraft
+    && (!document || (localDraft.dirty && localDraft.updatedAt >= serverUpdatedAt))
+  )
+  const nextScene = normalizeCanvasScene(
+    shouldUseLocalDraft && localDraft ? localDraft.scene : document?.scene_json,
+  )
+  const sceneVersion = shouldUseLocalDraft && localDraft
+    ? localDraft.baseVersion
+    : document?.scene_version ?? 0
+  const isDirty = Boolean(shouldUseLocalDraft && localDraft?.dirty)
+  const syncStatus: CanvasSyncStatus = isDirty ? 'offline' : 'saved'
+
+  return {
+    scene: nextScene,
+    sceneVersion,
+    lastSyncedAt: document?.updated_at ?? null,
+    isDirty,
+    syncStatus,
+    serializedScene: serializeScene(nextScene),
+  }
+}
+
+function canvasDocumentCacheKey(targetType: CanvasTargetType, targetId: number) {
+  return `topic-whiteboard:${targetType}:${targetId}`
 }
 
 function serializeScene(scene: CanvasScene) {

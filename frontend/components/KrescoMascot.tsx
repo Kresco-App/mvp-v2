@@ -107,7 +107,7 @@ export default function KrescoMascot({
       <div className="relative inline-flex flex-col items-center select-none">
         {/* Speech bubble */}
         {showBubble && (
-          <div className="bubble-in absolute bottom-full mb-3 bg-slate-900/95 backdrop-blur-sm border border-slate-700 shadow-[0_4px_20px_rgba(0,0,0,0.25)] rounded-2xl rounded-bl-sm px-4 py-2.5 text-xs font-semibold text-slate-200 whitespace-nowrap z-[60] max-w-[220px]">
+          <div className="bubble-in absolute bottom-full mb-3 z-[60] max-w-[min(220px,calc(100vw-2rem))] rounded-2xl rounded-bl-sm border border-slate-700 bg-slate-900/95 px-4 py-2.5 text-pretty text-xs font-semibold leading-5 text-slate-200 shadow-[0_4px_20px_rgba(0,0,0,0.25)] backdrop-blur-sm">
             {currentMsg}
             <div className="absolute -bottom-1.5 left-3 w-3 h-3 bg-slate-900/95 border-b border-r border-slate-700 rotate-45" />
           </div>
@@ -117,15 +117,15 @@ export default function KrescoMascot({
         <button
           type="button"
           aria-label="Show Kresco mascot message"
-          className={`cursor-pointer border-0 bg-transparent p-0 ${mascotSizeClass(size)} ${floating ? animationClass : ''}`}
+          className={`cursor-pointer rounded-full border-0 bg-transparent p-0 transition-[filter,transform] duration-150 ease-out hover:drop-shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100 ${mascotSizeClass(size)} ${floating ? animationClass : ''}`}
           onClick={handleClick}
         >
           <Image
             src={MOOD_IMAGES[transitioning ? prevMood : mood]}
-            alt={`Kresco fox - ${mood}`}
+            alt={`Kresco helper - ${mood}`}
             width={size}
             height={size}
-            className={`w-full h-full object-contain drop-shadow-md transition-opacity duration-200 ${transitioning ? 'opacity-0' : 'opacity-100'}`}
+            className={`h-full w-full object-contain drop-shadow-md transition-[opacity] duration-150 ease-out motion-reduce:transition-none ${transitioning ? 'opacity-0' : 'opacity-100'}`}
             draggable={false}
             priority={false}
           />
@@ -174,28 +174,30 @@ export function FloatingMascot() {
 
   if (!visible) return null
 
+  const helperActionClass = 'min-h-10 w-full rounded-[10px] px-3 py-2 text-left text-xs font-bold leading-5 text-slate-300 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-slate-950 hover:text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/45 active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100'
+
   return (
-    <div className="fixed bottom-10 right-10 z-50 flex flex-col items-end gap-2">
+    <div className="fixed bottom-5 right-5 z-50 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-2 sm:bottom-10 sm:right-10">
       {/* Expanded helper panel */}
       {expanded && (
-        <div className="bubble-in bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-4 w-64 mb-2">
-          <p className="font-bold text-white text-sm mb-2">Besoin d&apos;aide ?</p>
+        <div className="bubble-in mb-2 w-64 max-w-full rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
+          <p className="mb-2 text-sm font-bold text-white">Besoin d&apos;aide ?</p>
           <div className="space-y-2">
             <button type="button"
               onClick={() => { setMessage('Clique sur une matiere pour commencer !'); setMood('happy'); setExpanded(false) }}
-              className="w-full rounded-lg px-3 py-2 text-left text-xs text-slate-400 transition-[background-color,color] duration-150 ease-out hover:bg-slate-950"
+              className={helperActionClass}
             >
               Comment commencer ?
             </button>
             <button type="button"
               onClick={() => { setMessage('Regarde la video, puis passe le quiz avec 80% !'); setMood('idle'); setExpanded(false) }}
-              className="w-full rounded-lg px-3 py-2 text-left text-xs text-slate-400 transition-[background-color,color] duration-150 ease-out hover:bg-slate-950"
+              className={helperActionClass}
             >
               Comment debloquer une lecon ?
             </button>
             <button type="button"
               onClick={() => { setMessage('Complete des lecons et des quiz pour gagner de l\'XP !'); setMood('love'); setExpanded(false) }}
-              className="w-full rounded-lg px-3 py-2 text-left text-xs text-slate-400 transition-[background-color,color] duration-150 ease-out hover:bg-slate-950"
+              className={helperActionClass}
             >
               Comment gagner de l&apos;XP ?
             </button>

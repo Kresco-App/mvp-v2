@@ -10,6 +10,8 @@ interface Props {
   onComplete?: (correct: boolean) => void
 }
 
+const activityControlMotionClass = 'transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+
 export default function TrueFalse({ statement, isTrue, explanation, onComplete }: Props) {
   const [answer, setAnswer] = useState<boolean | null>(null)
   const [submitted, setSubmitted] = useState(false)
@@ -42,7 +44,7 @@ export default function TrueFalse({ statement, isTrue, explanation, onComplete }
               key={label}
               onClick={() => handleAnswer(val)}
               disabled={submitted}
-              className={`rounded-xl border-2 py-4 text-sm font-bold transition-[background-color,border-color,color,transform] duration-200 active:scale-[0.96] disabled:active:scale-100 ${
+              className={`rounded-xl border-2 py-4 text-sm font-bold ${activityControlMotionClass} ${
                 submitted
                   ? isRight ? 'border-green-500 bg-green-500/15 text-green-400'
                   : isWrong ? 'border-red-500 bg-red-500/15 text-red-400'
@@ -59,7 +61,7 @@ export default function TrueFalse({ statement, isTrue, explanation, onComplete }
       {submitted && (
         <>
           <div className={`flex items-center gap-2 text-sm font-medium p-4 rounded-xl ${correct ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-            {correct ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+            {correct ? <CheckCircle2 size={16} aria-hidden="true" /> : <XCircle size={16} aria-hidden="true" />}
             {correct ? 'Correct !' : `Faux — la reponse est ${isTrue ? 'Vrai' : 'Faux'}`}
           </div>
           {explanation && (
@@ -69,7 +71,7 @@ export default function TrueFalse({ statement, isTrue, explanation, onComplete }
           )}
           <button type="button"
             onClick={() => { setAnswer(null); setSubmitted(false) }}
-            className="min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 transition-[background-color,transform] duration-200 hover:bg-slate-800 active:scale-[0.96]"
+            className={`min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 ${activityControlMotionClass}`}
           >
             Reessayer
           </button>

@@ -81,28 +81,32 @@ export function exerciseBankSWRKey(subjectId: number | null, filters: ExerciseFi
 
 export function useExerciseBankData(subjectId: number | null, filters: ExerciseFilters = {}) {
   const key = exerciseBankSWRKey(subjectId, filters)
-  const query = useSWR<ExerciseBankList>(key, apiSWRFetcher)
+  const query = useSWR<ExerciseBankList>(key, apiSWRFetcher, { keepPreviousData: false })
   const data = query.data?.subject_id === subjectId ? query.data : null
 
   return {
     key,
     items: Array.isArray(data?.items) ? data.items : [],
     total: Number(data?.total ?? 0),
-    loading: query.isLoading || query.isValidating,
+    loading: query.isLoading && !data,
     error: query.error ?? null,
     retry: query.mutate,
   }
 }
 
+export function exerciseDetailSWRKey(exerciseId: number | null) {
+  return exerciseId ? `/exercises/${exerciseId}` : null
+}
+
 export function useExerciseDetail(exerciseId: number | null) {
-  const key = exerciseId ? `/exercises/${exerciseId}` : null
+  const key = exerciseDetailSWRKey(exerciseId)
   const query = useSWR<ExerciseDetail>(key, apiSWRFetcher)
   const data = query.data?.id === exerciseId ? query.data : null
 
   return {
     key,
     exercise: data,
-    loading: query.isLoading || query.isValidating,
+    loading: query.isLoading && !data,
     error: query.error ?? null,
     retry: query.mutate,
   }
@@ -128,7 +132,7 @@ export async function saveExercise(exerciseId: number, saved: boolean) {
     `/exercises/${exerciseId}/saved`,
     { saved },
   )
-  await mutate(`/exercises/${result.exercise.id}`, result.exercise, false)
+  await refreshExerciseCaches(result.exercise)
   return result
 }
 
@@ -144,6 +148,35 @@ export async function updateExerciseNotes(exerciseId: number, notes: string) {
 async function refreshExerciseCaches(exercise: ExerciseDetail) {
   await Promise.all([
     mutate(`/exercises/${exercise.id}`, exercise, false),
-    mutate((key) => typeof key === 'string' && key.startsWith(`/exercises/subjects/${exercise.subject_id}`)),
+    mutate(
+      (key) => typeof key === 'string' && key.startsWith(`/exercises/subjects/${exercise.subject_id}`),
+      (current: ExerciseBankList | undefined) => mergeExerciseIntoList(current, exercise),
+      { revalidate: false },
+    ),
   ])
+}
+
+function mergeExerciseIntoList(current: ExerciseBankList | undefined, exercise: ExerciseDetail) {
+  if (!current || !Array.isArray(current.items)) return current
+
+  let changed = false
+  const items = current.items.map((item) => {
+    if (item.id !== exercise.id) return item
+    changed = true
+    return {
+      ...item,
+      self_grade: exercise.self_grade,
+      saved: exercise.saved,
+      has_solution_body: exercise.has_solution_body,
+      has_solution_video: exercise.has_solution_video,
+      updated_at: exercise.updated_at,
+    }
+  })
+
+  if (!changed) return current
+
+  return {
+    ...current,
+    items,
+  }
 }

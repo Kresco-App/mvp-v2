@@ -1,11 +1,19 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { usePathname } from 'next/navigation'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { PermanentSidebar, type PermanentSidebarProps } from '@/components/figma'
+import { useEffect, useRef } from 'react'
+import type { PermanentSidebarProps } from '@/components/figma/permanent-sidebar'
+import { useSharedMediaQuery } from '@/hooks/useSharedMediaQuery'
 
-const routeEase = [0.22, 1, 0.36, 1] as const
-const routeExitEase = [0.4, 0, 1, 1] as const
+const DESKTOP_SIDEBAR_QUERY = '(min-width: 1181px)'
+const DeferredPermanentSidebar = dynamic(
+  () => import('@/components/figma/permanent-sidebar').then((mod) => mod.PermanentSidebar),
+  {
+    ssr: false,
+    loading: () => <PermanentSidebarPlaceholder />,
+  },
+)
 
 type DashboardSidebarConfig = {
   containerClassName: string
@@ -56,42 +64,56 @@ function getDashboardSidebarConfig(pathname: string): DashboardSidebarConfig | n
 export default function DashboardLayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const config = getDashboardSidebarConfig(pathname)
-  const reduceMotion = useReducedMotion()
-  const routeKey = dashboardRouteKey(pathname)
-  const routeInitial = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, filter: 'blur(3px)' }
-  const routeAnimate = reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, filter: 'blur(0px)' }
-  const routeExit = reduceMotion
-    ? { opacity: 0, transition: { duration: 0.08 } }
-    : { opacity: 0, y: 4, filter: 'blur(2px)', transition: { duration: 0.15, ease: routeExitEase } }
+  const mainRef = useRef<HTMLDivElement | null>(null)
+  const mountedRef = useRef(false)
 
   const content = config ? (
     <div className={config.containerClassName}>
       <div className={config.gridClassName}>
         <div className="min-w-0">{children}</div>
-        <PermanentSidebar {...config.sidebarProps} />
+        <DeferredDashboardSidebar sidebarProps={config.sidebarProps} />
       </div>
     </div>
   ) : children
 
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true
+      return
+    }
+    mainRef.current?.focus({ preventScroll: true })
+  }, [pathname])
+
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        id="main-content"
-        role="main"
-        tabIndex={-1}
-        key={routeKey}
-        initial={routeInitial}
-        animate={routeAnimate}
-        exit={routeExit}
-        transition={{ duration: 0.25, ease: routeEase }}
-        className="min-w-0"
-      >
-        {content}
-      </motion.div>
-    </AnimatePresence>
+    <div
+      id="main-content"
+      role="main"
+      ref={mainRef}
+      tabIndex={-1}
+      className="min-w-0"
+    >
+      {content}
+    </div>
   )
 }
 
-function dashboardRouteKey(pathname: string) {
-  return pathname.split('/').filter(Boolean).join('/') || 'home'
+function DeferredDashboardSidebar({ sidebarProps }: { sidebarProps?: PermanentSidebarProps }) {
+  const shouldLoadSidebar = useDesktopSidebar()
+
+  if (!shouldLoadSidebar) return <PermanentSidebarPlaceholder />
+
+  return <DeferredPermanentSidebar {...sidebarProps} />
+}
+
+function useDesktopSidebar() {
+  return useSharedMediaQuery(DESKTOP_SIDEBAR_QUERY)
+}
+
+function PermanentSidebarPlaceholder() {
+  return (
+    <aside
+      aria-hidden="true"
+      className="w-[351px] shrink-0 pb-[120px] pt-11 max-[1180px]:hidden"
+    />
+  )
 }

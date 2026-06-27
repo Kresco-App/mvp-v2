@@ -49,6 +49,8 @@ const DEFAULT_STATEMENTS: Statement[] = [
   },
 ]
 
+const waveControlMotionClass = 'transition-[background-color,border-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100'
+
 export default function OndeTrueFalse({ statements, onComplete }: Props) {
   const qs = statements ?? DEFAULT_STATEMENTS
   const [idx, setIdx] = useState(0)
@@ -74,7 +76,7 @@ export default function OndeTrueFalse({ statements, onComplete }: Props) {
         <p className="text-slate-400">{score} / {qs.length} correctes</p>
         <button type="button"
           onClick={() => { setIdx(0); setScore(0); setDone(false) }}
-          className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
+          className={`min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 ${waveControlMotionClass}`}
         >
           Recommencer
         </button>

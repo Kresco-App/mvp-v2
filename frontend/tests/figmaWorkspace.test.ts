@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -21,6 +24,14 @@ afterEach(() => {
 })
 
 describe('Figma workspace video placeholders', () => {
+  it('keeps the Figma audit page off the broad figma barrel', () => {
+    const source = readFileSync(join(process.cwd(), 'app', 'figma-audit', 'page.tsx'), 'utf8')
+
+    expect(source).not.toContain("from '@/components/figma'")
+    expect(source).toContain("from '@/components/figma/workspace'")
+    expect(source).toContain("from '@/components/figma/permanent-sidebar'")
+  })
+
   it('does not default generic workspaces to a hardcoded demo YouTube video', () => {
     const { container } = renderComponent(React.createElement(VideoLearningWorkspace))
     const iframe = container.querySelector('iframe')

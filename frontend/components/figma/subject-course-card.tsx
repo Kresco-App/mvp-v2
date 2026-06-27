@@ -14,10 +14,15 @@ export type FigmaSubjectCourseCardProps = {
   href?: string
   imageUrl?: string
   onClick?: () => void
+  onPreload?: () => void
   state: FigmaSubjectCourseCardState
 }
 
 const PLACEHOLDER_IMAGE = '/figma-assets/course-card-placeholder.png'
+const cardChromeMotionClass = 'transition-[box-shadow,filter,opacity,transform] duration-150 ease-out group-hover:-translate-y-px group-focus-within:-translate-y-px group-active:translate-y-px motion-reduce:transition-none motion-reduce:group-hover:translate-y-0 motion-reduce:group-focus-within:translate-y-0 motion-reduce:group-active:translate-y-0'
+const cardImageMotionClass = 'transition-[transform] duration-150 ease-out group-hover:scale-[1.015] motion-reduce:transition-none motion-reduce:group-hover:scale-100'
+const cardBadgeMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out group-hover:scale-[1.03] group-hover:shadow-[0_4px_10px_rgba(24,24,27,0.12)] motion-reduce:transition-none motion-reduce:group-hover:scale-100'
+const cardActionMotionClass = 'transition-[background-color,color,filter,transform] duration-150 ease-out group-hover:brightness-[1.03] group-hover:saturate-[1.08] group-active:translate-y-px motion-reduce:transition-none motion-reduce:group-active:translate-y-0'
 
 export function FigmaSubjectCourseCard({
   index,
@@ -27,6 +32,7 @@ export function FigmaSubjectCourseCard({
   href,
   imageUrl,
   onClick,
+  onPreload,
   state,
 }: FigmaSubjectCourseCardProps) {
   const safeProgress = Math.max(0, Math.min(100, Math.round(progress)))
@@ -38,10 +44,10 @@ export function FigmaSubjectCourseCard({
   const label = isCompleted ? 'Done' : isCurrent ? 'Continue' : isLocked ? 'Locked' : isUpcoming ? 'Soon' : 'Start'
   const progressWidthClassName = progressWidthClass(Math.max(8, safeProgress))
   const cardChromeClass = isCompleted
-    ? 'bg-[#fcc94d] shadow-[0_3.75px_0_#f5900b]'
+    ? 'bg-[#fcc94d] shadow-[0_3.75px_0_#f5900b] group-hover:shadow-[0_5px_0_#f5900b,0_14px_28px_rgba(245,144,11,0.16)] group-active:shadow-[0_2px_0_#f5900b]'
     : isCurrent
-      ? 'bg-[#5b60f9] shadow-[0_3.75px_0_#383dc7]'
-      : 'bg-[#e4e4e7] shadow-[0_3.75px_0_#d9dadd]'
+      ? 'bg-[#5b60f9] shadow-[0_3.75px_0_#383dc7] group-hover:shadow-[0_5px_0_#383dc7,0_14px_28px_rgba(91,96,249,0.18)] group-active:shadow-[0_2px_0_#383dc7]'
+      : 'bg-[#e4e4e7] shadow-[0_3.75px_0_#d9dadd] group-hover:shadow-[0_5px_0_#d9dadd,0_14px_28px_rgba(24,24,27,0.1)] group-active:shadow-[0_2px_0_#d9dadd]'
   const imageBorderClass = isCompleted ? 'border-[#fcc94d]' : isCurrent ? 'border-[#5b60f9]' : 'border-[#d4d4d8]'
   const badgeClass = isCompleted
     ? 'border-[#fbae17] bg-[#f5900b] text-white'
@@ -53,22 +59,22 @@ export function FigmaSubjectCourseCard({
 
   const card = (
     <article
-      className={`kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${cardChromeClass} ${isUnavailable ? 'opacity-80' : ''}`}
+      className={`kresco-enter relative h-[327.5px] w-full max-w-[344.33px] shrink-0 overflow-visible rounded-[16px] p-[2px] ${cardChromeMotionClass} ${cardChromeClass} ${isUnavailable ? 'opacity-80' : ''}`}
     >
       <div
-        className={`flex h-full flex-col overflow-hidden rounded-[14px] transition-[background-color] duration-200 ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
+        className={`flex h-full flex-col overflow-hidden rounded-[14px] transition-[background-color] duration-150 ease-out motion-reduce:transition-none ${isCompleted ? 'bg-[#fbae17]' : 'bg-white'}`}
       >
         <div
           className={`relative h-[193.5px] w-full overflow-hidden border-b-2 p-[12px] ${imageBorderClass}`}
         >
           <Image
             alt=""
-            className="kresco-media-outline object-cover"
+            className={`kresco-media-outline object-cover ${cardImageMotionClass}`}
             fill
             sizes="(max-width: 768px) 100vw, 344px"
             src={imageUrl ?? PLACEHOLDER_IMAGE}
           />
-          <div className={`relative grid size-[36px] place-items-center rounded-[4px] border-2 text-[20px] font-black leading-[1.2] tracking-[0.2px] tabular-nums ${badgeClass}`}>
+          <div className={`relative grid size-[36px] place-items-center rounded-[4px] border-2 text-[20px] font-black leading-[1.2] tracking-[0.2px] tabular-nums ${cardBadgeMotionClass} ${badgeClass}`}>
             {index + 1}
           </div>
         </div>
@@ -91,7 +97,7 @@ export function FigmaSubjectCourseCard({
           </div>
 
           <span
-            className={`flex h-[44px] w-full items-center justify-center rounded-[12px] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition-[filter] duration-200 group-hover:brightness-[1.03] group-hover:saturate-[1.08] ${
+            className={`flex h-[44px] w-full items-center justify-center rounded-[12px] px-[34px] py-[11px] text-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white ${cardActionMotionClass} ${
               isCompleted ? 'bg-[#f5900b]' : isLocked ? 'bg-[#a1a1aa]' : isUpcoming ? 'bg-[#d4d4d8] text-[#71717b]' : 'bg-[#5b60f9]'
             }`}
           >
@@ -110,11 +116,14 @@ export function FigmaSubjectCourseCard({
     return (
       <div
         className="group relative block w-full max-w-[344.33px] cursor-pointer no-underline"
+        onPointerEnter={onPreload}
+        onMouseOver={onPreload}
+        onFocusCapture={onPreload}
       >
         {card}
         <button
           type="button"
-          className="absolute inset-0 rounded-[16px] border-0 bg-transparent p-0 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20"
+          className="absolute inset-0 rounded-[16px] border-0 bg-transparent p-0 text-left transition-[box-shadow] duration-150 ease-out focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20 motion-reduce:transition-none"
           onClick={onClick}
         >
           <span className="sr-only">{label}: {title}</span>
@@ -126,9 +135,16 @@ export function FigmaSubjectCourseCard({
   if (!href || isUnavailable) return card
 
   return (
-    <Link className="group block w-full max-w-[344.33px] no-underline focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20" href={href}>
-      {card}
-    </Link>
+    <div
+      className="group block w-full max-w-[344.33px] no-underline"
+      onFocusCapture={onPreload}
+      onPointerEnter={onPreload}
+      onMouseOver={onPreload}
+    >
+      <Link className="block w-full rounded-[16px] no-underline transition-[box-shadow] duration-150 ease-out focus:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20 motion-reduce:transition-none" href={href}>
+        {card}
+      </Link>
+    </div>
   )
 }
 

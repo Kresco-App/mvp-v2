@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, ArrowDown, ArrowUp, RefreshCw, Search, Trophy, X } from 'lucide-react'
-import { toast } from 'sonner'
-import { getJson } from '@/lib/apiClient'
+import useSWR, { useSWRConfig } from 'swr'
+import { apiSWRFetcher } from '@/lib/apiData'
 import { LeaderboardPageSkeleton, SkeletonBlock } from '@/components/figma/skeletons'
+import { showToastError } from '@/lib/lazyToast'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
 import {
   getLeagueInfoByKey,
   getMajorLeagueStrip,
@@ -34,31 +36,53 @@ type SeasonLeaderboard = {
   entries: LeaderboardEntry[]
 }
 
-export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+type LeaderboardParams = {
+  limit: number
+  offset?: number
+  include_current?: true
+  search?: string
+  season?: 'weekly'
+}
 
-  const fetchWidgetLeaderboard = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const data = await getJson<LeaderboardEntry[]>('/progress/leaderboard', {
-        params: { limit: LEADERBOARD_WIDGET_SIZE, include_current: true },
-      })
-      setEntries((data ?? []).map((entry) => enrichEntry(entry)))
-    } catch {
-      const message = 'Impossible de charger le classement.'
-      setError(message)
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+type LeaderboardSWRKey = string
+
+const leaderboardSWRConfig = {
+  keepPreviousData: true,
+}
+
+const leaderboardControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
+
+function leaderboardKey(url: string, params: LeaderboardParams): LeaderboardSWRKey {
+  const query = new URLSearchParams()
+  query.set('limit', String(params.limit))
+  if (params.offset !== undefined) query.set('offset', String(params.offset))
+  if (params.include_current) query.set('include_current', 'true')
+  if (params.season) query.set('season', params.season)
+  if (params.search) query.set('search', params.search)
+  return `${url}?${query.toString()}`
+}
+
+function fetchLeaderboardEntries(url: LeaderboardSWRKey) {
+  return apiSWRFetcher<LeaderboardEntry[]>(url)
+}
+
+function fetchSeasonLeaderboard(url: LeaderboardSWRKey) {
+  return apiSWRFetcher<SeasonLeaderboard>(url)
+}
+
+export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
+  const query = useSWR<LeaderboardEntry[], unknown, LeaderboardSWRKey>(
+    leaderboardKey('/progress/leaderboard', { limit: LEADERBOARD_WIDGET_SIZE, include_current: true }),
+    fetchLeaderboardEntries,
+    leaderboardSWRConfig,
+  )
+  const entries = useMemo(() => (query.data ?? []).map((entry) => enrichEntry(entry)), [query.data])
+  const loading = query.isLoading && !query.data
+  const error = query.error ? 'Impossible de charger le classement.' : ''
 
   useEffect(() => {
-    void fetchWidgetLeaderboard()
-  }, [fetchWidgetLeaderboard])
+    if (query.error) showToastError('Impossible de charger le classement.')
+  }, [query.error])
 
   const top = useMemo(() => entries.filter(e => !e.is_current_user || e.rank <= LEADERBOARD_WIDGET_SIZE).slice(0, LEADERBOARD_WIDGET_SIZE), [entries])
   const currentUser = useMemo(() => entries.find(e => e.is_current_user), [entries])
@@ -84,15 +108,15 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
     return (
       <div className="card p-5 text-sm text-[color:var(--text-secondary)]">
         <div className="mb-3 flex items-center gap-2">
-          <AlertCircle size={15} className="text-red-500" />
+          <AlertCircle size={15} className="text-red-500" aria-hidden="true" />
           <span>{error}</span>
         </div>
         <button
           type="button"
-          onClick={fetchWidgetLeaderboard}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[color:var(--text-primary)] transition-colors hover:bg-[color:var(--surface-card)]"
+          onClick={() => void query.mutate()}
+          className={`inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[color:var(--text-primary)] hover:bg-[color:var(--surface-card)] ${leaderboardControlMotionClass}`}
         >
-          <RefreshCw size={13} />
+          <RefreshCw size={13} aria-hidden="true" />
           Reessayer
         </button>
       </div>
@@ -103,11 +127,11 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Trophy size={15} className="text-amber-500" />
+          <Trophy size={15} className="text-amber-500" aria-hidden="true" />
           <span className="text-sm font-bold text-[color:var(--text-primary)]">Classement</span>
         </div>
         {onExpand && (
-          <button type="button" onClick={onExpand} className="cursor-pointer border-0 bg-transparent text-xs font-semibold text-[color:var(--primary)]">
+          <button type="button" onClick={onExpand} className={`min-h-10 cursor-pointer rounded-[10px] border-0 bg-transparent px-2 text-xs font-semibold text-[color:var(--primary)] hover:bg-[color:var(--primary-soft)] ${leaderboardControlMotionClass}`}>
             Voir tout
           </button>
         )}
@@ -129,64 +153,83 @@ export function LeaderboardWidget({ onExpand }: { onExpand?: () => void }) {
 }
 
 export function LeaderboardPage() {
+  const { cache: swrCache } = useSWRConfig()
   const [mode, setMode] = useState<LeaderboardMode>('league')
-  const [globalEntries, setGlobalEntries] = useState<LeaderboardEntry[]>([])
-  const [seasonLeaderboard, setSeasonLeaderboard] = useState<SeasonLeaderboard | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const requestGenerationRef = useRef(0)
-
-  const fetchLeaderboard = useCallback(async () => {
-    const requestGeneration = requestGenerationRef.current + 1
-    requestGenerationRef.current = requestGeneration
-    setLoading(true)
-    setError('')
-    try {
-      const activeSearch = searchQuery.trim()
-      const [globalData, seasonData] = await Promise.all([
-        getJson<LeaderboardEntry[]>('/progress/leaderboard', {
-          params: {
-            limit: LEADERBOARD_PAGE_SIZE,
-            offset: 0,
-            ...(activeSearch && mode === 'global' ? { search: activeSearch } : {}),
-            ...(!activeSearch ? { include_current: true } : {}),
-          },
-        }),
-        getJson<SeasonLeaderboard>('/progress/leaderboard/seasons', {
-          params: {
-            season: 'weekly',
-            limit: LEADERBOARD_PAGE_SIZE,
-            offset: 0,
-            ...(activeSearch && mode === 'league' ? { search: activeSearch } : {}),
-            ...(!activeSearch ? { include_current: true } : {}),
-          },
-        }),
-      ])
-      const mappedGlobal = (globalData ?? []).map((entry: LeaderboardEntry) => enrichEntry(entry))
-      const mappedSeason = {
-        ...seasonData,
-        entries: (seasonData?.entries ?? []).map((entry: LeaderboardEntry) => enrichEntry(entry)),
-      }
-      if (requestGenerationRef.current !== requestGeneration) return
-      setGlobalEntries(mappedGlobal)
-      setSeasonLeaderboard(mappedSeason)
-    } catch {
-      if (requestGenerationRef.current !== requestGeneration) return
-      const message = 'Impossible de charger le classement.'
-      setGlobalEntries([])
-      setSeasonLeaderboard(null)
-      setError(message)
-      toast.error(message)
-    } finally {
-      if (requestGenerationRef.current === requestGeneration) {
-        setLoading(false)
-      }
+  const activeSearch = useMemo(() => searchQuery.trim(), [searchQuery])
+  const shouldLoadGlobal = !activeSearch || mode === 'global'
+  const shouldLoadSeason = !activeSearch || mode === 'league'
+  const globalLeaderboardKey = useMemo<LeaderboardSWRKey | null>(() => {
+    if (!shouldLoadGlobal) return null
+    return leaderboardKey('/progress/leaderboard', {
+      limit: LEADERBOARD_PAGE_SIZE,
+      offset: 0,
+      ...(activeSearch && mode === 'global' ? { search: activeSearch } : {}),
+      ...(!activeSearch ? { include_current: true as const } : {}),
+    })
+  }, [activeSearch, mode, shouldLoadGlobal])
+  const seasonLeaderboardKey = useMemo<LeaderboardSWRKey | null>(() => {
+    if (!shouldLoadSeason) return null
+    return leaderboardKey('/progress/leaderboard/seasons', {
+      season: 'weekly',
+      limit: LEADERBOARD_PAGE_SIZE,
+      offset: 0,
+      ...(activeSearch && mode === 'league' ? { search: activeSearch } : {}),
+      ...(!activeSearch ? { include_current: true as const } : {}),
+    })
+  }, [activeSearch, mode, shouldLoadSeason])
+  const globalQuery = useSWR<LeaderboardEntry[], unknown, LeaderboardSWRKey | null>(
+    globalLeaderboardKey,
+    fetchLeaderboardEntries,
+    leaderboardSWRConfig,
+  )
+  const seasonQuery = useSWR<SeasonLeaderboard, unknown, LeaderboardSWRKey | null>(
+    seasonLeaderboardKey,
+    fetchSeasonLeaderboard,
+    leaderboardSWRConfig,
+  )
+  const hasCurrentGlobalCache = globalLeaderboardKey ? hasSuccessfulSWRCacheData(globalLeaderboardKey, swrCache) : false
+  const hasCurrentSeasonCache = seasonLeaderboardKey ? hasSuccessfulSWRCacheData(seasonLeaderboardKey, swrCache) : false
+  const waitingForGlobalData = Boolean(
+    shouldLoadGlobal
+    && globalLeaderboardKey
+    && !hasCurrentGlobalCache
+    && (globalQuery.isLoading || globalQuery.isValidating),
+  )
+  const waitingForSeasonData = Boolean(
+    shouldLoadSeason
+    && seasonLeaderboardKey
+    && !hasCurrentSeasonCache
+    && (seasonQuery.isLoading || seasonQuery.isValidating),
+  )
+  const hasError = Boolean(
+    (shouldLoadGlobal && globalQuery.error) || (shouldLoadSeason && seasonQuery.error),
+  )
+  const error = hasError ? 'Impossible de charger le classement.' : ''
+  const globalEntries = useMemo(
+    () => (hasError || waitingForGlobalData || !Array.isArray(globalQuery.data)
+      ? []
+      : globalQuery.data.map((entry) => enrichEntry(entry))),
+    [globalQuery.data, hasError, waitingForGlobalData],
+  )
+  const seasonLeaderboard = useMemo<SeasonLeaderboard | null>(() => {
+    if (hasError || waitingForSeasonData || !seasonQuery.data) return null
+    const entries = Array.isArray(seasonQuery.data.entries) ? seasonQuery.data.entries : []
+    return {
+      ...seasonQuery.data,
+      entries: entries.map((entry) => enrichEntry(entry)),
     }
-  }, [mode, searchQuery])
+  }, [hasError, seasonQuery.data, waitingForSeasonData])
+  const loading = waitingForGlobalData || waitingForSeasonData
+  const refreshing = Boolean(
+    !loading
+    && ((shouldLoadGlobal && globalQuery.isValidating) || (shouldLoadSeason && seasonQuery.isValidating)),
+  )
 
-  useEffect(() => { fetchLeaderboard() }, [fetchLeaderboard])
+  useEffect(() => {
+    if (hasError) showToastError('Impossible de charger le classement.')
+  }, [hasError])
 
   useEffect(() => {
     const nextSearch = searchInput.trim()
@@ -201,7 +244,13 @@ export function LeaderboardPage() {
     setSearchQuery('')
   }
 
-  const activeSearch = useMemo(() => searchQuery.trim(), [searchQuery])
+  async function retryLeaderboard() {
+    const requests = []
+    if (shouldLoadGlobal) requests.push(globalQuery.mutate())
+    if (shouldLoadSeason) requests.push(seasonQuery.mutate())
+    await Promise.all(requests)
+  }
+
   const seasonEntries = useMemo(() => seasonLeaderboard?.entries ?? [], [seasonLeaderboard])
   const totalLeagueEntries = Math.max(seasonLeaderboard?.total_entries ?? 0, seasonEntries.length)
   const activeEntries = mode === 'league' ? seasonEntries : globalEntries
@@ -219,9 +268,10 @@ export function LeaderboardPage() {
     && !visibleEntries.some((entry) => entry.user_id === currentUser.user_id),
   )
   const leaderboardEntries = visibleEntries
+  const currentLeagueSource = globalCurrent ?? leagueCurrent ?? activeCurrent
   const currentLeague = useMemo(
-    () => (globalCurrent?.leagueKey ? getLeagueInfoByKey(globalCurrent.leagueKey) : null),
-    [globalCurrent],
+    () => (currentLeagueSource?.leagueKey ? getLeagueInfoByKey(currentLeagueSource.leagueKey) : null),
+    [currentLeagueSource?.leagueKey],
   )
   const leagueStrip = useMemo(
     () => (currentLeague ? getMajorLeagueStrip(currentLeague.key) : []),
@@ -270,7 +320,7 @@ export function LeaderboardPage() {
           <div className="card mb-4 p-4 shadow-[0_4px_0_rgba(0,0,0,0.08)] sm:p-5">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 items-start gap-2.5">
-                <Trophy size={20} className="mt-0.5 shrink-0 text-[color:var(--primary)]" />
+                <Trophy size={20} className="mt-0.5 shrink-0 text-[color:var(--primary)]" aria-hidden="true" />
                 <div className="min-w-0">
                   <h1 className="m-0 text-[24px] font-extrabold leading-tight text-[color:var(--text-primary)]">Classement</h1>
                   <p className="m-0 mt-1 text-sm font-semibold text-[color:var(--text-secondary)]">Top global et ligue hebdomadaire.</p>
@@ -316,7 +366,7 @@ export function LeaderboardPage() {
           </div>
 
           <div className="relative mb-4">
-            <Search size={15} className="pointer-events-none absolute left-[14px] top-1/2 -translate-y-1/2 text-[color:var(--text-tertiary)]" />
+            <Search size={15} className="pointer-events-none absolute left-[14px] top-1/2 -translate-y-1/2 text-[color:var(--text-tertiary)]" aria-hidden="true" />
             <input
               aria-label="Rechercher un joueur"
               value={searchInput}
@@ -329,20 +379,20 @@ export function LeaderboardPage() {
                 type="button"
                 onClick={clearSearch}
                 aria-label="Effacer la recherche"
-                className="absolute right-[10px] top-1/2 grid h-7 w-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-[color:var(--text-tertiary)] transition-colors hover:bg-[color:var(--surface-card)] hover:text-[color:var(--text-primary)]"
+                className={`absolute right-1 top-1/2 grid h-10 w-10 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-[color:var(--text-tertiary)] hover:bg-[color:var(--surface-card)] hover:text-[color:var(--text-primary)] ${leaderboardControlMotionClass}`}
               >
-                <X size={14} />
+                <X size={14} aria-hidden="true" />
               </button>
             )}
           </div>
 
-          <div className="card overflow-hidden p-0" aria-busy={loading}>
+          <div className="card overflow-hidden p-0" aria-busy={loading || refreshing}>
             {loading ? (
               <LeaderboardRowsSkeleton />
             ) : error ? (
               <div className="grid justify-items-center px-5 py-12 text-center">
                 <span className="mb-3 grid h-11 w-11 place-items-center rounded-full bg-red-50 text-red-500">
-                  <AlertCircle size={20} />
+                  <AlertCircle size={20} aria-hidden="true" />
                 </span>
                 <p className="m-0 text-sm font-bold text-[color:var(--text-primary)]">{error}</p>
                 <p className="m-0 mt-1 max-w-[340px] text-sm text-[color:var(--text-secondary)]">
@@ -350,17 +400,17 @@ export function LeaderboardPage() {
                 </p>
                 <button
                   type="button"
-                  onClick={fetchLeaderboard}
-                  className="mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-2 text-[13px] font-semibold text-[color:var(--text-primary)] transition-colors hover:bg-[color:var(--surface-card)]"
+                  onClick={() => void retryLeaderboard()}
+                  className={`mt-4 inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-2 text-[13px] font-semibold text-[color:var(--text-primary)] hover:bg-[color:var(--surface-card)] ${leaderboardControlMotionClass}`}
                 >
-                  <RefreshCw size={14} />
+                  <RefreshCw size={14} aria-hidden="true" />
                   Reessayer
                 </button>
               </div>
             ) : leaderboardEntries.length === 0 ? (
               <div className="grid justify-items-center px-5 py-12 text-center">
                 <span className="mb-3 grid h-11 w-11 place-items-center rounded-full bg-[color:var(--surface-hover)] text-[color:var(--text-tertiary)]">
-                  <Search size={18} />
+                  <Search size={18} aria-hidden="true" />
                 </span>
                 <p className="m-0 text-sm font-bold text-[color:var(--text-primary)]">
                   {activeSearch ? 'Aucun joueur trouve' : 'Aucun classement disponible'}
@@ -372,9 +422,9 @@ export function LeaderboardPage() {
                   <button
                     type="button"
                     onClick={clearSearch}
-                    className="mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-2 text-[13px] font-semibold text-[color:var(--text-primary)] transition-colors hover:bg-[color:var(--surface-card)]"
+                    className={`mt-4 inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-4 py-2 text-[13px] font-semibold text-[color:var(--text-primary)] hover:bg-[color:var(--surface-card)] ${leaderboardControlMotionClass}`}
                   >
-                    <X size={14} />
+                    <X size={14} aria-hidden="true" />
                     Effacer la recherche
                   </button>
                 )}
@@ -454,7 +504,7 @@ export function LeaderboardPage() {
 function LeaderboardModeButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
     <button
-      className={`h-10 rounded-[12px] border-0 text-sm font-extrabold transition-colors ${active ? 'bg-[color:var(--surface-card)] text-[color:var(--primary)] shadow-[0_1px_0_rgba(0,0,0,0.08)]' : 'bg-transparent text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)]'}`}
+      className={`h-10 rounded-[12px] border-0 text-sm font-extrabold ${leaderboardControlMotionClass} ${active ? 'bg-[color:var(--surface-card)] text-[color:var(--primary)] shadow-[0_1px_0_rgba(0,0,0,0.08)]' : 'bg-transparent text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)]'}`}
       type="button"
       onClick={onClick}
     >
@@ -469,9 +519,9 @@ function LeaderboardZoneBoundary({ direction, label }: { direction: 'up' | 'down
 
   return (
     <div className="flex items-center justify-center gap-2 border-y border-[color:var(--border)] bg-white px-4 py-2">
-      <Icon className={`shrink-0 ${tone}`} size={16} strokeWidth={2.8} />
+      <Icon className={`shrink-0 ${tone}`} size={16} strokeWidth={2.8} aria-hidden="true" />
       <span className={`text-[12px] font-extrabold uppercase tracking-[0.6px] ${tone}`}>{label}</span>
-      <Icon className={`shrink-0 ${tone}`} size={16} strokeWidth={2.8} />
+      <Icon className={`shrink-0 ${tone}`} size={16} strokeWidth={2.8} aria-hidden="true" />
     </div>
   )
 }

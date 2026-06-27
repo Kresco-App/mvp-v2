@@ -3,16 +3,19 @@
 /* oxlint-disable react-doctor/effect-needs-cleanup -- VdoCipher exposes player events asynchronously; this file cleans them through the resolved effect cleanup. */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
 import { AlertCircle } from 'lucide-react'
 import { getJson } from '@/lib/apiClient'
+import { showToastError } from '@/lib/lazyToast'
+import { useNearViewport } from '@/hooks/useNearViewport'
 import { useVideoProgress } from '@/hooks/useVideoProgress'
 
 export { isActiveLesson } from '@/hooks/useVideoProgress'
 
 const VDO_API_SRC = 'https://player.vdocipher.com/v2/api.js'
+const STREAM_DATA_CACHE_TTL_MS = 60_000
+const STREAM_DATA_CACHE_MAX_ENTRIES = 24
 
-type StreamData = {
+export type StreamData = {
   otp?: string | null
   playback_info?: string | null
   watched_seconds?: number | null
@@ -48,6 +51,8 @@ declare global {
 }
 
 let vdoApiPromise: Promise<VdoCipherApi> | null = null
+const lessonStreamDataCache = new Map<string, { data: StreamData; cachedAt: number }>()
+const lessonStreamDataRequests = new Map<string, Promise<StreamData>>()
 
 export function buildVdoCipherIframeSrc(streamData: StreamData) {
   const otp = encodeURIComponent(streamData?.otp ?? '')
@@ -57,6 +62,66 @@ export function buildVdoCipherIframeSrc(streamData: StreamData) {
 
 export function resolveLessonStreamData(streamState: LessonStreamState, topicItemId: string | number) {
   return streamState?.topicItemId === topicItemId ? streamState.data : null
+}
+
+export function readLessonStreamDataCache(topicItemId: string | number, now = Date.now()) {
+  const cacheKey = lessonStreamDataCacheKey(topicItemId)
+  const cached = lessonStreamDataCache.get(cacheKey)
+  if (!cached) return null
+  if (now - cached.cachedAt > STREAM_DATA_CACHE_TTL_MS) {
+    lessonStreamDataCache.delete(cacheKey)
+    return null
+  }
+  return cached.data
+}
+
+export function clearLessonStreamDataCache() {
+  lessonStreamDataCache.clear()
+  lessonStreamDataRequests.clear()
+}
+
+async function loadLessonStreamData(topicItemId: string | number) {
+  const cached = readLessonStreamDataCache(topicItemId)
+  if (cached) return cached
+
+  const cacheKey = lessonStreamDataCacheKey(topicItemId)
+  const existing = lessonStreamDataRequests.get(cacheKey)
+  if (existing) return existing
+
+  const request = getJson<StreamData>(lessonStreamEndpoint(topicItemId))
+    .then((data) => {
+      if (data) writeLessonStreamDataCache(topicItemId, data)
+      return data
+    })
+    .finally(() => {
+      lessonStreamDataRequests.delete(cacheKey)
+    })
+
+  lessonStreamDataRequests.set(cacheKey, request)
+  return request
+}
+
+function writeLessonStreamDataCache(topicItemId: string | number, data: StreamData) {
+  const cacheKey = lessonStreamDataCacheKey(topicItemId)
+  lessonStreamDataCache.delete(cacheKey)
+  lessonStreamDataCache.set(cacheKey, { data, cachedAt: Date.now() })
+  pruneLessonStreamDataCache()
+}
+
+function pruneLessonStreamDataCache() {
+  while (lessonStreamDataCache.size > STREAM_DATA_CACHE_MAX_ENTRIES) {
+    const oldestKey = lessonStreamDataCache.keys().next().value
+    if (oldestKey === undefined) return
+    lessonStreamDataCache.delete(oldestKey)
+  }
+}
+
+function lessonStreamDataCacheKey(topicItemId: string | number) {
+  return String(topicItemId)
+}
+
+function lessonStreamEndpoint(topicItemId: string | number) {
+  return `/courses/topic-items/${encodeURIComponent(String(topicItemId))}/stream`
 }
 
 function loadVdoApi() {
@@ -121,6 +186,7 @@ type VideoPlayerProps = {
 }
 
 export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds = 0, onProgress, onComplete }: VideoPlayerProps) {
+  const { nearViewport, ref: viewportRef } = useNearViewport<HTMLDivElement>()
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const playerRef = useRef<VdoCipherPlayer | null>(null)
   const [streamState, setStreamState] = useState<LessonStreamState>({ topicItemId: null, data: null })
@@ -167,17 +233,20 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
   })
 
   useEffect(() => {
+    if (!nearViewport) return undefined
+
     initialSeekDoneRef.current = false
     clearProgressInterval()
 
     let cancelled = false
 
     async function fetchStream() {
-      setLoading(true)
+      const cachedStreamData = readLessonStreamDataCache(lessonId)
+      setLoading(!cachedStreamData)
       setError(null)
-      setStreamState({ topicItemId: lessonId, data: null })
+      setStreamState({ topicItemId: lessonId, data: cachedStreamData })
       try {
-        const data = (await getJson(`/courses/topic-items/${lessonId}/stream`)) as StreamData
+        const data = await loadLessonStreamData(lessonId)
         if (cancelled) return
         setStreamState({ topicItemId: lessonId, data })
       } catch (err) {
@@ -185,7 +254,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
         setStreamState({ topicItemId: lessonId, data: null })
         const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Erreur de chargement de la video.'
         setError(msg)
-        toast.error(msg)
+        showToastError(msg)
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -199,10 +268,10 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
       cancelled = true
       clearProgressInterval()
     }
-  }, [clearProgressInterval, lessonId])
+  }, [clearProgressInterval, lessonId, nearViewport])
 
   useEffect(() => {
-    if (!streamData || !iframeRef.current) return
+    if (!nearViewport || !streamData || !iframeRef.current) return
 
     let cancelled = false
     let cleanupVideoEvents: (() => void) | null = null
@@ -256,7 +325,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
 
         const msg = (err as Error)?.message || "Erreur d'initialisation du lecteur video."
         setError(msg)
-        toast.error(msg)
+        showToastError(msg)
       })
 
     return () => {
@@ -276,11 +345,12 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
     saveProgress,
     streamData,
     syncProgress,
+    nearViewport,
   ])
 
   if (error) {
     return (
-      <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
+      <div ref={viewportRef} className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-center p-8">
           <AlertCircle size={36} className="text-red-400" />
           <p className="text-white font-semibold">Video indisponible</p>
@@ -292,9 +362,9 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
 
   if (loading || !streamData) {
     return (
-      <div className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
+      <div ref={viewportRef} className="aspect-video bg-slate-950 rounded-2xl flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin motion-reduce:animate-none" />
           <span className="text-slate-400 text-sm">Chargement de la video...</span>
         </div>
       </div>
@@ -304,7 +374,7 @@ export default function VideoPlayer({ lessonId, durationSeconds, resumeSeconds =
   const iframeSrc = buildVdoCipherIframeSrc(streamData)
 
   return (
-    <div className="aspect-video bg-slate-950 rounded-2xl overflow-hidden">
+    <div ref={viewportRef} className="aspect-video bg-slate-950 rounded-2xl overflow-hidden">
       <iframe
         ref={iframeRef}
         src={iframeSrc}

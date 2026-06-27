@@ -1,5 +1,5 @@
-export const CHAT_INITIAL_VISIBLE_MESSAGE_COUNT = 120
-export const CHAT_OLDER_MESSAGE_BATCH_SIZE = 80
+export const CHAT_INITIAL_VISIBLE_MESSAGE_COUNT = 80
+export const CHAT_OLDER_MESSAGE_BATCH_SIZE = 50
 
 export type ChatMessageWindow<T> = {
   canShowOlder: boolean

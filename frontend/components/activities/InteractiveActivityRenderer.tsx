@@ -20,6 +20,8 @@ const PrismSimulator = dynamic(() => import('@/components/simulators/PrismSimula
 const DiffractionSimulator = dynamic(() => import('@/components/simulators/DiffractionSimulator'), { ssr: false })
 const DescartesBasicsSimulator = dynamic(() => import('@/components/simulators/DescartesBasicsSimulator'), { ssr: false })
 
+const activityRendererControlMotionClass = 'transition-[background-color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-emerald-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100'
+
 interface Props {
   activityType?: string
   activityData?: any
@@ -112,7 +114,7 @@ function SimulatorBlock({
       <div className="w-full bg-slate-900 rounded-2xl border border-slate-800 p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-xl bg-indigo-600/20 flex items-center justify-center">
-            <FlaskConical size={18} className="text-indigo-400" />
+            <FlaskConical size={18} className="text-indigo-400" aria-hidden="true" />
           </div>
           <div>
             <h3 className="text-white font-bold text-lg">{title ?? 'Simulateur interactif'}</h3>
@@ -131,9 +133,9 @@ function SimulatorBlock({
         {showCompleteButton && (
           <button type="button"
             onClick={() => onComplete?.(true)}
-            className="mt-6 inline-flex min-h-10 items-center gap-2 rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white transition-[background-color,transform] duration-200 hover:bg-green-700 active:scale-[0.96]"
+            className={`mt-6 inline-flex min-h-10 items-center gap-2 rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 ${activityRendererControlMotionClass}`}
           >
-            <CheckCircle2 size={15} />
+            <CheckCircle2 size={15} aria-hidden="true" />
             Marquer comme terminee
           </button>
         )}

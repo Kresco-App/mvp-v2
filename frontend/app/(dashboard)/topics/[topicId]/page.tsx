@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { AnimatePresence, motion } from 'framer-motion'
-import { toast } from 'sonner'
+import { useSWRConfig } from 'swr'
 import {
   Beaker,
   Bookmark,
@@ -16,7 +16,11 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { deleteJson, getJson, postJson } from '@/lib/apiClient'
-import { apiDataErrorMessage } from '@/lib/apiData'
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
+import { showToastError, showToastInfo, showToastSuccess } from '@/lib/lazyToast'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
+import { getTopicInteractionData, writeTopicInteractionCache } from '@/lib/topicInteractionCache'
+import { topicWorkspaceSWRKey } from '@/lib/topicWorkspaceData'
 import { useWorkspaceTree } from '@/lib/topicWorkspaceTree'
 import {
   formatTopicItemDuration,
@@ -28,11 +32,11 @@ import {
   youtubeVideoId,
   youtubeVideoIdForTab,
   type TopicItem,
+  type TopicWorkspace,
   type WorkspaceTabSlot,
 } from '@/lib/topicWorkspaceViewModel'
-import VideoPlayer from '@/components/VideoPlayer'
-import YouTubeVideoPlayer from '@/components/YouTubeVideoPlayer'
-import { LessonBody, PrimaryContentFrame, VideoFrameState, VideoLearningWorkspace, type FigmaRailItem, type FigmaRailSection, type FigmaTabItem } from '@/components/figma'
+import { LessonBody, PrimaryContentFrame, VideoFrameState, VideoLearningWorkspace } from '@/components/figma/workspace'
+import type { FigmaRailItem, FigmaRailSection, FigmaTabItem } from '@/components/figma/types'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
 import RouteErrorState from '@/components/RouteErrorState'
 import { TabPanel } from '@/components/topic-workspace/TopicWorkspacePanels'
@@ -47,6 +51,16 @@ const workspaceTabIcons: Record<WorkspaceTabSlot, LucideIcon> = {
 const QUIZ_ITEM_TYPES = new Set(['quiz', 'checkpoint_quiz', 'quiz_set', 'question_set'])
 const SAVE_TAG_OPTIONS = ['Relevant', 'Review later', 'Exam prep', 'Formula', 'Difficult']
 
+const VideoPlayer = dynamic(() => import('@/components/VideoPlayer'), {
+  loading: () => <TopicVideoLoadingFrame label="Loading lesson video..." />,
+  ssr: false,
+})
+
+const YouTubeVideoPlayer = dynamic(() => import('@/components/YouTubeVideoPlayer'), {
+  loading: () => <TopicVideoLoadingFrame label="Loading YouTube video..." />,
+  ssr: false,
+})
+
 type TopicItemSave = {
   id: number
   target_type: string
@@ -59,6 +73,7 @@ export default function TopicWorkspacePage() {
   const { topicId } = useParams<{ topicId: string }>()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const workspaceSearchKey = searchParams.toString()
   const routeQueryTargets = useMemo(() => (
     parseTopicWorkspaceQuery(new URLSearchParams(workspaceSearchKey))
@@ -70,6 +85,7 @@ export default function TopicWorkspacePage() {
   const [saveByItemId, setSaveByItemId] = useState<Record<number, TopicItemSave | null>>({})
   const actionInFlightRef = useRef(false)
   const lastWorkspaceErrorToastRef = useRef('')
+  const preloadedWorkspaceKeysRef = useRef<Set<string>>(new Set())
   const {
     workspace,
     workspaceError,
@@ -97,7 +113,7 @@ export default function TopicWorkspacePage() {
     }
     if (loadError === lastWorkspaceErrorToastRef.current) return
     lastWorkspaceErrorToastRef.current = loadError
-    toast.error(loadError)
+    showToastError(loadError)
   }, [loadError, workspaceError])
 
   const workspaceTabs = useMemo<FigmaTabItem[]>(() => {
@@ -130,14 +146,17 @@ export default function TopicWorkspacePage() {
     let cancelled = false
     const itemId = activeItem.id
 
-    void getJson<TopicItemSave[]>(`/interactions/saves?topic_item_id=${itemId}&limit=20`)
+    void getTopicInteractionData(
+      topicItemSaveCacheKey(itemId),
+      () => getJson<TopicItemSave[]>(`/interactions/saves?topic_item_id=${itemId}&limit=20`)
+        .then((saves) => saves.find((save) => save.target_type === 'topic_item' && save.target_id === itemId) ?? null),
+    )
       .then((saves) => {
         if (cancelled) return
-        const itemSave = saves.find((save) => save.target_type === 'topic_item' && save.target_id === itemId) ?? null
         setSaveByItemId((current) => (
           Object.prototype.hasOwnProperty.call(current, itemId)
             ? current
-            : { ...current, [itemId]: itemSave }
+            : { ...current, [itemId]: saves }
         ))
       })
       .catch(() => {
@@ -162,7 +181,7 @@ export default function TopicWorkspacePage() {
     router.replace(`/topics/${topicId}?item=${item.id}`, { scroll: false })
 
     if (item.can_access === false) {
-      toast.info(lockedContentReason(item.locked_reason))
+      showToastInfo(lockedContentReason(item.locked_reason))
       return
     }
   }, [router, selectWorkspaceItem, topicId])
@@ -176,6 +195,28 @@ export default function TopicWorkspacePage() {
     if (item) selectItem(item)
   }, [selectItem, topicLookups])
 
+  const preloadRailItem = useCallback((railItem: FigmaRailItem) => {
+    const itemId = Number(railItem.id)
+    if (!Number.isSafeInteger(itemId) || itemId <= 0 || itemId === activeItemId) return
+    if (!topicLookups?.itemById.has(itemId)) return
+
+    const preloadKey = topicWorkspaceSWRKey(topicId, topicWorkspaceQueryTargetsFromItemId(itemId))
+    if (preloadKey && hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (!preloadKey || preloadedWorkspaceKeysRef.current.has(preloadKey)) return
+
+    preloadedWorkspaceKeysRef.current.add(preloadKey)
+    const request = apiSWRFetcher<TopicWorkspace>(preloadKey)
+    void request.catch(() => {
+      preloadedWorkspaceKeysRef.current.delete(preloadKey)
+    })
+    void mutateSWRCache(preloadKey, request, {
+      populateCache: true,
+      revalidate: false,
+      rollbackOnError: false,
+      throwOnError: false,
+    })
+  }, [activeItemId, mutateSWRCache, swrCache, topicId, topicLookups])
+
   const selectWorkspaceTab = useCallback((tab: FigmaTabItem) => {
     const slotId = tab.id as WorkspaceTabSlot
     setWorkspaceTabSlot(slotId)
@@ -184,20 +225,20 @@ export default function TopicWorkspacePage() {
   const completeActive = useCallback(async () => {
     if (!activeItem || actionInFlightRef.current) return
     if (activeItem.can_access === false) {
-      toast.info(lockedContentReason(activeItem.locked_reason))
+      showToastInfo(lockedContentReason(activeItem.locked_reason))
       return
     }
     actionInFlightRef.current = true
     setIsSubmitting(true)
     try {
       const data = await postJson<any>(`/courses/topic-items/${activeItem.id}/complete`, { watched_seconds: activeItem.duration_seconds || 0 })
-      toast.success(`Progress saved${data.xp_earned ? ` (+${data.xp_earned} XP)` : ''}.`)
+      showToastSuccess(`Progress saved${data.xp_earned ? ` (+${data.xp_earned} XP)` : ''}.`)
       requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), {
         preserveActiveTab: true,
         preserveOpenSections: true,
       })
     } catch {
-      toast.error('Could not save progress.')
+      showToastError('Could not save progress.')
     } finally {
       actionInFlightRef.current = false
       setIsSubmitting(false)
@@ -215,7 +256,7 @@ export default function TopicWorkspacePage() {
   const saveActive = useCallback(async (options: { includeDetails?: boolean } = {}) => {
     if (!activeItem || !workspace || actionInFlightRef.current) return
     if (activeItem.can_access === false) {
-      toast.info(lockedContentReason(activeItem.locked_reason))
+      showToastInfo(lockedContentReason(activeItem.locked_reason))
       return
     }
     actionInFlightRef.current = true
@@ -230,12 +271,13 @@ export default function TopicWorkspacePage() {
         ...(options.includeDetails ? { note: saveNote, tags: selectedSaveTags } : {}),
       })
       setSaveByItemId((current) => ({ ...current, [activeItem.id]: save }))
+      writeTopicInteractionCache(topicItemSaveCacheKey(activeItem.id), save)
       setSaveNote(save.note ?? '')
       setSelectedSaveTags((save.tags ?? []).filter((tag) => SAVE_TAG_OPTIONS.includes(tag)))
       setSaveDetailsOpen(false)
-      toast.success(options.includeDetails ? 'Save details updated.' : 'Saved.')
+      showToastSuccess(options.includeDetails ? 'Save details updated.' : 'Saved.')
     } catch {
-      toast.error('Could not save item.')
+      showToastError('Could not save item.')
     } finally {
       actionInFlightRef.current = false
       setIsSubmitting(false)
@@ -249,12 +291,13 @@ export default function TopicWorkspacePage() {
     try {
       await deleteJson(`/interactions/saves/${activeSave.id}`)
       setSaveByItemId((current) => ({ ...current, [activeItem.id]: null }))
+      writeTopicInteractionCache<TopicItemSave | null>(topicItemSaveCacheKey(activeItem.id), null)
       setSaveDetailsOpen(false)
       setSaveNote('')
       setSelectedSaveTags([])
-      toast.success('Removed from saved.')
+      showToastSuccess('Removed from saved.')
     } catch {
-      toast.error('Could not remove saved item.')
+      showToastError('Could not remove saved item.')
     } finally {
       actionInFlightRef.current = false
       setIsSubmitting(false)
@@ -363,6 +406,7 @@ export default function TopicWorkspacePage() {
         value: workspace.progress_pct,
         sections: railSections,
         onSectionToggle: toggleSection,
+        onItemPreload: preloadRailItem,
         onItemSelect: selectRailItem,
       }}
     >
@@ -385,28 +429,20 @@ export default function TopicWorkspacePage() {
               </button>
             </section>
           )}
-          <AnimatePresence mode="wait" initial={false}>
-            {activeTab && (
-              <motion.div
-                key={activeTabSlot}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
-              >
-                <TabPanel
-                  tab={activeTab}
-                  item={activeItem}
-                  topicId={workspace.id}
-                  onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), {
-                    preserveActiveTab: true,
-                    preserveOpenSections: true,
-                  })}
-                  onItemComplete={completeActive}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {activeTab && (
+            <div key={activeTabSlot}>
+              <TabPanel
+                tab={activeTab}
+                item={activeItem}
+                topicId={workspace.id}
+                onNoteSaved={() => requestWorkspace(topicWorkspaceQueryTargetsFromItemId(activeItem.id), {
+                  preserveActiveTab: true,
+                  preserveOpenSections: true,
+                })}
+                onItemComplete={completeActive}
+              />
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2 border-t border-[#f4f4f5] pt-4">
             {activeItem.can_access !== false && (
               <>
@@ -415,7 +451,7 @@ export default function TopicWorkspacePage() {
                     type="button"
                     onClick={completeActive}
                     disabled={isSubmitting}
-                    className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition hover:bg-[#2f27b8] disabled:opacity-50"
+                    className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-[#2f27b8] active:scale-[0.96] disabled:opacity-50 disabled:active:scale-100"
                   >
                     <Check size={15} />
                     Mark complete
@@ -426,7 +462,7 @@ export default function TopicWorkspacePage() {
                   onClick={() => void saveActive()}
                   disabled={isSubmitting || isActiveItemSaved}
                   aria-pressed={isActiveItemSaved}
-                  className={`inline-flex h-10 items-center gap-2 rounded-[12px] border px-4 text-[13px] font-black transition disabled:opacity-60 ${isActiveItemSaved ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46]'}`}
+                  className={`inline-flex h-10 items-center gap-2 rounded-[12px] border px-4 text-[13px] font-black transition-[background-color,border-color,color,opacity,transform] duration-150 ease-out active:scale-[0.96] disabled:opacity-60 disabled:active:scale-100 ${isActiveItemSaved ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46]'}`}
                 >
                   <Bookmark size={14} fill={isActiveItemSaved ? 'currentColor' : 'none'} />
                   {isActiveItemSaved ? 'Saved' : 'Save'}
@@ -436,7 +472,7 @@ export default function TopicWorkspacePage() {
                     type="button"
                     onClick={() => setSaveDetailsOpen((open) => !open)}
                     disabled={isSubmitting}
-                    className="inline-flex h-9 items-center rounded-[11px] border border-transparent px-2.5 text-[12px] font-black text-[#71717b] transition hover:bg-[#f8f9fc] hover:text-[#3f3f46] disabled:opacity-50"
+                    className="inline-flex h-10 items-center rounded-[11px] border border-transparent px-2.5 text-[12px] font-black text-[#71717b] transition-[background-color,color,opacity,transform] duration-150 ease-out hover:bg-[#f8f9fc] hover:text-[#3f3f46] active:scale-[0.96] disabled:opacity-50 disabled:active:scale-100"
                   >
                     Details
                   </button>
@@ -454,7 +490,7 @@ export default function TopicWorkspacePage() {
                 <button
                   type="button"
                   onClick={() => setSaveDetailsOpen(false)}
-                  className="inline-flex h-6 items-center rounded-[8px] px-2 text-[11px] font-black text-[#a1a1aa] transition hover:bg-white hover:text-[#52525c]"
+                  className="inline-flex min-h-10 items-center rounded-[8px] px-2 text-[11px] font-black text-[#a1a1aa] transition-[background-color,color,transform] duration-150 ease-out hover:bg-white hover:text-[#52525c] active:scale-[0.96]"
                 >
                   Close
                 </button>
@@ -465,7 +501,7 @@ export default function TopicWorkspacePage() {
                 onChange={(event) => setSaveNote(event.target.value)}
                 maxLength={240}
                 rows={1}
-                className="min-h-[36px] w-full resize-none rounded-[9px] border border-[#ececf0] bg-white/80 px-2.5 py-2 text-[12px] font-semibold leading-5 text-[#3f3f46] outline-none transition placeholder:text-[#a1a1aa] focus:border-[#d8ddff] focus:bg-white focus:ring-2 focus:ring-[#f3f5ff]"
+                className="min-h-10 w-full resize-none rounded-[9px] border border-[#ececf0] bg-white/80 px-2.5 py-2 text-[12px] font-semibold leading-5 text-[#3f3f46] outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out placeholder:text-[#a1a1aa] focus:border-[#d8ddff] focus:bg-white focus-visible:ring-4 focus-visible:ring-[#f3f5ff] motion-reduce:transition-none"
                 placeholder="Optional note"
               />
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -478,7 +514,7 @@ export default function TopicWorkspacePage() {
                         key={tag}
                         aria-pressed={selected}
                         onClick={() => toggleSaveTag(tag)}
-                        className={`inline-flex h-6 items-center rounded-full border px-2 text-[10px] font-black transition ${selected ? 'border-[#d8ddff] bg-[#f5f6ff] text-[#453dee]' : 'border-[#ececf0] bg-transparent text-[#85858f] hover:border-[#d4d4d8] hover:bg-white hover:text-[#52525c]'}`}
+                        className={`inline-flex min-h-10 items-center rounded-full border px-2 text-[10px] font-black transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] ${selected ? 'border-[#d8ddff] bg-[#f5f6ff] text-[#453dee]' : 'border-[#ececf0] bg-transparent text-[#85858f] hover:border-[#d4d4d8] hover:bg-white hover:text-[#52525c]'}`}
                       >
                         {tag}
                       </button>
@@ -490,7 +526,7 @@ export default function TopicWorkspacePage() {
                     type="button"
                     onClick={() => void saveActive({ includeDetails: true })}
                     disabled={isSubmitting}
-                    className="inline-flex h-7 items-center rounded-[9px] border border-[#d8ddff] bg-white px-2.5 text-[11px] font-black text-[#3a2fd3] transition hover:bg-[#f7f7ff] disabled:opacity-50"
+                    className="inline-flex min-h-10 items-center rounded-[9px] border border-[#d8ddff] bg-white px-2.5 text-[11px] font-black text-[#3a2fd3] transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-[#f7f7ff] active:scale-[0.96] disabled:opacity-50 disabled:active:scale-100"
                   >
                     Update
                   </button>
@@ -498,7 +534,7 @@ export default function TopicWorkspacePage() {
                     type="button"
                     onClick={() => void unsaveActive()}
                     disabled={isSubmitting}
-                    className="inline-flex h-7 items-center rounded-[9px] border border-transparent px-2 text-[11px] font-black text-[#a1a1aa] transition hover:bg-[#fff1f2] hover:text-[#9f1239] disabled:opacity-50"
+                    className="inline-flex min-h-10 items-center rounded-[9px] border border-transparent px-2 text-[11px] font-black text-[#a1a1aa] transition-[background-color,color,opacity,transform] duration-150 ease-out hover:bg-[#fff1f2] hover:text-[#9f1239] active:scale-[0.96] disabled:opacity-50 disabled:active:scale-100"
                   >
                     Remove save
                   </button>
@@ -531,4 +567,19 @@ function requiresTimedCompletion(item: TopicItem) {
 
 function requiredWatchSeconds(durationSeconds: number) {
   return Math.max(1, Math.ceil(durationSeconds * 0.9))
+}
+
+function topicItemSaveCacheKey(itemId: number) {
+  return `topic-item-save:${itemId}`
+}
+
+function TopicVideoLoadingFrame({ label }: { label: string }) {
+  return (
+    <div className="flex aspect-video min-h-[260px] items-center justify-center rounded-2xl bg-slate-950" role="status" aria-label={label}>
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-8 w-8 animate-spin motion-reduce:animate-none rounded-full border-2 border-white border-t-transparent" />
+        <span className="text-sm text-slate-400">{label}</span>
+      </div>
+    </div>
+  )
 }

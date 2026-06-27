@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import React, { act } from 'react'
-import { SWRConfig } from 'swr'
+import { SWRConfig, type State } from 'swr'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiSWRConfig } from '@/lib/apiData'
@@ -76,6 +78,18 @@ afterEach(() => {
 })
 
 describe('exam bank page', () => {
+  it('keeps large student card grids offscreen-contained', () => {
+    const examSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'exam-bank', 'page.tsx'), 'utf8')
+    const coursesSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'courses', 'page.tsx'), 'utf8')
+
+    expect(examSource).toContain('[content-visibility:auto] [contain-intrinsic-size:344px_300px]')
+    expect(coursesSource).toContain('[content-visibility:auto] [contain-intrinsic-size:344px_330px]')
+    expect(coursesSource).toContain('const offscreenCourseCardClass')
+    expect(examSource).toContain('const offscreenExamCardClass')
+    expect(examSource).toContain('const ExamSubjectSection = memo(function ExamSubjectSection')
+    expect(examSource).toContain('startTransition(() => {')
+  })
+
   it('hydrates search state from the URL and syncs query updates back to the router', async () => {
     const { container } = renderExamBankPage()
 
@@ -156,7 +170,8 @@ describe('exam bank page', () => {
       await flushPromises()
     })
 
-    expect(container.textContent).toContain('Bac exams')
+    expect(container.textContent).toContain('Exam Bank')
+    expect(container.textContent).toContain('BAC practice by subject')
     expect(container.textContent).toContain('Anglais')
     expect(container.textContent).toContain('Mathematics')
     expect(container.textContent).toContain('Physics')
@@ -183,6 +198,59 @@ describe('exam bank page', () => {
     expect(mocks.apiPost).not.toHaveBeenCalled()
   })
 
+  it('preloads the first problem detail on exam card intent before navigation', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/exam-bank?q=waves') return examListResponse()
+      if (url === '/exam-bank/problems/11') return examProblemDetail()
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExamBankPage()
+
+    await act(async () => {
+      await flushPromises()
+    })
+    const link = getLink(container, '/exam-bank/1?problem=11')
+    mocks.apiGet.mockClear()
+
+    act(() => {
+      link.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+
+    await waitFor(() => {
+      expect(mocks.apiGet).toHaveBeenCalledWith('/exam-bank/problems/11')
+    })
+
+    mocks.apiGet.mockClear()
+    act(() => {
+      link.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalled()
+  })
+
+  it('does not refetch a preloaded exam problem detail already in the SWR cache', async () => {
+    const cache = new Map<string, State<unknown>>([
+      ['/exam-bank/problems/11', { data: examProblemDetail() }],
+    ])
+    const { container } = renderExamBankPage(cache)
+
+    await act(async () => {
+      await flushPromises()
+    })
+    const link = getLink(container, '/exam-bank/1?problem=11')
+    mocks.apiGet.mockClear()
+
+    act(() => {
+      link.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalledWith('/exam-bank/problems/11')
+  })
+
   it('redirects legacy problem query links into the workspace route', async () => {
     searchParams.delete('q')
     searchParams.set('problem', '11')
@@ -194,7 +262,7 @@ describe('exam bank page', () => {
   })
 })
 
-function renderExamBankPage() {
+function renderExamBankPage(cache = new Map<string, State<unknown>>()) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -204,7 +272,7 @@ function renderExamBankPage() {
     root.render(
       React.createElement(
         SWRConfig,
-        { value: { ...apiSWRConfig, provider: () => new Map(), dedupingInterval: 0, errorRetryCount: 0 } },
+        { value: { ...apiSWRConfig, provider: () => cache, dedupingInterval: 0, errorRetryCount: 0 } },
         React.createElement(ExamBankPage),
       ),
     )
@@ -286,6 +354,12 @@ function examListResponse() {
   }
 }
 
+function getLink(container: HTMLElement, href: string) {
+  const link = Array.from(container.querySelectorAll(`a[href="${href}"]`))[0]
+  if (!link) throw new Error(`link not found: ${href}`)
+  return link
+}
+
 function examResult(overrides: {
   id?: number
   subject_id?: number
@@ -318,6 +392,29 @@ function examResult(overrides: {
       progress_status: status,
       saved: index === 1,
     })),
+  }
+}
+
+function examProblemDetail(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 11,
+    exam_id: 1,
+    topic_id: 5,
+    title: 'Problem 1',
+    statement: 'Solve it.',
+    written_solution: 'Main correction.',
+    written_solution_url: '',
+    difficulty: 'Medium',
+    concept_slugs: ['waves'],
+    exam_title: '2024 Exam',
+    subject_title: 'Mathematics',
+    year: 2024,
+    session: 'Main',
+    can_access: true,
+    progress_status: 'not_started',
+    saved: false,
+    parts: [],
+    ...overrides,
   }
 }
 

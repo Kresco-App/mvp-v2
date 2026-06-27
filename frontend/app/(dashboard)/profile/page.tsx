@@ -1,22 +1,22 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
+import { useSWRConfig } from 'swr'
 import { apiDataErrorMessage } from '@/lib/apiData'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import { useProfileData } from '@/lib/profileData'
 import { updateMyProfile, uploadProfileMedia, type ProfileUpdateInput } from '@/lib/profile'
+import { preloadStudentRouteData } from '@/lib/studentRoutePreload'
 import { useAuthStore } from '@/lib/store'
-import {
-  FigmaProfile,
-  type FigmaProfileEditDraft,
-  type FigmaProfileMediaKind,
-} from '@/components/figma'
+import { FigmaProfile } from '@/components/figma/profile'
+import type { FigmaProfileEditDraft, FigmaProfileMediaKind } from '@/lib/profileViewModel'
 import { FigmaProfileSkeleton } from '@/components/figma/skeletons'
 
 export default function ProfilePage() {
   const user = useAuthStore((state) => state.user)
   const updateUser = useAuthStore((state) => state.updateUser)
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const {
     profile,
     xp,
@@ -50,7 +50,7 @@ export default function ProfilePage() {
     const message = apiDataErrorMessage(error, 'Could not refresh profile data.')
     if (message === lastToastErrorRef.current) return
     lastToastErrorRef.current = message
-    toast.error(message)
+    showToastError(message)
   }, [error])
 
   async function retryProfileData() {
@@ -84,11 +84,11 @@ export default function ProfilePage() {
       await mutateProfile(savedProfile, { revalidate: false })
       updateUser(savedProfile)
       uploadedMediaUrlsRef.current.clear()
-      toast.success('Profile saved.')
+      showToastSuccess('Profile saved.')
     } catch (error) {
       const message = getErrorMessage(error, 'Could not save profile.')
       setEditError(message)
-      toast.error(message)
+      showToastError(message)
       throw new Error(message)
     } finally {
       setSaving(false)
@@ -106,15 +106,19 @@ export default function ProfilePage() {
       const field = kind === 'avatar' ? 'avatar_url' : 'banner_url'
       await mutateProfile((current) => (current ? { ...current, [field]: mediaUrl } : current), { revalidate: false })
       if (user) updateUser({ [field]: mediaUrl })
-      toast.success(`${kind === 'avatar' ? 'Avatar' : 'Banner'} uploaded.`)
+      showToastSuccess(`${kind === 'avatar' ? 'Avatar' : 'Banner'} uploaded.`)
       return mediaUrl
     } catch (error) {
       const message = getErrorMessage(error, 'Could not upload profile image.')
       setEditError(message)
-      toast.error(message)
+      showToastError(message)
       throw new Error(message)
     }
   }
+
+  const preloadProfileDestination = useCallback((href: string) => {
+    preloadStudentRouteData(href, mutateSWRCache, { cache: swrCache })
+  }, [mutateSWRCache, swrCache])
 
   if (loading) {
     return <FigmaProfileSkeleton />
@@ -158,6 +162,7 @@ export default function ProfilePage() {
         editError={editError}
         onSaveProfile={handleSaveProfile}
         onSelectMedia={handleSelectMedia}
+        onRoutePreload={preloadProfileDestination}
       />
     </>
   )

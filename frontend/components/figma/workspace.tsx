@@ -66,7 +66,7 @@ export function WorkspaceHeader({ breadcrumb, title }: { breadcrumb: string; tit
 
 export function PrimaryContentFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-white shadow-none transition-shadow duration-300 hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)]" data-figma-primary-frame>
+    <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-white shadow-none transition-[box-shadow] duration-150 ease-out hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)] motion-reduce:transition-none" data-figma-primary-frame>
       <div className="absolute inset-0 overflow-y-auto p-6">
         {children}
       </div>
@@ -90,7 +90,7 @@ export function VideoPlayerFrame({ srcDoc, videoId }: { srcDoc?: string; videoId
     : 'about:blank'
 
   return (
-    <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-[#f4f4f5] shadow-none transition-shadow duration-300 hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)]" data-figma-video-frame>
+    <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-[#f4f4f5] shadow-none transition-[box-shadow] duration-150 ease-out hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)] motion-reduce:transition-none" data-figma-video-frame>
       <iframe
         title="Kresco lesson video"
         src={iframeSrc}

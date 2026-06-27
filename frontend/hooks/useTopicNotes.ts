@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
 import { deleteJson, getJson, patchJson, postJson } from '@/lib/apiClient'
 import { apiDataErrorMessage, apiErrorStatus } from '@/lib/apiData'
+import { showToastError, showToastInfo, showToastSuccess } from '@/lib/lazyToast'
 import type { TabContent, TopicItem, TopicWorkspaceNote } from '@/lib/topicWorkspaceViewModel'
 import { resolvedTabContentId } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
 import { readTopicWorkspaceDraft, writeTopicWorkspaceDraft } from '@/components/topic-workspace/topicWorkspaceDraftCache'
@@ -60,7 +60,7 @@ export function useTopicNotes({
       .catch((error) => {
         if (controller.signal.aborted) return
         setNotes([])
-        toast.error(apiDataErrorMessage(error, 'Could not load notes.'))
+        showToastError(apiDataErrorMessage(error, 'Could not load notes.'))
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
@@ -84,9 +84,9 @@ export function useTopicNotes({
       setNotes((prev) => [savedNote, ...prev.filter((entry) => entry.id !== savedNote.id)])
       setNote('')
       onNoteSaved()
-      toast.success('Note saved.')
+      showToastSuccess('Note saved.')
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Could not save note.'))
+      showToastError(apiDataErrorMessage(error, 'Could not save note.'))
     } finally {
       setSaving(false)
     }
@@ -103,16 +103,16 @@ export function useTopicNotes({
       setEditingNoteId(null)
       setEditingBody('')
       onNoteSaved()
-      toast.success('Note updated.')
+      showToastSuccess('Note updated.')
     } catch (error) {
       if (isNoteMutationUnavailable(error)) {
         setCanEditNotes(false)
         setEditingNoteId(null)
         setEditingBody('')
-        toast.info('Editing notes is not available on this backend yet.')
+        showToastInfo('Editing notes is not available on this backend yet.')
         return
       }
-      toast.error(apiDataErrorMessage(error, 'Could not update note.'))
+      showToastError(apiDataErrorMessage(error, 'Could not update note.'))
     } finally {
       setMutatingNoteId(null)
     }
@@ -128,14 +128,14 @@ export function useTopicNotes({
         setEditingBody('')
       }
       onNoteSaved()
-      toast.success('Note deleted.')
+      showToastSuccess('Note deleted.')
     } catch (error) {
       if (isNoteMutationUnavailable(error)) {
         setCanDeleteNotes(false)
-        toast.info('Deleting notes is not available on this backend yet.')
+        showToastInfo('Deleting notes is not available on this backend yet.')
         return
       }
-      toast.error(apiDataErrorMessage(error, 'Could not delete note.'))
+      showToastError(apiDataErrorMessage(error, 'Could not delete note.'))
     } finally {
       setMutatingNoteId(null)
     }

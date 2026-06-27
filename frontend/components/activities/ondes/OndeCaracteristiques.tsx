@@ -48,6 +48,8 @@ const DEFAULT_QUESTIONS: Question[] = [
   },
 ]
 
+const waveControlMotionClass = 'transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+
 export default function OndeCaracteristiques({ questions, onComplete }: Props) {
   const qs = questions ?? DEFAULT_QUESTIONS
   const [idx, setIdx] = useState(0)
@@ -89,7 +91,7 @@ export default function OndeCaracteristiques({ questions, onComplete }: Props) {
         <p className="text-slate-400">{score} / {qs.length} correctes</p>
         <button type="button"
           onClick={() => { setIdx(0); setInputs(qs.map(() => '')); setSubmitted(qs.map(() => false)); setScore(0); setDone(false) }}
-          className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
+          className={`min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 ${waveControlMotionClass}`}
         >
           Réessayer
         </button>
@@ -117,7 +119,7 @@ export default function OndeCaracteristiques({ questions, onComplete }: Props) {
           }}
           onKeyDown={e => e.key === 'Enter' && !submitted[idx] && submit()}
           placeholder="___"
-          className={`inline-block border-b-2 px-2 py-0.5 text-center font-bold min-w-[80px] max-w-[150px] bg-transparent outline-none transition text-sm ${
+          className={`inline-block min-w-[80px] max-w-[150px] border-b-2 bg-transparent px-2 py-0.5 text-center text-sm font-bold outline-none transition-[border-color,box-shadow,color] duration-150 ease-out focus-visible:ring-4 focus-visible:ring-indigo-400/35 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none ${
             !submitted[idx] ? 'border-indigo-500 text-indigo-300' :
             isCorrect ? 'border-green-500 text-green-400' : 'border-red-500 text-red-400'
           }`}
@@ -144,14 +146,14 @@ export default function OndeCaracteristiques({ questions, onComplete }: Props) {
           <button type="button"
             onClick={submit}
             disabled={!inputs[idx].trim()}
-            className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className={`min-h-10 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 ${waveControlMotionClass}`}
           >
             Vérifier
           </button>
         ) : (
           <button type="button"
             onClick={next}
-            className="inline-flex items-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition"
+            className={`inline-flex min-h-10 items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 ${waveControlMotionClass}`}
           >
             {idx < qs.length - 1 ? 'Question suivante' : 'Voir le résultat'}
             <ChevronRight size={14} />

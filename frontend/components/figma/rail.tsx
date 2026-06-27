@@ -1,11 +1,15 @@
 'use client'
 
 import type React from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
 import { Check, ChevronDown, Lock } from 'lucide-react'
 import { figmaChapterItems, figmaLessonItems } from './data'
 import { FigmaProgressBar } from './progress'
 import type { FigmaRailItem, FigmaRailSection } from './types'
+
+const railControlMotionClass = 'transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
+const railChevronMotionClass = 'transition-[color,transform] duration-150 ease-out motion-reduce:transition-none'
+const railItemMotionClass = 'transition-[background-color,color,opacity,transform] duration-150 ease-out hover:translate-x-0.5 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:active:scale-100'
+const railItemIconMotionClass = 'transition-[background-color,transform] duration-150 ease-out group-hover:scale-[1.04] motion-reduce:transition-none motion-reduce:group-hover:scale-100'
 
 export type CourseContentRailProps = {
   size?: 'compact' | 'workspace'
@@ -17,6 +21,7 @@ export type CourseContentRailProps = {
   toolbar?: React.ReactNode
   onSectionToggle?: (section: FigmaRailSection) => void
   onItemSelect?: (item: FigmaRailItem, section: FigmaRailSection) => void
+  onItemPreload?: (item: FigmaRailItem, section: FigmaRailSection) => void
 }
 
 const defaultSections: FigmaRailSection[] = [
@@ -36,6 +41,7 @@ export function CourseContentRail({
   toolbar,
   onSectionToggle,
   onItemSelect,
+  onItemPreload,
 }: CourseContentRailProps) {
   const isWorkspace = size === 'workspace'
 
@@ -58,6 +64,7 @@ export function CourseContentRail({
             size={size}
             onToggle={() => onSectionToggle?.(section)}
             onItemSelect={(item) => onItemSelect?.(item, section)}
+            onItemPreload={(item) => onItemPreload?.(item, section)}
           />
         ))}
       </div>
@@ -109,6 +116,7 @@ export function RailCard({
   open = false,
   onToggle,
   onItemSelect,
+  onItemPreload,
   variant,
   size = 'compact',
 }: {
@@ -118,6 +126,7 @@ export function RailCard({
   open?: boolean
   onToggle?: () => void
   onItemSelect?: (item: FigmaRailItem) => void
+  onItemPreload?: (item: FigmaRailItem) => void
   variant?: 'chapter'
   size?: 'compact' | 'workspace'
 }) {
@@ -133,7 +142,8 @@ export function RailCard({
       }`}
     >
       <button
-        className={`flex w-full cursor-pointer items-start border-0 bg-transparent text-left ${
+        aria-expanded={open}
+        className={`group flex w-full cursor-pointer items-start border-0 bg-transparent text-left ${railControlMotionClass} hover:bg-[#fbfbff] ${
           isWorkspace ? 'min-h-[113px] gap-[18px] px-[26px] py-[27px]' : 'gap-[8px] px-[18px] py-[18px]'
         }`}
         onClick={onToggle}
@@ -155,42 +165,38 @@ export function RailCard({
             {copy}
           </span>
         </span>
-        <motion.span
-          animate={{ rotate: open ? 180 : 0 }}
-          className={`grid shrink-0 place-items-center text-[#565760] ${isWorkspace ? 'h-[24px] w-[24px]' : 'h-[18px] w-[18px]'}`}
-          transition={{ duration: 0.18 }}
-        >
+        <span className={`grid shrink-0 place-items-center text-[#565760] group-hover:text-[#453dee] ${railChevronMotionClass} ${open ? 'rotate-180' : 'rotate-0'} ${isWorkspace ? 'h-[24px] w-[24px]' : 'h-[18px] w-[18px]'}`}>
           <ChevronDown size={isWorkspace ? 24 : 18} strokeWidth={3} />
-        </motion.span>
+        </span>
       </button>
 
-      <AnimatePresence initial={false}>
-        {open && items.length > 0 && (
-          <motion.div
-            initial={{ height: 0 }}
-            animate={{ height: 'auto' }}
-            exit={{ height: 0 }}
-            transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
-            className="overflow-hidden"
-          >
-            <div className={`grid ${isWorkspace ? 'gap-[24px] px-[26px] pb-[31px]' : 'gap-[12px] px-[18px] pb-[24px]'}`}>
-              {items.map((item) => (
-                <RailItemRow item={item} key={item.id ?? item.label} onSelect={onItemSelect} size={size} />
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {open && items.length > 0 && (
+        <div className="overflow-hidden">
+          <div className={`grid ${isWorkspace ? 'gap-[24px] px-[26px] pb-[31px]' : 'gap-[12px] px-[18px] pb-[24px]'}`}>
+            {items.map((item) => (
+              <RailItemRow
+                item={item}
+                key={item.id ?? item.label}
+                onPreload={onItemPreload}
+                onSelect={onItemSelect}
+                size={size}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   )
 }
 
 function RailItemRow({
   item,
+  onPreload,
   onSelect,
   size = 'compact',
 }: {
   item: FigmaRailItem
+  onPreload?: (item: FigmaRailItem) => void
   onSelect?: (item: FigmaRailItem) => void
   size?: 'compact' | 'workspace'
 }) {
@@ -199,15 +205,18 @@ function RailItemRow({
   const isWorkspace = size === 'workspace'
 
   return (
-    <button type="button"
-      className={`flex w-full items-center border-0 bg-transparent p-0 text-left ${
+    <button
+      type="button"
+      className={`group flex w-full items-center rounded-[12px] border-0 bg-transparent p-0 text-left ${
         isWorkspace ? 'gap-[20px]' : 'gap-[8px]'
-      } ${isLocked ? 'cursor-pointer opacity-75 hover:translate-x-0.5' : 'cursor-pointer hover:translate-x-0.5'} transition-transform duration-150`}
+      } ${isLocked ? 'cursor-pointer opacity-75' : 'cursor-pointer hover:bg-[#fbfbff]'} ${railItemMotionClass}`}
       aria-label={isLocked ? `${item.label} locked preview` : undefined}
       onClick={() => onSelect?.(item)}
+      onFocus={() => onPreload?.(item)}
+      onPointerEnter={() => onPreload?.(item)}
     >
       <span
-        className={`grid shrink-0 place-items-center rounded-full ${isWorkspace ? 'h-[36px] w-[36px]' : 'h-[24px] w-[24px]'} ${
+        className={`grid shrink-0 place-items-center rounded-full ${railItemIconMotionClass} ${isWorkspace ? 'h-[36px] w-[36px]' : 'h-[24px] w-[24px]'} ${
           isActive ? 'bg-[#f5900b]' : isLocked ? 'bg-[#a1a1aa]' : 'bg-[#e5e7eb]'
         } text-white`}
       >

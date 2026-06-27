@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import Image from 'next/image'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ChevronDown, ChevronUp, CornerDownRight, Loader2, Send, Star, ThumbsDown, ThumbsUp } from 'lucide-react'
-import { toast } from 'sonner'
 import { getJson, postJson } from '@/lib/apiClient'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
+import { getTopicInteractionData, updateTopicInteractionCache, writeTopicInteractionCache } from '@/lib/topicInteractionCache'
 import {
   animatedConfigForTab,
   isAnimatedTab,
@@ -17,12 +18,30 @@ import {
   type TabContent,
   type TopicItem,
 } from '@/lib/topicWorkspaceViewModel'
-import { AnimatedContentRenderer } from '@/components/animated/registry'
+import { courseDocumentFromConfig, type CourseDocument } from '@/lib/courseContentDocument'
 import type { AnimatedCompletionEvent, AnimatedRendererProps } from '@/components/animated/types'
-import { CourseContentRenderer, courseDocumentFromConfig } from '@/components/topic-workspace/CourseContentRenderer'
 import { EmptyTabPanel } from '@/components/topic-workspace/TopicWorkspaceCommonPanels'
 import { TopicWorkspaceNotesTab } from '@/components/topic-workspace/TopicWorkspaceNotesTab'
 import { TopicWorkspaceResourcePanel } from '@/components/topic-workspace/TopicWorkspaceResourcePanel'
+
+const DeferredAnimatedContentRenderer = dynamic<AnimatedRendererProps>(
+  () => import('@/components/animated/registry').then((mod) => mod.AnimatedContentRenderer),
+  {
+    ssr: false,
+    loading: () => <DeferredRendererLoading label="Loading interactive lesson..." />,
+  },
+)
+
+const DeferredCourseContentRenderer = dynamic<{ document: CourseDocument; className?: string }>(
+  () => import('@/components/topic-workspace/CourseContentRenderer').then((mod) => mod.CourseContentRenderer),
+  {
+    ssr: false,
+    loading: () => <DeferredRendererLoading label="Loading course content..." />,
+  },
+)
+const topicWorkspaceControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
+const topicWorkspaceFieldMotionClass = 'transition-[border-color,box-shadow] duration-150 ease-out focus-visible:border-[#3a2fd3] focus-visible:shadow-[0_0_0_3px_rgba(58,47,211,0.10)] motion-reduce:transition-none'
+const topicWorkspaceRatingMotionClass = 'transition-[background-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#f5b800]/20 motion-reduce:transition-none motion-reduce:active:scale-100'
 
 export function LockedContentPanel({
   reason,
@@ -44,7 +63,7 @@ export function LockedContentPanel({
         <span className="rounded-full bg-white px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">
           {lockedContentReason(reason)}
         </span>
-        <Link className="rounded-full bg-[#fff7df] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#b76b00] transition hover:bg-[#ffe8ad]" href="/pricing">
+        <Link className={`inline-flex min-h-10 items-center rounded-full bg-[#fff7df] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] text-[#b76b00] hover:bg-[#ffe8ad] ${topicWorkspaceControlMotionClass}`} href="/pricing">
           Upgrade to unlock
         </Link>
       </div>
@@ -76,7 +95,15 @@ function AnimatedTabPanel({
     },
   }
 
-  return <AnimatedContentRenderer {...rendererProps} />
+  return <DeferredAnimatedContentRenderer {...rendererProps} />
+}
+
+function DeferredRendererLoading({ label }: { label: string }) {
+  return (
+    <div className="grid min-h-[220px] place-items-center rounded-[16px] border border-[#e4e4e7] bg-[#fbfcff] px-4 text-center text-[13px] font-black text-[#71717b]" role="status" aria-label={label}>
+      {label}
+    </div>
+  )
 }
 
 type TopicComment = {
@@ -97,7 +124,6 @@ type TopicComment = {
 type CommentReaction = 'like' | 'dislike'
 
 function CommentsTab({ item }: { item: TopicItem }) {
-  const reduceMotion = useReducedMotion()
   const [comments, setComments] = useState<TopicComment[]>([])
   const [body, setBody] = useState('')
   const [draftRating, setDraftRating] = useState(0)
@@ -114,7 +140,7 @@ function CommentsTab({ item }: { item: TopicItem }) {
   const [ratings, setRatings] = useState<Record<number, number>>({})
 
   useEffect(() => {
-    const controller = new AbortController()
+    let cancelled = false
     setLoading(true)
     setReplyingTo(null)
     setReplyBodies({})
@@ -123,23 +149,26 @@ function CommentsTab({ item }: { item: TopicItem }) {
     setLoadingReplies({})
     setLoadedReplies({})
     setRepliesByComment({})
-    getJson<TopicComment[]>('/interactions/comments', {
-      params: { topic_item_id: item.id },
-      signal: controller.signal,
-    })
+    getTopicInteractionData(
+      topicCommentsCacheKey(item.id),
+      () => getJson<TopicComment[]>('/interactions/comments', {
+        params: { topic_item_id: item.id },
+      }),
+    )
       .then((data) => {
+        if (cancelled) return
         setComments(data)
       })
       .catch(() => {
-        if (controller.signal.aborted) return
+        if (cancelled) return
         setComments([])
-        toast.error('Could not load comments.')
+        showToastError('Could not load comments.')
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
+        if (!cancelled) setLoading(false)
       })
     return () => {
-      controller.abort()
+      cancelled = true
     }
   }, [item.id])
 
@@ -154,15 +183,19 @@ function CommentsTab({ item }: { item: TopicItem }) {
       }
       if (draftRating > 0) payload.rating = draftRating
       const data = await postJson<TopicComment>('/interactions/comments', payload)
-      setComments((prev) => [...prev, data])
+      setComments((prev) => {
+        const next = [...prev, data]
+        writeTopicInteractionCache(topicCommentsCacheKey(item.id), next)
+        return next
+      })
       if (draftRating > 0) {
         setRatings((prev) => ({ ...prev, [data.id]: draftRating }))
       }
       setBody('')
       setDraftRating(0)
-      toast.success('Comment posted.')
+      showToastSuccess('Comment posted.')
     } catch {
-      toast.error('Could not post comment.')
+      showToastError('Could not post comment.')
     } finally {
       setPosting(false)
     }
@@ -182,17 +215,25 @@ function CommentsTab({ item }: { item: TopicItem }) {
         ...prev,
         [parentId]: [...(prev[parentId] ?? []), data],
       }))
+      updateTopicInteractionCache<TopicComment[]>(topicCommentRepliesCacheKey(item.id, parentId), (cached) => [
+        ...(cached.hit ? cached.data : repliesByComment[parentId] ?? []),
+        data,
+      ])
       setExpandedReplies((prev) => ({ ...prev, [parentId]: true }))
-      setComments((prev) => prev.map((comment) => (
-        comment.id === parentId
-          ? { ...comment, reply_count: (comment.reply_count ?? 0) + 1 }
-          : comment
-      )))
+      setComments((prev) => {
+        const next = prev.map((comment) => (
+          comment.id === parentId
+            ? { ...comment, reply_count: (comment.reply_count ?? 0) + 1 }
+            : comment
+        ))
+        writeTopicInteractionCache(topicCommentsCacheKey(item.id), next)
+        return next
+      })
       setReplyBodies((prev) => ({ ...prev, [parentId]: '' }))
       setReplyingTo(null)
-      toast.success('Reply posted.')
+      showToastSuccess('Reply posted.')
     } catch {
-      toast.error('Could not post reply.')
+      showToastError('Could not post reply.')
     } finally {
       setReplyPosting((prev) => ({ ...prev, [parentId]: false }))
     }
@@ -211,13 +252,16 @@ function CommentsTab({ item }: { item: TopicItem }) {
 
     setLoadingReplies((prev) => ({ ...prev, [comment.id]: true }))
     try {
-      const data = await getJson<TopicComment[]>('/interactions/comments', {
-        params: { topic_item_id: item.id, parent_id: comment.id },
-      })
+      const data = await getTopicInteractionData(
+        topicCommentRepliesCacheKey(item.id, comment.id),
+        () => getJson<TopicComment[]>('/interactions/comments', {
+          params: { topic_item_id: item.id, parent_id: comment.id },
+        }),
+      )
       setRepliesByComment((prev) => ({ ...prev, [comment.id]: data }))
       setLoadedReplies((prev) => ({ ...prev, [comment.id]: true }))
     } catch {
-      toast.error('Could not load replies.')
+      showToastError('Could not load replies.')
     } finally {
       setLoadingReplies((prev) => ({ ...prev, [comment.id]: false }))
     }
@@ -231,18 +275,8 @@ function CommentsTab({ item }: { item: TopicItem }) {
   }
 
   return (
-    <motion.section
-      className="grid w-full max-w-[820px] gap-3"
-      aria-label="Comments"
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
-    >
-      <motion.div
-        className="overflow-hidden rounded-[16px] border border-[#e4e4e7] bg-white shadow-[0_10px_28px_rgba(24,24,27,0.05)]"
-        whileHover={reduceMotion ? undefined : { y: -1 }}
-        transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
-      >
+    <section className="grid w-full max-w-[820px] gap-3" aria-label="Comments">
+      <div className="overflow-hidden rounded-[16px] border border-[#e4e4e7] bg-white shadow-[0_10px_28px_rgba(24,24,27,0.05)]">
         <textarea
           id="topic-comment-input"
           aria-label="Write a comment"
@@ -251,74 +285,72 @@ function CommentsTab({ item }: { item: TopicItem }) {
           className="min-h-[76px] w-full resize-y border-0 bg-transparent px-4 pb-2 pt-4 text-[14px] font-semibold leading-6 text-[#3f3f46] outline-none placeholder:text-[#a1a1aa]"
           placeholder="Write a comment or question..."
         />
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#f4f4f5] bg-[#fbfcff] px-3 py-2.5 transition-[border-color] focus-within:border-[#3a2fd3]">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#f4f4f5] bg-[#fbfcff] px-3 py-2.5 transition-[background-color,border-color] duration-150 ease-out focus-within:border-[#3a2fd3] focus-within:bg-white motion-reduce:transition-none">
           <RatingSelector value={draftRating} onChange={setDraftRating} />
           <button
             type="button"
             onClick={postComment}
             disabled={posting || !body.trim()}
-            className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3.5 text-[13px] font-black text-white transition-[background-color,color,transform] active:scale-[0.96] hover:bg-[#2f27b8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3a2fd3]/30 disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100"
+            className={`inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3.5 text-[13px] font-black text-white hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100 ${topicWorkspaceControlMotionClass}`}
           >
-            {posting ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Send size={14} aria-hidden="true" />}
+            {posting ? <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Send size={14} aria-hidden="true" />}
             Post
           </button>
         </div>
-      </motion.div>
+      </div>
 
       {loading ? (
         <div className="grid gap-3" aria-label="Loading comments">
-          <div className="h-24 animate-pulse rounded-[16px] bg-[#f4f4f5]" />
-          <div className="h-24 animate-pulse rounded-[16px] bg-[#f4f4f5]" />
+          <div className="h-24 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[16px] bg-[#f4f4f5]" />
+          <div className="h-24 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[16px] bg-[#f4f4f5]" />
         </div>
       ) : comments.length === 0 ? (
         <EmptyTabPanel title="No comments yet" message="Comments are enabled for this item, but nobody has posted yet." />
       ) : (
         <div className="grid gap-3">
-          <AnimatePresence initial={false}>
-          {comments.map((comment, index) => {
+          {comments.map((comment) => {
             const replies = repliesByComment[comment.id] ?? []
             const replyCount = Math.max(comment.reply_count ?? 0, replies.length)
             const repliesExpanded = Boolean(expandedReplies[comment.id])
             const isReplying = replyingTo === comment.id
 
             return (
-              <motion.article
+              <article
                 key={comment.id}
-                layout
-                className="rounded-[18px] border border-[#e4e4e7] bg-white p-4 shadow-[0_10px_24px_rgba(24,24,27,0.04)]"
-                initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
-                transition={{ duration: 0.18, delay: reduceMotion ? 0 : Math.min(index * 0.025, 0.12), ease: [0.2, 0.8, 0.2, 1] }}
+                className="grid w-full min-w-0 gap-4 overflow-hidden rounded-[18px] border border-[#e4e4e7] bg-white p-4 shadow-[0_10px_24px_rgba(24,24,27,0.04)]"
               >
-                <CommentCard
-                  comment={comment}
-                  reaction={reactions[comment.id] ?? null}
-                  rating={ratings[comment.id] ?? comment.rating}
-                  onReact={(reaction) => toggleReaction(comment.id, reaction)}
-                  onReply={() => setReplyingTo((current) => current === comment.id ? null : comment.id)}
-                />
+                <div data-comment-main className="w-full min-w-0">
+                  <CommentCard
+                    comment={comment}
+                    reaction={reactions[comment.id] ?? null}
+                    rating={ratings[comment.id] ?? comment.rating}
+                    onReact={(reaction) => toggleReaction(comment.id, reaction)}
+                    onReply={() => setReplyingTo((current) => current === comment.id ? null : comment.id)}
+                  />
+                </div>
 
                 {isReplying && (
-                  <ReplyComposer
-                    authorName={comment.author.full_name}
-                    body={replyBodies[comment.id] ?? ''}
-                    posting={Boolean(replyPosting[comment.id])}
-                    onBodyChange={(nextBody) => setReplyBodies((prev) => ({ ...prev, [comment.id]: nextBody }))}
-                    onCancel={() => setReplyingTo(null)}
-                    onPost={() => void postReply(comment.id)}
-                  />
+                  <div className="w-full min-w-0">
+                    <ReplyComposer
+                      authorName={comment.author.full_name}
+                      body={replyBodies[comment.id] ?? ''}
+                      posting={Boolean(replyPosting[comment.id])}
+                      onBodyChange={(nextBody) => setReplyBodies((prev) => ({ ...prev, [comment.id]: nextBody }))}
+                      onCancel={() => setReplyingTo(null)}
+                      onPost={() => void postReply(comment.id)}
+                    />
+                  </div>
                 )}
 
                 {replyCount > 0 && (
                   <button
                     type="button"
                     onClick={() => void toggleReplies(comment)}
-                    className="mt-4 inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#e9e5ff] bg-[#f7f5ff] px-3 text-[12px] font-black text-[#3a2fd3] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:border-[#d9d2ff] hover:bg-[#f1eeff]"
+                    className={`inline-flex h-10 w-fit items-center gap-2 rounded-[10px] border border-[#e9e5ff] bg-[#f7f5ff] px-3 text-[12px] font-black text-[#3a2fd3] hover:border-[#d9d2ff] hover:bg-[#f1eeff] ${topicWorkspaceControlMotionClass}`}
                     aria-expanded={repliesExpanded}
                   >
                     {loadingReplies[comment.id] ? (
-                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                      <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
                     ) : repliesExpanded ? (
                       <ChevronUp size={14} aria-hidden="true" />
                     ) : (
@@ -328,17 +360,13 @@ function CommentsTab({ item }: { item: TopicItem }) {
                   </button>
                 )}
 
-                <AnimatePresence initial={false}>
                 {repliesExpanded && (
-                  <motion.div
-                    className="mt-4 grid gap-3 border-l-2 border-[#ede9fe] pl-4"
-                    initial={reduceMotion ? false : { opacity: 0, height: 0, y: -4 }}
-                    animate={{ opacity: 1, height: 'auto', y: 0 }}
-                    exit={reduceMotion ? undefined : { opacity: 0, height: 0, y: -4 }}
-                    transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+                  <div
+                    data-comment-replies
+                    className="relative grid w-full min-w-0 gap-3 rounded-[14px] bg-[#fbfcff] py-3 pl-4 pr-3 shadow-[inset_0_0_0_1px_#eef2f7] before:absolute before:bottom-3 before:left-3 before:top-3 before:w-px before:bg-[#ede9fe]"
                   >
                     {loadingReplies[comment.id] ? (
-                      <div className="h-16 animate-pulse rounded-[14px] bg-[#f4f4f5]" />
+                      <div className="h-16 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[14px] bg-[#f4f4f5]" />
                     ) : replies.length === 0 ? (
                       <p className="m-0 text-[12px] font-bold text-[#9f9fa9]">No visible replies yet.</p>
                     ) : (
@@ -353,17 +381,23 @@ function CommentsTab({ item }: { item: TopicItem }) {
                         />
                       ))
                     )}
-                  </motion.div>
+                  </div>
                 )}
-                </AnimatePresence>
-              </motion.article>
+              </article>
             )
           })}
-          </AnimatePresence>
         </div>
       )}
-    </motion.section>
+    </section>
   )
+}
+
+function topicCommentsCacheKey(itemId: number) {
+  return `topic-comments:${itemId}`
+}
+
+function topicCommentRepliesCacheKey(itemId: number, parentId: number) {
+  return `topic-comment-replies:${itemId}:${parentId}`
 }
 
 function RatingSelector({
@@ -382,7 +416,7 @@ function RatingSelector({
             key={rating}
             type="button"
             onClick={() => onChange(value === rating ? 0 : rating)}
-            className={`grid h-10 w-10 place-items-center rounded-[12px] transition-[background-color,color,transform] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f5b800]/30 ${selected ? 'bg-[#fff7db] text-[#d99700]' : 'bg-[#f4f4f5] text-[#a1a1aa] hover:bg-[#f8f9fc] hover:text-[#71717b]'}`}
+            className={`grid h-10 w-10 place-items-center rounded-[12px] ${topicWorkspaceRatingMotionClass} ${selected ? 'bg-[#fff7db] text-[#d99700] shadow-[inset_0_0_0_1px_rgba(245,184,0,0.18)]' : 'bg-[#f4f4f5] text-[#a1a1aa] hover:bg-[#f8f9fc] hover:text-[#71717b]'}`}
             role="radio"
             aria-checked={value === rating}
             aria-label={`Rate ${rating} out of 5`}
@@ -411,7 +445,7 @@ function CommentCard({
   onReply?: () => void
 }) {
   return (
-    <div className={`flex min-w-0 gap-3 ${compact ? 'rounded-[14px] bg-[#fbfcff] p-3' : ''}`}>
+    <div className={`flex w-full min-w-0 items-start gap-3 ${compact ? 'rounded-[12px] bg-white p-3 shadow-[var(--shadow-border)]' : ''}`}>
       <CommentAvatar author={comment.author} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -439,7 +473,7 @@ function CommentCard({
             <button
               type="button"
               onClick={onReply}
-              className="inline-flex h-10 items-center gap-1.5 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:border-[#d7d7dd] hover:bg-[#f8f9fc]"
+              className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 text-[12px] font-black text-[#52525c] hover:border-[#d7d7dd] hover:bg-[#f8f9fc] ${topicWorkspaceControlMotionClass}`}
             >
               <CornerDownRight size={13} aria-hidden="true" />
               Reply
@@ -501,7 +535,7 @@ function ReactionButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] border px-2.5 text-[12px] font-black transition-[background-color,border-color,color,transform] active:scale-[0.96] ${active ? 'border-[#c7d2fe] bg-[#eef2ff] text-[#3a2fd3]' : 'border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#d7d7dd] hover:bg-[#f8f9fc] hover:text-[#52525c]'}`}
+      className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] border px-2.5 text-[12px] font-black ${topicWorkspaceControlMotionClass} ${active ? 'border-[#c7d2fe] bg-[#eef2ff] text-[#3a2fd3] shadow-[inset_0_0_0_1px_rgba(58,47,211,0.08)]' : 'border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#d7d7dd] hover:bg-[#f8f9fc] hover:text-[#52525c]'}`}
     >
       <Icon size={13} aria-hidden="true" />
       {label}
@@ -526,17 +560,14 @@ function ReplyComposer({
   onPost: () => void
 }) {
   return (
-    <motion.div
+    <div
       className="mt-4 rounded-[14px] border border-[#e9e5ff] bg-[#fbfaff] p-3"
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.14, ease: [0.2, 0.8, 0.2, 1] }}
     >
       <textarea
         aria-label={`Reply to ${authorName}`}
         value={body}
         onChange={(event) => onBodyChange(event.target.value)}
-        className="min-h-20 w-full resize-y rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-semibold leading-6 text-[#3f3f46] outline-none transition-[border-color,box-shadow] placeholder:text-[#a1a1aa] focus:border-[#3a2fd3] focus:shadow-[0_0_0_3px_rgba(58,47,211,0.10)]"
+        className={`min-h-20 w-full resize-y rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-semibold leading-6 text-[#3f3f46] outline-none placeholder:text-[#a1a1aa] ${topicWorkspaceFieldMotionClass}`}
         placeholder={`Reply to ${authorName}`}
       />
       <div className="mt-2 flex flex-wrap justify-end gap-2">
@@ -544,7 +575,7 @@ function ReplyComposer({
           type="button"
           onClick={onCancel}
           disabled={posting}
-          className="inline-flex h-10 items-center rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] active:scale-[0.96] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:opacity-50 disabled:active:scale-100"
+          className={`inline-flex h-10 items-center rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] disabled:opacity-50 disabled:active:scale-100 ${topicWorkspaceControlMotionClass}`}
         >
           Cancel
         </button>
@@ -552,13 +583,13 @@ function ReplyComposer({
           type="button"
           onClick={onPost}
           disabled={posting || !body.trim()}
-          className="inline-flex h-10 items-center gap-1.5 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,color,transform] active:scale-[0.96] hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100"
+          className={`inline-flex h-10 items-center gap-1.5 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100 ${topicWorkspaceControlMotionClass}`}
         >
-          {posting ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Send size={13} aria-hidden="true" />}
+          {posting ? <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Send size={13} aria-hidden="true" />}
           Post reply
         </button>
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -608,7 +639,7 @@ export function TabPanel({
 
   const courseDocument = tabMatchesSlot(tab, 'course') ? courseDocumentFromConfig(tab.config_json) : null
   if (courseDocument) {
-    return <CourseContentRenderer document={courseDocument} />
+    return <DeferredCourseContentRenderer document={courseDocument} />
   }
 
   if (isAnimatedTab(tab, item)) {

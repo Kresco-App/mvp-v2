@@ -2,9 +2,9 @@
 
 import dynamic from 'next/dynamic'
 import { AlertCircle, Cloud, CloudOff, Maximize2, RefreshCcw, Save, X } from 'lucide-react'
-import { AnimatePresence, motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import '@excalidraw/excalidraw/index.css'
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types'
 import type { TopicItem } from '@/lib/topicWorkspaceViewModel'
 import {
@@ -33,6 +33,7 @@ const EXCALIDRAW_UI_OPTIONS = {
 } as const
 type WhiteboardMode = 'compact' | 'expanded'
 type ViewportStateByMode = Record<WhiteboardMode, Record<string, unknown>>
+const topicWhiteboardControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
 
 const Excalidraw = dynamic(
   async () => {
@@ -174,32 +175,23 @@ export function TopicWorkspaceWhiteboard({
       />
     </div>
   )
-  const expandedOverlay = (
-    <AnimatePresence>
-      {expanded && (
-        <motion.div
-          data-testid="whiteboard-expanded-backdrop"
-          className="fixed inset-0 z-[1000] grid place-items-center bg-[#18181b]/35 p-3 backdrop-blur-[2px] max-[640px]:p-2"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeExpanded()
-          }}
-          onClick={(event) => {
-            if (event.target === event.currentTarget) closeExpanded()
-          }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          <motion.section
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${item.title} whiteboard`}
-            className="grid h-[calc(100dvh_-_24px)] max-h-[920px] w-[calc(100vw_-_24px)] max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-[18px] border border-[#dfe3ea] bg-white shadow-[0_28px_80px_rgba(24,24,27,0.28)] max-[640px]:h-[calc(100dvh_-_16px)] max-[640px]:w-[calc(100vw_-_16px)] max-[640px]:rounded-[14px]"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 6 }}
-            transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
-          >
+  const expandedOverlay = expanded ? (
+    <div
+      data-testid="whiteboard-expanded-backdrop"
+      className="fixed inset-0 z-[1000] grid place-items-center bg-[#18181b]/35 p-3 backdrop-blur-[2px] max-[640px]:p-2"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeExpanded()
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) closeExpanded()
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${item.title} whiteboard`}
+        className="grid h-[calc(100dvh_-_24px)] max-h-[920px] w-[calc(100vw_-_24px)] max-w-[1280px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-[18px] border border-[#dfe3ea] bg-white shadow-[0_28px_80px_rgba(24,24,27,0.28)] max-[640px]:h-[calc(100dvh_-_16px)] max-[640px]:w-[calc(100vw_-_16px)] max-[640px]:rounded-[14px]"
+      >
             <div className="flex min-h-[46px] flex-wrap items-center justify-between gap-2 border-b border-[#edf0f4] bg-white px-4 py-2 max-[640px]:px-3">
               <div className="min-w-0">
                 <p className="m-0 truncate text-[11px] font-bold text-[#9f9fa9]">Click outside or press Esc to return</p>
@@ -213,9 +205,9 @@ export function TopicWorkspaceWhiteboard({
                     type="button"
                     onClick={() => void whiteboard.saveCanvas({ notify: true })}
                     disabled={whiteboard.syncStatus === 'loading' || whiteboard.syncStatus === 'saving'}
-                    className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,transform] duration-200 hover:bg-[#2f27b8] active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100 max-[460px]:flex-1 max-[460px]:justify-center"
+                    className={`inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] max-[460px]:flex-1 max-[460px]:justify-center ${topicWhiteboardControlMotionClass}`}
                   >
-                    <Save size={14} />
+                    <Save size={14} aria-hidden="true" />
                     Save now
                   </button>
                 )}
@@ -224,18 +216,16 @@ export function TopicWorkspaceWhiteboard({
                   onClick={closeExpanded}
                   aria-label="Close"
                   title="Close whiteboard"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#d4d4d8] bg-white text-[#52525c] transition-[background-color,border-color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] max-[460px]:ml-auto"
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-[10px] border border-[#d4d4d8] bg-white text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] max-[460px]:ml-auto ${topicWhiteboardControlMotionClass}`}
                 >
-                  <X size={16} />
+                  <X size={16} aria-hidden="true" />
                 </button>
               </div>
             </div>
             {editor('expanded')}
-          </motion.section>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
+      </section>
+    </div>
+  ) : null
 
   return (
     <>
@@ -248,25 +238,25 @@ export function TopicWorkspaceWhiteboard({
           <div className="flex flex-wrap items-center justify-end gap-2 max-[640px]:w-full max-[640px]:justify-start">
             <span role="status" aria-live="polite" className={`inline-flex h-9 items-center gap-2 rounded-[10px] px-3 text-[12px] font-black ${statusTone}`}>
               {whiteboard.syncStatus === 'offline' || whiteboard.syncStatus === 'error' || whiteboard.syncStatus === 'conflict'
-                ? <CloudOff size={14} />
-                : <Cloud size={14} />}
+                ? <CloudOff size={14} aria-hidden="true" />
+                : <Cloud size={14} aria-hidden="true" />}
               {statusLabel}
             </span>
             <button
               type="button"
               onClick={() => void whiteboard.saveCanvas({ notify: true })}
               disabled={whiteboard.syncStatus === 'loading' || whiteboard.syncStatus === 'saving' || !whiteboard.isDirty}
-              className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white transition-[background-color,transform] duration-200 hover:bg-[#2f27b8] active:scale-[0.96] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] disabled:active:scale-100 max-[460px]:flex-1 max-[460px]:justify-center"
+              className={`inline-flex h-10 items-center gap-2 rounded-[10px] bg-[#3a2fd3] px-3 text-[12px] font-black text-white hover:bg-[#2f27b8] disabled:cursor-not-allowed disabled:bg-[#e4e4e7] disabled:text-[#9f9fa9] max-[460px]:flex-1 max-[460px]:justify-center ${topicWhiteboardControlMotionClass}`}
             >
-              <Save size={14} />
+              <Save size={14} aria-hidden="true" />
               Save now
             </button>
             <button
               type="button"
               onClick={openExpanded}
-              className="inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] transition-[background-color,border-color,transform] duration-200 hover:border-[#cfd2dc] hover:bg-[#f8f9fc] active:scale-[0.96] max-[460px]:flex-1 max-[460px]:justify-center"
+              className={`inline-flex h-10 items-center gap-2 rounded-[10px] border border-[#d4d4d8] bg-white px-3 text-[12px] font-black text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] max-[460px]:flex-1 max-[460px]:justify-center ${topicWhiteboardControlMotionClass}`}
             >
-              <Maximize2 size={14} />
+              <Maximize2 size={14} aria-hidden="true" />
               Expand
             </button>
           </div>
@@ -274,15 +264,15 @@ export function TopicWorkspaceWhiteboard({
 
         {whiteboard.errorMessage && (
           <div className="flex items-start gap-2 rounded-[12px] border border-[#fee2e2] bg-[#fef2f2] px-3 py-2 text-[12px] font-bold leading-5 text-[#b91c1c]">
-            <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
+            <AlertCircle size={15} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
             <span>{whiteboard.errorMessage}</span>
             {whiteboard.syncStatus === 'conflict' && (
               <button
                 type="button"
                 onClick={whiteboard.reloadFromServer}
-                className="ml-auto inline-flex min-h-10 items-center gap-1 rounded-[10px] px-2 text-[12px] font-black text-[#991b1b] underline transition-transform duration-200 active:scale-[0.96]"
+                className={`ml-auto inline-flex min-h-10 items-center gap-1 rounded-[10px] px-2 text-[12px] font-black text-[#991b1b] underline ${topicWhiteboardControlMotionClass}`}
               >
-                <RefreshCcw size={13} />
+                <RefreshCcw size={13} aria-hidden="true" />
                 Reload
               </button>
             )}

@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { SWRConfig, type State } from 'swr'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -47,9 +48,17 @@ import { LeaderboardPage, LeaderboardWidget } from '@/components/Leaderboard'
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
+let apiGetQueues: Map<string, Array<() => Promise<{ data: unknown }>>>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  apiGetQueues = new Map()
+  mocks.apiGet.mockImplementation((url: string) => {
+    const path = url.split('?')[0] || url
+    const next = apiGetQueues.get(url)?.shift() ?? apiGetQueues.get(path)?.shift()
+    if (!next) return Promise.reject(new Error(`Unexpected GET ${url}`))
+    return next()
+  })
   mountedRoots = []
   document.body.innerHTML = ''
 })
@@ -66,7 +75,7 @@ afterEach(() => {
 
 describe('leaderboard rendering', () => {
   it('renders widget results and pins the current user outside the top 10', async () => {
-    mocks.apiGet.mockResolvedValueOnce({ data: leaderboardEntriesWithCurrentRank(14) })
+    mockGlobalFetch(leaderboardEntriesWithCurrentRank(14))
     const onExpand = vi.fn()
 
     const { container } = renderComponent(React.createElement(LeaderboardWidget, { onExpand }))
@@ -74,9 +83,7 @@ describe('leaderboard rendering', () => {
       await flushPromises()
     })
 
-    expect(mocks.apiGet).toHaveBeenCalledWith('/progress/leaderboard', {
-      params: { limit: 10, include_current: true },
-    })
+    expect(mocks.apiGet).toHaveBeenCalledWith('/progress/leaderboard?limit=10&include_current=true')
     expect(container.textContent).toContain('Classement')
     expect(container.textContent).toContain('Player 1')
     expect(container.textContent).toContain('Current Student')
@@ -87,6 +94,42 @@ describe('leaderboard rendering', () => {
       buttonByText(container, 'Voir tout')?.click()
     })
     expect(onExpand).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses cached widget results across remounts with the same SWR cache', async () => {
+    const cache = new Map()
+    mockGlobalFetch(leaderboardEntries(3))
+
+    const first = renderComponent(React.createElement(LeaderboardWidget), cache, { revalidateIfStale: false })
+    await act(async () => {
+      await flushPromises()
+    })
+    expect(first.container.textContent).toContain('Player 1')
+    expect(mocks.apiGet).toHaveBeenCalledTimes(1)
+
+    unmountComponent(first.root)
+
+    const second = renderComponent(React.createElement(LeaderboardWidget), cache, { revalidateIfStale: false })
+
+    expect(second.container.textContent).toContain('Player 1')
+    expect(mocks.apiGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps current-key cached page rows visible during background refresh', () => {
+    const globalKey = '/progress/leaderboard?limit=20&offset=0&include_current=true'
+    const seasonKey = '/progress/leaderboard/seasons?limit=20&offset=0&include_current=true&season=weekly'
+    const cache = new Map<string, State<unknown>>([
+      [globalKey, { data: leaderboardEntries(3) }],
+      [seasonKey, { data: seasonLeaderboard(leaderboardEntries(3)) }],
+    ])
+    queueApiGet('/progress/leaderboard', () => new Promise(() => undefined))
+    queueApiGet('/progress/leaderboard/seasons', () => new Promise(() => undefined))
+
+    const { container } = renderComponent(React.createElement(LeaderboardPage), cache, { revalidateIfStale: true })
+
+    expect(container.textContent).toContain('Player 1')
+    expect(container.textContent).toContain('Current Student')
+    expect(container.textContent).toContain('Votre position')
   })
 
   it('shows the backend search result instead of falling back to the previous page', async () => {
@@ -105,7 +148,7 @@ describe('leaderboard rendering', () => {
       const input = container.querySelector('input[aria-label="Rechercher un joueur"]') as HTMLInputElement | null
       expect(input).not.toBeNull()
 
-      mockPageFetch(leaderboardEntries(3), [])
+      mockSeasonFetch([])
       await act(async () => {
         setInputValue(input!, 'not-on-this-page')
         input!.dispatchEvent(new Event('input', { bubbles: true }))
@@ -113,9 +156,7 @@ describe('leaderboard rendering', () => {
         await flushPromises()
       })
 
-      expect(mocks.apiGet).toHaveBeenLastCalledWith('/progress/leaderboard/seasons', {
-        params: { season: 'weekly', limit: 20, offset: 0, search: 'not-on-this-page' },
-      })
+      expect(mocks.apiGet).toHaveBeenLastCalledWith('/progress/leaderboard/seasons?limit=20&offset=0&season=weekly&search=not-on-this-page')
       expect(container.textContent).toContain('Aucun joueur trouve')
       expect(container.textContent).toContain('Aucun resultat pour "not-on-this-page".')
       expect(container.textContent).not.toContain('Player 1')
@@ -152,9 +193,7 @@ describe('leaderboard rendering', () => {
       await flushPromises()
     })
 
-    expect(mocks.apiGet).toHaveBeenCalledWith('/progress/leaderboard', {
-      params: { limit: 20, offset: 0, include_current: true },
-    })
+    expect(mocks.apiGet).toHaveBeenCalledWith('/progress/leaderboard?limit=20&offset=0&include_current=true')
     expect(container.textContent).toContain('Votre rang global')
     expect(container.textContent).toContain('Hors top 20')
     expect(container.textContent).toContain('Current Student')
@@ -205,9 +244,8 @@ describe('leaderboard rendering', () => {
 
   it('shows one demotion boundary when multiple players share the demotion rank', async () => {
     const seasonEntries = tiedDemotionLeaderboardEntries()
-    mocks.apiGet
-      .mockResolvedValueOnce({ data: leaderboardEntries(3) })
-      .mockResolvedValueOnce({ data: seasonLeaderboard(seasonEntries, 8) })
+    mockGlobalFetch(leaderboardEntries(3))
+    mockSeasonFetch(seasonEntries, 8)
 
     const { container } = renderComponent(React.createElement(LeaderboardPage))
     await act(async () => {
@@ -223,10 +261,10 @@ describe('leaderboard rendering', () => {
   })
 
   it('shows an actionable error state and retries the leaderboard request', async () => {
-    mocks.apiGet
-      .mockRejectedValueOnce(new Error('network down'))
-      .mockResolvedValueOnce({ data: seasonLeaderboard(leaderboardEntries(1)) })
-    mockPageFetch(leaderboardEntries(1), leaderboardEntries(1))
+    mockGlobalError(new Error('network down'))
+    mockSeasonFetch(leaderboardEntries(1))
+    mockGlobalFetch(leaderboardEntries(1))
+    mockSeasonFetch(leaderboardEntries(1))
 
     const { container } = renderComponent(React.createElement(LeaderboardPage))
     await act(async () => {
@@ -270,7 +308,7 @@ describe('leaderboard rendering', () => {
       const input = container.querySelector('input[aria-label="Rechercher un joueur"]') as HTMLInputElement | null
       expect(input).not.toBeNull()
 
-      mockPageFetch(leaderboardEntries(3), namedLeaderboardEntries('Current'))
+      mockSeasonFetch(namedLeaderboardEntries('Current'))
       await act(async () => {
         setInputValue(input!, 'Current')
         input!.dispatchEvent(new Event('input', { bubbles: true }))
@@ -278,9 +316,7 @@ describe('leaderboard rendering', () => {
         await flushPromises()
       })
 
-      expect(mocks.apiGet).toHaveBeenLastCalledWith('/progress/leaderboard/seasons', {
-        params: { season: 'weekly', limit: 20, offset: 0, search: 'Current' },
-      })
+      expect(mocks.apiGet).toHaveBeenLastCalledWith('/progress/leaderboard/seasons?limit=20&offset=0&season=weekly&search=Current')
     } finally {
       vi.useRealTimers()
     }
@@ -288,18 +324,12 @@ describe('leaderboard rendering', () => {
 
   it('ignores stale leaderboard responses after a newer search resolves', async () => {
     vi.useFakeTimers()
-    const slowSearch = createDeferred<{ data: ReturnType<typeof leaderboardEntries> }>()
     const slowSeasonSearch = createDeferred<{ data: ReturnType<typeof seasonLeaderboard> }>()
-    const fastSearch = createDeferred<{ data: ReturnType<typeof leaderboardEntries> }>()
     const fastSeasonSearch = createDeferred<{ data: ReturnType<typeof seasonLeaderboard> }>()
 
-    mocks.apiGet
-      .mockResolvedValueOnce({ data: leaderboardEntries(3) })
-      .mockResolvedValueOnce({ data: seasonLeaderboard(leaderboardEntries(3)) })
-      .mockReturnValueOnce(slowSearch.promise)
-      .mockReturnValueOnce(slowSeasonSearch.promise)
-      .mockReturnValueOnce(fastSearch.promise)
-      .mockReturnValueOnce(fastSeasonSearch.promise)
+    mockPageFetch(leaderboardEntries(3), leaderboardEntries(3))
+    queueApiGet('/progress/leaderboard/seasons', () => slowSeasonSearch.promise)
+    queueApiGet('/progress/leaderboard/seasons', () => fastSeasonSearch.promise)
 
     try {
       const { container } = renderComponent(React.createElement(LeaderboardPage))
@@ -325,7 +355,6 @@ describe('leaderboard rendering', () => {
       })
 
       await act(async () => {
-        fastSearch.resolve({ data: leaderboardEntries(3) })
         fastSeasonSearch.resolve({ data: seasonLeaderboard(namedLeaderboardEntries('Fast Result')) })
         await flushPromises()
       })
@@ -334,7 +363,6 @@ describe('leaderboard rendering', () => {
       expect(container.textContent).not.toContain('Slow Result')
 
       await act(async () => {
-        slowSearch.resolve({ data: leaderboardEntries(3) })
         slowSeasonSearch.resolve({ data: seasonLeaderboard(namedLeaderboardEntries('Slow Result')) })
         await flushPromises()
       })
@@ -348,9 +376,28 @@ describe('leaderboard rendering', () => {
 })
 
 function mockPageFetch(globalEntries: ReturnType<typeof leaderboardEntries>, seasonEntries: ReturnType<typeof leaderboardEntries>) {
-  mocks.apiGet
-    .mockResolvedValueOnce({ data: globalEntries })
-    .mockResolvedValueOnce({ data: seasonLeaderboard(seasonEntries) })
+  mockGlobalFetch(globalEntries)
+  mockSeasonFetch(seasonEntries)
+}
+
+function mockGlobalFetch(entries: ReturnType<typeof leaderboardEntries>) {
+  queueApiGet('/progress/leaderboard', () => Promise.resolve({ data: entries }))
+}
+
+function mockGlobalError(error: Error) {
+  queueApiGet('/progress/leaderboard', () => Promise.reject(error))
+}
+
+function mockSeasonFetch(entries: ReturnType<typeof leaderboardEntries>, totalEntries?: number) {
+  queueApiGet('/progress/leaderboard/seasons', () => Promise.resolve({
+    data: seasonLeaderboard(entries, totalEntries ?? Math.max(entries.length, 10)),
+  }))
+}
+
+function queueApiGet(url: string, handler: () => Promise<{ data: unknown }>) {
+  const queue = apiGetQueues.get(url) ?? []
+  queue.push(handler)
+  apiGetQueues.set(url, queue)
 }
 
 function seasonLeaderboard(entries: ReturnType<typeof leaderboardEntries>, totalEntries = Math.max(entries.length, 10)) {
@@ -455,17 +502,34 @@ function createDeferred<T>() {
   return { promise, resolve, reject }
 }
 
-function renderComponent(element: React.ReactElement) {
+function renderComponent(element: React.ReactElement, cache = new Map(), swrOverrides: Record<string, unknown> = {}) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
   mountedRoots.push({ root, container })
 
   act(() => {
-    root.render(element)
+    root.render(React.createElement(SWRConfig, {
+      value: {
+        provider: () => cache,
+        dedupingInterval: 0,
+        errorRetryCount: 0,
+        ...swrOverrides,
+      },
+    }, element))
   })
 
   return { container, root }
+}
+
+function unmountComponent(root: Root) {
+  const entry = mountedRoots.find((item) => item.root === root)
+  if (!entry) return
+  act(() => {
+    entry.root.unmount()
+  })
+  entry.container.remove()
+  mountedRoots = mountedRoots.filter((item) => item.root !== root)
 }
 
 function buttonByText(container: HTMLElement, text: string) {

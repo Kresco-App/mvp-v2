@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 
 import React, { act } from 'react'
-import { SWRConfig } from 'swr'
+import { SWRConfig, type State } from 'swr'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import HomePage from '@/app/(dashboard)/home/page'
 import { apiSWRConfig } from '@/lib/apiData'
 import { useAuthStore } from '@/lib/store'
+import { clearStudentRoutePreloadState } from '@/lib/studentRoutePreload'
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -51,6 +52,7 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  clearStudentRoutePreloadState()
   document.body.innerHTML = ''
   mountedRoots = []
   useAuthStore.setState({
@@ -80,6 +82,7 @@ describe('Home page SWR data behavior', () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       if (url === '/courses/topics') return { data: [topic] }
       if (url === '/courses/subjects') return { data: [subject] }
+      if (url === '/courses/topics/42/workspace') return { data: { topic_id: 42, items: [] } }
       throw new Error(`unexpected url ${url}`)
     })
 
@@ -91,6 +94,102 @@ describe('Home page SWR data behavior', () => {
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/courses/topics')
     expect(mocks.apiGet).toHaveBeenCalledWith('/courses/subjects')
+  })
+
+  it('preloads continue topic workspace data on intent before navigation', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/topics') return { data: [topic] }
+      if (url === '/courses/subjects') return { data: [subject] }
+      if (url === '/courses/topics/42/workspace') return { data: { topic_id: 42, items: [] } }
+      throw new Error(`unexpected url ${url}`)
+    })
+
+    const { container } = renderHomePage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Limits and continuity')
+    })
+    mocks.apiGet.mockClear()
+
+    const topicLink = getLink(container, '/topics/42', 'Limits and continuity')
+    act(() => {
+      topicLink.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+
+    await waitFor(() => {
+      expect(mocks.apiGet).toHaveBeenCalledWith('/courses/topics/42/workspace')
+    })
+
+    mocks.apiGet.mockClear()
+    act(() => {
+      topicLink.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalled()
+  })
+
+  it('does not refetch a continue topic workspace already in the SWR cache', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/topics') return { data: [topic] }
+      if (url === '/courses/subjects') return { data: [subject] }
+      throw new Error(`unexpected url ${url}`)
+    })
+    const cache = new Map<string, State<unknown>>([
+      ['/courses/topics/42/workspace', { data: { topic_id: 42, items: [] } }],
+    ])
+
+    const { container } = renderHomePage(cache)
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Limits and continuity')
+    })
+    mocks.apiGet.mockClear()
+
+    const topicLink = getLink(container, '/topics/42', 'Limits and continuity')
+    act(() => {
+      topicLink.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalledWith('/courses/topics/42/workspace')
+  })
+
+  it('preloads subject shortcut destination data on intent before navigation', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/topics') return { data: [topic] }
+      if (url === '/courses/subjects') return { data: [subject] }
+      if (url === '/progress/sidebar-summary') return { data: { leaderboard_entries: [] } }
+      throw new Error(`unexpected url ${url}`)
+    })
+
+    const { container } = renderHomePage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Math')
+    })
+    mocks.apiGet.mockClear()
+
+    const subjectLink = getLink(container, '/courses?subject=Mathematiques', 'Mathematiques')
+    act(() => {
+      subjectLink.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+
+    await waitFor(() => {
+      expect(mocks.apiGet).toHaveBeenCalledWith('/progress/sidebar-summary')
+    })
+    expect(mocks.apiGet).not.toHaveBeenCalledWith('/courses/topics')
+
+    mocks.apiGet.mockClear()
+    act(() => {
+      subjectLink.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalled()
   })
 
   it('keeps auth state intact and retries from an API failure to data', async () => {
@@ -167,7 +266,7 @@ describe('Home page SWR data behavior', () => {
   })
 
   it('can reuse cached dashboard data across remounts with the same SWR cache', async () => {
-    const cache = new Map()
+    const cache = new Map<string, State<unknown>>()
     mocks.apiGet.mockImplementation(async (url: string) => {
       if (url === '/courses/topics') return { data: [topic] }
       if (url === '/courses/subjects') return { data: [subject] }
@@ -194,7 +293,7 @@ describe('Home page SWR data behavior', () => {
   })
 })
 
-function renderHomePage(cache = new Map(), swrOverrides: Record<string, unknown> = {}) {
+function renderHomePage(cache = new Map<string, State<unknown>>(), swrOverrides: Record<string, unknown> = {}) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -223,6 +322,13 @@ function getButton(container: HTMLElement, name: string) {
   const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes(name))
   if (!button) throw new Error(`button not found: ${name}`)
   return button
+}
+
+function getLink(container: HTMLElement, href: string, text: string) {
+  const link = Array.from(container.querySelectorAll(`a[href="${href}"]`))
+    .find((item) => item.textContent?.includes(text))
+  if (!link) throw new Error(`link not found: ${href}`)
+  return link
 }
 
 async function waitFor(assertion: () => void) {

@@ -117,11 +117,18 @@ export const permanentSidebarLeaderboardDefaults: PermanentSidebarLeaderboardEnt
 
 export const permanentSidebarDefaultSections: PermanentSidebarSection[] = ['chrono', 'calendar', 'strike', 'quests', 'leaderboard']
 
+const normalizedQuestCache = new WeakMap<FigmaDailyQuest[], FigmaDailyQuest[]>()
+
 export function normalizeQuests(quests: FigmaDailyQuest[]) {
-  return quests.slice(0, 3).map((quest, index) => ({
+  const cached = normalizedQuestCache.get(quests)
+  if (cached) return cached
+
+  const normalized = quests.slice(0, 3).map((quest, index) => ({
     ...quest,
     title: quest.title?.trim() || defaultQuestLabels[index] || 'Daily quest',
   }))
+  normalizedQuestCache.set(quests, normalized)
+  return normalized
 }
 
 export function buildPermanentSidebarCalendarDays(referenceDate = new Date()): PermanentSidebarCalendarDay[] {

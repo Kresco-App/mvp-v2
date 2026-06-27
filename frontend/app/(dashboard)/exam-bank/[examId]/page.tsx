@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { AnimatePresence, motion } from 'framer-motion'
-import { toast } from 'sonner'
+import { useSWRConfig } from 'swr'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import {
   Bookmark,
   Check,
@@ -18,8 +18,10 @@ import {
   RotateCcw,
   Video,
 } from 'lucide-react'
-import { apiDataErrorMessage } from '@/lib/apiData'
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
 import {
+  examProblemDetailSWRKey,
   recordExamProblemProgress,
   useExamBankData,
   useExamProblemDetail,
@@ -33,13 +35,18 @@ import {
   VideoFrameState,
   VideoLearningWorkspace,
   VideoPlayerFrame,
-  type FigmaRailItem,
-  type FigmaRailSection,
-  type FigmaTabItem,
-} from '@/components/figma'
+} from '@/components/figma/workspace'
+import type {
+  FigmaRailItem,
+  FigmaRailSection,
+  FigmaTabItem,
+} from '@/components/figma/types'
 import { FigmaVideoWorkspaceSkeleton } from '@/components/figma/skeletons'
+import { sanitizeNavigationUrl } from '@/lib/urlSafety'
 
 type ExamWorkspaceTabId = 'written' | 'solutions' | 'resources' | 'notes' | 'comments'
+type ExamNoteDraftState = { problemId: number | null; value: string }
+type PendingExamNoteDraftWrite = { problemId: number; value: string }
 
 const examWorkspaceTabMeta: Array<{ id: ExamWorkspaceTabId; label: string; icon: FigmaTabItem['icon'] }> = [
   { id: 'written', label: 'Written', icon: FileText },
@@ -49,31 +56,72 @@ const examWorkspaceTabMeta: Array<{ id: ExamWorkspaceTabId; label: string; icon:
   { id: 'comments', label: 'Comments', icon: MessageSquare },
 ]
 
+const pendingExamNoteDraftWrites = new Map<number, PendingExamNoteDraftWrite>()
+let examNoteDraftFlushHandle: number | null = null
+let examNoteDraftFlushMode: 'idle' | 'timeout' | null = null
+let examNoteDraftPagehideListenerAttached = false
+
 export default function ExamWorkspacePage() {
   const params = useParams<{ examId?: string }>()
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const examId = numberParam(params.examId)
   const routeProblemId = numberParam(searchParams.get('problem'))
   const { exams, loading, error, isValidating, retry: retryExamList } = useExamBankData('', {})
   const exam = useMemo(() => exams.find((item) => item.id === examId) ?? null, [examId, exams])
   const fallbackProblemId = firstProblemId(exam)
   const [selectedProblemId, setSelectedProblemId] = useState<number | null>(routeProblemId ?? fallbackProblemId)
-  const [detailRequestVersion, setDetailRequestVersion] = useState(routeProblemId ? 1 : 0)
   const [activeTabId, setActiveTabId] = useState<ExamWorkspaceTabId>('written')
   const [progressMutating, setProgressMutating] = useState(false)
-  const [noteDraft, setNoteDraft] = useState('')
-  const openedProgressRef = useRef<Set<number>>(new Set())
+  const [noteDraftState, setNoteDraftState] = useState<ExamNoteDraftState>({ problemId: null, value: '' })
+  const noteDraft = noteDraftState.problemId === selectedProblemId
+    ? noteDraftState.value
+    : ''
+  const openedProgressRef = useRef<Set<number> | null>(null)
+  if (openedProgressRef.current === null) {
+    openedProgressRef.current = new Set<number>()
+  }
+  const preloadedProblemDetailKeysRef = useRef<Set<string> | null>(null)
+  if (preloadedProblemDetailKeysRef.current === null) {
+    preloadedProblemDetailKeysRef.current = new Set<string>()
+  }
+  const noteDraftCacheRef = useRef<Map<number, string> | null>(null)
+  if (noteDraftCacheRef.current === null) {
+    noteDraftCacheRef.current = new Map<number, string>()
+  }
   const lastErrorToastRef = useRef('')
-  const detail = useExamProblemDetail(selectedProblemId, detailRequestVersion)
+  const detail = useExamProblemDetail(selectedProblemId)
 
   useEffect(() => {
     if (routeProblemId && routeProblemId !== selectedProblemId) {
       setSelectedProblemId(routeProblemId)
-      setDetailRequestVersion((value) => value + 1)
     }
   }, [routeProblemId, selectedProblemId])
+
+  useEffect(() => {
+    return () => {
+      flushPendingExamNoteDraftWrites()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedProblemId) {
+      setNoteDraftState((current) => (
+        current.problemId === null && current.value === ''
+          ? current
+          : { problemId: null, value: '' }
+      ))
+      return
+    }
+
+    setNoteDraftState((current) => (
+      current.problemId === selectedProblemId
+        ? current
+        : { problemId: selectedProblemId, value: cachedExamNoteDraft(selectedProblemId, noteDraftCacheRef.current) }
+    ))
+  }, [selectedProblemId])
 
   useEffect(() => {
     if (selectedProblemId || !fallbackProblemId) return
@@ -90,16 +138,8 @@ export default function ExamWorkspacePage() {
     const message = apiDataErrorMessage(activeError, 'Could not load this exam workspace.')
     if (message === lastErrorToastRef.current) return
     lastErrorToastRef.current = message
-    toast.error(message)
+    showToastError(message)
   }, [detail.error, error])
-
-  useEffect(() => {
-    if (!selectedProblemId) {
-      setNoteDraft('')
-      return
-    }
-    setNoteDraft(window.localStorage.getItem(examNoteStorageKey(selectedProblemId)) ?? '')
-  }, [selectedProblemId])
 
   const updateProblemProgress = useCallback(async (
     problem: ExamProblemDetail,
@@ -114,20 +154,20 @@ export default function ExamWorkspacePage() {
         progress_status: progress.status,
         saved: progress.saved,
       }, { revalidate: false })
-      void retryExamList()
-      if (!options.silent) toast.success('Progress saved')
+      if (!options.silent) showToastSuccess('Progress saved')
     } catch (progressError) {
-      if (!options.silent) toast.error(apiDataErrorMessage(progressError, 'Could not save exam progress.'))
+      if (!options.silent) showToastError(apiDataErrorMessage(progressError, 'Could not save exam progress.'))
     } finally {
       setProgressMutating(false)
     }
-  }, [detail, retryExamList])
+  }, [detail])
 
   useEffect(() => {
     const problem = detail.problem
-    if (!problem || problem.can_access === false || openedProgressRef.current.has(problem.id)) return
+    const openedProgress = openedProgressRef.current ?? (openedProgressRef.current = new Set<number>())
+    if (!problem || problem.can_access === false || openedProgress.has(problem.id)) return
     if (problem.progress_status === 'opened' || problem.progress_status === 'completed') return
-    openedProgressRef.current.add(problem.id)
+    openedProgress.add(problem.id)
     void updateProblemProgress(problem, { status: 'opened' }, { silent: true })
   }, [detail.problem, updateProblemProgress])
 
@@ -135,14 +175,32 @@ export default function ExamWorkspacePage() {
     const parsed = typeof problemId === 'number' ? problemId : numberParam(String(problemId ?? ''))
     if (!parsed) return
     setSelectedProblemId(parsed)
-    setDetailRequestVersion((value) => value + 1)
     router.replace(`${pathname}?problem=${parsed}`, { scroll: false })
   }
 
+  function preloadProblem(problemId: number | string | undefined) {
+    const parsed = typeof problemId === 'number' ? problemId : numberParam(String(problemId ?? ''))
+    if (!parsed || parsed === selectedProblemId) return
+    const preloadKey = examProblemDetailSWRKey(parsed)
+    if (preloadKey && hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (!preloadKey || preloadedProblemDetailKeysRef.current?.has(preloadKey)) return
+
+    preloadedProblemDetailKeysRef.current?.add(preloadKey)
+    const request = apiSWRFetcher<ExamProblemDetail>(preloadKey)
+    void request.catch(() => {
+      preloadedProblemDetailKeysRef.current?.delete(preloadKey)
+    })
+    void mutateSWRCache(preloadKey, request, {
+      populateCache: true,
+      revalidate: false,
+    })
+  }
+
   function updateNote(value: string) {
-    setNoteDraft(value)
+    setNoteDraftState({ problemId: selectedProblemId, value })
     if (selectedProblemId) {
-      window.localStorage.setItem(examNoteStorageKey(selectedProblemId), value)
+      noteDraftCacheRef.current?.set(selectedProblemId, value)
+      writeExamNoteDraft(selectedProblemId, value)
     }
   }
 
@@ -197,6 +255,7 @@ export default function ExamWorkspacePage() {
         total: stats.total,
         value: stats.value,
         sections: railSections,
+        onItemPreload: (item) => preloadProblem(item.id),
         onItemSelect: (item) => selectProblem(item.id),
       }}
     >
@@ -207,23 +266,15 @@ export default function ExamWorkspacePage() {
               Refreshing exam workspace...
             </p>
           )}
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={`${activeProblem?.id ?? 'empty'}-${activeTabId}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
-            >
-              <ExamWorkspaceTabPanel
-                activeTabId={activeTabId}
-                exam={exam}
-                problem={activeProblem}
-                noteDraft={noteDraft}
-                onNoteChange={updateNote}
-              />
-            </motion.div>
-          </AnimatePresence>
+          <div key={`${activeProblem?.id ?? 'empty'}-${activeTabId}`}>
+            <ExamWorkspaceTabPanel
+              activeTabId={activeTabId}
+              exam={exam}
+              problem={activeProblem}
+              noteDraft={noteDraft}
+              onNoteChange={updateNote}
+            />
+          </div>
           {activeProblem && activeProblem.can_access !== false && (
             <div className="flex flex-wrap items-center gap-2 border-t border-[#f4f4f5] pt-4">
               {activeProblem.progress_status !== 'completed' && (
@@ -231,7 +282,7 @@ export default function ExamWorkspacePage() {
                   type="button"
                   onClick={() => updateProblemProgress(activeProblem, { status: 'completed' })}
                   disabled={progressMutating}
-                  className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition hover:bg-[#2f27b8] disabled:opacity-50"
+                  className="inline-flex h-10 items-center gap-2 rounded-[12px] bg-[#3a2fd3] px-4 text-[13px] font-black text-white transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-[#2f27b8] active:scale-[0.96] disabled:opacity-50 disabled:active:scale-100"
                 >
                   <Check size={15} />
                   Mark problem complete
@@ -242,7 +293,7 @@ export default function ExamWorkspacePage() {
                 onClick={() => updateProblemProgress(activeProblem, { saved: !activeProblem.saved })}
                 disabled={progressMutating}
                 aria-pressed={activeProblem.saved}
-                className={`inline-flex h-10 items-center gap-2 rounded-[12px] border px-4 text-[13px] font-black transition disabled:opacity-60 ${activeProblem.saved ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46]'}`}
+                className={`inline-flex h-10 items-center gap-2 rounded-[12px] border px-4 text-[13px] font-black transition-[background-color,border-color,color,opacity,transform] duration-150 ease-out active:scale-[0.96] disabled:opacity-60 disabled:active:scale-100 ${activeProblem.saved ? 'border-[#bbf7d0] bg-[#f0fdf4] text-[#15803d]' : 'border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#cfd2dc] hover:bg-[#f8f9fc] hover:text-[#3f3f46]'}`}
               >
                 <Bookmark size={14} fill={activeProblem.saved ? 'currentColor' : 'none'} />
                 {activeProblem.saved ? 'Saved' : 'Save problem'}
@@ -281,12 +332,14 @@ function ExamProblemVideoFrame({ problem }: { problem: ExamProblemDetail | null 
   if (videoSource?.youtubeId) return <VideoPlayerFrame videoId={videoSource.youtubeId} />
   if (videoSource?.url) {
     return (
-      <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-[#f4f4f5] shadow-none transition-shadow duration-300 hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)]" data-exam-video-frame>
+      <div className="kresco-enter relative aspect-[1057/596] w-full max-w-[1057px] overflow-hidden rounded-[17.617px] border-[2.239px] border-[#e4e4e7] bg-[#f4f4f5] shadow-none transition-[box-shadow] duration-150 ease-out hover:shadow-[0_18px_40px_rgba(24,24,27,0.08)] motion-reduce:transition-none" data-exam-video-frame>
         <iframe
           title="Exam problem correction video"
           src={videoSource.url}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+          sandbox="allow-scripts allow-presentation allow-popups"
           className="absolute inset-0 h-full w-full border-0"
         />
       </div>
@@ -396,17 +449,19 @@ function ResourcesPanel({ exam, problem }: { exam: Exam; problem: ExamProblemDet
   return (
     <section className="grid gap-3">
       {resources.map((resource) => (
-        <Link
+        <a
           key={`${resource.href}-${resource.label}`}
           href={resource.href}
-          className="flex min-h-[58px] items-center justify-between gap-4 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-[#3f3f46] no-underline transition hover:border-[#d8ddff] hover:bg-[#fbfbff]"
+          target={resource.href.startsWith('/') ? undefined : '_blank'}
+          rel={resource.href.startsWith('/') ? undefined : 'noopener noreferrer'}
+          className="flex min-h-[58px] items-center justify-between gap-4 rounded-[14px] border border-[#e4e4e7] bg-white px-4 py-3 text-[#3f3f46] no-underline transition-[background-color,border-color,transform] duration-150 ease-out hover:border-[#d8ddff] hover:bg-[#fbfbff] active:scale-[0.96]"
         >
           <span className="grid gap-1">
             <strong className="text-[14px] font-black leading-[1.1]">{resource.label}</strong>
             <span className="text-[12px] font-bold text-[#9f9fa9]">{resource.copy}</span>
           </span>
           <ExternalLink size={16} className="shrink-0 text-[#71717b]" />
-        </Link>
+        </a>
       ))}
     </section>
   )
@@ -421,7 +476,7 @@ function NotesPanel({ value, onChange }: { value: string; onChange: (value: stri
           aria-label="Exam problem notes"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="min-h-[180px] w-full resize-y rounded-[16px] border-2 border-[#e4e4e7] bg-white px-4 py-3 text-[14px] font-semibold leading-6 text-[#3f3f46] outline-none transition placeholder:text-[#a1a1aa] focus:border-[#d8ddff] focus:ring-4 focus:ring-[#f4f5ff]"
+          className="min-h-[180px] w-full resize-y rounded-[16px] border-2 border-[#e4e4e7] bg-white px-4 py-3 text-[14px] font-semibold leading-6 text-[#3f3f46] outline-none transition-[border-color,box-shadow] duration-150 ease-out placeholder:text-[#a1a1aa] focus:border-[#d8ddff] focus:ring-4 focus:ring-[#f4f5ff]"
           placeholder="Write your attempt, mistakes, questions, and what to revisit before watching the correction."
         />
       </label>
@@ -437,7 +492,7 @@ function PartStatement({ part }: { part: ExamProblemPart }) {
 
 function PartSolution({ part }: { part: ExamProblemPart }) {
   if (part.can_access === false) return <LockedPart part={part} copy="Unlock this subject to access this part correction." />
-  const videoUrl = part.correction_video_url || part.video_resource?.url || ''
+  const videoUrl = sanitizeNavigationUrl(part.correction_video_url || part.video_resource?.url, { allowRelative: false })
 
   return (
     <article className="rounded-[18px] border-2 border-[#e4e4e7] bg-white p-5">
@@ -447,10 +502,10 @@ function PartSolution({ part }: { part: ExamProblemPart }) {
           <h4 className="m-0 mt-1 text-[18px] font-black text-[#27272a]">{part.title || partLabel(part)}</h4>
         </div>
         {videoUrl && (
-          <Link href={videoUrl} className="inline-flex h-9 items-center gap-2 rounded-[11px] bg-[#eef2ff] px-3 text-[12px] font-black text-[#3a2fd3] no-underline">
+          <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center gap-2 rounded-[11px] bg-[#eef2ff] px-3 text-[12px] font-black text-[#3a2fd3] no-underline transition-[background-color,transform] duration-150 ease-out hover:bg-[#e0e7ff] active:scale-[0.96]">
             <PlayCircle size={14} />
             Video
-          </Link>
+          </a>
         )}
       </div>
       <RichTextBlock body={part.written_solution_body} empty="No written correction is available for this part yet." />
@@ -561,11 +616,14 @@ function problemVideoSource(problem: ExamProblemDetail): { youtubeId?: string; u
   if (resource?.provider?.toLowerCase().includes('youtube') && resource.provider_resource_id) {
     return { youtubeId: resource.provider_resource_id }
   }
-  if (resource?.url) return { url: resource.url }
+  const resourceUrl = sanitizeEmbedUrl(resource?.url)
+  if (resourceUrl) return { url: resourceUrl }
 
   for (const part of problem.parts) {
-    if (part.correction_video_url) return { url: part.correction_video_url }
-    if (part.video_resource?.url) return { url: part.video_resource.url }
+    const correctionVideoUrl = sanitizeEmbedUrl(part.correction_video_url)
+    if (correctionVideoUrl) return { url: correctionVideoUrl }
+    const partVideoResourceUrl = sanitizeEmbedUrl(part.video_resource?.url)
+    if (partVideoResourceUrl) return { url: partVideoResourceUrl }
     if (part.video_resource?.provider?.toLowerCase().includes('youtube') && part.video_resource.provider_resource_id) {
       return { youtubeId: part.video_resource.provider_resource_id }
     }
@@ -574,10 +632,32 @@ function problemVideoSource(problem: ExamProblemDetail): { youtubeId?: string; u
   return null
 }
 
+function sanitizeEmbedUrl(value?: string | null) {
+  const safeUrl = sanitizeNavigationUrl(value, { allowRelative: false })
+  if (!safeUrl) return ''
+  try {
+    const url = new URL(safeUrl)
+    const host = url.hostname.toLowerCase()
+    const allowedHosts = new Set([
+      'player.vdocipher.com',
+      'www.youtube.com',
+      'youtube.com',
+      'www.youtube-nocookie.com',
+      'youtube-nocookie.com',
+      'player.vimeo.com',
+    ])
+    return allowedHosts.has(host) ? url.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
 function problemResources(exam: Exam, problem: ExamProblemDetail) {
   const resources: Array<{ label: string; copy: string; href: string }> = []
-  if (exam.statement_url) resources.push({ label: 'Exam statement', copy: `${exam.subject_title} ${exam.year}`, href: exam.statement_url })
-  if (problem.written_solution_url) resources.push({ label: 'Written solution file', copy: problem.title, href: problem.written_solution_url })
+  const statementUrl = sanitizeNavigationUrl(exam.statement_url)
+  const writtenSolutionUrl = sanitizeNavigationUrl(problem.written_solution_url)
+  if (statementUrl) resources.push({ label: 'Exam statement', copy: `${exam.subject_title} ${exam.year}`, href: statementUrl })
+  if (writtenSolutionUrl) resources.push({ label: 'Written solution file', copy: problem.title, href: writtenSolutionUrl })
   if (problem.topic_id) resources.push({ label: 'Related course topic', copy: 'Open the linked lesson workspace', href: `/topics/${problem.topic_id}` })
   const video = problemVideoSource(problem)
   if (video?.url) resources.push({ label: 'Correction video', copy: 'Open attached correction video', href: video.url })
@@ -596,7 +676,103 @@ function examSessionLabel(session: string) {
 }
 
 function examNoteStorageKey(problemId: number) {
+  return `kresco:exam-problem-note:v1:${problemId}`
+}
+
+function legacyExamNoteStorageKey(problemId: number) {
   return `kresco-exam-problem-note:${problemId}`
+}
+
+function readExamNoteDraft(problemId: number) {
+  const pendingWrite = pendingExamNoteDraftWrites.get(problemId)
+  if (pendingWrite) return pendingWrite.value
+  if (typeof window === 'undefined') return ''
+
+  try {
+    const current = window.localStorage.getItem(examNoteStorageKey(problemId))
+    if (current !== null) return current
+
+    const legacy = window.localStorage.getItem(legacyExamNoteStorageKey(problemId))
+    if (legacy !== null) {
+      writeExamNoteDraft(problemId, legacy)
+      return legacy
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
+function cachedExamNoteDraft(problemId: number, cache: Map<number, string> | null) {
+  if (cache?.has(problemId)) return cache.get(problemId) ?? ''
+  const value = readExamNoteDraft(problemId)
+  cache?.set(problemId, value)
+  return value
+}
+
+function writeExamNoteDraft(problemId: number, value: string) {
+  if (typeof window === 'undefined') return
+  pendingExamNoteDraftWrites.set(problemId, { problemId, value })
+  attachExamNoteDraftPagehideListener()
+  scheduleExamNoteDraftFlush()
+}
+
+function flushPendingExamNoteDraftWrites() {
+  if (typeof window === 'undefined') return
+  if (examNoteDraftFlushHandle !== null) {
+    if (examNoteDraftFlushMode === 'idle') {
+      window.cancelIdleCallback?.(examNoteDraftFlushHandle)
+    } else {
+      window.clearTimeout(examNoteDraftFlushHandle)
+    }
+    examNoteDraftFlushHandle = null
+    examNoteDraftFlushMode = null
+  }
+
+  if (pendingExamNoteDraftWrites.size === 0) return
+  const writes = Array.from(pendingExamNoteDraftWrites.values())
+  pendingExamNoteDraftWrites.clear()
+
+  for (const write of writes) {
+    writeExamNoteDraftNow(write.problemId, write.value)
+  }
+}
+
+function scheduleExamNoteDraftFlush() {
+  if (examNoteDraftFlushHandle !== null || typeof window === 'undefined') return
+
+  if (typeof window.requestIdleCallback === 'function') {
+    examNoteDraftFlushMode = 'idle'
+    examNoteDraftFlushHandle = window.requestIdleCallback(() => {
+      examNoteDraftFlushHandle = null
+      examNoteDraftFlushMode = null
+      flushPendingExamNoteDraftWrites()
+    }, { timeout: 800 })
+    return
+  }
+
+  examNoteDraftFlushMode = 'timeout'
+  examNoteDraftFlushHandle = window.setTimeout(() => {
+    examNoteDraftFlushHandle = null
+    examNoteDraftFlushMode = null
+    flushPendingExamNoteDraftWrites()
+  }, 300)
+}
+
+function attachExamNoteDraftPagehideListener() {
+  if (examNoteDraftPagehideListenerAttached || typeof window === 'undefined') return
+  examNoteDraftPagehideListenerAttached = true
+  window.addEventListener('pagehide', flushPendingExamNoteDraftWrites)
+}
+
+function writeExamNoteDraftNow(problemId: number, value: string) {
+  try {
+    window.localStorage.setItem(examNoteStorageKey(problemId), value)
+    window.localStorage.removeItem(legacyExamNoteStorageKey(problemId))
+  } catch {
+    // Draft persistence is best-effort.
+  }
 }
 
 function numberParam(value: string | string[] | null | undefined) {

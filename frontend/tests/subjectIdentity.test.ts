@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -7,6 +9,10 @@ import {
   normalizeSubjectTitle,
   subjectKey,
 } from '@/lib/subjectIdentity'
+
+function source(...parts: string[]) {
+  return readFileSync(join(process.cwd(), ...parts), 'utf8').replace(/\r\n?/g, '\n')
+}
 
 describe('subject identity', () => {
   it('normalizes subject aliases from one shared catalog', () => {
@@ -29,5 +35,17 @@ describe('subject identity', () => {
   it('falls back to stable slug keys for unknown subjects', () => {
     expect(subjectKey('Unknown Elective')).toBe('unknown-elective')
     expect(canonicalSubject('Unknown Elective')).toEqual({ key: 'unknown-elective', title: 'Unknown Elective' })
+  })
+
+  it('caches repeated subject normalization and key resolution', () => {
+    const subjectIdentitySource = source('lib', 'subjectIdentity.ts')
+
+    expect(subjectIdentitySource).toContain('const SUBJECT_IDENTITY_CACHE_MAX = 256')
+    expect(subjectIdentitySource).toContain('const normalizedSubjectTitleCache = new Map<string, string>()')
+    expect(subjectIdentitySource).toContain('const subjectKeyCache = new Map<string, string>()')
+    expect(subjectIdentitySource).toContain('const cached = normalizedSubjectTitleCache.get(title)')
+    expect(subjectIdentitySource).toContain('const cached = subjectKeyCache.get(title)')
+    expect(subjectIdentitySource).toContain('rememberSubjectIdentityCacheValue(subjectKeyCache, title')
+    expect(subjectIdentitySource).toContain('title: PROFILE_SUBJECT_TITLES[key] ?? title')
   })
 })

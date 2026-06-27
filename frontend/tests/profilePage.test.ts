@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import React, { act } from 'react'
 import { SWRConfig } from 'swr'
 import { createRoot, type Root } from 'react-dom/client'
@@ -7,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ProfilePage from '@/app/(dashboard)/profile/page'
 import { apiSWRConfig } from '@/lib/apiData'
+import { clearStudentRoutePreloadState } from '@/lib/studentRoutePreload'
 import { useAuthStore } from '@/lib/store'
 
 const mocks = vi.hoisted(() => ({
@@ -57,9 +60,10 @@ type MockProfileProps = {
   sidebar: { leaderboardEntries?: unknown[] }
   onSaveProfile?: (draft: MockProfileDraft) => Promise<void> | void
   onSelectMedia?: (kind: 'avatar' | 'banner', draft: MockProfileDraft) => Promise<string | undefined> | string | undefined
+  onRoutePreload?: (href: string) => void
 }
 
-vi.mock('@/components/figma', () => ({
+vi.mock('@/components/figma/profile', () => ({
   FigmaProfile: (props: MockProfileProps) => React.createElement(
     'main',
     { 'data-testid': 'profile-shell' },
@@ -103,6 +107,14 @@ vi.mock('@/components/figma', () => ({
         },
       },
       'Upload mocked avatar',
+    ),
+    React.createElement(
+      'button',
+      {
+        type: 'button',
+        onFocus: () => props.onRoutePreload?.('/topics/10?item=20'),
+      },
+      'Preload mocked destination',
     ),
   ),
   toProfileSubject: (title: string, progress: number | undefined, index: number) => ({
@@ -182,6 +194,7 @@ let mountedRoots: Array<{ root: Root; container: HTMLDivElement }> = []
 
 beforeEach(() => {
   vi.clearAllMocks()
+  clearStudentRoutePreloadState()
   document.body.innerHTML = ''
   mountedRoots = []
   useAuthStore.setState({
@@ -205,6 +218,13 @@ afterEach(() => {
 })
 
 describe('Profile page SWR data behavior', () => {
+  it('keeps profile sidebar cards on the lightweight card module', () => {
+    const source = readFileSync(join(process.cwd(), 'components', 'figma', 'profile.tsx'), 'utf8')
+
+    expect(source).toContain("from './permanent-sidebar-cards'")
+    expect(source).not.toContain("from './permanent-sidebar'")
+  })
+
   it('loads profile data through shared SWR keys and renders partial dashboard inputs', async () => {
     const { container } = renderProfilePage()
 
@@ -411,6 +431,24 @@ describe('Profile page SWR data behavior', () => {
     } finally {
       restoreFilePicker()
     }
+  })
+
+  it('preloads profile collection destinations through the shared student route cache', async () => {
+    const { container } = renderProfilePage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Profile shell Kresco Student')
+    })
+
+    mocks.apiGet.mockClear()
+
+    act(() => {
+      getButton(container, 'Preload mocked destination').focus()
+    })
+
+    await waitFor(() => {
+      expect(mocks.apiGet).toHaveBeenCalledWith('/courses/topics/10/workspace?item_id=20')
+    })
   })
 
   it('can reuse cached profile data across remounts with the same SWR cache', async () => {

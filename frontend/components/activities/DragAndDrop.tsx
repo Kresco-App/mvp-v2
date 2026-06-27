@@ -15,6 +15,9 @@ interface Props {
   onComplete?: (correct: boolean) => void
 }
 
+const activityControlMotionClass = 'transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+const activityDropZoneMotionClass = 'transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/35 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100'
+
 export default function DragAndDrop({ question, items, zones, onComplete }: Props) {
   const [assignments, setAssignments] = useState<Record<string, string>>({})
   const [dragItem, setDragItem] = useState<string | null>(null)
@@ -71,7 +74,7 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
             onDragStart={() => setDragItem(item.id)}
             onClick={() => setDragItem(item.id)}
             aria-pressed={dragItem === item.id}
-            className={`kresco-drag-surface bg-indigo-500/15 text-indigo-300 text-sm font-medium px-4 py-2.5 rounded-xl cursor-grab active:cursor-grabbing hover:bg-indigo-500/25 transition select-none border text-left ${
+            className={`kresco-drag-surface cursor-grab select-none rounded-xl border bg-indigo-500/15 px-4 py-2.5 text-left text-sm font-medium text-indigo-300 active:cursor-grabbing ${activityControlMotionClass} hover:bg-indigo-500/25 ${
               dragItem === item.id ? 'border-indigo-300 ring-2 ring-indigo-400/40' : 'border-indigo-500/30'
             }`}
           >
@@ -112,7 +115,7 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
                     ? `Place selected item in ${zone.label}`
                     : `${zone.label}: empty`
               }
-              className={`min-h-[80px] rounded-xl border-2 border-dashed p-4 flex flex-col gap-2 transition text-left ${
+              className={`flex min-h-[80px] flex-col gap-2 rounded-xl border-2 border-dashed p-4 text-left ${activityDropZoneMotionClass} ${
                 submitted
                   ? isCorrect ? 'border-green-500/50 bg-green-500/10' : isWrong ? 'border-red-500/50 bg-red-500/10' : 'border-slate-700'
                   : 'border-slate-700 hover:border-indigo-500/40'
@@ -145,14 +148,14 @@ export default function DragAndDrop({ question, items, zones, onComplete }: Prop
           <button type="button"
             onClick={handleSubmit}
             disabled={Object.keys(assignments).length < zones.length}
-            className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className={`min-h-10 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 ${activityControlMotionClass}`}
           >
             Verifier
           </button>
         ) : (
           <button type="button"
             onClick={handleReset}
-            className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
+            className={`min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 ${activityControlMotionClass}`}
           >
             Reessayer
           </button>

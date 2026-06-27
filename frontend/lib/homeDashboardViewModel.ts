@@ -1,4 +1,4 @@
-import type { FigmaHomeSubject, FigmaHomeTopic } from '@/components/figma'
+import type { FigmaHomeSubject, FigmaHomeTopic } from '@/components/figma/home'
 import {
   DEFAULT_SUBJECT_SHORTCUT_KEYS,
   canonicalSubjectTitle,

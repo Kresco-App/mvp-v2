@@ -15,6 +15,7 @@ import {
   refreshStudentLiveInteractionsEnvelope,
   studentLiveEmbedSWRKey,
   useProfessorLiveControlData,
+  useStudentLiveScheduleData,
   useStudentLiveRoomData,
 } from '@/lib/liveSessionData'
 import type {
@@ -104,8 +105,22 @@ describe('live session SWR data', () => {
     expect(professorSource).not.toContain("message.name?.startsWith('live.session.')")
     expect(dataSource).toContain("message.name?.startsWith('live.session.')")
     expect(dataSource).toContain('liveSessionChannelName(sessionId)')
+    expect(dataSource).not.toContain("from '@/lib/realtime'")
+    expect(dataSource).toContain("import('@/lib/realtime')")
+    expect(studentSource).not.toContain("from '@/lib/realtime'")
+    expect(studentSource).toContain("from '@/hooks/useNotificationChannelsSubscription'")
     expect(studentSource).not.toMatch(/poll:\s*async\s*\(\)\s*=>\s*\{\s*await mutateInteractions\(\)\s*\}/)
     expect(professorSource).not.toMatch(/poll:\s*async\s*\(\)\s*=>\s*\{\s*await mutateAll\(\)\s*\}/)
+  })
+
+  it('keeps live-room interaction rows paint-contained for long chat and Q&A histories', () => {
+    const studentSource = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'live', '[sessionId]', 'page.tsx'), 'utf8')
+    const professorSource = readFileSync(join(process.cwd(), 'app', 'professor', 'live', '[sessionId]', 'page.tsx'), 'utf8')
+
+    expect(studentSource).toContain("const liveRoomInteractionContainmentClass = '[content-visibility:auto] [contain-intrinsic-size:0_96px]'")
+    expect(professorSource).toContain("const liveRoomInteractionContainmentClass = '[content-visibility:auto] [contain-intrinsic-size:0_112px]'")
+    expect(studentSource).toContain('${liveRoomInteractionContainmentClass}')
+    expect(professorSource).toContain('${liveRoomInteractionContainmentClass}')
   })
 
   it('keeps professor control room embed and interactions scoped to the active route session', async () => {
@@ -170,6 +185,24 @@ describe('live session SWR data', () => {
     })
     expect(mocks.apiGet).not.toHaveBeenCalledWith('/professor/student-live-sessions/71/embed')
   })
+
+  it('sorts student live sessions without mutating the fetched array', async () => {
+    const sessions = [
+      studentSessionFixture(72, 'Later scheduled live', true, { status: 'scheduled', starts_at: '2026-05-27T16:00:00Z' }),
+      studentSessionFixture(71, 'Active live', true, { status: 'live', starts_at: '2026-05-27T15:00:00Z' }),
+    ]
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/professor/student-live-sessions') return { data: sessions }
+      throw new Error(`unexpected url ${url}`)
+    })
+
+    const { container } = renderHarness(React.createElement(StudentScheduleHarness))
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('sessions: Active live, Later scheduled live')
+    })
+    expect(sessions.map((session) => session.id)).toEqual([72, 71])
+  })
 })
 
 function ProfessorControlHarness() {
@@ -203,6 +236,16 @@ function StudentRoomHarness() {
     React.createElement('p', null, `session: ${session?.title ?? 'none'}`),
     React.createElement('p', null, `embed: ${embed?.embed_url ?? 'none'}`),
     React.createElement('p', null, `embed loading: ${embedLoading ? 'yes' : 'no'}`),
+  )
+}
+
+function StudentScheduleHarness() {
+  const { sessions } = useStudentLiveScheduleData()
+
+  return React.createElement(
+    'main',
+    null,
+    React.createElement('p', null, `sessions: ${sessions.map((session) => session.title).join(', ') || 'none'}`),
   )
 }
 
@@ -247,7 +290,12 @@ function professorSessionFixture(id: number, title: string): ProfessorLiveSessio
   }
 }
 
-function studentSessionFixture(id: number, title: string, canJoin: boolean): StudentLiveSession {
+function studentSessionFixture(
+  id: number,
+  title: string,
+  canJoin: boolean,
+  overrides: Partial<StudentLiveSession> = {},
+): StudentLiveSession {
   return {
     ...professorSessionFixture(id, title),
     offering_title: 'Mathematics - 2BAC Sciences Math B',
@@ -258,6 +306,7 @@ function studentSessionFixture(id: number, title: string, canJoin: boolean): Stu
     viewer_url: `/live/${id}`,
     can_join: canJoin,
     provider: 'vdocipher',
+    ...overrides,
   }
 }
 

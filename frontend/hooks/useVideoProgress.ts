@@ -1,8 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef } from 'react'
-import { toast } from 'sonner'
-import { postJson } from '@/lib/apiClient'
+import { postJson, postJsonKeepalive } from '@/lib/apiClient'
+import { showToastError } from '@/lib/lazyToast'
 
 type ProgressCallback = ((currentSeconds: number, progress: number) => void) | undefined
 type CompleteCallback = (() => void | Promise<void>) | undefined
@@ -27,6 +27,10 @@ export function isActiveLesson(progressLessonId: string | number, activeLessonId
   return progressLessonId === activeLessonId
 }
 
+function isVideoProgressDocumentHidden() {
+  return typeof document !== 'undefined' && document.hidden
+}
+
 export function useVideoProgress({
   lessonId,
   durationSeconds,
@@ -47,14 +51,29 @@ export function useVideoProgress({
   const completionReportedRef = useRef(false)
   const completionSaveInFlightRef = useRef(false)
   const lastSavedRef = useRef(0)
+  const progressSaveInFlightRef = useRef<{
+    token: symbol
+    watchedSeconds: number
+    request: Promise<boolean>
+  } | null>(null)
   const onProgressRef = useRef<ProgressCallback>(onProgress)
   const onCompleteRef = useRef<CompleteCallback>(onComplete)
   const onStopPlaybackRef = useRef<typeof onStopPlayback>(onStopPlayback)
+  const saveProgressRef = useRef<(watchedSeconds: number) => Promise<boolean>>(async () => false)
+  const saveProgressWithKeepaliveRef = useRef<(watchedSeconds: number) => boolean>(() => false)
+  const currentWatchedSecondsRef = useRef<() => number>(() => 0)
 
   const clearProgressInterval = useCallback(() => {
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
+    }
+  }, [])
+
+  const flushProgress = useCallback(() => {
+    const watchedSeconds = currentWatchedSecondsRef.current()
+    if (!saveProgressWithKeepaliveRef.current(watchedSeconds)) {
+      void saveProgressRef.current(watchedSeconds)
     }
   }, [])
 
@@ -73,9 +92,80 @@ export function useVideoProgress({
     }
   }, [lessonId])
 
-  const saveProgress = useCallback(async (watchedSeconds: number) => (
-    postWatchedSeconds(`/courses/topic-items/${lessonId}/progress`, watchedSeconds)
-  ), [lessonId, postWatchedSeconds])
+  const postWatchedSecondsKeepalive = useCallback((path: string, watchedSeconds: number) => {
+    if (!isActiveLesson(lessonId, lessonIdentityRef.current)) {
+      return null
+    }
+
+    return postJsonKeepalive(path, {
+      watched_seconds: Math.max(0, Math.round(watchedSeconds)),
+    })
+  }, [lessonId])
+
+  const saveProgress = useCallback(async (watchedSeconds: number) => {
+    if (completionReportedRef.current || completionSaveInFlightRef.current) return true
+
+    const roundedWatchedSeconds = Math.max(0, Math.round(watchedSeconds))
+    if (roundedWatchedSeconds <= 0) return false
+    if (roundedWatchedSeconds === lastSavedRef.current) return true
+
+    const inFlight = progressSaveInFlightRef.current
+    if (inFlight?.watchedSeconds === roundedWatchedSeconds) {
+      return inFlight.request
+    }
+
+    const token = Symbol('video-progress-save')
+    const request = postWatchedSeconds(`/courses/topic-items/${lessonId}/progress`, roundedWatchedSeconds)
+      .then((saved) => {
+        if (saved) lastSavedRef.current = roundedWatchedSeconds
+        return saved
+      })
+      .finally(() => {
+        if (progressSaveInFlightRef.current?.token === token) {
+          progressSaveInFlightRef.current = null
+        }
+      })
+
+    progressSaveInFlightRef.current = {
+      token,
+      watchedSeconds: roundedWatchedSeconds,
+      request,
+    }
+    return request
+  }, [lessonId, postWatchedSeconds])
+
+  const saveProgressWithKeepalive = useCallback((watchedSeconds: number) => {
+    if (completionReportedRef.current || completionSaveInFlightRef.current) return false
+
+    const roundedWatchedSeconds = Math.max(0, Math.round(watchedSeconds))
+    if (roundedWatchedSeconds <= 0) return false
+    if (roundedWatchedSeconds === lastSavedRef.current) return true
+
+    const inFlight = progressSaveInFlightRef.current
+    if (inFlight?.watchedSeconds === roundedWatchedSeconds) return true
+
+    const request = postWatchedSecondsKeepalive(`/courses/topic-items/${lessonId}/progress`, roundedWatchedSeconds)
+    if (!request) return false
+
+    const token = Symbol('video-progress-keepalive-save')
+    const trackedRequest = request
+      .then((saved) => {
+        if (saved) lastSavedRef.current = roundedWatchedSeconds
+        return saved
+      })
+      .finally(() => {
+        if (progressSaveInFlightRef.current?.token === token) {
+          progressSaveInFlightRef.current = null
+        }
+      })
+
+    progressSaveInFlightRef.current = {
+      token,
+      watchedSeconds: roundedWatchedSeconds,
+      request: trackedRequest,
+    }
+    return true
+  }, [lessonId, postWatchedSecondsKeepalive])
 
   const saveCompletion = useCallback(async (watchedSeconds: number) => (
     postWatchedSeconds(`/courses/topic-items/${lessonId}/complete`, watchedSeconds)
@@ -89,6 +179,12 @@ export function useVideoProgress({
   const currentWatchedSeconds = useCallback(() => (
     Math.max(0, Math.round(Number(getWatchedSeconds() ?? 0)))
   ), [getWatchedSeconds])
+
+  useEffect(() => {
+    saveProgressRef.current = saveProgress
+    saveProgressWithKeepaliveRef.current = saveProgressWithKeepalive
+    currentWatchedSecondsRef.current = currentWatchedSeconds
+  }, [currentWatchedSeconds, saveProgress, saveProgressWithKeepalive])
 
   const reportCompletion = useCallback(async () => {
     if (completionReportedRef.current || completionSaveInFlightRef.current) return false
@@ -119,7 +215,7 @@ export function useVideoProgress({
     if (awaitCompletionSave && !saved) {
       completionSaveInFlightRef.current = false
       completionReportedRef.current = false
-      if (completionSaveErrorMessage) toast.error(completionSaveErrorMessage)
+      if (completionSaveErrorMessage) showToastError(completionSaveErrorMessage)
       return false
     }
 
@@ -151,6 +247,33 @@ export function useVideoProgress({
     }
   }, [completionThreshold, currentDuration, getCurrentTime, lessonId, reportCompletion])
 
+  const startProgressInterval = useCallback(() => {
+    if (progressIntervalRef.current || isVideoProgressDocumentHidden()) return
+
+    const activeLessonId = lessonId
+    const intervalId = setInterval(() => {
+      if (!isActiveLesson(activeLessonId, lessonIdentityRef.current)) return
+      if (isVideoProgressDocumentHidden()) {
+        flushProgress()
+        clearProgressInterval()
+        return
+      }
+      if (syncOnInterval) syncProgress()
+
+      const current = Math.round(Number(getCurrentTime() ?? 0))
+      void saveProgress(current)
+    }, 30000)
+    progressIntervalRef.current = intervalId
+  }, [
+    clearProgressInterval,
+    flushProgress,
+    getCurrentTime,
+    lessonId,
+    saveProgress,
+    syncOnInterval,
+    syncProgress,
+  ])
+
   useEffect(() => {
     onProgressRef.current = onProgress
     onCompleteRef.current = onComplete
@@ -162,6 +285,7 @@ export function useVideoProgress({
     completionReportedRef.current = false
     completionSaveInFlightRef.current = false
     lastSavedRef.current = 0
+    progressSaveInFlightRef.current = null
     clearProgressInterval()
   }, [clearProgressInterval, lessonId])
 
@@ -171,44 +295,37 @@ export function useVideoProgress({
       return
     }
 
-    const activeLessonId = lessonId
-    const intervalId = setInterval(() => {
-      if (!isActiveLesson(activeLessonId, lessonIdentityRef.current)) return
-      if (syncOnInterval) syncProgress()
-
-      const current = Math.round(Number(getCurrentTime() ?? 0))
-      if (current !== lastSavedRef.current) {
-        lastSavedRef.current = current
-        void saveProgress(current)
-      }
-    }, 30000)
-    progressIntervalRef.current = intervalId
-
-    return () => {
-      clearInterval(intervalId)
-      if (progressIntervalRef.current === intervalId) {
-        progressIntervalRef.current = null
-      }
-    }
-  }, [
-    clearProgressInterval,
-    getCurrentTime,
-    isPlaying,
-    lessonId,
-    saveProgress,
-    syncOnInterval,
-    syncProgress,
-  ])
+    startProgressInterval()
+    return clearProgressInterval
+  }, [clearProgressInterval, isPlaying, startProgressInterval])
 
   useEffect(() => {
-    const flushProgress = () => {
-      void saveProgress(currentWatchedSeconds())
+    if (!isPlaying || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return
+
+    const handleVisibilityChange = () => {
+      if (isVideoProgressDocumentHidden()) {
+        flushProgress()
+        clearProgressInterval()
+        return
+      }
+
+      syncProgress()
+      flushProgress()
+      startProgressInterval()
     }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [clearProgressInterval, flushProgress, isPlaying, startProgressInterval, syncProgress])
+
+  useEffect(() => {
     window.addEventListener('pagehide', flushProgress)
     return () => {
       window.removeEventListener('pagehide', flushProgress)
     }
-  }, [currentWatchedSeconds, saveProgress])
+  }, [flushProgress])
 
   return {
     clearProgressInterval,

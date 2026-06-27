@@ -63,13 +63,15 @@ describe('permanent sidebar view model', () => {
   })
 
   it('normalizes quests without replacing live API titles', () => {
-    const quests = normalizeQuests([
+    const sourceQuests = [
       { id: 'custom', title: 'Original', progress: 12, target: 10 },
       { id: 'blank', title: '   ', progress: 0, target: 1 },
-    ])
+    ]
+    const quests = normalizeQuests(sourceQuests)
 
     expect(quests[0].title).toBe('Original')
     expect(quests[1].title).toBe('Score 14/20 or higher in 2 exercises')
+    expect(normalizeQuests(sourceQuests)).toBe(quests)
     expect(normalizeQuests([])).toEqual([])
   })
 

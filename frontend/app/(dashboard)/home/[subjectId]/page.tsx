@@ -1,67 +1,53 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { toast } from 'sonner'
-import { ArrowLeft, BookOpen, ClipboardCheck, Play } from 'lucide-react'
-import { getJson } from '@/lib/apiClient'
-import { FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
+import { useSWRConfig } from 'swr'
+import { ArrowLeft, BookOpen, ClipboardCheck, Play, RotateCcw } from 'lucide-react'
+import { FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma/subject-course-card'
+import { showToastError } from '@/lib/lazyToast'
 import { FigmaSubjectDetailSkeleton } from '@/components/figma/skeletons'
 import RouteErrorState from '@/components/RouteErrorState'
-
-interface TopicCard {
-  id: number
-  title: string
-  description: string
-  item_count: number
-  completed_count: number
-  progress_pct: number
-  can_access?: boolean
-}
-
-interface Subject {
-  id: number
-  title: string
-  description: string
-  thumbnail_url: string
-}
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
+import { useCourseSubjectDetailData, type CourseSubjectTopic } from '@/lib/courseDiscoveryData'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
+import { preloadStudentRouteData } from '@/lib/studentRoutePreload'
+import { topicWorkspaceSWRKey } from '@/lib/topicWorkspaceData'
+import type { TopicWorkspace } from '@/lib/topicWorkspaceTypes'
 
 export default function SubjectDetailPage() {
   const { subjectId } = useParams<{ subjectId: string }>()
-  const [subject, setSubject] = useState<Subject | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [topics, setTopics] = useState<TopicCard[]>([])
-  const [loadError, setLoadError] = useState('')
-  const [reloadKey, setReloadKey] = useState(0)
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
+  const {
+    subject,
+    topics,
+    loading,
+    error,
+    isValidating,
+    retry,
+  } = useCourseSubjectDetailData(subjectId)
+  const lastToastErrorRef = useRef('')
+  const preloadedTopicWorkspaceKeysRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    const controller = new AbortController()
-    async function load() {
-      setLoading(true)
-      setLoadError('')
-      try {
-        const [subjectData, topicsData] = await Promise.all([
-          getJson<Subject>(`/courses/subjects/${subjectId}`, { signal: controller.signal }),
-          getJson<TopicCard[]>(`/courses/subjects/${subjectId}/topics`, { signal: controller.signal }),
-        ])
-        setSubject(subjectData)
-        setTopics(Array.isArray(topicsData) ? topicsData : [])
-      } catch {
-        if (controller.signal.aborted) return
-        const message = 'Could not load this subject.'
-        setLoadError(message)
-        toast.error(message)
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
-      }
+    if (!error) {
+      lastToastErrorRef.current = ''
+      return
     }
+    const message = apiDataErrorMessage(error, 'Could not load this subject.')
+    if (message === lastToastErrorRef.current) return
+    lastToastErrorRef.current = message
+    showToastError(message)
+  }, [error])
 
-    load()
-    return () => {
-      controller.abort()
+  async function retrySubjectData() {
+    try {
+      await retry()
+    } catch {
+      // SWR exposes the latest error through state; the effect above owns user-visible reporting.
     }
-  }, [reloadKey, subjectId])
+  }
 
   const topicItemTotal = useMemo(() => topics.reduce((total, topic) => total + topic.item_count, 0), [topics])
   const topicCompletedCount = useMemo(() => topics.reduce((total, topic) => total + topic.completed_count, 0), [topics])
@@ -73,6 +59,28 @@ export default function SubjectDetailPage() {
     [topics],
   )
   const continueHref = nextTopic ? `/topics/${nextTopic.id}` : undefined
+  const examHref = `/exam/${subjectId}`
+
+  function preloadTopicWorkspace(topicId: number) {
+    if (!topicId) return
+    const preloadKey = topicWorkspaceSWRKey(topicId)
+    if (preloadKey && hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (!preloadKey || preloadedTopicWorkspaceKeysRef.current.has(preloadKey)) return
+
+    preloadedTopicWorkspaceKeysRef.current.add(preloadKey)
+    const request = apiSWRFetcher<TopicWorkspace>(preloadKey)
+    void request.catch(() => {
+      preloadedTopicWorkspaceKeysRef.current.delete(preloadKey)
+    })
+    void mutateSWRCache(preloadKey, request, {
+      populateCache: true,
+      revalidate: false,
+    })
+  }
+
+  function preloadExamRoute() {
+    preloadStudentRouteData(examHref, mutateSWRCache, { cache: swrCache })
+  }
 
   if (loading) {
     return <FigmaSubjectDetailSkeleton />
@@ -84,10 +92,10 @@ export default function SubjectDetailPage() {
         <RouteErrorState
           eyebrow="Subject unavailable"
           title="This subject could not be loaded."
-          message={loadError || 'The course data did not return a usable subject. Retry the request or go back home.'}
+          message={error ? apiDataErrorMessage(error, 'Could not load this subject.') : 'The course data did not return a usable subject. Retry the request or go back home.'}
           homeHref="/home"
           homeLabel="Back home"
-          onRetry={() => setReloadKey((value) => value + 1)}
+          onRetry={() => void retrySubjectData()}
         />
       </main>
     )
@@ -95,6 +103,23 @@ export default function SubjectDetailPage() {
 
   return (
     <main className="w-full">
+          {error && (
+            <section role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-[#fde68a] bg-[#fffbeb] px-5 py-4">
+              <div>
+                <p className="m-0 text-[14px] font-black text-[#92400e]">Subject data could not be refreshed.</p>
+                <p className="m-0 mt-1 text-[13px] font-bold text-[#b45309]">Cached subject content stays visible while you retry.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void retrySubjectData()}
+                disabled={isValidating}
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#92400e] px-4 text-[13px] font-black text-white disabled:opacity-60"
+              >
+                <RotateCcw size={15} />
+                {isValidating ? 'Retrying...' : 'Retry subject data'}
+              </button>
+            </section>
+          )}
           <div className="mb-4 flex items-center gap-2">
             <Link href="/home" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#9f9fa9] no-underline">
               <ArrowLeft size={13} />
@@ -128,11 +153,23 @@ export default function SubjectDetailPage() {
 
             {continueHref && (
               <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-[#e4e4e7] pt-5">
-                <Link href={continueHref} className="inline-flex h-12 items-center gap-2 rounded-xl bg-[#453dee] px-5 text-[14px] font-bold text-white no-underline shadow-none transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]">
+                <Link
+                  href={continueHref}
+                  onFocus={() => nextTopic && preloadTopicWorkspace(nextTopic.id)}
+                  onMouseOver={() => nextTopic && preloadTopicWorkspace(nextTopic.id)}
+                  onPointerEnter={() => nextTopic && preloadTopicWorkspace(nextTopic.id)}
+                  className="inline-flex h-12 items-center gap-2 rounded-xl bg-[#453dee] px-5 text-[14px] font-bold text-white no-underline shadow-none transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]"
+                >
                   <Play size={15} fill="currentColor" />
                   {completedTotal === 0 ? 'Start course' : 'Continue'}
                 </Link>
-                <Link href={`/exam/${subjectId}`} className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#e4e4e7] bg-white px-5 text-[14px] font-bold text-[#52525c] no-underline transition-[border-color,color,transform] duration-150 ease-out hover:border-[#453dee] hover:text-[#453dee] active:scale-[0.96]">
+                <Link
+                  href={examHref}
+                  onFocus={preloadExamRoute}
+                  onMouseOver={preloadExamRoute}
+                  onPointerEnter={preloadExamRoute}
+                  className="inline-flex h-12 items-center gap-2 rounded-xl border border-[#e4e4e7] bg-white px-5 text-[14px] font-bold text-[#52525c] no-underline transition-[border-color,color,transform] duration-150 ease-out hover:border-[#453dee] hover:text-[#453dee] active:scale-[0.96]"
+                >
                   <ClipboardCheck size={15} />
                   Mock exam
                 </Link>
@@ -158,11 +195,18 @@ export default function SubjectDetailPage() {
                   progress={topic.progress_pct}
                   state={getTopicCardState(topic)}
                   href={`/topics/${topic.id}`}
+                  onPreload={() => preloadTopicWorkspace(topic.id)}
                 />
               ))}
             </div>
 
-            <Link href={`/exam/${subjectId}`} className="mt-8 inline-flex h-[58px] w-full items-center justify-center gap-3 rounded-[18px] bg-[#453dee] text-[17px] font-bold text-white no-underline shadow-none transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]">
+            <Link
+              href={examHref}
+              onFocus={preloadExamRoute}
+              onMouseOver={preloadExamRoute}
+              onPointerEnter={preloadExamRoute}
+              className="mt-8 inline-flex h-[58px] w-full items-center justify-center gap-3 rounded-[18px] bg-[#453dee] text-[17px] font-bold text-white no-underline shadow-none transition-[background-color,transform] duration-150 ease-out active:scale-[0.96]"
+            >
               <ClipboardCheck size={22} />
               Passer l&apos;examen blanc final
             </Link>
@@ -171,7 +215,7 @@ export default function SubjectDetailPage() {
   )
 }
 
-function getTopicCardState(topic: TopicCard): FigmaSubjectCourseCardState {
+function getTopicCardState(topic: CourseSubjectTopic): FigmaSubjectCourseCardState {
   if (topic.can_access === false) return 'locked'
   if (topic.item_count <= 0) return 'upcoming'
   if (topic.progress_pct >= 100 || topic.completed_count >= topic.item_count) return 'completed'

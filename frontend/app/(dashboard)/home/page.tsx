@@ -1,12 +1,17 @@
 'use client'
 
 import { useEffect, useMemo, useRef } from 'react'
-import { toast } from 'sonner'
 import { RotateCcw } from 'lucide-react'
+import { useSWRConfig } from 'swr'
 import { useAuthStore } from '@/lib/store'
-import { FigmaHomeMain } from '@/components/figma'
-import { apiDataErrorMessage } from '@/lib/apiData'
+import { FigmaHomeMain } from '@/components/figma/home'
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
 import { useHomeDashboardData } from '@/lib/homeDashboardData'
+import { showToastError } from '@/lib/lazyToast'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
+import { preloadStudentRouteData } from '@/lib/studentRoutePreload'
+import { topicWorkspaceSWRKey } from '@/lib/topicWorkspaceData'
+import type { TopicWorkspace } from '@/lib/topicWorkspaceTypes'
 import {
   toHomeContinueTopics,
   toHomeSubjectShortcuts,
@@ -14,6 +19,7 @@ import {
 
 export default function HomePage() {
   const user = useAuthStore((state) => state.user)
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const {
     topics,
     subjects,
@@ -23,6 +29,7 @@ export default function HomePage() {
     retry,
   } = useHomeDashboardData()
   const lastToastErrorRef = useRef('')
+  const preloadedTopicWorkspaceKeysRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!error) {
@@ -32,7 +39,7 @@ export default function HomePage() {
     const message = apiDataErrorMessage(error, 'Could not load your dashboard.')
     if (message === lastToastErrorRef.current) return
     lastToastErrorRef.current = message
-    toast.error(message)
+    showToastError(message)
   }, [error])
 
   async function retryHomeData() {
@@ -41,6 +48,24 @@ export default function HomePage() {
     } catch {
       // SWR exposes the latest error through state; the effect above owns user-visible reporting.
     }
+  }
+
+  function preloadTopicWorkspace(topicId: string | number) {
+    const preloadKey = topicWorkspaceSWRKey(topicId)
+    if (preloadKey && hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (!preloadKey || preloadedTopicWorkspaceKeysRef.current.has(preloadKey)) return
+
+    preloadedTopicWorkspaceKeysRef.current.add(preloadKey)
+    const request = apiSWRFetcher<TopicWorkspace>(preloadKey).catch((error) => {
+      preloadedTopicWorkspaceKeysRef.current.delete(preloadKey)
+      throw error
+    })
+
+    void mutateSWRCache(preloadKey, request, { populateCache: true, revalidate: false })
+  }
+
+  function preloadSubjectRoute(href: string) {
+    preloadStudentRouteData(href, mutateSWRCache, { cache: swrCache })
   }
 
   const firstName = user?.full_name?.split(' ')[0] || 'Student'
@@ -71,6 +96,8 @@ export default function HomePage() {
         subjects={subjectShortcuts}
         continueTopics={continueTopics}
         loading={loading}
+        onTopicPreload={preloadTopicWorkspace}
+        onSubjectPreload={preloadSubjectRoute}
       />
     </>
   )

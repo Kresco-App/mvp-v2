@@ -31,4 +31,14 @@ describe('drag surface interaction polish', () => {
     expect(source).toContain('data-kresco-drag-surface="true"')
     expect(source).toContain('kresco-drag-surface')
   })
+
+  it('keeps professor studio drag handles large, focusable, and calm', () => {
+    const source = readFrontendFile('components', 'professor', 'studio', 'SortableShell.tsx')
+
+    expect(source).toContain('const studioDragHandleClass')
+    expect(source).toContain('h-10 w-10')
+    expect(source).toContain('focus-visible:ring-4')
+    expect(source).toContain('motion-reduce:transition-none')
+    expect(source).not.toContain('active:scale-')
+  })
 })

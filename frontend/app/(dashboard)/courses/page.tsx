@@ -1,12 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { motion, useReducedMotion } from 'framer-motion'
+import { useSWRConfig } from 'swr'
 import { X } from 'lucide-react'
-import { toast } from 'sonner'
-import { apiDataErrorMessage } from '@/lib/apiData'
+import { apiDataErrorMessage, apiSWRFetcher } from '@/lib/apiData'
 import {
   courseFiltersEqual,
   courseFiltersToSearchParams,
@@ -15,9 +14,15 @@ import {
   type CourseFilters,
 } from '@/lib/courseFilters'
 import { useCourseTopicsData, type CourseTopicCard } from '@/lib/courseDiscoveryData'
+import { useNearViewport } from '@/hooks/useNearViewport'
+import { showToastError } from '@/lib/lazyToast'
 import { canonicalSubjectTitle as canonicalSubjectLabel, subjectKey } from '@/lib/subjectIdentity'
+import { hasSuccessfulSWRCacheData } from '@/lib/swrCache'
+import { topicWorkspaceSWRKey } from '@/lib/topicWorkspaceData'
+import type { TopicWorkspace } from '@/lib/topicWorkspaceTypes'
 import { FigmaCourseSearchControls, type FigmaCourseStatusFilter, type FigmaCourseSubjectOption } from '@/components/figma/course-search-controls'
-import { FigmaCourseCardSkeleton, FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma'
+import { FigmaCourseCardSkeleton } from '@/components/figma/skeletons'
+import { FigmaSubjectCourseCard, type FigmaSubjectCourseCardState } from '@/components/figma/subject-course-card'
 
 type TopicCard = CourseTopicCard
 
@@ -29,22 +34,42 @@ type TopicView = TopicCard & {
   topic_key: string
 }
 
+type CourseSectionView = {
+  key: string
+  title: string
+  subtitle: string
+  topics: TopicView[]
+}
+
 const MAX_TOPICS_PER_SECTION = 72
-const courseEase = [0.2, 0.8, 0.2, 1] as const
+const COURSE_SEARCH_ROUTE_DEBOUNCE_MS = 220
+const COURSE_SECTION_ROOT_MARGIN = '920px'
+const COURSE_SECTION_PLACEHOLDER_COLUMNS = 3
+const COURSE_SECTION_PLACEHOLDER_MAX_ROWS = 3
+const COURSE_CARD_ESTIMATED_HEIGHT = 346
+const offscreenCourseCardClass = 'w-full max-w-[344.33px] [content-visibility:auto] [contain-intrinsic-size:344px_330px]'
 
 export default function CoursesPage() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const reduceMotion = useReducedMotion()
+  const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()
   const searchKey = searchParams.toString()
   const routeFilters = useMemo(() => parseCourseFilters(new URLSearchParams(searchKey)), [searchKey])
   const { topics, loading, error } = useCourseTopicsData()
   const [filters, setFilters] = useState<CourseFilters>(routeFilters)
+  const deferredFilters = useDeferredValue(filters)
   const filtersRef = useRef(routeFilters)
+  const searchRouteSyncTimerRef = useRef<number | null>(null)
   const [previewTopic, setPreviewTopic] = useState<TopicCard | null>(null)
   const lastErrorToastRef = useRef('')
+  const preloadedTopicWorkspaceKeysRef = useRef<Set<string>>(new Set())
   const { query, subject: subjectFilter, status: statusFilter } = filters
+  const {
+    query: deferredQuery,
+    subject: deferredSubjectFilter,
+    status: deferredStatusFilter,
+  } = deferredFilters
 
   useEffect(() => {
     if (!error) {
@@ -54,7 +79,7 @@ export default function CoursesPage() {
     const message = apiDataErrorMessage(error, 'Could not load topics.')
     if (message === lastErrorToastRef.current) return
     lastErrorToastRef.current = message
-    toast.error(message)
+    showToastError(message)
   }, [error])
 
   useEffect(() => {
@@ -62,21 +87,61 @@ export default function CoursesPage() {
     setFilters((current) => courseFiltersEqual(current, routeFilters) ? current : routeFilters)
   }, [routeFilters])
 
+  const clearPendingSearchRouteSync = useCallback(() => {
+    if (!searchRouteSyncTimerRef.current) return
+    window.clearTimeout(searchRouteSyncTimerRef.current)
+    searchRouteSyncTimerRef.current = null
+  }, [])
+
+  useEffect(() => clearPendingSearchRouteSync, [clearPendingSearchRouteSync])
+
   const replaceFiltersInUrl = useCallback((nextFilters: CourseFilters) => {
     const params = courseFiltersToSearchParams(nextFilters, new URLSearchParams(searchKey))
     const queryString = params.toString()
-    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
+    startTransition(() => {
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false })
+    })
   }, [pathname, router, searchKey])
 
   const applyFilters = useCallback((nextFilters: CourseFilters) => {
+    clearPendingSearchRouteSync()
     filtersRef.current = nextFilters
     setFilters((current) => courseFiltersEqual(current, nextFilters) ? current : nextFilters)
     replaceFiltersInUrl(nextFilters)
-  }, [replaceFiltersInUrl])
+  }, [clearPendingSearchRouteSync, replaceFiltersInUrl])
+
+  const scheduleSearchRouteSync = useCallback((nextFilters: CourseFilters) => {
+    clearPendingSearchRouteSync()
+    searchRouteSyncTimerRef.current = window.setTimeout(() => {
+      searchRouteSyncTimerRef.current = null
+      replaceFiltersInUrl(nextFilters)
+    }, COURSE_SEARCH_ROUTE_DEBOUNCE_MS)
+  }, [clearPendingSearchRouteSync, replaceFiltersInUrl])
+
+  const updateSearchFilter = useCallback((value: string) => {
+    const nextFilters = { ...filtersRef.current, query: value }
+    filtersRef.current = nextFilters
+    setFilters((current) => courseFiltersEqual(current, nextFilters) ? current : nextFilters)
+    scheduleSearchRouteSync(nextFilters)
+  }, [scheduleSearchRouteSync])
 
   const updateFilters = useCallback((patch: Partial<CourseFilters>) => {
     applyFilters({ ...filtersRef.current, ...patch })
   }, [applyFilters])
+
+  const preloadTopicWorkspace = useCallback((topicId: number) => {
+    const preloadKey = topicWorkspaceSWRKey(topicId)
+    if (preloadKey && hasSuccessfulSWRCacheData(preloadKey, swrCache)) return
+    if (!preloadKey || preloadedTopicWorkspaceKeysRef.current.has(preloadKey)) return
+
+    preloadedTopicWorkspaceKeysRef.current.add(preloadKey)
+    const request = apiSWRFetcher<TopicWorkspace>(preloadKey).catch((error) => {
+      preloadedTopicWorkspaceKeysRef.current.delete(preloadKey)
+      throw error
+    })
+
+    void mutateSWRCache(preloadKey, request, { populateCache: true, revalidate: false })
+  }, [mutateSWRCache, swrCache])
 
   const topicViews = useMemo<TopicView[]>(() => topics.map(toTopicView), [topics])
 
@@ -94,143 +159,133 @@ export default function CoursesPage() {
   }, [topicViews])
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const subject = subjectKey(subjectFilter)
-    const subjectText = subjectFilter.trim().toLowerCase()
-    const matches = topicViews.filter((topic) => {
-      const matchesQuery = !q || topic.search_text.includes(q)
-      const matchesSubject = !subject || topic.subject_key === subject || topic.subject_title.toLowerCase().includes(subjectText)
-      const matchesStatus = topicMatchesStatus(topic.state, statusFilter)
-      return matchesQuery && matchesSubject && matchesStatus
-    })
-    return dedupeTopics(matches)
-  }, [topicViews, query, subjectFilter, statusFilter])
+    return filterAndDedupeTopicViews(topicViews, deferredQuery, deferredSubjectFilter, deferredStatusFilter)
+  }, [topicViews, deferredQuery, deferredSubjectFilter, deferredStatusFilter])
 
   const groupedSections = useMemo(() => groupTopicsBySubject(filtered), [filtered])
-  const revealInitial = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }
-  const revealAnimate = reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }
-  const cardInitial = reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }
-  const cardAnimate = reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }
 
   return (
     <>
-      <motion.main
-        className="pt-[44px]"
-        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8 }}
-        animate={revealAnimate}
-        transition={{ duration: 0.18, ease: courseEase }}
-      >
-          <motion.div
-            className="mb-[64px] flex h-[18px] items-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]"
-            initial={revealInitial}
-            animate={revealAnimate}
-            transition={{ duration: 0.18, delay: 0.02, ease: courseEase }}
-          >
-            <span>Sciences Math A</span>
-          </motion.div>
+      <main className="pt-[44px]">
+        <div className="mb-[64px] flex h-[18px] items-center text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#9f9fa9]">
+          <span>Sciences Math A</span>
+        </div>
 
-          <motion.div
-            initial={revealInitial}
-            animate={revealAnimate}
-            transition={{ duration: 0.2, delay: 0.05, ease: courseEase }}
-          >
+        <div>
           <FigmaCourseSearchControls
             query={query}
             subject={subjectFilter}
             status={statusFilter}
             subjects={subjectOptions}
-            onQueryChange={(value) => updateFilters({ query: value })}
+            onQueryChange={updateSearchFilter}
             onSubjectChange={(value) => updateFilters({ subject: value })}
             onStatusChange={(value) => updateFilters({ status: value })}
           />
-          </motion.div>
+        </div>
 
-          {loading ? (
-            <motion.div
-              initial={revealInitial}
-              animate={revealAnimate}
-              transition={{ duration: 0.2, delay: 0.08, ease: courseEase }}
-            >
-              <SubjectDividerSkeleton />
-              <div className="figma-course-grid">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <motion.div
-                    key={index}
-                    initial={cardInitial}
-                    animate={cardAnimate}
-                    transition={{ duration: 0.2, delay: 0.08 + Math.min(index * 0.025, 0.15), ease: courseEase }}
-                    className="w-full max-w-[344.33px]"
-                  >
-                    <FigmaCourseCardSkeleton />
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
-          ) : groupedSections.length > 0 ? (
-            <div className="grid gap-[54px]">
-              {groupedSections.map((section, sectionIndex) => (
-                <motion.section
-                  key={section.key}
-                  initial={revealInitial}
-                  animate={revealAnimate}
-                  transition={{ duration: 0.2, delay: 0.08 + Math.min(sectionIndex * 0.035, 0.14), ease: courseEase }}
-                >
-                  <SubjectDivider title={section.title} subtitle={section.subtitle} />
-                  <div className="figma-course-grid">
-                    {section.topics.slice(0, MAX_TOPICS_PER_SECTION).map((topic, index) => (
-                      <motion.div
-                        key={topic.id}
-                        initial={cardInitial}
-                        animate={cardAnimate}
-                        transition={{ duration: 0.2, delay: Math.min(index * 0.018, 0.18), ease: courseEase }}
-                        className="w-full max-w-[344.33px]"
-                      >
-                        <FigmaSubjectCourseCard
-                          index={index}
-                          eyebrow={topic.subject_label}
-                          title={topic.title}
-                          description={topic.description}
-                          progress={topic.progress_pct}
-                          state={topic.state}
-                          href={`/topics/${topic.id}`}
-                          onClick={topic.can_access === false ? () => setPreviewTopic(topic) : undefined}
-                        />
-                      </motion.div>
-                    ))}
-                  </div>
-                  {section.topics.length > MAX_TOPICS_PER_SECTION && (
-                    <p className="m-0 mt-4 text-[13px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">
-                      Showing the first {MAX_TOPICS_PER_SECTION} matching topics. Narrow the search to see a smaller list.
-                    </p>
-                  )}
-                </motion.section>
+        {loading ? (
+          <div>
+            <SubjectDividerSkeleton />
+            <div className="figma-course-grid">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="w-full max-w-[344.33px]">
+                  <FigmaCourseCardSkeleton />
+                </div>
               ))}
             </div>
-          ) : (
-            <motion.section
-              className="grid min-h-[327.5px] max-w-[1060.99px] place-items-center rounded-[16px] border-2 border-dashed border-[#e4e4e7] bg-white px-8 text-center"
-              initial={revealInitial}
-              animate={revealAnimate}
-              transition={{ duration: 0.2, delay: 0.08, ease: courseEase }}
-            >
-              <div>
-                <p className="m-0 text-[18px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">No courses found</p>
-                <p className="m-0 mt-2 text-[15px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">Try another search or subject filter.</p>
-                <button
-                  className="mt-5 h-[44px] rounded-[12px] bg-[#5b60f9] px-[34px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white"
-                  type="button"
-                  onClick={() => applyFilters(defaultCourseFilters)}
-                >
-                  Reset filters
-                </button>
-              </div>
-            </motion.section>
-          )}
-      </motion.main>
+          </div>
+        ) : groupedSections.length > 0 ? (
+          <div className="grid gap-[54px]">
+            {groupedSections.map((section, sectionIndex) => (
+              <CourseSubjectSection
+                key={section.key}
+                eager={sectionIndex === 0}
+                section={section}
+                onPreviewTopic={setPreviewTopic}
+                onPreloadTopicWorkspace={preloadTopicWorkspace}
+              />
+            ))}
+          </div>
+        ) : (
+          <section className="grid min-h-[327.5px] max-w-[1060.99px] place-items-center rounded-[16px] border-2 border-dashed border-[#e4e4e7] bg-white px-8 text-center">
+            <div>
+              <p className="m-0 text-[18px] font-bold leading-[1.1] tracking-[0.24px] text-[#3f3f46]">No courses found</p>
+              <p className="m-0 mt-2 text-[15px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">Try another search or subject filter.</p>
+              <button
+                className="mt-5 h-[44px] rounded-[12px] bg-[#5b60f9] px-[34px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white"
+                type="button"
+                onClick={() => applyFilters(defaultCourseFilters)}
+              >
+                Reset filters
+              </button>
+            </div>
+          </section>
+        )}
+      </main>
 
       {previewTopic && <LockedTopicPreview topic={previewTopic} onClose={() => setPreviewTopic(null)} />}
     </>
   )
+}
+
+const CourseSubjectSection = memo(function CourseSubjectSection({
+  eager,
+  section,
+  onPreviewTopic,
+  onPreloadTopicWorkspace,
+}: {
+  eager: boolean
+  section: CourseSectionView
+  onPreviewTopic: (topic: TopicCard) => void
+  onPreloadTopicWorkspace: (topicId: number) => void
+}) {
+  const { nearViewport, ref } = useNearViewport<HTMLElement>({ rootMargin: COURSE_SECTION_ROOT_MARGIN })
+  const visibleTopics = section.topics.slice(0, MAX_TOPICS_PER_SECTION)
+  const shouldRenderCards = eager || nearViewport
+
+  return (
+    <section ref={ref} className="[content-visibility:auto] [contain-intrinsic-size:0_780px]">
+      <SubjectDivider title={section.title} subtitle={section.subtitle} />
+      {shouldRenderCards ? (
+        <div className="figma-course-grid">
+          {visibleTopics.map((topic, index) => (
+            <div key={topic.id} className={offscreenCourseCardClass}>
+              <FigmaSubjectCourseCard
+                index={index}
+                eyebrow={topic.subject_label}
+                title={topic.title}
+                description={topic.description}
+                progress={topic.progress_pct}
+                state={topic.state}
+                href={`/topics/${topic.id}`}
+                onClick={topic.can_access === false ? () => onPreviewTopic(topic) : undefined}
+                onPreload={topic.can_access === false ? undefined : () => onPreloadTopicWorkspace(topic.id)}
+              />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          aria-hidden="true"
+          className="figma-course-grid"
+          data-course-section-placeholder
+          style={{ minHeight: courseSectionPlaceholderHeight(section.topics.length) }}
+        />
+      )}
+      {section.topics.length > MAX_TOPICS_PER_SECTION && (
+        <p className="m-0 mt-4 text-[13px] font-bold leading-[1.2] tracking-[0.18px] text-[#9f9fa9]">
+          Showing the first {MAX_TOPICS_PER_SECTION} matching topics. Narrow the search to see a smaller list.
+        </p>
+      )}
+    </section>
+  )
+})
+
+function courseSectionPlaceholderHeight(topicCount: number) {
+  const visibleCount = Math.min(topicCount, MAX_TOPICS_PER_SECTION)
+  const estimatedRows = Math.ceil(visibleCount / COURSE_SECTION_PLACEHOLDER_COLUMNS)
+  const reservedRows = Math.max(1, Math.min(COURSE_SECTION_PLACEHOLDER_MAX_ROWS, estimatedRows))
+  return reservedRows * COURSE_CARD_ESTIMATED_HEIGHT
 }
 
 function SubjectDivider({ title, subtitle }: { title: string; subtitle: string }) {
@@ -286,7 +341,7 @@ function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () 
             <h2 className="m-0 mt-2 text-[24px] font-bold leading-[1.2] tracking-normal text-[#3f3f46]">{topic.title}</h2>
           </div>
           <button
-            className="grid size-[36px] shrink-0 place-items-center rounded-[10px] border-2 border-[#e4e4e7] bg-white text-[18px] font-bold leading-none text-[#71717b] transition hover:bg-[#f4f4f5]"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] border-2 border-[#e4e4e7] bg-white text-[18px] font-bold leading-none text-[#71717b] transition-[background-color,transform] duration-150 ease-out hover:bg-[#f4f4f5] active:scale-[0.96]"
             type="button"
             onClick={onClose}
             aria-label="Close locked topic preview"
@@ -328,13 +383,13 @@ function LockedTopicPreview({ topic, onClose }: { topic: TopicCard; onClose: () 
 
         <div className="mt-6 flex flex-col gap-2 sm:flex-row">
           <Link
-            className="inline-flex h-[44px] flex-1 items-center justify-center rounded-[12px] bg-[#5b60f9] px-[24px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition hover:brightness-[1.03]"
+            className="inline-flex h-[44px] flex-1 items-center justify-center rounded-[12px] bg-[#5b60f9] px-[24px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-white transition-[filter,transform] duration-150 ease-out hover:brightness-[1.03] active:scale-[0.96]"
             href="/pricing"
           >
             View unlock options
           </Link>
           <button
-            className="h-[44px] flex-1 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-[24px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#71717b] transition hover:bg-[#f4f4f5]"
+            className="h-[44px] flex-1 rounded-[12px] border-2 border-[#e4e4e7] bg-white px-[24px] py-[11px] text-[16px] font-bold leading-[1.1] tracking-[0.24px] text-[#71717b] transition-[background-color,transform] duration-150 ease-out hover:bg-[#f4f4f5] active:scale-[0.96]"
             type="button"
             onClick={onClose}
           >
@@ -375,19 +430,37 @@ function normalizeProgress(progress: number) {
   return Math.max(0, Math.min(100, Math.round(Number.isFinite(progress) ? progress : 0)))
 }
 
-function dedupeTopics(topics: TopicView[]) {
+function filterAndDedupeTopicViews(
+  topics: TopicView[],
+  query: string,
+  subjectFilter: string,
+  statusFilter: FigmaCourseStatusFilter,
+) {
+  const q = query.trim().toLowerCase()
+  const subject = subjectKey(subjectFilter)
+  const subjectText = subjectFilter.trim().toLowerCase()
   const byKey = new Map<string, TopicView>()
-  topics.forEach((topic) => {
+  for (const topic of topics) {
+    if (q && !topic.search_text.includes(q)) continue
+    if (subject && topic.subject_key !== subject && !topic.subject_title.toLowerCase().includes(subjectText)) continue
+    if (!topicMatchesStatus(topic.state, statusFilter)) continue
+
     const key = topic.topic_key
     const existing = byKey.get(key)
-    if (!existing || topic.progress_pct > existing.progress_pct || (topic.progress_pct === existing.progress_pct && topic.completed_count > existing.completed_count)) {
+    if (!existing || isStrongerTopicMatch(topic, existing)) {
       byKey.set(key, topic)
     }
-  })
+  }
   return Array.from(byKey.values())
 }
 
-function groupTopicsBySubject(topics: TopicView[]) {
+function isStrongerTopicMatch(topic: TopicView, existing: TopicView) {
+  return topic.progress_pct > existing.progress_pct || (
+    topic.progress_pct === existing.progress_pct && topic.completed_count > existing.completed_count
+  )
+}
+
+function groupTopicsBySubject(topics: TopicView[]): CourseSectionView[] {
   const buckets = new Map<string, TopicView[]>()
   topics.forEach((topic) => {
     const key = topic.subject_key
@@ -407,7 +480,7 @@ function groupTopicsBySubject(topics: TopicView[]) {
     .filter((section) => section.topics.length > 0)
 
   const unknown = Array.from(buckets.entries())
-    .filter(([key]) => !courseSubjectSections.some((section) => section.key === key))
+    .filter(([key]) => !knownCourseSubjectSectionKeys.has(key))
     .map(([key, sectionTopics]) => ({
       key,
       title: sectionTopics[0]?.subject_label ?? canonicalSubjectLabel(key),
@@ -449,3 +522,4 @@ const courseSubjectSections = [
   { key: 'biology', title: 'SVT', subtitle: 'Genetique, schemas, preuves.' },
   { key: 'english', title: 'Anglais', subtitle: 'Reading, grammar, writing.' },
 ]
+const knownCourseSubjectSectionKeys = new Set(courseSubjectSections.map((section) => section.key))

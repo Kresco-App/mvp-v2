@@ -27,10 +27,11 @@ export function dateForCalendarEvent(event: CalendarEventLike) {
 }
 
 export function eventsForWeek<T extends CalendarEventLike>(events: T[], weekStart: Date) {
-  const weekEnd = addDays(weekStart, 7)
+  const weekStartTime = weekStart.getTime()
+  const weekEndTime = addDays(weekStart, 7).getTime()
   return events.filter((event) => {
-    const starts = new Date(event.starts_at)
-    return starts >= weekStart && starts < weekEnd
+    const startsTime = Date.parse(event.starts_at)
+    return Number.isFinite(startsTime) && startsTime >= weekStartTime && startsTime < weekEndTime
   })
 }
 

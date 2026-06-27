@@ -1,4 +1,4 @@
-import { SkeletonBlock } from '@/components/figma'
+import { SkeletonBlock } from '@/components/figma/skeletons'
 
 export default function ExamBankLoading() {
   return (

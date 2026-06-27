@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React, { act } from 'react'
-import { SWRConfig } from 'swr'
+import { SWRConfig, type State } from 'swr'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiSWRConfig } from '@/lib/apiData'
@@ -46,7 +46,7 @@ vi.mock('@/components/figma/skeletons', () => ({
   FigmaVideoWorkspaceSkeleton: () => React.createElement('div', { role: 'status' }, 'Loading workspace'),
 }))
 
-vi.mock('@/components/figma', () => ({
+vi.mock('@/components/figma/workspace', () => ({
   LessonBody: ({ children }: { children?: React.ReactNode }) => React.createElement('article', null, children),
   VideoFrameState: ({ title, message }: { title: string; message: string }) => (
     React.createElement('section', { role: 'status' }, title, message)
@@ -72,6 +72,7 @@ vi.mock('@/components/figma', () => ({
       total?: number
       value?: number
       sections?: Array<{ id: string | number; title: string; copy: string; items?: Array<{ id?: string | number; label: string; meta?: string }> }>
+      onItemPreload?: (item: { id?: string | number; label: string }) => void
       onItemSelect?: (item: { id?: string | number; label: string }) => void
     }
     tabs?: Array<{ id?: string | number; label: string; active?: boolean }>
@@ -95,7 +96,18 @@ vi.mock('@/components/figma', () => ({
         React.createElement('h2', null, section.title),
         React.createElement('p', null, section.copy),
         section.items?.map((item) => (
-          React.createElement('button', { key: item.id, type: 'button', onClick: () => rail.onItemSelect?.(item) }, item.label, item.meta)
+          React.createElement(
+            'button',
+            {
+              key: item.id,
+              type: 'button',
+              onClick: () => rail.onItemSelect?.(item),
+              onFocus: () => rail.onItemPreload?.(item),
+              onPointerEnter: () => rail.onItemPreload?.(item),
+            },
+            item.label,
+            item.meta,
+          )
         )),
       )),
     ),
@@ -153,9 +165,20 @@ describe('exam workspace page', () => {
     })
 
     expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { status: 'opened' })
+    expect(examBankListLoadCount()).toBe(1)
     expect(container.textContent).toContain('Solve it.')
     expect(container.textContent).toContain('Study the wave graph.')
     expect(container.textContent).not.toContain('Hidden locked part body')
+
+    expect(problemDetailLoadCount(12)).toBe(0)
+    act(() => {
+      buttonByText(container, 'Problem 2')?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    expect(problemDetailLoadCount(12)).toBe(1)
+    act(() => {
+      buttonByText(container, 'Problem 2')?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    expect(problemDetailLoadCount(12)).toBe(1)
 
     await clickButton(container, 'Solutions')
     await waitFor(() => {
@@ -175,22 +198,137 @@ describe('exam workspace page', () => {
       textarea = container.querySelector('textarea[aria-label="Exam problem notes"]') as HTMLTextAreaElement | null
       expect(textarea).not.toBeNull()
     })
-    await act(async () => {
-      setTextareaValue(textarea!, 'Redo the period calculation.')
-      textarea!.dispatchEvent(new Event('input', { bubbles: true }))
-      await flushPromises()
-    })
-    expect(window.localStorage.getItem('kresco-exam-problem-note:11')).toBe('Redo the period calculation.')
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        setTextareaValue(textarea!, 'Redo the period calculation.')
+        textarea!.dispatchEvent(new Event('input', { bubbles: true }))
+        await flushPromises()
+      })
+      expect(window.localStorage.getItem('kresco:exam-problem-note:v1:11')).toBeNull()
+
+      window.dispatchEvent(new Event('pagehide'))
+
+      expect(window.localStorage.getItem('kresco:exam-problem-note:v1:11')).toBe('Redo the period calculation.')
+      expect(window.localStorage.getItem('kresco-exam-problem-note:11')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
 
     await clickButton(container, 'Save problem')
     expect(mocks.apiPost).toHaveBeenCalledWith('/exam-bank/problems/11/progress', { saved: true })
+    expect(examBankListLoadCount()).toBe(1)
 
     await clickButton(container, 'Problem 2')
     expect(mocks.routerReplace).toHaveBeenCalledWith('/exam-bank/1?problem=12', { scroll: false })
   })
+
+  it('does not refetch problem details already in the SWR cache on rail preload intent', async () => {
+    const cache = new Map<string, State<unknown>>([
+      ['/exam-bank/problems/12', { data: examProblemDetail({ id: 12, title: 'Cached problem 2', statement: 'Cached mechanics statement.' }) }],
+    ])
+    const { container } = renderExamWorkspacePage(cache)
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Mathematics: Problem 1')
+      expect(buttonByText(container, 'Problem 2')).toBeDefined()
+    })
+    mocks.apiGet.mockClear()
+
+    act(() => {
+      buttonByText(container, 'Problem 2')?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalledWith('/exam-bank/problems/12')
+  })
+
+  it('suppresses unsafe stored resource and embed urls', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/exam-bank') return examListResponse({ statement_url: 'javascript:alert(1)' })
+      if (url === '/exam-bank/problems/11') {
+        return examProblemDetail({
+          written_solution_url: 'javascript:alert(2)',
+          video_resource: {
+            id: 88,
+            title: 'Unsafe provider',
+            provider: 'custom',
+            provider_resource_id: '',
+            url: 'https://evil.example/embed',
+          },
+          parts: [
+            {
+              id: 101,
+              exam_problem_id: 11,
+              topic_id: 5,
+              video_resource_id: null,
+              part_label: 'Part A',
+              title: 'Wave reading',
+              statement_body: 'Study the wave graph.',
+              written_solution_body: 'Use the period from the graph.',
+              written_solution_url: '',
+              correction_video_url: 'javascript:alert(3)',
+              order: 1,
+              difficulty: 'bac',
+              concept_slugs: ['waves'],
+              metadata_json: {},
+              can_access: true,
+            },
+          ],
+        })
+      }
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExamWorkspacePage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Video not ready')
+      expect(container.querySelector('iframe[src*="evil.example"]')).toBeNull()
+    })
+
+    await clickButton(container, 'Resources')
+    await waitFor(() => {
+      expect(container.querySelector('a[href^="javascript:"]')).toBeNull()
+      expect(container.querySelector('a[href*="evil.example"]')).toBeNull()
+      expect(container.querySelector('a[href="/topics/5"]')).not.toBeNull()
+    })
+  })
+
+  it('reuses restored note drafts when returning to an already opened problem', async () => {
+    const firstProblemNoteKey = 'kresco:exam-problem-note:v1:11'
+    const secondProblemNoteKey = 'kresco:exam-problem-note:v1:12'
+    window.localStorage.setItem(firstProblemNoteKey, 'Cached note for problem 1')
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
+
+    try {
+      const { container } = renderExamWorkspacePage()
+
+      await waitFor(() => {
+        expect(container.textContent).toContain('Mathematics: Problem 1')
+      })
+
+      expect(storageGetCount(getItemSpy, firstProblemNoteKey)).toBe(1)
+
+      await clickButton(container, 'Problem 2')
+      await waitFor(() => {
+        expect(container.textContent).toContain('Problem 2')
+      })
+
+      expect(storageGetCount(getItemSpy, secondProblemNoteKey)).toBe(1)
+
+      await clickButton(container, 'Problem 1')
+      await waitFor(() => {
+        expect(container.textContent).toContain('Mathematics: Problem 1')
+      })
+
+      expect(storageGetCount(getItemSpy, firstProblemNoteKey)).toBe(1)
+    } finally {
+      getItemSpy.mockRestore()
+    }
+  })
 })
 
-function renderExamWorkspacePage() {
+function renderExamWorkspacePage(cache = new Map<string, State<unknown>>()) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -200,7 +338,7 @@ function renderExamWorkspacePage() {
     root.render(
       React.createElement(
         SWRConfig,
-        { value: { ...apiSWRConfig, provider: () => new Map(), dedupingInterval: 0, errorRetryCount: 0 } },
+        { value: { ...apiSWRConfig, provider: () => cache, dedupingInterval: 0, errorRetryCount: 0 } },
         React.createElement(ExamWorkspacePage),
       ),
     )
@@ -226,6 +364,10 @@ async function clickButton(container: HTMLElement, name: string) {
   })
 }
 
+function buttonByText(container: HTMLElement, text: string) {
+  return Array.from(container.querySelectorAll('button')).find(button => button.textContent?.includes(text))
+}
+
 async function waitFor(assertion: () => void) {
   let lastError: unknown
   for (let index = 0; index < 40; index += 1) {
@@ -247,16 +389,28 @@ async function flushPromises() {
   await Promise.resolve()
 }
 
-function examListResponse() {
+function examBankListLoadCount() {
+  return mocks.apiGet.mock.calls.filter(([url]) => url === '/exam-bank').length
+}
+
+function problemDetailLoadCount(problemId: number) {
+  return mocks.apiGet.mock.calls.filter(([url]) => url === `/exam-bank/problems/${problemId}`).length
+}
+
+function storageGetCount(spy: ReturnType<typeof vi.spyOn<Storage, 'getItem'>>, key: string) {
+  return spy.mock.calls.filter(([requestedKey]) => requestedKey === key).length
+}
+
+function examListResponse(overrides: Record<string, unknown> = {}) {
   return {
     subject_id: null,
     topic_id: null,
-    items: [examResult()],
+    items: [examResult(overrides)],
     total: 1,
   }
 }
 
-function examResult() {
+function examResult(overrides: Record<string, unknown> = {}) {
   return {
     id: 1,
     subject_id: 2,
@@ -289,6 +443,7 @@ function examResult() {
         saved: false,
       },
     ],
+    ...overrides,
   }
 }
 

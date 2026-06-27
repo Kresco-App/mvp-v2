@@ -121,6 +121,10 @@ export const fallbackSubjects: FigmaProfileSubject[] = [
   { key: 'english', title: 'English', score: 68, caption: 'Vocabulary and writing are growing', tone: '#51a2ff' },
 ]
 
+const PROFILE_DATE_CACHE_MAX = 256
+const joinedDateCache = new Map<string, string>()
+const profileHubDateCache = new Map<string, string>()
+
 const fallbackBadgeCatalog = [
   {
     slug: 'xp_100',
@@ -180,10 +184,14 @@ export function getUsername(user: FigmaProfileUser | null) {
 }
 
 export function getJoinedDate(value?: string) {
-  if (!value) return 'Joined July 2026'
+  const cacheKey = value ?? ''
+  const cached = joinedDateCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  if (!value) return rememberProfileDateLabel(joinedDateCache, cacheKey, 'Joined July 2026')
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Joined July 2026'
-  return `Joined ${date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+  if (Number.isNaN(date.getTime())) return rememberProfileDateLabel(joinedDateCache, cacheKey, 'Joined July 2026')
+  return rememberProfileDateLabel(joinedDateCache, cacheKey, `Joined ${date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`)
 }
 
 export function buildEditDraft(user: FigmaProfileUser | null, xp: FigmaProfileXP | null): FigmaProfileEditDraft {
@@ -334,10 +342,14 @@ export function profileNoteHref(note: FigmaProfileNote) {
 }
 
 export function formatProfileHubDate(value?: string) {
-  if (!value) return 'Recent'
+  const cacheKey = value ?? ''
+  const cached = profileHubDateCache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  if (!value) return rememberProfileDateLabel(profileHubDateCache, cacheKey, 'Recent')
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Recent'
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  if (Number.isNaN(date.getTime())) return rememberProfileDateLabel(profileHubDateCache, cacheKey, 'Recent')
+  return rememberProfileDateLabel(profileHubDateCache, cacheKey, date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))
 }
 
 export function profileTargetLabel(targetType: string) {
@@ -437,6 +449,16 @@ function normalizeProfileBadge(badge: FigmaProfileBadge): FigmaProfileBadge {
 
 function positiveIntOrFallback(value: unknown, fallback: number) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : fallback
+}
+
+function rememberProfileDateLabel(cache: Map<string, string>, key: string, value: string) {
+  if (cache.size >= PROFILE_DATE_CACHE_MAX) {
+    const first = cache.keys().next().value
+    if (first !== undefined) cache.delete(first)
+  }
+
+  cache.set(key, value)
+  return value
 }
 
 export function mediaUrl(value?: string) {

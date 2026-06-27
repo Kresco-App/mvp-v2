@@ -10,6 +10,8 @@ interface Props {
   onComplete?: (correct: boolean) => void
 }
 
+const activityControlMotionClass = 'transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-400/45 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+
 export default function FillInBlank({ sentence, answer, hint, onComplete }: Props) {
   const [input, setInput] = useState('')
   const [submitted, setSubmitted] = useState(false)
@@ -36,7 +38,7 @@ export default function FillInBlank({ sentence, answer, hint, onComplete }: Prop
           onChange={e => !submitted && setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !submitted && handleSubmit()}
           placeholder="..."
-          className={`inline-block border-b-2 px-3 py-1 text-center font-semibold text-sm outline-none min-w-[100px] max-w-[200px] bg-transparent transition ${
+          className={`inline-block min-w-[100px] max-w-[200px] border-b-2 bg-transparent px-3 py-1 text-center text-sm font-semibold outline-none transition-[border-color,box-shadow,color] duration-150 ease-out focus-visible:ring-4 focus-visible:ring-indigo-400/35 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 motion-reduce:transition-none ${
             !submitted ? 'border-indigo-500 text-indigo-400 focus:border-indigo-400' :
             isCorrect ? 'border-green-500 text-green-400' : 'border-red-500 text-red-400'
           }`}
@@ -60,14 +62,14 @@ export default function FillInBlank({ sentence, answer, hint, onComplete }: Prop
           <button type="button"
             onClick={handleSubmit}
             disabled={!input.trim()}
-            className="bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className={`min-h-10 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 ${activityControlMotionClass}`}
           >
             Verifier
           </button>
         ) : (
           <button type="button"
             onClick={() => { setInput(''); setSubmitted(false) }}
-            className="border border-slate-700 text-slate-300 text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-slate-800 transition"
+            className={`min-h-10 rounded-xl border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800 ${activityControlMotionClass}`}
           >
             Reessayer
           </button>

@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import React, { act } from 'react'
-import { SWRConfig } from 'swr'
+import { SWRConfig, type State } from 'swr'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiSWRConfig } from '@/lib/apiData'
@@ -96,9 +99,19 @@ afterEach(() => {
   }
   mountedRoot = null
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('ExerciseBankPage', () => {
+  it('keeps the permanent sidebar out of the eager Exercise Bank page bundle', () => {
+    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'exercise-bank', 'page.tsx'), 'utf8')
+
+    expect(source).toContain("import dynamic from 'next/dynamic'")
+    expect(source).toContain("import('@/components/figma/permanent-sidebar')")
+    expect(source).toContain('function ExerciseBankSidebar')
+    expect(source).not.toContain("import { PermanentSidebar }")
+  })
+
   it('shows a retryable subject error instead of an empty subject state', async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       if (url === '/courses/subjects') throw new Error('subject catalog offline')
@@ -156,6 +169,61 @@ describe('ExerciseBankPage', () => {
       expect(container.textContent).toContain('Subject-only exercise')
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/exercises/subjects/5?limit=50')
+  })
+
+  it('preloads inactive subject exercise lists on intent before selection', async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === '/courses/subjects') {
+        return [
+          { id: 2, title: 'Physique', chapter_count: 1, lesson_count: 4 },
+          { id: 5, title: 'Mathematics', chapter_count: 0, lesson_count: 0 },
+        ]
+      }
+      if (url === '/exercises/subjects/2?limit=50') {
+        return {
+          subject_id: 2,
+          topic_id: null,
+          total: 1,
+          items: [exerciseListItem({ subject_id: 2 })],
+        }
+      }
+      if (url === '/exercises/subjects/5?limit=50') {
+        return {
+          subject_id: 5,
+          topic_id: null,
+          total: 1,
+          items: [exerciseListItem({ id: 50, subject_id: 5, topic_id: null, title: 'Math warmup' })],
+        }
+      }
+      throw new Error(`unexpected GET ${url}`)
+    })
+
+    const { container } = renderExerciseBankPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Physique')
+      expect(container.textContent).toContain('Mathematics')
+      expect(container.textContent).toContain('Linear equation')
+    })
+    mocks.apiGet.mockClear()
+
+    act(() => {
+      buttonByText(container, 'Mathematics')?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+
+    await waitFor(() => {
+      expect(mocks.apiGet).toHaveBeenCalledWith('/exercises/subjects/5?limit=50')
+    })
+
+    mocks.apiGet.mockClear()
+    act(() => {
+      buttonByText(container, 'Mathematics')?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalled()
   })
 
   it('offers reset from an empty filtered list', async () => {
@@ -228,6 +296,8 @@ describe('ExerciseBankPage', () => {
     expect(mocks.routerReplace).toHaveBeenCalledWith('/exercise-bank?subject=2&sort=time', { scroll: false })
 
     const searchInput = container.querySelector('input[aria-label="Search exercises"]') as HTMLInputElement | null
+    vi.useFakeTimers()
+    mocks.routerReplace.mockClear()
     await act(async () => {
       setInputValue(searchInput!, 'function')
       searchInput!.dispatchEvent(new Event('input', { bubbles: true }))
@@ -240,6 +310,12 @@ describe('ExerciseBankPage', () => {
       expect(container.textContent).not.toContain('Slow algebra')
       expect(container.textContent).not.toContain('Fast geometry')
     })
+    expect(mocks.routerReplace).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(220)
+      await Promise.resolve()
+    })
     expect(mocks.routerReplace).toHaveBeenCalledWith('/exercise-bank?subject=2&q=function&sort=time', { scroll: false })
   })
 
@@ -251,6 +327,17 @@ describe('ExerciseBankPage', () => {
       expect(container.textContent).toContain('Linear equation')
     })
     expect(mocks.apiGet).toHaveBeenCalledWith('/exercises/subjects/2?limit=50')
+    expect(exerciseDetailLoadCount(10)).toBe(0)
+
+    act(() => {
+      buttonByText(container, "s'exercer")?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    expect(exerciseDetailLoadCount(10)).toBe(1)
+
+    act(() => {
+      buttonByText(container, "s'exercer")?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+    expect(exerciseDetailLoadCount(10)).toBe(1)
 
     const difficultySelect = container.querySelector('select[aria-label="Difficulty"]') as HTMLSelectElement | null
     await act(async () => {
@@ -302,6 +389,25 @@ describe('ExerciseBankPage', () => {
       expect(container.textContent).toContain('Partiel')
       expect(container.textContent).toContain('Saved')
     })
+  })
+
+  it('does not refetch exercise detail already in the SWR cache on card intent', async () => {
+    const cache = new Map<string, State<unknown>>([
+      ['/exercises/10', { data: exerciseDetail({ reveal_count: 0, solution_body: '$x=1$.' }) }],
+    ])
+    const { container } = renderExerciseBankPage(cache)
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Physique')
+      expect(container.textContent).toContain('Linear equation')
+    })
+    mocks.apiGet.mockClear()
+
+    act(() => {
+      buttonByText(container, "s'exercer")?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    })
+
+    expect(mocks.apiGet).not.toHaveBeenCalledWith('/exercises/10')
   })
 
   it('syncs clean note drafts when the same exercise detail refreshes', async () => {
@@ -517,7 +623,7 @@ describe('ExerciseBankPage', () => {
   })
 })
 
-function renderExerciseBankPage() {
+function renderExerciseBankPage(cache = new Map<string, State<unknown>>()) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -527,7 +633,7 @@ function renderExerciseBankPage() {
     root.render(
       React.createElement(
         SWRConfig,
-        { value: { ...apiSWRConfig, provider: () => new Map(), dedupingInterval: 0, errorRetryCount: 0 } },
+        { value: { ...apiSWRConfig, provider: () => cache, dedupingInterval: 0, errorRetryCount: 0 } },
         React.createElement(ExerciseBankPage),
       ),
     )
@@ -544,6 +650,10 @@ async function clickButton(container: HTMLElement, name: string, index = 0) {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await Promise.resolve()
   })
+}
+
+function buttonByText(container: HTMLElement, name: string, index = 0) {
+  return Array.from(container.querySelectorAll('button')).filter((item) => item.textContent?.includes(name))[index]
 }
 
 function setSelectValue(select: HTMLSelectElement, value: string) {
@@ -575,6 +685,10 @@ async function waitFor(assertion: () => void) {
     }
   }
   throw lastError
+}
+
+function exerciseDetailLoadCount(exerciseId: number) {
+  return mocks.apiGet.mock.calls.filter(([url]) => url === `/exercises/${exerciseId}`).length
 }
 
 function exerciseListItem(overrides: Record<string, unknown> = {}) {
