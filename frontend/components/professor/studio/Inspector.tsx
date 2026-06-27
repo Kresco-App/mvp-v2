@@ -1,21 +1,22 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Copy, FlaskConical, Trash2, MoveRight, Wand2 } from 'lucide-react'
 import type { WorkChapter, WorkLesson, WorkTab } from '@/lib/studio'
 import { defaultConfigFor, findSimulator, type SimulatorParam } from '@/lib/simulatorCatalog'
-import SimulatorLibrary from './SimulatorLibrary'
 
 const labelClass = 'mb-1.5 block text-[11px] font-black uppercase tracking-[0.04em] text-[#a1a1aa]'
+const inspectorControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
 const inputClass =
-  'w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2 text-[14px] font-semibold text-[#3f3f46] outline-none transition-[background-color,border-color,box-shadow] duration-200 focus:border-[#5b60f9]'
+  'w-full rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2 text-[14px] font-semibold text-[#3f3f46] outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out focus:border-[#5b60f9] motion-reduce:transition-none'
 const selectClass = inputClass + ' appearance-none cursor-pointer'
+const SimulatorLibrary = dynamic(() => import('./SimulatorLibrary'), { ssr: false })
 
 const TIER_OPTIONS = [
   { value: '', label: 'Gratuit / inclus' },
   { value: 'pro', label: 'Pro' },
   { value: 'vip', label: 'VIP' },
-  { value: 'platinum', label: 'Platinum' },
 ]
 const ITEM_TYPE_OPTIONS = [
   { value: 'lesson_video', label: 'Vidéo de cours' },
@@ -54,13 +55,13 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
     <button
       type="button"
       onClick={() => onChange(!value)}
-      className={`relative h-10 w-[52px] rounded-full border-[2px] transition-[background-color,border-color,transform] duration-150 ease-out active:scale-[0.96] ${
+      className={`relative h-10 w-[52px] rounded-full border-[2px] ${inspectorControlMotionClass} ${
         value ? 'border-[#5b60f9] bg-[#5b60f9]' : 'border-[#e4e4e7] bg-[#f4f4f5]'
       }`}
     >
       <span
-        className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-[left,transform] duration-150 ease-out ${
-          value ? 'left-[26px]' : 'left-[4px]'
+        className={`absolute left-[4px] top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow transition-[transform] duration-150 ease-out motion-reduce:transition-none ${
+          value ? 'translate-x-[22px]' : 'translate-x-0'
         }`}
       />
     </button>
@@ -160,20 +161,20 @@ export default function Inspector({
           <button
             type="button"
             onClick={onDuplicate}
-            className="grid h-10 w-10 place-items-center rounded-[12px] border-[2px] border-[#e4e4e7] bg-white text-[#52525c] transition-[border-color,color,transform] duration-200 hover:border-[#5b60f9] hover:text-[#5b60f9] active:scale-[0.96]"
+            className={`grid h-10 w-10 place-items-center rounded-[12px] border-[2px] border-[#e4e4e7] bg-white text-[#52525c] hover:border-[#5b60f9] hover:text-[#5b60f9] ${inspectorControlMotionClass}`}
             title="Dupliquer"
             aria-label="Dupliquer la selection"
           >
-            <Copy size={16} />
+            <Copy size={16} aria-hidden="true" />
           </button>
           <button
             type="button"
             onClick={onRemove}
-            className="grid h-10 w-10 place-items-center rounded-[12px] border-[2px] border-[#fecaca] bg-white text-[#ef4444] transition-[background-color,transform] duration-200 hover:bg-red-50 active:scale-[0.96]"
+            className={`grid h-10 w-10 place-items-center rounded-[12px] border-[2px] border-[#fecaca] bg-white text-[#ef4444] hover:bg-red-50 ${inspectorControlMotionClass}`}
             title="Supprimer"
             aria-label="Supprimer la selection"
           >
-            <Trash2 size={16} />
+            <Trash2 size={16} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -302,10 +303,10 @@ export default function Inspector({
               <button
                 type="button"
                 onClick={() => setLibOpen(true)}
-                className="flex min-h-10 w-full items-center gap-2.5 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2.5 text-left transition-[border-color,transform] duration-200 hover:border-[#5b60f9] active:scale-[0.96]"
+                className={`flex min-h-10 w-full items-center gap-2.5 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 py-2.5 text-left hover:border-[#5b60f9] ${inspectorControlMotionClass}`}
               >
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-[#f0f0ff] text-[#5b60f9]">
-                  <FlaskConical size={16} />
+                  <FlaskConical size={16} aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13.5px] font-black text-[#3f3f46]">
@@ -315,7 +316,7 @@ export default function Inspector({
                     {node.renderer_key ? findSimulator(node.renderer_key)?.category ?? node.renderer_key : 'Aucun simulateur sélectionné'}
                   </span>
                 </span>
-                <Wand2 size={15} className="shrink-0 text-[#a1a1aa]" />
+                <Wand2 size={15} className="shrink-0 text-[#a1a1aa]" aria-hidden="true" />
               </button>
             </Field>
 
@@ -392,7 +393,7 @@ export default function Inspector({
         )}
       </div>
 
-      {type === 'tab' && (
+      {type === 'tab' && libOpen && (
         <SimulatorLibrary
           open={libOpen}
           currentKey={node.renderer_key}

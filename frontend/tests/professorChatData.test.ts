@@ -196,12 +196,32 @@ describe('professor chat SWR data', () => {
   it('keeps student chat fallback polling bounded and thread derivation memoized', () => {
     const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
 
-    expect(source).toContain('fallback: { intervalMs: 5000, poll: refreshChat }')
+    expect(source).toContain("from '@/hooks/useNotificationChannelsSubscription'")
+    expect(source).not.toContain("from '@/lib/realtime'")
+    expect(source).toContain('const refreshSubscribedChat = useCallback')
+    expect(source).toContain('const pollSubscribedChat = useCallback')
+    expect(source).toContain('fallbackPoll: pollSubscribedChat')
+    expect(source).toContain('const { cache: swrCache, mutate: mutateSWRCache } = useSWRConfig()')
+    expect(source).toContain('const preloadKey = studentProfessorMessagesSWRKey(conversationId)')
+    expect(source).toContain('hasSuccessfulSWRCacheData(preloadKey, swrCache)')
     expect(source).toContain('const threadOptions = useMemo(() => status ? teacherThreads(status) : [], [status])')
     expect(source).toContain('const pendingConversationId = !active && selectedThread?.conversation?.id ? selectedThread.conversation.id : null')
     expect(source).not.toContain('Start a private question')
     expect(source).not.toContain('fallback: { intervalMs: 2500')
     expect(source).not.toContain('{teacherThreads(status).map')
+  })
+
+  it('precomputes student chat visible row metadata before rendering rows', () => {
+    const source = readFileSync(join(process.cwd(), 'app', '(dashboard)', 'professor-chat', 'page.tsx'), 'utf8')
+
+    expect(source).toContain('const renderedMessages = useMemo<StudentChatRenderedMessage[]>(() => (')
+    expect(source).toContain('const showTimestamp = shouldShowChatTimestamp(messages, messageIndex)')
+    expect(source).toContain('showAvatar: shouldShowClusterAvatar(messages, messageIndex, showTimestamp)')
+    expect(source).toContain('{renderedMessages.map(({ message, attachmentUrl, showTimestamp, showAvatar }) => {')
+    expect(source).toContain('showTimestamp={showTimestamp}')
+    expect(source).toContain('showAvatar={showAvatar}')
+    expect(source).not.toContain('allMessages={messages}')
+    expect(source).not.toContain('const showTimestamp = shouldShowChatTimestamp(allMessages, messageIndex)')
   })
 
   it('keeps professor chat page selection and filters URL-backed', () => {
@@ -310,12 +330,12 @@ describe('professor chat SWR data', () => {
   it('keeps professor inbox student replies visually clustered with avatars', () => {
     const professorSource = readFileSync(join(process.cwd(), 'app', 'professor', 'chat', 'page.tsx'), 'utf8')
 
-    expect(professorSource).toContain('const showStudentAvatar = !mine && shouldShowStudentAvatar(messages, index)')
+    expect(professorSource).toContain('showStudentAvatar: !mine && shouldShowStudentAvatar(messages, index, showTimestamp)')
     expect(professorSource).toContain('<ChatAvatar name={active.student.full_name} src={active.student.avatar_url} />')
     expect(professorSource).toContain('function ChatAvatar({ name, src }: { name: string; src?: string | null })')
     expect(professorSource).toContain('function ChatAvatarSpacer()')
-    expect(professorSource).toContain('function shouldShowStudentAvatar(messages: ProfessorMessage[], index: number)')
-    expect(professorSource).toContain('!isSameUser(next.sender_user_id, current.sender_user_id) || shouldShowChatTimestamp(messages, index)')
+    expect(professorSource).toContain('function shouldShowStudentAvatar(messages: ProfessorMessage[], index: number, showTimestamp = shouldShowChatTimestamp(messages, index))')
+    expect(professorSource).toContain('!isSameUser(next.sender_user_id, current.sender_user_id) || showTimestamp')
   })
 
   it('keeps message action menus from stacking with their trigger button', () => {
@@ -342,7 +362,8 @@ describe('professor chat SWR data', () => {
     expect(formStart).toBeGreaterThan(frameStart)
     expect(frameSource).toContain('<h1')
     expect(frameSource).toContain('ref={messagesScrollerRef}')
-    expect(frameSource).toContain('transition={chatFrameTransition}')
+    expect(studentSource).not.toContain("from 'framer-motion'")
+    expect(frameSource).not.toContain('transition={chatFrameTransition}')
     expect(frameOpening).not.toContain('layout')
     expect(frameOpening).not.toContain('x:')
     expect(frameSource).not.toContain('onSubmit={active ? send : startConversationFromComposer}')
@@ -386,16 +407,18 @@ describe('professor chat SWR data', () => {
     expect(studentSource).toContain('ref={messagesScrollerRef} className="h-full overflow-y-auto overflow-x-hidden pr-1"')
   })
 
-  it('keeps professor inbox messages visually aligned with the student chat feel', () => {
+  it('keeps professor inbox messages aligned without shipping motion runtime', () => {
     const professorSource = readFileSync(join(process.cwd(), 'app', 'professor', 'chat', 'page.tsx'), 'utf8')
 
-    expect(professorSource).toContain("import { AnimatePresence, motion } from 'framer-motion'")
-    expect(professorSource).toContain('const professorMessageMotionTransition = { type: \'spring\', stiffness: 520, damping: 42, mass: 0.72 } as const')
+    expect(professorSource).not.toContain("from 'framer-motion'")
+    expect(professorSource).not.toContain('<AnimatePresence')
+    expect(professorSource).not.toContain('<motion')
+    expect(professorSource).not.toContain('transition={messageMotionTransition}')
     expect(professorSource).toContain('className="relative min-h-[300px] flex-1 bg-[#fbfbfc]"')
     expect(professorSource).toContain('pointer-events-none absolute inset-x-0 top-0 z-20 h-12 bg-gradient-to-b from-[#fbfbfc] via-[#fbfbfc]/80 to-transparent')
-    expect(professorSource).toContain('<AnimatePresence initial={false}>')
-    expect(professorSource).toContain('transition={professorMessageMotionTransition}')
-    expect(professorSource).toContain('animate={isDeleting ? { opacity: 0, y: -8, scale: 0.96 } : { opacity: 1, y: 0, scale: 1 }}')
+    expect(professorSource).toContain('key="professor-messages-refreshing"')
+    expect(professorSource).toContain('[content-visibility:auto]')
+    expect(professorSource).toContain("${isDeleting ? 'opacity-0' : ''}")
   })
 
   it('keeps the active professor thread header actionable', () => {
@@ -436,6 +459,8 @@ describe('professor chat SWR data', () => {
     expect(professorSource).toContain('Clear thread search')
     expect(professorSource).toContain('!hasThreadSearch && messageWindow.canShowOlder')
     expect(professorSource).toContain('renderedThreadMessages.map((message, visibleIndex) =>')
+    expect(professorSource).toContain('const renderedThreadMessageRows = useMemo<ProfessorChatRenderedMessage[]>(() => (')
+    expect(professorSource).toContain('{renderedThreadMessageRows.map(({ message, mine, showTimestamp, showStudentAvatar, attachmentUrl }) => {')
     expect(professorSource).toContain('const index = hasThreadSearch ? messageIndexById.get(message.id) ?? visibleIndex : messageWindow.startIndex + visibleIndex')
     expect(professorSource).toContain('function professorMessageMatchesThreadSearch(message: ProfessorMessage, query: string)')
     expect(professorSource).toContain('message.attachment_name')

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight, BarChart3, BellRing, CheckCircle2, ClipboardList, Clock3, MessageCircle, Radio, RotateCcw, XCircle } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import RouteErrorState from '@/components/RouteErrorState'
 import { apiDataErrorMessage } from '@/lib/apiData'
@@ -35,7 +35,7 @@ export default function ProfessorDashboardPage() {
     }
     if (loadError === lastToastErrorRef.current) return
     lastToastErrorRef.current = loadError
-    toast.error(loadError)
+    showToastError(loadError)
   }, [loadError])
 
   async function retryDashboard() {
@@ -51,10 +51,10 @@ export default function ProfessorDashboardPage() {
     setLiveActionBusy(action)
     try {
       await task()
-      toast.success(success)
+      showToastSuccess(success)
       await mutate()
     } catch {
-      toast.error(failure)
+      showToastError(failure)
     } finally {
       setLiveActionBusy(null)
     }
@@ -90,6 +90,9 @@ export default function ProfessorDashboardPage() {
     liveSessions,
     pendingOperations,
   })
+  const healthCircleRadius = 34
+  const healthCircleCircumference = 2 * Math.PI * healthCircleRadius
+  const healthCircleOffset = healthCircleCircumference * (1 - dashboardHealth.score / 100)
   const liveAnalyticsHref = liveSessions.some((session) => session.status === 'live')
     ? '/professor/live?status=live'
     : liveSessions.some((session) => session.status === 'scheduled')
@@ -182,14 +185,27 @@ export default function ProfessorDashboardPage() {
           <div className="grid gap-4 lg:grid-cols-[230px_1fr]">
             <div className="flex items-center gap-4 rounded-[14px] bg-[#fbfbfc] p-4">
               <span
-                className="grid h-20 w-20 shrink-0 place-items-center rounded-full"
-                style={{ background: `conic-gradient(#453dee ${dashboardHealth.score}%, #e4e4e7 0)` }}
+                className="relative grid h-20 w-20 shrink-0 place-items-center rounded-full"
                 role="progressbar"
                 aria-label="Overall professor operations health"
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={dashboardHealth.score}
               >
+                <svg aria-hidden="true" viewBox="0 0 80 80" className="absolute inset-0 h-full w-full -rotate-90">
+                  <circle cx="40" cy="40" r={healthCircleRadius} fill="none" stroke="#e4e4e7" strokeWidth="8" />
+                  <circle
+                    cx="40"
+                    cy="40"
+                    r={healthCircleRadius}
+                    fill="none"
+                    stroke="#453dee"
+                    strokeLinecap="round"
+                    strokeWidth="8"
+                    strokeDasharray={healthCircleCircumference}
+                    strokeDashoffset={healthCircleOffset}
+                  />
+                </svg>
                 <span className="grid h-[62px] w-[62px] place-items-center rounded-full bg-white text-[20px] font-black text-[#27272a]">{dashboardHealth.score}%</span>
               </span>
               <span className="min-w-0">
@@ -351,26 +367,26 @@ function DashboardLoadingSkeleton() {
     <main className="mx-auto w-[calc(100%-2rem)] max-w-[var(--figma-shell-width)] py-6 sm:w-[calc(100%-3rem)] lg:w-[calc(100%-4rem)]" aria-label="Loading professor dashboard">
       <section className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="h-3 w-32 animate-pulse rounded-full bg-[#e4e4e7]" />
-          <div className="mt-3 h-8 w-64 animate-pulse rounded-full bg-[#f4f4f5]" />
-          <div className="mt-2 h-4 w-80 max-w-full animate-pulse rounded-full bg-[#f4f4f5]" />
+          <div className="h-3 w-32 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#e4e4e7]" />
+          <div className="mt-3 h-8 w-64 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#f4f4f5]" />
+          <div className="mt-2 h-4 w-80 max-w-full motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#f4f4f5]" />
         </div>
-        <div className="h-10 w-full animate-pulse rounded-[12px] bg-[#e4e4e7] sm:w-32" />
+        <div className="h-10 w-full motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[12px] bg-[#e4e4e7] sm:w-32" />
       </section>
 
       <section className="mb-5 rounded-[16px] border border-[#e4e4e7] bg-white p-5">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <div className="h-3 w-20 animate-pulse rounded-full bg-[#e4e4e7]" />
-            <div className="mt-3 h-5 w-36 animate-pulse rounded-full bg-[#f4f4f5]" />
+            <div className="h-3 w-20 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#e4e4e7]" />
+            <div className="mt-3 h-5 w-36 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#f4f4f5]" />
           </div>
-          <div className="h-8 w-24 animate-pulse rounded-full bg-[#f4f4f5]" />
+          <div className="h-8 w-24 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-full bg-[#f4f4f5]" />
         </div>
         <div className="grid gap-4 lg:grid-cols-[230px_1fr]">
-          <div className="h-28 animate-pulse rounded-[14px] bg-[#fbfbfc]" />
+          <div className="h-28 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[14px] bg-[#fbfbfc]" />
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="h-28 animate-pulse rounded-[14px] bg-[#fbfbfc]" />
+              <div key={index} className="h-28 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[14px] bg-[#fbfbfc]" />
             ))}
           </div>
         </div>
@@ -378,12 +394,12 @@ function DashboardLoadingSkeleton() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <section className="grid gap-5">
-          <div className="h-56 animate-pulse rounded-[16px] border border-[#e4e4e7] bg-white" />
-          <div className="h-48 animate-pulse rounded-[16px] border border-[#e4e4e7] bg-white" />
+          <div className="h-56 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[16px] border border-[#e4e4e7] bg-white" />
+          <div className="h-48 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[16px] border border-[#e4e4e7] bg-white" />
         </section>
         <aside className="grid content-start gap-4">
-          <div className="h-48 animate-pulse rounded-[16px] border border-[#e4e4e7] bg-white" />
-          <div className="h-40 animate-pulse rounded-[16px] border border-[#e4e4e7] bg-white" />
+          <div className="h-48 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[16px] border border-[#e4e4e7] bg-white" />
+          <div className="h-40 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[16px] border border-[#e4e4e7] bg-white" />
         </aside>
       </div>
     </main>
@@ -415,17 +431,26 @@ function DashboardMetricCard({
           <strong className="block truncate text-[24px] font-black leading-none text-[#27272a] tabular-nums">{value}</strong>
           <span className="flex h-8 items-end gap-1" aria-hidden="true">
             {bars.map((bar, index) => (
-              <span key={`${label}-${index}`} className="w-1.5 rounded-full bg-[#c7c8ff]" style={{ height: `${Math.max(20, Math.min(100, bar))}%` }} />
+              <span key={`${label}-${index}`} className={`w-1.5 rounded-full bg-[#c7c8ff] ${dashboardBarHeightClass(bar)}`} />
             ))}
           </span>
         </span>
         <span className="mt-1 block truncate text-[12px] font-bold text-[#71717b]">{detail}</span>
       </span>
-      <span className="mt-3 block h-1.5 overflow-hidden rounded-full bg-[#e4e4e7]" aria-hidden="true">
-        <span className="block h-full rounded-full bg-[#453dee] transition-[background-color,width] duration-500 group-hover:bg-[#5b60f9]" style={{ width: `${clampedProgress}%` }} />
-      </span>
+      <progress className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[#e4e4e7] accent-[#453dee]" max={100} value={clampedProgress} aria-hidden="true" />
     </Link>
   )
+}
+
+function dashboardBarHeightClass(value: number) {
+  const clamped = Math.max(20, Math.min(100, value))
+  if (clamped >= 88) return 'h-8'
+  if (clamped >= 76) return 'h-7'
+  if (clamped >= 64) return 'h-6'
+  if (clamped >= 52) return 'h-5'
+  if (clamped >= 40) return 'h-4'
+  if (clamped >= 28) return 'h-3'
+  return 'h-2'
 }
 
 type DashboardHealthSignalItem = {
@@ -489,7 +514,7 @@ function DashboardQueueRow({ item }: { item: DashboardRiskRadarItem }) {
       </span>
       <span className="inline-flex items-center gap-1 text-[12px] font-black text-[#453dee]">
         {item.action}
-        <ArrowRight size={13} className="transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+        <ArrowRight size={13} className="transition-[transform] duration-150 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" aria-hidden="true" />
       </span>
     </Link>
   )
@@ -507,7 +532,7 @@ function DashboardLiveLineupItem({ session }: { session: ProfessorLiveSession })
           <span className="block truncate text-[13px] font-black text-[#27272a]">{session.title}</span>
           <span className="mt-1 block text-[11px] font-bold leading-4 text-[#71717b]">{formatDateTime(session.starts_at)}</span>
         </span>
-        <ArrowRight size={14} className="mt-0.5 shrink-0 text-[#453dee] transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+        <ArrowRight size={14} className="mt-0.5 shrink-0 text-[#453dee] transition-[transform] duration-150 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0" aria-hidden="true" />
       </span>
       <span className="flex flex-wrap gap-1.5">
         <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] text-[#52525c]">{liveNow ? 'On air' : session.status}</span>

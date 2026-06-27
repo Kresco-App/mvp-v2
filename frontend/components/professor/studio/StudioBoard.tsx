@@ -11,13 +11,13 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import {
-  AlertTriangle, BookOpen, CheckCircle2, ChevronRight, CirclePlus, Clock3, Layers, Loader2, PlusCircle, RotateCcw, Search, SendHorizonal, Trash2, X,
+  BookOpen, ChevronRight, CirclePlus, Clock3, Layers, Loader2, PlusCircle, RotateCcw, Search, SendHorizonal, Trash2, X,
 } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import { listProfessorOfferings, type CourseOffering } from '@/lib/professor'
 import {
-  emptyChapter, emptyLesson, emptyTab, getStudioChangeRequest, getStudioTree, nextKey, submitStudioChanges,
+  emptyChapter, emptyLesson, emptyTab, getStudioChangeRequest, getStudioTree, submitStudioChanges,
   treeToWorking, updateStudioChanges, withdrawStudioChange,
   type ChangeOperation, type StudioOperation, type StudioTree, type WorkChapter, type WorkLesson, type WorkTab,
 } from '@/lib/studio'
@@ -26,8 +26,24 @@ import { projectOperations } from '@/lib/studioProject'
 import SortableShell from './SortableShell'
 import Inspector, { type Selection } from './Inspector'
 import OpsTray from './OpsTray'
-
-type Sel = { type: 'chapter' | 'lesson' | 'tab'; key: string } | null
+import StudioReadinessSummary from './StudioReadinessSummary'
+import {
+  cloneChapter,
+  cloneLesson,
+  cloneTab,
+  collectStudioReadiness,
+  collectStudioSearchResults,
+  parseStudioRouteId,
+  parseStudioSelection,
+  sameStudioSelection,
+  selectionFromOperation,
+  selectionFromRoute,
+  serializeStudioSelection,
+  summarizeStudioOperations,
+  type StudioReadinessIssue,
+  type StudioSearchResult,
+  type StudioSelection,
+} from './studioBoardModel'
 
 function PendingBadge() {
   return (
@@ -35,40 +51,6 @@ function PendingBadge() {
       <Clock3 size={10} /> En attente
     </span>
   )
-}
-
-function cloneChapter(chapter: WorkChapter): WorkChapter {
-  return {
-    ...chapter,
-    key: nextKey('chapter'),
-    serverId: null,
-    title: copyLabel(chapter.title),
-    lessons: chapter.lessons.map(cloneLesson),
-  }
-}
-
-function cloneLesson(lesson: WorkLesson): WorkLesson {
-  return {
-    ...lesson,
-    key: nextKey('lesson'),
-    serverId: null,
-    title: copyLabel(lesson.title),
-    tabs: lesson.tabs.map(cloneTab),
-  }
-}
-
-function cloneTab(tab: WorkTab): WorkTab {
-  return {
-    ...tab,
-    key: nextKey('tab'),
-    serverId: null,
-    label: copyLabel(tab.label),
-    config: { ...tab.config },
-  }
-}
-
-function copyLabel(value: string) {
-  return `${value} (copie)`
 }
 
 function StudioReviewPill({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'neutral' | 'create' | 'update' | 'danger' }) {
@@ -88,39 +70,10 @@ function StudioReviewPill({ label, value, tone = 'neutral' }: { label: string; v
   )
 }
 
-type StudioReadinessIssue = {
-  key: string
-  label: string
-  detail: string
-  level: 'blocker' | 'warning'
-  target: Sel
-  chapterKey?: string
-  lessonKey?: string
-}
-
-type StudioReadiness = {
-  blockers: StudioReadinessIssue[]
-  warnings: StudioReadinessIssue[]
-}
-
-type OperationTarget = {
-  selection: NonNullable<Sel>
-  chapterKey?: string
-  lessonKey?: string
-}
-
-type StudioSearchResult = {
-  key: string
-  label: string
-  detail: string
-  badge: 'chapter' | 'lesson' | 'tab'
-  target: NonNullable<Sel>
-  chapterKey?: string
-  lessonKey?: string
-}
-
-const VIDEO_LESSON_TYPES = new Set(['lesson_video', 'lesson'])
-const TEXT_TAB_TYPES = new Set(['course', 'summary', 'text'])
+const studioControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+const studioFieldMotionClass = 'transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus:border-[#5b60f9] focus:ring-4 focus:ring-[#5b60f9]/10 motion-reduce:transition-none'
+const studioFieldGroupMotionClass = 'transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-within:border-[#5b60f9] focus-within:ring-4 focus-within:ring-[#5b60f9]/10 motion-reduce:transition-none'
+const studioTreeToggleMotionClass = 'grid h-10 w-10 shrink-0 place-items-center rounded-[10px] text-[#a1a1aa] transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-[#f4f4f5] hover:text-[#52525c] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
 
 export default function StudioBoard() {
   const router = useRouter()
@@ -137,7 +90,7 @@ export default function StudioBoard() {
   const [working, setWorking] = useState<WorkChapter[]>([])
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set())
   const [expandedLessons, setExpandedLessons] = useState<Set<string>>(new Set())
-  const [sel, setSel] = useState<Sel>(routeStudioSelection)
+  const [sel, setSel] = useState<StudioSelection>(routeStudioSelection)
   const [summary, setSummary] = useState('')
   const [studioSearch, setStudioSearch] = useState(routeStudioSearch)
   const [loading, setLoading] = useState(true)
@@ -154,7 +107,7 @@ export default function StudioBoard() {
     let alive = true
     async function init() {
       const items = await listProfessorOfferings().catch(() => {
-        toast.error('Impossible de charger vos cours.')
+        showToastError('Impossible de charger vos cours.')
         return [] as CourseOffering[]
       })
       if (!alive) return
@@ -180,9 +133,9 @@ export default function StudioBoard() {
             setOfferingId(detail.course_offering_id)
             return
           }
-          toast.error('Cette demande n’est plus modifiable ; ouverture du studio.')
+          showToastError('Cette demande n’est plus modifiable ; ouverture du studio.')
         } catch {
-          toast.error('Impossible de charger la demande.')
+          showToastError('Impossible de charger la demande.')
         }
       }
 
@@ -223,7 +176,7 @@ export default function StudioBoard() {
         setExpandedChapters(new Set(tree.chapters.map((c) => String(c.id))))
         setExpandedLessons(new Set())
       })
-      .catch(() => toast.error('Impossible de charger le contenu du cours.'))
+      .catch(() => showToastError('Impossible de charger le contenu du cours.'))
       .finally(() => {
         if (alive) setLoading(false)
       })
@@ -311,7 +264,7 @@ export default function StudioBoard() {
   function replaceStudioUrlState(
     nextOfferingId: number | null,
     nextSearch: string,
-    nextSelection: Sel,
+    nextSelection: StudioSelection,
     nextRequestId: number | null = editId ?? routeRequestId,
   ) {
     const params = new URLSearchParams(searchKey)
@@ -347,7 +300,7 @@ export default function StudioBoard() {
     replaceStudioUrlState(nextOfferingId, '', null, null)
   }
 
-  function selectStudioSelection(nextSelection: Sel) {
+  function selectStudioSelection(nextSelection: StudioSelection) {
     setSel(nextSelection)
     replaceStudioUrlState(offeringId, studioSearch, nextSelection)
   }
@@ -601,7 +554,7 @@ export default function StudioBoard() {
   async function submit() {
     if (offeringId == null || operations.length === 0) return
     if (studioReadiness.blockers.length > 0) {
-      toast.error(studioReadiness.blockers[0]?.detail ?? 'Resolve Studio blockers before submitting.')
+      showToastError(studioReadiness.blockers[0]?.detail ?? 'Resolve Studio blockers before submitting.')
       return
     }
     setSubmitting(true)
@@ -609,7 +562,7 @@ export default function StudioBoard() {
       const payload = { course_offering_id: offeringId, summary, operations }
       if (editId != null) {
         const updated = await updateStudioChanges(editId, payload)
-        toast.success('Demande mise à jour.')
+        showToastSuccess('Demande mise à jour.')
         // Re-project the saved request so the studio keeps showing the proposed state.
         const tree = await getStudioTree(offeringId)
         setOriginal(tree)
@@ -617,7 +570,7 @@ export default function StudioBoard() {
         setWorking(projectOperations(tree, updated.operations))
       } else {
         await submitStudioChanges(payload)
-        toast.success('Modifications soumises pour révision.')
+        showToastSuccess('Modifications soumises pour révision.')
         const tree = await getStudioTree(offeringId)
         setOriginal(tree)
         setWorking(treeToWorking(tree))
@@ -625,7 +578,7 @@ export default function StudioBoard() {
       }
       selectStudioSelection(null)
     } catch {
-      toast.error('Échec de la soumission. Réessayez.')
+      showToastError('Échec de la soumission. Réessayez.')
     } finally {
       setSubmitting(false)
     }
@@ -642,7 +595,7 @@ export default function StudioBoard() {
       setExpandedChapters(new Set(tree.chapters.map((c) => String(c.id))))
       setExpandedLessons(new Set())
     } catch {
-      toast.error('Impossible de recharger le contenu du cours.')
+      showToastError('Impossible de recharger le contenu du cours.')
     } finally {
       setLoading(false)
     }
@@ -663,9 +616,9 @@ export default function StudioBoard() {
       setStudioSearch('')
       replaceStudioUrlState(offeringId, '', null)
       if (!restoringEdit) setSummary('')
-      toast.success(restoringEdit ? 'Demande restauree.' : 'Brouillon annule.')
+      showToastSuccess(restoringEdit ? 'Demande restauree.' : 'Brouillon annule.')
     } catch {
-      toast.error('Impossible de restaurer le brouillon.')
+      showToastError('Impossible de restaurer le brouillon.')
     } finally {
       setLoading(false)
     }
@@ -678,7 +631,7 @@ export default function StudioBoard() {
     setWithdrawing(true)
     try {
       await withdrawStudioChange(requestId)
-      toast.success('Demande annulée.')
+      showToastSuccess('Demande annulée.')
       setEditId(null)
       setEditOps(null)
       setSummary('')
@@ -686,7 +639,7 @@ export default function StudioBoard() {
       replaceStudioUrlState(offeringId, studioSearch, null, null)
       await reloadLiveTree()
     } catch {
-      toast.error('Échec de l’annulation.')
+      showToastError('Échec de l’annulation.')
     } finally {
       setWithdrawing(false)
     }
@@ -713,7 +666,7 @@ export default function StudioBoard() {
   function focusOperation(operation: StudioOperation) {
     const target = selectionFromOperation(operation, working)
     if (!target) {
-      toast.error('This operation targets an item that is no longer in the draft tree.')
+      showToastError('This operation targets an item that is no longer in the draft tree.')
       return
     }
 
@@ -758,7 +711,7 @@ export default function StudioBoard() {
           <select
             value={offeringId ?? ''}
             onChange={(e) => selectOffering(Number(e.target.value))}
-            className="cursor-pointer rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2.5 text-[14px] font-bold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+            className={`cursor-pointer rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2.5 text-[14px] font-bold text-[#3f3f46] outline-none ${studioFieldMotionClass}`}
           >
             {offerings.map((o) => (
               <option key={o.id} value={o.id}>{o.title || o.subject_title}</option>
@@ -775,11 +728,11 @@ export default function StudioBoard() {
             type="button"
             onClick={withdrawPendingRequest}
             disabled={withdrawing}
-            className="rounded-[9px] border border-[#fecaca] bg-white px-3 py-1 text-[12px] font-black text-[#ef4444] transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className={`inline-flex min-h-10 items-center gap-1.5 rounded-[9px] border border-[#fecaca] bg-white px-3 py-1 text-[12px] font-black text-[#ef4444] hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 ${studioControlMotionClass}`}
           >
-            {withdrawing ? <Loader2 size={13} className="inline animate-spin" /> : <Trash2 size={13} className="inline" />} Annuler la demande
+            {withdrawing ? <Loader2 size={13} className="inline animate-spin motion-reduce:animate-none" /> : <Trash2 size={13} className="inline" />} Annuler la demande
           </button>
-          <button type="button" onClick={exitEdit} className="ml-auto rounded-[9px] border border-[#c7c7ff] bg-white px-3 py-1 text-[12px] font-black text-[#3a2fd3] transition hover:bg-[#ececff]">
+          <button type="button" onClick={exitEdit} className={`ml-auto min-h-10 rounded-[9px] border border-[#c7c7ff] bg-white px-3 py-1 text-[12px] font-black text-[#3a2fd3] hover:bg-[#ececff] ${studioControlMotionClass}`}>
             Quitter l’édition
           </button>
         </div>
@@ -792,9 +745,9 @@ export default function StudioBoard() {
               type="button"
               onClick={withdrawPendingRequest}
               disabled={withdrawing}
-              className="ml-auto rounded-[9px] border border-[#fed7aa] bg-white px-3 py-1 text-[12px] font-black text-[#9a3412] transition hover:bg-[#fff7ed] disabled:cursor-not-allowed disabled:opacity-60"
+              className={`ml-auto inline-flex min-h-10 items-center gap-1.5 rounded-[9px] border border-[#fed7aa] bg-white px-3 py-1 text-[12px] font-black text-[#9a3412] hover:bg-[#fff7ed] disabled:cursor-not-allowed disabled:opacity-60 ${studioControlMotionClass}`}
             >
-              {withdrawing ? <Loader2 size={13} className="inline animate-spin" /> : <Trash2 size={13} className="inline" />} Annuler la demande
+              {withdrawing ? <Loader2 size={13} className="inline animate-spin motion-reduce:animate-none" /> : <Trash2 size={13} className="inline" />} Annuler la demande
             </button>
           )}
         </div>
@@ -813,7 +766,7 @@ export default function StudioBoard() {
                   aria-label="Developper toute la structure"
                   onClick={expandStudioTree}
                   disabled={working.length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-45"
+                  className={`inline-flex min-h-10 items-center gap-1.5 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-[12px] font-black text-[#52525c] hover:border-[#5b60f9] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-45 ${studioControlMotionClass}`}
                 >
                   <ChevronRight size={13} className="rotate-90" /> Tout ouvrir
                 </button>
@@ -822,21 +775,21 @@ export default function StudioBoard() {
                   aria-label="Replier toute la structure"
                   onClick={collapseStudioTree}
                   disabled={working.length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-45"
+                  className={`inline-flex min-h-10 items-center gap-1.5 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-[12px] font-black text-[#52525c] hover:border-[#5b60f9] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-45 ${studioControlMotionClass}`}
                 >
                   <ChevronRight size={13} /> Tout fermer
                 </button>
                 <button
                   type="button"
                   onClick={addChapter}
-                  className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#5b60f9] px-3 py-1.5 text-[13px] font-black text-white transition hover:bg-[#4a4fe0]"
+                  className={`inline-flex min-h-10 items-center gap-1.5 rounded-[10px] bg-[#5b60f9] px-3 py-1.5 text-[13px] font-black text-white hover:bg-[#4a4fe0] ${studioControlMotionClass}`}
                 >
                   <PlusCircle size={15} /> Chapitre
                 </button>
               </div>
             </div>
             <section className="mt-3 grid gap-2" aria-label="Studio structure search">
-              <label className="flex min-h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] px-3 text-[#71717b] focus-within:border-[#5b60f9] focus-within:ring-2 focus-within:ring-[#5b60f9]/10">
+              <label className={`flex min-h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] px-3 text-[#71717b] ${studioFieldGroupMotionClass}`}>
                 <Search size={14} className="shrink-0 text-[#9f9fa9]" />
                 <input
                   aria-label="Search studio structure"
@@ -850,7 +803,7 @@ export default function StudioBoard() {
                     type="button"
                     aria-label="Clear studio structure search"
                     onClick={clearStudioSearch}
-                    className="grid size-7 shrink-0 place-items-center rounded-full text-[#9f9fa9] transition hover:bg-[#f4f4f5] hover:text-[#52525c]"
+                    className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#9f9fa9] hover:bg-[#f4f4f5] hover:text-[#52525c] ${studioControlMotionClass}`}
                   >
                     <X size={14} />
                   </button>
@@ -869,7 +822,7 @@ export default function StudioBoard() {
                         key={result.key}
                         type="button"
                         onClick={() => focusStudioSearchResult(result)}
-                        className="inline-flex max-w-full items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-left text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#453dee]"
+                        className={`inline-flex min-h-10 max-w-full items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 py-1.5 text-left text-[12px] font-black text-[#52525c] hover:border-[#5b60f9] hover:text-[#453dee] ${studioControlMotionClass}`}
                       >
                         <span className="rounded-full bg-[#f0f0ff] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[#453dee]">{result.badge}</span>
                         <span className="min-w-0 truncate">{result.label}</span>
@@ -884,7 +837,7 @@ export default function StudioBoard() {
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {loading ? (
               <div className="grid h-full place-items-center text-[#a1a1aa]">
-                <Loader2 className="animate-spin" />
+                <Loader2 className="animate-spin motion-reduce:animate-none" />
               </div>
             ) : working.length === 0 ? (
               <div className="grid h-full place-items-center text-center">
@@ -902,19 +855,21 @@ export default function StudioBoard() {
                       <SortableShell
                         key={chapter.key}
                         id={`chapter:${chapter.key}`}
-                        className={`flex flex-col rounded-[14px] border-[2px] bg-white transition ${
+                        className={`flex flex-col rounded-[14px] border-[2px] bg-white transition-[border-color] duration-150 ease-out ${
                           rowSelected('chapter', chapter.key) ? 'border-[#5b60f9]' : 'border-[#e4e4e7]'
                         }`}
                       >
                         <div className="flex items-center gap-2 px-2.5 py-2.5">
                           <button
                             type="button"
+                            aria-expanded={expandedChapters.has(chapter.key)}
+                            aria-label={`${expandedChapters.has(chapter.key) ? 'Replier' : 'Developper'} ${chapter.title}`}
                             onClick={() => setExpandedChapters((s) => toggle(s, chapter.key))}
-                            className="grid h-7 w-7 place-items-center rounded-[8px] text-[#a1a1aa] hover:bg-[#f4f4f5]"
+                            className={studioTreeToggleMotionClass}
                           >
                             <ChevronRight
                               size={16}
-                              className={`transition-transform ${expandedChapters.has(chapter.key) ? 'rotate-90' : ''}`}
+                              className={`transition-[transform] duration-150 ease-out motion-reduce:transition-none ${expandedChapters.has(chapter.key) ? 'rotate-90' : ''}`}
                             />
                           </button>
                           <button
@@ -929,9 +884,9 @@ export default function StudioBoard() {
                           <button
                             type="button"
                             onClick={() => addLesson(chapter.key)}
-                            className="inline-flex items-center gap-1 rounded-[9px] border-[2px] border-[#e4e4e7] px-2 py-1 text-[12px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+                            className={`inline-flex min-h-10 items-center gap-1 rounded-[9px] border-[2px] border-[#e4e4e7] px-2 py-1 text-[12px] font-black text-[#52525c] hover:border-[#5b60f9] hover:text-[#5b60f9] ${studioControlMotionClass}`}
                           >
-                            <CirclePlus size={13} /> Leçon
+                            <CirclePlus size={13} aria-hidden="true" /> Leçon
                           </button>
                         </div>
 
@@ -949,19 +904,21 @@ export default function StudioBoard() {
                                     <SortableShell
                                       key={lesson.key}
                                       id={`lesson:${lesson.key}`}
-                                      className={`flex flex-col rounded-[12px] border-[2px] bg-[#fbfbfc] transition ${
+                                      className={`flex flex-col rounded-[12px] border-[2px] bg-[#fbfbfc] transition-[border-color] duration-150 ease-out ${
                                         rowSelected('lesson', lesson.key) ? 'border-[#5b60f9]' : 'border-[#e4e4e7]'
                                       }`}
                                     >
                                       <div className="flex items-center gap-2 px-2 py-2">
                                         <button
                                           type="button"
+                                          aria-expanded={expandedLessons.has(lesson.key)}
+                                          aria-label={`${expandedLessons.has(lesson.key) ? 'Replier' : 'Developper'} ${lesson.title}`}
                                           onClick={() => setExpandedLessons((s) => toggle(s, lesson.key))}
-                                          className="grid h-6 w-6 place-items-center rounded-[7px] text-[#a1a1aa] hover:bg-[#f4f4f5]"
+                                          className={studioTreeToggleMotionClass}
                                         >
                                           <ChevronRight
                                             size={14}
-                                            className={`transition-transform ${expandedLessons.has(lesson.key) ? 'rotate-90' : ''}`}
+                                            className={`transition-[transform] duration-150 ease-out motion-reduce:transition-none ${expandedLessons.has(lesson.key) ? 'rotate-90' : ''}`}
                                           />
                                         </button>
                                         <button
@@ -975,9 +932,9 @@ export default function StudioBoard() {
                                         <button
                                           type="button"
                                           onClick={() => addTab(lesson.key)}
-                                          className="inline-flex items-center gap-1 rounded-[8px] border-[2px] border-[#e4e4e7] px-1.5 py-1 text-[11px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+                                          className={`inline-flex min-h-10 items-center gap-1 rounded-[8px] border-[2px] border-[#e4e4e7] px-1.5 py-1 text-[11px] font-black text-[#52525c] hover:border-[#5b60f9] hover:text-[#5b60f9] ${studioControlMotionClass}`}
                                         >
-                                          <CirclePlus size={12} /> Onglet
+                                          <CirclePlus size={12} aria-hidden="true" /> Onglet
                                         </button>
                                       </div>
 
@@ -992,7 +949,7 @@ export default function StudioBoard() {
                                                 <SortableShell
                                                   key={tab.key}
                                                   id={`tab:${tab.key}`}
-                                                  className={`flex items-center gap-2 rounded-[10px] border-[2px] bg-white px-2 py-1.5 transition ${
+                                                  className={`flex items-center gap-2 rounded-[10px] border-[2px] bg-white px-2 py-1.5 transition-[border-color] duration-150 ease-out ${
                                                     rowSelected('tab', tab.key) ? 'border-[#5b60f9]' : 'border-[#e4e4e7]'
                                                   }`}
                                                 >
@@ -1075,7 +1032,7 @@ export default function StudioBoard() {
             disabled={operations.length === 0 || loading || submitting}
             onClick={() => void restoreStudioDraft()}
             aria-label={editId != null ? 'Restaurer la demande en attente' : 'Annuler le brouillon Studio'}
-            className="inline-flex items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 py-2.5 text-[13px] font-black text-[#52525c] transition hover:border-[#5b60f9] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-50"
+            className={`inline-flex min-h-10 items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 py-2.5 text-[13px] font-black text-[#52525c] hover:border-[#5b60f9] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-50 ${studioControlMotionClass}`}
           >
             <RotateCcw size={15} />
             {editId != null ? 'Restaurer la demande' : 'Annuler brouillon'}
@@ -1084,369 +1041,19 @@ export default function StudioBoard() {
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
             placeholder="Résumé des modifications (optionnel)…"
-            className="min-w-0 flex-1 rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2.5 text-[14px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+            className={`min-w-0 flex-1 rounded-[12px] border border-[#e4e4e7] bg-white px-3 py-2.5 text-[14px] font-semibold text-[#3f3f46] outline-none ${studioFieldMotionClass}`}
           />
           <button
             type="button"
             disabled={operations.length === 0 || submitting || studioReadiness.blockers.length > 0}
             onClick={submit}
-            className="inline-flex items-center gap-2 rounded-[12px] bg-[#5b60f9] px-5 py-2.5 text-[14px] font-black text-white transition hover:bg-[#4a4fe0] disabled:cursor-not-allowed disabled:bg-[#d4d4d8]"
+            className={`inline-flex min-h-10 items-center gap-2 rounded-[12px] bg-[#5b60f9] px-5 py-2.5 text-[14px] font-black text-white hover:bg-[#4a4fe0] disabled:cursor-not-allowed disabled:bg-[#d4d4d8] ${studioControlMotionClass}`}
           >
-            {submitting ? <Loader2 size={16} className="animate-spin" /> : <SendHorizonal size={16} />}
+            {submitting ? <Loader2 size={16} className="animate-spin motion-reduce:animate-none" /> : <SendHorizonal size={16} />}
             {editId != null ? 'Mettre à jour la demande' : 'Soumettre pour révision'}
           </button>
         </div>
       </section>
     </div>
   )
-}
-
-function parseStudioRouteId(value: string | null | undefined) {
-  if (!value) return null
-  const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
-}
-
-function parseStudioSelection(value: string | null | undefined): Sel {
-  if (!value) return null
-  const splitIndex = value.indexOf(':')
-  if (splitIndex <= 0) return null
-  const type = value.slice(0, splitIndex)
-  const key = value.slice(splitIndex + 1)
-  if ((type !== 'chapter' && type !== 'lesson' && type !== 'tab') || !key.trim()) return null
-  return { type, key }
-}
-
-function serializeStudioSelection(selection: Sel) {
-  return selection ? `${selection.type}:${selection.key}` : ''
-}
-
-function sameStudioSelection(left: Sel, right: Sel) {
-  return left?.type === right?.type && left?.key === right?.key
-}
-
-function summarizeStudioOperations(operations: StudioOperation[]) {
-  return operations.reduce(
-    (summary, operation) => {
-      if (operation.op_type === 'create') summary.create += 1
-      else if (operation.op_type === 'delete') summary.delete += 1
-      else if (operation.op_type === 'reorder') summary.reorder += 1
-      else summary.update += 1
-      return summary
-    },
-    { create: 0, update: 0, reorder: 0, delete: 0 },
-  )
-}
-
-function collectStudioSearchResults(chapters: WorkChapter[], query: string): StudioSearchResult[] {
-  if (!query) return []
-  const results: StudioSearchResult[] = []
-
-  chapters.forEach((chapter, chapterIndex) => {
-    const chapterLabel = chapter.title.trim() || `Chapter ${chapterIndex + 1}`
-    if (studioSearchText([chapter.title, `chapter ${chapterIndex + 1}`]).includes(query)) {
-      results.push({
-        key: `chapter-${chapter.key}`,
-        label: chapterLabel,
-        detail: `${chapter.lessons.length} lesson${chapter.lessons.length === 1 ? '' : 's'}`,
-        badge: 'chapter',
-        target: { type: 'chapter', key: chapter.key },
-        chapterKey: chapter.key,
-      })
-    }
-
-    chapter.lessons.forEach((lesson, lessonIndex) => {
-      const lessonLabel = lesson.title.trim() || `Lesson ${lessonIndex + 1}`
-      if (studioSearchText([lesson.title, lesson.item_type, lesson.video_id, chapterLabel]).includes(query)) {
-        results.push({
-          key: `lesson-${lesson.key}`,
-          label: lessonLabel,
-          detail: chapterLabel,
-          badge: 'lesson',
-          target: { type: 'lesson', key: lesson.key },
-          chapterKey: chapter.key,
-        })
-      }
-
-      lesson.tabs.forEach((tab, tabIndex) => {
-        const tabLabel = tab.label.trim() || `Tab ${tabIndex + 1}`
-        if (studioSearchText([
-          tab.label,
-          tab.tab_type,
-          tab.content,
-          tab.resource_url,
-          tab.renderer_key,
-          lessonLabel,
-          chapterLabel,
-        ]).includes(query)) {
-          results.push({
-            key: `tab-${tab.key}`,
-            label: tabLabel,
-            detail: `${chapterLabel} / ${lessonLabel}`,
-            badge: 'tab',
-            target: { type: 'tab', key: tab.key },
-            chapterKey: chapter.key,
-            lessonKey: lesson.key,
-          })
-        }
-      })
-    })
-  })
-
-  return results
-}
-
-function studioSearchText(values: Array<string | null | undefined>) {
-  return values.filter(Boolean).join(' ').toLowerCase()
-}
-
-function selectionFromRoute(selection: NonNullable<Sel>, chapters: WorkChapter[]): OperationTarget | null {
-  if (selection.type === 'chapter') {
-    const chapter = chapters.find((item) => matchesOperationTarget(item, selection.key))
-    return chapter ? { selection: { type: 'chapter', key: chapter.key }, chapterKey: chapter.key } : null
-  }
-
-  if (selection.type === 'lesson') {
-    for (const chapter of chapters) {
-      const lesson = chapter.lessons.find((item) => matchesOperationTarget(item, selection.key))
-      if (lesson) return { selection: { type: 'lesson', key: lesson.key }, chapterKey: chapter.key }
-    }
-    return null
-  }
-
-  for (const chapter of chapters) {
-    for (const lesson of chapter.lessons) {
-      const tab = lesson.tabs.find((item) => matchesOperationTarget(item, selection.key))
-      if (tab) {
-        return {
-          selection: { type: 'tab', key: tab.key },
-          chapterKey: chapter.key,
-          lessonKey: lesson.key,
-        }
-      }
-    }
-  }
-
-  return null
-}
-
-function selectionFromOperation(operation: StudioOperation, chapters: WorkChapter[]): OperationTarget | null {
-  const targetRef = operation.client_ref ?? (operation.target_id != null ? String(operation.target_id) : null)
-  if (!targetRef) return null
-
-  if (operation.entity_type === 'chapter') {
-    const chapter = chapters.find((item) => matchesOperationTarget(item, targetRef))
-    return chapter ? { selection: { type: 'chapter', key: chapter.key }, chapterKey: chapter.key } : null
-  }
-
-  if (operation.entity_type === 'lesson') {
-    for (const chapter of chapters) {
-      const lesson = chapter.lessons.find((item) => matchesOperationTarget(item, targetRef))
-      if (lesson) return { selection: { type: 'lesson', key: lesson.key }, chapterKey: chapter.key }
-    }
-    return null
-  }
-
-  for (const chapter of chapters) {
-    for (const lesson of chapter.lessons) {
-      const tab = lesson.tabs.find((item) => matchesOperationTarget(item, targetRef))
-      if (tab) {
-        return {
-          selection: { type: 'tab', key: tab.key },
-          chapterKey: chapter.key,
-          lessonKey: lesson.key,
-        }
-      }
-    }
-  }
-
-  return null
-}
-
-function matchesOperationTarget(
-  item: { key: string; serverId: number | null },
-  targetRef: string,
-) {
-  return item.key === targetRef || (item.serverId != null && String(item.serverId) === targetRef)
-}
-
-function StudioReadinessSummary({
-  readiness,
-  onIssueSelect,
-}: {
-  readiness: StudioReadiness
-  onIssueSelect: (issue: StudioReadinessIssue) => void
-}) {
-  const statusText = readiness.blockers.length > 0
-    ? `${readiness.blockers.length} blocker${readiness.blockers.length === 1 ? '' : 's'}`
-    : readiness.warnings.length > 0
-      ? `${readiness.warnings.length} warning${readiness.warnings.length === 1 ? '' : 's'}`
-      : 'Ready to submit'
-  const summaryTone = readiness.blockers.length > 0
-    ? 'bg-[#fff7ed] text-[#9a3412]'
-    : readiness.warnings.length > 0
-      ? 'bg-[#fffbeb] text-[#854d0e]'
-      : 'bg-[#f0fdf4] text-[#166534]'
-  const Icon = readiness.blockers.length > 0 || readiness.warnings.length > 0 ? AlertTriangle : CheckCircle2
-  const visibleIssues = [...readiness.blockers, ...readiness.warnings].slice(0, 2)
-
-  return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2" aria-label="Studio readiness summary">
-      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-black ${summaryTone}`}>
-        <Icon size={13} />
-        {statusText}
-      </span>
-      {visibleIssues.length > 0 && (
-        <>
-          {visibleIssues.map((issue) => <StudioReadinessIssueCard key={issue.key} issue={issue} onSelect={onIssueSelect} />)}
-        </>
-      )}
-    </div>
-  )
-}
-
-function StudioReadinessIssueCard({
-  issue,
-  onSelect,
-}: {
-  issue: StudioReadinessIssue
-  onSelect: (issue: StudioReadinessIssue) => void
-}) {
-  const toneClass = issue.level === 'blocker'
-    ? 'border-[#fed7aa] bg-white text-[#9a3412]'
-    : 'border-[#fde68a] bg-white text-[#854d0e]'
-  const actionText = issue.target ? 'Open in inspector' : 'Add chapter'
-
-  return (
-    <button type="button" onClick={() => onSelect(issue)} className={`inline-flex min-w-0 max-w-[240px] items-center gap-2 rounded-full border px-2.5 py-1 text-left ${toneClass}`}>
-      <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.08em]">{issue.level}</span>
-      <span className="min-w-0 truncate text-[11px] font-bold text-[#3f3f46]">{issue.label}</span>
-      <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.08em] text-[#52525c]">{actionText}</span>
-    </button>
-  )
-}
-
-function collectStudioReadiness(chapters: WorkChapter[]): StudioReadiness {
-  const issues: StudioReadinessIssue[] = []
-
-  if (chapters.length === 0) {
-    issues.push({
-      key: 'empty-course',
-      label: 'No chapters',
-      detail: 'Add at least one chapter before submitting.',
-      level: 'blocker',
-      target: null,
-    })
-  }
-
-  chapters.forEach((chapter, chapterIndex) => {
-    const chapterName = chapter.title.trim() || `Chapter ${chapterIndex + 1}`
-    if (!chapter.title.trim()) {
-      issues.push({
-        key: `chapter-title-${chapter.key}`,
-        label: chapterName,
-        detail: 'Chapter title is required.',
-        level: 'blocker',
-        target: { type: 'chapter', key: chapter.key },
-        chapterKey: chapter.key,
-      })
-    }
-    if (chapter.lessons.length === 0) {
-      issues.push({
-        key: `chapter-lessons-${chapter.key}`,
-        label: chapterName,
-        detail: 'Add at least one lesson or remove this chapter.',
-        level: 'warning',
-        target: { type: 'chapter', key: chapter.key },
-        chapterKey: chapter.key,
-      })
-    }
-
-    chapter.lessons.forEach((lesson, lessonIndex) => {
-      const lessonName = lesson.title.trim() || `${chapterName} / Lesson ${lessonIndex + 1}`
-      if (!lesson.title.trim()) {
-        issues.push({
-          key: `lesson-title-${lesson.key}`,
-          label: lessonName,
-          detail: 'Lesson title is required.',
-          level: 'blocker',
-          target: { type: 'lesson', key: lesson.key },
-          chapterKey: chapter.key,
-        })
-      }
-      if (VIDEO_LESSON_TYPES.has(lesson.item_type) && !lesson.video_id.trim()) {
-        issues.push({
-          key: `lesson-video-${lesson.key}`,
-          label: lessonName,
-          detail: 'Attach the VdoCipher video ID before publishing this lesson.',
-          level: 'warning',
-          target: { type: 'lesson', key: lesson.key },
-          chapterKey: chapter.key,
-        })
-      }
-      if (lesson.tabs.length === 0) {
-        issues.push({
-          key: `lesson-tabs-${lesson.key}`,
-          label: lessonName,
-          detail: 'Add a course, lab or resource tab so students have content.',
-          level: 'warning',
-          target: { type: 'lesson', key: lesson.key },
-          chapterKey: chapter.key,
-        })
-      }
-
-      lesson.tabs.forEach((tab, tabIndex) => {
-        const tabName = tab.label.trim() || `${lessonName} / Tab ${tabIndex + 1}`
-        if (!tab.label.trim()) {
-          issues.push({
-            key: `tab-label-${tab.key}`,
-            label: tabName,
-            detail: 'Tab label is required.',
-            level: 'blocker',
-            target: { type: 'tab', key: tab.key },
-            chapterKey: chapter.key,
-            lessonKey: lesson.key,
-          })
-        }
-        if (TEXT_TAB_TYPES.has(tab.tab_type) && !tab.content.trim()) {
-          issues.push({
-            key: `tab-content-${tab.key}`,
-            label: tabName,
-            detail: 'Course text is empty.',
-            level: 'warning',
-            target: { type: 'tab', key: tab.key },
-            chapterKey: chapter.key,
-            lessonKey: lesson.key,
-          })
-        }
-        if (tab.tab_type === 'resources' && !tab.resource_url.trim()) {
-          issues.push({
-            key: `tab-resource-${tab.key}`,
-            label: tabName,
-            detail: 'Resource URL is required.',
-            level: 'blocker',
-            target: { type: 'tab', key: tab.key },
-            chapterKey: chapter.key,
-            lessonKey: lesson.key,
-          })
-        }
-        if (tab.tab_type === 'lab' && !tab.renderer_key.trim()) {
-          issues.push({
-            key: `tab-lab-${tab.key}`,
-            label: tabName,
-            detail: 'Choose a simulator for this lab tab.',
-            level: 'blocker',
-            target: { type: 'tab', key: tab.key },
-            chapterKey: chapter.key,
-            lessonKey: lesson.key,
-          })
-        }
-      })
-    })
-  })
-
-  return {
-    blockers: issues.filter((issue) => issue.level === 'blocker'),
-    warnings: issues.filter((issue) => issue.level === 'warning'),
-  }
 }

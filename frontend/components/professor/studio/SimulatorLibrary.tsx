@@ -1,7 +1,6 @@
 'use client'
 
 import { Component, useMemo, useState, type ReactNode } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { Check, FlaskConical, Search, X } from 'lucide-react'
 import { AnimatedContentRenderer } from '@/components/animated/registry'
 import {
@@ -40,6 +39,9 @@ function accentDotClass(accent: string) {
   return ACCENT_DOT_CLASSES[accent] ?? 'bg-[#5b60f9]'
 }
 
+const libraryControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20 motion-reduce:transition-none motion-reduce:active:scale-100'
+const libraryInputMotionClass = 'transition-[border-color,box-shadow] duration-150 ease-out focus:border-[#5b60f9] focus:ring-4 focus:ring-[#5b60f9]/10 motion-reduce:transition-none'
+
 export default function SimulatorLibrary({
   open,
   currentKey,
@@ -71,24 +73,17 @@ export default function SimulatorLibrary({
     onClose()
   }
 
+  if (!open) return null
+
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-[#18181b]/40 p-4 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-        >
-          <motion.div
-            className="flex h-[88vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[20px] border-[2px] border-[#e4e4e7] bg-white shadow-[0_30px_80px_rgba(24,24,27,0.25)]"
-            initial={{ scale: 0.96, y: 12 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.96, y: 12 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
-            onClick={(e) => e.stopPropagation()}
-          >
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#18181b]/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-[88vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-[20px] border-[2px] border-[#e4e4e7] bg-white shadow-[0_30px_80px_rgba(24,24,27,0.25)]"
+        onClick={(e) => e.stopPropagation()}
+      >
             {/* Header */}
             <div className="flex items-center gap-3 border-b-[2px] border-[#e4e4e7] px-5 py-3.5">
               <div className="grid h-9 w-9 place-items-center rounded-[12px] bg-[#5b60f9] text-white">
@@ -104,11 +99,11 @@ export default function SimulatorLibrary({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Rechercher…"
-                  className="w-56 rounded-[10px] border-[2px] border-[#e4e4e7] py-2 pl-9 pr-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+                  className={`w-56 rounded-[10px] border-[2px] border-[#e4e4e7] py-2 pl-9 pr-3 text-[13px] font-semibold text-[#3f3f46] outline-none ${libraryInputMotionClass}`}
                 />
               </div>
-              <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-[10px] text-[#71717b] hover:bg-[#f4f4f5]">
-                <X size={18} />
+              <button type="button" onClick={onClose} className={`grid h-10 w-10 place-items-center rounded-[10px] text-[#71717b] hover:bg-[#f4f4f5] ${libraryControlMotionClass}`} aria-label="Fermer la bibliotheque de simulateurs">
+                <X size={18} aria-hidden="true" />
               </button>
             </div>
 
@@ -118,7 +113,7 @@ export default function SimulatorLibrary({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Rechercher..."
-                className="w-full rounded-[10px] border-[2px] border-[#e4e4e7] py-2 pl-9 pr-3 text-[13px] font-semibold text-[#3f3f46] outline-none focus:border-[#5b60f9]"
+                className={`w-full rounded-[10px] border-[2px] border-[#e4e4e7] py-2 pl-9 pr-3 text-[13px] font-semibold text-[#3f3f46] outline-none ${libraryInputMotionClass}`}
               />
             </div>
 
@@ -129,8 +124,9 @@ export default function SimulatorLibrary({
                   key={cat}
                   type="button"
                   onClick={() => setCategory(cat)}
-                  className={`rounded-[9px] px-2.5 py-1 text-[12px] font-black transition ${
-                    category === cat ? 'bg-[#5b60f9] text-white' : 'border-[2px] border-[#e4e4e7] text-[#52525c] hover:border-[#5b60f9]'
+                  aria-pressed={category === cat}
+                  className={`min-h-10 rounded-[9px] border-[2px] px-2.5 py-1 text-[12px] font-black ${libraryControlMotionClass} ${
+                    category === cat ? 'border-transparent bg-[#5b60f9] text-white' : 'border-[#e4e4e7] text-[#52525c] hover:border-[#5b60f9]'
                   }`}
                 >
                   {cat}
@@ -148,7 +144,7 @@ export default function SimulatorLibrary({
                     return (
                       <article
                         key={sim.key}
-                        className={`rounded-[14px] border-[2px] bg-white px-3.5 py-3 transition ${
+                        className={`rounded-[14px] border-[2px] bg-white px-3.5 py-3 transition-[border-color,box-shadow] duration-150 ease-out ${
                           isFocused ? 'border-[#5b60f9] ring-2 ring-[#5b60f9]/15' : 'border-[#e4e4e7] hover:border-[#c7c7cc]'
                         }`}
                       >
@@ -174,7 +170,7 @@ export default function SimulatorLibrary({
                             type="button"
                             onClick={() => selectSimulator(sim.key)}
                             aria-label={`Choisir ${sim.title}`}
-                            className="shrink-0 rounded-[9px] bg-[#5b60f9] px-2.5 py-1 text-[11px] font-black text-white transition hover:bg-[#4a4fe0] focus:outline-none focus:ring-2 focus:ring-[#5b60f9]/25"
+                            className="min-h-10 shrink-0 rounded-[9px] bg-[#5b60f9] px-2.5 py-1 text-[11px] font-black text-white transition-[background-color,box-shadow,transform] duration-150 ease-out hover:bg-[#4a4fe0] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20 motion-reduce:transition-none motion-reduce:active:scale-100"
                           >
                             {isCurrent ? 'Actif' : 'Choisir'}
                           </button>
@@ -210,16 +206,14 @@ export default function SimulatorLibrary({
                     type="button"
                     disabled={!focusedSim}
                     onClick={() => { if (focusedSim) selectSimulator(focusedSim.key) }}
-                    className="w-full rounded-[12px] bg-[#5b60f9] py-2.5 text-[14px] font-black text-white transition hover:bg-[#4a4fe0] disabled:bg-[#d4d4d8]"
+                    className={`min-h-10 w-full rounded-[12px] bg-[#5b60f9] py-2.5 text-[14px] font-black text-white hover:bg-[#4a4fe0] disabled:bg-[#d4d4d8] disabled:active:scale-100 ${libraryControlMotionClass}`}
                   >
                     Choisir ce simulateur
                   </button>
                 </div>
               </div>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+      </div>
+    </div>
   )
 }

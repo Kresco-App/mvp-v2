@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { BellRing, Check, Copy, Eye, HelpCircle, MessageCircle, MessageSquare, Play, RotateCcw, Search, Square, X } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import {
@@ -40,6 +40,7 @@ const QUESTION_QUEUE_FILTERS: Array<{ value: QuestionQueueFilter; label: string 
 ]
 const QUESTION_QUEUE_FILTER_VALUES = new Set<QuestionQueueFilter>(QUESTION_QUEUE_FILTERS.map((filter) => filter.value))
 const LIVE_CONTROL_PANEL_VALUES = new Set<LiveControlPanel>(['question', 'message'])
+const liveRoomInteractionContainmentClass = '[content-visibility:auto] [contain-intrinsic-size:0_112px]'
 
 export default function ProfessorLiveControlRoomPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -79,7 +80,7 @@ export default function ProfessorLiveControlRoomPage() {
   }, [embed, error, loading, numericSessionId, session])
 
   useEffect(() => {
-    if (error) toast.error(apiDataErrorMessage(error, 'Could not load the live control room.'))
+    if (error) showToastError(apiDataErrorMessage(error, 'Could not load the live control room.'))
   }, [error])
 
   useEffect(() => {
@@ -145,10 +146,10 @@ export default function ProfessorLiveControlRoomPage() {
     setSessionBusy(true)
     try {
       await action()
-      toast.success(success)
+      showToastSuccess(success)
       await mutateAll()
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Action failed.'))
+      showToastError(apiDataErrorMessage(error, 'Action failed.'))
     } finally {
       setSessionBusy(false)
     }
@@ -165,10 +166,10 @@ export default function ProfessorLiveControlRoomPage() {
         )
         await mutateSessions()
       }
-      toast.success(success)
+      showToastSuccess(success)
       return true
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Action failed.'))
+      showToastError(apiDataErrorMessage(error, 'Action failed.'))
       return false
     } finally {
       setBusyId(null)
@@ -186,7 +187,7 @@ export default function ProfessorLiveControlRoomPage() {
   async function saveQuestionAnswer(interaction: LiveSessionInteraction) {
     const answer = answerDraftFor(interaction).trim()
     if (!answer) {
-      toast.error('Write an answer before saving.')
+      showToastError('Write an answer before saving.')
       return
     }
 
@@ -209,9 +210,9 @@ export default function ProfessorLiveControlRoomPage() {
     setRevealingCredentials(true)
     try {
       setStreamCredentials(await revealProfessorLiveStreamCredentials(session.id))
-      toast.success('Stream credentials revealed.')
+      showToastSuccess('Stream credentials revealed.')
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Could not reveal stream credentials.'))
+      showToastError(apiDataErrorMessage(error, 'Could not reveal stream credentials.'))
     } finally {
       setRevealingCredentials(false)
     }
@@ -220,18 +221,18 @@ export default function ProfessorLiveControlRoomPage() {
   async function copyControlCredential(label: string, value: string) {
     const trimmed = value.trim()
     if (!trimmed) {
-      toast.error(`No ${label.toLowerCase()} saved.`)
+      showToastError(`No ${label.toLowerCase()} saved.`)
       return
     }
     if (!navigator.clipboard?.writeText) {
-      toast.error('Clipboard is not available.')
+      showToastError('Clipboard is not available.')
       return
     }
     try {
       await navigator.clipboard.writeText(trimmed)
-      toast.success(`${label} copied.`)
+      showToastSuccess(`${label} copied.`)
     } catch {
-      toast.error(`Could not copy ${label}.`)
+      showToastError(`Could not copy ${label}.`)
     }
   }
 
@@ -333,7 +334,7 @@ export default function ProfessorLiveControlRoomPage() {
             <button type="button" onClick={reviewQuestionQueue} className="h-8 rounded-[10px] border border-[#453dee] bg-[#453dee] px-3 text-[11px] font-black text-white">
               Review questions
             </button>
-            <button type="button" onClick={() => selectControlPanel('message')} className="h-8 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[11px] font-black text-[#52525c] transition hover:border-[#453dee] hover:text-[#453dee]">
+            <button type="button" onClick={() => selectControlPanel('message')} className="h-8 rounded-[10px] border border-[#e4e4e7] bg-white px-3 text-[11px] font-black text-[#52525c] transition-[border-color,color] duration-150 ease-out hover:border-[#453dee] hover:text-[#453dee]">
               Open chat
             </button>
           </section>
@@ -394,7 +395,7 @@ export default function ProfessorLiveControlRoomPage() {
                 ] as const).map(([kind, label, count]) => (
                   <button
                     key={kind}
-                    className={`h-11 rounded-[12px] text-[13px] font-black transition ${activePanel === kind ? 'border-2 border-[#18181b] bg-[#453dee] text-white shadow-[0_2px_0_#18181b]' : 'border-2 border-transparent text-[#71717b] hover:bg-[#f7f8fb]'}`}
+                    className={`h-11 rounded-[12px] text-[13px] font-black transition-[background-color,border-color,box-shadow,color] duration-150 ease-out ${activePanel === kind ? 'border-2 border-[#18181b] bg-[#453dee] text-white shadow-[0_2px_0_#18181b]' : 'border-2 border-transparent text-[#71717b] hover:bg-[#f7f8fb]'}`}
                     type="button"
                     onClick={() => selectControlPanel(kind)}
                   >
@@ -410,7 +411,7 @@ export default function ProfessorLiveControlRoomPage() {
                       type="button"
                       onClick={() => selectQuestionFilter(filter.value)}
                       aria-pressed={questionFilter === filter.value}
-                      className={`h-8 rounded-[10px] text-[11px] font-black transition ${questionFilter === filter.value ? 'bg-[#18181b] text-white' : 'border border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#453dee] hover:text-[#453dee]'}`}
+                      className={`h-10 rounded-[10px] text-[11px] font-black transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] ${questionFilter === filter.value ? 'bg-[#18181b] text-white' : 'border border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#453dee] hover:text-[#453dee]'}`}
                     >
                       {filter.label}
                     </button>
@@ -418,7 +419,7 @@ export default function ProfessorLiveControlRoomPage() {
                 </div>
               )}
               <section className="mt-2 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] p-2" aria-label="Search live room interactions">
-                <label className="flex min-h-9 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 text-[#71717b] focus-within:border-[#453dee] focus-within:ring-2 focus-within:ring-[#453dee]/10">
+                <label className="flex min-h-10 items-center gap-2 rounded-[10px] border border-[#e4e4e7] bg-white px-2.5 text-[#71717b] focus-within:border-[#453dee] focus-within:ring-2 focus-within:ring-[#453dee]/10">
                   <Search size={13} className="shrink-0 text-[#9f9fa9]" />
                   <input
                     aria-label="Search live room"
@@ -432,21 +433,21 @@ export default function ProfessorLiveControlRoomPage() {
                       type="button"
                       aria-label="Clear live room search"
                       onClick={clearRoomSearch}
-                      className="grid size-6 shrink-0 place-items-center rounded-full text-[#9f9fa9] transition hover:bg-[#f4f4f5] hover:text-[#52525c]"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#9f9fa9] transition-[background-color,color,transform] duration-150 ease-out hover:bg-[#f4f4f5] hover:text-[#52525c] active:scale-[0.96]"
                     >
                       <X size={13} />
                     </button>
                   )}
                 </label>
                 <p className="m-0 mt-1.5 px-1 text-[10px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">
-                  {activeItems.length} of {activePanelSourceCount} visible
+                  <span className="tabular-nums">{activeItems.length} of {activePanelSourceCount}</span> visible
                 </p>
               </section>
             </div>
 
             {loading ? (
               <div className="grid gap-3 p-4">
-                {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-[112px] animate-pulse rounded-[14px] bg-[#f4f4f5]" />)}
+                {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-[112px] motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[14px] bg-[#f4f4f5]" />)}
               </div>
             ) : activeItems.length === 0 ? (
               <div className="grid min-h-[420px] flex-1 place-items-center px-6 text-center">
@@ -462,7 +463,7 @@ export default function ProfessorLiveControlRoomPage() {
                     <button
                       type="button"
                       onClick={clearRoomSearch}
-                      className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[12px] font-black text-[#453dee] transition hover:border-[#453dee]"
+                      className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[12px] font-black text-[#453dee] transition-[border-color,transform] duration-150 ease-out hover:border-[#453dee] active:scale-[0.96]"
                     >
                       Clear live room search
                     </button>
@@ -470,7 +471,7 @@ export default function ProfessorLiveControlRoomPage() {
                     <button
                       type="button"
                       onClick={() => selectQuestionFilter('all')}
-                      className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[12px] font-black text-[#453dee] transition hover:border-[#453dee]"
+                      className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[12px] font-black text-[#453dee] transition-[border-color,transform] duration-150 ease-out hover:border-[#453dee] active:scale-[0.96]"
                     >
                       Show all questions
                     </button>
@@ -483,7 +484,7 @@ export default function ProfessorLiveControlRoomPage() {
                   const savedAnswer = interaction.answer.trim()
                   const draftAnswer = answerDraftFor(interaction)
                   return (
-                    <article key={interaction.id} className="border-b border-[#f0f0f2] px-4 py-5">
+                    <article key={interaction.id} className={`border-b border-[#f0f0f2] px-4 py-5 ${liveRoomInteractionContainmentClass}`}>
                       <div className="flex items-start gap-3">
                         <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[#f4f4ff] text-[11px] font-black text-[#453dee]">
                           {liveInteractionInitials(interaction.student_name)}
@@ -514,7 +515,7 @@ export default function ProfessorLiveControlRoomPage() {
                                 id={`live-answer-${interaction.id}`}
                                 value={draftAnswer}
                                 onChange={(event) => updateAnswerDraft(interaction.id, event.target.value)}
-                                className="mt-2 min-h-20 w-full resize-none rounded-[10px] border border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-bold leading-5 text-[#3f3f46] outline-none transition focus:border-[#453dee] focus:ring-2 focus:ring-[#453dee]/10"
+                                className="mt-2 min-h-20 w-full resize-none rounded-[10px] border border-[#e4e4e7] bg-white px-3 py-2 text-[13px] font-bold leading-5 text-[#3f3f46] outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-[#453dee] focus-visible:ring-4 focus-visible:ring-[#453dee]/10 motion-reduce:transition-none"
                                 placeholder="Type the answer you will give on stream..."
                               />
                               <div className="mt-2 flex flex-wrap gap-2">
@@ -565,7 +566,7 @@ function LiveControlCredentialRow({
 }) {
   const hasValue = value.trim().length > 0
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_34px] items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] px-3 py-2" aria-label={`Control room ${label}`}>
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_40px] items-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-[#fbfbfc] px-3 py-2" aria-label={`Control room ${label}`}>
       <span className="min-w-0">
         <span className="block text-[11px] font-black uppercase tracking-[0.1em] text-[#9f9fa9]">{label}</span>
         <span className="mt-1 block truncate text-[13px] font-bold text-[#3f3f46]">{hasValue ? value : `No ${label.toLowerCase()} saved`}</span>
@@ -575,7 +576,7 @@ function LiveControlCredentialRow({
         disabled={!hasValue}
         onClick={() => void onCopy(label, value)}
         aria-label={`Copy control room ${label}`}
-        className="grid size-8 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] transition hover:border-[#453dee] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-45"
+        className="grid h-10 w-10 place-items-center rounded-[10px] border border-[#e4e4e7] bg-white text-[#71717b] transition-[border-color,color,opacity,transform] duration-150 ease-out hover:border-[#453dee] hover:text-[#453dee] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100"
       >
         <Copy size={13} />
       </button>

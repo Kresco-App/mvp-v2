@@ -19,6 +19,7 @@ const professorLinks = [
 ]
 
 const professorUnreadMessagesHref = `${AUTH_ROUTES.professorChat}?filter=unread`
+const professorNavMotionClass = 'transition-[background-color,color,box-shadow,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none motion-reduce:active:scale-100'
 
 export default function ProfessorTopNav() {
   const pathname = usePathname()
@@ -60,11 +61,12 @@ export default function ProfessorTopNav() {
               <Link
                 key={href}
                 href={href}
-                className={`relative flex h-full shrink-0 items-center justify-center gap-2 px-4 text-[13px] font-black no-underline transition-[color,transform] duration-150 ease-out active:scale-[0.96] ${
-                  isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:text-[#3a2fd3]'
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative flex h-full shrink-0 items-center justify-center gap-2 px-4 text-[13px] font-black no-underline ${professorNavMotionClass} ${
+                  isActive ? 'text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f8f8fb] hover:text-[#3a2fd3]'
                 }`}
               >
-                <Icon size={16} strokeWidth={2.2} />
+                <Icon size={16} strokeWidth={2.2} aria-hidden="true" />
                 <span>{label}</span>
                 {isActive && <span className="absolute bottom-0 left-4 right-4 h-0.5 rounded-full bg-[#3a2fd3]" />}
               </Link>
@@ -79,7 +81,7 @@ export default function ProfessorTopNav() {
             aria-expanded={menuOpen}
             aria-controls="professor-mobile-menu"
             onClick={toggleMenu}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] transition-[background-color,color,transform] duration-150 ease-out hover:bg-[#f4f4f5] active:scale-[0.96] md:hidden"
+            className={`grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] hover:bg-[#f4f4f5] ${professorNavMotionClass} md:hidden`}
           >
             <span className="t-icon-swap" data-state={menuOpen ? 'b' : 'a'} aria-hidden="true">
               <span className="t-icon" data-icon="a"><Menu size={19} /></span>
@@ -93,22 +95,22 @@ export default function ProfessorTopNav() {
             href={professorUnreadMessagesHref}
             aria-label="Open unread professor messages"
             title="Open unread professor messages"
-            className="relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] no-underline transition-[background-color,transform] duration-150 ease-out hover:bg-[#f4f4f5] active:scale-[0.96]"
+            className={`relative grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#52525c] no-underline hover:bg-[#f4f4f5] ${professorNavMotionClass}`}
           >
-            <Bell size={18} />
+            <Bell size={18} aria-hidden="true" />
             <span aria-hidden="true" className="absolute right-3 top-3 h-2 w-2 rounded-full bg-[#f5900b]" />
           </Link>
           <div title={user?.full_name || 'Professor profile'} className="grid h-11 w-11 place-items-center rounded-[14px] border-[2px] border-[#e4e4e7] bg-[#f4f4f5] text-sm font-black text-[#3a2fd3]">
-            {user?.full_name?.[0]?.toUpperCase() || <User size={18} />}
+            {user?.full_name?.[0]?.toUpperCase() || <User size={18} aria-hidden="true" />}
           </div>
           <button
             type="button"
             onClick={doLogout}
-            className="grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#71717b] transition-[background-color,color,transform] duration-150 ease-out hover:bg-red-50 hover:text-red-500 active:scale-[0.96]"
+            className={`grid h-11 w-11 place-items-center rounded-[14px] border-0 bg-transparent text-[#71717b] hover:bg-red-50 hover:text-red-500 ${professorNavMotionClass}`}
             aria-label="Se deconnecter"
             title="Se déconnecter"
           >
-            <LogOut size={18} />
+            <LogOut size={18} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -122,11 +124,12 @@ export default function ProfessorTopNav() {
                   key={href}
                   href={href}
                   onClick={closeMenu}
-                  className={`flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black no-underline transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] ${
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex h-11 items-center gap-2 rounded-[12px] px-3 text-[14px] font-black no-underline ${professorNavMotionClass} ${
                     isActive ? 'bg-[#f0f0ff] text-[#3a2fd3]' : 'text-[#52525c] hover:bg-[#f4f4f5]'
                   }`}
                 >
-                  <Icon size={16} />
+                  <Icon size={16} aria-hidden="true" />
                   {label}
                 </Link>
               )

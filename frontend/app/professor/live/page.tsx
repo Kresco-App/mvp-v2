@@ -4,7 +4,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { BellRing, CalendarPlus, CheckCircle2, Copy, Eye, ExternalLink, MonitorCog, MoreHorizontal, Pencil, Play, Radio, RotateCcw, Save, Search, Square, Trash2, X } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { formatLiveDateTime as formatDateTime } from '@/lib/liveInteractions'
@@ -114,7 +114,7 @@ export default function ProfessorLivePage() {
     }
     if (loadErrorRef.current !== error) {
       loadErrorRef.current = error
-      toast.error(apiDataErrorMessage(error, 'Could not load live sessions.'))
+      showToastError(apiDataErrorMessage(error, 'Could not load live sessions.'))
     }
   }, [error])
 
@@ -148,26 +148,26 @@ export default function ProfessorLivePage() {
   async function submitLiveSession(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!form.course_offering_id) {
-      toast.error('Select an offering first.')
+      showToastError('Select an offering first.')
       return
     }
     if (!form.auto_create_vdocipher && !form.vdocipher_live_id.trim()) {
-      toast.error('Paste a VdoCipher live ID or enable Generate stream.')
+      showToastError('Paste a VdoCipher live ID or enable Generate stream.')
       return
     }
     if (form.auto_create_vdocipher && providerConfig && !providerConfig.can_auto_create) {
-      toast.error(`Stream generation is not configured: ${providerConfig.missing.join(', ')}`)
+      showToastError(`Stream generation is not configured: ${providerConfig.missing.join(', ')}`)
       return
     }
 
     const startsAt = new Date(form.starts_at)
     const endsAt = new Date(form.ends_at)
     if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
-      toast.error('Choose valid start and end times.')
+      showToastError('Choose valid start and end times.')
       return
     }
     if (endsAt <= startsAt) {
-      toast.error('End time must be after the start time.')
+      showToastError('End time must be after the start time.')
       return
     }
 
@@ -195,15 +195,15 @@ export default function ProfessorLivePage() {
     try {
       if (form.id) {
         await updateProfessorLiveSession(form.id, payload)
-        toast.success('Live session updated.')
+        showToastSuccess('Live session updated.')
       } else {
         await createProfessorLiveSession(payload)
-        toast.success('Live session created.')
+        showToastSuccess('Live session created.')
       }
       resetForm(offerings)
       await mutateAll()
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, form.auto_create_vdocipher ? 'Stream generation is not configured yet.' : 'Could not save live session.'))
+      showToastError(apiDataErrorMessage(error, form.auto_create_vdocipher ? 'Stream generation is not configured yet.' : 'Could not save live session.'))
     } finally {
       setSaving(false)
     }
@@ -218,7 +218,7 @@ export default function ProfessorLivePage() {
     setForm(duplicateFormFromSession(session))
     setShowAdvancedForm(true)
     setOpenMenuId(null)
-    toast.success('Session copied. Add stream details before saving.')
+    showToastSuccess('Session copied. Add stream details before saving.')
     window.requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
@@ -226,11 +226,11 @@ export default function ProfessorLivePage() {
     setBusyId(session.id)
     try {
       await action()
-      toast.success(label)
+      showToastSuccess(label)
       setOpenMenuId(null)
       await mutateAll()
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Action failed.'))
+      showToastError(apiDataErrorMessage(error, 'Action failed.'))
     } finally {
       setBusyId(null)
     }
@@ -241,15 +241,15 @@ export default function ProfessorLivePage() {
     try {
       const credentials = await revealProfessorLiveStreamCredentials(session.id)
       setRevealedCredentials((current) => ({ ...current, [session.id]: credentials }))
-      toast.success('Stream credentials revealed.')
+      showToastSuccess('Stream credentials revealed.')
     } catch (error) {
-      toast.error(apiDataErrorMessage(error, 'Could not reveal stream credentials.'))
+      showToastError(apiDataErrorMessage(error, 'Could not reveal stream credentials.'))
     } finally {
       setRevealingId(null)
     }
   }
 
-  const sortedSessions = useMemo(() => [...sessions].sort(compareLiveSessions), [sessions])
+  const sortedSessions = useMemo(() => sessions.toSorted(compareLiveSessions), [sessions])
   const liveSummary = useMemo(() => {
     const live = sessions.filter((session) => session.status === 'live').length
     const scheduled = sessions.filter((session) => session.status === 'scheduled').length
@@ -440,7 +440,7 @@ export default function ProfessorLivePage() {
                   {hasLiveSearch && (
                     <button
                       aria-label="Clear live session search"
-                      className="grid size-7 shrink-0 place-items-center rounded-full text-[#9f9fa9] transition hover:bg-[#f4f4f5] hover:text-[#52525c]"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-[#9f9fa9] transition-[background-color,color,transform] duration-150 ease-out hover:bg-[#f4f4f5] hover:text-[#52525c] active:scale-[0.96]"
                       type="button"
                       onClick={clearLiveSearch}
                     >
@@ -455,7 +455,7 @@ export default function ProfessorLivePage() {
                       <button
                         key={filter.value}
                         aria-pressed={selected}
-                        className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[11px] border px-2.5 text-[12px] font-black transition ${selected ? 'border-[#453dee] bg-[#f0f0ff] text-[#453dee]' : 'border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#d4d4d8] hover:bg-[#fafafa]'}`}
+                        className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[11px] border px-2.5 text-[12px] font-black transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] ${selected ? 'border-[#453dee] bg-[#f0f0ff] text-[#453dee]' : 'border-[#e4e4e7] bg-white text-[#71717b] hover:border-[#d4d4d8] hover:bg-[#fafafa]'}`}
                         type="button"
                         onClick={() => selectLiveStatus(filter.value)}
                       >
@@ -473,7 +473,7 @@ export default function ProfessorLivePage() {
 
             {loading ? (
               <div className="grid gap-3 p-5">
-                {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-[88px] animate-pulse rounded-[12px] bg-[#f4f4f5]" />)}
+                {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-[88px] motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[12px] bg-[#f4f4f5]" />)}
               </div>
             ) : error && sortedSessions.length === 0 ? (
               <div className="grid min-h-[360px] place-items-center p-6 text-center">
@@ -600,7 +600,7 @@ function SessionRow({
         : 'bg-[#f0f0ff] text-[#453dee]'
 
   return (
-    <article className="grid gap-3 p-4 transition hover:bg-[#fbfbfc] lg:grid-cols-[minmax(0,1fr)_180px_210px] lg:items-center lg:gap-4">
+    <article className="grid gap-3 p-4 transition-[background-color] duration-150 ease-out hover:bg-[#fbfbfc] lg:grid-cols-[minmax(0,1fr)_180px_210px] lg:items-center lg:gap-4">
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
           <span className={`rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.08em] ${statusTone}`}>
@@ -705,7 +705,7 @@ function SessionRow({
 function LiveCredentialRow({ label, value }: { label: string; value: string }) {
   const hasValue = value.trim().length > 0
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_32px] items-center gap-2 rounded-[9px] bg-white px-2 py-2">
+    <div className="grid grid-cols-[minmax(0,1fr)_40px] items-center gap-2 rounded-[9px] bg-white px-2 py-2">
       <span className="min-w-0">
         <span className="block text-[10px] font-black uppercase tracking-[0.08em] text-[#9f9fa9]">{label}</span>
         <span className="mt-0.5 block break-all text-[12px] font-bold text-[#3f3f46]">{hasValue ? value : `No ${label.toLowerCase()} saved`}</span>
@@ -715,7 +715,7 @@ function LiveCredentialRow({ label, value }: { label: string; value: string }) {
         disabled={!hasValue}
         onClick={() => void copyLiveCredential(label, value)}
         aria-label={`Copy ${label}`}
-        className="grid h-8 w-8 place-items-center rounded-[9px] border border-[#e4e4e7] bg-[#fbfbfc] text-[#71717b] transition hover:border-[#453dee] hover:text-[#453dee] disabled:cursor-not-allowed disabled:opacity-45"
+        className="grid h-10 w-10 place-items-center rounded-[9px] border border-[#e4e4e7] bg-[#fbfbfc] text-[#71717b] transition-[border-color,color,opacity,transform] duration-150 ease-out hover:border-[#453dee] hover:text-[#453dee] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100"
       >
         <Copy size={13} />
       </button>
@@ -726,18 +726,18 @@ function LiveCredentialRow({ label, value }: { label: string; value: string }) {
 async function copyLiveCredential(label: string, value: string) {
   const trimmed = value.trim()
   if (!trimmed) {
-    toast.error(`No ${label.toLowerCase()} saved.`)
+    showToastError(`No ${label.toLowerCase()} saved.`)
     return
   }
   if (!navigator.clipboard?.writeText) {
-    toast.error('Clipboard is not available.')
+    showToastError('Clipboard is not available.')
     return
   }
   try {
     await navigator.clipboard.writeText(trimmed)
-    toast.success(`${label} copied.`)
+    showToastSuccess(`${label} copied.`)
   } catch {
-    toast.error(`Could not copy ${label}.`)
+    showToastError(`Could not copy ${label}.`)
   }
 }
 

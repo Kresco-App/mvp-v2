@@ -3,6 +3,9 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { GripVertical } from 'lucide-react'
 
+const studioDragHandleClass =
+  'kresco-drag-surface grid h-10 w-10 shrink-0 cursor-grab touch-none place-items-center rounded-[10px] text-[#a1a1aa] transition-[background-color,box-shadow,color] duration-150 ease-out hover:bg-[#f4f4f5] hover:text-[#52525c] active:cursor-grabbing focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/15 motion-reduce:transition-none'
+
 export default function SortableShell({
   id,
   children,
@@ -22,7 +25,7 @@ export default function SortableShell({
         type="button"
         aria-label="Glisser pour réordonner"
         data-kresco-drag-surface="true"
-        className={`kresco-drag-surface grid h-7 w-7 shrink-0 cursor-grab touch-none place-items-center rounded-[8px] text-[#a1a1aa] transition hover:bg-[#f4f4f5] hover:text-[#52525c] active:cursor-grabbing ${handleClassName}`}
+        className={`${studioDragHandleClass} ${handleClassName}`}
         {...attributes}
         {...listeners}
       >

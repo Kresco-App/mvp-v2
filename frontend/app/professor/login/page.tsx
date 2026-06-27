@@ -7,7 +7,6 @@ import GuestGuard from '@/components/GuestGuard'
 import KrescoWordmark from '@/components/KrescoWordmark'
 import { postJson } from '@/lib/apiClient'
 import { AUTH_ROUTES, isProfessorUser } from '@/lib/authPolicy'
-import { getFirebaseEmailPasswordIdToken, isFirebaseEmailNotVerifiedError } from '@/lib/firebaseAuth'
 import { useAuthStore } from '@/lib/store'
 import { localizedCopy } from '@/lib/localization'
 
@@ -21,6 +20,9 @@ type LoginResponse = {
   }
   csrf_token?: string
 }
+
+const professorLoginControlMotionClass = 'transition-[background-color,color,opacity,transform,box-shadow] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#453dee]/35 focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:active:scale-100 disabled:active:scale-100'
+const professorLoginFieldMotionClass = 'transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-[#453dee] focus-within:shadow-[0_0_0_3px_rgba(69,61,238,0.12)] motion-reduce:transition-none'
 
 export default function ProfessorLoginPage() {
   const router = useRouter()
@@ -55,6 +57,7 @@ export default function ProfessorLoginPage() {
     }
     setLoading(true)
     try {
+      const { getFirebaseEmailPasswordIdToken } = await import('@/lib/firebaseAuth')
       const credential = await getFirebaseEmailPasswordIdToken(normalizedEmail, password)
       const data = await postJson<LoginResponse>('/auth/firebase-session', { credential })
       if (!isProfessorUser(data.user)) {
@@ -93,7 +96,7 @@ export default function ProfessorLoginPage() {
               <label htmlFor="professor-email" className="text-[13px] font-black text-[#52525c]">
                 {localizedCopy.auth.email}
               </label>
-              <div className="flex h-12 items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-4 transition-[border-color,box-shadow] duration-200 focus-within:border-[#453dee] focus-within:shadow-[0_0_0_3px_rgba(69,61,238,0.12)]">
+              <div className={`flex h-12 items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-4 ${professorLoginFieldMotionClass}`}>
                 <Mail size={17} className="text-[#71717b]" aria-hidden="true" />
                 <input
                   id="professor-email"
@@ -114,7 +117,7 @@ export default function ProfessorLoginPage() {
               <label htmlFor="professor-password" className="text-[13px] font-black text-[#52525c]">
                 {localizedCopy.auth.password}
               </label>
-              <div className="flex h-12 items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-4 transition-[border-color,box-shadow] duration-200 focus-within:border-[#453dee] focus-within:shadow-[0_0_0_3px_rgba(69,61,238,0.12)]">
+              <div className={`flex h-12 items-center gap-3 rounded-[14px] border-[2px] border-[#e4e4e7] bg-white px-4 ${professorLoginFieldMotionClass}`}>
                 <LockKeyhole size={17} className="text-[#71717b]" aria-hidden="true" />
                 <input
                   id="professor-password"
@@ -132,7 +135,7 @@ export default function ProfessorLoginPage() {
                   type="button"
                   aria-label={showPassword ? localizedCopy.auth.hidePassword : localizedCopy.auth.showPassword}
                   onClick={() => setShowPassword((value) => !value)}
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full border-0 bg-transparent text-[#71717b] transition-[background-color,color,transform] duration-200 hover:bg-[#f4f4f5] hover:text-[#3f3f46] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#453dee] focus-visible:ring-offset-2"
+                  className={`grid h-10 w-10 shrink-0 place-items-center rounded-full border-0 bg-transparent text-[#71717b] hover:bg-[#f4f4f5] hover:text-[#3f3f46] ${professorLoginControlMotionClass}`}
                 >
                   {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                 </button>
@@ -183,11 +186,11 @@ export default function ProfessorLoginPage() {
             <button
               type="submit"
               disabled={!canSubmit}
-              className="mt-2 inline-flex h-12 items-center justify-center gap-2 rounded-[14px] border-0 bg-[#453dee] px-5 text-[15px] font-black text-white shadow-[0_8px_22px_rgba(69,61,238,0.18)] transition-[background-color,opacity,transform,box-shadow] duration-200 hover:bg-[#3a2fd3] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#453dee] focus-visible:ring-offset-2"
+              className={`mt-2 inline-flex h-12 items-center justify-center gap-2 rounded-[14px] border-0 bg-[#453dee] px-5 text-[15px] font-black text-white shadow-[0_8px_22px_rgba(69,61,238,0.18)] hover:bg-[#3a2fd3] disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none ${professorLoginControlMotionClass}`}
             >
               {loading ? (
                 <>
-                  <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                  <Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
                   {localizedCopy.auth.loginLoading}
                 </>
               ) : localizedCopy.auth.professorLoginAction}
@@ -205,4 +208,8 @@ function errorMessage(error: unknown, fallback: string) {
   if (typeof maybe?.response?.data?.detail === 'string') return maybe.response.data.detail
   if (error instanceof Error && error.message) return error.message
   return fallback
+}
+
+function isFirebaseEmailNotVerifiedError(error: unknown) {
+  return error instanceof Error && error.name === 'FirebaseEmailNotVerifiedError'
 }

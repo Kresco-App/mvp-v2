@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { CheckCircle2, ClipboardList, Clock3, Layers, MessageSquare, Pencil, Search, Trash2, X, XCircle } from 'lucide-react'
-import { toast } from 'sonner'
+import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import ProfessorShell from '@/components/professor/ProfessorShell'
 import { apiDataErrorMessage } from '@/lib/apiData'
 import { listProfessorChangeRequests, type ProfessorChangeSummary } from '@/lib/professor'
@@ -19,6 +19,7 @@ const FILTERS = [
 ]
 
 const CHANGE_FILTER_VALUES = new Set(FILTERS.map((filter) => filter.value))
+const PROFESSOR_CHANGE_DATE_FORMATTER = new Intl.DateTimeFormat('fr', { dateStyle: 'medium', timeStyle: 'short' })
 
 const STATUS_META: Record<string, { label: string; className: string; Icon: typeof Clock3 }> = {
   pending: { label: 'Pending review', className: 'bg-[#fff7ed] text-[#9a3412]', Icon: Clock3 },
@@ -90,7 +91,7 @@ export default function ProfessorChangesPage() {
       .catch((error) => {
         const message = apiDataErrorMessage(error, 'Impossible de charger les demandes.')
         setLoadError(message)
-        toast.error(message)
+        showToastError(message)
       })
       .finally(() => setLoading(false))
   }
@@ -109,7 +110,7 @@ export default function ProfessorChangesPage() {
         if (!alive) return
         const message = apiDataErrorMessage(error, 'Impossible de charger les demandes.')
         setLoadError(message)
-        toast.error(message)
+        showToastError(message)
       })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
@@ -124,10 +125,10 @@ export default function ProfessorChangesPage() {
     if (!window.confirm('Cancel this change request?')) return
     try {
       await withdrawStudioChange(id)
-      toast.success('Change request cancelled.')
+      showToastSuccess('Change request cancelled.')
       reload()
     } catch {
-      toast.error('Could not cancel this request.')
+      showToastError('Could not cancel this request.')
     }
   }
 
@@ -145,7 +146,7 @@ export default function ProfessorChangesPage() {
           </div>
           <Link
             href="/professor/studio"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-3 text-[13px] font-black text-white no-underline transition hover:bg-[#4a4fe0]"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#5b60f9] px-3 text-[13px] font-black text-white no-underline transition-[background-color,transform] duration-150 ease-out hover:bg-[#4a4fe0] active:scale-[0.96]"
           >
             <Layers size={15} /> Studio
           </Link>
@@ -159,7 +160,7 @@ export default function ProfessorChangesPage() {
                   key={filter.value}
                   type="button"
                   onClick={() => selectStatus(filter.value)}
-                  className={`h-9 rounded-[10px] px-3 text-[12px] font-black transition ${
+                  className={`h-10 rounded-[10px] px-3 text-[12px] font-black transition-[background-color,border-color,color,transform] duration-150 ease-out active:scale-[0.96] ${
                     status === filter.value ? 'bg-[#5b60f9] text-white' : 'border border-[#e4e4e7] bg-[#fbfbfc] text-[#52525c] hover:border-[#5b60f9]'
                   }`}
                 >
@@ -180,7 +181,7 @@ export default function ProfessorChangesPage() {
                 <button
                   type="button"
                   onClick={clearChangeSearch}
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] border border-[#e4e4e7] bg-white text-[#71717b] transition hover:border-[#5b60f9] hover:text-[#5b60f9]"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-[9px] border border-[#e4e4e7] bg-white text-[#71717b] transition-[border-color,color,transform] duration-150 ease-out hover:border-[#5b60f9] hover:text-[#5b60f9] active:scale-[0.96]"
                   aria-label="Clear change request search"
                 >
                   <X size={13} />
@@ -202,7 +203,7 @@ export default function ProfessorChangesPage() {
         {loading ? (
           <div className="grid gap-2" aria-label="Chargement des demandes">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="h-24 animate-pulse rounded-[14px] border border-[#e4e4e7] bg-white" />
+              <div key={index} className="h-24 motion-safe:animate-[pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none rounded-[14px] border border-[#e4e4e7] bg-white" />
             ))}
           </div>
         ) : loadError ? (
@@ -212,7 +213,7 @@ export default function ProfessorChangesPage() {
             <button
               type="button"
               onClick={reload}
-              className="mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] border border-[#fecaca] bg-white px-4 text-[13px] font-black text-[#991b1b] transition hover:bg-red-50"
+              className="mt-4 inline-flex h-10 items-center gap-2 rounded-[12px] border border-[#fecaca] bg-white px-4 text-[13px] font-black text-[#991b1b] transition-[background-color,transform] duration-150 ease-out hover:bg-red-50 active:scale-[0.96]"
             >
               Retry
             </button>
@@ -222,7 +223,7 @@ export default function ProfessorChangesPage() {
             icon={<ClipboardList size={32} />}
             title={status === 'all' ? 'No change requests' : `No ${currentFilterLabel.toLowerCase()} requests`}
             detail={status === 'all' ? 'Submitted Studio edits will appear here.' : 'Return to all requests to inspect the rest of the queue.'}
-            action={status !== 'all' ? <button type="button" onClick={() => selectStatus('all')} className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#5b60f9]">View all requests</button> : null}
+            action={status !== 'all' ? <button type="button" onClick={() => selectStatus('all')} className="mt-4 h-10 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#5b60f9] transition-[border-color,transform] duration-150 ease-out hover:border-[#5b60f9] active:scale-[0.96]">View all requests</button> : null}
           />
         ) : visibleRequests.length === 0 ? (
           <EmptyChangeState
@@ -292,16 +293,12 @@ function ChangeRequestRow({
           <span className="text-[11px] font-black uppercase tracking-[0.08em] text-[#71717b]">Reviewed</span>
           <span className="text-[12px] font-black text-[#27272a] tabular-nums">{progress.label}</span>
         </div>
-        <div
-          className="h-2 overflow-hidden rounded-full bg-[#e4e4e7]"
-          role="progressbar"
+        <progress
+          className={`h-2 w-full overflow-hidden rounded-full bg-[#e4e4e7] ${progress.className}`}
+          max={100}
+          value={progress.percent}
           aria-label={`Progression validation ${request.id}`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress.percent}
-        >
-          <div className={`h-full rounded-full transition-[background-color,width] duration-500 ${progress.className}`} style={{ width: `${progress.percent}%` }} />
-        </div>
+        />
       </div>
 
       <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
@@ -430,7 +427,7 @@ function changeRequestAction(request: ProfessorChangeSummary) {
 function changeRequestProgress(request: ProfessorChangeSummary) {
   const total = Math.max(request.operation_count, request.pending_count + request.applied_count + request.rejected_count)
   if (total <= 0) {
-    return { percent: 0, label: '0/0', className: 'bg-[#d4d4d8]' }
+    return { percent: 0, label: '0/0', className: 'accent-[#d4d4d8]' }
   }
 
   const reviewed = request.applied_count + request.rejected_count
@@ -438,14 +435,14 @@ function changeRequestProgress(request: ProfessorChangeSummary) {
   const reviewedCount = completeStatus && reviewed === 0 ? total : reviewed
   const percent = Math.max(0, Math.min(100, Math.round((reviewedCount / total) * 100)))
   const className = request.rejected_count > 0 || request.status === 'failed'
-    ? 'bg-[#ef4444]'
+    ? 'accent-[#ef4444]'
     : request.pending_count > 0
-      ? 'bg-[#f5900b]'
-      : 'bg-[#16a34a]'
+      ? 'accent-[#f5900b]'
+      : 'accent-[#16a34a]'
 
   return { percent, label: `${reviewedCount}/${total}`, className }
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat('fr', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return PROFESSOR_CHANGE_DATE_FORMATTER.format(new Date(value))
 }

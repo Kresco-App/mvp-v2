@@ -56,7 +56,7 @@ export default function OpsTray({
                       type="button"
                       aria-label={`Inspect operation ${i + 1}`}
                       onClick={() => onOperationSelect?.(op)}
-                      className="group flex w-full items-center gap-2.5 rounded-[10px] border border-[#f4f4f5] px-3 py-2 text-left transition hover:border-[#d4d4d8] hover:bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#5b60f9]/25"
+                      className="group flex w-full items-center gap-2.5 rounded-[10px] border border-[#f4f4f5] px-3 py-2 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:border-[#d4d4d8] hover:bg-[#fafafa] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#5b60f9]/20 motion-reduce:transition-none motion-reduce:active:scale-100"
                     >
                       <span
                         className={`grid h-7 w-7 shrink-0 place-items-center rounded-[8px] ${meta.className}`}
@@ -65,7 +65,7 @@ export default function OpsTray({
                       </span>
                       <span className="min-w-0 flex-1 text-[13px] font-bold text-[#3f3f46]">{describeOperation(op)}</span>
                       {onOperationSelect ? (
-                        <span className="text-[10px] font-black uppercase tracking-[0.08em] text-[#a1a1aa] transition group-hover:text-[#5b60f9]">
+                        <span className="text-[10px] font-black uppercase tracking-[0.08em] text-[#a1a1aa] transition-[color] duration-150 ease-out group-hover:text-[#5b60f9]">
                           Inspect
                         </span>
                       ) : null}
