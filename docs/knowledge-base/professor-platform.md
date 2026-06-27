@@ -297,7 +297,7 @@ All students can:
 - Watch the live stream.
 - Use text chat/questions, depending on access policy.
 
-VIP/Platinum students can:
+VIP students can:
 
 - Send prioritized questions.
 - Submit a request to speak.
@@ -307,7 +307,7 @@ In MVP, request-to-speak is a queue only. It does not open a microphone.
 Future audio path:
 
 - Keep VdoCipher as the main protected broadcast.
-- Add a separate audio-only WebRTC provider, such as LiveKit or Daily, for approved VIP/Platinum speakers.
+- Add a separate audio-only WebRTC provider, such as LiveKit or Daily, for approved VIP speakers.
 - Professor approves one speaker at a time.
 - Approved student joins a temporary audio room.
 - Professor hears or mixes that audio into the broadcast setup.
@@ -319,7 +319,7 @@ LiveSpeakRequest
 - id
 - live_session_id
 - student_user_id
-- priority_tier: "vip" | "platinum"
+- priority_tier: "vip"
 - question_text
 - status: "pending" | "approved" | "rejected" | "expired"
 - requested_at
@@ -354,7 +354,7 @@ Because this creates a private messaging surface, build guardrails into the mode
 
 - Conversations must be scoped to a `CourseOffering`.
 - A professor can message only students enrolled in that offering.
-- Only eligible VIP/Platinum students can start a private professor conversation.
+- Only eligible VIP students can start a private professor conversation.
 - Eligible students can message only the professor for their active offering.
 - Use one private conversation per student per `CourseOffering`.
 - Private conversations are student-initiated only.
@@ -371,7 +371,7 @@ The professor dashboard exposes chat as a dedicated surface:
 /professor/chat
 ```
 
-This chat should remain Kresco-owned so the platform can support moderation, VIP/Platinum priority, AI summaries, auditability, and long-term history.
+This chat should remain Kresco-owned so the platform can support moderation, VIP priority, AI summaries, auditability, and long-term history.
 
 ## Firestore realtime foundation
 
@@ -404,7 +404,6 @@ Seeded database identities. Interactive login requires matching Firebase Auth us
 - `professor@example.com`
 - `physics.professor@example.com`
 - `vip@example.com`
-- `platinum@example.com`
 - `basic@example.com`
 
 The seed fills live sessions in `scheduled`, `live`, `completed`, and `cancelled` states; pending, approved, and rejected change requests; pinned and unread professor chat threads; and a locked basic-student chat state.

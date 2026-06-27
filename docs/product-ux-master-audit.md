@@ -300,7 +300,7 @@ This section is intentionally more granular than the surface table. Treat it as 
 Must be solved first:
 
 - One canonical backend for local dev, e2e, and browser testing.
-- Clear seed profile per role: Basic, Pro, VIP, Platinum, Professor, Staff.
+- Clear seed profile per role: Basic, Pro, VIP, Professor, Staff.
 - Seed data must include at least one complete happy path for each flagship feature:
   - playable lesson video,
   - rendered quiz item,
@@ -4243,8 +4243,8 @@ Implementation requirement:
 Evidence:
 
 - The top-level audit used seeded identities for student, basic, professor, and admin.
-- Playwright integration also uses VIP and platinum identities created by professor demo seeding.
-- `backend/scripts/e2e_seed.py` explicitly creates or updates a pro student and admin, then requires VIP and platinum users from the professor demo seed.
+- Playwright integration also uses VIP identities created by professor demo seeding.
+- `backend/scripts/e2e_seed.py` explicitly creates or updates a pro student and admin, then requires VIP users from the professor demo seed.
 - The e2e seed ensures one accessible math topic flow and XP totals.
 - The product needs many more states than those identities represent: anonymous, new unverified user, onboarding incomplete user, basic locked user, paid pending user, proof submitted user, rejected proof user, Pro active user, expired entitlement user, VIP chat eligible user, professor with no active offering, professor with pending changes, staff with partial permissions, finance-only staff, support/moderator staff, and admin/superuser.
 
@@ -5691,14 +5691,14 @@ Implementation requirement:
 Evidence:
 
 - Pricing/payment page supports current payment request loading, provider redirect, manual review, proof upload, pending states, and support messages.
-- Professor chat is gated to VIP/Platinum tiers and shows "VIP chat is locked" with the backend reason.
+- Professor chat is gated to VIP tier and shows "VIP chat is locked" with the backend reason.
 - Course, exam, topic, resource, and professor-chat surfaces each have their own locked copy and upgrade paths.
 - Backend access tests distinguish global paid tier, subject-level grants, and locked reasons.
 
 Why this matters:
 
 - Students will see locked content in many places.
-- If every page explains access differently, they will not understand whether they need Pro, a subject grant, manual finance confirmation, VIP/Platinum, or a different track.
+- If every page explains access differently, they will not understand whether they need Pro, a subject grant, manual finance confirmation, VIP, or a different track.
 - Payment status must be connected to locked content, not isolated on pricing.
 
 Flagship expectation:

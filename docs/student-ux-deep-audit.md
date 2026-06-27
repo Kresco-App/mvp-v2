@@ -2753,7 +2753,7 @@ Current issues:
 - There is no explicit delivered/read state for individual messages.
 - Image upload constraints are enforced client-side and server-side, but conversation quota is only known after server rejection.
 - There is no attachment replace/edit flow; editing only changes body.
-- Locked VIP chat state says VIP/Platinum required but does not show the student's current tier, upgrade path, or eligible subjects.
+- Locked VIP chat state says VIP required but does not show the student's current tier, upgrade path, or eligible subjects.
 
 Implementation requirement:
 
