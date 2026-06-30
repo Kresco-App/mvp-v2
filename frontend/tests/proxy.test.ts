@@ -364,6 +364,26 @@ describe('Next proxy auth boundary', () => {
     expect(response.headers.get('location')).toBe('https://kresco.example/pricing?coupon=bac')
   })
 
+  it('keeps raw Cloud Run professor redirects on the service host for deploy scans', () => {
+    const response = proxy(makeRequest(
+      '/professor',
+      {},
+      'kresco-frontend-staging-mlrqm5mqgq-no.a.run.app',
+    ))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe(
+      'https://kresco-frontend-staging-mlrqm5mqgq-no.a.run.app/professor/login',
+    )
+  })
+
+  it('still routes Firebase-forwarded professor requests to the public professor host', () => {
+    const response = proxy(makeForwardedHostRequest('/professor', 'staging.kresco.ma'))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://prof.staging.kresco.ma/professor/login')
+  })
+
   it('canonicalizes professor host aliases to the configured professor origin', () => {
     const response = proxy(makeRequest('/professor/login?next=chat', {}, 'professor.kresco.example'))
 

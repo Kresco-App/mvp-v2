@@ -97,10 +97,15 @@ function isLocalhostHostname(hostname: string) {
   return hostname === 'localhost' || hostname.endsWith('.localhost')
 }
 
+function isCloudRunHostname(hostname: string) {
+  return hostname === 'run.app' || hostname.endsWith('.run.app')
+}
+
 function hasRoutableSubdomain(hostname: string) {
   return Boolean(
     hostname
     && !isLocalhostHostname(hostname)
+    && !isCloudRunHostname(hostname)
     && hostname !== '127.0.0.1'
     && hostname !== '::1'
     && !hostname.includes(':'),
