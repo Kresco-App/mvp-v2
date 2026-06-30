@@ -21,6 +21,7 @@ const protectedRoutePrefixes = [
   '/profile',
   '/professor',
   '/professor-chat',
+  '/staff',
   '/topics',
   '/zed',
 ]
