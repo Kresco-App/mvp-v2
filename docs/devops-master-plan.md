@@ -314,6 +314,7 @@ Current implementation status:
 
 - `scripts/check_staging_deployment.py` accepts `--expected-backend-sha` and `--expected-frontend-sha`, falling back to `--expected-sha` for the current full-stack deploy path.
 - `.github/workflows/deploy-staging.yml` passes backend and frontend SHAs explicitly and reports them separately in the deployment summary.
+- `.github/workflows/deploy-staging.yml` no longer deploys for docs-only runbook changes, and it does trigger for Firebase Hosting config/public-file changes.
 - Path-aware deploys are still disabled. The workflow still deploys backend, frontend, and Hosting together until skipped-service smoke semantics are designed.
 
 ## Explicit Non-Goals For Now

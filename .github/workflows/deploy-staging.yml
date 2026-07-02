@@ -7,11 +7,11 @@ on:
     paths:
       - "backend/**"
       - "frontend/**"
+      - "firebase-hosting-public/**"
+      - "firebase.json"
+      - ".firebaserc"
       - "scripts/**"
       - ".github/workflows/**"
-      - "docs/gcp-firebase-migration.md"
-      - "docs/production-runbook.md"
-      - "docs/staging-deployment-automation.md"
       - "infra/terraform/**"
   workflow_dispatch:
     inputs:
