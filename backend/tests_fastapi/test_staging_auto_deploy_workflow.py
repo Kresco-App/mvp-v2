@@ -43,6 +43,8 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     assert "STAGING_PUBLIC_API_URL: https://api.staging.kresco.ma" in workflow
     assert '--public-api-url "$STAGING_PUBLIC_API_URL"' in workflow
     assert '--subdomain-apex-url "$STAGING_FRONTEND_APEX_URL"' in workflow
+    assert '--expected-backend-sha "$BACKEND_SHA"' in workflow
+    assert '--expected-frontend-sha "$FRONTEND_SHA"' in workflow
     assert '--project-id "$PROJECT_ID"' in workflow
     assert '--region "$REGION"' in workflow
     assert '--frontend-service "$FRONTEND_SERVICE"' in workflow

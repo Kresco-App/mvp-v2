@@ -93,6 +93,8 @@ jobs:
       BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
       FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
       SHORT_SHA: ${{ needs.deploy-backend.outputs.short_sha }}
+      BACKEND_SHA: ${{ needs.deploy-backend.outputs.short_sha }}
+      FRONTEND_SHA: ${{ needs.deploy-frontend.outputs.short_sha }}
       BACKEND_REVISION: ${{ needs.deploy-backend.outputs.backend_revision }}
       FRONTEND_REVISION: ${{ needs.deploy-frontend.outputs.frontend_revision }}
       BACKEND_IMAGE: ${{ needs.deploy-backend.outputs.backend_image }}
@@ -194,6 +196,8 @@ jobs:
             --frontend-url "$FRONTEND_URL" \
             --subdomain-apex-url "$STAGING_FRONTEND_APEX_URL" \
             --expected-sha "$SHORT_SHA" \
+            --expected-backend-sha "$BACKEND_SHA" \
+            --expected-frontend-sha "$FRONTEND_SHA" \
             --project-id "$PROJECT_ID" \
             --region "$REGION" \
             --frontend-service "$FRONTEND_SERVICE" \
@@ -213,5 +217,6 @@ jobs:
             echo "- Frontend image: $FRONTEND_IMAGE"
             echo "- Backend image digest: ${BACKEND_IMAGE_DIGEST:-not returned}"
             echo "- Frontend image digest: ${FRONTEND_IMAGE_DIGEST:-not returned}"
-            echo "- Commit: $SHORT_SHA"
+            echo "- Backend commit: $BACKEND_SHA"
+            echo "- Frontend commit: $FRONTEND_SHA"
           } >> "$GITHUB_STEP_SUMMARY"

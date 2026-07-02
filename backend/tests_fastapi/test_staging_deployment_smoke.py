@@ -71,6 +71,42 @@ def test_staging_deployment_labels_public_api_readiness_errors(monkeypatch):
     assert errors == ["public api release_sha was 'oldsha', expected 'abc12345'."]
 
 
+def test_staging_deployment_resolves_split_backend_and_frontend_shas():
+    smoke = _load_module()
+    errors: list[str] = []
+
+    shas = smoke._resolve_expected_release_shas(
+        "fallback123",
+        "backend123",
+        "frontend123",
+        errors,
+    )
+
+    assert errors == []
+    assert shas == smoke.ExpectedReleaseShas(backend="backend123", frontend="frontend123")
+
+
+def test_staging_deployment_uses_expected_sha_as_split_sha_fallback():
+    smoke = _load_module()
+    errors: list[str] = []
+
+    shas = smoke._resolve_expected_release_shas("abc12345", "", "", errors)
+
+    assert errors == []
+    assert shas == smoke.ExpectedReleaseShas(backend="abc12345", frontend="abc12345")
+
+
+def test_staging_deployment_requires_backend_and_frontend_shas_when_no_fallback():
+    smoke = _load_module()
+    errors: list[str] = []
+
+    assert smoke._resolve_expected_release_shas("", "", "", errors) is None
+    assert errors == [
+        "expected-backend-sha or expected-sha is required.",
+        "expected-frontend-sha or expected-sha is required.",
+    ]
+
+
 def test_staging_deployment_fails_when_frontend_cloud_run_firebase_env_is_empty(monkeypatch):
     smoke = _load_module()
     service = {

@@ -95,6 +95,12 @@ class HttpPayload:
     body: bytes
 
 
+@dataclass(frozen=True)
+class ExpectedReleaseShas:
+    backend: str
+    frontend: str
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify a freshly deployed staging revision.")
     parser.add_argument("--backend-url", default=os.environ.get("BACKEND_URL", ""))
@@ -102,6 +108,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--frontend-url", default=os.environ.get("FRONTEND_URL", ""))
     parser.add_argument("--subdomain-apex-url", default=os.environ.get("STAGING_FRONTEND_APEX_URL", ""))
     parser.add_argument("--expected-sha", default=os.environ.get("SHORT_SHA", ""))
+    parser.add_argument("--expected-backend-sha", default=os.environ.get("BACKEND_EXPECTED_SHA", ""))
+    parser.add_argument("--expected-frontend-sha", default=os.environ.get("FRONTEND_EXPECTED_SHA", ""))
     parser.add_argument("--project-id", default=os.environ.get("PROJECT_ID", ""))
     parser.add_argument("--region", default=os.environ.get("REGION", ""))
     parser.add_argument("--frontend-service", default=os.environ.get("FRONTEND_SERVICE", ""))
@@ -118,35 +126,39 @@ def main(argv: list[str] | None = None) -> int:
     backend_url = _required_absolute_url(args.backend_url, "backend-url", errors)
     public_api_url = _optional_absolute_url(args.public_api_url, "public-api-url", errors)
     frontend_url = _required_absolute_url(args.frontend_url, "frontend-url", errors)
-    expected_sha = args.expected_sha.strip()
-    if not expected_sha:
-        errors.append("expected-sha is required.")
+    expected_shas = _resolve_expected_release_shas(
+        args.expected_sha,
+        args.expected_backend_sha,
+        args.expected_frontend_sha,
+        errors,
+    )
     if errors:
         return _finish(errors)
 
     assert backend_url is not None
     assert frontend_url is not None
+    assert expected_shas is not None
 
     opener = urllib.request.build_opener()
     errors.extend(
         _check_backend_readiness(
             opener,
             backend_url,
-            expected_sha,
+            expected_shas.backend,
             args.timeout_seconds,
             retries=args.retries,
             delay_seconds=args.delay_seconds,
             label="backend",
         )
     )
-    errors.extend(_check_frontend_surface(opener, frontend_url, expected_sha, args.timeout_seconds))
+    errors.extend(_check_frontend_surface(opener, frontend_url, expected_shas.frontend, args.timeout_seconds))
     if args.subdomain_apex_url.strip():
         if public_api_url is None:
             public_api_url = _public_api_url_for_apex(args.subdomain_apex_url, errors)
         errors.extend(
             check_subdomain_routing(
                 args.subdomain_apex_url,
-                expected_sha=expected_sha,
+                expected_sha=expected_shas.frontend,
                 timeout_seconds=args.timeout_seconds,
             )
         )
@@ -157,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             _check_backend_readiness(
                 opener,
                 public_api_url,
-                expected_sha,
+                expected_shas.backend,
                 args.timeout_seconds,
                 retries=args.retries,
                 delay_seconds=args.delay_seconds,
@@ -218,6 +230,24 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     return _finish(errors)
+
+
+def _resolve_expected_release_shas(
+    expected_sha: str,
+    expected_backend_sha: str,
+    expected_frontend_sha: str,
+    errors: list[str],
+) -> ExpectedReleaseShas | None:
+    fallback = expected_sha.strip()
+    backend = expected_backend_sha.strip() or fallback
+    frontend = expected_frontend_sha.strip() or fallback
+    if not backend:
+        errors.append("expected-backend-sha or expected-sha is required.")
+    if not frontend:
+        errors.append("expected-frontend-sha or expected-sha is required.")
+    if not backend or not frontend:
+        return None
+    return ExpectedReleaseShas(backend=backend, frontend=frontend)
 
 
 def _check_backend_readiness(

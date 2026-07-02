@@ -310,6 +310,12 @@ Before partial deploys:
 
 Until then, deploy both services together.
 
+Current implementation status:
+
+- `scripts/check_staging_deployment.py` accepts `--expected-backend-sha` and `--expected-frontend-sha`, falling back to `--expected-sha` for the current full-stack deploy path.
+- `.github/workflows/deploy-staging.yml` passes backend and frontend SHAs explicitly and reports them separately in the deployment summary.
+- Path-aware deploys are still disabled. The workflow still deploys backend, frontend, and Hosting together until skipped-service smoke semantics are designed.
+
 ## Explicit Non-Goals For Now
 
 - No Blacksmith CI migration.
