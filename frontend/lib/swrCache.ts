@@ -12,11 +12,14 @@ export function readSuccessfulSWRCacheData(key: Key, cache?: ReadableSWRCache) {
 
   let state: State<unknown> | undefined
   try {
-    const serializedKey = unstable_serialize(key)
-    if (!serializedKey) return undefined
-    state = cache.get(serializedKey) as State<unknown> | undefined
+    const serializedKey = typeof unstable_serialize === 'function' ? unstable_serialize(key) : ''
+    if (serializedKey) state = cache.get(serializedKey) as State<unknown> | undefined
   } catch {
-    return undefined
+    state = undefined
+  }
+
+  if (!state && typeof key === 'string') {
+    state = cache.get(key) as State<unknown> | undefined
   }
 
   if (!state || state.error || state.data === undefined) return undefined

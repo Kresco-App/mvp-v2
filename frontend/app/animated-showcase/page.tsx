@@ -1,3 +1,5 @@
+import { notFound } from 'next/navigation'
+
 import AnimatedShowcaseSimpleClient from '@/components/animated/AnimatedShowcaseSimpleClient'
 
 export const metadata = {
@@ -6,5 +8,7 @@ export const metadata = {
 }
 
 export default function AnimatedShowcasePage() {
+  if (process.env.NODE_ENV === 'production') notFound()
+
   return <AnimatedShowcaseSimpleClient />
 }

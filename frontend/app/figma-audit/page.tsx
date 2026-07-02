@@ -1,5 +1,4 @@
-'use client'
-
+import { notFound } from 'next/navigation'
 import { QuizPrimitiveShowcase } from '@/components/quiz/QuizPrimitiveShowcase'
 import { figmaLessonItems, figmaWorkspaceTabs } from '@/components/figma/data'
 import { FigmaNavbar } from '@/components/figma/navbar'
@@ -32,6 +31,8 @@ const youtubeSrcDoc = `
 `
 
 export default function FigmaAuditPage() {
+  if (process.env.NODE_ENV === 'production') notFound()
+
   return (
     <main className="min-h-screen bg-white font-rounded text-[#3f3f46]">
       <div className="audit-catalog">

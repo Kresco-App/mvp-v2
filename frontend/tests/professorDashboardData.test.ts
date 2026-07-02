@@ -81,14 +81,23 @@ afterEach(() => {
 })
 
 describe('Professor dashboard SWR behavior', () => {
-  it('shows a loading skeleton instead of empty dashboard values during initial load', () => {
-    mocks.apiGet.mockReturnValue(new Promise(() => undefined))
+  it('shows a loading skeleton instead of empty dashboard values during initial load', async () => {
+    let resolveDashboard: ((value: { data: ProfessorDashboard }) => void) | null = null
+    const pendingDashboard = new Promise<{ data: ProfessorDashboard }>((resolve) => {
+      resolveDashboard = resolve
+    })
+    mocks.apiGet.mockReturnValueOnce(pendingDashboard)
 
     const { container } = renderProfessorDashboard()
 
     expect(container.querySelector('[aria-label="Loading professor dashboard"]')).not.toBeNull()
     expect(container.textContent).not.toContain('No active offering')
     expect(container.textContent).not.toContain('No upcoming live session')
+
+    await act(async () => {
+      resolveDashboard?.({ data: dashboardFixture() })
+      await pendingDashboard
+    })
   })
 
   it('loads dashboard data through the shared SWR cache', async () => {
