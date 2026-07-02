@@ -3,6 +3,7 @@ import { expect, type Page, test } from '@playwright/test'
 
 const apiBase = /\/api\//
 const jwtSecretKey = requiredJwtSecretKey()
+const smokeMonth = new Date().toISOString().slice(0, 7)
 
 function requiredJwtSecretKey() {
   const value = process.env.JWT_SECRET_KEY
@@ -216,6 +217,65 @@ const adminOverview = {
   notifications: {},
   admin_audit: {},
   crud_catalog: [],
+}
+
+const founderDashboard = {
+  generated_at: new Date().toISOString(),
+  month: smokeMonth,
+  metrics: [
+    { key: 'students', label: 'Students', value: 12, previous_value: 10, unit: 'count' },
+    { key: 'new_students', label: 'New students', value: 3, previous_value: 1, unit: 'count' },
+    { key: 'mrr', label: 'MRR', value: 199000, previous_value: 149000, unit: 'centimes' },
+    { key: 'profit', label: 'Profit', value: 73000, previous_value: 52000, unit: 'centimes' },
+  ],
+  growth_by_day: [
+    { date: `${smokeMonth}-01`, new_students: 1, total_students: 10 },
+    { date: `${smokeMonth}-02`, new_students: 2, total_students: 12 },
+  ],
+  students_by_status: { active_basic: 7, pro: 3, vip: 2 },
+  students_by_tier: { basic: 7, pro: 3, vip: 2 },
+  students_by_track: { '2BAC Sciences Math B': 12 },
+  finance: {
+    paid_revenue_centimes: 149000,
+    previous_paid_revenue_centimes: 99000,
+    staff_collected_revenue_centimes: 50000,
+    staff_redeemed_revenue_centimes: 30000,
+    expenses_centimes: 126000,
+    open_refunds_centimes: 18000,
+    profit_centimes: 73000,
+    mrr_centimes: 199000,
+    arr_centimes: 2388000,
+    paid_users: 5,
+    active_entitlements: 6,
+    expenses_by_category: { hosting: 54000, content: 72000 },
+    revenue_by_rail: { cmi: 149000, staff: 50000 },
+    revenue_by_plan: { pro: 99000, vip: 100000 },
+  },
+  engagement: {
+    active_students_7d: 8,
+    video_events_month: 42,
+    approx_video_watch_minutes: 680,
+    live_sessions_month: 3,
+    live_joined_students_month: 21,
+    live_questions_month: 9,
+    quiz_attempts_month: 14,
+    total_xp: 4500,
+    ai_quota_units_month: 120,
+  },
+  messages: {
+    private_conversations: 4,
+    private_messages_month: 18,
+    unread_for_professors: 2,
+    professors_with_chats: 2,
+  },
+  staff_codes: {
+    generated_month: 10,
+    redeemed_month: 4,
+    unused_total: 6,
+    collected_staff_revenue_centimes: 50000,
+    redeemed_staff_revenue_centimes: 30000,
+  },
+  expenses: [],
 }
 
 const professorTrack = {
@@ -657,6 +717,11 @@ async function mockApi(page: Page) {
       return
     }
 
+    if (path === '/admin/founder-dashboard') {
+      await route.fulfill({ json: founderDashboard })
+      return
+    }
+
     if (path === '/admin/change-requests') {
       const requestedStatus = url.searchParams.get('status')
       const items = requestedStatus && requestedStatus !== 'all'
@@ -958,7 +1023,7 @@ test('public auth and reset-password routes hydrate', async ({ page }) => {
 
   await page.goto('/')
   await expect(page).toHaveTitle(/Kresco/)
-  await expect(page.getByRole('heading', { name: /Bienvenue sur Kresco/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kresco', level: 1 })).toBeVisible()
   await expect(page.getByRole('button', { name: /Local demo login/i })).toHaveCount(0)
 
   await page.goto('/auth/reset-password?oobCode=smoke-code')
@@ -1046,7 +1111,7 @@ test('professor dashboard, live sessions, change requests, and chat hydrate with
   await expect(page.getByRole('heading', { name: 'Live room' })).toBeVisible()
   await expect(page.getByText('Can you repeat the IVT proof step?')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Set as answered' })).toBeVisible()
-  await page.getByRole('button', { name: /Chat/i }).click()
+  await page.getByRole('button', { name: 'Open chat' }).click()
   await expect(page.getByText('Audio and slides are clear.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Reply' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Hide' })).toHaveCount(0)
@@ -1055,20 +1120,20 @@ test('professor dashboard, live sessions, change requests, and chat hydrate with
   await page.screenshot({ path: 'artifacts/context-screenshots/professor-live-control-smoke.png', fullPage: true })
 
   await page.goto('/professor/changes')
-  await expect(page.getByRole('heading', { name: 'Mes demandes de modification' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Change requests' })).toBeVisible()
   await expect(page.getByText('Limits and Continuity - National Focus')).toBeVisible()
-  await page.getByRole('button', { name: 'Appliquées' }).click()
+  await page.getByRole('button', { name: 'Applied' }).click()
   await expect(page.getByText('Add tangent-line example.')).toBeVisible()
-  await page.getByRole('button', { name: 'Rejetées' }).click()
+  await page.getByRole('button', { name: 'Rejected' }).click()
   await expect(page.getByText('Remove optimisation checkpoint')).toBeVisible()
 
   await page.goto('/professor/chat')
   await expect(page.getByRole('heading', { name: 'Professor Chat' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Sara Benali' })).toBeVisible()
   await expect(page.locator('p').filter({ hasText: 'Can you review my final proof step?' })).toBeVisible()
-  await page.getByRole('button', { name: 'pinned' }).click()
+  await page.getByRole('button', { name: 'pinned', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Sara Benali' })).toBeVisible()
-  await page.getByRole('button', { name: 'all' }).click()
+  await page.getByRole('button', { name: 'all', exact: true }).click()
   await page.getByPlaceholder('Search conversations').fill('Youssef')
   await expect(page.getByRole('button', { name: /Youssef El Idrissi/ })).toBeVisible()
 
@@ -1114,7 +1179,7 @@ test('vip student professor chat and locked basic student state hydrate', async 
 
   await page.getByRole('button', { name: /Pr Lina Berrada\. Physics/i }).click()
   await expect(page.getByRole('heading', { name: 'Pr Lina Berrada' })).toBeVisible()
-  await expect(page.getByText('No messages yet')).toBeVisible()
+  await expect(page.locator('p').filter({ hasText: 'No messages yet' })).toBeVisible()
   await expect(page.getByPlaceholder('Message your professor')).toBeVisible()
 
   await seedAuthenticatedUser(page, smokeBasicStudent)
