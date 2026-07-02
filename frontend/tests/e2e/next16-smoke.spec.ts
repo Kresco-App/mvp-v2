@@ -981,8 +981,8 @@ test('authenticated dashboard, payment, and admin routes hydrate with mocked API
   await expect(page.getByText('Acces Pro active')).toBeVisible()
 
   await page.goto('/admin')
-  await expect(page.getByRole('heading', { name: /Tableau de bord/i })).toBeVisible()
-  await expect(page.getByText('2 demande(s) à réviser')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Admin dashboard/i })).toBeVisible()
+  await expect(page.getByText('Private message search')).toBeVisible()
 
   browserErrors.assertClean()
 })
@@ -1030,7 +1030,7 @@ test('professor dashboard, live sessions, change requests, and chat hydrate with
   await expect(page.getByRole('heading', { name: 'Professor Dashboard' })).toBeVisible()
   await expect(page.getByText('Mathematics - 2BAC Sciences Math B', { exact: true })).toBeVisible()
   await expect(page.getByText('Live correction: limits national exam')).toBeVisible()
-  await expect(page.getByText('VIP private conversations are student-initiated only.')).toBeVisible()
+  await expect(page.getByText('Unread chat').first()).toBeVisible()
 
   await page.goto('/professor/live')
   await expect(page.getByRole('heading', { name: 'Live Sessions' })).toBeVisible()
@@ -1109,10 +1109,10 @@ test('vip student professor chat and locked basic student state hydrate', async 
   await page.goto('/professor-chat')
   await expect(page.getByRole('heading', { name: 'Pr Ahmed Kamil' })).toBeVisible()
   await expect(page.getByText('Check the dominant term before cancelling.')).toBeVisible()
-  await expect(page.getByRole('button', { name: /Pr Ahmed Kamil Mathematics You: Can you review my final proof step/i })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Pr Lina Berrada Physics/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Pr Ahmed Kamil\. Mathematics\. You: Can you review my final proof step/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Pr Lina Berrada\. Physics/i })).toBeVisible()
 
-  await page.getByRole('button', { name: /Pr Lina Berrada Physics/i }).click()
+  await page.getByRole('button', { name: /Pr Lina Berrada\. Physics/i }).click()
   await expect(page.getByRole('heading', { name: 'Pr Lina Berrada' })).toBeVisible()
   await expect(page.getByText('No messages yet')).toBeVisible()
   await expect(page.getByPlaceholder('Message your professor')).toBeVisible()

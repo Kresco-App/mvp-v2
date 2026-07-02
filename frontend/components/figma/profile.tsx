@@ -304,33 +304,35 @@ export function FigmaProfile({
             savesCount={saves.length}
           />
 
-          {activeView === 'dashboard' ? (
-            <>
-              <ProfileBadgePanel badges={visibleBadges} summary={badgeSummary} />
+          <div className="figma-profile-view-panel" key={activeView}>
+            {activeView === 'dashboard' ? (
+              <>
+                <ProfileBadgePanel badges={visibleBadges} summary={badgeSummary} />
 
-              <section className="figma-profile-subjects" aria-label="Subject progress">
-                <SubjectRadar subjects={visibleSubjects.slice(0, 6)} />
-                {visibleSubjects.map((subject) => (
-                  <SubjectScoreCard subject={subject} key={subject.key} />
-                ))}
-              </section>
-            </>
-          ) : null}
+                <section className="figma-profile-subjects" aria-label="Subject progress">
+                  <SubjectRadar subjects={visibleSubjects.slice(0, 6)} />
+                  {visibleSubjects.map((subject) => (
+                    <SubjectScoreCard subject={subject} key={subject.key} />
+                  ))}
+                </section>
+              </>
+            ) : null}
 
-          {activeView === 'badges' ? <ProfileBadgePanel badges={allBadges} summary={badgeSummary} variant="collection" /> : null}
-          {activeView === 'saved' ? <ProfileSavedItemsView onRoutePreload={onRoutePreload} saves={saves} /> : null}
-          {activeView === 'notes' ? <ProfileNotesView notes={notes} onRoutePreload={onRoutePreload} /> : null}
-          {activeView === 'settings' ? (
-            <ProfileSettingsView
-              draft={baseDraft}
-              editable={editable}
-              isSaving={isSaving}
-              joined={joined}
-              onEdit={openEditor}
-              user={user}
-              username={username}
-            />
-          ) : null}
+            {activeView === 'badges' ? <ProfileBadgePanel badges={allBadges} summary={badgeSummary} variant="collection" /> : null}
+            {activeView === 'saved' ? <ProfileSavedItemsView onRoutePreload={onRoutePreload} saves={saves} /> : null}
+            {activeView === 'notes' ? <ProfileNotesView notes={notes} onRoutePreload={onRoutePreload} /> : null}
+            {activeView === 'settings' ? (
+              <ProfileSettingsView
+                draft={baseDraft}
+                editable={editable}
+                isSaving={isSaving}
+                joined={joined}
+                onEdit={openEditor}
+                user={user}
+                username={username}
+              />
+            ) : null}
+          </div>
         </main>
 
         <aside className="figma-profile-rail" aria-label="Profile sidebar">
@@ -480,7 +482,7 @@ function ProfileViewNav({
 
   return (
     <nav className="figma-profile-view-nav" aria-label="Profile sections">
-      <div role="tablist" aria-label="Profile sections">
+      <div role="tablist" aria-label="Profile sections" data-active-view={activeView}>
         {views.map((view) => {
           const Icon = view.icon
           const selected = activeView === view.key
@@ -1102,12 +1104,34 @@ function ProfileEditStyles() {
         to { transform: rotate(360deg); }
       }
 
+      .figma-profile-view-panel {
+        display: grid;
+        width: 100%;
+        justify-items: center;
+        animation: figma-profile-panel-in 260ms var(--motion-ease-out, cubic-bezier(0.22, 1, 0.36, 1)) both;
+      }
+
+      @keyframes figma-profile-panel-in {
+        from {
+          opacity: 0;
+          filter: blur(2px);
+          transform: translateY(8px);
+        }
+
+        to {
+          opacity: 1;
+          filter: blur(0);
+          transform: translateY(0);
+        }
+      }
+
       .figma-profile-view-nav {
         width: 720px;
         padding-top: 18px;
       }
 
       .figma-profile-view-nav > div {
+        position: relative;
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 8px;
@@ -1117,7 +1141,42 @@ function ProfileEditStyles() {
         padding: 8px;
       }
 
+      .figma-profile-view-nav > div::before {
+        content: "";
+        position: absolute;
+        z-index: 0;
+        top: 8px;
+        bottom: 8px;
+        left: 8px;
+        width: calc((100% - 48px) / 5);
+        border-radius: 12px;
+        background: #eef2ff;
+        box-shadow: inset 0 0 0 1px rgba(91, 96, 249, 0.1);
+        pointer-events: none;
+        transition-property: background-color, box-shadow, transform;
+        transition-duration: var(--motion-fast, 250ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.22, 1, 0.36, 1));
+      }
+
+      .figma-profile-view-nav [data-active-view='badges']::before {
+        transform: translateX(calc(100% + 8px));
+      }
+
+      .figma-profile-view-nav [data-active-view='saved']::before {
+        transform: translateX(calc(200% + 16px));
+      }
+
+      .figma-profile-view-nav [data-active-view='notes']::before {
+        transform: translateX(calc(300% + 24px));
+      }
+
+      .figma-profile-view-nav [data-active-view='settings']::before {
+        transform: translateX(calc(400% + 32px));
+      }
+
       .figma-profile-view-nav button {
+        position: relative;
+        z-index: 1;
         display: grid;
         min-width: 0;
         min-height: 58px;
@@ -1148,8 +1207,13 @@ function ProfileEditStyles() {
       }
 
       .figma-profile-view-nav button.is-active {
-        background: #eef2ff;
+        background: transparent;
         color: #453dee;
+      }
+
+      .figma-profile-view-nav button.is-active:hover,
+      .figma-profile-view-nav button.is-active:focus-visible {
+        background: transparent;
       }
 
       @media (hover: hover) and (pointer: fine) {
@@ -1194,6 +1258,12 @@ function ProfileEditStyles() {
         transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
+      .figma-profile-badge svg {
+        transition-property: transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
       .figma-profile-badge.is-locked {
         opacity: 0.68;
         box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 0.42);
@@ -1202,6 +1272,10 @@ function ProfileEditStyles() {
       @media (hover: hover) and (pointer: fine) {
         .figma-profile-badge:hover {
           transform: translateY(-1px);
+        }
+
+        .figma-profile-badge:hover svg {
+          transform: scale(1.08);
         }
       }
 
@@ -1313,6 +1387,15 @@ function ProfileEditStyles() {
         background: #f4f4f5;
         background: color-mix(in srgb, var(--profile-badge-accent) 14%, #ffffff);
         color: var(--profile-badge-accent);
+        transition-property: background-color, color, transform;
+        transition-duration: var(--motion-quick, 150ms);
+        transition-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .figma-profile-award:hover .figma-profile-award-icon {
+          transform: scale(1.06);
+        }
       }
 
       .figma-profile-award-copy {
@@ -1395,8 +1478,21 @@ function ProfileEditStyles() {
           scrollbar-width: thin;
         }
 
+        .figma-profile-view-nav > div::before {
+          display: none;
+        }
+
         .figma-profile-view-nav button {
           min-width: 132px;
+        }
+
+        .figma-profile-view-nav button.is-active {
+          background: #eef2ff;
+        }
+
+        .figma-profile-view-nav button.is-active:hover,
+        .figma-profile-view-nav button.is-active:focus-visible {
+          background: #eef2ff;
         }
 
         .figma-profile-awards {
@@ -1808,16 +1904,21 @@ function ProfileEditStyles() {
         .figma-profile-edit-trigger,
         .figma-profile-icon-button,
         .figma-profile-media-button,
+        .figma-profile-view-panel,
+        .figma-profile-view-nav > div::before,
         .figma-profile-view-nav button,
         .figma-profile-badge,
+        .figma-profile-badge svg,
         .figma-profile-award,
+        .figma-profile-award-icon,
         .figma-profile-collection-row,
         .figma-profile-settings-head button,
         .figma-profile-settings-row {
           transition-property: none;
         }
 
-        .figma-profile-spin {
+        .figma-profile-spin,
+        .figma-profile-view-panel {
           animation: none;
         }
 
@@ -1834,7 +1935,9 @@ function ProfileEditStyles() {
         .figma-profile-view-nav button:focus-visible,
         .figma-profile-view-nav button:active,
         .figma-profile-badge:hover,
+        .figma-profile-badge:hover svg,
         .figma-profile-award:hover,
+        .figma-profile-award:hover .figma-profile-award-icon,
         .figma-profile-collection-row:hover,
         .figma-profile-collection-row:focus-visible,
         .figma-profile-collection-row:active,

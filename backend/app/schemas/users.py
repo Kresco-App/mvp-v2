@@ -36,6 +36,12 @@ class AuthSessionOut(BaseModel):
     csrf_token: str = ""
 
 
+class MobileSessionOut(BaseModel):
+    user: UserOut
+    access_token: str
+    expires_at: datetime
+
+
 class CsrfOut(BaseModel):
     csrf_token: str
 

@@ -1628,6 +1628,47 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   padding-top: 44px;
 }
 
+@keyframes figmaProfileSurfaceIn {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+.figma-profile-hero,
+.figma-profile-stats,
+.figma-profile-view-nav,
+.figma-profile-rail > * {
+  animation: figmaProfileSurfaceIn 420ms var(--motion-ease-out) both;
+}
+
+.figma-profile-stats {
+  animation-delay: 60ms;
+}
+
+.figma-profile-view-nav {
+  animation-delay: 105ms;
+}
+
+.figma-profile-rail > *:nth-child(1) {
+  animation-delay: 80ms;
+}
+
+.figma-profile-rail > *:nth-child(2) {
+  animation-delay: 125ms;
+}
+
+.figma-profile-rail > *:nth-child(3) {
+  animation-delay: 170ms;
+}
+
 .figma-profile-hero {
   position: relative;
   width: 720px;
@@ -1650,6 +1691,9 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   height: 100%;
   display: block;
   object-fit: cover;
+  transition-duration: var(--motion-fast);
+  transition-property: filter, transform;
+  transition-timing-function: var(--motion-ease-out);
 }
 
 .figma-profile-avatar {
@@ -1663,6 +1707,9 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   overflow: hidden;
   border-radius: 26.091px;
   background: #e4e4e7;
+  transition-duration: var(--motion-quick);
+  transition-property: box-shadow, transform;
+  transition-timing-function: var(--motion-ease-out);
 }
 
 .figma-profile-cover::after,
@@ -1680,6 +1727,18 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .figma-profile-hero:hover .figma-profile-cover img {
+    filter: saturate(1.04);
+    transform: scale(1.015);
+  }
+
+  .figma-profile-avatar:hover {
+    box-shadow: 0 12px 24px rgba(24, 24, 27, 0.14);
+    transform: translateY(-2px);
+  }
 }
 
 .figma-profile-badges {
@@ -1739,6 +1798,7 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   line-height: 1.1;
   letter-spacing: 0.36px;
   overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .figma-profile-identity p {
@@ -1778,6 +1838,9 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   border-radius: 12px;
   background: #ffffff;
   padding: 0 24px;
+  transition-duration: var(--motion-quick);
+  transition-property: background-color, border-color, box-shadow, transform;
+  transition-timing-function: var(--motion-ease-out);
 }
 
 .figma-profile-stat-icon {
@@ -1785,6 +1848,21 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   width: 28px;
   height: 34px;
   place-items: center;
+  transition-duration: var(--motion-quick);
+  transition-property: transform;
+  transition-timing-function: var(--motion-ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .figma-profile-stat:hover {
+    border-color: #d7dcff;
+    box-shadow: 0 12px 24px rgba(24, 24, 27, 0.08);
+    transform: translateY(-2px);
+  }
+
+  .figma-profile-stat:hover .figma-profile-stat-icon {
+    transform: scale(1.06);
+  }
 }
 
 .figma-profile-stat strong,
@@ -1800,6 +1878,7 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   color: #3f3f46;
   font-size: 14px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1.1;
   letter-spacing: 0.21px;
 }
@@ -1827,6 +1906,18 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   border: 2px solid #e4e4e7;
   border-radius: 12px;
   background: #ffffff;
+  transition-duration: var(--motion-quick);
+  transition-property: border-color, box-shadow, transform;
+  transition-timing-function: var(--motion-ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .figma-profile-radar-card:hover,
+  .figma-profile-score-card:hover {
+    border-color: #d7dcff;
+    box-shadow: 0 12px 24px rgba(24, 24, 27, 0.08);
+    transform: translateY(-2px);
+  }
 }
 
 .figma-profile-radar-card {
@@ -1860,6 +1951,7 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   display: block;
   font-size: 32px;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
   line-height: 1.3;
   letter-spacing: 0;
 }
@@ -1923,7 +2015,7 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   letter-spacing: 0.21px;
   cursor: pointer;
   transition-duration: var(--motion-quick);
-  transition-property: background-color, color;
+  transition-property: background-color, color, transform;
   transition-timing-function: var(--motion-ease-out);
 }
 
@@ -1937,14 +2029,18 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   }
 }
 
+.figma-profile-follow-tabs button:active {
+  transform: scale(0.96);
+}
+
 .figma-profile-follow-tabs span {
   position: absolute;
-  left: -2px;
+  left: 0;
   bottom: -2px;
-  width: 175.5px;
+  width: 50%;
   height: 2px;
   background: #5b60f9;
-  transition-duration: var(--motion-quick);
+  transition-duration: var(--motion-fast);
   transition-property: transform;
   transition-timing-function: var(--motion-ease-out);
 }
@@ -1968,7 +2064,7 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   color: inherit;
   text-decoration: none;
   transition-duration: var(--motion-quick);
-  transition-property: color, transform;
+  transition-property: background-color, box-shadow, color, transform;
   transition-timing-function: var(--motion-ease-out);
 }
 
@@ -2020,6 +2116,8 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
 
 @media (hover: hover) and (pointer: fine) {
   .figma-profile-follow-row:hover {
+    background: #f7f8fb;
+    box-shadow: 0 0 0 6px #f7f8fb;
     transform: translateX(2px);
   }
 
@@ -2029,11 +2127,33 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
   }
 }
 
+.figma-profile-follow-row:active {
+  transform: scale(0.96);
+}
+
+.figma-profile-follow-row:focus-visible {
+  outline: 3px solid rgba(91, 96, 249, 0.2);
+  outline-offset: 6px;
+}
+
 .figma-profile-follow-row:focus-visible svg {
   color: #5b60f9;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .figma-profile-hero,
+  .figma-profile-stats,
+  .figma-profile-view-nav,
+  .figma-profile-rail > * {
+    animation: none;
+  }
+
+  .figma-profile-cover img,
+  .figma-profile-avatar,
+  .figma-profile-stat,
+  .figma-profile-stat-icon,
+  .figma-profile-radar-card,
+  .figma-profile-score-card,
   .figma-profile-follow-tabs button,
   .figma-profile-follow-tabs span,
   .figma-profile-follow-row,
@@ -2041,7 +2161,15 @@ body:has(.audit-catalog) > button[aria-label*='mode'] {
     transition-property: none;
   }
 
+  .figma-profile-hero:hover .figma-profile-cover img,
+  .figma-profile-avatar:hover,
+  .figma-profile-stat:hover,
+  .figma-profile-stat:hover .figma-profile-stat-icon,
+  .figma-profile-radar-card:hover,
+  .figma-profile-score-card:hover,
+  .figma-profile-follow-tabs button:active,
   .figma-profile-follow-row:hover,
+  .figma-profile-follow-row:active,
   .figma-profile-follow-row:hover svg {
     transform: none;
   }

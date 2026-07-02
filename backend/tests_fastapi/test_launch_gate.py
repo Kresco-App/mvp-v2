@@ -158,6 +158,8 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert "docker build --pull" in frontend_workflow
     assert 'docker push "$image"' in frontend_workflow
     assert "gcloud run deploy \"$FRONTEND_SERVICE\"" in frontend_workflow
+    assert "Verify deployed frontend Firebase env" in frontend_workflow
+    assert "Deployed frontend Firebase env is empty for:" in frontend_workflow
     assert "npm ci" in frontend_workflow
     assert "npm run validate:production-env" in frontend_workflow
     assert "npm run check:production-demo-surface -- --base-url \"$FRONTEND_URL\" --json" in frontend_workflow

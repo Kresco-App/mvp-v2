@@ -9,8 +9,16 @@ import StaffPaymentsPage from '@/app/staff/payments/page'
 const mocks = vi.hoisted(() => ({
   getJson: vi.fn(),
   postJson: vi.fn(),
+  clipboardWriteText: vi.fn(),
+  logout: vi.fn(),
+  routerPush: vi.fn(),
+  isLoggingOut: false,
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mocks.routerPush }),
 }))
 
 vi.mock('@/components/KrescoWordmark', () => ({
@@ -20,6 +28,19 @@ vi.mock('@/components/KrescoWordmark', () => ({
 vi.mock('@/lib/apiClient', () => ({
   getJson: mocks.getJson,
   postJson: mocks.postJson,
+}))
+
+vi.mock('@/lib/store', () => ({
+  useAuthStore: (
+    selector: (state: {
+      logout: () => Promise<boolean>
+      isLoggingOut: boolean
+    }) => unknown,
+  ) =>
+    selector({
+      logout: mocks.logout,
+      isLoggingOut: mocks.isLoggingOut,
+    }),
 }))
 
 vi.mock('sonner', () => ({
@@ -37,7 +58,16 @@ beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
   mountedRoot = null
-  mocks.getJson.mockResolvedValue(staffDashboardFixture)
+  mocks.isLoggingOut = false
+  mocks.logout.mockResolvedValue(true)
+  mockStaffApiResponses()
+  mocks.clipboardWriteText.mockResolvedValue(undefined)
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: mocks.clipboardWriteText,
+    },
+  })
   mocks.postJson.mockImplementation(async (path: string, input: Record<string, unknown>) => {
     if (path === '/staff/payments/requests') {
       return {
@@ -78,6 +108,35 @@ describe('StaffPaymentsPage', () => {
     expect(mocks.getJson).toHaveBeenCalledWith('/staff/payments/dashboard?limit=60')
   })
 
+  it('shows the current staff account, portal link, and signs out', async () => {
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Amina Staff')
+      expect(container.textContent).toContain('staff@kresco.local')
+    })
+
+    const portalLink = container.querySelector<HTMLAnchorElement>('a[aria-label="Open admin portal"]')
+    expect(portalLink?.getAttribute('href')).toContain('/admin')
+
+    await clickButton(container, 'Sign out')
+
+    expect(mocks.logout).toHaveBeenCalledTimes(1)
+    expect(mocks.routerPush.mock.calls[0]?.[0]).toContain('next=%2Fstaff%2Fpayments')
+  })
+
+  it('shows a sign-in action when the staff account cannot be loaded', async () => {
+    mockStaffApiResponses({ profileError: new Error('Unauthorized') })
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Sign in required')
+    })
+
+    const signInLink = container.querySelector<HTMLAnchorElement>('a[aria-label="Sign in"]')
+    expect(signInLink?.getAttribute('href')).toContain('next=%2Fstaff%2Fpayments')
+  })
+
   it('requires transfer verification before generating a one-use code', async () => {
     const { container } = renderPage()
 
@@ -114,12 +173,14 @@ describe('StaffPaymentsPage', () => {
   })
 
   it('blocks generation when the staff quota is exhausted', async () => {
-    mocks.getJson.mockResolvedValueOnce({
-      ...staffDashboardFixture,
-      profile: {
-        ...staffDashboardFixture.profile,
-        used_codes_this_month: 50,
-        remaining_codes_this_month: 0,
+    mockStaffApiResponses({
+      dashboard: {
+        ...staffDashboardFixture,
+        profile: {
+          ...staffDashboardFixture.profile,
+          used_codes_this_month: 50,
+          remaining_codes_this_month: 0,
+        },
       },
     })
     const { container } = renderPage()
@@ -128,6 +189,28 @@ describe('StaffPaymentsPage', () => {
       expect(container.textContent).toContain('Monthly code quota is exhausted.')
       expect(container.textContent).toContain('No codes left')
     })
+  })
+
+  it('opens a selectable staff allowance request from the header action', async () => {
+    const { container } = renderPage()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Request more codes')
+    })
+    await clickButton(container, 'Request more codes')
+
+    expect(container.textContent).toContain('Allowance request')
+    expect(container.textContent).toContain('WhatsApp Staff')
+    expect(allowanceRequestText(container).value).toContain('Codes left: 46')
+
+    const requestText = allowanceRequestText(container)
+    await act(async () => {
+      requestText.focus()
+      await flushPromises()
+    })
+    expect(document.activeElement).toBe(requestText)
+    expect(requestText.selectionStart).toBe(0)
+    expect(requestText.selectionEnd).toBe(requestText.value.length)
   })
 })
 
@@ -140,6 +223,25 @@ function renderPage() {
     root.render(<StaffPaymentsPage />)
   })
   return { container, root }
+}
+
+function mockStaffApiResponses({
+  dashboard = staffDashboardFixture,
+  profile = staffAccountFixture,
+  profileError,
+}: {
+  dashboard?: typeof staffDashboardFixture
+  profile?: typeof staffAccountFixture
+  profileError?: unknown
+} = {}) {
+  mocks.getJson.mockImplementation(async (path: string) => {
+    if (path === '/staff/payments/dashboard?limit=60') return dashboard
+    if (path === '/profile/me') {
+      if (profileError) throw profileError
+      return profile
+    }
+    throw new Error(`Unexpected GET ${path}`)
+  })
 }
 
 async function fillRequiredPaymentFields(container: HTMLElement) {
@@ -185,6 +287,12 @@ async function clickButton(container: HTMLElement, text: string) {
     button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()
   })
+}
+
+function allowanceRequestText(container: HTMLElement) {
+  const requestText = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Allowance request text"]')
+  expect(requestText, 'missing allowance request text').not.toBeNull()
+  return requestText as HTMLTextAreaElement
 }
 
 async function waitFor(assertion: () => void) {
@@ -244,6 +352,21 @@ const staffRequestFixture = {
     redeemed_at: null,
     created_at: '2026-06-19T12:00:00Z',
   },
+}
+
+const staffAccountFixture = {
+  id: 31,
+  email: 'staff@kresco.local',
+  full_name: 'Amina Staff',
+  avatar_url: '',
+  banner_url: '',
+  role: 'staff',
+  is_staff: true,
+  is_pro: false,
+  niveau: '',
+  filiere: '',
+  is_email_verified: true,
+  created_at: '2026-06-18T09:00:00Z',
 }
 
 const staffDashboardFixture = {

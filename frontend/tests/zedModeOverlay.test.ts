@@ -151,41 +151,12 @@ describe('ZedModeOverlay', () => {
     expect(pdfViewerMock.props.at(-1)?.activeTool).toBe('select')
   })
 
-  it('keeps Zed note writes off the typing path until pagehide flush', async () => {
-    vi.useFakeTimers()
-    try {
-      const { container } = renderOverlay()
+  it('does not render the removed docked notes panel', () => {
+    const { container } = renderOverlay()
 
-      act(() => {
-        pdfViewerMock.props.at(-1)?.onDocumentChange?.({
-          id: 'doc-1',
-          name: 'Limits.pdf',
-          size: 128,
-          pageCount: 4,
-        })
-      })
-      await act(async () => {
-        getButton(container, 'Notes').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-        vi.advanceTimersByTime(300)
-        await Promise.resolve()
-      })
-
-      const textarea = container.querySelector<HTMLTextAreaElement>('textarea#zed-session-notes')
-      expect(textarea).not.toBeNull()
-
-      act(() => {
-        setTextareaValue(textarea!, 'Review the derivative table.')
-        textarea!.dispatchEvent(new Event('input', { bubbles: true }))
-      })
-
-      expect(localStorage.getItem('kresco:zed:notes:v1:doc-1')).toBeNull()
-
-      window.dispatchEvent(new Event('pagehide'))
-
-      expect(localStorage.getItem('kresco:zed:notes:v1:doc-1')).toBe('Review the derivative table.')
-    } finally {
-      vi.useRealTimers()
-    }
+    expect(container.textContent).not.toContain('Workspace notes')
+    expect(container.querySelector('textarea#zed-session-notes')).toBeNull()
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent?.includes('Notes'))).toBe(false)
   })
 })
 
@@ -206,10 +177,4 @@ function getButton(container: HTMLElement, name: string) {
   const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes(name))
   if (!button) throw new Error(`button not found: ${name}`)
   return button
-}
-
-function setTextareaValue(input: HTMLTextAreaElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
-  if (setter) setter.call(input, value)
-  else input.value = value
 }

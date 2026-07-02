@@ -1,5 +1,6 @@
 import importlib.util
 import inspect
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -195,6 +196,36 @@ def test_firebase_password_session_flow(app_client, monkeypatch, run_db):
     assert user is not None
     assert user.firebase_uid == "firebase-password-newuser"
     assert user.google_id is None
+
+
+def test_mobile_session_returns_bearer_token_without_cookies(app_client, monkeypatch, run_db):
+    import app.routers.users as users_router
+
+    email = "mobile-session@example.com"
+    monkeypatch.setattr(
+        users_router,
+        "verify_firebase_token",
+        lambda *_: _firebase_password_payload(email, firebase_uid="firebase-mobile-session", name="Mobile User"),
+    )
+
+    response = app_client.post("/api/auth/mobile-session", json={"credential": "firebase-id-token"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user"]["email"] == email
+    assert body["access_token"]
+    assert "csrf_token" not in body
+    assert response.headers.get("set-cookie") is None
+    expires_at = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
+    assert expires_at > datetime.now(timezone.utc)
+
+    profile = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {body['access_token']}"})
+    assert profile.status_code == 200
+    assert profile.json()["email"] == email
+
+    user = run_db(_get_user(email))
+    assert user is not None
+    assert user.firebase_uid == "firebase-mobile-session"
 
 
 def test_firebase_session_syncs_verified_phone_from_firebase_claim(app_client, monkeypatch, run_db):

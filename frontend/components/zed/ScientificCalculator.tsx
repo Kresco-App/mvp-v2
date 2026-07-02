@@ -1,12 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from 'react'
-import { Calculator, ChartSpline, Divide, FunctionSquare, LocateFixed, Maximize2, Minus, Plus, RotateCcw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Calculator, ChartSpline, ChevronDown, FunctionSquare, LocateFixed, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Latex } from '@/components/animated/shared/Latex'
 import { cn } from '@/lib/utils'
 import {
   approximateLimit,
+  completeMathExpression,
   evaluateMathExpression,
   evaluateMathNumber,
   expressionToLatex,
@@ -17,10 +18,11 @@ import {
 export type CalculatorMode = 'scientific' | 'limits' | 'graph'
 type HistoryEntry = { expr: string; result: string }
 type GraphFunction = { id: string; expression: string; color: string }
+type TextSelection = { start: number; end: number }
+type CalculatorInsertion = { expression: string; cursor: number }
 
 interface Props {
   onClose?: () => void
-  onFloat?: (mode: CalculatorMode) => void
   initialMode?: CalculatorMode
   variant?: 'floating' | 'docked'
   className?: string
@@ -40,10 +42,61 @@ const SCIENTIFIC_BUTTONS = [
   ['sin(', 'cos(', 'tan(', 'ln(', '='],
 ] as const
 
+const LATEX_BUTTON_LABELS: Record<string, string> = {
+  '*': '\\times',
+  '/': '\\div',
+  '^': 'x^{y}',
+  'sqrt(': '\\sqrt{x}',
+  'sin(': '\\sin',
+  'cos(': '\\cos',
+  'tan(': '\\tan',
+  'ln(': '\\ln',
+  pi: '\\pi',
+}
+
+const BUTTON_ARIA_LABELS: Record<string, string> = {
+  '+': 'Add',
+  '-': 'Subtract',
+  '*': 'Multiply',
+  '/': 'Divide',
+  '^': 'Exponent',
+  '=': 'Equals',
+  '.': 'Decimal point',
+  '(': 'Open parenthesis',
+  ')': 'Close parenthesis',
+  'sqrt(': 'Square root',
+  'sin(': 'Sine',
+  'cos(': 'Cosine',
+  'tan(': 'Tangent',
+  'ln(': 'Natural logarithm',
+  pi: 'Pi',
+}
+
+const FUNCTION_BUTTONS = new Set(['sqrt(', 'sin(', 'cos(', 'tan(', 'ln('])
+const FUNCTION_NAMES = ['sqrt', 'sin', 'cos', 'tan', 'ln'] as const
+
 const GRAPH_COLORS = ['#453dee', '#0f9f6e', '#d97706', '#dc2626']
 const DEFAULT_GRAPH_FUNCTIONS: GraphFunction[] = [
   { id: 'g1', expression: 'x^2', color: GRAPH_COLORS[0] },
 ]
+const GRAPH_INPUT_BUTTONS = [
+  { label: 'x', token: 'x', formula: 'x' },
+  { label: 'x²', token: 'x^2', formula: 'x^2' },
+  { label: '^', token: '^', formula: 'x^{y}' },
+  { label: '√', token: 'sqrt(', formula: '\\sqrt{x}' },
+  { label: 'sin', token: 'sin(', formula: '\\sin' },
+  { label: 'cos', token: 'cos(', formula: '\\cos' },
+  { label: 'tan', token: 'tan(', formula: '\\tan' },
+  { label: 'ln', token: 'ln(', formula: '\\ln' },
+  { label: 'exp', token: 'exp(', formula: 'e^{x}' },
+  { label: 'π', token: 'pi', formula: '\\pi' },
+  { label: '(', token: '(', formula: '(' },
+  { label: ')', token: ')', formula: ')' },
+  { label: '+', token: '+', formula: '+' },
+  { label: '-', token: '-', formula: '-' },
+  { label: '×', token: '*', formula: '\\times' },
+  { label: '÷', token: '/', formula: '\\div' },
+] as const
 const DEFAULT_FLOATING_POSITION = { x: 88, y: 82 }
 const FLOATING_WIDTH = 390
 const FLOATING_HEIGHT = 610
@@ -69,9 +122,150 @@ function clampPosition(x: number, y: number, element: HTMLDivElement | null) {
   }
 }
 
+function calculatorButtonFormula(value: string) {
+  return LATEX_BUTTON_LABELS[value] ?? value
+}
+
+function calculatorButtonAriaLabel(value: string) {
+  return BUTTON_ARIA_LABELS[value] ?? value
+}
+
+function insertCalculatorToken(expression: string, token: string, selection: TextSelection = { start: expression.length, end: expression.length }): CalculatorInsertion {
+  const start = Math.max(0, Math.min(expression.length, selection.start))
+  const end = Math.max(start, Math.min(expression.length, selection.end))
+  const before = expression.slice(0, start)
+  const selected = expression.slice(start, end)
+  const after = expression.slice(end)
+
+  if (FUNCTION_BUTTONS.has(token)) {
+    const fn = token.slice(0, -1)
+    const insertion = `${fn}(${selected})`
+    return {
+      expression: `${before}${insertion}${after}`,
+      cursor: selected ? start + insertion.length : start + fn.length + 1,
+    }
+  }
+
+  if (token === '(') {
+    const insertion = `(${selected})`
+    return {
+      expression: `${before}${insertion}${after}`,
+      cursor: selected ? start + insertion.length : start + 1,
+    }
+  }
+
+  if (token === ')') {
+    if (!selected && after.startsWith(')')) return { expression, cursor: start + 1 }
+    return { expression: `${before})${after}`, cursor: start + 1 }
+  }
+
+  if (token === '^') {
+    const insertion = selected ? `^(${selected})` : '^()'
+    return {
+      expression: `${before}${insertion}${after}`,
+      cursor: selected ? start + insertion.length : start + 2,
+    }
+  }
+
+  return {
+    expression: `${before}${token}${after}`,
+    cursor: start + token.length,
+  }
+}
+
+function trailingFunctionName(value: string) {
+  return FUNCTION_NAMES.find((name) => {
+    if (!value.endsWith(name)) return false
+    const previousChar = value[value.length - name.length - 1] ?? ''
+    return !/[a-zA-Z]/.test(previousChar)
+  }) ?? null
+}
+
+function trailingEmptyFunctionCall(value: string) {
+  return FUNCTION_NAMES.find((name) => {
+    const suffix = `${name}()`
+    if (!value.endsWith(suffix)) return false
+    const previousChar = value[value.length - suffix.length - 1] ?? ''
+    return !/[a-zA-Z]/.test(previousChar)
+  }) ?? null
+}
+
+function removeCalculatorToken(expression: string, selection: TextSelection = { start: expression.length, end: expression.length }): CalculatorInsertion {
+  const start = Math.max(0, Math.min(expression.length, selection.start))
+  const end = Math.max(start, Math.min(expression.length, selection.end))
+
+  if (start !== end) {
+    return {
+      expression: `${expression.slice(0, start)}${expression.slice(end)}`,
+      cursor: start,
+    }
+  }
+
+  if (start === 0) return { expression, cursor: 0 }
+
+  const before = expression.slice(0, start)
+  const after = expression.slice(start)
+
+  const emptyFunctionCall = trailingEmptyFunctionCall(before)
+  if (emptyFunctionCall) {
+    const cursor = start - emptyFunctionCall.length - 2
+    return {
+      expression: `${expression.slice(0, cursor)}${after}`,
+      cursor,
+    }
+  }
+
+  const functionBeforeParens = trailingFunctionName(before)
+  if (functionBeforeParens && after.startsWith('()')) {
+    const cursor = start - functionBeforeParens.length
+    return {
+      expression: `${expression.slice(0, cursor)}${after.slice(2)}`,
+      cursor,
+    }
+  }
+
+  if (before.endsWith('(') && after.startsWith(')')) {
+    const functionBeforeOpen = trailingFunctionName(before.slice(0, -1))
+    if (functionBeforeOpen) {
+      const cursor = start - functionBeforeOpen.length - 1
+      return {
+        expression: `${expression.slice(0, cursor)}${after.slice(1)}`,
+        cursor,
+      }
+    }
+
+    return {
+      expression: `${expression.slice(0, start - 1)}${after.slice(1)}`,
+      cursor: start - 1,
+    }
+  }
+
+  const functionName = trailingFunctionName(before)
+  if (functionName) {
+    const cursor = start - functionName.length
+    return {
+      expression: `${expression.slice(0, cursor)}${after}`,
+      cursor,
+    }
+  }
+
+  return {
+    expression: `${expression.slice(0, start - 1)}${after}`,
+    cursor: start - 1,
+  }
+}
+
+function CalculatorButtonLabel({ value }: { value: string }) {
+  return (
+    <Latex
+      formula={calculatorButtonFormula(value)}
+      className="pointer-events-none inline-flex min-w-0 items-center justify-center leading-none [&_.katex]:text-[1.04em]"
+    />
+  )
+}
+
 export default function ScientificCalculator({
   onClose,
-  onFloat,
   initialMode = 'scientific',
   variant = 'floating',
   className,
@@ -95,18 +289,11 @@ export default function ScientificCalculator({
 
   const evaluateCurrent = useCallback(() => {
     if (!display.trim()) return
-    const result = evaluateMathExpression(display)
-    setHistory((current) => [{ expr: display, result }, ...current.slice(0, 14)])
+    const completedExpression = completeMathExpression(display.trim())
+    const result = evaluateMathExpression(completedExpression)
+    setHistory((current) => [{ expr: completedExpression, result }, ...current.slice(0, 14)])
     if (result !== 'Erreur') setDisplay(result)
   }, [display])
-
-  const insertValue = useCallback((value: string) => {
-    if (value === '=') {
-      evaluateCurrent()
-      return
-    }
-    setDisplay((current) => current + value)
-  }, [evaluateCurrent])
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -182,46 +369,32 @@ export default function ScientificCalculator({
         className,
       )}
     >
-      <div
-        onPointerDown={handlePointerDown}
-        className={cn(
-          'flex min-h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-3',
-          variant === 'floating' && 'touch-none cursor-grab active:cursor-grabbing',
-        )}
-      >
-        <div className="t-tabs max-w-full overflow-hidden" role="tablist" aria-label="Calculator modes">
-          {MODES.map((item) => {
-            const Icon = item.icon
-            const active = mode === item.id
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setMode(item.id)}
-                className="t-tab inline-flex items-center gap-1.5 text-xs font-bold"
-              >
-                <Icon size={13} />
-                {item.label}
-              </button>
-            )
-          })}
-        </div>
+      {variant === 'floating' && (
+        <div
+          onPointerDown={handlePointerDown}
+          className="flex min-h-14 flex-shrink-0 touch-none cursor-grab items-center justify-between gap-2 border-b border-slate-200 bg-white px-3 active:cursor-grabbing"
+        >
+          <div className="t-tabs max-w-full overflow-hidden" role="tablist" aria-label="Calculator modes">
+            {MODES.map((item) => {
+              const Icon = item.icon
+              const active = mode === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setMode(item.id)}
+                  className="t-tab inline-flex items-center gap-1.5 text-xs font-bold"
+                >
+                  <Icon size={13} />
+                  {item.label}
+                </button>
+              )
+            })}
+          </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          {variant === 'docked' && (
-            <button
-              type="button"
-              onClick={() => onFloat?.(mode)}
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 ${tapMotion} hover:bg-slate-100 hover:text-slate-950`}
-              aria-label="Open calculator as floating panel"
-              title="Pop out"
-            >
-              <Maximize2 size={16} />
-            </button>
-          )}
-          {variant === 'floating' && (
+          <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
               onClick={onClose}
@@ -231,9 +404,9 @@ export default function ScientificCalculator({
             >
               <X size={17} />
             </button>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       <AnimatePresence initial={false} mode="wait">
         <motion.div
@@ -249,7 +422,6 @@ export default function ScientificCalculator({
               display={display}
               history={history}
               onDisplayChange={setDisplay}
-              onInsert={insertValue}
               onEvaluate={evaluateCurrent}
               onHistorySelect={setDisplay}
             />
@@ -281,18 +453,69 @@ function ScientificMode({
   display,
   history,
   onDisplayChange,
-  onInsert,
   onEvaluate,
   onHistorySelect,
 }: {
   display: string
   history: HistoryEntry[]
   onDisplayChange: Dispatch<SetStateAction<string>>
-  onInsert: (value: string) => void
   onEvaluate: () => void
   onHistorySelect: (value: string) => void
 }) {
+  const inputRef = useRef<HTMLInputElement>(null)
   const latex = useMemo(() => expressionToLatex(display), [display])
+
+  function currentSelection(): TextSelection {
+    const input = inputRef.current
+    if (!input || document.activeElement !== input) {
+      return { start: display.length, end: display.length }
+    }
+
+    return {
+      start: input.selectionStart ?? display.length,
+      end: input.selectionEnd ?? input.selectionStart ?? display.length,
+    }
+  }
+
+  function setInputCursor(cursor: number) {
+    const input = inputRef.current
+    if (!input) return
+
+    const schedule = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame
+      : (callback: FrameRequestCallback) => window.setTimeout(callback, 0)
+
+    schedule(() => {
+      input.focus()
+      input.setSelectionRange(cursor, cursor)
+    })
+  }
+
+  function moveInputCursor(delta: -1 | 1) {
+    const selection = currentSelection()
+    const cursor = selection.start === selection.end
+      ? selection.start + delta
+      : delta < 0 ? selection.start : selection.end
+
+    setInputCursor(Math.max(0, Math.min(display.length, cursor)))
+  }
+
+  function insertButtonValue(value: string) {
+    if (value === '=') {
+      onEvaluate()
+      return
+    }
+
+    const insertion = insertCalculatorToken(display, value, currentSelection())
+    onDisplayChange(insertion.expression)
+    setInputCursor(insertion.cursor)
+  }
+
+  function removeButtonValue() {
+    const removal = removeCalculatorToken(display, currentSelection())
+    onDisplayChange(removal.expression)
+    setInputCursor(removal.cursor)
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -311,6 +534,7 @@ function ScientificMode({
           </span>
         </div>
         <input
+          ref={inputRef}
           value={display}
           onChange={(event) => onDisplayChange(event.target.value)}
           placeholder="Type or use buttons"
@@ -324,7 +548,10 @@ function ScientificMode({
           <button
             key={button}
             type="button"
-            onClick={() => onInsert(button)}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => insertButtonValue(button)}
+            aria-label={calculatorButtonAriaLabel(button)}
+            title={calculatorButtonAriaLabel(button)}
             className={cn(
               `flex h-12 items-center justify-center rounded-xl text-sm font-bold shadow-[var(--shadow-border)] ${tapMotion}`,
               button === '=' && 'bg-indigo-600 text-white hover:bg-indigo-700',
@@ -333,7 +560,7 @@ function ScientificMode({
               !['=', '+', '-', '*', '/', '^', 'sin(', 'cos(', 'tan(', 'ln(', 'sqrt('].includes(button) && 'bg-white text-slate-900 hover:bg-slate-50',
             )}
           >
-            {button === '/' ? <Divide size={15} /> : button}
+            <CalculatorButtonLabel value={button} />
           </button>
         ))}
       </div>
@@ -341,13 +568,37 @@ function ScientificMode({
       <div className="flex gap-2 border-t border-slate-100 px-4 py-3">
         <button
           type="button"
-          onClick={() => onDisplayChange((current) => current.slice(0, -1))}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => moveInputCursor(-1)}
+          aria-label="Move cursor left"
+          title="Move cursor left"
+          className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700 ${tapMotion} hover:bg-slate-200`}
+        >
+          <ArrowLeft size={15} strokeWidth={2.4} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => moveInputCursor(1)}
+          aria-label="Move cursor right"
+          title="Move cursor right"
+          className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700 ${tapMotion} hover:bg-slate-200`}
+        >
+          <ArrowRight size={15} strokeWidth={2.4} />
+        </button>
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={removeButtonValue}
+          aria-label="Backspace"
+          title="Backspace"
           className={`inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-slate-100 text-sm font-bold text-slate-700 ${tapMotion} hover:bg-slate-200`}
         >
           Backspace
         </button>
         <button
           type="button"
+          onMouseDown={(event) => event.preventDefault()}
           onClick={() => onDisplayChange('')}
           className={`inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-red-50 text-sm font-bold text-red-700 ${tapMotion} hover:bg-red-100`}
         >
@@ -355,6 +606,7 @@ function ScientificMode({
         </button>
         <button
           type="button"
+          onMouseDown={(event) => event.preventDefault()}
           onClick={onEvaluate}
           className={`inline-flex h-10 flex-1 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white ${tapMotion} hover:bg-indigo-700`}
         >
@@ -460,9 +712,11 @@ function LimitMode() {
             key={button}
             type="button"
             onClick={() => insert(button)}
+            aria-label={calculatorButtonAriaLabel(button)}
+            title={calculatorButtonAriaLabel(button)}
             className={`h-11 rounded-xl bg-white text-sm font-bold text-slate-800 shadow-[var(--shadow-border)] ${tapMotion} hover:bg-slate-50`}
           >
-            {button === '/' ? <Divide className="mx-auto" size={15} /> : button}
+            <CalculatorButtonLabel value={button} />
           </button>
         ))}
       </div>
@@ -490,10 +744,46 @@ function LimitMode() {
 function GraphMode() {
   const [functions, setFunctions] = useState<GraphFunction[]>(DEFAULT_GRAPH_FUNCTIONS)
   const [draft, setDraft] = useState('sin(x)')
+  const [builderOpen, setBuilderOpen] = useState(false)
   const [windowState, setWindowState] = useState({ xMin: -6, xMax: 6, yMin: -4, yMax: 4 })
   const [traceX, setTraceX] = useState('1')
+  const graphInputRef = useRef<HTMLInputElement>(null)
+  const graphPanRef = useRef<{ pointerId: number; clientX: number; clientY: number; windowState: typeof windowState } | null>(null)
   const graph = useMemo(() => buildGraph(functions, windowState), [functions, windowState])
   const traceNumber = Number(traceX)
+  const draftLatex = useMemo(() => expressionToLatex(draft), [draft])
+
+  function currentGraphSelection(): TextSelection {
+    const input = graphInputRef.current
+    if (!input || document.activeElement !== input) {
+      return { start: draft.length, end: draft.length }
+    }
+
+    return {
+      start: input.selectionStart ?? draft.length,
+      end: input.selectionEnd ?? input.selectionStart ?? draft.length,
+    }
+  }
+
+  function setGraphCursor(cursor: number) {
+    const input = graphInputRef.current
+    if (!input) return
+
+    const schedule = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame
+      : (callback: FrameRequestCallback) => window.setTimeout(callback, 0)
+
+    schedule(() => {
+      input.focus()
+      input.setSelectionRange(cursor, cursor)
+    })
+  }
+
+  function insertGraphToken(token: string) {
+    const insertion = insertCalculatorToken(draft, token, currentGraphSelection())
+    setDraft(insertion.expression)
+    setGraphCursor(insertion.cursor)
+  }
 
   function addFunction() {
     if (!draft.trim()) return
@@ -519,19 +809,52 @@ function GraphMode() {
     })
   }
 
-  const pan = (dx: number, dy: number) => {
-    setWindowState((current) => ({
-      xMin: current.xMin + dx,
-      xMax: current.xMax + dx,
-      yMin: current.yMin + dy,
-      yMax: current.yMax + dy,
-    }))
+  function startGraphPan(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.button !== 0) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    graphPanRef.current = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      windowState,
+    }
+  }
+
+  function moveGraphPan(event: ReactPointerEvent<SVGSVGElement>) {
+    const drag = graphPanRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const unitsX = (drag.windowState.xMax - drag.windowState.xMin) / rect.width
+    const unitsY = (drag.windowState.yMax - drag.windowState.yMin) / rect.height
+    const deltaX = event.clientX - drag.clientX
+    const deltaY = event.clientY - drag.clientY
+
+    setWindowState({
+      xMin: drag.windowState.xMin - deltaX * unitsX,
+      xMax: drag.windowState.xMax - deltaX * unitsX,
+      yMin: drag.windowState.yMin + deltaY * unitsY,
+      yMax: drag.windowState.yMax + deltaY * unitsY,
+    })
+  }
+
+  function finishGraphPan(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    if (graphPanRef.current?.pointerId === event.pointerId) graphPanRef.current = null
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto p-4">
       <div className="rounded-2xl bg-white p-2 shadow-[var(--shadow-border)]">
-        <svg viewBox="0 0 640 360" className="block aspect-[16/9] w-full rounded-xl bg-slate-50" role="img" aria-label="Graphing calculator plot">
+        <svg
+          viewBox="0 0 640 360"
+          className="block aspect-[16/9] w-full cursor-grab touch-none rounded-xl bg-slate-50 active:cursor-grabbing"
+          role="img"
+          aria-label="Graphing calculator plot. Drag to pan."
+          onPointerDown={startGraphPan}
+          onPointerMove={moveGraphPan}
+          onPointerUp={finishGraphPan}
+          onPointerCancel={finishGraphPan}
+        >
           <GraphGrid windowState={windowState} />
           {graph.paths.map((path) => (
             <path key={path.id} d={path.d} fill="none" stroke={path.color} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
@@ -543,7 +866,7 @@ function GraphMode() {
             return (
               <g key={`trace-${fn.id}`}>
                 <circle cx={point.x} cy={point.y} r="5" fill={fn.color} />
-                <text x={Math.min(point.x + 8, 560)} y={Math.max(point.y - 8, 18)} className="fill-slate-700 text-[12px] font-bold">
+                <text x={Math.min(point.x + 8, 548)} y={Math.max(point.y - 8, 22)} className="fill-slate-800 text-[14px] font-black" stroke="#ffffff" strokeWidth="4" paintOrder="stroke">
                   ({formatMathResult(traceNumber)}, {formatMathResult(y)})
                 </text>
               </g>
@@ -552,29 +875,67 @@ function GraphMode() {
         </svg>
       </div>
 
-      <div className="mt-3 grid grid-cols-4 gap-2">
-        <button type="button" onClick={() => zoom(0.75)} className={`h-10 rounded-lg bg-white font-bold shadow-[var(--shadow-border)] ${tapMotion}`}>Zoom +</button>
-        <button type="button" onClick={() => zoom(1.25)} className={`h-10 rounded-lg bg-white font-bold shadow-[var(--shadow-border)] ${tapMotion}`}>Zoom -</button>
-        <button type="button" onClick={() => pan(-1, 0)} className={`h-10 rounded-lg bg-white font-bold shadow-[var(--shadow-border)] ${tapMotion}`}><Minus className="mx-auto" size={16} /></button>
-        <button type="button" onClick={() => pan(1, 0)} className={`h-10 rounded-lg bg-white font-bold shadow-[var(--shadow-border)] ${tapMotion}`}><Plus className="mx-auto" size={16} /></button>
-      </div>
-      <div className="mt-2 grid grid-cols-3 gap-2">
-        <button type="button" onClick={() => pan(0, 1)} className={`h-10 rounded-lg bg-white font-bold shadow-[var(--shadow-border)] ${tapMotion}`}>Up</button>
-        <button type="button" onClick={() => setWindowState({ xMin: -6, xMax: 6, yMin: -4, yMax: 4 })} className={`inline-flex h-10 items-center justify-center gap-1 rounded-lg bg-slate-950 text-sm font-bold text-white ${tapMotion}`}><RotateCcw size={14} />Reset</button>
-        <button type="button" onClick={() => pan(0, -1)} className={`h-10 rounded-lg bg-white font-bold shadow-[var(--shadow-border)] ${tapMotion}`}>Down</button>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <GraphControlButton label="Zoom in" icon={ZoomIn} onClick={() => zoom(0.75)} />
+        <GraphControlButton label="Zoom out" icon={ZoomOut} onClick={() => zoom(1.25)} />
+        <button type="button" onClick={() => setWindowState({ xMin: -6, xMax: 6, yMin: -4, yMax: 4 })} className={`inline-flex h-11 items-center justify-center gap-1.5 rounded-lg bg-slate-950 text-xs font-bold text-white ${tapMotion}`}><RotateCcw size={14} />Reset</button>
       </div>
 
-      <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="f(x)"
-          aria-label="Function to graph"
-          className={`h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold outline-none ${inputMotion} focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100`}
-        />
-        <button type="button" onClick={addFunction} className={`h-11 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white ${tapMotion} hover:bg-indigo-700`}>
-          Add
-        </button>
+      <div className="mt-4 rounded-2xl bg-slate-50 p-2 shadow-[var(--shadow-border)]">
+        <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+          <input
+            ref={graphInputRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="f(x)"
+            aria-label="Function to graph"
+            className={`h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold outline-none ${inputMotion} focus:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100`}
+          />
+          <button
+            type="button"
+            onClick={() => setBuilderOpen((current) => !current)}
+            className={`inline-flex h-11 items-center justify-center gap-1 rounded-xl bg-white px-3 text-xs font-bold text-slate-700 shadow-[var(--shadow-border)] ${tapMotion} hover:bg-slate-100 hover:text-slate-950`}
+            aria-expanded={builderOpen}
+            aria-controls="zed-graph-keypad"
+          >
+            Keys
+            <ChevronDown size={14} className={cn('transition-[transform] duration-150 ease-out motion-reduce:transition-none', builderOpen && 'rotate-180')} />
+          </button>
+          <button type="button" onClick={addFunction} className={`h-11 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white ${tapMotion} hover:bg-indigo-700`}>
+            Add
+          </button>
+        </div>
+
+        <div className="mt-2 min-h-10 overflow-x-auto rounded-xl bg-white px-3 py-2 shadow-[var(--shadow-border)]">
+          <Latex formula={`y=${draftLatex || 'f(x)'}`} className="block min-w-max text-[15px] font-bold text-slate-950" />
+        </div>
+
+        <AnimatePresence initial={false}>
+          {builderOpen && (
+            <motion.div
+              id="zed-graph-keypad"
+              className="mt-2 grid grid-cols-4 gap-1.5 overflow-hidden"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {GRAPH_INPUT_BUTTONS.map((button) => (
+                <button
+                  key={button.label}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => insertGraphToken(button.token)}
+                  className={`grid h-9 place-items-center rounded-lg bg-white text-xs font-bold text-slate-800 shadow-[var(--shadow-border)] ${tapMotion} hover:bg-indigo-50 hover:text-indigo-700`}
+                  aria-label={`Insert ${button.label}`}
+                  title={`Insert ${button.label}`}
+                >
+                  <Latex formula={button.formula} className="pointer-events-none leading-none [&_.katex]:text-[0.96em]" />
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <label className="mt-3 block text-xs font-bold text-slate-500" htmlFor="zed-graph-trace">
@@ -613,6 +974,21 @@ function GraphMode() {
 
       <GraphFindings functions={functions} windowState={windowState} />
     </div>
+  )
+}
+
+function GraphControlButton({ label, icon: Icon, onClick }: { label: string; icon: typeof ZoomIn; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-11 items-center justify-center gap-1.5 rounded-lg bg-white px-2 text-xs font-bold text-slate-800 shadow-[var(--shadow-border)] ${tapMotion} hover:bg-slate-50`}
+      aria-label={label}
+      title={label}
+    >
+      <Icon size={14} />
+      <span className="truncate">{label}</span>
+    </button>
   )
 }
 

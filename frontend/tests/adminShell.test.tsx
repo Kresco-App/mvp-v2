@@ -96,7 +96,7 @@ describe('AdminShell', () => {
     })
 
     expect(mocks.logout).toHaveBeenCalledTimes(1)
-    expect(mocks.routerPush).toHaveBeenCalledWith('/auth/login')
+    expect(mocks.routerPush).toHaveBeenCalledWith('/login')
   })
 
   it('opens finance subnavigation on finance pages', () => {
@@ -104,6 +104,7 @@ describe('AdminShell', () => {
     const { container } = renderShell()
 
     const financeButton = container.querySelector<HTMLButtonElement>('button[aria-label="Finance"]')
+    expect(financeButton?.className).toContain('text-left')
     expect(financeButton?.getAttribute('aria-expanded')).toBe('true')
     expect(financeButton?.getAttribute('aria-controls')).toBe('admin-subnav-admin-finance')
     expect(container.querySelector('#admin-subnav-admin-finance')?.getAttribute('aria-hidden')).toBe('false')

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import nextConfig, {
+  localDevOrigins,
   optimizePackageImports,
 } from '../next.config.mjs'
 import {
@@ -105,6 +106,16 @@ describe('Next production config boundaries', () => {
     expect(envExample).toContain('NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=kresco.test')
     expect(envExample).toContain('http://kresco.lvh.me:3000')
     expect(envExample).not.toContain('NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api')
+  })
+
+  it('allows documented local subdomains to load Next dev assets and HMR', () => {
+    expect(localDevOrigins).toEqual(expect.arrayContaining([
+      'kresco.lvh.me',
+      '*.kresco.lvh.me',
+      'kresco.test',
+      '*.kresco.test',
+    ]))
+    expect(nextConfig.allowedDevOrigins).toBe(localDevOrigins)
   })
 
   it('allows production backend rewrites only for non-local HTTPS origins', () => {

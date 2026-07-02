@@ -93,12 +93,11 @@ describe('AdminUsersPage', () => {
     })
   })
 
-  it('renders only student accounts in the student CRUD view', async () => {
-    const { container } = renderPage(<AdminUsersStudentsPage />)
+  it('renders a focused student account route with edit and access actions', async () => {
+    const { container } = renderPage(<AdminUsersPage view="students" studentMode="detail" studentId="10" />)
 
     await waitFor(() => {
       expect(container.textContent).toContain('Student accounts')
-      expect(container.textContent).toContain('Student operations')
       expect(container.textContent).toContain('Access actions')
       expect(container.textContent).toContain('Account')
       expect(container.textContent).toContain('Subject access')
@@ -106,7 +105,6 @@ describe('AdminUsersPage', () => {
       expect(container.textContent).toContain('Progress')
       expect(container.textContent).toContain('Messages')
       expect(container.textContent).toContain('Send reset email')
-      expect(container.textContent).toContain('AI units')
       expect(container.textContent).toContain('Copy trace')
       expect(container.textContent).toContain('Staff checklist')
       expect(container.textContent).toContain('Review payments')
@@ -257,101 +255,47 @@ describe('AdminUsersPage', () => {
       expect(container.textContent).toContain('Access updated')
       expect(container.textContent).toContain('Mathematics')
     })
+  })
 
-    mocks.postJson.mockResolvedValueOnce({
-      ...usersFixture.users[0],
-      user_id: 13,
-      full_name: 'Created Student',
-      email: 'created.student@example.com',
-      tier: 'basic',
-      is_pro: false,
-      is_email_verified: false,
-      active_entitlements: 0,
-      total_entitlements: 0,
-      payment_count: 0,
-      paid_revenue_centimes: 0,
-      ai_quota_used_month: 0,
-      latest_payment_at: null,
-      last_login: null,
-      created_at: '2026-06-21T08:00:00Z',
-    })
-    clickButton(container, 'Create')
-
-    const createNameInput = container.querySelector<HTMLInputElement>('input[aria-label="Student full name"]')
-    const createEmailInput = container.querySelector<HTMLInputElement>('input[aria-label="Student email"]')
-    const createPlanSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Student plan"]')
-    if (!createNameInput || !createEmailInput || !createPlanSelect) throw new Error('Expected create editor controls')
-    expect(container.textContent).toContain('Back to student list')
-
-    setInputValue(createNameInput, 'Created Student')
-    setInputValue(createEmailInput, 'created.student@example.com')
-    setSelectValue(createPlanSelect, 'basic')
-    clickButton(container, 'Create student')
+  it('renders the student index as a searchable row table with per-student actions', async () => {
+    const { container } = renderPage(<AdminUsersStudentsPage />)
 
     await waitFor(() => {
-      expect(mocks.postJson).toHaveBeenCalledWith('/admin/users-access/students', {
-        full_name: 'Created Student',
-        email: 'created.student@example.com',
-        niveau: '',
-        filiere: '',
-        tier: 'basic',
-        is_active: true,
-        is_email_verified: false,
-      })
-      expect(container.textContent).toContain('Created Student')
-      expect(container.textContent).toContain('Created')
+      expect(container.textContent).toContain('Student directory')
+      expect(container.textContent).toContain('Review Student')
+      expect(container.textContent).toContain('Users Student')
+      expect(container.textContent).toContain('Needs review')
+      expect(container.textContent).toContain('Actions')
+      expect(container.textContent).not.toContain('Users Staff')
     })
+
+    expect(findLink(container, 'New student').getAttribute('href')).toBe('/admin/users/students/new')
+    expect(findLink(container, 'Edit').getAttribute('href')).toBe('/admin/users/students/10')
+    expect(findLink(container, 'Progress').getAttribute('href')).toBe('/admin/students?student_id=10&q=users-student%40example.com')
 
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Search student accounts"]')
     if (!input) throw new Error('Expected user search input')
+    setInputValue(input, 'review-student')
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Review Student')
+      expect(container.textContent).not.toContain('Users Studentusers-student@example.com')
+    })
+
     setInputValue(input, 'users-staff')
 
     await waitFor(() => {
-      expect(container.textContent).toContain('No student accounts.')
+      expect(container.textContent).toContain('No student accounts found.')
       expect(container.textContent).not.toContain('Users Staff')
     })
   })
 
-  it('filters student accounts by staff action queue', async () => {
-    const { container } = renderPage(<AdminUsersStudentsPage />)
-
-    await waitFor(() => {
-      expect(container.textContent).toContain('Student operations')
-      expect(container.textContent).toContain('Review Student')
-      expect(container.textContent).toContain('Paid no access')
-    })
-
-    clickButton(container, 'Review')
-
-    await waitFor(() => {
-      const selectedAccount = container.querySelector<HTMLSelectElement>('select[aria-label="Select student account"]')
-      expect(selectedAccount?.value).toBe('14')
-      expect(container.textContent).toContain('Review Student')
-      expect(container.textContent).toContain('Activate account')
-      expect(container.textContent).toContain('Verify email')
-      expect(container.textContent).toContain('First login follow-up')
-    })
-
-    clickButton(container, 'Paid no access')
-
-    await waitFor(() => {
-      expect(container.textContent).toContain('No accounts in this queue.')
-    })
-  })
-
   it('blocks malformed student emails before creating an account', async () => {
-    const { container } = renderPage(<AdminUsersStudentsPage />)
+    const { container } = renderPage(<AdminUsersPage view="students" studentMode="create" />)
 
     await waitFor(() => {
-      expect(container.textContent).toContain('Student operations')
-    })
-
-    await waitForButtonEnabled(container, 'Create')
-    clickButton(container, 'Create')
-
-    await waitFor(() => {
+      expect(container.textContent).toContain('New student')
       expect(findButton(container, 'Create student')).toBeTruthy()
-      expect(container.textContent).toContain('Back to student list')
     })
     const createNameInput = container.querySelector<HTMLInputElement>('input[aria-label="Student full name"]')
     const createEmailInput = container.querySelector<HTMLInputElement>('input[aria-label="Student email"]')

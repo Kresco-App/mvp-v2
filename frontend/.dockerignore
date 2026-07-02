@@ -8,6 +8,8 @@ coverage
 playwright-report
 test-results
 artifacts
+app/student-dashboard-preview
+public/figma-assets/student-dashboard-preview-lesson.png
 
 npm-debug.log*
 yarn-debug.log*

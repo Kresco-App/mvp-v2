@@ -1,13 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import { showToastError, showToastSuccess } from '@/lib/lazyToast'
 import {
   AlertTriangle,
   CheckCircle2,
   Copy,
+  ExternalLink,
   Gauge,
   History,
+  Loader2,
+  LogIn,
+  LogOut,
   MailPlus,
   PackageCheck,
   RefreshCw,
@@ -18,6 +23,7 @@ import {
 
 import KrescoWordmark from '@/components/KrescoWordmark'
 import SegmentedTabs from '@/components/SegmentedTabs'
+import { AUTH_ROUTES } from '@/lib/authPolicy'
 import {
   EMPTY_STAFF_PAYMENT_DASHBOARD,
   createStaffPaymentRequest,
@@ -25,10 +31,13 @@ import {
   formatNumber,
   getStaffPaymentDashboard,
   type RedemptionCodeTemplate,
+  type StaffPaymentProfile,
   type StaffPaymentRequest,
   moneyInputToCentimes,
 } from '@/lib/founderOps'
 import { apiDataErrorMessage } from '@/lib/apiData'
+import { getMyProfile, type ProfileUser } from '@/lib/profile'
+import { useAuthStore } from '@/lib/store'
 
 type StaffDashboardView = 'generate' | 'ledger' | 'packages'
 
@@ -41,6 +50,11 @@ const staffViews: Array<{ value: StaffDashboardView; label: string }> = [
 const panel = 'rounded-[18px] border border-[#e6ebf2] bg-white shadow-[0_10px_30px_rgba(15,23,42,0.045)]'
 const staffControlMotionClass = 'transition-[background-color,border-color,box-shadow,color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[color:var(--primary-soft)] motion-reduce:transition-none motion-reduce:active:scale-100'
 const input = 'h-10 w-full rounded-[12px] border border-[#d9e1ec] bg-white px-3 text-[13px] font-bold text-[#1f2937] outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-[color:var(--primary)] focus:ring-4 focus:ring-[color:var(--primary-soft)] motion-reduce:transition-none'
+const staffSignInPath = `${AUTH_ROUTES.workspaceLogin}?workspace=staff&next=${encodeURIComponent(AUTH_ROUTES.staffHome)}`
+const defaultStaffWorkspaceLinks = {
+  portalHref: '/admin',
+  signInHref: staffSignInPath,
+}
 const initialDashboardState = {
   dashboard: EMPTY_STAFF_PAYMENT_DASHBOARD,
   loading: true,
@@ -48,12 +62,23 @@ const initialDashboardState = {
 }
 
 export default function StaffPaymentsPage() {
+  const router = useRouter()
+  const logout = useAuthStore((state) => state.logout)
+  const storeLoggingOut = useAuthStore((state) => state.isLoggingOut)
   const [{ dashboard, loading, error }, setDashboardState] = useState(initialDashboardState)
+  const [accountState, setAccountState] = useState<{ profile: ProfileUser | null; loading: boolean; error: string }>({
+    profile: null,
+    loading: true,
+    error: '',
+  })
   const [view, setView] = useState<StaffDashboardView>('generate')
   const [created, setCreated] = useState<StaffPaymentRequest | null>(null)
   const [transferVerified, setTransferVerified] = useState(false)
   const [referenceError, setReferenceError] = useState('')
   const [referenceShaking, setReferenceShaking] = useState(false)
+  const [allowanceRequestOpen, setAllowanceRequestOpen] = useState(false)
+  const [workspaceLinks, setWorkspaceLinks] = useState(defaultStaffWorkspaceLinks)
+  const [signingOut, setSigningOut] = useState(false)
   const [form, setForm] = useState({
     template_id: '',
     payment_method: 'bank_transfer',
@@ -99,6 +124,32 @@ export default function StaffPaymentsPage() {
     return () => { alive = false }
   }, [loadDashboard])
 
+  const loadAccount = useCallback(async (isAlive: () => boolean = () => true) => {
+    setAccountState((state) => ({ ...state, loading: true, error: '' }))
+    try {
+      const profile = await getMyProfile()
+      if (isAlive()) setAccountState({ profile, loading: false, error: '' })
+    } catch (loadError) {
+      if (isAlive()) {
+        setAccountState({
+          profile: null,
+          loading: false,
+          error: apiDataErrorMessage(loadError, 'Sign in required.'),
+        })
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    setWorkspaceLinks(buildStaffWorkspaceLinks())
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    void loadAccount(() => alive)
+    return () => { alive = false }
+  }, [loadAccount])
+
   const selectedTemplate = useMemo(
     () => dashboard.templates.find((template) => String(template.id) === form.template_id) ?? null,
     [dashboard.templates, form.template_id],
@@ -112,6 +163,10 @@ export default function StaffPaymentsPage() {
   const amountQuotaPercent = dashboard.profile.remaining_amount_this_month_centimes === null
     ? 0
     : percentage(dashboard.profile.used_amount_this_month_centimes, dashboard.profile.monthly_amount_limit_centimes)
+  const allowanceRequestText = useMemo(
+    () => buildAllowanceRequestText(dashboard.profile, error),
+    [dashboard.profile, error],
+  )
   const generateLabel = profilePaused
     ? 'Profile paused'
     : quotaBlocked
@@ -139,6 +194,22 @@ export default function StaffPaymentsPage() {
     setReferenceShaking(false)
     window.setTimeout(() => setReferenceShaking(true), 0)
     window.setTimeout(() => setReferenceShaking(false), 340)
+  }
+
+  function openAllowanceRequest() {
+    setAllowanceRequestOpen((open) => !open)
+  }
+
+  async function signOut() {
+    if (signingOut || storeLoggingOut) return
+    setSigningOut(true)
+    const loggedOut = await logout()
+    if (loggedOut) {
+      navigateToHref(workspaceLinks.signInHref, (href) => router.push(href))
+      return
+    }
+    setSigningOut(false)
+    showToastError('Could not sign out. Try again.')
   }
 
   async function submitPayment(event: FormEvent<HTMLFormElement>) {
@@ -203,10 +274,25 @@ export default function StaffPaymentsPage() {
           <div className="mb-4 flex h-10 items-center"><KrescoWordmark /></div>
           <h1 className="m-0 text-[25px] font-black leading-tight text-[#111827]">Staff payment codes</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <a href={allowanceMailto(dashboard.profile.display_name)} className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[#d9e1ec] bg-white px-4 text-[13px] font-black text-[#526070] no-underline hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] ${staffControlMotionClass}`}>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <StaffAccountControls
+            profile={accountState.profile}
+            loading={accountState.loading}
+            fallbackName={dashboard.profile.display_name}
+            portalHref={workspaceLinks.portalHref}
+            signInHref={workspaceLinks.signInHref}
+            signingOut={signingOut || storeLoggingOut}
+            onSignOut={signOut}
+          />
+          <button
+            type="button"
+            onClick={openAllowanceRequest}
+            aria-controls="staff-allowance-request"
+            aria-expanded={allowanceRequestOpen}
+            className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[#d9e1ec] bg-white px-4 text-[13px] font-black text-[#526070] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] ${staffControlMotionClass}`}
+          >
             <MailPlus size={15} aria-hidden="true" /> Request more codes
-          </a>
+          </button>
           <button type="button" onClick={() => { void loadDashboard() }} className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[color:var(--primary)] px-4 text-[13px] font-black text-white hover:opacity-90 ${staffControlMotionClass}`}>
             <RefreshCw size={15} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} aria-hidden="true" /> Refresh
           </button>
@@ -214,6 +300,31 @@ export default function StaffPaymentsPage() {
       </header>
 
       <div className="mx-auto max-w-[1260px]">
+        <div id="staff-allowance-request" className="t-panel-slide" data-open={allowanceRequestOpen ? 'true' : 'false'}>
+          <section className={`${panel} mb-5 overflow-hidden`}>
+            <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <p className="m-0 text-[12px] font-black uppercase text-[#9ca3af]">Allowance request</p>
+                <p className="m-0 mt-1 text-pretty text-[14px] font-bold leading-6 text-[#526070]">
+                  Send this request text to operations for a quota or permission review.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <a href={allowanceMailto(dashboard.profile.display_name)} className={`inline-flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[#f7f9fc] px-4 text-[13px] font-black text-[#526070] no-underline hover:bg-[color:var(--primary-soft)] hover:text-[color:var(--primary)] ${staffControlMotionClass}`}>
+                  <MailPlus size={15} aria-hidden="true" /> Email ops
+                </a>
+              </div>
+            </div>
+            <textarea
+              readOnly
+              aria-label="Allowance request text"
+              value={allowanceRequestText}
+              onFocus={(event) => event.currentTarget.select()}
+              className="min-h-[184px] w-full resize-none border-0 border-t border-[#edf1f7] bg-[#fbfcfe] px-4 py-3 font-mono text-[12px] font-bold leading-5 text-[#526070] outline-none focus:ring-4 focus:ring-[color:var(--primary-soft)]"
+            />
+          </section>
+        </div>
+
         <section className={`${panel} mb-5 grid overflow-hidden sm:grid-cols-2 xl:grid-cols-4`}>
           <Stat label="Monthly quota" value={`${formatNumber(dashboard.profile.used_codes_this_month)} / ${formatNumber(dashboard.profile.monthly_code_limit)}`} loading={loading} />
           <Stat label="Codes left" value={formatNumber(dashboard.profile.remaining_codes_this_month)} loading={loading} tone={quotaBlocked ? 'warn' : 'default'} />
@@ -354,6 +465,76 @@ export default function StaffPaymentsPage() {
         {view === 'packages' && <PackagesView templates={dashboard.templates} loading={loading} />}
       </div>
     </main>
+  )
+}
+
+function StaffAccountControls({
+  profile,
+  loading,
+  fallbackName,
+  portalHref,
+  signInHref,
+  signingOut,
+  onSignOut,
+}: {
+  profile: ProfileUser | null
+  loading: boolean
+  fallbackName: string
+  portalHref: string
+  signInHref: string
+  signingOut: boolean
+  onSignOut: () => void
+}) {
+  const signedIn = Boolean(profile)
+  const displayName = loading
+    ? 'Checking account'
+    : profile?.full_name || fallbackName || 'Staff account'
+  const detail = loading
+    ? 'Staff session'
+    : profile?.email || 'Sign in required'
+
+  return (
+    <div className="flex min-h-12 max-w-full items-center gap-1 rounded-[14px] border border-[#dfe6f0] bg-white p-1 pr-2 shadow-[0_8px_22px_rgba(15,23,42,0.04)]">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f7f9fc] text-[color:var(--primary)]">
+        {loading ? <Loader2 size={17} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <UserRound size={17} aria-hidden="true" />}
+      </span>
+      <span className="w-[126px] min-w-0 px-1 sm:w-[190px]">
+        <span className="block truncate text-[12px] font-black leading-4 text-[#111827]">{displayName}</span>
+        <span className="block truncate text-[11px] font-bold leading-4 text-[#9ca3af]">{detail}</span>
+      </span>
+      <a
+        href={portalHref}
+        aria-label="Open admin portal"
+        title="Admin portal"
+        className={`inline-flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-[10px] text-[#64748b] no-underline hover:bg-[#f7f9fc] hover:text-[color:var(--primary)] lg:w-auto lg:px-3 ${staffControlMotionClass}`}
+      >
+        <ExternalLink size={15} aria-hidden="true" />
+        <span className="hidden text-[12px] font-black lg:inline">Portal</span>
+      </a>
+      {signedIn ? (
+        <button
+          type="button"
+          onClick={onSignOut}
+          disabled={signingOut}
+          aria-label="Sign out"
+          title="Sign out"
+          className={`inline-flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-[10px] text-[#64748b] hover:bg-[#fff1f2] hover:text-[#dc2626] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100 lg:w-auto lg:px-3 ${staffControlMotionClass}`}
+        >
+          {signingOut ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <LogOut size={15} aria-hidden="true" />}
+          <span className="hidden text-[12px] font-black lg:inline">{signingOut ? 'Signing out' : 'Sign out'}</span>
+        </button>
+      ) : (
+        <a
+          href={signInHref}
+          aria-label="Sign in"
+          title="Sign in"
+          className={`inline-flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-[10px] bg-[color:var(--primary)] text-white no-underline hover:opacity-90 lg:w-auto lg:px-3 ${staffControlMotionClass}`}
+        >
+          <LogIn size={15} aria-hidden="true" />
+          <span className="hidden text-[12px] font-black lg:inline">Sign in</span>
+        </a>
+      )}
+    </div>
   )
 }
 
@@ -582,7 +763,96 @@ function allowanceMailto(displayName: string) {
   return `mailto:operations@kresco.ma?subject=${subject}&body=${body}`
 }
 
+function buildAllowanceRequestText(profile: StaffPaymentProfile, dashboardError: string) {
+  return [
+    'Staff code allowance request',
+    `Staff profile: ${profile.display_name || 'Staff'}`,
+    `User ID: ${profile.user_id || '-'}`,
+    `Status: ${profile.status || '-'}`,
+    `Monthly quota: ${formatNumber(profile.used_codes_this_month)} / ${formatNumber(profile.monthly_code_limit)}`,
+    `Codes left: ${formatNumber(profile.remaining_codes_this_month)}`,
+    `Collected this month: ${formatMoneyCentimes(profile.used_amount_this_month_centimes)}`,
+    `Amount cap left: ${profile.remaining_amount_this_month_centimes === null ? 'No cap' : formatMoneyCentimes(profile.remaining_amount_this_month_centimes)}`,
+    dashboardError ? `Dashboard error: ${dashboardError}` : '',
+    'Request: Please review and increase this staff code allowance.',
+    'Reason:',
+  ].filter(Boolean).join('\n')
+}
+
 async function copyCode(value: string) {
-  await navigator.clipboard.writeText(value)
-  showToastSuccess('Code copied.')
+  const copied = await copyTextToClipboard(value)
+  if (copied) showToastSuccess('Code copied.')
+  else showToastError('Could not copy code.')
+}
+
+async function copyTextToClipboard(value: string) {
+  if (window.location.protocol !== 'https:' || !navigator.clipboard?.writeText) return false
+  try {
+    await navigator.clipboard.writeText(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function buildStaffWorkspaceLinks() {
+  return {
+    portalHref: staffWorkspaceHref('admin', '/admin'),
+    signInHref: staffWorkspaceHref('staff', staffSignInPath),
+  }
+}
+
+function staffWorkspaceHref(workspace: 'admin' | 'landing' | 'staff', path: string) {
+  if (typeof window === 'undefined' || window.location.origin === 'null') return path
+
+  try {
+    const url = new URL(path, window.location.origin)
+    url.hostname = workspaceHostname(window.location.hostname, workspace)
+    return url.href
+  } catch {
+    return path
+  }
+}
+
+function workspaceHostname(hostname: string, workspace: 'admin' | 'landing' | 'staff') {
+  if (!hasRoutableSubdomain(hostname)) return hostname
+
+  const apex = apexHostname(hostname)
+  if (workspace === 'staff') return `staff.${apex}`
+  return workspace === 'admin' ? `admin.${apex}` : apex
+}
+
+function apexHostname(hostname: string) {
+  const routedLabels = new Set(['www', 'app', 'admin', 'prof', 'professor', 'staff'])
+  const labels = hostname.split('.').filter(Boolean)
+  if (labels.length <= 1) return hostname
+  return routedLabels.has(labels[0] ?? '') ? labels.slice(1).join('.') : hostname
+}
+
+function hasRoutableSubdomain(hostname: string) {
+  return Boolean(
+    hostname
+    && hostname !== 'localhost'
+    && !hostname.endsWith('.localhost')
+    && hostname !== '127.0.0.1'
+    && hostname !== '::1',
+  )
+}
+
+function navigateToHref(href: string, push: (href: string) => void) {
+  if (typeof window === 'undefined' || window.location.origin === 'null') {
+    push(href)
+    return
+  }
+
+  try {
+    const url = new URL(href, window.location.href)
+    if (url.origin === window.location.origin) {
+      push(`${url.pathname}${url.search}${url.hash}`)
+      return
+    }
+    window.location.assign(url.href)
+  } catch {
+    push(href)
+  }
 }

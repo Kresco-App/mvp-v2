@@ -154,8 +154,20 @@ export function normalizeMathExpression(expression: string) {
     .replace(/\bπ\b/g, 'pi')
 }
 
-export function evaluateMathNumber(expression: string, variables: Record<string, number> = {}) {
+export function completeMathExpression(expression: string) {
   const normalized = normalizeMathExpression(expression)
+  let depth = 0
+
+  for (const char of normalized) {
+    if (char === '(') depth += 1
+    else if (char === ')') depth = Math.max(0, depth - 1)
+  }
+
+  return `${normalized}${')'.repeat(depth)}`
+}
+
+export function evaluateMathNumber(expression: string, variables: Record<string, number> = {}) {
+  const normalized = completeMathExpression(expression)
   return new MathParser(normalized, normalizeVariables(variables)).parse()
 }
 
@@ -194,7 +206,7 @@ export function approximateLimit(
 }
 
 export function expressionToLatex(expression: string): string {
-  const normalized = normalizeMathExpression(expression.trim())
+  const normalized = completeMathExpression(expression.trim())
   if (!normalized) return '0'
   return latexForExpression(stripOuterParens(normalized))
 }
@@ -232,6 +244,7 @@ function infinitySamples(targetValue: number) {
 
 function latexForExpression(expression: string): string {
   const value = stripOuterParens(expression.trim())
+  if (!value) return '\\,'
   const division = splitTopLevel(value, '/')
   if (division) {
     return `\\frac{${latexForExpression(division.left)}}{${latexForExpression(division.right)}}`
@@ -248,6 +261,18 @@ function latexForExpression(expression: string): string {
 
   const power = splitTopLevel(value, '^')
   if (power) return `{${latexForExpression(power.left)}}^{${latexForExpression(power.right)}}`
+
+  const partialFnMatch = /^([a-zA-Z]+)\((.*)$/.exec(value)
+  if (partialFnMatch && !value.endsWith(')')) {
+    const [, fn, inner] = partialFnMatch
+    const normalizedFn = fn.toLowerCase()
+    const innerLatex = inner.trim() ? latexForExpression(inner) : '\\,'
+    if (normalizedFn === 'sqrt') return `\\sqrt{${innerLatex}}`
+    if (normalizedFn === 'abs') return `\\left|${innerLatex}\\right|`
+    if (normalizedFn === 'sin' || normalizedFn === 'cos' || normalizedFn === 'tan' || normalizedFn === 'ln' || normalizedFn === 'log') {
+      return `\\${normalizedFn}\\left(${innerLatex}\\right.`
+    }
+  }
 
   const fnMatch = /^([a-zA-Z]+)\((.*)\)$/.exec(value)
   if (fnMatch) {

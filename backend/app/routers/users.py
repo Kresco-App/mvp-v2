@@ -1,6 +1,7 @@
 import inspect
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from app.schemas.users import (
     CsrfOut,
     FirebaseSessionIn,
     MessageOut,
+    MobileSessionOut,
     ProfileMediaOut,
     UserOut,
     UserUpdateIn,
@@ -153,6 +155,19 @@ async def _auth_session_out(
     return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
 
 
+async def _mobile_session_out(
+    db: AsyncSession,
+    *,
+    user: User,
+    settings: Settings,
+) -> MobileSessionOut:
+    token = create_token(user, settings)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+    await award_daily_login_xp(db, user_id=user.id)
+    await db.commit()
+    return MobileSessionOut(user=_user_out(user, settings), access_token=token, expires_at=expires_at)
+
+
 async def _firebase_session_user(
     db: AsyncSession,
     *,
@@ -176,6 +191,19 @@ async def _firebase_session_user(
         payload=payload,
         require_professor_active_offering_fn=require_professor_active_offering,
     )
+
+
+@router.post("/auth/mobile-session", response_model=MobileSessionOut)
+@limiter.limit(AUTH_LOGIN_RATE_LIMIT)
+async def mobile_session(
+    request: Request,
+    body: FirebaseSessionIn,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    del request
+    user = await _firebase_session_user(db, credential=body.credential, settings=settings)
+    return await _mobile_session_out(db, user=user, settings=settings)
 
 
 @router.post("/auth/firebase-session", response_model=AuthSessionOut)

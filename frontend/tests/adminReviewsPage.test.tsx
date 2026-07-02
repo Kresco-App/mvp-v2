@@ -50,11 +50,16 @@ describe('AdminReviewsPage', () => {
     expect(videoRows(container)[0].textContent).toContain('Implicit differentiation video')
     expect(container.textContent).toContain('Too fast near the chain rule.')
     expect(container.textContent).toContain('The final example helped.')
+    const sortControl = container.querySelector<HTMLElement>('[data-video-feedback-sort-control]')
+    expect(sortControl?.className).toContain('shadow-[var(--shadow-border)]')
+    expect(sortControl?.className).toContain('focus-within:ring-4')
+    expect(sortControl?.textContent).toContain('Needs attention')
 
     setSelectValue(container, 'select[aria-label="Sort video feedback"]', 'best_rating')
 
     await waitFor(() => {
       expect(videoRows(container)[0].textContent).toContain('Limits intro video')
+      expect(sortControl?.textContent).toContain('Best rating')
     })
 
     setInputValue(container, 'input[aria-label="Search video feedback"]', 'implicit')

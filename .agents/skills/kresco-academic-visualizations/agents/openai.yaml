@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kresco Academic Visualizations"
+  short_description: "Labs and animations for Kresco courses"
+  default_prompt: "Use $kresco-academic-visualizations to build a Moroccan Bac academic lab or inline animation."

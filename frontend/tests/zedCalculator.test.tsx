@@ -49,6 +49,23 @@ describe('ScientificCalculator keyboard handling', () => {
 
     expect(getCalculatorDisplay(container).textContent).toBe('7')
   })
+
+  it('removes an inserted function shell as one token with the Backspace button', () => {
+    const { container } = renderCalculator()
+    const input = getCalculatorInput(container)
+
+    act(() => {
+      getButtonByLabel(container, 'Cosine').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(input.value).toBe('cos()')
+
+    act(() => {
+      getButtonByLabel(container, 'Backspace').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(input.value).toBe('')
+  })
 })
 
 function renderCalculator() {
@@ -68,4 +85,16 @@ function getCalculatorDisplay(container: HTMLElement) {
   const display = container.querySelector('[aria-label="Affichage calculatrice"]')
   if (!(display instanceof HTMLElement)) throw new Error('Calculator display not found')
   return display
+}
+
+function getCalculatorInput(container: HTMLElement) {
+  const input = container.querySelector('[aria-label="Calculator expression"]')
+  if (!(input instanceof HTMLInputElement)) throw new Error('Calculator input not found')
+  return input
+}
+
+function getButtonByLabel(container: HTMLElement, label: string) {
+  const button = container.querySelector(`button[aria-label="${label}"]`)
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`button not found: ${label}`)
+  return button
 }

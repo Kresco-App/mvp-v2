@@ -26,6 +26,7 @@ import {
 
 import AuthGuard from '@/components/AuthGuard'
 import KrescoWordmark from '@/components/KrescoWordmark'
+import { AUTH_ROUTES } from '@/lib/authPolicy'
 import { useAuthStore } from '@/lib/store'
 
 type AdminNavItem = {
@@ -119,7 +120,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
 
   function signOut() {
     logout()
-    router.push('/auth/login')
+    router.push(AUTH_ROUTES.workspaceLogin)
   }
 
   return (
@@ -156,7 +157,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
                       aria-controls={panelId}
                       aria-label={item.label}
                       title={item.label}
-                      className={`relative flex h-11 w-full items-center justify-center rounded-[12px] text-[14px] font-bold no-underline transition-[background-color,color,box-shadow,transform] duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--admin-accent)] active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100 lg:justify-start lg:gap-3 lg:px-3 ${
+                      className={`relative flex h-11 w-full items-center justify-center rounded-[12px] text-left text-[14px] font-bold no-underline transition-[background-color,color,box-shadow,transform] duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--admin-accent)] active:scale-[0.96] motion-reduce:transition-none motion-reduce:active:scale-100 lg:justify-start lg:gap-3 lg:px-3 ${
                         parentHighlighted
                           ? 'bg-[color:var(--admin-accent-soft)] text-[color:var(--admin-accent)] shadow-[inset_0_0_0_1px_rgba(69,61,238,0.08)]'
                           : 'text-[#718096] hover:bg-[#f5f7fb] hover:text-[#111827]'

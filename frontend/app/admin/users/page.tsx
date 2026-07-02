@@ -45,6 +45,7 @@ import {
   adminTableHeadClass,
   adminTableHeadRowClass,
   adminTableRowClass,
+  adminTableActionButtonClass,
   AdminTableActionButton,
 } from '@/components/admin/AdminDesign'
 import { getJson, patchJson, postJson } from '@/lib/apiClient'
@@ -63,6 +64,7 @@ import {
 import type { CourseSubject } from '@/lib/courseDiscoveryData'
 
 export type AdminUsersView = 'overview' | 'students' | 'staff'
+type StudentPageMode = 'list' | 'detail' | 'create'
 
 const card = adminPanelClass
 const controlClass = 'h-11 w-full min-w-0 rounded-[12px] border-[2px] border-[#e4e4e7] bg-white px-3 text-[13px] font-bold text-[#3f3f46] outline-none transition-[background-color,border-color,color] duration-150 ease-out placeholder:text-[#c0c0c7] focus:border-[color:var(--primary)] disabled:cursor-not-allowed disabled:bg-[#f4f4f5] disabled:text-[#a1a1aa]'
@@ -140,7 +142,16 @@ const permissionOptions = [
   'xp:adjust',
 ]
 
-export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUsersView } = {}) {
+export default function AdminUsersPage({
+  view = 'overview',
+  studentMode,
+  studentId,
+}: {
+  view?: AdminUsersView
+  studentMode?: StudentPageMode
+  studentId?: string
+} = {}) {
+  const resolvedStudentMode: StudentPageMode = view === 'students' ? studentMode ?? 'list' : 'list'
   const [data, setData] = useState<AdminUsersAccess>(EMPTY_ADMIN_USERS_ACCESS)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -151,8 +162,8 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
   const [permissionReason, setPermissionReason] = useState('Operational access update')
   const [permissionError, setPermissionError] = useState('')
   const [permissionBusy, setPermissionBusy] = useState('')
-  const [selectedStudentId, setSelectedStudentId] = useState('')
-  const [studentEditorMode, setStudentEditorMode] = useState<StudentEditorMode>('edit')
+  const [selectedStudentId, setSelectedStudentId] = useState(studentId ?? '')
+  const [studentEditorMode, setStudentEditorMode] = useState<StudentEditorMode>(resolvedStudentMode === 'create' ? 'create' : 'edit')
   const [studentDraft, setStudentDraft] = useState<AdminStudentAccountUpdateInput | null>(null)
   const [studentBusy, setStudentBusy] = useState('')
   const [studentError, setStudentError] = useState('')
@@ -186,7 +197,7 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
   }, [nonce])
 
   useEffect(() => {
-    if (view !== 'students') return
+    if (view !== 'students' || resolvedStudentMode === 'list') return
     let alive = true
     setSubjectsLoading(true)
     getJson<CourseSubject[]>('/courses/subjects?limit=100')
@@ -201,7 +212,7 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
         if (alive) setSubjectsLoading(false)
       })
     return () => { alive = false }
-  }, [view])
+  }, [resolvedStudentMode, view])
 
   const studentAccounts = useMemo(() => data.users.filter(isStudentAccount), [data.users])
   const staffAccounts = useMemo(() => data.users.filter((user) => user.is_staff), [data.users])
@@ -218,7 +229,18 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
   }, [permissionTargets, selectedUserId])
 
   useEffect(() => {
-    if (view !== 'students' || studentEditorMode === 'create' || loading) return
+    if (view !== 'students' || loading) return
+    if (resolvedStudentMode === 'create') {
+      setStudentEditorMode('create')
+      setSelectedStudentId('')
+      return
+    }
+    if (resolvedStudentMode === 'detail') {
+      setStudentEditorMode('edit')
+      if (studentId && selectedStudentId !== studentId) setSelectedStudentId(studentId)
+      return
+    }
+    if (resolvedStudentMode === 'list' || studentEditorMode === 'create') return
     if (!studentAccounts.length) {
       if (selectedStudentId) setSelectedStudentId('')
       setStudentEditorMode('create')
@@ -227,7 +249,7 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
     if (!studentAccounts.some((user) => String(user.user_id) === selectedStudentId)) {
       setSelectedStudentId(String(studentAccounts[0].user_id))
     }
-  }, [loading, studentAccounts, selectedStudentId, studentEditorMode, view])
+  }, [loading, resolvedStudentMode, selectedStudentId, studentAccounts, studentEditorMode, studentId, view])
 
   const normalizedQuery = query.trim().toLowerCase()
   const visibleUsers = view === 'staff' ? staffAccounts : studentAccounts
@@ -248,7 +270,7 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
   }, [subjects])
 
   useEffect(() => {
-    if (view !== 'students' || studentEditorMode === 'create' || !selectedStudentId) {
+    if (view !== 'students' || resolvedStudentMode === 'list' || studentEditorMode === 'create' || !selectedStudentId) {
       setManualAccessGrants([])
       return
     }
@@ -271,7 +293,7 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
         if (alive) setManualAccessLoading(false)
       })
     return () => { alive = false }
-  }, [selectedStudentId, studentEditorMode, view])
+  }, [resolvedStudentMode, selectedStudentId, studentEditorMode, view])
 
   useEffect(() => {
     if (studentEditorMode === 'create') {
@@ -388,6 +410,8 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
     setStudentSaved('')
   }
 
+  // Legacy combined workspace handler retained while student routes finish migrating.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function handleStudentEditorModeChange(mode: StudentEditorMode) {
     setStudentEditorMode(mode)
     setStudentError('')
@@ -403,6 +427,7 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function handleSelectedStudentIdChange(userId: string) {
     setStudentEditorMode('edit')
     setSelectedStudentId(userId)
@@ -514,7 +539,23 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
         icon={view === 'staff' ? UserCog : view === 'students' ? Users : ShieldCheck}
         title={view === 'staff' ? 'Staff management' : view === 'students' ? 'Student accounts' : 'Users and access'}
         syncLabel={data.generated_at ? `Last sync: ${new Date(data.generated_at).toLocaleString('fr-FR')}` : undefined}
-        action={<AdminRefreshButton loading={loading} onClick={() => setNonce((value) => value + 1)} />}
+        action={(
+          <>
+            {view === 'students' && resolvedStudentMode !== 'create' && (
+              <a href="/admin/users/students/new" className={adminPrimaryButtonClass}>
+                <Plus size={15} aria-hidden="true" />
+                New student
+              </a>
+            )}
+            {view === 'students' && resolvedStudentMode !== 'list' && (
+              <a href="/admin/users/students" className="inline-flex h-10 items-center gap-2 rounded-[12px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-4 text-[13px] font-black text-[color:var(--text-secondary)] transition-[background-color,border-color,color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] active:scale-[0.96]">
+                <ChevronRight size={15} className="rotate-180" aria-hidden="true" />
+                Students
+              </a>
+            )}
+            <AdminRefreshButton loading={loading} onClick={() => setNonce((value) => value + 1)} />
+          </>
+        )}
       />
 
       {error && (
@@ -556,36 +597,39 @@ export default function AdminUsersPage({ view = 'overview' }: { view?: AdminUser
       )}
 
       {view === 'students' && (
-        <StudentCrudWorkspace
-          users={filteredUsers}
-          studentOptions={studentAccounts}
-          mode={studentEditorMode}
-          selectedStudent={selectedStudent}
-          selectedStudentId={selectedStudentId}
-          studentDraft={studentDraft}
-          query={query}
-          loading={loading}
-          busy={studentBusy}
-          error={studentError}
-          saved={studentSaved}
-          subjects={subjects}
-          subjectsLoading={subjectsLoading}
-          manualAccessGrants={manualAccessGrants}
-          manualAccessLoading={manualAccessLoading}
-          manualAccessBusy={manualAccessBusy}
-          manualAccessError={manualAccessError}
-          manualAccessDraft={manualAccessDraft}
-          onQueryChange={setQuery}
-          onModeChange={handleStudentEditorModeChange}
-          onSelectedStudentIdChange={handleSelectedStudentIdChange}
-          onStudentDraftChange={handleStudentDraftChange}
-          onSaveStudent={handleSaveStudent}
-          onResetStudent={handleResetStudent}
-          onQuickStudentPatch={handleQuickStudentPatch}
-          onSendPasswordReset={handleSendStudentPasswordReset}
-          onManualAccessDraftChange={handleManualAccessDraftChange}
-          onManualAccessSubmit={handleManualAccessSubmit}
-        />
+        resolvedStudentMode === 'list' ? (
+          <StudentAccountsTable
+            users={filteredUsers}
+            studentOptions={studentAccounts}
+            query={query}
+            loading={loading}
+            onQueryChange={setQuery}
+          />
+        ) : (
+          <StudentRecordWorkspace
+            mode={studentEditorMode}
+            selectedStudent={selectedStudent}
+            studentDraft={studentDraft}
+            loading={loading}
+            busy={studentBusy}
+            error={studentError}
+            saved={studentSaved}
+            subjects={subjects}
+            subjectsLoading={subjectsLoading}
+            manualAccessGrants={manualAccessGrants}
+            manualAccessLoading={manualAccessLoading}
+            manualAccessBusy={manualAccessBusy}
+            manualAccessError={manualAccessError}
+            manualAccessDraft={manualAccessDraft}
+            onStudentDraftChange={handleStudentDraftChange}
+            onSaveStudent={handleSaveStudent}
+            onResetStudent={handleResetStudent}
+            onQuickStudentPatch={handleQuickStudentPatch}
+            onSendPasswordReset={handleSendStudentPasswordReset}
+            onManualAccessDraftChange={handleManualAccessDraftChange}
+            onManualAccessSubmit={handleManualAccessSubmit}
+          />
+        )
       )}
 
       {view === 'staff' && (
@@ -759,6 +803,460 @@ function RiskCard({
   )
 }
 
+function StudentAccountsTable({
+  users,
+  studentOptions,
+  query,
+  loading,
+  onQueryChange,
+}: {
+  users: AdminUserAccessRow[]
+  studentOptions: AdminUserAccessRow[]
+  query: string
+  loading: boolean
+  onQueryChange: (value: string) => void
+}) {
+  const verifiedCount = studentOptions.filter((student) => student.is_email_verified).length
+  const paidCount = studentOptions.filter((student) => student.payment_count > 0 || student.paid_revenue_centimes > 0).length
+  const reviewCount = studentOptions.filter((student) => buildStudentSignals(student).length > 0).length
+
+  return (
+    <>
+      <section className={adminMetricStripClass}>
+        <StatTile icon={Users} label="Students" value={formatNumber(studentOptions.length)} loading={loading} />
+        <StatTile icon={BadgeCheck} label="Verified" value={formatNumber(verifiedCount)} loading={loading} />
+        <StatTile icon={Banknote} label="Paid" value={formatNumber(paidCount)} loading={loading} />
+        <StatTile icon={AlertTriangle} label="Needs review" value={formatNumber(reviewCount)} loading={loading} />
+      </section>
+
+      <section className={`${card} overflow-hidden`}>
+        <div className="flex flex-col gap-3 border-b border-[#f4f4f5] p-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="m-0 text-[16px] font-black text-[#3f3f46]">Student directory</h2>
+            <p className="m-0 mt-1 text-[12px] font-semibold text-[#a1a1aa] tabular-nums">
+              {formatNumber(users.length)} shown / {formatNumber(studentOptions.length)} total
+            </p>
+          </div>
+          <AdminSearchBox
+            value={query}
+            onChange={onQueryChange}
+            placeholder="Search by name, email, plan"
+            label="Search student accounts"
+            className="lg:w-[360px]"
+          />
+        </div>
+
+        {loading ? (
+          <div className="grid gap-0">
+            {[1, 2, 3, 4, 5].map((item) => <SkeletonRow key={item} />)}
+          </div>
+        ) : users.length ? (
+          <AdminTable minWidthClass="min-w-[1120px]">
+            <thead className={adminTableHeadClass}>
+              <tr className={adminTableHeadRowClass}>
+                <th className={adminTableHeadCellClass}>Student</th>
+                <th className={adminTableHeadCellClass}>Plan</th>
+                <th className={adminTableHeadCellClass}>Access</th>
+                <th className={adminTableHeadCellClass}>Payments</th>
+                <th className={adminTableHeadCellClass}>Last seen</th>
+                <th className={`${adminTableHeadCellClass} text-right`}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <StudentAccountRow key={user.user_id} user={user} />
+              ))}
+            </tbody>
+          </AdminTable>
+        ) : (
+          <div className="grid min-h-[320px] place-items-center p-8 text-center">
+            <div>
+              <UserRound size={30} className="mx-auto mb-3 text-[#d4d4d8]" />
+              <p className="m-0 text-[15px] font-black text-[#3f3f46]">No student accounts found.</p>
+              <p className="m-0 mt-1 text-[12px] font-semibold text-[#a1a1aa]">Clear search or add a new student.</p>
+            </div>
+          </div>
+        )}
+      </section>
+    </>
+  )
+}
+
+function StudentAccountRow({ user }: { user: AdminUserAccessRow }) {
+  const signals = buildStudentSignals(user)
+  const detailHref = `/admin/users/students/${user.user_id}`
+  const contextQuery = studentContextQuery(user)
+
+  return (
+    <tr className={adminTableRowClass}>
+      <td className={adminTableCellClass}>
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[color:var(--primary-soft)] text-[13px] font-black text-[color:var(--primary)]">
+            {user.full_name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || <UserRound size={16} />}
+          </span>
+          <span className="min-w-0">
+            <a href={detailHref} className="block truncate font-black text-[#3f3f46] transition-[color] duration-150 ease-out hover:text-[color:var(--primary)]">
+              {user.full_name || user.email}
+            </a>
+            <span className="mt-0.5 block truncate text-[12px] font-semibold text-[#a1a1aa]">{user.email}</span>
+          </span>
+        </div>
+      </td>
+      <td className={adminTableCellClass}>
+        <div className="flex flex-wrap gap-1.5">
+          <Badge label={tierLabel(user)} tone={user.is_pro ? 'good' : 'default'} />
+          {user.is_email_verified ? <Badge label="verified" tone="good" /> : <Badge label="unverified" tone="warn" />}
+          {!user.is_active && <Badge label="inactive" tone="warn" />}
+        </div>
+      </td>
+      <td className={adminTableCellClass}>
+        <p className="m-0 font-black text-[#3f3f46] tabular-nums">{formatNumber(user.active_entitlements)} active</p>
+        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa] tabular-nums">
+          {signals.length ? `${formatNumber(signals.length)} signal(s)` : `${formatNumber(user.total_entitlements)} total`}
+        </p>
+      </td>
+      <td className={adminTableCellClass}>
+        <p className="m-0 font-black text-[#3f3f46] tabular-nums">{formatMoneyCentimes(user.paid_revenue_centimes)}</p>
+        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa] tabular-nums">{formatNumber(user.payment_count)} payment(s)</p>
+      </td>
+      <td className={adminTableCellClass}>
+        <p className="m-0 font-black text-[#3f3f46]">{formatDate(user.last_login) || 'No login'}</p>
+        <p className="m-0 mt-0.5 text-[12px] font-semibold text-[#a1a1aa]">Created {formatDate(user.created_at) || '-'}</p>
+      </td>
+      <td className={`${adminTableCellClass} text-right`}>
+        <div className="flex justify-end gap-2">
+          <a href={detailHref} className={`${adminTableActionButtonClass} border-[color:var(--primary)] text-[color:var(--primary)] hover:bg-[color:var(--primary-soft)]`}>
+            <Pencil size={13} aria-hidden="true" />
+            Edit
+          </a>
+          <a href={`/admin/students?${contextQuery}`} className={`${adminTableActionButtonClass} border-[#e4e4e7] text-[#52525c] hover:border-[color:var(--primary)] hover:text-[color:var(--primary)]`}>
+            <GraduationCap size={13} aria-hidden="true" />
+            Progress
+          </a>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function StudentRecordWorkspace({
+  mode,
+  selectedStudent,
+  studentDraft,
+  loading,
+  busy,
+  error,
+  saved,
+  subjects,
+  subjectsLoading,
+  manualAccessGrants,
+  manualAccessLoading,
+  manualAccessBusy,
+  manualAccessError,
+  manualAccessDraft,
+  onStudentDraftChange,
+  onSaveStudent,
+  onResetStudent,
+  onQuickStudentPatch,
+  onSendPasswordReset,
+  onManualAccessDraftChange,
+  onManualAccessSubmit,
+}: {
+  mode: StudentEditorMode
+  selectedStudent: AdminUserAccessRow | null
+  studentDraft: AdminStudentAccountUpdateInput | null
+  loading: boolean
+  busy: string
+  error: string
+  saved: string
+  subjects: CourseSubject[]
+  subjectsLoading: boolean
+  manualAccessGrants: AdminManualAccessGrant[]
+  manualAccessLoading: boolean
+  manualAccessBusy: string
+  manualAccessError: string
+  manualAccessDraft: StudentAccessDraft
+  onStudentDraftChange: <Key extends keyof AdminStudentAccountUpdateInput>(
+    key: Key,
+    value: AdminStudentAccountUpdateInput[Key],
+  ) => void
+  onSaveStudent: () => void
+  onResetStudent: () => void
+  onQuickStudentPatch: (
+    updates: AdminStudentAccountUpdateInput,
+    busyKey: string,
+    successLabel: string,
+  ) => void
+  onSendPasswordReset: () => void
+  onManualAccessDraftChange: <Key extends keyof StudentAccessDraft>(
+    key: Key,
+    value: StudentAccessDraft[Key],
+  ) => void
+  onManualAccessSubmit: () => void
+}) {
+  const activeStudent = mode === 'edit' ? selectedStudent : null
+  const draftTier = studentDraft?.tier ?? 'basic'
+  const quickActionsDisabled = !activeStudent || loading || Boolean(busy)
+  const studentSignals = activeStudent ? buildStudentSignals(activeStudent) : []
+  const [copiedTrace, setCopiedTrace] = useState(false)
+
+  useEffect(() => {
+    setCopiedTrace(false)
+  }, [activeStudent?.user_id])
+
+  async function handleCopyTrace() {
+    if (!activeStudent) return
+    setCopiedTrace(true)
+    try {
+      await navigator.clipboard?.writeText(`#${activeStudent.user_id} ${activeStudent.email}`)
+    } catch {
+      // Clipboard can be unavailable in tests or restricted browser contexts.
+    }
+  }
+
+  if (loading && !studentDraft) {
+    return (
+      <section className={`${card} p-5`}>
+        <div className="grid gap-3">
+          {[1, 2, 3, 4].map((item) => <SkeletonRow key={item} />)}
+        </div>
+      </section>
+    )
+  }
+
+  if (!studentDraft) {
+    return (
+      <section className={`${card} grid min-h-[360px] place-items-center p-8 text-center`}>
+        <div>
+          <UserRound size={34} className="mx-auto mb-3 text-[#d4d4d8]" />
+          <p className="m-0 text-[16px] font-black text-[#3f3f46]">Student not found.</p>
+          <a href="/admin/users/students" className={`${adminPrimaryButtonClass} mt-4`}>
+            Back to students
+          </a>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className={`${card} mb-5 p-5`}>
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[14px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
+            {mode === 'create' ? <Plus size={19} /> : <UserRound size={19} />}
+          </span>
+          <div className="min-w-0">
+            <h2 className="m-0 text-balance text-[22px] font-black leading-tight text-[#18181b]">
+              {mode === 'create' ? 'New student' : activeStudent?.full_name || 'Student account'}
+            </h2>
+            <p className="m-0 mt-1 truncate text-[12px] font-semibold text-[#a1a1aa]">
+              {mode === 'create' ? 'Create a clean student record' : activeStudent?.email}
+            </p>
+          </div>
+        </div>
+        {mode === 'edit' && activeStudent && <Badge label={`#${activeStudent.user_id}`} tone="accent" />}
+      </div>
+
+      <div className="grid gap-5">
+        {mode === 'edit' && activeStudent && (
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(300px,420px)]">
+            <StudentHealthStrip student={activeStudent} signals={studentSignals} />
+            <StudentAccessActionsPanel
+              student={activeStudent}
+              draft={studentDraft}
+              draftTier={draftTier}
+              busy={busy}
+              quickActionsDisabled={quickActionsDisabled}
+              onQuickStudentPatch={onQuickStudentPatch}
+              onSendPasswordReset={onSendPasswordReset}
+            />
+          </div>
+        )}
+
+        {mode === 'edit' && activeStudent && (
+          <StudentStaffActionGrid
+            student={activeStudent}
+            copiedTrace={copiedTrace}
+            onCopyTrace={handleCopyTrace}
+          />
+        )}
+
+        {mode === 'edit' && activeStudent && (
+          <StudentOperatorChecklist student={activeStudent} signals={studentSignals} />
+        )}
+
+        <StudentAccountForm
+          mode={mode}
+          student={activeStudent}
+          draft={studentDraft}
+          busy={busy}
+          error={error}
+          saved={saved}
+          onDraftChange={onStudentDraftChange}
+          onSave={onSaveStudent}
+          onReset={onResetStudent}
+        />
+
+        {mode === 'edit' && activeStudent && (
+          <StudentAccessPanel
+            student={activeStudent}
+            subjects={subjects}
+            subjectsLoading={subjectsLoading}
+            grants={manualAccessGrants}
+            grantsLoading={manualAccessLoading}
+            draft={manualAccessDraft}
+            busy={manualAccessBusy}
+            error={manualAccessError}
+            onDraftChange={onManualAccessDraftChange}
+            onSubmit={onManualAccessSubmit}
+          />
+        )}
+
+        <StudentMetaGrid student={activeStudent} draft={studentDraft} mode={mode} />
+      </div>
+    </section>
+  )
+}
+
+function StudentAccountForm({
+  mode,
+  student,
+  draft,
+  busy,
+  error,
+  saved,
+  onDraftChange,
+  onSave,
+  onReset,
+}: {
+  mode: StudentEditorMode
+  student: AdminUserAccessRow | null
+  draft: AdminStudentAccountUpdateInput
+  busy: string
+  error: string
+  saved: string
+  onDraftChange: <Key extends keyof AdminStudentAccountUpdateInput>(
+    key: Key,
+    value: AdminStudentAccountUpdateInput[Key],
+  ) => void
+  onSave: () => void
+  onReset: () => void
+}) {
+  return (
+    <section id="student-account-details" className="scroll-mt-6 rounded-[18px] bg-[#fbfbfc] p-4 shadow-[var(--shadow-border)]">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="m-0 text-[15px] font-black text-[#3f3f46]">Account details</h3>
+          {student && <p className="m-0 mt-1 truncate text-[12px] font-semibold text-[#a1a1aa]">{student.email}</p>}
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+        <label className="grid min-w-0 gap-1.5">
+          <span className={labelClass}>Name</span>
+          <input
+            value={draft.full_name ?? ''}
+            onChange={(event) => onDraftChange('full_name', event.target.value)}
+            disabled={busy === 'save'}
+            aria-label="Student full name"
+            className={controlClass}
+          />
+        </label>
+        <label className="grid min-w-0 gap-1.5">
+          <span className={labelClass}>Email</span>
+          <input
+            type="email"
+            value={draft.email ?? ''}
+            onChange={(event) => onDraftChange('email', event.target.value)}
+            disabled={busy === 'save'}
+            aria-label="Student email"
+            className={controlClass}
+          />
+        </label>
+        <label className="grid min-w-0 gap-1.5">
+          <span className={labelClass}>Level</span>
+          <input
+            value={draft.niveau ?? ''}
+            onChange={(event) => onDraftChange('niveau', event.target.value)}
+            disabled={busy === 'save'}
+            aria-label="Student level"
+            className={controlClass}
+          />
+        </label>
+        <label className="grid min-w-0 gap-1.5">
+          <span className={labelClass}>Track</span>
+          <input
+            value={draft.filiere ?? ''}
+            onChange={(event) => onDraftChange('filiere', event.target.value)}
+            disabled={busy === 'save'}
+            aria-label="Student track"
+            className={controlClass}
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(180px,0.7fr)_minmax(0,1.3fr)]">
+        <label className="grid min-w-0 gap-1.5">
+          <span className={labelClass}>Plan</span>
+          <select
+            value={draft.tier ?? 'basic'}
+            onChange={(event) => onDraftChange('tier', event.target.value as AdminStudentAccountUpdateInput['tier'])}
+            disabled={busy === 'save'}
+            aria-label="Student plan"
+            className={controlClass}
+          >
+            {studentTierOptions.map((tier) => (
+              <option key={tier} value={tier}>{statusLabels[tier]}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+          <StatusToggle
+            icon={draft.is_active ? CheckCircle2 : CircleOff}
+            label="Active"
+            checked={Boolean(draft.is_active)}
+            disabled={busy === 'save'}
+            onChange={(checked) => onDraftChange('is_active', checked)}
+          />
+          <StatusToggle
+            icon={draft.is_email_verified ? BadgeCheck : Mail}
+            label="Verified"
+            checked={Boolean(draft.is_email_verified)}
+            disabled={busy === 'save'}
+            onChange={(checked) => onDraftChange('is_email_verified', checked)}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={busy === 'save'}
+          className={adminPrimaryButtonClass}
+        >
+          {busy === 'save' ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" /> : <Save size={15} />}
+          {mode === 'create' ? 'Create student' : 'Save account'}
+        </button>
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={busy === 'save'}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-[12px] border border-[#e4e4e7] bg-white px-4 text-[13px] font-black text-[#52525c] transition-[background-color,border-color,color,transform] duration-150 ease-out hover:border-[color:var(--primary)] hover:text-[color:var(--primary)] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100"
+        >
+          <RotateCcw size={15} />
+          {mode === 'create' ? 'Clear' : 'Reset'}
+        </button>
+        {saved && <span className="rounded-full bg-[#f0fdf4] px-3 py-1 text-[12px] font-black text-[#16a34a]">{saved}</span>}
+        {error && <span className="rounded-full bg-[#fff7ed] px-3 py-1 text-[12px] font-black text-[#b45309]">{error}</span>}
+      </div>
+    </section>
+  )
+}
+
+// Legacy combined workspace retained for rollback while the route split settles.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function StudentCrudWorkspace({
   users,
   studentOptions,

@@ -3,6 +3,7 @@ declare module '*.mjs' {
   export default defaultExport
 
   export const optimizePackageImports: string[]
+  export const localDevOrigins: string[]
   export function shouldEnableLocalRewrites(nodeEnv?: string, localRewriteFlag?: string, krescoEnv?: string): boolean
   export function shouldEnableBackendRewrites(value?: string): boolean
   export function buildImageRemotePatterns(nodeEnv?: string): Array<{ protocol: 'http' | 'https'; hostname: string }>

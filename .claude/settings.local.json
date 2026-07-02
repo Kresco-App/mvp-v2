@@ -25,7 +25,8 @@
       "Bash(sips:*)",
       "Bash(__NEW_LINE_9eb911f57d211c3a__ echo:*)",
       "Bash(npm uninstall:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git -C \"C:\\\\Users\\\\ilyas\\\\Desktop\\\\kresco mvp v2\" log --oneline -15)"
     ]
   }
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   ArrowDownUp,
+  ChevronDown,
   MessageSquareText,
   Star,
   ThumbsDown,
@@ -137,13 +138,20 @@ export default function AdminVideoFeedbackPage() {
                 placeholder="Video, subject, topic"
                 className="w-full sm:w-[280px]"
               />
-              <label className="relative inline-flex h-10 min-w-[190px] items-center rounded-[12px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-3 text-[13px] font-black text-[color:var(--text-primary)] transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-[color:var(--primary)] focus-within:ring-4 focus-within:ring-[color:var(--primary-soft)] motion-reduce:transition-none">
-                <ArrowDownUp size={14} className="mr-2 shrink-0 text-[color:var(--primary)]" aria-hidden="true" />
+              <label
+                data-video-feedback-sort-control
+                className="group relative inline-flex h-10 min-w-[220px] cursor-pointer select-none items-center gap-2 overflow-hidden rounded-[12px] border border-[color:var(--border)] bg-[color:var(--surface-card)] px-3 text-[13px] font-black text-[color:var(--text-primary)] shadow-[var(--shadow-border)] transition-[background-color,border-color,box-shadow,color] duration-150 ease-out hover:border-[color:var(--primary)] hover:shadow-[var(--shadow-border-hover)] focus-within:border-[color:var(--primary)] focus-within:ring-4 focus-within:ring-[color:var(--primary-soft)] motion-reduce:transition-none sm:w-[220px]"
+              >
+                <span className="pointer-events-none grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[color:var(--primary-soft)] text-[color:var(--primary)]">
+                  <ArrowDownUp size={14} aria-hidden="true" />
+                </span>
+                <span className="pointer-events-none min-w-0 flex-1 truncate">{sortLabels[sort]}</span>
+                <ChevronDown size={15} className="pointer-events-none shrink-0 text-[color:var(--text-tertiary)] transition-[color,transform] duration-150 ease-out group-hover:text-[color:var(--primary)] motion-reduce:transition-none" aria-hidden="true" />
                 <select
                   value={sort}
                   onChange={(event) => setSort(event.target.value as AdminVideoFeedbackSort)}
                   aria-label="Sort video feedback"
-                  className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent font-black outline-none"
+                  className="absolute inset-0 h-full w-full cursor-pointer appearance-none border-0 bg-transparent opacity-0 outline-none"
                 >
                   {Object.entries(sortLabels).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>

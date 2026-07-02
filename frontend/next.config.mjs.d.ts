@@ -11,6 +11,7 @@ export type SecurityHeader = {
 }
 
 export declare const optimizePackageImports: string[]
+export declare const localDevOrigins: string[]
 export declare function shouldEnableLocalRewrites(nodeEnv?: string, localRewriteFlag?: string, krescoEnv?: string): boolean
 export declare function shouldEnableBackendRewrites(value?: string): boolean
 export declare function buildImageRemotePatterns(nodeEnv?: string): ImageRemotePattern[]

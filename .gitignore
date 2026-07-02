@@ -35,6 +35,7 @@ ehthumbs.db
 Thumbs.db
 
 # Local runtime artifacts
+.codex/
 .codex-logs/
 media/
 *.sqlite3
