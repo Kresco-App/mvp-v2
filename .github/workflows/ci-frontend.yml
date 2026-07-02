@@ -19,6 +19,10 @@ jobs:
       NEXT_PUBLIC_REALTIME_PROVIDER: "off"
       KRESCO_E2E_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kresco_frontend_e2e
       KRESCO_ENV: development
+      KRESCO_CSP_STYLE_FILE_BUDGET: "12"
+      KRESCO_CSP_INLINE_STYLE_BUDGET: "28"
+      KRESCO_CSP_CSSOM_FILE_BUDGET: "2"
+      KRESCO_CSP_CSSOM_STYLE_BUDGET: "9"
     services:
       postgres:
         image: postgres:16
