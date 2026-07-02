@@ -17,7 +17,28 @@ import {
 const FRONTEND_ROOT = fileURLToPath(new URL('..', import.meta.url))
 type HeaderEntry = { key: string; value: string }
 type HeaderRule = { headers?: HeaderEntry[] }
-type RewriteRule = { source: string; destination: string }
+type RewriteCondition = { type: string; key: string; value: string }
+type RewriteRule = { source: string; destination: string; has?: RewriteCondition[] }
+const SENTRY_MONITORING_SOURCE = '/monitoring(/?)'
+const expectedSentryMonitoringRewrites: RewriteRule[] = [
+  {
+    source: SENTRY_MONITORING_SOURCE,
+    destination: 'https://o:orgid.ingest.:region.sentry.io/api/:projectid/envelope/?hsts=0',
+    has: [
+      { type: 'query', key: 'o', value: '(?<orgid>\\d*)' },
+      { type: 'query', key: 'p', value: '(?<projectid>\\d*)' },
+      { type: 'query', key: 'r', value: '(?<region>[a-z]{2})' },
+    ],
+  },
+  {
+    source: SENTRY_MONITORING_SOURCE,
+    destination: 'https://o:orgid.ingest.sentry.io/api/:projectid/envelope/?hsts=0',
+    has: [
+      { type: 'query', key: 'o', value: '(?<orgid>\\d*)' },
+      { type: 'query', key: 'p', value: '(?<projectid>\\d*)' },
+    ],
+  },
+]
 
 function sourceFilesUnder(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -57,6 +78,18 @@ async function configuredRewritesWithEnv(env: Record<string, string | undefined>
       }
     }
   }
+}
+
+function backendRewrites(rewrites: RewriteRule[] | undefined) {
+  return (rewrites ?? []).filter((rewrite) => rewrite.source !== SENTRY_MONITORING_SOURCE)
+}
+
+function sentryMonitoringRewrites(rewrites: RewriteRule[] | undefined) {
+  return (rewrites ?? []).filter((rewrite) => rewrite.source === SENTRY_MONITORING_SOURCE)
+}
+
+async function configuredBackendRewritesWithEnv(env: Record<string, string | undefined>) {
+  return backendRewrites(await configuredRewritesWithEnv(env))
 }
 
 describe('Next production config boundaries', () => {
@@ -130,7 +163,7 @@ describe('Next production config boundaries', () => {
   })
 
   it('does not emit HTTPS localhost backend rewrites in production', async () => {
-    await expect(configuredRewritesWithEnv({
+    await expect(configuredBackendRewritesWithEnv({
       NODE_ENV: 'production',
       KRESCO_ENV: 'production',
       KRESCO_ENABLE_LOCAL_REWRITES: undefined,
@@ -140,7 +173,7 @@ describe('Next production config boundaries', () => {
   })
 
   it('does not emit localhost rewrites for production-marked builds even when local flags are present', async () => {
-    await expect(configuredRewritesWithEnv({
+    await expect(configuredBackendRewritesWithEnv({
       NODE_ENV: 'production',
       KRESCO_ENV: 'production',
       KRESCO_ENABLE_LOCAL_REWRITES: 'true',
@@ -150,7 +183,7 @@ describe('Next production config boundaries', () => {
   })
 
   it('emits localhost rewrites only for development-marked integration builds', async () => {
-    await expect(configuredRewritesWithEnv({
+    await expect(configuredBackendRewritesWithEnv({
       NODE_ENV: 'production',
       KRESCO_ENV: 'development',
       KRESCO_ENABLE_LOCAL_REWRITES: 'true',
@@ -163,7 +196,7 @@ describe('Next production config boundaries', () => {
   })
 
   it('prefers explicit HTTPS backend rewrites over local integration origins', async () => {
-    await expect(configuredRewritesWithEnv({
+    await expect(configuredBackendRewritesWithEnv({
       NODE_ENV: 'production',
       KRESCO_ENV: 'production',
       KRESCO_ENABLE_LOCAL_REWRITES: 'true',
@@ -173,6 +206,19 @@ describe('Next production config boundaries', () => {
       { source: '/api/:path*', destination: 'https://api.kresco.example/api/:path*' },
       { source: '/media/:path*', destination: 'https://api.kresco.example/media/:path*' },
     ])
+  })
+
+  it('keeps Sentry monitoring tunnel rewrites isolated from backend rewrites', async () => {
+    const rewrites = await configuredRewritesWithEnv({
+      NODE_ENV: 'production',
+      KRESCO_ENV: 'production',
+      KRESCO_ENABLE_LOCAL_REWRITES: undefined,
+      KRESCO_LOCAL_BACKEND_ORIGIN: undefined,
+      KRESCO_BACKEND_ORIGIN: undefined,
+    })
+
+    expect(sentryMonitoringRewrites(rewrites)).toEqual(expectedSentryMonitoringRewrites)
+    expect(backendRewrites(rewrites)).toEqual([])
   })
 
   it('keeps the strict CSP in proxy.ts instead of emitting a weaker global next.config header', async () => {
