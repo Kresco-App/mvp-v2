@@ -1,0 +1,215 @@
+name: Rollback Cloud Run Services
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "staging"
+        type: choice
+        options:
+          - staging
+          - production
+      backend_revision:
+        description: "Backend Cloud Run revision to receive 100% traffic; leave empty to skip backend"
+        required: false
+        default: ""
+        type: string
+      frontend_revision:
+        description: "Frontend Cloud Run revision to receive 100% traffic; leave empty to skip frontend"
+        required: false
+        default: ""
+        type: string
+      confirm_production_rollback:
+        description: "Required for production rollbacks"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ inputs.environment == 'staging' && format('staging-cloud-sql-{0}', github.repository) || format('production-cloud-run-{0}', github.repository) }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back Cloud Run
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment == 'production' && 'Production' || 'staging' }}
+    env:
+      REGION: europe-southwest1
+      BACKEND_REVISION: ${{ inputs.backend_revision }}
+      FRONTEND_REVISION: ${{ inputs.frontend_revision }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve target
+        run: |
+          set -euo pipefail
+          case "${{ inputs.environment }}" in
+            staging)
+              echo "PROJECT_ID=kresco-staging" >> "$GITHUB_ENV"
+              echo "KRESCO_ENV=staging" >> "$GITHUB_ENV"
+              echo "BACKEND_SERVICE=kresco-backend-staging" >> "$GITHUB_ENV"
+              echo "FRONTEND_SERVICE=kresco-frontend-staging" >> "$GITHUB_ENV"
+              ;;
+            production)
+              if [ "${{ inputs.confirm_production_rollback }}" != "true" ]; then
+                echo "::error::Production rollbacks require confirm_production_rollback=true."
+                exit 1
+              fi
+              echo "PROJECT_ID=kresco-prod" >> "$GITHUB_ENV"
+              echo "KRESCO_ENV=prod" >> "$GITHUB_ENV"
+              echo "BACKEND_SERVICE=kresco-backend-prod" >> "$GITHUB_ENV"
+              echo "FRONTEND_SERVICE=kresco-frontend-prod" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::Unsupported environment: ${{ inputs.environment }}"
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${BACKEND_REVISION// }" ] && [ -z "${FRONTEND_REVISION// }" ]; then
+            echo "::error::Provide backend_revision, frontend_revision, or both."
+            exit 1
+          fi
+
+          echo "::warning::Rollback does not revert database migrations. The target revision must be compatible with the current schema."
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve backend rollback revision
+        if: ${{ inputs.backend_revision != '' }}
+        run: |
+          set -euo pipefail
+          revision_json="$(mktemp)"
+          gcloud run revisions describe "$BACKEND_REVISION" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$revision_json"
+
+          service="$(jq -r '.metadata.labels["serving.knative.dev/service"] // empty' "$revision_json")"
+          if [ "$service" != "$BACKEND_SERVICE" ]; then
+            echo "::error::Backend revision $BACKEND_REVISION belongs to service '$service', expected '$BACKEND_SERVICE'."
+            exit 1
+          fi
+
+          release_sha="$(jq -r '.spec.containers[0].env[]? | select(.name == "KRESCO_RELEASE_SHA") | .value // empty' "$revision_json")"
+          if [ -z "$release_sha" ]; then
+            echo "::error::Backend revision $BACKEND_REVISION does not expose KRESCO_RELEASE_SHA."
+            exit 1
+          fi
+
+          echo "BACKEND_ROLLBACK_SHA=$release_sha" >> "$GITHUB_ENV"
+          rm -f "$revision_json"
+
+      - name: Resolve frontend rollback revision
+        if: ${{ inputs.frontend_revision != '' }}
+        run: |
+          set -euo pipefail
+          revision_json="$(mktemp)"
+          gcloud run revisions describe "$FRONTEND_REVISION" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$revision_json"
+
+          service="$(jq -r '.metadata.labels["serving.knative.dev/service"] // empty' "$revision_json")"
+          if [ "$service" != "$FRONTEND_SERVICE" ]; then
+            echo "::error::Frontend revision $FRONTEND_REVISION belongs to service '$service', expected '$FRONTEND_SERVICE'."
+            exit 1
+          fi
+
+          release_sha="$(jq -r '.spec.containers[0].env[]? | select(.name == "NEXT_PUBLIC_RELEASE_SHA") | .value // empty' "$revision_json")"
+          if [ -z "$release_sha" ]; then
+            echo "::error::Frontend revision $FRONTEND_REVISION does not expose NEXT_PUBLIC_RELEASE_SHA."
+            exit 1
+          fi
+
+          echo "FRONTEND_ROLLBACK_SHA=$release_sha" >> "$GITHUB_ENV"
+          rm -f "$revision_json"
+
+      - name: Update backend runtime release secret
+        if: ${{ inputs.backend_revision != '' }}
+        run: |
+          set -euo pipefail
+          runtime_json="$(mktemp)"
+          gcloud secrets versions access latest \
+            --project "$PROJECT_ID" \
+            --secret kresco-runtime \
+            | jq --arg sha "$BACKEND_ROLLBACK_SHA" '.KRESCO_RELEASE_SHA=$sha' > "$runtime_json"
+          gcloud secrets versions add kresco-runtime \
+            --project "$PROJECT_ID" \
+            --data-file "$runtime_json"
+          rm -f "$runtime_json"
+
+      - name: Shift backend traffic
+        if: ${{ inputs.backend_revision != '' }}
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "$BACKEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --to-revisions "$BACKEND_REVISION=100" \
+            --quiet
+
+      - name: Shift frontend traffic
+        if: ${{ inputs.frontend_revision != '' }}
+        run: |
+          set -euo pipefail
+          gcloud run services update-traffic "$FRONTEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --to-revisions "$FRONTEND_REVISION=100" \
+            --quiet
+
+      - name: Verify backend rollback
+        if: ${{ inputs.backend_revision != '' }}
+        run: |
+          set -euo pipefail
+          url="$(gcloud run services describe "$BACKEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          export BACKEND_URL="$url"
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          health_url = os.environ["BACKEND_URL"].rstrip("/") + "/health"
+          with urllib.request.urlopen(health_url, timeout=30) as response:
+              body = json.loads(response.read().decode("utf-8"))
+          expected = os.environ["BACKEND_ROLLBACK_SHA"]
+          if body.get("release_sha") != expected:
+              raise SystemExit(f"Backend rollback release mismatch: {body.get('release_sha')} != {expected}")
+          print(f"Backend rollback verified for {health_url}")
+          PY
+
+      - name: Verify frontend rollback
+        if: ${{ inputs.frontend_revision != '' }}
+        run: |
+          set -euo pipefail
+          url="$(gcloud run services describe "$FRONTEND_SERVICE" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
+          export FRONTEND_URL="$url"
+          python - <<'PY'
+          import os
+          import urllib.request
+
+          url = os.environ["FRONTEND_URL"]
+          with urllib.request.urlopen(url, timeout=30) as response:
+              body = response.read(8192).decode("utf-8", errors="replace")
+          expected = os.environ["FRONTEND_ROLLBACK_SHA"]
+          marker = f'data-release="{expected}"'
+          if marker not in body:
+              raise SystemExit(f"Frontend rollback release marker mismatch: expected {marker}")
+          print(f"Frontend rollback verified for {url}")
+          PY
