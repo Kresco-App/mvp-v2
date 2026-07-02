@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join, relative } from 'node:path'
 import nextConfig from '../next.config.mjs'
 
@@ -31,6 +32,23 @@ function walk(dir, files = []) {
     if (extensions.has(extension)) files.push(path)
   }
   return files
+}
+
+function gitVisibleFiles() {
+  try {
+    const output = execFileSync(
+      'git',
+      ['ls-files', '--cached', '--others', '--exclude-standard', '--', ...scanRoots],
+      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    return output
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((path) => join(root, path))
+      .filter((path) => existsSync(path) && extensions.has(path.slice(path.lastIndexOf('.'))))
+  } catch {
+    return null
+  }
 }
 
 function lineNumber(content, index) {
@@ -134,7 +152,7 @@ async function nextConfigCspAudit() {
   }
 }
 
-const files = scanRoots.flatMap((dir) => walk(join(root, dir)))
+const files = gitVisibleFiles() ?? scanRoots.flatMap((dir) => walk(join(root, dir)))
 const fileSummaries = []
 const cssomSummaries = []
 const dynamicStyleSummaries = []

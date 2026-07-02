@@ -237,8 +237,8 @@ function VideoFeedbackRow({
   onSelect: () => void
 }) {
   const totalSignal = Math.max(item.positive_count + item.negative_count + item.neutral_count, 1)
-  const positiveWidth = `${Math.round((item.positive_count / totalSignal) * 100)}%`
-  const negativeWidth = `${Math.round((item.negative_count / totalSignal) * 100)}%`
+  const positiveWidth = Math.round((item.positive_count / totalSignal) * 100)
+  const negativeWidth = Math.round((item.negative_count / totalSignal) * 100)
   return (
     <button
       type="button"
@@ -275,10 +275,10 @@ function VideoFeedbackRow({
           </span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-[#eef2f7]">
-          <div className="flex h-full w-full">
-            <span className="h-full bg-[#10b981]" style={{ width: positiveWidth }} />
-            <span className="h-full bg-[#f59e0b]" style={{ width: negativeWidth }} />
-          </div>
+          <svg className="h-full w-full" viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true">
+            <rect x="0" y="0" width={positiveWidth} height="4" fill="#10b981" />
+            <rect x={positiveWidth} y="0" width={negativeWidth} height="4" fill="#f59e0b" />
+          </svg>
         </div>
         <div className="mt-2 flex items-center justify-between text-[11px] font-black tabular-nums">
           <span className="text-[#059669]">{formatNumber(item.positive_count)} positive</span>

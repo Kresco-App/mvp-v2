@@ -15,7 +15,7 @@ import {
   Trophy,
   type LucideIcon,
 } from 'lucide-react'
-import { motion, useReducedMotion, useScroll, useSpring, useTransform, type Variants } from 'framer-motion'
+import { motion, useReducedMotion, type Variants } from 'framer-motion'
 
 import KrescoWordmark from '@/components/KrescoWordmark'
 
@@ -110,10 +110,7 @@ const navigation = [
   { href: '#faq', label: 'FAQ' },
 ]
 
-const noiseStyle = {
-  backgroundImage: 'radial-gradient(rgba(255,255,255,0.22) 0.7px, transparent 0.7px)',
-  backgroundSize: '4px 4px',
-}
+const noiseClassName = 'bg-[radial-gradient(rgba(255,255,255,0.22)_0.7px,transparent_0.7px)] [background-size:4px_4px]'
 
 function makeReveal(shouldReduceMotion: boolean): Variants {
   return {
@@ -155,20 +152,12 @@ function makeHeroReveal(shouldReduceMotion: boolean): Variants {
 
 export default function KrescoLandingExperience({ onLogin, onSignup }: LandingProps) {
   const shouldReduceMotion = Boolean(useReducedMotion())
-  const { scrollYProgress } = useScroll()
-  const progressScale = useSpring(scrollYProgress, { stiffness: 120, damping: 26, mass: 0.18 })
-  const heroY = useTransform(scrollYProgress, [0, 0.26], shouldReduceMotion ? [0, 0] : [0, -42])
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.22], shouldReduceMotion ? [1, 1] : [1, 0.74])
   const reveal = makeReveal(shouldReduceMotion)
   const heroReveal = makeHeroReveal(shouldReduceMotion)
 
   return (
     <main id="main-content" tabIndex={-1} className="min-h-screen overflow-hidden bg-[#f7f8fb] text-[#18181b]">
-      <motion.div
-        aria-hidden="true"
-        className="fixed left-0 top-0 z-50 h-[3px] w-full origin-left bg-[#f5900b]"
-        style={{ scaleX: progressScale }}
-      />
+      <div aria-hidden="true" className="fixed left-0 top-0 z-50 h-[3px] w-full bg-[#f5900b]" />
 
       <header className="absolute inset-x-0 top-0 z-40 px-4 pt-4 sm:px-6 lg:px-8">
         <nav className="mx-auto flex h-14 max-w-[1180px] items-center justify-between gap-4 rounded-[16px] border border-white/12 bg-white/94 px-3 shadow-[0_8px_26px_rgba(11,11,35,0.08)] backdrop-blur-md">
@@ -207,11 +196,10 @@ export default function KrescoLandingExperience({ onLogin, onSignup }: LandingPr
 
       <section className="relative isolate min-h-[100svh] overflow-hidden bg-[#111033] text-white">
         <div aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(115deg,#111033_0%,#17164a_42%,#24205b_72%,#2f2554_100%)]" />
-        <div aria-hidden="true" className="absolute inset-0 opacity-[0.18] mix-blend-screen" style={noiseStyle} />
+        <div aria-hidden="true" className={`absolute inset-0 opacity-[0.18] mix-blend-screen ${noiseClassName}`} />
         <motion.div
           aria-hidden="true"
-          className="absolute bottom-[-8rem] right-[-10rem] hidden h-[680px] w-[680px] rounded-full border border-white/10 lg:block"
-          style={{ y: heroY, opacity: heroOpacity }}
+          className="absolute bottom-[-8rem] right-[-10rem] hidden h-[680px] w-[680px] rounded-full border border-white/10 opacity-75 lg:block"
         />
         <motion.div
           aria-hidden="true"
@@ -219,7 +207,6 @@ export default function KrescoLandingExperience({ onLogin, onSignup }: LandingPr
           initial={shouldReduceMotion ? false : { opacity: 0, x: 42, rotate: 1.5, filter: 'blur(10px)' }}
           animate={shouldReduceMotion ? undefined : { opacity: 1, x: 0, rotate: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.74, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
-          style={{ y: heroY }}
         >
           <div className="relative min-h-[520px]">
             <div className="absolute left-16 top-4 h-[300px] w-[300px] overflow-hidden rounded-full border-[10px] border-white/10 bg-[#f5900b]">
@@ -409,7 +396,7 @@ export default function KrescoLandingExperience({ onLogin, onSignup }: LandingPr
       </section>
 
       <section className="relative isolate overflow-hidden bg-[#18181b] px-5 py-20 text-white sm:px-8 lg:px-12 lg:py-28">
-        <div aria-hidden="true" className="absolute inset-0 opacity-[0.1]" style={noiseStyle} />
+        <div aria-hidden="true" className={`absolute inset-0 opacity-[0.1] ${noiseClassName}`} />
         <div className="relative mx-auto grid max-w-[1180px] gap-12 lg:grid-cols-[1fr_1fr] lg:items-center">
           <motion.div
             initial={shouldReduceMotion ? false : 'hidden'}
@@ -532,7 +519,7 @@ export default function KrescoLandingExperience({ onLogin, onSignup }: LandingPr
       </section>
 
       <section className="relative isolate overflow-hidden bg-[#111033] px-5 py-[72px] text-white sm:px-8 lg:px-12 lg:py-24">
-        <div aria-hidden="true" className="absolute inset-0 opacity-[0.16]" style={noiseStyle} />
+        <div aria-hidden="true" className={`absolute inset-0 opacity-[0.16] ${noiseClassName}`} />
         <div className="relative mx-auto flex max-w-[1180px] flex-col items-start justify-between gap-8 md:flex-row md:items-center">
           <div>
             <p className="m-0 text-[15px] font-black text-[#f5900b]">Pret pour la prochaine seance ?</p>
