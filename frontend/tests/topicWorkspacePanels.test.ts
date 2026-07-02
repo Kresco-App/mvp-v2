@@ -34,25 +34,35 @@ vi.mock('next/image', () => ({
 vi.mock('next/dynamic', () => ({
   default: <Props extends object>(
     loader: () => Promise<ComponentType<Props> | { default?: ComponentType<Props> }>,
-    options?: { loading?: (props: Props) => ReactNode },
+    options?: { loading?: (props: Props) => ReactNode; ssr?: boolean },
   ) => {
+    let Component: ComponentType<Props> | null = null
+    let loadError: unknown
+    const loadPromise = loader()
+      .then((loaded) => {
+        const resolved = typeof loaded === 'function' ? loaded : loaded.default
+        if (resolved) Component = resolved
+      })
+      .catch((error: unknown) => {
+        loadError = error
+      })
+
     function DynamicComponent(props: Props) {
-      const [Component, setComponent] = React.useState<ComponentType<Props> | null>(null)
+      const [, setRenderVersion] = React.useState(0)
 
       React.useEffect(() => {
+        if (Component || loadError) return undefined
+
         let mounted = true
-
-        loader().then((loaded) => {
-          const resolved = typeof loaded === 'function' ? loaded : loaded.default
-          if (mounted && resolved) {
-            setComponent(() => resolved)
-          }
+        void loadPromise.then(() => {
+          if (mounted) setRenderVersion((version) => version + 1)
         })
-
         return () => {
           mounted = false
         }
       }, [])
+
+      if (loadError) throw loadError
 
       if (!Component) {
         return options?.loading?.(props) ?? null
