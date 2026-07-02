@@ -296,26 +296,22 @@ External IAM configured for backend promotion:
 - Production writer grant verified:
   `roles/artifactregistry.writer` on `projects/kresco-prod` for `github-deployer@kresco-prod.iam.gserviceaccount.com`
 
-### 9. Consider Path-Aware Deploys Only Later
+### 9. Use Conservative Path-Aware Staging Deploys
 
-Do not partial-deploy backend/frontend yet.
-
-Current verification expects both services to expose the same release SHA via `--expected-sha`.
-
-Before partial deploys:
-
-- Verification must support backend/frontend SHA skew.
-- Deployment summaries must report `backend_sha` and `frontend_sha` separately.
-- Smoke checks must know which service was intentionally updated.
-
-Until then, deploy both services together.
+Partial staging deploys are safe only after smoke checks understand backend/frontend SHA skew and skipped service state.
 
 Current implementation status:
 
 - `scripts/check_staging_deployment.py` accepts `--expected-backend-sha` and `--expected-frontend-sha`, falling back to `--expected-sha` for the current full-stack deploy path.
 - `.github/workflows/deploy-staging.yml` passes backend and frontend SHAs explicitly and reports them separately in the deployment summary.
 - `.github/workflows/deploy-staging.yml` no longer deploys for docs-only runbook changes, and it does trigger for Firebase Hosting config/public-file changes.
-- Path-aware deploys are still disabled. The workflow still deploys backend, frontend, and Hosting together until skipped-service smoke semantics are designed.
+- `.github/workflows/deploy-staging.yml` now plans deploy jobs from changed paths:
+  - `backend/**` deploys backend only.
+  - `frontend/**` deploys frontend only.
+  - Firebase Hosting config/public paths deploy Hosting only.
+  - workflow or Terraform changes deploy everything.
+  - root `scripts/**` changes run smoke against the current services without rebuilding images.
+- The staging smoke job resolves current Cloud Run service URLs, revisions, images, and release SHAs before verification, so skipped deploy jobs still have authoritative verification inputs.
 
 ## Explicit Non-Goals For Now
 
@@ -323,7 +319,7 @@ Current implementation status:
 - No same-SHA-passed-CI lookup machinery.
 - No conditional migrations.
 - No naive backend-only/frontend-only CI path split that drops cross-stack integration tests.
-- No partial service deploys until release SHA skew is supported.
+- No unchecked partial service deploys that skip current-service smoke verification.
 - No separate `ci-security.yml` unless it adds new checks such as CodeQL, dependency audit, or gitleaks.
 
 ## Exact Manual Work Required

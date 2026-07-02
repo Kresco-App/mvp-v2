@@ -40,12 +40,51 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
     uses: ./.github/workflows/ci-frontend.yml
 
+  plan-staging:
+    name: Plan Staging Deploy
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_backend: ${{ steps.plan.outputs.deploy_backend }}
+      deploy_frontend: ${{ steps.plan.outputs.deploy_frontend }}
+      deploy_hosting: ${{ steps.plan.outputs.deploy_hosting }}
+      reason: ${{ steps.plan.outputs.reason }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Plan changed deploy targets
+        id: plan
+        run: |
+          set -euo pipefail
+          event_name="${{ github.event_name }}"
+          before="${{ github.event.before }}"
+          changed_paths="$(mktemp)"
+          if [ "$event_name" = "workflow_dispatch" ]; then
+            : > "$changed_paths"
+          elif [ -n "$before" ] && ! [[ "$before" =~ ^0+$ ]]; then
+            git diff --name-only "$before" "$GITHUB_SHA" > "$changed_paths"
+          else
+            git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" > "$changed_paths"
+          fi
+          echo "Changed paths:"
+          if [ -s "$changed_paths" ]; then
+            sed 's/^/- /' "$changed_paths"
+          else
+            echo "- none"
+          fi
+          python scripts/plan_staging_deploy.py \
+            --event-name "$event_name" \
+            --output-file "$GITHUB_OUTPUT" < "$changed_paths"
+
   deploy-backend:
     name: Deploy Backend
     needs:
       - backend-ci
       - frontend-ci
-    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') }}
+      - plan-staging
+    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && needs.plan-staging.outputs.deploy_backend == 'true' }}
     uses: ./.github/workflows/deploy-backend.yml
     with:
       environment: staging
@@ -57,7 +96,11 @@ jobs:
   deploy-frontend:
     name: Deploy Frontend
     needs:
+      - backend-ci
+      - frontend-ci
+      - plan-staging
       - deploy-backend
+    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && needs.plan-staging.outputs.deploy_frontend == 'true' }}
     uses: ./.github/workflows/deploy-frontend.yml
     with:
       environment: staging
@@ -69,7 +112,12 @@ jobs:
   deploy-hosting:
     name: Deploy Firebase Hosting Edge
     needs:
+      - backend-ci
+      - frontend-ci
+      - plan-staging
+      - deploy-backend
       - deploy-frontend
+    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && (needs.deploy-frontend.result == 'success' || needs.deploy-frontend.result == 'skipped') && needs.plan-staging.outputs.deploy_hosting == 'true' }}
     uses: ./.github/workflows/deploy-firebase-hosting.yml
     with:
       environment: staging
@@ -80,27 +128,25 @@ jobs:
   staging-smoke:
     name: Staging Smoke
     needs:
+      - backend-ci
+      - frontend-ci
+      - plan-staging
       - deploy-backend
       - deploy-frontend
       - deploy-hosting
+    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && (needs.deploy-frontend.result == 'success' || needs.deploy-frontend.result == 'skipped') && (needs.deploy-hosting.result == 'success' || needs.deploy-hosting.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: staging
     env:
       PROJECT_ID: kresco-staging
       REGION: europe-southwest1
       CLOUD_SQL_INSTANCE: kresco-staging-postgres
+      BACKEND_SERVICE: kresco-backend-staging
       FRONTEND_SERVICE: kresco-frontend-staging
-      BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
-      FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
-      SHORT_SHA: ${{ needs.deploy-backend.outputs.short_sha }}
-      BACKEND_SHA: ${{ needs.deploy-backend.outputs.short_sha }}
-      FRONTEND_SHA: ${{ needs.deploy-frontend.outputs.short_sha }}
-      BACKEND_REVISION: ${{ needs.deploy-backend.outputs.backend_revision }}
-      FRONTEND_REVISION: ${{ needs.deploy-frontend.outputs.frontend_revision }}
-      BACKEND_IMAGE: ${{ needs.deploy-backend.outputs.backend_image }}
-      FRONTEND_IMAGE: ${{ needs.deploy-frontend.outputs.frontend_image }}
-      BACKEND_IMAGE_DIGEST: ${{ needs.deploy-backend.outputs.backend_image_digest }}
-      FRONTEND_IMAGE_DIGEST: ${{ needs.deploy-frontend.outputs.frontend_image_digest }}
+      DEPLOY_BACKEND: ${{ needs.plan-staging.outputs.deploy_backend }}
+      DEPLOY_FRONTEND: ${{ needs.plan-staging.outputs.deploy_frontend }}
+      DEPLOY_HOSTING: ${{ needs.plan-staging.outputs.deploy_hosting }}
+      DEPLOY_PLAN_REASON: ${{ needs.plan-staging.outputs.reason }}
       STAGING_AUTH_SMOKE_EMAIL: ${{ secrets.STAGING_AUTH_SMOKE_EMAIL }}
       STAGING_AUTH_SMOKE_PASSWORD: ${{ secrets.STAGING_AUTH_SMOKE_PASSWORD }}
       STAGING_AUTH_BASIC_EMAIL: ${{ secrets.STAGING_AUTH_BASIC_EMAIL }}
@@ -130,6 +176,45 @@ jobs:
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve current Cloud Run release state
+        run: |
+          set -euo pipefail
+          write_service_state() {
+            service_name="$1"
+            prefix="$2"
+            release_env_name="$3"
+            service_json="$(mktemp)"
+            gcloud run services describe "$service_name" \
+              --project "$PROJECT_ID" \
+              --region "$REGION" \
+              --format=json > "$service_json"
+            service_url="$(jq -r '.status.url // empty' "$service_json")"
+            revision="$(jq -r '.status.latestReadyRevisionName // empty' "$service_json")"
+            image="$(jq -r '.spec.template.spec.containers[0].image // empty' "$service_json")"
+            release_sha="$(jq -r --arg name "$release_env_name" '.spec.template.spec.containers[0].env[]? | select(.name == $name) | .value // empty' "$service_json")"
+            if [ -z "$service_url" ] || [ -z "$revision" ] || [ -z "$image" ] || [ -z "$release_sha" ]; then
+              echo "::error::$service_name is missing url, revision, image, or $release_env_name."
+              cat "$service_json"
+              exit 1
+            fi
+            image_digest=""
+            if [[ "$image" == *@sha256:* ]]; then
+              image_digest="${image##*@}"
+            fi
+            {
+              echo "${prefix}_URL=$service_url"
+              echo "${prefix}_REVISION=$revision"
+              echo "${prefix}_IMAGE=$image"
+              echo "${prefix}_IMAGE_DIGEST=$image_digest"
+              echo "${prefix}_SHA=$release_sha"
+            } >> "$GITHUB_ENV"
+            rm -f "$service_json"
+          }
+
+          write_service_state "$BACKEND_SERVICE" "BACKEND" "KRESCO_RELEASE_SHA"
+          write_service_state "$FRONTEND_SERVICE" "FRONTEND" "NEXT_PUBLIC_RELEASE_SHA"
+          echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
       - name: Resolve Firebase public API key
         run: |
@@ -209,6 +294,10 @@ jobs:
           {
             echo "### Staging deployment"
             echo ""
+            echo "- Plan reason: $DEPLOY_PLAN_REASON"
+            echo "- Backend deploy job requested: $DEPLOY_BACKEND"
+            echo "- Frontend deploy job requested: $DEPLOY_FRONTEND"
+            echo "- Hosting deploy job requested: $DEPLOY_HOSTING"
             echo "- Backend URL: $BACKEND_URL"
             echo "- Frontend URL: $FRONTEND_URL"
             echo "- Backend revision: $BACKEND_REVISION"

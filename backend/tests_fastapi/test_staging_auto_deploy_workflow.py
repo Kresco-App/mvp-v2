@@ -18,6 +18,12 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     assert "docs/gcp-firebase-migration.md" not in workflow
     assert "docs/production-runbook.md" not in workflow
     assert "docs/staging-deployment-automation.md" not in workflow
+    assert "plan-staging:" in workflow
+    assert "fetch-depth: 0" in workflow
+    assert "python scripts/plan_staging_deploy.py" in workflow
+    assert "needs.plan-staging.outputs.deploy_backend == 'true'" in workflow
+    assert "needs.plan-staging.outputs.deploy_frontend == 'true'" in workflow
+    assert "needs.plan-staging.outputs.deploy_hosting == 'true'" in workflow
     assert "uses: ./.github/workflows/ci-backend.yml" in workflow
     assert "uses: ./.github/workflows/ci-frontend.yml" in workflow
     assert "uses: ./.github/workflows/deploy-backend.yml" in workflow
@@ -30,10 +36,18 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     assert "confirm_production_hosting_deploy: false" in workflow
     assert "ensure_custom_domains: true" in workflow
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "BACKEND_SERVICE: kresco-backend-staging" in workflow
     assert "FRONTEND_SERVICE: kresco-frontend-staging" in workflow
+    assert "DEPLOY_PLAN_REASON: ${{ needs.plan-staging.outputs.reason }}" in workflow
     assert "--activation-policy ALWAYS" in workflow
     assert "--activation-policy NEVER" in workflow
     assert "trap cleanup EXIT" in workflow
+    assert "- name: Resolve current Cloud Run release state" in workflow
+    assert 'write_service_state "$BACKEND_SERVICE" "BACKEND" "KRESCO_RELEASE_SHA"' in workflow
+    assert 'write_service_state "$FRONTEND_SERVICE" "FRONTEND" "NEXT_PUBLIC_RELEASE_SHA"' in workflow
+    assert "${prefix}_SHA=$release_sha" in workflow
+    assert "needs.deploy-backend.outputs.backend_url" not in workflow
+    assert "needs.deploy-frontend.outputs.frontend_url" not in workflow
     assert "python scripts/check_staging_deployment.py" in workflow
     assert "python scripts/check_public_auth_readiness.py" in workflow
     assert "normalize_secret_value()" in workflow
@@ -58,9 +72,12 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     assert '--firebase-api-key "$FIREBASE_API_KEY"' in workflow
     assert "STAGING_AUTH_SMOKE_EMAIL" in workflow
     assert "STAGING_AUTH_SMOKE_PASSWORD" in workflow
+    assert "- Plan reason: $DEPLOY_PLAN_REASON" in workflow
+    assert "- Backend deploy job requested: $DEPLOY_BACKEND" in workflow
 
     backend_ci = workflow.index("backend-ci:")
     frontend_ci = workflow.index("frontend-ci:")
+    plan_staging = workflow.index("plan-staging:")
     deploy_backend = workflow.index("deploy-backend:")
     deploy_frontend = workflow.index("deploy-frontend:")
     deploy_hosting = workflow.index("deploy-hosting:")
@@ -69,6 +86,7 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     cloud_sql_start = workflow.index("--activation-policy ALWAYS")
     assert backend_ci < deploy_backend < deploy_frontend < staging_smoke
     assert frontend_ci < deploy_backend
+    assert plan_staging < deploy_backend
     assert deploy_frontend < deploy_hosting < staging_smoke
     assert auth_readiness < cloud_sql_start
 
