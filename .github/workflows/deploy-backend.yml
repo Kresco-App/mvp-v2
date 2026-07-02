@@ -209,14 +209,18 @@ jobs:
           set -euo pipefail
           cloud_sql_connection="$PROJECT_ID:$REGION:$CLOUD_SQL_INSTANCE"
           deploy_flags=()
+          backend_min_instances=0
           if [ "$KRESCO_ENV" = "prod" ] && [ "${{ inputs.enforce_production_launch_gate }}" != "true" ]; then
             deploy_flags+=(--no-traffic --tag "dark-$SHORT_SHA")
+          fi
+          if [ "$KRESCO_ENV" = "prod" ] && [ "${{ inputs.enforce_production_launch_gate }}" = "true" ]; then
+            backend_min_instances=1
           fi
           gcloud run deploy "$BACKEND_SERVICE" \
             --project "$PROJECT_ID" \
             --region "$REGION" \
             --image "$BACKEND_IMAGE" \
-            --min-instances 0 \
+            --min-instances "$backend_min_instances" \
             --max-instances 3 \
             --set-cloudsql-instances "$cloud_sql_connection" \
             --update-env-vars "KRESCO_ENV=$KRESCO_ENV,KRESCO_RELEASE_SHA=$SHORT_SHA,KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" \
