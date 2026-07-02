@@ -83,7 +83,7 @@ jobs:
       - backend-ci
       - frontend-ci
       - plan-staging
-    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && needs.plan-staging.outputs.deploy_backend == 'true' }}
+    if: ${{ !cancelled() && needs.plan-staging.result == 'success' && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && needs.plan-staging.outputs.deploy_backend == 'true' }}
     uses: ./.github/workflows/deploy-backend.yml
     with:
       environment: staging
@@ -99,7 +99,7 @@ jobs:
       - frontend-ci
       - plan-staging
       - deploy-backend
-    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && needs.plan-staging.outputs.deploy_frontend == 'true' }}
+    if: ${{ !cancelled() && needs.plan-staging.result == 'success' && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && needs.plan-staging.outputs.deploy_frontend == 'true' }}
     uses: ./.github/workflows/deploy-frontend.yml
     with:
       environment: staging
@@ -116,7 +116,7 @@ jobs:
       - plan-staging
       - deploy-backend
       - deploy-frontend
-    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && (needs.deploy-frontend.result == 'success' || needs.deploy-frontend.result == 'skipped') && needs.plan-staging.outputs.deploy_hosting == 'true' }}
+    if: ${{ !cancelled() && needs.plan-staging.result == 'success' && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && (needs.deploy-frontend.result == 'success' || needs.deploy-frontend.result == 'skipped') && needs.plan-staging.outputs.deploy_hosting == 'true' }}
     uses: ./.github/workflows/deploy-firebase-hosting.yml
     with:
       environment: staging
@@ -133,7 +133,7 @@ jobs:
       - deploy-backend
       - deploy-frontend
       - deploy-hosting
-    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && (needs.deploy-frontend.result == 'success' || needs.deploy-frontend.result == 'skipped') && (needs.deploy-hosting.result == 'success' || needs.deploy-hosting.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.plan-staging.result == 'success' && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') && (needs.deploy-frontend.result == 'success' || needs.deploy-frontend.result == 'skipped') && (needs.deploy-hosting.result == 'success' || needs.deploy-hosting.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: staging
     env:
