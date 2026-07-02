@@ -159,8 +159,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Resolve Firebase build config
         run: |
@@ -186,10 +184,6 @@ jobs:
           } >> "$GITHUB_ENV"
           rm -f "$runtime_json"
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
       - name: Validate production-shaped frontend env
         working-directory: frontend
         run: |
@@ -203,7 +197,7 @@ jobs:
           KRESCO_HSTS_INCLUDE_SUBDOMAINS="$FRONTEND_HSTS_INCLUDE_SUBDOMAINS" \
           NEXT_PUBLIC_REALTIME_PROVIDER=firestore \
           NEXT_PUBLIC_RELEASE_SHA="$SHORT_SHA" \
-          npm run validate:production-env
+          node scripts/validate-production-env.mjs --skip-load-env
 
       - name: Build frontend image
         env:

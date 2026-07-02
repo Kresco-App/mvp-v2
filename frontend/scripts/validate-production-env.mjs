@@ -1,12 +1,10 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import nextEnv from '@next/env'
-
 import { validateFrontendProductionEnv } from '../lib/productionEnv.mjs'
 
 const FRONTEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const { loadEnvConfig } = nextEnv
+const SKIP_LOAD_ENV = process.argv.includes('--skip-load-env')
 const FIXTURE_ENV = {
   NEXT_PUBLIC_API_BASE_URL: 'https://api.kresco.ma/api',
   NEXT_PUBLIC_FIREBASE_API_KEY: 'firebase-web-api-key',
@@ -20,12 +18,16 @@ const FIXTURE_ENV = {
   NEXT_PUBLIC_AUTH_COOKIE_DOMAIN: 'kresco.ma',
 }
 
-loadEnvConfig(FRONTEND_ROOT, false, {
-  info() {},
-  error(message) {
-    console.error(message)
-  },
-})
+if (!SKIP_LOAD_ENV) {
+  const nextEnv = await import('@next/env')
+  const { loadEnvConfig } = nextEnv.default ?? nextEnv
+  loadEnvConfig(FRONTEND_ROOT, false, {
+    info() {},
+    error(message) {
+      console.error(message)
+    },
+  })
+}
 if (process.argv.includes('--fixture')) {
   for (const [key, value] of Object.entries(FIXTURE_ENV)) {
     process.env[key] = value

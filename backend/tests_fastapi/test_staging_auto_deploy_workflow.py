@@ -85,7 +85,7 @@ def test_reusable_deploy_workflows_export_release_outputs():
 def test_frontend_deploy_verifies_the_post_deploy_cloud_run_url():
     workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-frontend.yml").read_text(encoding="utf-8")
 
-    resolve_block = workflow.split("- name: Resolve Firebase build config", 1)[1].split("- name: Install frontend dependencies", 1)[0]
+    resolve_block = workflow.split("- name: Resolve Firebase build config", 1)[1].split("- name: Validate production-shaped frontend env", 1)[0]
     validate_block = workflow.split("- name: Validate production-shaped frontend env", 1)[1].split("- name: Build frontend image", 1)[0]
     deployed_env_block = workflow.split("- name: Verify deployed frontend Firebase env", 1)[1].split("- name: Verify frontend surface", 1)[0]
     verify_block = workflow.split("- name: Verify frontend surface", 1)[1].split("- name: Scan for production demo surface", 1)[0]
@@ -109,6 +109,8 @@ def test_frontend_deploy_verifies_the_post_deploy_cloud_run_url():
     assert 'NEXT_PUBLIC_SITE_URL="$FRONTEND_PUBLIC_SITE_URL"' in validate_block
     assert 'NEXT_PUBLIC_AUTH_COOKIE_DOMAIN="$FRONTEND_AUTH_COOKIE_DOMAIN"' in validate_block
     assert 'NEXT_PUBLIC_RELEASE_SHA="$SHORT_SHA"' in validate_block
+    assert "node scripts/validate-production-env.mjs --skip-load-env" in validate_block
+    assert "npm ci" not in workflow
     assert "${{ env.BACKEND_URL }}" not in validate_block
     assert "$BACKEND_URL" not in validate_block
     assert "${{ env.FRONTEND_PUBLIC_SITE_URL }}" not in validate_block

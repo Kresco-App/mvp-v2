@@ -524,5 +524,5 @@ def test_frontend_deploy_workflow_smokes_deployed_url():
     assert "gcloud run deploy \"$FRONTEND_SERVICE\"" in workflow
     assert "Verify frontend surface" in workflow
     assert "urllib.request.urlopen" in workflow
-    assert "npm run validate:production-env" in workflow
+    assert "node scripts/validate-production-env.mjs --skip-load-env" in workflow
     assert "NEXT_PUBLIC_FIREBASE_API_KEY" in workflow
