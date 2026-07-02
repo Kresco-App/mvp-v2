@@ -19,7 +19,8 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     assert "docs/production-runbook.md" not in workflow
     assert "docs/staging-deployment-automation.md" not in workflow
     assert "plan-staging:" in workflow
-    assert "fetch-depth: 0" in workflow
+    assert "fetch-depth: 0" not in workflow
+    assert 'git fetch --no-tags --depth=1 origin "$before"' in workflow
     assert "python scripts/plan_staging_deploy.py" in workflow
     assert "needs.plan-staging.outputs.deploy_backend == 'true'" in workflow
     assert "needs.plan-staging.outputs.deploy_frontend == 'true'" in workflow
