@@ -1,0 +1,16 @@
+# DevOps Implementation
+## Summary - max 5 lines
+- Wrote a patch-only implementation artifact; no existing source, workflow, test, or config file was edited directly.
+- Patch covers Cloud SQL stop ownership, staging CI skip/gates, PR CI cancellation, and Buildx registry layer caching.
+- `git apply --check docs/audits/patches/09-devops-workflows.patch` passes from the repo root.
+- Initial `git status --short` showed WIP in `frontend/app/page.tsx` and `frontend/components/landing/`; no findings target those WIP files.
+
+## Findings
+- `.github/workflows/deploy-backend.yml`: verified `run_migrations` descriptions at lines 10-14 and 54-58 still described stopping Cloud SQL; patch updates the wording to start-and-migrate only. Verified `Set up gcloud` at lines 145-146 and `Build backend image` at lines 185-194 use plain `docker build`/`docker push`; patch adds `docker/setup-buildx-action@v3` and registry-backed Buildx cache via `kresco-backend:buildcache`. Verified `Run migrations with stopped-db cleanup` at lines 252-263 installs an EXIT trap that patches `activation-policy NEVER`; patch renames the step and removes the cleanup function/trap while keeping the `activation-policy ALWAYS` startup and migration/readiness checks. Patch file: `docs/audits/patches/09-devops-workflows.patch`.
+- `.github/workflows/stop-staging-cloud-sql-nightly.yml`: patch adds this new scheduled workflow because no existing workflow provided the nightly staging Cloud SQL stop. It uses `schedule` plus `workflow_dispatch`, targets `kresco-staging-postgres`, and joins the existing staging Cloud SQL concurrency group verified in `.github/workflows/deploy-staging.yml` lines 22-24: `staging-cloud-sql-${{ github.repository }}`. Patch file: `docs/audits/patches/09-devops-workflows.patch`.
+- `.github/workflows/deploy-staging.yml`: verified protected-master push trigger at lines 3-16, staging Cloud SQL concurrency at lines 22-24, CI reusable jobs at lines 27-33, and `deploy-backend` dependencies at lines 35-46. Patch skips the two CI reusable jobs only for `push` to `refs/heads/master`, keeps CI for `workflow_dispatch`, and gates `deploy-backend` with `!cancelled()` plus explicit `success`/`skipped` checks for both CI needs; it does not use naive `always()`. Patch file: `docs/audits/patches/09-devops-workflows.patch`.
+- `.github/workflows/ci-backend.yml` and `.github/workflows/ci-frontend.yml`: verified both workflows have `workflow_call` and `pull_request` triggers, with jobs beginning at backend lines 24-26 and frontend lines 13-15 and no existing top-level concurrency. Patch adds PR-only cancel-in-progress concurrency using separate `ci-backend-*` and `ci-frontend-*` groups, with `cancel-in-progress` true only when `github.event_name == 'pull_request'`. Patch file: `docs/audits/patches/09-devops-workflows.patch`.
+- `.github/workflows/deploy-frontend.yml`: verified `Set up gcloud` at lines 152-153 and `Build frontend image` at lines 203-229 use plain `docker build`/`docker push`. Patch adds `docker/setup-buildx-action@v3` and registry-backed Buildx cache via `kresco-frontend:buildcache`, preserving the existing frontend build args and image digest lookup. Patch file: `docs/audits/patches/09-devops-workflows.patch`.
+
+## Leads
+None.

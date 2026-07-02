@@ -1,0 +1,219 @@
+diff --git a/.github/workflows/ci-backend.yml b/.github/workflows/ci-backend.yml
+--- a/.github/workflows/ci-backend.yml
++++ b/.github/workflows/ci-backend.yml
+@@ -21,6 +21,10 @@ on:
+       - ".github/workflows/production-dark-evidence.yml"
+       - ".github/workflows/production-public-domain-evidence.yml"
+
++concurrency:
++  group: ci-backend-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
++  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
++
+ jobs:
+   test:
+     runs-on: ubuntu-latest
+diff --git a/.github/workflows/ci-frontend.yml b/.github/workflows/ci-frontend.yml
+--- a/.github/workflows/ci-frontend.yml
++++ b/.github/workflows/ci-frontend.yml
+@@ -9,7 +9,11 @@ on:
+       - "scripts/**"
+       - ".gitignore"
+       - ".github/workflows/ci-frontend.yml"
+
++concurrency:
++  group: ci-frontend-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
++  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
++
+ jobs:
+   verify:
+     runs-on: ubuntu-latest
+diff --git a/.github/workflows/deploy-backend.yml b/.github/workflows/deploy-backend.yml
+--- a/.github/workflows/deploy-backend.yml
++++ b/.github/workflows/deploy-backend.yml
+@@ -8,7 +8,7 @@ on:
+         required: true
+         type: string
+       run_migrations:
+-        description: "Start Cloud SQL, run Alembic job, then stop Cloud SQL again"
++        description: "Start Cloud SQL and run Alembic job"
+         required: false
+         default: true
+         type: boolean
+@@ -52,7 +52,7 @@ on:
+           - staging
+           - production
+       run_migrations:
+-        description: "Start Cloud SQL, run Alembic job, then stop Cloud SQL again"
++        description: "Start Cloud SQL and run Alembic job"
+         required: true
+         default: true
+         type: boolean
+@@ -143,7 +143,10 @@ jobs:
+
+       - name: Set up gcloud
+         uses: google-github-actions/setup-gcloud@v2
+
++      - name: Set up Docker Buildx
++        uses: docker/setup-buildx-action@v3
++
+       - name: Update runtime release secret
+         run: |
+           set -euo pipefail
+@@ -185,10 +188,15 @@ jobs:
+         run: |
+           set -euo pipefail
+           image="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-backend:$SHORT_SHA"
++          cache_ref="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-backend:buildcache"
+           echo "BACKEND_IMAGE=$image" >> "$GITHUB_ENV"
+           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+-          docker build --pull -t "$image" backend
+-          docker push "$image"
++          docker buildx build --pull \
++            --cache-from "type=registry,ref=$cache_ref" \
++            --cache-to "type=registry,ref=$cache_ref,mode=max" \
++            -t "$image" \
++            --push \
++            backend
+           digest="$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --format='value(image_summary.digest)' 2>/dev/null || true)"
+           echo "BACKEND_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+
+@@ -252,15 +260,8 @@ jobs:
+-      - name: Run migrations with stopped-db cleanup
++      - name: Run migrations with Cloud SQL startup
+         if: ${{ inputs.run_migrations == true }}
+         run: |
+           set -euo pipefail
+-          cleanup() {
+-            gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+-              --project "$PROJECT_ID" \
+-              --activation-policy NEVER \
+-              --quiet || true
+-          }
+-          trap cleanup EXIT
+           gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+             --project "$PROJECT_ID" \
+             --activation-policy ALWAYS \
+             --quiet
+diff --git a/.github/workflows/deploy-frontend.yml b/.github/workflows/deploy-frontend.yml
+--- a/.github/workflows/deploy-frontend.yml
++++ b/.github/workflows/deploy-frontend.yml
+@@ -152,7 +152,10 @@ jobs:
+
+       - name: Set up gcloud
+         uses: google-github-actions/setup-gcloud@v2
+
++      - name: Set up Docker Buildx
++        uses: docker/setup-buildx-action@v3
++
+       - name: Set up Node.js
+         uses: actions/setup-node@v4
+         with:
+@@ -204,27 +207,30 @@ jobs:
+         run: |
+           set -euo pipefail
+           image="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-frontend:$SHORT_SHA"
++          cache_ref="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-frontend:buildcache"
+           echo "FRONTEND_IMAGE=$image" >> "$GITHUB_ENV"
+           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+-          docker build --pull \
++          docker buildx build --pull \
++            --cache-from "type=registry,ref=$cache_ref" \
++            --cache-to "type=registry,ref=$cache_ref,mode=max" \
+             --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
+             --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_PUBLIC_SITE_URL" \
+             --build-arg NEXT_PUBLIC_AUTH_COOKIE_DOMAIN="$FRONTEND_AUTH_COOKIE_DOMAIN" \
+             --build-arg KRESCO_HSTS_INCLUDE_SUBDOMAINS="$FRONTEND_HSTS_INCLUDE_SUBDOMAINS" \
+             --build-arg NEXT_PUBLIC_REALTIME_PROVIDER=firestore \
+             --build-arg NEXT_PUBLIC_RELEASE_SHA="$SHORT_SHA" \
+             --build-arg NEXT_PUBLIC_FIREBASE_API_KEY="$NEXT_PUBLIC_FIREBASE_API_KEY" \
+             --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID="$NEXT_PUBLIC_FIREBASE_PROJECT_ID" \
+             --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN" \
+             --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET" \
+             --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID" \
+             --build-arg NEXT_PUBLIC_FIREBASE_APP_ID="$NEXT_PUBLIC_FIREBASE_APP_ID" \
+             --build-arg NEXT_PUBLIC_FIRESTORE_DATABASE="$NEXT_PUBLIC_FIRESTORE_DATABASE" \
+             --build-arg KRESCO_BACKEND_ORIGIN="$FRONTEND_BACKEND_ORIGIN" \
+             -f frontend/Dockerfile \
+             -t "$image" \
++            --push \
+             frontend
+-          docker push "$image"
+           digest="$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --format='value(image_summary.digest)' 2>/dev/null || true)"
+           echo "FRONTEND_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+
+diff --git a/.github/workflows/deploy-staging.yml b/.github/workflows/deploy-staging.yml
+--- a/.github/workflows/deploy-staging.yml
++++ b/.github/workflows/deploy-staging.yml
+@@ -26,22 +26,25 @@ concurrency:
+ jobs:
+   backend-ci:
+     name: Backend CI
++    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/master') }}
+     uses: ./.github/workflows/ci-backend.yml
+
+   frontend-ci:
+     name: Frontend CI
++    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/master') }}
+     uses: ./.github/workflows/ci-frontend.yml
+
+   deploy-backend:
+     name: Deploy Backend
+     needs:
+       - backend-ci
+       - frontend-ci
++    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') }}
+     uses: ./.github/workflows/deploy-backend.yml
+     with:
+       environment: staging
+       run_migrations: true
+       confirm_production_dark_deploy: false
+       enforce_production_launch_gate: false
+     secrets: inherit
+
+diff --git a/.github/workflows/stop-staging-cloud-sql-nightly.yml b/.github/workflows/stop-staging-cloud-sql-nightly.yml
+new file mode 100644
+--- /dev/null
++++ b/.github/workflows/stop-staging-cloud-sql-nightly.yml
+@@ -0,0 +1,42 @@
++name: Stop Staging Cloud SQL Nightly
++
++on:
++  schedule:
++    - cron: "0 2 * * *"
++  workflow_dispatch:
++
++permissions:
++  contents: read
++  id-token: write
++
++concurrency:
++  group: staging-cloud-sql-${{ github.repository }}
++  cancel-in-progress: false
++
++jobs:
++  stop-staging-cloud-sql:
++    name: Stop staging Cloud SQL
++    runs-on: ubuntu-latest
++    environment: staging
++    env:
++      PROJECT_ID: kresco-staging
++      CLOUD_SQL_INSTANCE: kresco-staging-postgres
++    steps:
++      - name: Authenticate to Google Cloud
++        uses: google-github-actions/auth@v2
++        with:
++          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
++          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
++
++      - name: Set up gcloud
++        uses: google-github-actions/setup-gcloud@v2
++
++      - name: Stop staging Cloud SQL
++        run: |
++          set -euo pipefail
++          gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
++            --project "$PROJECT_ID" \
++            --activation-policy NEVER \
++            --quiet
++          state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project "$PROJECT_ID" --format='value(state)')"
++          echo "Cloud SQL instance $CLOUD_SQL_INSTANCE state after stop request: $state"
