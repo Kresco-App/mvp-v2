@@ -23,6 +23,9 @@ class UserOut(BaseModel):
     niveau: str
     filiere: str
     is_email_verified: bool
+    phone_number: Optional[str] = None
+    is_phone_verified: bool = False
+    phone_verified_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

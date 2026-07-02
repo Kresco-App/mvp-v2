@@ -68,6 +68,7 @@ def test_firebase_session_payload_maps_google_provider():
         "uid": "firebase-uid-123",
         "name": "Firebase User",
         "picture": "https://example.com/avatar.png",
+        "phone_number": "+212600000000",
         "firebase": {
             "sign_in_provider": "google.com",
             "identities": {"google.com": ["google-sub-123"]},
@@ -82,6 +83,7 @@ def test_firebase_session_payload_maps_google_provider():
         "google_id": "google-sub-123",
         "name": "Firebase User",
         "picture": "https://example.com/avatar.png",
+        "phone_number": "+212600000000",
     }
 
 
@@ -91,6 +93,7 @@ def test_firebase_session_payload_maps_password_provider():
         "email_verified": True,
         "uid": "firebase-uid-123",
         "name": "Firebase User",
+        "phone_number": "+212600000001",
         "firebase": {
             "sign_in_provider": "password",
             "identities": {"email": ["firebase-user@example.com"]},
@@ -105,6 +108,7 @@ def test_firebase_session_payload_maps_password_provider():
         "google_id": None,
         "name": "Firebase User",
         "picture": "",
+        "phone_number": "+212600000001",
     }
 
 
@@ -143,6 +147,7 @@ def test_verify_firebase_token_falls_back_when_admin_credentials_are_unavailable
             "email": "firebase-user@example.com",
             "email_verified": True,
             "name": "Firebase User",
+            "phone_number": "+212600000002",
             "firebase": {
                 "sign_in_provider": "password",
                 "identities": {"email": ["firebase-user@example.com"]},
@@ -168,6 +173,7 @@ def test_verify_firebase_token_falls_back_when_admin_credentials_are_unavailable
         "google_id": None,
         "name": "Firebase User",
         "picture": "",
+        "phone_number": "+212600000002",
     }
 
 
@@ -193,6 +199,7 @@ def test_verify_firebase_token_uses_identity_toolkit_after_cert_verifier_failure
                         "emailVerified": True,
                         "displayName": "Firebase User",
                         "photoUrl": "https://example.com/avatar.png",
+                        "phoneNumber": "+212600000003",
                         "providerUserInfo": [
                             {"providerId": "password", "email": "firebase-user@example.com"},
                         ],
@@ -229,6 +236,7 @@ def test_verify_firebase_token_uses_identity_toolkit_after_cert_verifier_failure
         "google_id": None,
         "name": "Firebase User",
         "picture": "https://example.com/avatar.png",
+        "phone_number": "+212600000003",
     }
 
 

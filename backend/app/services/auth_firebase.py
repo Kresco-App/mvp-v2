@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -15,7 +16,7 @@ logger = logging.getLogger("kresco.auth")
 RequireProfessorOffering = Callable[[AsyncSession, User], Awaitable[None]]
 
 
-def _firebase_payload_fields(payload: dict) -> tuple[str, str, str, str, str, str | None]:
+def _firebase_payload_fields(payload: dict) -> tuple[str, str, str, str, str, str | None, str | None]:
     raw_email = payload.get("email", "")
     if not isinstance(raw_email, str):
         raise HTTPException(status_code=401, detail="Invalid Firebase credential")
@@ -46,7 +47,19 @@ def _firebase_payload_fields(payload: dict) -> tuple[str, str, str, str, str, st
     if not isinstance(avatar_url, str):
         avatar_url = ""
 
-    return email, full_name, avatar_url, firebase_uid.strip(), provider.strip(), google_id.strip() if google_id else None
+    phone_number = payload.get("phone_number")
+    if phone_number is not None and (not isinstance(phone_number, str) or not phone_number.strip()):
+        phone_number = None
+
+    return (
+        email,
+        full_name,
+        avatar_url,
+        firebase_uid.strip(),
+        provider.strip(),
+        google_id.strip() if google_id else None,
+        phone_number.strip() if isinstance(phone_number, str) else None,
+    )
 
 
 async def _get_user_by_firebase_uid(db: AsyncSession, firebase_uid: str) -> User | None:
@@ -109,6 +122,7 @@ async def _merge_firebase_profile(
     firebase_uid: str,
     provider: str,
     google_id: str | None,
+    phone_number: str | None,
     require_professor_active_offering_fn: RequireProfessorOffering,
 ) -> User:
     if user.role == "professor":
@@ -138,6 +152,16 @@ async def _merge_firebase_profile(
     if not user.full_name and full_name:
         user.full_name = full_name
         changed = True
+    if phone_number and user.phone_number != phone_number:
+        user.phone_number = phone_number
+        changed = True
+    if phone_number and not user.is_phone_verified:
+        user.is_phone_verified = True
+        user.phone_verified_at = datetime.now(timezone.utc)
+        changed = True
+    elif phone_number and user.phone_verified_at is None:
+        user.phone_verified_at = datetime.now(timezone.utc)
+        changed = True
 
     if changed:
         try:
@@ -156,7 +180,7 @@ async def complete_firebase_session(
     payload: dict,
     require_professor_active_offering_fn: RequireProfessorOffering,
 ) -> User:
-    email, full_name, avatar_url, firebase_uid, provider, google_id = _firebase_payload_fields(payload)
+    email, full_name, avatar_url, firebase_uid, provider, google_id, phone_number = _firebase_payload_fields(payload)
 
     user = await _find_firebase_session_user(
         db,
@@ -173,6 +197,9 @@ async def complete_firebase_session(
             google_id=google_id,
             firebase_uid=firebase_uid,
             is_email_verified=True,
+            phone_number=phone_number,
+            is_phone_verified=phone_number is not None,
+            phone_verified_at=datetime.now(timezone.utc) if phone_number else None,
         )
         try:
             db.add(user)
@@ -203,5 +230,6 @@ async def complete_firebase_session(
         firebase_uid=firebase_uid,
         provider=provider,
         google_id=google_id,
+        phone_number=phone_number,
         require_professor_active_offering_fn=require_professor_active_offering_fn,
     )

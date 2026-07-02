@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => {
   type MockFirebaseUser = {
+    getIdToken: ReturnType<typeof vi.fn>
     phoneNumber: string
     reload: ReturnType<typeof vi.fn>
     uid: string
   }
   const auth: { currentUser: MockFirebaseUser | null } = {
     currentUser: {
+      getIdToken: vi.fn().mockResolvedValue('firebase-id-token'),
       phoneNumber: '+212600000000',
       reload: vi.fn().mockResolvedValue(undefined),
       uid: 'firebase-user-1',
@@ -117,6 +119,7 @@ beforeEach(async () => {
   vi.resetModules()
   document.body.innerHTML = ''
   mocks.auth.currentUser = {
+    getIdToken: vi.fn().mockResolvedValue('firebase-id-token'),
     phoneNumber: '+212600000000',
     reload: vi.fn().mockResolvedValue(undefined),
     uid: 'firebase-user-1',
@@ -180,6 +183,15 @@ describe('Firebase SMS verification helpers', () => {
     )
     expect(mocks.auth.currentUser!.reload).toHaveBeenCalledTimes(1)
     expect(phoneNumber).toBe('+212600000000')
+  })
+
+  it('returns a fresh token for the signed-in user after SMS verification', async () => {
+    const { getFirebaseCurrentIdToken } = await import('@/lib/firebaseAuth')
+
+    const token = await getFirebaseCurrentIdToken(true)
+
+    expect(token).toBe('firebase-id-token')
+    expect(mocks.auth.currentUser!.getIdToken).toHaveBeenCalledWith(true)
   })
 
   it('requires a signed-in Firebase user before linking SMS verification', async () => {

@@ -12,6 +12,9 @@ export type ProfileUser = {
   niveau: string
   filiere: string
   is_email_verified: boolean
+  phone_number?: string | null
+  is_phone_verified?: boolean
+  phone_verified_at?: string | null
   created_at: string
 }
 

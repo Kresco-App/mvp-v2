@@ -10,9 +10,10 @@ import { useAuthStore } from '@/lib/store'
 import { apiDataErrorMessage, apiErrorStatus } from '@/lib/apiData'
 import { isFirebaseGoogleAuthConfigured } from '@/lib/firebaseConfig'
 
-export type AuthStep = 'auth' | 'niveau' | 'filiere'
+export type AuthStep = 'auth' | 'niveau' | 'filiere' | 'phone'
 export type AuthMode = 'options' | 'login' | 'signup' | 'verify-pending' | 'forgot' | 'forgot-sent'
 export type AuthPendingAction = 'google' | 'signup' | 'login' | 'forgot' | 'resend'
+export type PhonePendingAction = 'send' | 'verify'
 
 type OnboardingUserLike = {
   niveau?: string | null
@@ -102,13 +103,41 @@ export function canSubmitOnboarding(selectedLevel: string, selectedSpec: string,
   return !loading && Boolean(selectedLevel.trim()) && Boolean(selectedSpec.trim())
 }
 
+export function normalizeMoroccoPhoneInput(value: string) {
+  const compact = value.trim().replace(/[\s().-]/g, '')
+  if (compact.startsWith('00')) return `+${compact.slice(2)}`
+  if (compact.startsWith('0') && compact.length >= 9) return `+212${compact.slice(1)}`
+  return compact
+}
+
+export function isE164PhoneNumber(value: string) {
+  return /^\+[1-9]\d{7,14}$/.test(value)
+}
+
+function shouldPromptForPhoneVerification(user: unknown) {
+  return (user as { is_phone_verified?: unknown } | null | undefined)?.is_phone_verified === false
+}
+
+function unwrapApiPayload<T>(value: T): T {
+  if (
+    value
+    && typeof value === 'object'
+    && 'data' in value
+    && typeof (value as { data?: unknown }).data === 'object'
+    && (value as { data?: unknown }).data !== null
+  ) {
+    return (value as { data: T }).data
+  }
+  return value
+}
+
 function useAuthFlowRouter() {
   const [step, setStep] = useState<AuthStep>('auth')
   const [authMode, setAuthMode] = useState<AuthMode>('options')
 
   const canGoBack = step !== 'auth' || !['options', 'verify-pending', 'forgot-sent'].includes(authMode)
-  const stepNum = step === 'auth' ? 1 : step === 'niveau' ? 2 : 3
-  const progressWidthClass = stepNum === 1 ? 'w-1/3' : stepNum === 2 ? 'w-2/3' : 'w-full'
+  const stepNum = step === 'auth' ? 1 : step === 'niveau' ? 2 : step === 'filiere' ? 3 : 4
+  const progressWidthClass = stepNum === 1 ? 'w-1/4' : stepNum === 2 ? 'w-1/2' : stepNum === 3 ? 'w-3/4' : 'w-full'
 
   return {
     authMode,
@@ -128,11 +157,16 @@ function useOnboardingForm({
   setStep: (step: AuthStep) => void
 }) {
   const router = useRouter()
+  const login = useAuthStore((state) => state.login)
   const user = useAuthStore((state) => state.user)
   const updateUser = useAuthStore((state) => state.updateUser)
   const [loading, setLoading] = useState(false)
   const [selectedLevel, setSelectedLevel] = useState('')
   const [selectedSpec, setSelectedSpec] = useState('')
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [phoneCode, setPhoneCode] = useState('')
+  const [phoneVerificationId, setPhoneVerificationId] = useState('')
+  const [phonePendingAction, setPhonePendingAction] = useState<PhonePendingAction | null>(null)
 
   const hydrateOnboardingUser = useCallback((nextUser: OnboardingUserLike, nextStep: AuthStep) => {
     const onboardingSelections = getOnboardingSelections(nextUser)
@@ -157,8 +191,13 @@ function useOnboardingForm({
 
     setLoading(true)
     try {
-      const data = await patchJson<any>('/profile/me', { niveau: selectedLevel, filiere: selectedSpec })
-      updateUser({ niveau: data.niveau, filiere: data.filiere })
+      const data = unwrapApiPayload(await patchJson<any>('/profile/me', { niveau: selectedLevel, filiere: selectedSpec }))
+      updateUser(data)
+      if (shouldPromptForPhoneVerification(data)) {
+        setStep('phone')
+        setLoading(false)
+        return
+      }
       const resolution = resolveAuthSuccess(data, nextDestination)
       router.push(resolution.action === 'redirect' ? resolution.destination : '/home')
     } catch {
@@ -167,14 +206,90 @@ function useOnboardingForm({
     }
   }
 
+  async function sendPhoneCode() {
+    if (loading) return
+    const normalizedPhone = normalizeMoroccoPhoneInput(phoneNumber)
+    if (!isE164PhoneNumber(normalizedPhone)) {
+      showToastError('Entrez un numero valide, ex. +212612345678.')
+      return
+    }
+
+    setPhoneNumber(normalizedPhone)
+    setLoading(true)
+    setPhonePendingAction('send')
+    try {
+      const { startFirebaseSmsVerification } = await import('@/lib/firebaseAuth')
+      const verificationId = await withAuthActionTimeout(
+        startFirebaseSmsVerification(normalizedPhone),
+        'Envoi du SMS trop long. Reessayez.',
+      )
+      setPhoneVerificationId(verificationId)
+      setPhoneCode('')
+      showToastSuccess('Code SMS envoye.')
+    } catch (err) {
+      showToastError(apiDataErrorMessage(err, 'Impossible d\'envoyer le SMS.'))
+    } finally {
+      setPhonePendingAction(null)
+      setLoading(false)
+    }
+  }
+
+  async function verifyPhoneCode() {
+    if (loading) return
+    if (!phoneVerificationId) {
+      showToastError('Demandez un code SMS avant de verifier.')
+      return
+    }
+    if (phoneCode.trim().length < 4) {
+      showToastError('Entrez le code recu par SMS.')
+      return
+    }
+
+    setLoading(true)
+    setPhonePendingAction('verify')
+    try {
+      const { getFirebaseCurrentIdToken, resetFirebaseSmsVerifier, updateFirebaseSmsVerification } = await import('@/lib/firebaseAuth')
+      await withAuthActionTimeout(
+        updateFirebaseSmsVerification(phoneVerificationId, phoneCode),
+        'Verification SMS trop longue. Reessayez.',
+      )
+      resetFirebaseSmsVerifier()
+      const credential = await getFirebaseCurrentIdToken(true)
+      const data = await postJson<any>('/auth/firebase-session', { credential })
+      login(data.user, data.csrf_token)
+      showToastSuccess('Telephone verifie.')
+      const resolution = resolveAuthSuccess(data.user, nextDestination)
+      router.push(resolution.action === 'redirect' ? resolution.destination : '/home')
+    } catch (err) {
+      showToastError(apiDataErrorMessage(err, 'Code SMS invalide ou expire.'))
+    } finally {
+      setPhonePendingAction(null)
+      setLoading(false)
+    }
+  }
+
+  function skipPhoneVerification() {
+    const resolution = resolveAuthSuccess(user, nextDestination)
+    router.push(resolution.action === 'redirect' ? resolution.destination : '/home')
+  }
+
   return {
     hydrateOnboardingUser,
     loading,
+    phoneCode,
+    phoneNumber,
+    phonePendingAction,
+    phoneVerificationId,
     saveOnboarding,
     selectedLevel,
     selectedSpec,
+    sendPhoneCode,
+    setPhoneCode,
+    setPhoneNumber,
     setSelectedLevel,
     setSelectedSpec,
+    skipPhoneVerification,
+    verifyPhoneCode,
   }
 }
 
@@ -490,7 +605,8 @@ export function useAuthPageController() {
   }
 
   function goBack() {
-    if (flow.step === 'filiere') flow.setStep('niveau')
+    if (flow.step === 'phone') flow.setStep('filiere')
+    else if (flow.step === 'filiere') flow.setStep('niveau')
     else if (flow.authMode === 'login' || flow.authMode === 'signup') showOptions()
     else if (flow.authMode === 'forgot') showLogin()
     else flow.setStep('auth')
@@ -519,13 +635,20 @@ export function useAuthPageController() {
     password: authForm.password,
     pendingAction: authForm.pendingAction,
     pendingEmail: authForm.pendingEmail,
+    phoneCode: onboarding.phoneCode,
+    phoneNumber: onboarding.phoneNumber,
+    phonePendingAction: onboarding.phonePendingAction,
+    phoneVerificationId: onboarding.phoneVerificationId,
     progressWidthClass: flow.progressWidthClass,
     saveOnboarding: onboarding.saveOnboarding,
     selectedLevel: onboarding.selectedLevel,
     selectedSpec: onboarding.selectedSpec,
+    sendPhoneCode: onboarding.sendPhoneCode,
     setEmail: authForm.setEmail,
     setFullName: authForm.setFullName,
     setPassword: authForm.setPassword,
+    setPhoneCode: onboarding.setPhoneCode,
+    setPhoneNumber: onboarding.setPhoneNumber,
     setSelectedLevel: onboarding.setSelectedLevel,
     setSelectedSpec: onboarding.setSelectedSpec,
     setShowPassword: authForm.setShowPassword,
@@ -534,8 +657,10 @@ export function useAuthPageController() {
     showOptions,
     showPassword: authForm.showPassword,
     showSignup,
+    skipPhoneVerification: onboarding.skipPhoneVerification,
     step: flow.step,
     triggerGoogle: authForm.triggerGoogle,
+    verifyPhoneCode: onboarding.verifyPhoneCode,
   }
 }
 

@@ -7,8 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   canSubmitOnboarding,
   getOnboardingSelections,
+  isE164PhoneNumber,
   isUnverifiedEmailLoginError,
   loginErrorMessage,
+  normalizeMoroccoPhoneInput,
   normalizeEmailInput,
   useAuthPageController,
 } from '@/lib/authPageController'
@@ -39,12 +41,16 @@ const mocks = vi.hoisted(() => {
     postJson: vi.fn(),
     createFirebaseEmailUser: vi.fn(),
     getFirebaseEmailPasswordIdToken: vi.fn(),
+    getFirebaseCurrentIdToken: vi.fn(),
     getFirebaseGoogleRedirectIdToken: vi.fn(),
     isFirebaseEmailNotVerifiedError: vi.fn(),
     isFirebaseGoogleAuthConfigured: vi.fn(),
     resendFirebaseEmailVerification: vi.fn(),
+    resetFirebaseSmsVerifier: vi.fn(),
     sendFirebasePasswordReset: vi.fn(),
+    startFirebaseSmsVerification: vi.fn(),
     startFirebaseGoogleRedirect: vi.fn(),
+    updateFirebaseSmsVerification: vi.fn(),
     toastError: vi.fn(),
     toastSuccess: vi.fn(),
   }
@@ -69,12 +75,16 @@ vi.mock('@/lib/apiClient', () => ({
 
 vi.mock('@/lib/firebaseAuth', () => ({
   createFirebaseEmailUser: mocks.createFirebaseEmailUser,
+  getFirebaseCurrentIdToken: mocks.getFirebaseCurrentIdToken,
   getFirebaseEmailPasswordIdToken: mocks.getFirebaseEmailPasswordIdToken,
   getFirebaseGoogleRedirectIdToken: mocks.getFirebaseGoogleRedirectIdToken,
   isFirebaseEmailNotVerifiedError: mocks.isFirebaseEmailNotVerifiedError,
   resendFirebaseEmailVerification: mocks.resendFirebaseEmailVerification,
+  resetFirebaseSmsVerifier: mocks.resetFirebaseSmsVerifier,
   sendFirebasePasswordReset: mocks.sendFirebasePasswordReset,
+  startFirebaseSmsVerification: mocks.startFirebaseSmsVerification,
   startFirebaseGoogleRedirect: mocks.startFirebaseGoogleRedirect,
+  updateFirebaseSmsVerification: mocks.updateFirebaseSmsVerification,
 }))
 
 vi.mock('@/lib/firebaseConfig', () => ({
@@ -109,13 +119,16 @@ beforeEach(() => {
   mocks.patchJson.mockResolvedValue({ data: { niveau: '2bac', filiere: 'Sciences Math B' } })
   mocks.postJson.mockResolvedValue({ data: {} })
   mocks.createFirebaseEmailUser.mockResolvedValue('student@example.com')
+  mocks.getFirebaseCurrentIdToken.mockResolvedValue('firebase-phone-token')
   mocks.getFirebaseEmailPasswordIdToken.mockResolvedValue('firebase-id-token')
   mocks.getFirebaseGoogleRedirectIdToken.mockResolvedValue(null)
   mocks.isFirebaseEmailNotVerifiedError.mockReturnValue(false)
   mocks.isFirebaseGoogleAuthConfigured.mockReturnValue(true)
   mocks.resendFirebaseEmailVerification.mockResolvedValue(undefined)
+  mocks.startFirebaseSmsVerification.mockResolvedValue('verification-id-1')
   mocks.sendFirebasePasswordReset.mockResolvedValue(undefined)
   mocks.startFirebaseGoogleRedirect.mockResolvedValue(undefined)
+  mocks.updateFirebaseSmsVerification.mockResolvedValue('+212612345678')
 })
 
 afterEach(() => {
@@ -303,6 +316,77 @@ describe('auth page onboarding state', () => {
       selectedLevel: '2bac',
       selectedSpec: 'Sciences Math B',
     })
+  })
+
+  it('normalizes Moroccan phone input before SMS verification', () => {
+    expect(normalizeMoroccoPhoneInput(' 0612 34 56 78 ')).toBe('+212612345678')
+    expect(normalizeMoroccoPhoneInput('00212612345678')).toBe('+212612345678')
+    expect(isE164PhoneNumber('+212612345678')).toBe(true)
+    expect(isE164PhoneNumber('0612345678')).toBe(false)
+  })
+
+  it('prompts for SMS verification after onboarding and syncs the refreshed Firebase session', async () => {
+    mocks.patchJson.mockResolvedValueOnce({
+      role: 'student',
+      niveau: '2bac',
+      filiere: 'Sciences Math B',
+      is_phone_verified: false,
+    })
+    mocks.postJson.mockResolvedValueOnce({
+      user: {
+        role: 'student',
+        full_name: 'Kresco Student',
+        niveau: '2bac',
+        filiere: 'Sciences Math B',
+        is_phone_verified: true,
+        phone_number: '+212612345678',
+      },
+      csrf_token: 'csrf-phone',
+    })
+
+    renderController()
+
+    await act(async () => {
+      latestController?.setSelectedLevel('2bac')
+      latestController?.setSelectedSpec('Sciences Math B')
+    })
+
+    await act(async () => {
+      await latestController?.saveOnboarding()
+    })
+
+    expect(latestController?.step).toBe('phone')
+    expect(mocks.routerPush).not.toHaveBeenCalled()
+
+    await act(async () => {
+      latestController?.setPhoneNumber('0612 34 56 78')
+    })
+
+    await act(async () => {
+      await latestController?.sendPhoneCode()
+    })
+
+    expect(mocks.startFirebaseSmsVerification).toHaveBeenCalledWith('+212612345678')
+    expect(latestController?.phoneVerificationId).toBe('verification-id-1')
+
+    await act(async () => {
+      latestController?.setPhoneCode('123456')
+    })
+
+    await act(async () => {
+      await latestController?.verifyPhoneCode()
+    })
+
+    expect(mocks.updateFirebaseSmsVerification).toHaveBeenCalledWith('verification-id-1', '123456')
+    expect(mocks.getFirebaseCurrentIdToken).toHaveBeenCalledWith(true)
+    expect(mocks.postJson).toHaveBeenCalledWith('/auth/firebase-session', {
+      credential: 'firebase-phone-token',
+    })
+    expect(mocks.authState.login).toHaveBeenCalledWith(
+      expect.objectContaining({ phone_number: '+212612345678', is_phone_verified: true }),
+      'csrf-phone',
+    )
+    expect(mocks.routerPush).toHaveBeenCalledWith('/home')
   })
 
   it('keeps the forgot-password form open when Firebase rejects the request', async () => {

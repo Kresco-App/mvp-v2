@@ -171,6 +171,7 @@ def _firebase_session_payload_from_firebase(payload: dict) -> dict:
         "firebase_uid": firebase_uid,
         "provider": provider,
         "google_id": google_id,
+        "phone_number": payload.get("phone_number") or "",
     }
 
 
@@ -297,6 +298,7 @@ def _verify_firebase_token_with_identity_toolkit(
         "firebase_uid": firebase_uid,
         "provider": provider,
         "google_id": google_id,
+        "phone_number": user.get("phoneNumber") or "",
     }
 
 

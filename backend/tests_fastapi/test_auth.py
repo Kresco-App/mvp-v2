@@ -117,6 +117,7 @@ def _firebase_password_payload(
     firebase_uid: str = "firebase-password-uid-1",
     name: str = "Firebase User",
     email_verified: bool = True,
+    phone_number: str = "",
 ) -> dict:
     return {
         "email": email,
@@ -126,6 +127,7 @@ def _firebase_password_payload(
         "provider": "password",
         "google_id": None,
         "firebase_uid": firebase_uid,
+        "phone_number": phone_number,
     }
 
 
@@ -193,6 +195,72 @@ def test_firebase_password_session_flow(app_client, monkeypatch, run_db):
     assert user is not None
     assert user.firebase_uid == "firebase-password-newuser"
     assert user.google_id is None
+
+
+def test_firebase_session_syncs_verified_phone_from_firebase_claim(app_client, monkeypatch, run_db):
+    import app.routers.users as users_router
+
+    email = "phone-sync@example.com"
+    phone_number = "+212600000000"
+    monkeypatch.setattr(
+        users_router,
+        "verify_firebase_token",
+        lambda *_: _firebase_password_payload(
+            email,
+            firebase_uid="firebase-phone-sync",
+            phone_number=phone_number,
+        ),
+    )
+
+    response = app_client.post("/api/auth/firebase-session", json={"credential": "firebase-id-token"})
+
+    assert response.status_code == 200
+    body = response.json()["user"]
+    assert body["phone_number"] == phone_number
+    assert body["is_phone_verified"] is True
+    assert body["phone_verified_at"]
+    user = run_db(_get_user(email))
+    assert user is not None
+    assert user.phone_number == phone_number
+    assert user.is_phone_verified is True
+    assert user.phone_verified_at is not None
+
+
+def test_firebase_session_does_not_clear_existing_verified_phone_when_claim_missing(app_client, monkeypatch, run_db):
+    import app.routers.users as users_router
+
+    email = "phone-retain@example.com"
+    phone_number = "+212600000001"
+
+    async def seed_user_with_phone():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            user = User(
+                email=email,
+                full_name="Phone Retain",
+                is_active=True,
+                is_email_verified=True,
+                phone_number=phone_number,
+                is_phone_verified=True,
+            )
+            db.add(user)
+            await db.commit()
+
+    run_db(seed_user_with_phone())
+    monkeypatch.setattr(
+        users_router,
+        "verify_firebase_token",
+        lambda *_: _firebase_password_payload(email, firebase_uid="firebase-phone-retain"),
+    )
+
+    response = app_client.post("/api/auth/firebase-session", json={"credential": "firebase-id-token"})
+
+    assert response.status_code == 200
+    assert response.json()["user"]["phone_number"] == phone_number
+    user = run_db(_get_user(email))
+    assert user is not None
+    assert user.phone_number == phone_number
+    assert user.is_phone_verified is True
 
 
 def test_localhost_session_cookie_omits_mismatched_configured_domain(

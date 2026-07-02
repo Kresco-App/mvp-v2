@@ -30,6 +30,9 @@ export type AuthUser = {
   avatar_url?: string
   banner_url?: string
   created_at?: string
+  phone_number?: string | null
+  is_phone_verified?: boolean
+  phone_verified_at?: string | null
   is_staff?: boolean
   is_superuser?: boolean
   is_pro?: boolean

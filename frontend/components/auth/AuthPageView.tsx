@@ -1,6 +1,6 @@
 'use client'
 
-import { AlertCircle, ArrowLeft, Check, Eye, EyeOff, Loader2, Mail } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Check, Eye, EyeOff, Loader2, Mail, Smartphone } from 'lucide-react'
 import KrescoLogo from '@/components/KrescoLogo'
 import { canSubmitOnboarding, type AuthPageController } from '@/lib/authPageController'
 import { localizedCopy } from '@/lib/localization'
@@ -155,13 +155,20 @@ export function AuthPageView(controller: AuthPageController) {
     password,
     pendingAction,
     pendingEmail,
+    phoneCode,
+    phoneNumber,
+    phonePendingAction,
+    phoneVerificationId,
     progressWidthClass,
     saveOnboarding,
     selectedLevel,
     selectedSpec,
+    sendPhoneCode,
     setEmail,
     setFullName,
     setPassword,
+    setPhoneCode,
+    setPhoneNumber,
     setSelectedLevel,
     setSelectedSpec,
     setShowPassword,
@@ -170,17 +177,19 @@ export function AuthPageView(controller: AuthPageController) {
     showOptions,
     showPassword,
     showSignup,
+    skipPhoneVerification,
     step,
     triggerGoogle,
+    verifyPhoneCode,
   } = controller
-  const progressStep = step === 'auth' ? 1 : step === 'niveau' ? 2 : 3
+  const progressStep = step === 'auth' ? 1 : step === 'niveau' ? 2 : step === 'filiere' ? 3 : 4
 
   return (
     <main id="main-content" tabIndex={-1} className={pageClass} aria-busy={loading}>
       <div ref={hiddenGoogleRef} className={hiddenGoogleClass} aria-hidden="true" />
 
       <div className={panelClass}>
-        <progress className="sr-only" aria-label="Progression d'inscription" value={progressStep} max={3} />
+        <progress className="sr-only" aria-label="Progression d'inscription" value={progressStep} max={4} />
         <div className={cx(progressTrackClass, 'auth-reveal')} data-auth-delay="1" aria-hidden="true">
           <div className={cx(progressFillClass, progressWidthClass)} />
         </div>
@@ -462,6 +471,73 @@ export function AuthPageView(controller: AuthPageController) {
             <button type="button" onClick={saveOnboarding} disabled={!canSubmitOnboarding(selectedLevel, selectedSpec, loading)} className={primaryButtonClass}>
               {loading ? <LoadingText label={localizedCopy.auth.saving} /> : localizedCopy.auth.start}
             </button>
+          </div>
+        )}
+
+        {step === 'phone' && (
+          <div key="phone" className={authPanelMotionClass} data-auth-delay="3">
+            <div className={circleIconClass}>
+              <Smartphone size={28} color="var(--auth-primary)" aria-hidden="true" />
+            </div>
+            <h1 className={sectionTitleClass}>{localizedCopy.auth.verifyPhoneTitle}</h1>
+            <p className={cx(bodyClass, 'mb-6')}>{localizedCopy.auth.verifyPhoneBody}</p>
+            <form
+              className={formClass}
+              onSubmit={(event) => {
+                event.preventDefault()
+                void (phoneVerificationId ? verifyPhoneCode() : sendPhoneCode())
+              }}
+            >
+              <div>
+                <label htmlFor="phone-number" className={labelClass}>{localizedCopy.auth.phoneNumber}</label>
+                <input
+                  id="phone-number"
+                  name="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  aria-label={localizedCopy.auth.phoneNumber}
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={event => setPhoneNumber(event.target.value)}
+                  placeholder={localizedCopy.auth.phonePlaceholder}
+                  disabled={loading && phonePendingAction === 'verify'}
+                  className={inputClass}
+                />
+              </div>
+              {phoneVerificationId && (
+                <div>
+                  <label htmlFor="phone-code" className={labelClass}>{localizedCopy.auth.smsCode}</label>
+                  <input
+                    id="phone-code"
+                    name="one-time-code"
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    aria-label={localizedCopy.auth.smsCode}
+                    value={phoneCode}
+                    onChange={event => setPhoneCode(event.target.value)}
+                    placeholder={localizedCopy.auth.smsCodePlaceholder}
+                    className={inputClass}
+                  />
+                </div>
+              )}
+              <button type="submit" disabled={loading} className={cx(primaryButtonClass, 'mt-1')}>
+                {phonePendingAction === 'send'
+                  ? <LoadingText label={localizedCopy.auth.sendingSms} />
+                  : phonePendingAction === 'verify'
+                    ? <LoadingText label={localizedCopy.auth.verifyingSms} />
+                    : phoneVerificationId
+                      ? localizedCopy.auth.verifyPhoneAction
+                      : localizedCopy.auth.sendSmsAction}
+              </button>
+              {phoneVerificationId && (
+                <button type="button" onClick={sendPhoneCode} disabled={loading} className={outlineButtonClass}>
+                  {localizedCopy.auth.resendSms}
+                </button>
+              )}
+              <button type="button" onClick={skipPhoneVerification} disabled={loading} className={ghostButtonClass}>
+                {localizedCopy.auth.verifyPhoneLater}
+              </button>
+            </form>
           </div>
         )}
       </div>

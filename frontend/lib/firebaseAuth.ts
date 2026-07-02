@@ -187,6 +187,15 @@ export async function updateFirebaseSmsVerification(verificationId: string, code
   return user.phoneNumber || null
 }
 
+export async function getFirebaseCurrentIdToken(forceRefresh = false) {
+  const auth = getConfiguredFirebaseAuth()
+  const user = auth.currentUser
+  if (!user) {
+    throw new Error('A signed-in Firebase user is required.')
+  }
+  return user.getIdToken(forceRefresh)
+}
+
 export async function signOutFirebaseAuth() {
   const config = firebasePublicAuthConfig()
   if (!config) return

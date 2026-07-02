@@ -4,6 +4,7 @@ export type AuthUserLike = {
   is_staff?: boolean | null
   niveau?: string | null
   filiere?: string | null
+  is_phone_verified?: boolean | null
 }
 
 export type AuthAccessRequirement = {
