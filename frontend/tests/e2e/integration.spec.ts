@@ -179,7 +179,7 @@ async function csrfRequestHeaders(page: Page) {
 
 test('local demo login backdoor is not exposed', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: /Bienvenue sur Kresco/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Kresco', level: 1 })).toBeVisible()
   await expect(page.getByRole('button', { name: /Local demo login/i })).toHaveCount(0)
 
   const response = await page.request.post(apiUrl('/api/auth/demo-login'))
@@ -365,7 +365,7 @@ test('backend-backed upload flows use GCS mock storage for profile and chat medi
     expect(professorImageMessage.attachment_mime_type).toBe('image/png')
     expect(professorImageMessage.attachment_name).toBe('professor-chat-e2e.png')
     expectMockGcsMediaUrl(professorImageMessage.attachment_url, '/professor-chat/')
-    await expect(professorPage.getByText(professorCaption, { exact: true })).toBeVisible()
+    await expect(professorPage.locator('p').filter({ hasText: professorCaption })).toBeVisible()
   } finally {
     await studentContext.close()
     await professorContext.close()
@@ -425,19 +425,19 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
 
     const backendFailurePage = await backendFailureContext.newPage()
     await loginViaBackend(backendFailurePage, 'admin@example.com')
-    let overviewFailures = 0
-    await backendFailurePage.route('**/api/admin/overview', async (route) => {
-      overviewFailures += 1
+    let founderDashboardFailures = 0
+    await backendFailurePage.route('**/api/admin/founder-dashboard**', async (route) => {
+      founderDashboardFailures += 1
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
-        body: JSON.stringify({ detail: 'controlled E2E admin overview failure' }),
+        body: JSON.stringify({ detail: 'controlled E2E founder dashboard failure' }),
       })
     })
     await backendFailurePage.goto('/admin')
-    await expect(backendFailurePage.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible()
-    await expect(backendFailurePage.getByText('Les analyses en direct n’ont pas pu être chargées.')).toBeVisible()
-    expect(overviewFailures).toBeGreaterThan(0)
+    await expect(backendFailurePage.getByRole('heading', { name: 'Admin dashboard' })).toBeVisible()
+    await expect(backendFailurePage.getByText('controlled E2E founder dashboard failure')).toBeVisible()
+    expect(founderDashboardFailures).toBeGreaterThan(0)
 
     const emptyPage = await emptyContext.newPage()
     await loginAsSeededUser(emptyPage, 'student@example.com')
@@ -656,7 +656,10 @@ test('backend-backed professor live session becomes student-visible with interac
     expect(answerResponse.status()).toBe(200)
     const answeredInteraction = await answerResponse.json() as LiveSessionInteraction
     expect(answeredInteraction.status).toBe('answered')
-    await expect(professorQuestion.getByText('answered')).toBeVisible()
+    await expect(professorQuestion).toBeHidden()
+    await professorPage.getByRole('button', { name: 'Answered' }).click()
+    const answeredQuestion = professorPage.locator('article').filter({ hasText: question }).first()
+    await expect(answeredQuestion.getByText('answered')).toBeVisible()
   } finally {
     await professorContext.close()
     await studentContext.close()
