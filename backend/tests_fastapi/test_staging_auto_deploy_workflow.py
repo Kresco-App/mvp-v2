@@ -24,6 +24,7 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     assert "confirm_production_hosting_deploy: false" in workflow
     assert "ensure_custom_domains: true" in workflow
     assert "CLOUD_SQL_INSTANCE: kresco-staging-postgres" in workflow
+    assert "FRONTEND_SERVICE: kresco-frontend-staging" in workflow
     assert "--activation-policy ALWAYS" in workflow
     assert "--activation-policy NEVER" in workflow
     assert "trap cleanup EXIT" in workflow
@@ -37,10 +38,16 @@ def test_staging_auto_deploy_runs_ci_deploy_and_smoke_in_order():
     assert "--ensure-authorized-domains" in workflow
     assert "--require-email-password" in workflow
     assert "--require-google-provider" in workflow
+    assert "--require-phone-provider" in workflow
     assert "STAGING_FRONTEND_APEX_URL: https://staging.kresco.ma" in workflow
     assert "STAGING_PUBLIC_API_URL: https://api.staging.kresco.ma" in workflow
     assert '--public-api-url "$STAGING_PUBLIC_API_URL"' in workflow
     assert '--subdomain-apex-url "$STAGING_FRONTEND_APEX_URL"' in workflow
+    assert '--project-id "$PROJECT_ID"' in workflow
+    assert '--region "$REGION"' in workflow
+    assert '--frontend-service "$FRONTEND_SERVICE"' in workflow
+    assert '--firebase-project-id "$FIREBASE_PROJECT_ID"' in workflow
+    assert '--firebase-api-key "$FIREBASE_API_KEY"' in workflow
     assert "STAGING_AUTH_SMOKE_EMAIL" in workflow
     assert "STAGING_AUTH_SMOKE_PASSWORD" in workflow
 
@@ -80,6 +87,7 @@ def test_frontend_deploy_verifies_the_post_deploy_cloud_run_url():
 
     resolve_block = workflow.split("- name: Resolve Firebase build config", 1)[1].split("- name: Install frontend dependencies", 1)[0]
     validate_block = workflow.split("- name: Validate production-shaped frontend env", 1)[1].split("- name: Build frontend image", 1)[0]
+    deployed_env_block = workflow.split("- name: Verify deployed frontend Firebase env", 1)[1].split("- name: Verify frontend surface", 1)[0]
     verify_block = workflow.split("- name: Verify frontend surface", 1)[1].split("- name: Scan for production demo surface", 1)[0]
     scan_block = workflow.split("- name: Scan for production demo surface", 1)[1]
 
@@ -105,6 +113,14 @@ def test_frontend_deploy_verifies_the_post_deploy_cloud_run_url():
     assert "$BACKEND_URL" not in validate_block
     assert "${{ env.FRONTEND_PUBLIC_SITE_URL }}" not in validate_block
 
+    assert 'gcloud run services describe "$FRONTEND_SERVICE"' in deployed_env_block
+    assert '"NEXT_PUBLIC_FIREBASE_API_KEY"' in deployed_env_block
+    assert '"NEXT_PUBLIC_FIREBASE_PROJECT_ID"' in deployed_env_block
+    assert '"NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"' in deployed_env_block
+    assert '"NEXT_PUBLIC_FIREBASE_APP_ID"' in deployed_env_block
+    assert "Deployed frontend Firebase env is empty for:" in deployed_env_block
+    assert "Deployed frontend Firebase env check passed." in deployed_env_block
+
     assert 'url="$(gcloud run services describe "$FRONTEND_SERVICE"' in verify_block
     assert 'export FRONTEND_URL="$url"' in verify_block
     assert 'url = os.environ["FRONTEND_URL"]' in verify_block
@@ -113,3 +129,8 @@ def test_frontend_deploy_verifies_the_post_deploy_cloud_run_url():
 
     assert 'npm run check:production-demo-surface -- --base-url "$FRONTEND_URL" --json' in scan_block
     assert "FRONTEND_URL: ${{ env.FRONTEND_URL }}" not in scan_block
+
+    deploy_step = workflow.index("- name: Deploy frontend service")
+    deployed_env_step = workflow.index("- name: Verify deployed frontend Firebase env")
+    verify_surface_step = workflow.index("- name: Verify frontend surface")
+    assert deploy_step < deployed_env_step < verify_surface_step

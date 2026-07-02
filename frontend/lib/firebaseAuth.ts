@@ -5,12 +5,16 @@ import {
   getAuth,
   getRedirectResult,
   GoogleAuthProvider,
+  linkWithCredential,
+  PhoneAuthProvider,
+  RecaptchaVerifier,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
   signOut,
+  updatePhoneNumber,
   updateProfile,
   verifyPasswordResetCode,
 } from '@firebase/auth'
@@ -33,6 +37,11 @@ export class FirebaseEmailNotVerifiedError extends Error {
     this.email = email
   }
 }
+
+const FIREBASE_SMS_RECAPTCHA_CONTAINER_ID = 'kresco-firebase-sms-recaptcha'
+
+let smsRecaptchaVerifier: RecaptchaVerifier | null = null
+let smsRecaptchaContainerId: string | null = null
 
 function getConfiguredFirebaseAuth() {
   const config = firebasePublicAuthConfig()
@@ -102,6 +111,80 @@ export async function confirmFirebasePasswordReset(oobCode: string, password: st
   const auth = getConfiguredFirebaseAuth()
   await verifyPasswordResetCode(auth, oobCode)
   await confirmPasswordReset(auth, oobCode, password)
+}
+
+function ensureSmsRecaptchaContainer(containerId: string) {
+  if (typeof document === 'undefined') {
+    throw new Error('Firebase SMS verification requires a browser.')
+  }
+  let container = document.getElementById(containerId)
+  if (!container) {
+    container = document.createElement('div')
+    container.id = containerId
+    container.setAttribute('aria-hidden', 'true')
+    Object.assign(container.style, {
+      height: '1px',
+      left: '0',
+      opacity: '0',
+      overflow: 'hidden',
+      position: 'fixed',
+      top: '0',
+      width: '1px',
+      zIndex: '-1',
+    })
+    document.body.appendChild(container)
+  }
+  return container
+}
+
+export function resetFirebaseSmsVerifier() {
+  smsRecaptchaVerifier?.clear()
+  smsRecaptchaVerifier = null
+  smsRecaptchaContainerId = null
+}
+
+export function getFirebaseSmsRecaptchaVerifier(containerId = FIREBASE_SMS_RECAPTCHA_CONTAINER_ID) {
+  const auth = getConfiguredFirebaseAuth()
+  ensureSmsRecaptchaContainer(containerId)
+  if (!smsRecaptchaVerifier || smsRecaptchaContainerId !== containerId) {
+    resetFirebaseSmsVerifier()
+    smsRecaptchaVerifier = new RecaptchaVerifier(auth, containerId, { size: 'invisible' })
+    smsRecaptchaContainerId = containerId
+  }
+  return smsRecaptchaVerifier
+}
+
+export async function startFirebaseSmsVerification(phoneNumber: string, containerId = FIREBASE_SMS_RECAPTCHA_CONTAINER_ID) {
+  const normalizedPhoneNumber = phoneNumber.trim()
+  if (!normalizedPhoneNumber) {
+    throw new Error('Phone number is required.')
+  }
+  const provider = new PhoneAuthProvider(getConfiguredFirebaseAuth())
+  return provider.verifyPhoneNumber(normalizedPhoneNumber, getFirebaseSmsRecaptchaVerifier(containerId))
+}
+
+export async function linkFirebaseSmsVerification(verificationId: string, code: string) {
+  const auth = getConfiguredFirebaseAuth()
+  const user = auth.currentUser
+  if (!user) {
+    throw new Error('A signed-in Firebase user is required to link SMS verification.')
+  }
+  const credential = PhoneAuthProvider.credential(verificationId.trim(), code.trim())
+  await linkWithCredential(user, credential)
+  await user.reload()
+  return user.phoneNumber || null
+}
+
+export async function updateFirebaseSmsVerification(verificationId: string, code: string) {
+  const auth = getConfiguredFirebaseAuth()
+  const user = auth.currentUser
+  if (!user) {
+    throw new Error('A signed-in Firebase user is required to update SMS verification.')
+  }
+  const credential = PhoneAuthProvider.credential(verificationId.trim(), code.trim())
+  await updatePhoneNumber(user, credential)
+  await user.reload()
+  return user.phoneNumber || null
 }
 
 export async function signOutFirebaseAuth() {

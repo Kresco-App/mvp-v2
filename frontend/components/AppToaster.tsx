@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { ComponentType } from 'react'
-import { APP_TOASTER_REQUEST_EVENT, isAppToasterRequested } from '@/lib/lazyToast'
+import { APP_TOASTER_REQUEST_EVENT } from '@/lib/lazyToast'
 
 type ToasterComponent = ComponentType<{
   position?: 'top-right'
@@ -29,7 +29,7 @@ export default function AppToaster() {
     }
 
     window.addEventListener(APP_TOASTER_REQUEST_EVENT, load)
-    if (isAppToasterRequested()) load()
+    load()
 
     return () => {
       alive = false

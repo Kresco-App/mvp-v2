@@ -60,9 +60,9 @@ KRESCO_BACKEND_ORIGIN=https://api.staging.kresco.ma
 
 Firebase Auth authorized domains must include the six staging frontend hosts above plus the Firebase default domains. The staging workflow union-patches missing staging frontend hosts with `--ensure-authorized-domains`, preserving existing Firebase defaults such as `localhost` and `*.firebaseapp.com`. Google OAuth redirect/origin settings must also include the staging hosts that can launch sign-in.
 
-The staging smoke job checks `https://staging.kresco.ma` and `https://api.staging.kresco.ma` directly after each `master` deploy. It proves the apex serves the expected release marker, `www.staging.kresco.ma` canonicalizes to the apex, unauthenticated app/admin/staff hosts return to the apex without redirect loops, the professor host opens the professor login boundary, the public API host reports the expected backend release, and HSTS does not include `includeSubDomains` before public cutover.
+The staging smoke job checks `https://staging.kresco.ma` and `https://api.staging.kresco.ma` directly after each `master` deploy. It proves the apex serves the expected release marker, `www.staging.kresco.ma` canonicalizes to the apex while preserving path and query, unauthenticated app/admin/staff hosts return to the apex without redirect loops, the professor host opens the professor login boundary, the public API host reports the expected backend release, and HSTS does not include `includeSubDomains` before public cutover.
 
-Before the backend image build, staging runs `scripts/check_public_auth_readiness.py --runtime-secret-only` so a mismatched `FRONTEND_URL`, CORS, CSRF, trusted-host, or cookie-domain setting fails early with a direct error. Before Cloud SQL is started for smoke checks, staging runs the full `scripts/check_public_auth_readiness.py`. That fixes missing Firebase Auth authorized domains, then fails the deploy if the runtime secret does not match the public domain model, Firebase Auth still misses any required staging authorized domain, or Email/Password/Google sign-in is disabled.
+Before the backend image build, staging runs `scripts/check_public_auth_readiness.py --runtime-secret-only` so a mismatched `FRONTEND_URL`, CORS, CSRF, trusted-host, or cookie-domain setting fails early with a direct error. Before Cloud SQL is started for smoke checks, staging runs the full `scripts/check_public_auth_readiness.py`. That fixes missing Firebase Auth authorized domains, then fails the deploy if the runtime secret does not match the public domain model, Firebase Auth still misses any required staging authorized domain, or Email/Password, Google, or Phone sign-in is disabled.
 
 Cloud Run custom-domain mappings are not used for staging because `europe-southwest1` is not a supported Cloud Run domain-mapping region. Firebase Hosting is the edge layer:
 
@@ -185,9 +185,21 @@ Optional secrets for full auth smoke:
 ```text
 STAGING_AUTH_SMOKE_EMAIL=<Firebase test user email>
 STAGING_AUTH_SMOKE_PASSWORD=<Firebase test user password>
+STAGING_AUTH_BASIC_EMAIL=<Firebase basic student email>
+STAGING_AUTH_BASIC_PASSWORD=<Firebase basic student password>
+STAGING_AUTH_STUDENT_EMAIL=<Firebase pro student email>
+STAGING_AUTH_STUDENT_PASSWORD=<Firebase pro student password>
+STAGING_AUTH_VIP_EMAIL=<Firebase VIP student email>
+STAGING_AUTH_VIP_PASSWORD=<Firebase VIP student password>
+STAGING_AUTH_ADMIN_EMAIL=<Firebase admin email>
+STAGING_AUTH_ADMIN_PASSWORD=<Firebase admin password>
+STAGING_AUTH_STAFF_EMAIL=<Firebase staff email>
+STAGING_AUTH_STAFF_PASSWORD=<Firebase staff password>
+STAGING_AUTH_PROFESSOR_EMAIL=<Firebase professor email>
+STAGING_AUTH_PROFESSOR_PASSWORD=<Firebase professor password>
 ```
 
-If the auth smoke secrets are absent, the workflow still checks the deployed Firebase session boundary by proving the retired local password routes are gone.
+If the auth smoke secrets are absent, the workflow still checks the deployed Firebase session boundary by proving the retired local password routes are gone. If role-specific secrets are present, deploy smoke verifies each configured role against both the direct backend URL and `api.staging.kresco.ma`.
 
 Additional staging evidence workflows use the same Cloud SQL concurrency group as staging deploys, so SQL-backed probes do not race each other while the instance is starting or stopping.
 
@@ -213,7 +225,7 @@ These were verified from the workstation on 2026-06-18:
 - The deploy service account has `roles/datastore.user` for the Firestore realtime evidence probe.
 - The deploy service account has `roles/firebaseauth.admin` for Firebase Auth user/config verification automation.
 - Identity Toolkit API is enabled.
-- Firebase Email/Password and Google providers are enabled.
+- Firebase Email/Password, Google, and Phone providers are enabled.
 - Firebase authorized domains include localhost, Firebase default domains, `staging.kresco.ma`, `www.staging.kresco.ma`, `app.staging.kresco.ma`, `admin.staging.kresco.ma`, `prof.staging.kresco.ma`, and `staff.staging.kresco.ma`.
 - Docker is running locally.
 - Terraform is installed under the user PATH for future terminals; the current Codex process can use the absolute binary path if needed.
@@ -227,6 +239,8 @@ The runtime secret still has intentionally pending provider values:
 - CMI values are pending until payment provider credentials and callback URLs are ready.
 - VdoCipher live values are pending until provider live-stream credentials are ready.
 - `KRESCO_RATE_LIMIT_STORAGE_URI` remains pending until a shared rate-limit store is selected.
+
+Email verification, password reset, and SMS verification are Firebase Auth responsibilities; do not add a separate transactional email provider to the auth launch gate.
 
 Do not mark `SEC-SECRETS-001`, full provider diagnostics, or production sign-off complete while those rows are pending.
 
@@ -265,13 +279,14 @@ Mark staging automation complete only after all of this is true:
 4. `/ready` and `/health` pass for the deployed backend revision.
 5. The frontend root returns HTML with the expected `data-release` marker.
 6. Old backend local auth routes return 404 or 405.
-7. If `STAGING_AUTH_SMOKE_EMAIL/PASSWORD` are configured, Firebase password sign-in and `/api/auth/firebase-session` both pass.
-8. `scripts/check_public_auth_readiness.py` passes for runtime secret domain values, Firebase Auth authorized domains, and Email/Password/Google provider enablement after its idempotent staging authorized-domain update.
-9. `firebase-hosting-rewrites.json` proves the frontend Hosting target routes app traffic to the frontend service and API/media traffic to the backend service, while the API Hosting target routes every path to the backend service.
-10. `firebase-hosting-domains.json` proves the frontend/API Hosting target split and live Firebase custom-domain attachment for every expected staging public hostname.
-11. `www.staging.kresco.ma` redirects to `staging.kresco.ma`, workspace roots rewrite correctly, and unauthenticated workspace hosts redirect to `staging.kresco.ma` instead of looping.
-12. Cloud SQL is back to `STOPPED` with `activationPolicy=NEVER` after migrations.
-13. Media bucket evidence can read bucket posture and IAM posture.
-14. Firestore realtime fanout evidence can write, read, and delete a synthetic staging probe document.
-15. Terraform `fmt` and `validate` pass for the scaffold.
-16. CMI/VdoCipher/production rows remain explicitly pending until real provider evidence exists.
+7. If `STAGING_AUTH_SMOKE_EMAIL/PASSWORD` are configured, Firebase password sign-in and `/api/auth/firebase-session` both pass on the direct backend and public API edge.
+8. If role-specific auth secrets are configured, basic, pro student, VIP, admin, staff, and professor profiles return the expected role/tier/staff flags on the direct backend and public API edge.
+9. `scripts/check_public_auth_readiness.py` passes for runtime secret domain values, Firebase Auth authorized domains, and Email/Password, Google, and Phone provider enablement after its idempotent staging authorized-domain update.
+10. `firebase-hosting-rewrites.json` proves the frontend Hosting target routes app traffic to the frontend service and API/media traffic to the backend service, while the API Hosting target routes every path to the backend service.
+11. `firebase-hosting-domains.json` proves the frontend/API Hosting target split and live Firebase custom-domain attachment for every expected staging public hostname.
+12. `www.staging.kresco.ma` redirects to `staging.kresco.ma`, workspace roots rewrite correctly, and unauthenticated workspace hosts redirect to `staging.kresco.ma` instead of looping.
+13. Cloud SQL is `RUNNABLE` while manual staging QA is expected. Set `STOP_CLOUD_SQL_AFTER_SMOKE=true` only when cost is more important than leaving staging immediately usable.
+14. Media bucket evidence can read bucket posture and IAM posture.
+15. Firestore realtime fanout evidence can write, read, and delete a synthetic staging probe document.
+16. Terraform `fmt` and `validate` pass for the scaffold.
+17. CMI/VdoCipher/production rows remain explicitly pending until real provider evidence exists.

@@ -536,7 +536,7 @@ def _exchange_firebase_session_token(
     for header in set_cookie_headers:
         cookie = SimpleCookie()
         cookie.load(header)
-        morsel = cookie.get("kresco_token")
+        morsel = cookie.get("__session")
         if morsel is not None and morsel.value:
             return morsel.value
     raise RuntimeError("Firebase session exchange did not return an app session cookie.")

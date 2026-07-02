@@ -615,7 +615,7 @@ async function seedAuthenticatedUser(page: Page, user = smokeUser) {
   await page.evaluate(
     ({ token, user }) => {
       window.localStorage.setItem('kresco_user', JSON.stringify(user))
-      window.document.cookie = `kresco_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=3600`
+      window.document.cookie = `__session=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=3600`
       window.document.cookie = `kresco_user_role=${encodeURIComponent(user.role)}; Path=/; SameSite=Lax; Max-Age=3600`
     },
     { token: makeTestJwt(user), user },

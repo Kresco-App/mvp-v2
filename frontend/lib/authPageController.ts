@@ -198,6 +198,7 @@ function useAuthForm({
   const [pendingEmail, setPendingEmail] = useState('')
   const [googleReady, setGoogleReady] = useState(false)
   const [authErrorVersion, setAuthErrorVersion] = useState(0)
+  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setGoogleReady(isFirebaseGoogleAuthConfigured())
@@ -231,9 +232,14 @@ function useAuthForm({
         const credential = await getFirebaseGoogleRedirectIdToken()
         if (!credential || !alive) return
         setPendingAction('google')
+        setAuthErrorMessage(null)
         await completeFirebaseSession(credential)
       } catch (err: any) {
-        if (alive) showToastError(apiDataErrorMessage(err, 'Connexion Google echouee.'))
+        if (alive) {
+          const message = apiDataErrorMessage(err, 'Connexion Google echouee.')
+          setAuthErrorMessage(message)
+          showToastError(message)
+        }
       } finally {
         if (alive) setPendingAction(null)
       }
@@ -251,7 +257,9 @@ function useAuthForm({
     googleFallbackTimerRef.current = setTimeout(() => {
       googleFallbackTimerRef.current = null
       if (pendingActionRef.current === 'google') {
-        showToastError('Connexion Google interrompue. Reessayez ou utilisez votre email.')
+        const message = 'Connexion Google interrompue. Reessayez ou utilisez votre email.'
+        setAuthErrorMessage(message)
+        showToastError(message)
         pendingActionRef.current = null
         setPendingAction(null)
       }
@@ -260,7 +268,9 @@ function useAuthForm({
       const { startFirebaseGoogleRedirect } = await import('@/lib/firebaseAuth')
       await startFirebaseGoogleRedirect()
     } catch (err: any) {
-      showToastError(apiDataErrorMessage(err, 'Connexion Google echouee.'))
+      const message = apiDataErrorMessage(err, 'Connexion Google echouee.')
+      setAuthErrorMessage(message)
+      showToastError(message)
     } finally {
       if (googleFallbackTimerRef.current) {
         clearTimeout(googleFallbackTimerRef.current)
@@ -288,11 +298,23 @@ function useAuthForm({
     setFullName('')
     setShowPassword(false)
     setAuthErrorVersion(0)
+    setAuthErrorMessage(null)
+  }
+
+  function updateEmail(value: string) {
+    setEmail(value)
+    if (authErrorMessage) setAuthErrorMessage(null)
+  }
+
+  function updatePassword(value: string) {
+    setPassword(value)
+    if (authErrorMessage) setAuthErrorMessage(null)
   }
 
   async function handleSignup(e: FormEvent) {
     e.preventDefault()
     if (pendingAction) return
+    setAuthErrorMessage(null)
     if (!fullName.trim()) return showToastError('Entrez votre nom complet')
     if (password.length < 8) return showToastError('Mot de passe trop court (min. 8 caracteres)')
     setPendingAction('signup')
@@ -316,6 +338,7 @@ function useAuthForm({
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
     if (pendingAction) return
+    setAuthErrorMessage(null)
     setPendingAction('login')
     try {
       const { getFirebaseEmailPasswordIdToken } = await import('@/lib/firebaseAuth')
@@ -333,12 +356,16 @@ function useAuthForm({
       onAuthResolution(data.user)
     } catch (err: any) {
       if (isFirebaseEmailNotVerifiedErrorLike(err) || isUnverifiedEmailLoginError(err)) {
+        const message = 'Verifiez votre email avant de vous connecter.'
         setPendingEmail(normalizeEmailInput(isFirebaseEmailNotVerifiedErrorLike(err) ? err.email : email))
         setAuthMode('verify-pending')
-        showToastError('Verifiez votre email avant de vous connecter.')
+        setAuthErrorMessage(message)
+        showToastError(message)
       } else {
+        const message = loginErrorMessage(err)
         setAuthErrorVersion((version) => version + 1)
-        showToastError(loginErrorMessage(err))
+        setAuthErrorMessage(message)
+        showToastError(message)
       }
     } finally {
       setPendingAction(null)
@@ -348,6 +375,7 @@ function useAuthForm({
   async function handleForgot(e: FormEvent) {
     e.preventDefault()
     if (pendingAction) return
+    setAuthErrorMessage(null)
     setPendingAction('forgot')
     try {
       const { sendFirebasePasswordReset } = await import('@/lib/firebaseAuth')
@@ -395,14 +423,15 @@ function useAuthForm({
     handleSignup,
     hiddenGoogleRef,
     authErrorVersion,
+    authErrorMessage,
     loading: Boolean(pendingAction),
     password,
     pendingAction,
     pendingEmail,
     resetForm,
-    setEmail,
+    setEmail: updateEmail,
     setFullName,
-    setPassword,
+    setPassword: updatePassword,
     setShowPassword,
     showPassword,
     triggerGoogle,
@@ -485,6 +514,7 @@ export function useAuthPageController() {
     handleSignup: authForm.handleSignup,
     hiddenGoogleRef: authForm.hiddenGoogleRef,
     authErrorVersion: authForm.authErrorVersion,
+    authErrorMessage: authForm.authErrorMessage,
     loading,
     password: authForm.password,
     pendingAction: authForm.pendingAction,

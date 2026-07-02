@@ -70,11 +70,11 @@ function syncAuthStoreFromAuthSessionEvent() {
   syncAuthStoreFromStorage()
 }
 
-async function requestServerLogout() {
+async function requestServerLogout(csrfTokenOverride?: string) {
   if (typeof window === 'undefined') return true
 
   try {
-    const csrfToken = readCsrfToken() || ''
+    const csrfToken = csrfTokenOverride ?? readCsrfToken() ?? ''
     const response = await fetch(getBackendUrl('/api/auth/logout'), {
       method: 'POST',
       credentials: 'include',
@@ -137,16 +137,20 @@ async function clearSwrCache() {
   await mutate(() => true, undefined, { revalidate: false })
 }
 
+function clearLocalAuthState(set: (state: Partial<AuthStoreState>) => void) {
+  clearStoredAuthSession()
+  clearStoredClientSessionCaches()
+  set({ token: null, user: null, logoutError: null, isLoggingOut: false })
+}
+
 async function clearClientAuthState(set: (state: Partial<AuthStoreState>) => void) {
   const { signOutFirebaseAuth } = await import('./firebaseAuth')
   await signOutFirebaseAuth().catch(() => undefined)
-  clearStoredAuthSession()
-  clearStoredClientSessionCaches()
+  clearLocalAuthState(set)
   await Promise.all([
     clearRuntimeClientDataCaches(),
     clearSwrCache().catch(() => undefined),
   ])
-  set({ token: null, user: null, logoutError: null, isLoggingOut: false })
 }
 
 export const useAuthStore = create<AuthStoreState>()((set, get) => ({
@@ -190,8 +194,15 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
   },
 
   async clearSession() {
-    await requestServerLogout()
-    await clearClientAuthState(set)
+    const csrfToken = readCsrfToken() || ''
+    clearLocalAuthState(set)
+    await requestServerLogout(csrfToken)
+    const { signOutFirebaseAuth } = await import('./firebaseAuth')
+    await signOutFirebaseAuth().catch(() => undefined)
+    await Promise.all([
+      clearRuntimeClientDataCaches(),
+      clearSwrCache().catch(() => undefined),
+    ])
   },
 
   updateUser(patch) {

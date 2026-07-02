@@ -80,6 +80,7 @@ jobs:
       PROJECT_ID: kresco-staging
       REGION: europe-southwest1
       CLOUD_SQL_INSTANCE: kresco-staging-postgres
+      FRONTEND_SERVICE: kresco-frontend-staging
       BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
       FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
       SHORT_SHA: ${{ needs.deploy-backend.outputs.short_sha }}
@@ -91,8 +92,21 @@ jobs:
       FRONTEND_IMAGE_DIGEST: ${{ needs.deploy-frontend.outputs.frontend_image_digest }}
       STAGING_AUTH_SMOKE_EMAIL: ${{ secrets.STAGING_AUTH_SMOKE_EMAIL }}
       STAGING_AUTH_SMOKE_PASSWORD: ${{ secrets.STAGING_AUTH_SMOKE_PASSWORD }}
+      STAGING_AUTH_BASIC_EMAIL: ${{ secrets.STAGING_AUTH_BASIC_EMAIL }}
+      STAGING_AUTH_BASIC_PASSWORD: ${{ secrets.STAGING_AUTH_BASIC_PASSWORD }}
+      STAGING_AUTH_STUDENT_EMAIL: ${{ secrets.STAGING_AUTH_STUDENT_EMAIL }}
+      STAGING_AUTH_STUDENT_PASSWORD: ${{ secrets.STAGING_AUTH_STUDENT_PASSWORD }}
+      STAGING_AUTH_VIP_EMAIL: ${{ secrets.STAGING_AUTH_VIP_EMAIL }}
+      STAGING_AUTH_VIP_PASSWORD: ${{ secrets.STAGING_AUTH_VIP_PASSWORD }}
+      STAGING_AUTH_ADMIN_EMAIL: ${{ secrets.STAGING_AUTH_ADMIN_EMAIL }}
+      STAGING_AUTH_ADMIN_PASSWORD: ${{ secrets.STAGING_AUTH_ADMIN_PASSWORD }}
+      STAGING_AUTH_STAFF_EMAIL: ${{ secrets.STAGING_AUTH_STAFF_EMAIL }}
+      STAGING_AUTH_STAFF_PASSWORD: ${{ secrets.STAGING_AUTH_STAFF_PASSWORD }}
+      STAGING_AUTH_PROFESSOR_EMAIL: ${{ secrets.STAGING_AUTH_PROFESSOR_EMAIL }}
+      STAGING_AUTH_PROFESSOR_PASSWORD: ${{ secrets.STAGING_AUTH_PROFESSOR_PASSWORD }}
       STAGING_FRONTEND_APEX_URL: https://staging.kresco.ma
       STAGING_PUBLIC_API_URL: https://api.staging.kresco.ma
+      STOP_CLOUD_SQL_AFTER_SMOKE: "false"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -130,10 +144,14 @@ jobs:
         run: |
           set -euo pipefail
           cleanup() {
-            gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
-              --project "$PROJECT_ID" \
-              --activation-policy NEVER \
-              --quiet || true
+            if [ "${STOP_CLOUD_SQL_AFTER_SMOKE:-false}" = "true" ]; then
+              gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+                --project "$PROJECT_ID" \
+                --activation-policy NEVER \
+                --quiet || true
+            else
+              echo "Leaving Cloud SQL running for manual staging validation."
+            fi
           }
           trap cleanup EXIT
           python scripts/check_public_auth_readiness.py \
@@ -143,7 +161,8 @@ jobs:
             --api-host api.staging.kresco.ma \
             --ensure-authorized-domains \
             --require-email-password \
-            --require-google-provider
+            --require-google-provider \
+            --require-phone-provider
           gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
             --project "$PROJECT_ID" \
             --activation-policy ALWAYS \
@@ -166,6 +185,10 @@ jobs:
             --frontend-url "$FRONTEND_URL" \
             --subdomain-apex-url "$STAGING_FRONTEND_APEX_URL" \
             --expected-sha "$SHORT_SHA" \
+            --project-id "$PROJECT_ID" \
+            --region "$REGION" \
+            --frontend-service "$FRONTEND_SERVICE" \
+            --firebase-project-id "$FIREBASE_PROJECT_ID" \
             --firebase-api-key "$FIREBASE_API_KEY"
 
       - name: Write staging deployment summary

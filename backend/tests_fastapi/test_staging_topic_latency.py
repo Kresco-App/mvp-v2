@@ -119,7 +119,7 @@ def test_topic_latency_exchanges_firebase_id_token_for_app_session_cookie():
     def opener(request, timeout):
         del timeout
         requests.append(request)
-        return FakeResponse({}, headers={"Set-Cookie": "kresco_token=app-session-token; Path=/; HttpOnly"})
+        return FakeResponse({}, headers={"Set-Cookie": "__session=app-session-token; Path=/; HttpOnly"})
 
     token = latency._exchange_firebase_session_token(
         backend_url="https://api.example.com/staging",

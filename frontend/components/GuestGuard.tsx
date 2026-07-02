@@ -6,6 +6,7 @@ import {
   getAuthenticatedDestination,
   getStudentOnboardingDestination,
   isProfessorUser,
+  isStaffUser,
   resolveAuthSuccess,
 } from '@/lib/authPolicy'
 import { isStoredAuthSnapshot } from '@/lib/authSession'
@@ -13,7 +14,7 @@ import { useAuthStore } from '@/lib/store'
 
 type GuestGuardProps = {
   children?: ReactNode
-  authenticatedRedirectMode?: 'all' | 'professor-only' | 'none'
+  authenticatedRedirectMode?: 'all' | 'professor-only' | 'staff-only' | 'none'
 }
 
 export default function GuestGuard({ children, authenticatedRedirectMode = 'all' }: GuestGuardProps) {
@@ -33,6 +34,7 @@ export default function GuestGuard({ children, authenticatedRedirectMode = 'all'
     if (!isHydrated || !token || !user) return
     if (authenticatedRedirectMode === 'none') return
     if (authenticatedRedirectMode === 'professor-only' && !isProfessorUser(user)) return
+    if (authenticatedRedirectMode === 'staff-only' && !isStaffUser(user)) return
 
     if (isStoredAuthSnapshot(user)) {
       router.replace(getAuthenticatedDestination(user))
@@ -53,7 +55,11 @@ export default function GuestGuard({ children, authenticatedRedirectMode = 'all'
     token
     && user
     && authenticatedRedirectMode !== 'none'
-    && (authenticatedRedirectMode === 'all' || isProfessorUser(user))
+    && (
+      authenticatedRedirectMode === 'all'
+      || (authenticatedRedirectMode === 'professor-only' && isProfessorUser(user))
+      || (authenticatedRedirectMode === 'staff-only' && isStaffUser(user))
+    )
   ) return null
 
   return children

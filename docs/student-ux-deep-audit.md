@@ -1058,7 +1058,7 @@ Current gaps:
 - Login.
 - Show/hide password.
 - Forgot password.
-- Resend verification.
+- Send verification again.
 - Back to home/login.
 - Level option buttons.
 - Filiere option buttons.
@@ -1068,7 +1068,7 @@ Current gaps:
 Must implement/verify:
 
 - Legal links real.
-- Resend cooldown.
+- Send-again cooldown.
 - Invalid reset/verify recovery.
 - Change email from verify-pending.
 
@@ -1305,7 +1305,7 @@ Must implement/verify:
 Before shipping student UX work, manually test:
 
 - New signup with weak password, valid password, existing email, and verification pending.
-- Resend verification with empty password, wrong password, right password.
+- Send verification again with empty password, wrong password, right password.
 - Login with unverified email.
 - Forgot password with valid email and invalid/unknown email.
 - Reset password with no code, fake/expired code, short password, mismatch, valid code.

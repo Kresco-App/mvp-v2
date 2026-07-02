@@ -257,6 +257,40 @@ jobs:
             --max-instances 3 \
             --quiet
 
+      - name: Verify deployed frontend Firebase env
+        run: |
+          set -euo pipefail
+          service_json="$(mktemp)"
+          gcloud run services describe "$FRONTEND_SERVICE" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --format=json > "$service_json"
+          python - "$service_json" <<'PY'
+          import json
+          import sys
+
+          required = (
+              "NEXT_PUBLIC_FIREBASE_API_KEY",
+              "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+              "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+              "NEXT_PUBLIC_FIREBASE_APP_ID",
+          )
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              service = json.load(handle)
+          containers = service.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+          env_items = containers[0].get("env", []) if containers else []
+          env = {
+              item.get("name"): item.get("value", "")
+              for item in env_items
+              if isinstance(item, dict)
+          }
+          missing = [key for key in required if not str(env.get(key, "")).strip()]
+          if missing:
+              raise SystemExit("Deployed frontend Firebase env is empty for: " + ", ".join(missing))
+          print("Deployed frontend Firebase env check passed.")
+          PY
+          rm -f "$service_json"
+
       - name: Verify frontend surface
         id: frontend_outputs
         run: |

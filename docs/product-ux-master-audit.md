@@ -151,7 +151,7 @@ This section is intentionally more granular than the surface table. Treat it as 
 |---|---|---|---|---|---|---|
 | Public welcome | Google, Facebook, Apple buttons; `Creer un compte`; `Deja un compte ? Se connecter`; Terms; Privacy | Social buttons are disabled and can render as empty icon buttons in inventory; Terms/Privacy link to `#` | If social auth is not ready, label unavailable clearly or hide; legal links must be real | Add real terms/privacy routes; label or remove disabled social buttons; normalize copy | Auth provider config, legal content | P1 |
 | Signup form | Back, social buttons, full name, email, password, show/hide password, create account, login switch | Empty submit relies on native focus; invalid values lack inline explanation; 6-char vs 8-char policy mismatch | Inline validation before request, password rule meter, backend/client parity | Centralize password policy; add field-level errors; make social state explicit | Auth API schemas, localization | P1 |
-| Verify pending | Resend email, back home | Firebase resend works; stale toast can remain after returning home | Clear pending state, resend cooldown, change email, support link | Add cooldown/status, clear stale toasts on route change | Firebase Auth email action links, toast lifecycle | P2 |
+| Verify pending | Send email again, back home | Firebase resend works; stale toast can remain after returning home | Clear pending state, resend cooldown, change email, support link | Add cooldown/status, clear stale toasts on route change | Firebase Auth email action links, toast lifecycle | P2 |
 | Login form | Back, social buttons, email, password, forgot password, show/hide, submit, signup switch | Password reveal works; wrong login path was confusing; admin redirect lands on onboarding | Clear auth error, role-aware redirect, consistent language | Fix login error visibility; redirect admin to `/admin`; unify French/English | Auth store, auth policy | P0 |
 | Forgot password | Email, send link, back login | Generic success works | Avoid user enumeration but show next steps and resend cooldown | Add cooldown, clearer copy, support fallback | Firebase Auth password reset | P2 |
 | Reset/verify token pages | Back to login | Invalid-link states render | Good; should also support valid action-code QA fixtures | Seed/test valid Firebase action-code flows | Firebase Auth action-code handling | P2 |
@@ -9222,7 +9222,7 @@ Each row should define email, in-app, push/PWA future, required/optional, prefer
 **Implementation requirement:** Add recovery states:
 
 - Last sent at.
-- Resend cooldown.
+- Send-again cooldown.
 - Email masked/confirmed.
 - Change email before verification.
 - "Check spam" and sender/domain copy.
@@ -9306,7 +9306,7 @@ Each row should define email, in-app, push/PWA future, required/optional, prefer
 - Status: queued, sent, delivered, bounced, failed, suppressed.
 - Last error.
 - Related object id: payment, live, report, support case.
-- Resend action with permission check.
+- Send-again action with permission check.
 
 ### Feature 46.7 - Preferences Must Separate Required From Optional Communication
 

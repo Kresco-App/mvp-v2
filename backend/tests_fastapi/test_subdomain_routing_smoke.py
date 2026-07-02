@@ -150,6 +150,27 @@ def test_subdomain_routing_smoke_reports_redirect_mismatches(monkeypatch):
     assert any("prof unauthenticated root" in error for error in errors)
 
 
+def test_subdomain_routing_smoke_reports_workspace_redirect_failures(monkeypatch):
+    module = _load_module()
+
+    def fake_fetch(_opener, url: str, *, timeout_seconds: int):
+        if url == "https://staging.kresco.ma/":
+            return _payload(module, 200)
+        if url == "https://www.staging.kresco.ma/pricing?subdomain-smoke=1":
+            return _payload(module, 307, location="https://staging.kresco.ma/pricing?subdomain-smoke=1")
+        if url == "https://admin.staging.kresco.ma/":
+            return _payload(module, 200)
+        if url.endswith("/professor/login"):
+            return _payload(module, 200)
+        return _payload(module, 307, location="https://staging.kresco.ma/")
+
+    monkeypatch.setattr(module, "_fetch", fake_fetch)
+
+    errors = module.check_subdomain_routing("https://staging.kresco.ma", expected_sha="abc12345")
+
+    assert any("admin unauthenticated root returned HTTP 200; expected a redirect" in error for error in errors)
+
+
 def test_subdomain_routing_smoke_rejects_hsts_include_subdomains_before_cutover(monkeypatch):
     module = _load_module()
 

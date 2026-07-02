@@ -18,7 +18,12 @@ from app.schemas.users import (
     UserOut,
     UserUpdateIn,
 )
-from app.security.csrf import clear_csrf_cookie, set_csrf_cookie
+from app.security.csrf import (
+    auth_cookie_delete_domains_for_request,
+    auth_cookie_domain_for_request,
+    clear_csrf_cookie,
+    set_csrf_cookie,
+)
 from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_firebase_token
 from app.services.auth_firebase import complete_firebase_session
 from app.services.auth_sessions import revoke_cookie_session_if_valid
@@ -47,10 +52,27 @@ def _auth_cookie_samesite(settings: Settings) -> str:
     return settings.auth_cookie_samesite_value
 
 
-def _set_auth_cookies(response: Response, token: str, user: User, settings: Settings) -> str:
+_COOKIE_DOMAIN_UNSET = object()
+
+
+def _resolved_cookie_domain(settings: Settings, cookie_domain: str | None | object) -> str | None:
+    if cookie_domain is _COOKIE_DOMAIN_UNSET:
+        return settings.auth_cookie_domain_value
+    return cookie_domain if isinstance(cookie_domain, str) else None
+
+
+def _set_auth_cookies(
+    response: Response,
+    token: str,
+    user: User,
+    settings: Settings,
+    *,
+    cookie_domain: str | None | object = _COOKIE_DOMAIN_UNSET,
+) -> str:
     max_age = max(int(settings.jwt_expire_minutes) * 60, 0)
     secure = _auth_cookie_secure(settings)
     samesite = _auth_cookie_samesite(settings)
+    domain = _resolved_cookie_domain(settings, cookie_domain)
     response.set_cookie(
         AUTH_COOKIE_NAME,
         token,
@@ -58,7 +80,7 @@ def _set_auth_cookies(response: Response, token: str, user: User, settings: Sett
         httponly=True,
         secure=secure,
         samesite=samesite,
-        domain=settings.auth_cookie_domain_value,
+        domain=domain,
         path="/",
     )
     response.set_cookie(
@@ -68,13 +90,13 @@ def _set_auth_cookies(response: Response, token: str, user: User, settings: Sett
         httponly=False,
         secure=secure,
         samesite=samesite,
-        domain=settings.auth_cookie_domain_value,
+        domain=domain,
         path="/",
     )
-    return set_csrf_cookie(response, user, settings)
+    return set_csrf_cookie(response, user, settings, cookie_domain=domain)
 
 
-def _clear_auth_cookies(response: Response, settings: Settings) -> None:
+def _delete_auth_cookie_pair(response: Response, settings: Settings, cookie_domain: str | None) -> None:
     secure = _auth_cookie_secure(settings)
     samesite = _auth_cookie_samesite(settings)
     response.delete_cookie(
@@ -83,7 +105,7 @@ def _clear_auth_cookies(response: Response, settings: Settings) -> None:
         secure=secure,
         httponly=True,
         samesite=samesite,
-        domain=settings.auth_cookie_domain_value,
+        domain=cookie_domain,
     )
     response.delete_cookie(
         AUTH_ROLE_COOKIE_NAME,
@@ -91,9 +113,19 @@ def _clear_auth_cookies(response: Response, settings: Settings) -> None:
         secure=secure,
         httponly=False,
         samesite=samesite,
-        domain=settings.auth_cookie_domain_value,
+        domain=cookie_domain,
     )
-    clear_csrf_cookie(response, settings)
+    clear_csrf_cookie(response, settings, cookie_domain=cookie_domain)
+
+
+def _clear_auth_cookies(response: Response, settings: Settings, request: Request | None = None) -> None:
+    domains = (
+        auth_cookie_delete_domains_for_request(request, settings)
+        if request is not None
+        else [settings.auth_cookie_domain_value, None]
+    )
+    for domain in domains:
+        _delete_auth_cookie_pair(response, settings, domain)
 
 
 def _user_out(user: User, settings: Settings) -> UserOut:
@@ -103,12 +135,19 @@ def _user_out(user: User, settings: Settings) -> UserOut:
 async def _auth_session_out(
     db: AsyncSession,
     *,
+    request: Request,
     response: Response,
     user: User,
     settings: Settings,
 ) -> AuthSessionOut:
     token = create_token(user, settings)
-    csrf_token = _set_auth_cookies(response, token, user, settings)
+    csrf_token = _set_auth_cookies(
+        response,
+        token,
+        user,
+        settings,
+        cookie_domain=auth_cookie_domain_for_request(request, settings),
+    )
     await award_daily_login_xp(db, user_id=user.id)
     await db.commit()
     return AuthSessionOut(user=_user_out(user, settings), csrf_token=csrf_token)
@@ -148,9 +187,8 @@ async def firebase_session(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    del request
     user = await _firebase_session_user(db, credential=body.credential, settings=settings)
-    return await _auth_session_out(db, response=response, user=user, settings=settings)
+    return await _auth_session_out(db, request=request, response=response, user=user, settings=settings)
 
 
 @router.post("/google-login", response_model=AuthSessionOut)
@@ -162,9 +200,8 @@ async def google_login(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    del request
     user = await _firebase_session_user(db, credential=body.credential, settings=settings)
-    return await _auth_session_out(db, response=response, user=user, settings=settings)
+    return await _auth_session_out(db, request=request, response=response, user=user, settings=settings)
 
 
 @router.post("/auth/logout", response_model=MessageOut)
@@ -180,17 +217,25 @@ async def logout(
         token=request.cookies.get(AUTH_COOKIE_NAME),
         settings=settings,
     )
-    _clear_auth_cookies(response, settings)
+    _clear_auth_cookies(response, settings, request)
     return MessageOut(message="Deconnecte.")
 
 
 @router.get("/auth/csrf", response_model=CsrfOut)
 async def csrf_token(
+    request: Request,
     response: Response,
     user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ):
-    return CsrfOut(csrf_token=set_csrf_cookie(response, user, settings))
+    return CsrfOut(
+        csrf_token=set_csrf_cookie(
+            response,
+            user,
+            settings,
+            cookie_domain=auth_cookie_domain_for_request(request, settings),
+        ),
+    )
 
 
 @router.get("/profile/me", response_model=UserOut)

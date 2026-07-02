@@ -187,12 +187,98 @@ def test_firebase_password_session_flow(app_client, monkeypatch, run_db):
     assert "access_token" not in session_body
     assert session_body["user"]["email"] == email
     assert "HttpOnly" in session.headers["set-cookie"]
-    assert session.cookies.get("kresco_token")
+    assert session.cookies.get(AUTH_COOKIE_NAME)
 
     user = run_db(_get_user(email))
     assert user is not None
     assert user.firebase_uid == "firebase-password-newuser"
     assert user.google_id is None
+
+
+def test_localhost_session_cookie_omits_mismatched_configured_domain(
+    app_client,
+    monkeypatch,
+    test_settings,
+):
+    import app.routers.users as users_router
+
+    original_cookie_domain = test_settings.auth_cookie_domain
+    original_csrf_origins = test_settings.csrf_trusted_origins
+    test_settings.auth_cookie_domain = "kresco.lvh.me"
+    test_settings.csrf_trusted_origins = "http://127.0.0.1:3000"
+    monkeypatch.setattr(
+        users_router,
+        "verify_firebase_token",
+        lambda *_: _firebase_password_payload(
+            "localhost-cookie@example.com",
+            firebase_uid="firebase-localhost-cookie",
+        ),
+    )
+
+    try:
+        response = app_client.post(
+            "/api/auth/firebase-session",
+            json={"credential": "firebase-id-token"},
+            headers={
+                "Host": "127.0.0.1:3000",
+                "Origin": "http://127.0.0.1:3000",
+            },
+        )
+    finally:
+        test_settings.auth_cookie_domain = original_cookie_domain
+        test_settings.csrf_trusted_origins = original_csrf_origins
+
+    assert response.status_code == 200
+    cookies = response.headers.get_list("set-cookie")
+    auth_cookie = next(cookie for cookie in cookies if cookie.startswith(f"{AUTH_COOKIE_NAME}="))
+    role_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_user_role="))
+    csrf_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_csrf="))
+    assert "Domain=" not in auth_cookie
+    assert "Domain=" not in role_cookie
+    assert "Domain=" not in csrf_cookie
+
+
+def test_local_subdomain_session_cookie_keeps_configured_shared_domain(
+    app_client,
+    monkeypatch,
+    test_settings,
+):
+    import app.routers.users as users_router
+
+    original_cookie_domain = test_settings.auth_cookie_domain
+    original_csrf_origins = test_settings.csrf_trusted_origins
+    test_settings.auth_cookie_domain = "kresco.lvh.me"
+    test_settings.csrf_trusted_origins = "http://app.kresco.lvh.me:3000"
+    monkeypatch.setattr(
+        users_router,
+        "verify_firebase_token",
+        lambda *_: _firebase_password_payload(
+            "lvh-cookie@example.com",
+            firebase_uid="firebase-lvh-cookie",
+        ),
+    )
+
+    try:
+        response = app_client.post(
+            "/api/auth/firebase-session",
+            json={"credential": "firebase-id-token"},
+            headers={
+                "Host": "app.kresco.lvh.me:3000",
+                "Origin": "http://app.kresco.lvh.me:3000",
+            },
+        )
+    finally:
+        test_settings.auth_cookie_domain = original_cookie_domain
+        test_settings.csrf_trusted_origins = original_csrf_origins
+
+    assert response.status_code == 200
+    cookies = response.headers.get_list("set-cookie")
+    auth_cookie = next(cookie for cookie in cookies if cookie.startswith(f"{AUTH_COOKIE_NAME}="))
+    role_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_user_role="))
+    csrf_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_csrf="))
+    assert "Domain=kresco.lvh.me" in auth_cookie
+    assert "Domain=kresco.lvh.me" in role_cookie
+    assert "Domain=kresco.lvh.me" in csrf_cookie
 
 
 def test_google_compat_route_uses_same_firebase_session_flow(app_client, monkeypatch, run_db):
@@ -510,7 +596,7 @@ def test_logout_revokes_existing_cookie_token(app_client, run_db, test_settings)
 
 
 def test_logout_clears_stale_cookie_without_valid_session(app_client):
-    app_client.cookies.set("kresco_token", "not-a-valid-jwt")
+    app_client.cookies.set(AUTH_COOKIE_NAME, "not-a-valid-jwt")
     app_client.cookies.set("kresco_user_role", "student")
     app_client.cookies.set("kresco_csrf", "stale-csrf")
 
@@ -521,7 +607,7 @@ def test_logout_clears_stale_cookie_without_valid_session(app_client):
 
     assert logout.status_code == 200
     cookies = logout.headers.get_list("set-cookie")
-    assert any(cookie.startswith("kresco_token=") and "Max-Age=0" in cookie for cookie in cookies)
+    assert any(cookie.startswith(f"{AUTH_COOKIE_NAME}=") and "Max-Age=0" in cookie for cookie in cookies)
     assert any(cookie.startswith("kresco_user_role=") and "Max-Age=0" in cookie for cookie in cookies)
     assert any(cookie.startswith("kresco_csrf=") and "Max-Age=0" in cookie for cookie in cookies)
 
@@ -544,7 +630,7 @@ def test_production_auth_cookie_defaults_to_secure_lax_samesite(test_settings):
         for name, value in response.raw_headers
         if name.lower() == b"set-cookie"
     ]
-    auth_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_token="))
+    auth_cookie = next(cookie for cookie in cookies if cookie.startswith(f"{AUTH_COOKIE_NAME}="))
     csrf_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_csrf="))
     assert "HttpOnly" in auth_cookie
     assert "Secure" in auth_cookie
@@ -570,7 +656,7 @@ def test_auth_cookie_samesite_none_requires_explicit_setting(test_settings):
         for name, value in response.raw_headers
         if name.lower() == b"set-cookie"
     ]
-    auth_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_token="))
+    auth_cookie = next(cookie for cookie in cookies if cookie.startswith(f"{AUTH_COOKIE_NAME}="))
     csrf_cookie = next(cookie for cookie in cookies if cookie.startswith("kresco_csrf="))
     assert "Secure" in auth_cookie
     assert "samesite=none" in auth_cookie.lower()

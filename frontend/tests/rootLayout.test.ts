@@ -29,6 +29,18 @@ describe('Root layout rendering mode', () => {
     }
   })
 
+  it('keeps local component catalog routes hidden in production', () => {
+    for (const pathname of [
+      ['app', 'animated-showcase', 'page.tsx'],
+      ['app', 'figma-audit', 'page.tsx'],
+    ]) {
+      const source = readFileSync(join(process.cwd(), ...pathname), 'utf8')
+      expect(source, pathname.join('/')).toContain("from 'next/navigation'")
+      expect(source, pathname.join('/')).toContain("process.env.NODE_ENV === 'production'")
+      expect(source, pathname.join('/')).toContain('notFound()')
+    }
+  })
+
   it('defines production-shareable metadata instead of a bare title', () => {
     const source = readFileSync(join(process.cwd(), 'app', 'layout.tsx'), 'utf8')
 

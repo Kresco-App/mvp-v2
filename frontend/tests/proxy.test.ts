@@ -48,6 +48,17 @@ function makeRequestWithHostHeader(
   return new NextRequest(new Request(`http://${urlHost}${pathname}`, { headers }))
 }
 
+function makeForwardedHostRequest(
+  pathname: string,
+  forwardedHost: string,
+  host = 'kresco-frontend-staging-760338563763.europe-southwest1.run.app:8080',
+) {
+  const headers = new Headers()
+  headers.set('host', host)
+  headers.set('x-forwarded-host', forwardedHost)
+  return new NextRequest(new Request(`https://${host}${pathname}`, { headers }))
+}
+
 function validToken(payload: Record<string, unknown> = {}) {
   return makeToken({
     exp: Math.floor(Date.now() / 1000) + 3600,
@@ -176,7 +187,7 @@ describe('Next proxy auth boundary', () => {
     expect(accepted.status).toBe(200)
     expect(accepted.headers.get('x-middleware-next')).toBe('1')
     expect(expired.status).toBe(307)
-    expect(expired.headers.get('location')).toBe('https://kresco.example/')
+    expect(expired.headers.get('location')).toBe('https://admin.kresco.example/login?next=%2Fadmin')
   })
 
   it('allows protected routes with a valid auth cookie', () => {
@@ -242,9 +253,19 @@ describe('Next proxy auth boundary', () => {
     const professor = proxy(makeRequest('/', {}, 'prof.kresco.example'))
 
     expect(student.headers.get('location')).toBe('https://kresco.example/')
-    expect(admin.headers.get('location')).toBe('https://kresco.example/')
-    expect(staff.headers.get('location')).toBe('https://kresco.example/')
+    expect(admin.headers.get('location')).toBe('https://admin.kresco.example/login?next=%2Fadmin')
+    expect(staff.headers.get('location')).toBe('https://staff.kresco.example/login?next=%2Fstaff%2Fpayments')
     expect(professor.headers.get('location')).toBe('https://prof.kresco.example/professor/login')
+  })
+
+  it('keeps unauthenticated admin and staff paths on workspace login', () => {
+    const admin = proxy(makeRequest('/admin/users', {}, 'admin.kresco.example'))
+    const staff = proxy(makeRequest('/staff/payments', {}, 'staff.kresco.example'))
+
+    expect(admin.status).toBe(307)
+    expect(admin.headers.get('location')).toBe('https://admin.kresco.example/login?next=%2Fadmin%2Fusers')
+    expect(staff.status).toBe(307)
+    expect(staff.headers.get('location')).toBe('https://staff.kresco.example/login?next=%2Fstaff%2Fpayments')
   })
 
   it('redirects authenticated landing visitors to the right subdomain workspace', () => {
@@ -271,10 +292,27 @@ describe('Next proxy auth boundary', () => {
       [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
       [KRESCO_USER_ROLE_COOKIE]: 'student',
     }, 'admin.kresco.lvh.me:3000'))
+    const staff = proxy(makeHttpRequest('/', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'staff.kresco.lvh.me:3000'))
     const unauthenticatedApp = proxy(makeHttpRequest('/', {}, 'app.kresco.lvh.me:3000'))
+    const unauthenticatedAdmin = proxy(makeHttpRequest('/', {}, 'admin.kresco.lvh.me:3000'))
 
     expect(admin.headers.get('x-middleware-rewrite')).toBe('http://admin.kresco.lvh.me:3000/admin')
+    expect(staff.headers.get('x-middleware-rewrite')).toBe('http://staff.kresco.lvh.me:3000/staff/payments')
     expect(unauthenticatedApp.headers.get('location')).toBe('http://kresco.lvh.me:3000/')
+    expect(unauthenticatedAdmin.headers.get('location')).toBe('http://admin.kresco.lvh.me:3000/login?next=%2Fadmin')
+  })
+
+  it('keeps staff subdomains out of the admin workspace even when the path is /admin', () => {
+    const response = proxy(makeHttpRequest('/admin', {
+      [KRESCO_TOKEN_COOKIE]: validToken({ is_staff: true }),
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }, 'staff.kresco.lvh.me:3000'))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('http://staff.kresco.lvh.me:3000/staff/payments')
   })
 
   it('supports kresco.test local subdomains with the same host routing model', () => {
@@ -308,6 +346,7 @@ describe('Next proxy auth boundary', () => {
       [KRESCO_USER_ROLE_COOKIE]: 'student',
     }, 'admin.kresco.lvh.me:3000'))
     const unauthenticatedApp = proxy(makeRequestWithHostHeader('/', {}, 'app.kresco.lvh.me:3000'))
+    const unauthenticatedAdmin = proxy(makeRequestWithHostHeader('/', {}, 'admin.kresco.lvh.me:3000'))
     const professorAlias = proxy(makeRequestWithHostHeader(
       '/professor/login?next=chat',
       {},
@@ -320,6 +359,7 @@ describe('Next proxy auth boundary', () => {
 
     expect(admin.headers.get('x-middleware-rewrite')).toBe('http://admin.kresco.lvh.me:3000/admin')
     expect(unauthenticatedApp.headers.get('location')).toBe('http://kresco.lvh.me:3000/')
+    expect(unauthenticatedAdmin.headers.get('location')).toBe('http://admin.kresco.lvh.me:3000/login?next=%2Fadmin')
     expect(professorAlias.headers.get('location')).toBe('http://prof.kresco.lvh.me:3000/professor/login?next=chat')
     expect(krescoTestAdmin.headers.get('x-middleware-rewrite')).toBe('http://admin.kresco.test:3000/admin')
   })
@@ -329,6 +369,39 @@ describe('Next proxy auth boundary', () => {
 
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe('https://kresco.example/pricing?coupon=bac')
+  })
+
+  it('uses the forwarded host before the Cloud Run host behind Firebase Hosting', () => {
+    const response = proxy(makeForwardedHostRequest('/pricing?coupon=bac', 'www.kresco.example'))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://kresco.example/pricing?coupon=bac')
+  })
+
+  it('does not treat raw Cloud Run service hosts as routed workspace subdomains', () => {
+    const directService = proxy(makeRequest(
+      '/professor',
+      {},
+      'kresco-frontend-staging-760338563763.europe-southwest1.run.app',
+    ))
+    const forwardedPublicHost = proxy(makeForwardedHostRequest('/professor', 'staging.kresco.ma'))
+
+    expect(directService.headers.get('location')).toBe(
+      'https://kresco-frontend-staging-760338563763.europe-southwest1.run.app/professor/login',
+    )
+    expect(forwardedPublicHost.headers.get('location')).toBe('https://prof.staging.kresco.ma/professor/login')
+  })
+
+  it('serves dedicated admin and staff login paths without falling through generic auth', () => {
+    const admin = proxy(makeRequest('/admin/login', {}, 'admin.kresco.example'))
+    const staff = proxy(makeRequest('/staff/login', {}, 'staff.kresco.example'))
+
+    expect(admin.status).toBe(200)
+    expect(admin.headers.get('x-middleware-next')).toBe('1')
+    expect(admin.headers.get('location')).toBeNull()
+    expect(staff.status).toBe(200)
+    expect(staff.headers.get('x-middleware-next')).toBe('1')
+    expect(staff.headers.get('location')).toBeNull()
   })
 
   it('canonicalizes professor host aliases to the configured professor origin', () => {
@@ -404,13 +477,19 @@ describe('Next proxy auth boundary', () => {
   })
 
   it('does not verify auth tokens for public routes that do not need token decisions', () => {
-    const response = proxy(makeRequest('/professor/login', {
+    const professorLogin = proxy(makeRequest('/professor/login', {
+      [KRESCO_TOKEN_COOKIE]: 'malformed-token-that-would-fail-verification',
+      [KRESCO_USER_ROLE_COOKIE]: 'student',
+    }))
+    const workspaceLogin = proxy(makeRequest('/login', {
       [KRESCO_TOKEN_COOKIE]: 'malformed-token-that-would-fail-verification',
       [KRESCO_USER_ROLE_COOKIE]: 'student',
     }))
 
-    expect(response.status).toBe(200)
-    expect(response.headers.get('x-middleware-next')).toBe('1')
+    expect(professorLogin.status).toBe(200)
+    expect(professorLogin.headers.get('x-middleware-next')).toBe('1')
+    expect(workspaceLogin.status).toBe(200)
+    expect(workspaceLogin.headers.get('x-middleware-next')).toBe('1')
   })
 
   it('emits security headers on representative app surfaces', () => {
@@ -433,6 +512,7 @@ describe('Next proxy auth boundary', () => {
       ['/calendar', studentCookies],
       ['/topics/42', studentCookies],
       ['/admin', staffCookies],
+      ['/login', {}],
       ['/professor', professorCookies],
       ['/professor/live/session-1', professorCookies],
       ['/professor/login', {}],

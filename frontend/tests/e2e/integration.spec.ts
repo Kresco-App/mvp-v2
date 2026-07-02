@@ -5,7 +5,7 @@ const frontendPort = Number(process.env.KRESCO_E2E_FRONTEND_PORT ?? 3101)
 const backendPort = Number(process.env.KRESCO_E2E_BACKEND_PORT ?? 8010)
 const frontendOrigin = `http://127.0.0.1:${frontendPort}`
 const backendOrigin = `http://127.0.0.1:${backendPort}`
-const authCookieNames = ['kresco_token', 'kresco_user_role', 'kresco_csrf']
+const authCookieNames = ['__session', 'kresco_user_role', 'kresco_csrf']
 
 type TopicSummary = {
   id: number
@@ -381,7 +381,7 @@ test('backend-backed negative states cover expired auth, forbidden, backend fail
   try {
     await expiredContext.addCookies([
       {
-        name: 'kresco_token',
+        name: '__session',
         value: unsignedJwt({ exp: Math.floor(Date.now() / 1000) - 60 }),
         domain: '127.0.0.1',
         path: '/',

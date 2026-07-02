@@ -126,6 +126,27 @@ def test_cookie_write_accepts_trusted_origin_and_matching_csrf_token(app_client,
     assert run_db(_full_name("csrf-valid@example.com")) == "CSRF Protected"
 
 
+def test_cookie_write_accepts_signed_csrf_header_without_csrf_cookie(app_client, run_db, test_settings):
+    user = run_db(_seed_session_user("csrf-header-only@example.com"))
+    auth_token = create_token(user, test_settings)
+    csrf_token = csrf_token_for_user(user, test_settings)
+    app_client.cookies.set(AUTH_COOKIE_NAME, auth_token, path="/")
+    app_client.cookies.set(CSRF_COOKIE_NAME, "", path="/")
+
+    response = app_client.patch(
+        "/api/profile/me",
+        json={"full_name": "Header CSRF Protected"},
+        headers={
+            "Origin": "http://localhost:3000",
+            CSRF_HEADER_NAME: csrf_token,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "Header CSRF Protected"
+    assert run_db(_full_name("csrf-header-only@example.com")) == "Header CSRF Protected"
+
+
 def test_pre_auth_auth_endpoints_reject_untrusted_origin(app_client):
     response = app_client.post(
         "/api/auth/firebase-session",

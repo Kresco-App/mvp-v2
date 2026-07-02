@@ -7,7 +7,7 @@ import jwt
 
 from app.config import Settings, get_settings
 
-AUTH_COOKIE_NAME = "kresco_token"
+AUTH_COOKIE_NAME = "__session"
 AUTH_ROLE_COOKIE_NAME = "kresco_user_role"
 FIREBASE_AUTH_APP_NAME_PREFIX = "kresco-auth-"
 FIREBASE_CUSTOM_TOKEN_AUDIENCE = "https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit"

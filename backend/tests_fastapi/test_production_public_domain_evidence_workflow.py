@@ -58,6 +58,7 @@ def test_production_public_domain_evidence_collects_auth_routing_api_and_hsts_pr
     assert "normalize_secret_value()" in workflow
     assert "--require-email-password" in workflow
     assert "--require-google-provider" in workflow
+    assert "--require-phone-provider" in workflow
     assert "--expected-sha \"${{ inputs.expected_sha }}\"" in workflow
     assert "--hsts-policy \"${{ inputs.hsts_policy }}\"" in workflow
     assert "firebase-hosting-rewrites.status.json" in workflow

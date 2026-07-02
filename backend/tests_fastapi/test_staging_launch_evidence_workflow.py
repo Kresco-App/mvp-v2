@@ -310,6 +310,7 @@ def test_staging_launch_evidence_workflow_runs_gcp_collectors_fail_closed():
     assert "--ensure-authorized-domains" not in public_auth_block
     assert "--require-email-password" in workflow
     assert "--require-google-provider" in workflow
+    assert "--require-phone-provider" in workflow
     assert "actions/upload-artifact@v4" in workflow
     assert "if: always()" in workflow
     assert "if-no-files-found: error" in workflow

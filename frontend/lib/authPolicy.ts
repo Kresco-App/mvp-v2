@@ -15,9 +15,11 @@ export type StudentOnboardingStep = 'niveau' | 'filiere'
 
 export const AUTH_ROUTES = {
   landing: '/',
+  workspaceLogin: '/login',
   studentOnboarding: '/onboarding',
   studentHome: '/home',
   adminHome: '/admin',
+  staffHome: '/staff/payments',
   studentProfessorChat: '/professor-chat',
   professorHome: '/professor',
   professorChat: '/professor/chat',
@@ -32,6 +34,14 @@ function normalizeTier(tier: string | null | undefined) {
 
 export function isProfessorRoute(pathname: string) {
   return pathname === AUTH_ROUTES.professorHome || pathname.startsWith(`${AUTH_ROUTES.professorHome}/`)
+}
+
+export function isAdminRoute(pathname: string) {
+  return pathname === AUTH_ROUTES.adminHome || pathname.startsWith(`${AUTH_ROUTES.adminHome}/`)
+}
+
+export function isStaffRoute(pathname: string) {
+  return pathname === '/staff' || pathname.startsWith('/staff/')
 }
 
 export function isStudentOnboardingRoute(pathname: string) {
@@ -88,14 +98,17 @@ export function getSafePostLoginDestination(
     || value.startsWith(`${AUTH_ROUTES.studentOnboarding}?`)
     || value.startsWith(`${AUTH_ROUTES.studentOnboarding}/`)
     || value.startsWith('/auth/')
+    || value === AUTH_ROUTES.workspaceLogin
     || value === AUTH_ROUTES.professorLogin
   ) return null
   if (isProfessorRoute(value)) return isProfessorUser(user) ? value : null
-  if (value === '/admin' || value.startsWith('/admin/')) return isStaffUser(user) ? value : null
+  if (isAdminRoute(value)) return isStaffUser(user) ? value : null
+  if (isStaffRoute(value)) return isStaffUser(user) ? value : null
   return isProfessorUser(user) ? null : value
 }
 
 export function getUnauthorizedDestination(pathname = '') {
+  if (isAdminRoute(pathname) || isStaffRoute(pathname)) return AUTH_ROUTES.workspaceLogin
   return isProfessorRoute(pathname) ? AUTH_ROUTES.professorLogin : AUTH_ROUTES.landing
 }
 

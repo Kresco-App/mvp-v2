@@ -10,7 +10,19 @@
 6. Confirm Firebase Auth and Firestore values match the same project as the deployed frontend.
 7. Confirm frontend domains are attached before user cutover: `kresco.ma`, `www.kresco.ma`, `app.kresco.ma`, `admin.kresco.ma`, `prof.kresco.ma`, and `staff.kresco.ma`.
 8. Confirm Firebase Auth authorized domains include every production frontend domain and the Firebase default domains.
-9. Confirm the backend runtime domain contract passes before deploy:
+9. Confirm Firebase Auth sign-in providers are launch-ready:
+   - Email/Password is enabled in `kresco-prod`.
+   - Google is enabled in `kresco-prod` with a production Google Web Client ID and Web Secret. If Google is missing, create or select a production OAuth web client in Google Auth Platform/Credentials, add the Firebase Auth redirect handler for `kresco-prod`, then enable the Google provider in Firebase Auth.
+   - Phone is enabled in `kresco-prod` before any SMS verification UI is exposed.
+
+```powershell
+$env:FIREBASE_GOOGLE_CLIENT_ID="<production-web-client-id>"
+$env:FIREBASE_GOOGLE_CLIENT_SECRET="<production-web-client-secret>"
+python scripts/configure_firebase_google_provider.py --project-id kresco-prod --json
+Remove-Item Env:\FIREBASE_GOOGLE_CLIENT_ID,Env:\FIREBASE_GOOGLE_CLIENT_SECRET
+```
+
+10. Confirm the backend runtime domain contract passes before deploy:
 
 ```powershell
 python scripts/check_public_auth_readiness.py --project-id kresco-prod --runtime-secret-name kresco-runtime --frontend-apex-url https://kresco.ma --api-host api.kresco.ma --runtime-secret-only
@@ -97,7 +109,7 @@ Firebase Hosting edge:
 
 ```powershell
 python scripts/check_subdomain_routing.py --apex-url https://kresco.ma --expected-sha <short-sha> --hsts-policy no-include-subdomains --required
-python scripts/check_public_auth_readiness.py --project-id kresco-prod --runtime-secret-name kresco-runtime --frontend-apex-url https://kresco.ma --api-host api.kresco.ma --require-email-password --require-google-provider
+python scripts/check_public_auth_readiness.py --project-id kresco-prod --runtime-secret-name kresco-runtime --frontend-apex-url https://kresco.ma --api-host api.kresco.ma --require-email-password --require-google-provider --require-phone-provider
 python scripts/ensure_firebase_hosting_sites.py --environment production --json
 python scripts/ensure_firebase_hosting_sites.py --environment production --ensure --json
 python scripts/ensure_firebase_hosting_domains.py --environment production --json
@@ -109,7 +121,7 @@ python scripts/check_firebase_hosting_domains.py --environment production --json
 python scripts/check_firebase_hosting_domains.py --environment production --live --json
 ```
 
-This checks the apex release marker, `www` canonical redirect, app/admin/staff unauthenticated redirect boundaries, the professor login boundary, backend auth-domain settings, Firebase Auth authorized domains, and Email/Password/Google provider enablement.
+This checks the apex release marker, `www` canonical redirect, app/admin/staff unauthenticated redirect boundaries, the professor login boundary, backend auth-domain settings, Firebase Auth authorized domains, and Email/Password, Google, and Phone provider enablement.
 The `Production Public Domain Evidence` workflow also checks the Hosting site/domain split, live Firebase custom-domain attachments, and the public API domain directly. It fails unless `firebase-hosting-domains.json` includes and live-discovers every expected public host, and `public-api-health.json` proves `api.kresco.ma` is serving the same backend release.
 For production, prefer verification first. If the project target has been double-checked and only Firebase Auth authorized domains are missing, rerun the auth command with `--ensure-authorized-domains` to add the required production frontend domains without removing existing Firebase defaults.
 

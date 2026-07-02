@@ -906,6 +906,10 @@ def test_production_runbook_covers_release_recovery_and_incidents():
     assert "staff.kresco.ma" in runbook
     assert "AUTH_COOKIE_DOMAIN=kresco.ma" in runbook
     assert "NEXT_PUBLIC_AUTH_COOKIE_DOMAIN=kresco.ma" in runbook
+    assert "Google Web Client ID and Web Secret" in runbook
+    assert "scripts/configure_firebase_google_provider.py --project-id kresco-prod" in runbook
+    assert "--require-google-provider" in runbook
+    assert "--require-phone-provider" in runbook
     assert "Kresco/Api" in runbook
     assert "ClientError" in runbook
     assert "/api/internal/diagnostics" in runbook

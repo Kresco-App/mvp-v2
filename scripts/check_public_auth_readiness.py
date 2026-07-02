@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -49,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ensure-authorized-domains", action="store_true")
     parser.add_argument("--require-email-password", action="store_true")
     parser.add_argument("--require-google-provider", action="store_true")
+    parser.add_argument("--require-phone-provider", action="store_true")
     parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -99,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         api_host=args.api_host,
         require_email_password=args.require_email_password,
         require_google_provider=args.require_google_provider,
+        require_phone_provider=args.require_phone_provider,
         require_firebase_auth_config=not args.runtime_secret_only,
         preflight_errors=errors,
     )
@@ -122,6 +125,7 @@ def evaluate_public_auth_readiness(
     api_host: str = "",
     require_email_password: bool = False,
     require_google_provider: bool = False,
+    require_phone_provider: bool = False,
     require_firebase_auth_config: bool = True,
     preflight_errors: list[str] | None = None,
 ) -> PublicAuthReadinessResult:
@@ -147,6 +151,7 @@ def evaluate_public_auth_readiness(
                     expected_domains,
                     require_email_password=require_email_password,
                     require_google_provider=require_google_provider,
+                    require_phone_provider=require_phone_provider,
                 )
             )
         else:
@@ -261,6 +266,7 @@ def _firebase_auth_config_errors(
     *,
     require_email_password: bool,
     require_google_provider: bool,
+    require_phone_provider: bool,
 ) -> list[str]:
     errors: list[str] = []
     authorized_domains = set(_list_value(auth_config, "authorizedDomains", "authorized_domains"))
@@ -274,6 +280,8 @@ def _firebase_auth_config_errors(
             errors.append("Firebase Auth Email/Password sign-in must be enabled.")
     if require_google_provider and not _google_provider_enabled(auth_config):
         errors.append("Firebase Auth Google provider must be enabled.")
+    if require_phone_provider and not _phone_provider_enabled(auth_config):
+        errors.append("Firebase Auth Phone provider must be enabled.")
     return errors
 
 
@@ -303,6 +311,15 @@ def _google_provider_enabled(auth_config: dict[str, Any]) -> bool:
             if name.endswith("/google.com") or name == "google.com":
                 return config.get("enabled") is True
     return False
+
+
+def _phone_provider_enabled(auth_config: dict[str, Any]) -> bool:
+    explicit = auth_config.get("phoneProvider")
+    if isinstance(explicit, dict) and explicit.get("enabled") is True:
+        return True
+    sign_in = auth_config.get("signIn")
+    phone_config = sign_in.get("phoneNumber") if isinstance(sign_in, dict) else None
+    return isinstance(phone_config, dict) and phone_config.get("enabled") is True
 
 
 def _load_runtime_secret(
@@ -349,12 +366,13 @@ def _load_auth_config(
         return _read_json_file(fixture_path, errors, label="Firebase Auth config")
     if not project_id:
         return None
-    token = _run_command(["gcloud", "auth", "print-access-token"], errors, label="gcloud access token")
+    token = _gcloud_access_token(project_id=project_id, errors=errors)
     if token is None:
         return None
     config = _fetch_identitytoolkit_json(
         f"https://identitytoolkit.googleapis.com/admin/v2/projects/{urllib.parse.quote(project_id, safe='')}/config",
         token=token,
+        quota_project_id=project_id,
         timeout_seconds=timeout_seconds,
         errors=errors,
         label="Firebase Auth config",
@@ -366,6 +384,7 @@ def _load_auth_config(
                 f"projects/{urllib.parse.quote(project_id, safe='')}/defaultSupportedIdpConfigs/google.com"
             ),
             token=token,
+            quota_project_id=project_id,
             timeout_seconds=timeout_seconds,
             errors=errors,
             label="Firebase Auth Google provider config",
@@ -393,7 +412,7 @@ def _ensure_authorized_domains(
         errors.append("project-id is required to ensure Firebase Auth authorized domains.")
         return auth_config
 
-    token = _run_command(["gcloud", "auth", "print-access-token"], errors, label="gcloud access token")
+    token = _gcloud_access_token(project_id=project_id, errors=errors)
     if token is None:
         return auth_config
 
@@ -405,6 +424,7 @@ def _ensure_authorized_domains(
     patched_config = _fetch_identitytoolkit_json(
         update_url,
         token=token,
+        quota_project_id=project_id,
         timeout_seconds=timeout_seconds,
         errors=errors,
         label="Firebase Auth authorized domains update",
@@ -422,6 +442,7 @@ def _fetch_identitytoolkit_json(
     url: str,
     *,
     token: str,
+    quota_project_id: str,
     timeout_seconds: int,
     errors: list[str],
     label: str,
@@ -434,6 +455,8 @@ def _fetch_identitytoolkit_json(
         "Authorization": f"Bearer {token.strip()}",
         "User-Agent": "kresco-public-auth-readiness/1.0",
     }
+    if quota_project_id:
+        headers["X-Goog-User-Project"] = quota_project_id
     if payload is not None:
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
@@ -456,8 +479,12 @@ def _fetch_identitytoolkit_json(
 
 
 def _run_command(command: list[str], errors: list[str], *, label: str) -> str | None:
+    executable = _resolve_executable(command[0])
+    if executable is None:
+        errors.append(f"{label} command failed to start: {command[0]} was not found.")
+        return None
     try:
-        completed = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        completed = subprocess.run([executable, *command[1:]], check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except OSError as exc:
         errors.append(f"{label} command failed to start: {exc}.")
         return None
@@ -466,6 +493,22 @@ def _run_command(command: list[str], errors: list[str], *, label: str) -> str | 
         errors.append(f"{label} command exited {completed.returncode}: {stderr}.")
         return None
     return completed.stdout
+
+
+def _gcloud_access_token(*, project_id: str, errors: list[str]) -> str | None:
+    command = ["gcloud", "auth", "print-access-token"]
+    if project_id:
+        command.extend(["--project", project_id])
+    return _run_command(command, errors, label="gcloud access token")
+
+
+def _resolve_executable(name: str) -> str | None:
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+    if os.name == "nt" and not name.lower().endswith(".cmd"):
+        return shutil.which(f"{name}.cmd")
+    return None
 
 
 def _read_json_file(path: Path, errors: list[str], *, label: str) -> dict[str, Any] | None:

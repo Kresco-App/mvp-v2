@@ -125,6 +125,7 @@ jobs:
             --api-host "$PRODUCTION_API_HOST" \
             --require-email-password \
             --require-google-provider \
+            --require-phone-provider \
             --json > "$EVIDENCE_DIR/public-auth-readiness.json" 2> "$EVIDENCE_DIR/public-auth-readiness.stderr.txt"
           status=$?
           printf '{"exit_code":%s}\n' "$status" > "$EVIDENCE_DIR/public-auth-readiness.status.json"

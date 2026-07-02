@@ -217,9 +217,9 @@ export default function AuthGuard({ children, requireRole = null, requireStaff =
           clearAuthGuardProfileVerificationCache()
           verificationStateRef.current = 'denied'
           setAccessState('denied')
-          void clearSession().finally(() => {
-            replaceBrowserLocation(getUnauthorizedDestination(window.location.pathname))
-          })
+          const destination = getUnauthorizedDestination(window.location.pathname)
+          void clearSession()
+          replaceBrowserLocation(destination)
           return
         }
         verificationStateRef.current = 'error'

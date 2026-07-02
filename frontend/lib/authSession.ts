@@ -1,7 +1,7 @@
 export const KRESCO_TOKEN_KEY = 'kresco_token'
 export const KRESCO_USER_KEY = 'kresco_user'
 export const KRESCO_CSRF_KEY = 'kresco_csrf'
-export const KRESCO_TOKEN_COOKIE = 'kresco_token'
+export const KRESCO_TOKEN_COOKIE = '__session'
 export const KRESCO_USER_ROLE_COOKIE = 'kresco_user_role'
 export const KRESCO_CSRF_COOKIE = 'kresco_csrf'
 export const KRESCO_CSRF_HEADER = 'x-csrf-token'

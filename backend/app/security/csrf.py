@@ -33,6 +33,7 @@ UNAUTHENTICATED_AUTH_PATHS = {
 SIGNED_WEBHOOK_PATHS = {
     "/api/payments/cmi/callback",
 }
+_COOKIE_DOMAIN_UNSET = object()
 
 
 def csrf_token_for_user(user: object, settings: Settings) -> str:
@@ -44,7 +45,13 @@ def csrf_token_for_user(user: object, settings: Settings) -> str:
     return _serializer(settings).dumps(payload)
 
 
-def set_csrf_cookie(response: Response, user: object, settings: Settings) -> str:
+def set_csrf_cookie(
+    response: Response,
+    user: object,
+    settings: Settings,
+    *,
+    cookie_domain: str | None | object = _COOKIE_DOMAIN_UNSET,
+) -> str:
     token = csrf_token_for_user(user, settings)
     response.set_cookie(
         CSRF_COOKIE_NAME,
@@ -53,21 +60,53 @@ def set_csrf_cookie(response: Response, user: object, settings: Settings) -> str
         httponly=False,
         secure=settings.is_production_like,
         samesite=settings.auth_cookie_samesite_value,
-        domain=settings.auth_cookie_domain_value,
+        domain=_resolved_cookie_domain(settings, cookie_domain),
         path="/",
     )
     return token
 
 
-def clear_csrf_cookie(response: Response, settings: Settings) -> None:
+def clear_csrf_cookie(
+    response: Response,
+    settings: Settings,
+    *,
+    cookie_domain: str | None | object = _COOKIE_DOMAIN_UNSET,
+) -> None:
     response.delete_cookie(
         CSRF_COOKIE_NAME,
         path="/",
         secure=settings.is_production_like,
         httponly=False,
         samesite=settings.auth_cookie_samesite_value,
-        domain=settings.auth_cookie_domain_value,
+        domain=_resolved_cookie_domain(settings, cookie_domain),
     )
+
+
+def auth_cookie_domain_for_request(request: Request, settings: Settings) -> str | None:
+    configured_domain = settings.auth_cookie_domain_value
+    if not configured_domain:
+        return None
+
+    request_host = _request_cookie_hostname(request)
+    if _host_matches_cookie_domain(request_host, configured_domain):
+        return configured_domain
+
+    if not settings.is_production_like:
+        return None
+
+    return configured_domain
+
+
+def auth_cookie_delete_domains_for_request(request: Request, settings: Settings) -> list[str | None]:
+    domains: list[str | None] = []
+    for domain in (
+        auth_cookie_domain_for_request(request, settings),
+        settings.auth_cookie_domain_value,
+        None,
+    ):
+        if domain not in domains:
+            domains.append(domain)
+    return domains
 
 
 def csrf_failure_reason(request: Request, settings: Settings) -> str | None:
@@ -91,15 +130,16 @@ def csrf_failure_reason(request: Request, settings: Settings) -> str | None:
 
     header_token = request.headers.get(CSRF_HEADER_NAME, "")
     cookie_token = request.cookies.get(CSRF_COOKIE_NAME, "")
-    if not header_token or not cookie_token:
+    if not header_token:
         return "CSRF token is required for cookie-authenticated writes"
-    if not hmac.compare_digest(header_token, cookie_token):
+    if cookie_token and not hmac.compare_digest(header_token, cookie_token):
         return "CSRF token mismatch"
+    token_to_verify = cookie_token or header_token
 
     try:
         auth_payload = decode_token(request.cookies[AUTH_COOKIE_NAME], settings)
         csrf_payload = _serializer(settings).loads(
-            cookie_token,
+            token_to_verify,
             max_age=max(int(settings.jwt_expire_minutes) * 60, 1),
         )
     except (jwt.PyJWTError, BadSignature, SignatureExpired, TypeError, ValueError):
@@ -114,6 +154,47 @@ def csrf_failure_reason(request: Request, settings: Settings) -> str | None:
 
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.jwt_secret_key, salt="kresco-csrf-v1")
+
+
+def _resolved_cookie_domain(settings: Settings, cookie_domain: str | None | object) -> str | None:
+    if cookie_domain is _COOKIE_DOMAIN_UNSET:
+        return settings.auth_cookie_domain_value
+    return cookie_domain if isinstance(cookie_domain, str) else None
+
+
+def _request_cookie_hostname(request: Request) -> str:
+    for header_name in ("x-forwarded-host", "host"):
+        raw_host = request.headers.get(header_name, "")
+        hostname = _hostname_from_header(raw_host)
+        if hostname:
+            return hostname
+    return _hostname_from_header(request.url.hostname or "")
+
+
+def _hostname_from_header(value: str) -> str:
+    host = value.split(",", 1)[0].strip().lower()
+    if not host:
+        return ""
+
+    if host.startswith("["):
+        end_index = host.find("]")
+        return host[1:end_index] if end_index > 0 else ""
+
+    parsed = urlparse(host if "://" in host else f"//{host}")
+    return (parsed.hostname or "").strip(".").lower()
+
+
+def _host_matches_cookie_domain(hostname: str, cookie_domain: str) -> bool:
+    normalized_host = hostname.strip(".").lower()
+    normalized_domain = cookie_domain.strip(".").lower()
+    return bool(
+        normalized_host
+        and normalized_domain
+        and (
+            normalized_host == normalized_domain
+            or normalized_host.endswith(f".{normalized_domain}")
+        )
+    )
 
 
 def _is_exempt_path(path: str) -> bool:

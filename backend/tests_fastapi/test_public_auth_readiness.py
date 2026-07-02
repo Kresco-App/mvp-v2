@@ -56,7 +56,7 @@ def _auth_config() -> dict:
             "prof.staging.kresco.ma",
             "staff.staging.kresco.ma",
         ],
-        "signIn": {"email": {"enabled": True}},
+        "signIn": {"email": {"enabled": True}, "phoneNumber": {"enabled": True}},
         "googleProvider": {"name": "projects/kresco-staging/defaultSupportedIdpConfigs/google.com", "enabled": True},
     }
 
@@ -71,6 +71,7 @@ def test_public_auth_readiness_accepts_staging_domain_contract():
         api_host="api.staging.kresco.ma",
         require_email_password=True,
         require_google_provider=True,
+        require_phone_provider=True,
     )
 
     assert result.passed is True
@@ -127,6 +128,7 @@ def test_public_auth_readiness_reports_missing_firebase_domains():
         api_host="api.staging.kresco.ma",
         require_email_password=True,
         require_google_provider=True,
+        require_phone_provider=True,
     )
 
     assert result.passed is False
@@ -282,6 +284,22 @@ def test_public_auth_readiness_requires_google_provider_when_requested():
     assert "Firebase Auth Google provider must be enabled." in result.errors
 
 
+def test_public_auth_readiness_requires_phone_provider_when_requested():
+    module = _load_module()
+    auth_config = _auth_config()
+    auth_config["signIn"] = {"email": {"enabled": True}, "phoneNumber": {"enabled": False}}
+
+    result = module.evaluate_public_auth_readiness(
+        _runtime_secret(),
+        auth_config,
+        frontend_apex_url="https://staging.kresco.ma",
+        require_phone_provider=True,
+    )
+
+    assert result.passed is False
+    assert "Firebase Auth Phone provider must be enabled." in result.errors
+
+
 def test_public_auth_readiness_cli_uses_fixture_files(tmp_path, capsys):
     module = _load_module()
     runtime_path = tmp_path / "runtime.json"
@@ -301,6 +319,7 @@ def test_public_auth_readiness_cli_uses_fixture_files(tmp_path, capsys):
             str(auth_path),
             "--require-email-password",
             "--require-google-provider",
+            "--require-phone-provider",
             "--json",
         ]
     )
@@ -404,7 +423,7 @@ def test_ensure_authorized_domains_patches_missing_domains_without_removing_exis
     calls: list[dict] = []
 
     def fake_run_command(command, errors, *, label):
-        assert command == ["gcloud", "auth", "print-access-token"]
+        assert command == ["gcloud", "auth", "print-access-token", "--project", "kresco-staging"]
         assert label == "gcloud access token"
         return "token"
 
@@ -412,6 +431,7 @@ def test_ensure_authorized_domains_patches_missing_domains_without_removing_exis
         url,
         *,
         token,
+        quota_project_id,
         timeout_seconds,
         errors,
         label,
@@ -422,6 +442,7 @@ def test_ensure_authorized_domains_patches_missing_domains_without_removing_exis
             {
                 "url": url,
                 "token": token,
+                "quota_project_id": quota_project_id,
                 "timeout_seconds": timeout_seconds,
                 "label": label,
                 "method": method,
@@ -449,6 +470,7 @@ def test_ensure_authorized_domains_patches_missing_domains_without_removing_exis
     assert len(calls) == 1
     call = calls[0]
     assert call["method"] == "PATCH"
+    assert call["quota_project_id"] == "kresco-staging"
     assert call["timeout_seconds"] == 9
     assert call["label"] == "Firebase Auth authorized domains update"
     assert call["url"].endswith("/projects/kresco-staging/config?updateMask=authorizedDomains")

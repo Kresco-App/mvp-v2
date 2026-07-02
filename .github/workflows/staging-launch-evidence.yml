@@ -394,6 +394,7 @@ jobs:
             --api-host "$STAGING_API_HOST" \
             --require-email-password \
             --require-google-provider \
+            --require-phone-provider \
             --json > "$EVIDENCE_DIR/public-auth-readiness.json"
 
       - name: Evaluate staging launch evidence

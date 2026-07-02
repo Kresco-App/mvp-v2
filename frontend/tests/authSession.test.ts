@@ -75,6 +75,9 @@ describe('auth redirect decisions', () => {
     expect(isProtectedRoute('/home')).toBe(true)
     expect(isProtectedRoute('/topics/42')).toBe(true)
     expect(isProtectedRoute('/onboarding')).toBe(true)
+    expect(isProtectedRoute('/login')).toBe(false)
+    expect(isProtectedRoute('/admin/login')).toBe(false)
+    expect(isProtectedRoute('/staff/login')).toBe(false)
     expect(isProtectedRoute('/auth/reset-password')).toBe(false)
   })
 
@@ -93,6 +96,14 @@ describe('auth redirect decisions', () => {
       action: 'redirect',
       destination: '/professor/login',
       clearCookie: true,
+    })
+    expect(getAuthRedirect('/admin', undefined, () => false)).toEqual({
+      action: 'redirect',
+      destination: '/login',
+    })
+    expect(getAuthRedirect('/staff/payments', undefined, () => false)).toEqual({
+      action: 'redirect',
+      destination: '/login',
     })
   })
 
@@ -165,6 +176,8 @@ describe('auth policy decisions', () => {
       destination: '/professor/chat',
     })
     expect(getUnauthorizedDestination('/professor/chat')).toBe(AUTH_ROUTES.professorLogin)
+    expect(getUnauthorizedDestination('/admin/users')).toBe(AUTH_ROUTES.workspaceLogin)
+    expect(getUnauthorizedDestination('/staff/payments')).toBe(AUTH_ROUTES.workspaceLogin)
     expect(getUnauthorizedDestination('/home')).toBe(AUTH_ROUTES.landing)
   })
 
@@ -193,7 +206,10 @@ describe('auth policy decisions', () => {
     expect(getSafePostLoginDestination('/onboarding?next=%2Ftopics%2F42', student)).toBeNull()
     expect(getSafePostLoginDestination('/professor', student)).toBeNull()
     expect(getSafePostLoginDestination('/admin', student)).toBeNull()
+    expect(getSafePostLoginDestination('/login', staff)).toBeNull()
     expect(getSafePostLoginDestination('/admin', staff)).toBe('/admin')
+    expect(getSafePostLoginDestination('/staff/payments', staff)).toBe('/staff/payments')
+    expect(getSafePostLoginDestination('/staff/payments', student)).toBeNull()
     expect(getSafePostLoginDestination('/topics/42?tab=notes', student)).toBe('/topics/42?tab=notes')
     expect(getSafePostLoginDestination('/topics/42', professor)).toBeNull()
   })

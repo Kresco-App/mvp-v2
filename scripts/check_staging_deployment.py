@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import html
 import http.cookiejar
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -21,11 +25,67 @@ DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_RETRIES = 6
 DEFAULT_DELAY_SECONDS = 5
 EMPTY_SECRET_VALUES = {"", "null", "undefined", "none"}
+FRONTEND_FIREBASE_ENV_KEYS = (
+    "NEXT_PUBLIC_FIREBASE_API_KEY",
+    "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+    "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+    "NEXT_PUBLIC_FIREBASE_APP_ID",
+)
 LEGACY_AUTH_ROUTES = (
     "/api/auth/login",
     "/api/auth/signup",
     "/api/auth/reset-password",
     "/api/auth/forgot-password",
+)
+ROLE_AUTH_SMOKE_SPECS = (
+    {
+        "name": "basic",
+        "email_env": "STAGING_AUTH_BASIC_EMAIL",
+        "password_env": "STAGING_AUTH_BASIC_PASSWORD",
+        "expected_role": "student",
+        "expected_tier": "basic",
+        "expected_staff": False,
+    },
+    {
+        "name": "student",
+        "email_env": "STAGING_AUTH_STUDENT_EMAIL",
+        "password_env": "STAGING_AUTH_STUDENT_PASSWORD",
+        "expected_role": "student",
+        "expected_tier": "pro",
+        "expected_staff": False,
+    },
+    {
+        "name": "vip",
+        "email_env": "STAGING_AUTH_VIP_EMAIL",
+        "password_env": "STAGING_AUTH_VIP_PASSWORD",
+        "expected_role": "student",
+        "expected_tier": "vip",
+        "expected_staff": False,
+    },
+    {
+        "name": "admin",
+        "email_env": "STAGING_AUTH_ADMIN_EMAIL",
+        "password_env": "STAGING_AUTH_ADMIN_PASSWORD",
+        "expected_role": "admin",
+        "expected_tier": None,
+        "expected_staff": True,
+    },
+    {
+        "name": "staff",
+        "email_env": "STAGING_AUTH_STAFF_EMAIL",
+        "password_env": "STAGING_AUTH_STAFF_PASSWORD",
+        "expected_role": "staff",
+        "expected_tier": None,
+        "expected_staff": True,
+    },
+    {
+        "name": "professor",
+        "email_env": "STAGING_AUTH_PROFESSOR_EMAIL",
+        "password_env": "STAGING_AUTH_PROFESSOR_PASSWORD",
+        "expected_role": "professor",
+        "expected_tier": None,
+        "expected_staff": False,
+    },
 )
 
 
@@ -42,6 +102,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--frontend-url", default=os.environ.get("FRONTEND_URL", ""))
     parser.add_argument("--subdomain-apex-url", default=os.environ.get("STAGING_FRONTEND_APEX_URL", ""))
     parser.add_argument("--expected-sha", default=os.environ.get("SHORT_SHA", ""))
+    parser.add_argument("--project-id", default=os.environ.get("PROJECT_ID", ""))
+    parser.add_argument("--region", default=os.environ.get("REGION", ""))
+    parser.add_argument("--frontend-service", default=os.environ.get("FRONTEND_SERVICE", ""))
+    parser.add_argument("--firebase-project-id", default=os.environ.get("FIREBASE_PROJECT_ID", ""))
     parser.add_argument("--firebase-api-key", default=os.environ.get("FIREBASE_API_KEY", ""))
     parser.add_argument("--auth-email", default=os.environ.get("STAGING_AUTH_SMOKE_EMAIL", ""))
     parser.add_argument("--auth-password", default=os.environ.get("STAGING_AUTH_SMOKE_PASSWORD", ""))
@@ -100,6 +164,25 @@ def main(argv: list[str] | None = None) -> int:
                 label="public api",
             )
         )
+    frontend_env_errors, frontend_firebase_env = _check_frontend_cloud_run_firebase_env(
+        project_id=args.project_id.strip(),
+        region=args.region.strip(),
+        frontend_service=args.frontend_service.strip(),
+    )
+    errors.extend(frontend_env_errors)
+    expected_firebase_config = _expected_frontend_firebase_config(
+        frontend_firebase_env,
+        firebase_project_id=args.firebase_project_id.strip(),
+        firebase_api_key=args.firebase_api_key.strip(),
+    )
+    errors.extend(
+        _check_frontend_firebase_bundle(
+            opener,
+            frontend_url,
+            expected_firebase_config,
+            args.timeout_seconds,
+        )
+    )
     errors.extend(_check_legacy_auth_routes_absent(opener, backend_url, args.timeout_seconds))
     errors.extend(
         _check_optional_firebase_auth_smoke(
@@ -108,6 +191,29 @@ def main(argv: list[str] | None = None) -> int:
             email=args.auth_email.strip(),
             password=args.auth_password,
             timeout_seconds=args.timeout_seconds,
+            label="backend",
+        )
+    )
+    if public_api_url and public_api_url.rstrip("/") != backend_url.rstrip("/"):
+        errors.extend(
+            _check_optional_firebase_auth_smoke(
+                public_api_url,
+                firebase_api_key=args.firebase_api_key.strip(),
+                email=args.auth_email.strip(),
+                password=args.auth_password,
+                timeout_seconds=args.timeout_seconds,
+                label="public api",
+            )
+        )
+    auth_targets = [("backend", backend_url)]
+    if public_api_url and public_api_url.rstrip("/") != backend_url.rstrip("/"):
+        auth_targets.append(("public api", public_api_url))
+    errors.extend(
+        _check_optional_role_firebase_auth_smokes(
+            auth_targets,
+            firebase_api_key=args.firebase_api_key.strip(),
+            timeout_seconds=args.timeout_seconds,
+            environ=os.environ,
         )
     )
 
@@ -179,6 +285,188 @@ def _check_frontend_surface(
     return errors
 
 
+def _check_frontend_cloud_run_firebase_env(
+    *,
+    project_id: str,
+    region: str,
+    frontend_service: str,
+) -> tuple[list[str], dict[str, str]]:
+    if not project_id and not region and not frontend_service:
+        print("Frontend Cloud Run Firebase env check skipped: service metadata is not configured.")
+        return [], {}
+    missing_args = [
+        name
+        for name, value in (
+            ("project-id", project_id),
+            ("region", region),
+            ("frontend-service", frontend_service),
+        )
+        if not value
+    ]
+    if missing_args:
+        return [f"Frontend Cloud Run Firebase env check needs {', '.join(missing_args)}."], {}
+
+    payload = _run_command(
+        [
+            "gcloud",
+            "run",
+            "services",
+            "describe",
+            frontend_service,
+            "--project",
+            project_id,
+            "--region",
+            region,
+            "--format=json",
+        ],
+        label="frontend Cloud Run service",
+    )
+    if isinstance(payload, Exception):
+        return [str(payload)], {}
+
+    try:
+        service = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        return [f"frontend Cloud Run service JSON is invalid: {exc.msg}."], {}
+
+    env = _cloud_run_container_env(service)
+    errors: list[str] = []
+    for key in FRONTEND_FIREBASE_ENV_KEYS:
+        if not _has_secret_value(env.get(key, "")):
+            errors.append(f"Cloud Run frontend env {key} must be non-empty.")
+    return errors, {key: value for key, value in env.items() if key in FRONTEND_FIREBASE_ENV_KEYS}
+
+
+def _cloud_run_container_env(service: dict[str, Any]) -> dict[str, str]:
+    containers = (
+        service.get("spec", {})
+        .get("template", {})
+        .get("spec", {})
+        .get("containers", [])
+    )
+    if not isinstance(containers, list) or not containers:
+        return {}
+    raw_env = containers[0].get("env", []) if isinstance(containers[0], dict) else []
+    if not isinstance(raw_env, list):
+        return {}
+    env: dict[str, str] = {}
+    for item in raw_env:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        value = item.get("value")
+        if isinstance(name, str):
+            env[name] = value if isinstance(value, str) else ""
+    return env
+
+
+def _expected_frontend_firebase_config(
+    frontend_firebase_env: dict[str, str],
+    *,
+    firebase_project_id: str,
+    firebase_api_key: str,
+) -> dict[str, str]:
+    config = dict(frontend_firebase_env)
+    if firebase_api_key and not _has_secret_value(config.get("NEXT_PUBLIC_FIREBASE_API_KEY", "")):
+        config["NEXT_PUBLIC_FIREBASE_API_KEY"] = firebase_api_key
+    if firebase_project_id and not _has_secret_value(config.get("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "")):
+        config["NEXT_PUBLIC_FIREBASE_PROJECT_ID"] = firebase_project_id
+    if (
+        config.get("NEXT_PUBLIC_FIREBASE_PROJECT_ID")
+        and not _has_secret_value(config.get("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", ""))
+    ):
+        config["NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"] = f"{config['NEXT_PUBLIC_FIREBASE_PROJECT_ID']}.firebaseapp.com"
+    return config
+
+
+def _check_frontend_firebase_bundle(
+    opener: urllib.request.OpenerDirector,
+    frontend_url: str,
+    expected_config: dict[str, str],
+    timeout_seconds: int,
+) -> list[str]:
+    markers = {
+        key: value
+        for key, value in expected_config.items()
+        if key in FRONTEND_FIREBASE_ENV_KEYS and _has_secret_value(value)
+    }
+    if not markers:
+        print("Frontend Firebase bundle check skipped: expected public config is not available.")
+        return []
+
+    root = _fetch(opener, frontend_url, timeout_seconds=timeout_seconds, max_body_bytes=2_000_000)
+    if isinstance(root, Exception):
+        return [f"frontend Firebase bundle check failed to fetch root: {root}"]
+    if root.status >= 400:
+        return [f"frontend Firebase bundle check root returned HTTP {root.status}."]
+
+    html_text = root.body.decode("utf-8", errors="replace")
+    found = {key for key, value in markers.items() if value in html_text}
+    asset_urls = _frontend_js_asset_urls(frontend_url, html_text)
+    if not asset_urls:
+        return ["frontend Firebase bundle check found no JavaScript assets."]
+
+    for asset_url in asset_urls:
+        if len(found) == len(markers):
+            break
+        payload = _fetch(opener, asset_url, timeout_seconds=timeout_seconds, max_body_bytes=2_000_000)
+        if isinstance(payload, Exception) or payload.status >= 400:
+            continue
+        text = payload.body.decode("utf-8", errors="replace")
+        for key, value in markers.items():
+            if key not in found and value in text:
+                found.add(key)
+
+    missing = tuple(key for key in markers if key not in found)
+    if missing:
+        return [
+            "frontend JavaScript bundle is missing Firebase public config marker(s): "
+            + ", ".join(missing)
+            + "."
+        ]
+    return []
+
+
+def _frontend_js_asset_urls(frontend_url: str, html_text: str) -> tuple[str, ...]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"""(?:src|href)=["']([^"']+\.js(?:\?[^"']*)?)["']""", html_text):
+        raw_url = html.unescape(match.group(1))
+        absolute = urllib.parse.urljoin(frontend_url, raw_url)
+        if absolute not in seen:
+            seen.add(absolute)
+            urls.append(absolute)
+    return tuple(urls)
+
+
+def _run_command(command: list[str], *, label: str) -> str | Exception:
+    executable = _resolve_executable(command[0])
+    if executable is None:
+        return RuntimeError(f"{label} command failed to start: {command[0]} was not found.")
+    try:
+        completed = subprocess.run(
+            [executable, *command[1:]],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        return RuntimeError(f"{label} command failed to start: {exc}.")
+    if completed.returncode != 0:
+        return RuntimeError(f"{label} command exited {completed.returncode}: {completed.stderr.strip()}.")
+    return completed.stdout
+
+
+def _resolve_executable(name: str) -> str | None:
+    resolved = shutil.which(name)
+    if resolved:
+        return resolved
+    if os.name == "nt" and not name.lower().endswith(".cmd"):
+        return shutil.which(f"{name}.cmd")
+    return None
+
+
 def _check_legacy_auth_routes_absent(
     opener: urllib.request.OpenerDirector,
     backend_url: str,
@@ -208,6 +496,10 @@ def _check_optional_firebase_auth_smoke(
     email: str,
     password: str,
     timeout_seconds: int,
+    label: str,
+    expected_role: str | None = None,
+    expected_tier: str | None = None,
+    expected_staff: bool | None = None,
 ) -> list[str]:
     if not email and not password:
         print("Firebase credential smoke skipped: STAGING_AUTH_SMOKE_EMAIL/PASSWORD are not configured.")
@@ -217,6 +509,93 @@ def _check_optional_firebase_auth_smoke(
     if not _has_secret_value(firebase_api_key):
         return ["Firebase credential smoke needs FIREBASE_API_KEY."]
 
+    id_token = _firebase_password_id_token(
+        firebase_api_key=firebase_api_key,
+        email=email,
+        password=password,
+        timeout_seconds=timeout_seconds,
+        label=label,
+    )
+    if isinstance(id_token, Exception):
+        return [str(id_token)]
+    return _check_firebase_session_profile(
+        backend_url,
+        id_token,
+        timeout_seconds=timeout_seconds,
+        label=label,
+        expected_role=expected_role,
+        expected_tier=expected_tier,
+        expected_staff=expected_staff,
+    )
+
+
+def _check_optional_role_firebase_auth_smokes(
+    auth_targets: list[tuple[str, str]],
+    *,
+    firebase_api_key: str,
+    timeout_seconds: int,
+    environ: dict[str, str],
+) -> list[str]:
+    errors: list[str] = []
+    if not _has_secret_value(firebase_api_key):
+        configured = any(
+            environ.get(spec["email_env"], "").strip() or environ.get(spec["password_env"], "")
+            for spec in ROLE_AUTH_SMOKE_SPECS
+        )
+        if configured:
+            return ["Role auth smoke needs FIREBASE_API_KEY."]
+        print("Role auth smoke skipped: no role-specific staging auth secrets are configured.")
+        return []
+
+    for spec in ROLE_AUTH_SMOKE_SPECS:
+        name = str(spec["name"])
+        email_env = str(spec["email_env"])
+        password_env = str(spec["password_env"])
+        email = environ.get(email_env, "").strip()
+        password = environ.get(password_env, "")
+        if not email and not password:
+            print(f"{name.title()} role auth smoke skipped: {email_env}/{password_env} are not configured.")
+            continue
+        if not email or not password:
+            errors.append(f"{name} role auth smoke needs both {email_env} and {password_env}.")
+            continue
+
+        id_token = _firebase_password_id_token(
+            firebase_api_key=firebase_api_key,
+            email=email,
+            password=password,
+            timeout_seconds=timeout_seconds,
+            label=f"{name} role",
+        )
+        if isinstance(id_token, Exception):
+            errors.append(str(id_token))
+            continue
+
+        for target_label, target_url in auth_targets:
+            errors.extend(
+                _check_firebase_session_profile(
+                    target_url,
+                    id_token,
+                    timeout_seconds=timeout_seconds,
+                    label=f"{target_label} {name} role",
+                    expected_role=spec["expected_role"],
+                    expected_tier=spec["expected_tier"],
+                    expected_staff=spec["expected_staff"],
+                )
+            )
+    if not errors:
+        print("Role auth smoke matrix passed.")
+    return errors
+
+
+def _firebase_password_id_token(
+    *,
+    firebase_api_key: str,
+    email: str,
+    password: str,
+    timeout_seconds: int,
+    label: str,
+) -> str | Exception:
     firebase_opener = urllib.request.build_opener()
     sign_in_url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?" + urllib.parse.urlencode(
         {"key": firebase_api_key}
@@ -229,11 +608,23 @@ def _check_optional_firebase_auth_smoke(
         timeout_seconds=timeout_seconds,
     )
     if isinstance(sign_in, Exception):
-        return [f"Firebase password sign-in failed: {sign_in}"]
+        return RuntimeError(f"{label} Firebase password sign-in failed: {sign_in}")
     id_token = sign_in.get("idToken")
     if not isinstance(id_token, str) or not id_token:
-        return ["Firebase password sign-in did not return an ID token."]
+        return RuntimeError(f"{label} Firebase password sign-in did not return an ID token.")
+    return id_token
 
+
+def _check_firebase_session_profile(
+    backend_url: str,
+    id_token: str,
+    *,
+    timeout_seconds: int,
+    label: str,
+    expected_role: str | None = None,
+    expected_tier: str | None = None,
+    expected_staff: bool | None = None,
+) -> list[str]:
     cookie_jar = http.cookiejar.CookieJar()
     backend_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
     session = _fetch_json(
@@ -244,17 +635,52 @@ def _check_optional_firebase_auth_smoke(
         timeout_seconds=timeout_seconds,
     )
     if isinstance(session, Exception):
-        return [f"backend Firebase session exchange failed: {session}"]
+        return [f"{label} Firebase session exchange failed: {session}"]
     if not isinstance(session.get("user"), dict):
-        return ["backend Firebase session exchange did not return a user object."]
+        return [f"{label} Firebase session exchange did not return a user object."]
 
-    profile = _fetch_json(backend_opener, _url(backend_url, "/api/profile/me"), timeout_seconds=timeout_seconds)
+    cookie_header = _cookie_header(cookie_jar)
+    profile = _fetch_json(
+        backend_opener,
+        _url(backend_url, "/api/profile/me"),
+        headers={"Cookie": cookie_header} if cookie_header else None,
+        timeout_seconds=timeout_seconds,
+    )
     if isinstance(profile, Exception):
-        return [f"authenticated profile smoke failed: {profile}"]
+        return [f"{label} authenticated profile smoke failed: {profile}"]
     if not profile.get("id"):
-        return ["authenticated profile smoke did not return a profile id."]
-    print("Firebase credential smoke passed.")
+        return [f"{label} authenticated profile smoke did not return a profile id."]
+    errors = _profile_expectation_errors(
+        profile,
+        label=label,
+        expected_role=expected_role,
+        expected_tier=expected_tier,
+        expected_staff=expected_staff,
+    )
+    if errors:
+        return errors
+    print(f"{label.title()} Firebase credential smoke passed.")
     return []
+
+
+def _profile_expectation_errors(
+    profile: dict[str, Any],
+    *,
+    label: str,
+    expected_role: str | None,
+    expected_tier: str | None,
+    expected_staff: bool | None,
+) -> list[str]:
+    errors: list[str] = []
+    if expected_role is not None and profile.get("role") != expected_role:
+        errors.append(f"{label} profile role was {profile.get('role')!r}, expected {expected_role!r}.")
+    if expected_tier is not None:
+        actual_tier = str(profile.get("tier") or "").lower()
+        if actual_tier != expected_tier:
+            errors.append(f"{label} profile tier was {profile.get('tier')!r}, expected {expected_tier!r}.")
+    if expected_staff is not None and bool(profile.get("is_staff")) is not expected_staff:
+        errors.append(f"{label} profile is_staff was {profile.get('is_staff')!r}, expected {expected_staff!r}.")
+    return errors
 
 
 def _fetch_json(
@@ -263,9 +689,10 @@ def _fetch_json(
     *,
     method: str = "GET",
     json_body: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
     timeout_seconds: int,
 ) -> dict[str, Any] | Exception:
-    payload = _fetch(opener, url, method=method, json_body=json_body, timeout_seconds=timeout_seconds)
+    payload = _fetch(opener, url, method=method, json_body=json_body, headers=headers, timeout_seconds=timeout_seconds)
     if isinstance(payload, Exception):
         return payload
     if payload.status >= 400:
@@ -285,19 +712,23 @@ def _fetch(
     *,
     method: str = "GET",
     json_body: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
     timeout_seconds: int,
+    max_body_bytes: int = 65536,
 ) -> HttpPayload | Exception:
-    headers = {"Accept": "application/json", "User-Agent": "kresco-staging-deployment-smoke/1.0"}
+    request_headers = {"Accept": "application/json", "User-Agent": "kresco-staging-deployment-smoke/1.0"}
+    if headers:
+        request_headers.update(headers)
     data = None
     if json_body is not None:
         data = json.dumps(json_body).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        request_headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=request_headers, method=method)
     try:
         with opener.open(request, timeout=timeout_seconds) as response:
-            return HttpPayload(status=response.getcode(), body=response.read(65536))
+            return HttpPayload(status=response.getcode(), body=response.read(max_body_bytes))
     except urllib.error.HTTPError as exc:
-        return HttpPayload(status=exc.code, body=exc.read(65536))
+        return HttpPayload(status=exc.code, body=exc.read(max_body_bytes))
     except urllib.error.URLError as exc:
         return RuntimeError(str(getattr(exc, "reason", exc)))
     except TimeoutError as exc:
@@ -343,10 +774,17 @@ def _safe_body(body: bytes) -> str:
     return text
 
 
+def _cookie_header(cookie_jar: http.cookiejar.CookieJar) -> str:
+    return "; ".join(f"{cookie.name}={cookie.value}" for cookie in cookie_jar)
+
+
 def _redact_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-    redacted_query = urllib.parse.urlencode((key, "[redacted]" if key.lower() == "key" else value) for key, value in query)
+    redacted_query = urllib.parse.urlencode([
+        (key, "[redacted]" if key.lower() == "key" else value)
+        for key, value in query
+    ])
     return urllib.parse.urlunparse(parsed._replace(query=redacted_query))
 
 

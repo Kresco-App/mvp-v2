@@ -110,7 +110,7 @@ export async function authenticateSeededUser(page: Page, email: string) {
   await page.context().clearCookies()
   await page.context().addCookies([
     {
-      name: 'kresco_token',
+      name: '__session',
       value: token,
       url: frontendOrigin,
       httpOnly: true,

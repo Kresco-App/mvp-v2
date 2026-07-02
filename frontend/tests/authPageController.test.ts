@@ -180,6 +180,7 @@ describe('auth page login error handling', () => {
 
     expect(mocks.getFirebaseEmailPasswordIdToken).toHaveBeenCalledWith('student@example.com', 'password123')
     expect(mocks.toastError).toHaveBeenCalledWith('Serveur indisponible. Verifiez que le backend est lance. (500)')
+    expect(latestController?.authErrorMessage).toBe('Serveur indisponible. Verifiez que le backend est lance. (500)')
   })
 
   it('presents Firebase credential failures as a clean login toast', async () => {
@@ -204,6 +205,7 @@ describe('auth page login error handling', () => {
 
     expect(mocks.toastError).toHaveBeenCalledWith('Email ou mot de passe incorrect.')
     expect(latestController?.authErrorVersion).toBe(1)
+    expect(latestController?.authErrorMessage).toBe('Email ou mot de passe incorrect.')
   })
 
   it('clears the visible auth error trigger when switching forms', async () => {
@@ -408,6 +410,7 @@ describe('auth page onboarding state', () => {
       expect(latestController?.authMode).toBe('login')
       expect(latestController?.pendingAction).toBe(null)
       expect(latestController?.loading).toBe(false)
+      expect(latestController?.authErrorMessage).toBe(null)
 
       await act(async () => {
         vi.advanceTimersByTime(12000)

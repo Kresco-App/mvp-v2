@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, Check, Eye, EyeOff, Loader2, Mail } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Check, Eye, EyeOff, Loader2, Mail } from 'lucide-react'
 import KrescoLogo from '@/components/KrescoLogo'
 import { canSubmitOnboarding, type AuthPageController } from '@/lib/authPageController'
 import { localizedCopy } from '@/lib/localization'
@@ -46,6 +46,7 @@ const socialRowClass = 'flex w-full gap-[11px]'
 const progressTrackClass = 'mb-7 h-[3px] w-full overflow-hidden rounded-full bg-[var(--auth-divider)]'
 const progressFillClass = 'h-full rounded-full bg-[var(--auth-primary)] transition-[width] duration-[260ms] ease-out motion-reduce:transition-none'
 const authPanelMotionClass = 'auth-reveal flex w-full flex-col items-center'
+const authFeedbackClass = 'mb-4 flex w-full items-start gap-2 rounded-[14px] border border-[#fecaca] bg-[#fef2f2] px-3.5 py-3 text-left text-[13px] font-medium leading-[1.4] text-[#991b1b]'
 const hiddenGoogleClass = 'pointer-events-none absolute -left-[9999px] -top-[9999px] w-px overflow-hidden opacity-0'
 const circleIconClass = 'mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--auth-card-selected-bg)]'
 const optionBaseClass = `flex w-full shrink-0 cursor-pointer items-center justify-between text-left ${buttonMotionClass} ${focusRingClass}`
@@ -123,6 +124,17 @@ function OrDivider({ className = '' }: { className?: string }) {
   )
 }
 
+function AuthInlineFeedback({ message }: { message: string | null }) {
+  if (!message) return null
+
+  return (
+    <div role="alert" aria-live="assertive" className={authFeedbackClass}>
+      <AlertCircle size={16} className="mt-[1px] shrink-0" aria-hidden="true" />
+      <span>{message}</span>
+    </div>
+  )
+}
+
 export function AuthPageView(controller: AuthPageController) {
   const {
     authMode,
@@ -138,6 +150,7 @@ export function AuthPageView(controller: AuthPageController) {
     handleSignup,
     hiddenGoogleRef,
     authErrorVersion,
+    authErrorMessage,
     loading,
     password,
     pendingAction,
@@ -239,6 +252,7 @@ export function AuthPageView(controller: AuthPageController) {
                 )}
 
                 <OrDivider className="mb-5" />
+                <AuthInlineFeedback message={authErrorMessage} />
 
                 <form onSubmit={handleSignup} className={formClass}>
                   <div>
@@ -312,6 +326,7 @@ export function AuthPageView(controller: AuthPageController) {
                 )}
 
                 <OrDivider className="mb-5" />
+                <AuthInlineFeedback message={authErrorMessage} />
 
                 <form key={`login-${authErrorVersion}`} onSubmit={handleLogin} className={cx(formClass, authErrorVersion > 0 && 'auth-error-shake')}>
                   <div>
@@ -356,6 +371,7 @@ export function AuthPageView(controller: AuthPageController) {
                   {localizedCopy.auth.forgotPasswordBody}
                 </p>
                 <form onSubmit={handleForgot} className={formClass}>
+                  <AuthInlineFeedback message={authErrorMessage} />
                   <div>
                     <label htmlFor="forgot-email" className={labelClass}>{localizedCopy.auth.email}</label>
                     <input id="forgot-email" name="email" autoComplete="email" inputMode="email" spellCheck={false} aria-label={localizedCopy.auth.email} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder={localizedCopy.auth.emailPlaceholder} required className={inputClass} />
