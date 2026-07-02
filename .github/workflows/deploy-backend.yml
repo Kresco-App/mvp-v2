@@ -145,6 +145,9 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Update runtime release secret
         run: |
           set -euo pipefail
@@ -186,10 +189,15 @@ jobs:
         run: |
           set -euo pipefail
           image="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-backend:$SHORT_SHA"
+          cache_ref="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-backend:buildcache"
           echo "BACKEND_IMAGE=$image" >> "$GITHUB_ENV"
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
-          docker build --pull -t "$image" backend
-          docker push "$image"
+          docker buildx build --pull \
+            --cache-from "type=registry,ref=$cache_ref" \
+            --cache-to "type=registry,ref=$cache_ref,mode=max" \
+            -t "$image" \
+            --push \
+            backend
           digest="$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --format='value(image_summary.digest)' 2>/dev/null || true)"
           echo "BACKEND_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
 

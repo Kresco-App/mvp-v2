@@ -14,6 +14,12 @@ on:
       - "docs/staging-deployment-automation.md"
       - "infra/terraform/**"
   workflow_dispatch:
+    inputs:
+      stop_cloud_sql_after_smoke:
+        description: "Stop staging Cloud SQL after smoke when immediate cost control is needed"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -26,10 +32,12 @@ concurrency:
 jobs:
   backend-ci:
     name: Backend CI
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
     uses: ./.github/workflows/ci-backend.yml
 
   frontend-ci:
     name: Frontend CI
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master' }}
     uses: ./.github/workflows/ci-frontend.yml
 
   deploy-backend:
@@ -37,6 +45,7 @@ jobs:
     needs:
       - backend-ci
       - frontend-ci
+    if: ${{ !cancelled() && (needs.backend-ci.result == 'success' || needs.backend-ci.result == 'skipped') && (needs.frontend-ci.result == 'success' || needs.frontend-ci.result == 'skipped') }}
     uses: ./.github/workflows/deploy-backend.yml
     with:
       environment: staging
@@ -106,7 +115,7 @@ jobs:
       STAGING_AUTH_PROFESSOR_PASSWORD: ${{ secrets.STAGING_AUTH_PROFESSOR_PASSWORD }}
       STAGING_FRONTEND_APEX_URL: https://staging.kresco.ma
       STAGING_PUBLIC_API_URL: https://api.staging.kresco.ma
-      STOP_CLOUD_SQL_AFTER_SMOKE: "false"
+      STOP_CLOUD_SQL_AFTER_SMOKE: ${{ github.event_name == 'workflow_dispatch' && inputs.stop_cloud_sql_after_smoke == true }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -150,7 +159,7 @@ jobs:
                 --activation-policy NEVER \
                 --quiet || true
             else
-              echo "Leaving Cloud SQL running for manual staging validation."
+              echo "Leaving Cloud SQL running; scheduled stop workflow handles cost control."
             fi
           }
           trap cleanup EXIT

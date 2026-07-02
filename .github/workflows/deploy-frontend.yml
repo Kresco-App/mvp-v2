@@ -152,6 +152,9 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -204,9 +207,12 @@ jobs:
         run: |
           set -euo pipefail
           image="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-frontend:$SHORT_SHA"
+          cache_ref="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-frontend:buildcache"
           echo "FRONTEND_IMAGE=$image" >> "$GITHUB_ENV"
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
-          docker build --pull \
+          docker buildx build --pull \
+            --cache-from "type=registry,ref=$cache_ref" \
+            --cache-to "type=registry,ref=$cache_ref,mode=max" \
             --build-arg NEXT_PUBLIC_API_BASE_URL=/api \
             --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_PUBLIC_SITE_URL" \
             --build-arg NEXT_PUBLIC_AUTH_COOKIE_DOMAIN="$FRONTEND_AUTH_COOKIE_DOMAIN" \
@@ -223,8 +229,8 @@ jobs:
             --build-arg KRESCO_BACKEND_ORIGIN="$FRONTEND_BACKEND_ORIGIN" \
             -f frontend/Dockerfile \
             -t "$image" \
+            --push \
             frontend
-          docker push "$image"
           digest="$(gcloud artifacts docker images describe "$image" --project "$PROJECT_ID" --format='value(image_summary.digest)' 2>/dev/null || true)"
           echo "FRONTEND_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
 

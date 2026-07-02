@@ -1,0 +1,42 @@
+name: Stop Staging Cloud SQL Nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: staging-cloud-sql-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  stop-staging-cloud-sql:
+    name: Stop staging Cloud SQL
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      PROJECT_ID: kresco-staging
+      CLOUD_SQL_INSTANCE: kresco-staging-postgres
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Stop staging Cloud SQL
+        run: |
+          set -euo pipefail
+          gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
+            --project "$PROJECT_ID" \
+            --activation-policy NEVER \
+            --quiet
+          state="$(gcloud sql instances describe "$CLOUD_SQL_INSTANCE" --project "$PROJECT_ID" --format='value(state)')"
+          echo "Cloud SQL instance $CLOUD_SQL_INSTANCE state after stop request: $state"

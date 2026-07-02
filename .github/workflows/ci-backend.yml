@@ -21,6 +21,10 @@ on:
       - ".github/workflows/production-dark-evidence.yml"
       - ".github/workflows/production-public-domain-evidence.yml"
 
+concurrency:
+  group: ci-backend-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
