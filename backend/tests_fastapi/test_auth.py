@@ -214,6 +214,7 @@ def test_mobile_session_returns_bearer_token_without_cookies(app_client, monkeyp
     body = response.json()
     assert body["user"]["email"] == email
     assert body["access_token"]
+    assert body["token_type"] == "bearer"
     assert "csrf_token" not in body
     assert response.headers.get("set-cookie") is None
     expires_at = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
@@ -570,6 +571,44 @@ def test_firebase_login_normalizes_email_and_links_existing_user(app_client, mon
     assert user.is_email_verified is True
     assert user.google_id == "google-pre-ato-sub"
 
+
+def test_firebase_login_verifying_existing_user_revokes_old_token(app_client, monkeypatch, run_db, test_settings):
+    import app.routers.users as users_router
+
+    email = "firebase-stale-token@example.com"
+    run_db(_seed_user(email, is_email_verified=False))
+    user = run_db(_get_user(email))
+    assert user is not None
+    old_token = create_token(user, test_settings)
+
+    monkeypatch.setattr(
+        users_router,
+        "verify_firebase_token",
+        lambda *_: _firebase_google_payload(
+            email,
+            google_id="google-stale-token-sub",
+            firebase_uid="firebase-stale-token-uid",
+            name="Firebase Stale Token",
+        ),
+    )
+
+    session = app_client.post("/api/auth/firebase-session", json={"credential": "fake-credential"})
+    assert session.status_code == 200
+
+    updated = run_db(_get_user(email))
+    assert updated is not None
+    assert updated.is_email_verified is True
+    assert updated.auth_token_version == 1
+
+    stale_profile = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {old_token}"})
+    assert stale_profile.status_code == 401
+    assert stale_profile.json()["detail"] == "Token revoked"
+
+    fresh_profile = app_client.get("/api/profile/me")
+    assert fresh_profile.status_code == 200
+    assert fresh_profile.json()["email"] == email
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -690,6 +729,19 @@ def test_logout_revokes_existing_cookie_token(app_client, run_db, test_settings)
     assert logout.status_code == 200
 
     revoked = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {old_token}"})
+    assert revoked.status_code == 401
+    assert revoked.json()["detail"] == "Token revoked"
+
+
+def test_logout_revokes_existing_bearer_token_without_cookie(app_client, run_db, test_settings):
+    email = "logout-revokes-bearer@example.com"
+    user = run_db(_seed_cookie_user(email))
+    token = create_token(user, test_settings)
+
+    logout = app_client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert logout.status_code == 200
+
+    revoked = app_client.get("/api/profile/me", headers={"Authorization": f"Bearer {token}"})
     assert revoked.status_code == 401
     assert revoked.json()["detail"] == "Token revoked"
 

@@ -5,6 +5,7 @@ from app.config import Settings, get_settings
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
 from app.rate_limit import limiter
+from app.schemas.common import OkOut
 from app.schemas.notifications import (
     NotificationBulkDeleteConfirmationOut,
     NotificationListOut,
@@ -33,7 +34,7 @@ async def list_notifications(
     return await list_user_notifications(db, user, limit=limit, offset=offset)
 
 
-@router.post("/read-all")
+@router.post("/read-all", response_model=OkOut)
 @limiter.limit(NOTIFICATION_MUTATION_RATE_LIMIT)
 async def mark_all_notifications_read(
     request: Request,
@@ -44,7 +45,7 @@ async def mark_all_notifications_read(
     return await mark_all_user_notifications_read(db, user)
 
 
-@router.delete("")
+@router.delete("", response_model=OkOut)
 @limiter.limit("10/minute")
 async def delete_all_notifications(
     request: Request,
@@ -69,7 +70,7 @@ async def get_delete_all_confirmation(
     )
 
 
-@router.delete("/{notification_id}")
+@router.delete("/{notification_id}", response_model=OkOut)
 @limiter.limit(NOTIFICATION_MUTATION_RATE_LIMIT)
 async def delete_notification(
     request: Request,

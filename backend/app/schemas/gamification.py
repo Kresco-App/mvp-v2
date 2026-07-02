@@ -209,6 +209,11 @@ class DailyQuestOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DailyQuestClaimOut(BaseModel):
+    success: bool = True
+    xp_awarded: int = 0
+
+
 class SidebarCountdownUnitOut(BaseModel):
     value: int | str
     label: str

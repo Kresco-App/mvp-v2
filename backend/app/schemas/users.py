@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -39,6 +39,7 @@ class AuthSessionOut(BaseModel):
 class MobileSessionOut(BaseModel):
     user: UserOut
     access_token: str
+    token_type: Literal["bearer"] = "bearer"
     expires_at: datetime
 
 

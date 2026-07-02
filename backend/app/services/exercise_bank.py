@@ -18,6 +18,7 @@ from app.models.users import User
 from app.schemas.exercises import ExerciseAssetOut, ExerciseBankListOut, ExerciseDetailOut, ExerciseListItemOut
 from app.services.access import AccessContext, AccessDecision, build_access_context
 from app.services.course_access import apply_access_decision
+from app.services.search import LIKE_ESCAPE, normalize_substring_search, substring_search_pattern
 from app.services.xp import award_xp
 
 MAX_EXERCISE_BANK_LIMIT = 100
@@ -303,7 +304,7 @@ def _apply_exercise_filters(stmt, count_stmt, **filters):
     difficulty = _normalize_filter(filters["difficulty"])
     self_grade = _normalize_filter(filters["self_grade"])
     saved = filters["saved"]
-    concept = _normalize_filter(filters["concept"])
+    concept = normalize_substring_search(filters["concept"])
 
     if topic_id is not None:
         conditions.append(Exercise.topic_id == topic_id)
@@ -325,7 +326,7 @@ def _apply_exercise_filters(stmt, count_stmt, **filters):
         else:
             conditions.append(or_(UserExerciseProgress.id.is_(None), UserExerciseProgress.saved.is_(False)))
     if concept:
-        conditions.append(cast(Exercise.concept_slugs, String).ilike(f"%{concept}%"))
+        conditions.append(cast(Exercise.concept_slugs, String).ilike(substring_search_pattern(concept), escape=LIKE_ESCAPE))
 
     for condition in conditions:
         stmt = stmt.where(condition)

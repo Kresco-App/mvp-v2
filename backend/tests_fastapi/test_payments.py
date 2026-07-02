@@ -1524,6 +1524,57 @@ def test_cmi_callback_invalid_hash_does_not_mutate_pending_transaction(
     assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 0
 
 
+def test_cmi_callback_redacts_sensitive_fields_in_provider_event(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    token, user_id = auth_token(email="cmi-callback-redaction@example.com")
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        create_response = app_client.post(
+            "/api/payments/payment-requests",
+            json={"payment_method": "cmi", "plan": "pro"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        reference_code = create_response.json()["reference_code"]
+        callback = _cmi_callback_payload(
+            reference_code,
+            TransId="cmi-redaction-1",
+            cardNumber="4111111111111111",
+            pan="4222222222222222",
+            cvv="123",
+            storekey="secret-store-key",
+            customerEmail="payer@example.com",
+        )
+        callback["HASH"] = "tampered"
+        callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+    finally:
+        _restore_settings(test_settings, original)
+
+    assert callback_response.status_code == 200
+    assert callback_response.text == "FAILURE"
+    transaction = run_db(_payment_transactions_for_user(user_id))[0]
+    assert transaction.status == PAYMENT_STATUS_PENDING_PROVIDER
+    events = run_db(_payment_provider_events_for_transaction(transaction.id))
+    assert len(events) == 1
+    payload = events[0].payload_json
+    assert events[0].event_type == "cmi.callback.invalid"
+    assert payload["cardNumber"] == "[redacted]"
+    assert payload["pan"] == "[redacted]"
+    assert payload["cvv"] == "[redacted]"
+    assert payload["storekey"] == "[redacted]"
+    assert payload["oid"] == reference_code
+    assert payload["TransId"] == "cmi-redaction-1"
+    assert payload["customerEmail"] == "payer@example.com"
+    assert "4111111111111111" not in str(payload)
+    assert "4222222222222222" not in str(payload)
+    assert "secret-store-key" not in str(payload)
+    assert len(run_db(_finance_ledger_entries_for_transaction(transaction.id))) == 0
+
+
 def test_cmi_callback_invalid_hash_replay_is_idempotent(
     app_client,
     auth_token,
@@ -1666,6 +1717,48 @@ def test_cmi_callback_amount_mismatch_marks_mismatch_without_access(
     ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction.id))
     assert len(ledger_entries) == 1
     assert ledger_entries[0].entry_type == "payment_mismatch"
+
+
+def test_cmi_callback_wrong_client_or_currency_marks_mismatch_without_access(
+    app_client,
+    auth_token,
+    run_db,
+    test_settings,
+):
+    cases = (
+        ("wrong-client", {"clientid": "other-client"}),
+        ("wrong-currency", {"currency": "840"}),
+    )
+    original = _set_cmi_settings(test_settings)
+
+    try:
+        for label, overrides in cases:
+            token, user_id = auth_token(email=f"cmi-callback-{label}@example.com")
+            create_response = app_client.post(
+                "/api/payments/payment-requests",
+                json={"payment_method": "cmi", "plan": "pro"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert create_response.status_code == 200
+            reference_code = create_response.json()["reference_code"]
+            callback = _cmi_callback_payload(reference_code, TransId=f"cmi-{label}-1", **overrides)
+            callback_response = app_client.post("/api/payments/cmi/callback", data=callback)
+
+            assert callback_response.status_code == 200
+            assert callback_response.text == "FAILURE"
+            assert run_db(_get_user(user_id)).is_pro is False
+            transaction = run_db(_payment_transactions_for_user(user_id))[0]
+            assert transaction.status == PAYMENT_STATUS_MISMATCH
+            assert transaction.open_request_key is None
+            assert run_db(_subject_entitlements_for_user(user_id)) == []
+            events = run_db(_payment_provider_events_for_transaction(transaction.id))
+            assert len(events) == 1
+            assert events[0].status == "failed"
+            ledger_entries = run_db(_finance_ledger_entries_for_transaction(transaction.id))
+            assert len(ledger_entries) == 1
+            assert ledger_entries[0].entry_type == "payment_mismatch"
+    finally:
+        _restore_settings(test_settings, original)
 
 
 def test_cmi_callback_unknown_order_is_ignored_without_access(

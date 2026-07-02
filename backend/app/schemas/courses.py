@@ -151,3 +151,8 @@ class TopicItemProgressOut(BaseModel):
     ok: bool = True
     watched_seconds: int = 0
     completed: bool = False
+
+
+class TopicItemCompleteOut(BaseModel):
+    ok: bool = True
+    xp_earned: int = 0

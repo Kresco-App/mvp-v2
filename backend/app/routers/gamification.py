@@ -6,7 +6,7 @@ from app.dependencies import get_current_user, get_db
 from app.models.users import User
 from app.rate_limit import limiter
 from app.schemas.gamification import (
-    DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
+    DailyQuestClaimOut, DailyQuestOut, UserStatsOut, XPOut, XPTransactionOut,
     LeaderboardEntryOut, MistakeNotebookListOut, SidebarSummaryOut,
     ConceptMasteryListOut, UserBadgeInventoryOut, XPSeasonLeaderboardOut,
 )
@@ -165,7 +165,7 @@ async def get_mistake_notebook(
     )
 
 
-@router.post("/daily-quests/{quest_id}/claim")
+@router.post("/daily-quests/{quest_id}/claim", response_model=DailyQuestClaimOut)
 @limiter.limit("10/minute")
 async def claim_daily_quest(
     request: Request,
@@ -173,6 +173,7 @@ async def claim_daily_quest(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    del request
     result = await claim_daily_quest_reward(db, user=user, quest_id=quest_id)
     await db.commit()
     return result

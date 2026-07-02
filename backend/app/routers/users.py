@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -28,7 +29,7 @@ from app.security.csrf import (
 )
 from app.services.auth import AUTH_COOKIE_NAME, AUTH_ROLE_COOKIE_NAME, create_token, verify_firebase_token
 from app.services.auth_firebase import complete_firebase_session
-from app.services.auth_sessions import revoke_cookie_session_if_valid
+from app.services.auth_sessions import revoke_session_token_if_valid
 from app.services.media_storage import get_media_storage, media_url
 from app.services.user_profile import (
     update_profile_state,
@@ -39,6 +40,7 @@ from app.services.xp import award_daily_login_xp
 
 router = APIRouter(tags=["Auth & Users"])
 logger = logging.getLogger("kresco.auth")
+_bearer = HTTPBearer(auto_error=False)
 
 AUTH_LOGIN_RATE_LIMIT = os.environ.get("KRESCO_AUTH_LOGIN_RATE_LIMIT", "5/minute")
 AUTH_SESSION_RATE_LIMIT = os.environ.get("KRESCO_AUTH_SESSION_RATE_LIMIT", "20/minute")
@@ -237,12 +239,14 @@ async def google_login(
 async def logout(
     request: Request,
     response: Response,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    await revoke_cookie_session_if_valid(
+    token = credentials.credentials if credentials is not None else request.cookies.get(AUTH_COOKIE_NAME)
+    await revoke_session_token_if_valid(
         db,
-        token=request.cookies.get(AUTH_COOKIE_NAME),
+        token=token,
         settings=settings,
     )
     _clear_auth_cookies(response, settings, request)

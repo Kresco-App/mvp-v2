@@ -18,6 +18,7 @@ from app.schemas.courses import (
     SubjectListOut,
     TopicCardOut,
     TopicItemCompleteIn,
+    TopicItemCompleteOut,
     TopicItemProgressIn,
     TopicItemProgressOut,
     TopicWorkspaceOut,
@@ -244,7 +245,7 @@ async def get_topic_workspace(
     return await build_topic_workspace(db, user=user, topic_id=topic_id, item_id=item_id, q=q)
 
 
-@router.post("/topic-items/{item_id}/complete")
+@router.post("/topic-items/{item_id}/complete", response_model=TopicItemCompleteOut)
 @limiter.limit(COURSE_PROGRESS_MUTATION_RATE_LIMIT)
 async def complete_topic_item(
     request: Request,

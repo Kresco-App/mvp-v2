@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
@@ -31,7 +31,7 @@ async def list_subject_exercises(
     difficulty: str | None = None,
     self_grade: str | None = None,
     saved: bool | None = None,
-    concept: str | None = None,
+    concept: str | None = Query(default=None, max_length=80),
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),

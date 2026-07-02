@@ -7,6 +7,7 @@ from app.config import Settings, get_settings
 from app.dependencies import get_current_professor_user, get_current_user, get_db, require_professor_active_offering
 from app.models.users import User
 from app.rate_limit import limiter
+from app.schemas.common import OkOut
 from app.services.realtime_outbox import drain_realtime_outbox_in_background
 from app.schemas.professor import (
     ChatConversationPatchIn,
@@ -224,7 +225,7 @@ async def create_live_session(
     return result
 
 
-@router.delete("/live-sessions/{live_session_id}")
+@router.delete("/live-sessions/{live_session_id}", response_model=OkOut)
 @limiter.limit(PROFESSOR_MUTATION_ROUTE_LIMIT)
 async def delete_live_session(
     live_session_id: int,
@@ -754,7 +755,7 @@ async def update_chat_message(
     )
 
 
-@router.delete("/chat/messages/{message_id}")
+@router.delete("/chat/messages/{message_id}", response_model=OkOut)
 @limiter.limit(PROFESSOR_CHAT_ROUTE_LIMIT)
 async def delete_chat_message(
     message_id: int,

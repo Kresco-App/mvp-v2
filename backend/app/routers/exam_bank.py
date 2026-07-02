@@ -1,10 +1,11 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_current_user, get_db
 from app.models.users import User
+from app.rate_limit import limiter
 from app.schemas.exam_bank import (
     ExamBankListOut,
     ExamBankProblemDetailOut,
@@ -65,20 +66,26 @@ async def get_exam_bank_problem(
 
 
 @router.post("/problems/{problem_id}/progress", response_model=ExamProblemProgressOut)
+@limiter.limit("30/minute")
 async def update_exam_bank_problem_progress(
+    request: Request,
     problem_id: int,
     body: ExamProblemProgressIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    del request
     return await record_exam_problem_progress(db, user, problem_id=problem_id, body=body)
 
 
 @router.post("/parts/{part_id}/progress", response_model=ExamProblemPartProgressOut)
+@limiter.limit("30/minute")
 async def update_exam_bank_part_progress(
+    request: Request,
     part_id: int,
     body: ExamProblemPartProgressIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    del request
     return await record_exam_problem_part_progress(db, user, part_id=part_id, body=body)

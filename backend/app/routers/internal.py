@@ -12,7 +12,7 @@ from app.services.diagnostics import build_production_diagnostics
 from app.services.gamification_read_models import refresh_leaderboard_projection_if_stale
 from app.services.realtime_outbox import process_realtime_outbox, purge_realtime_outbox, requeue_failed_realtime_outbox
 
-router = APIRouter(tags=["Internal"])
+router = APIRouter(tags=["Internal"], include_in_schema=False)
 
 
 def _require_internal_secret(

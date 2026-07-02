@@ -5,7 +5,7 @@ from uuid import uuid4
 import httpx
 import jwt
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app import scheduled
 from app.database import get_session_factory
@@ -133,6 +133,41 @@ def test_realtime_subscriptions_include_user_and_accessible_offering_channels(ap
     channels = response.json()["notification_channels"]
     assert any(channel.startswith("kresco:user:") and channel.endswith(":notifications") for channel in channels)
     assert f"kresco:offering:{offering_id}:notifications" in channels
+
+
+async def _revoke_subject_entitlements_for_offering(offering_id: int) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        offering = await db.get(CourseOffering, offering_id)
+        assert offering is not None
+        entitlements = (
+            await db.execute(
+                select(UserSubjectEntitlement).where(
+                    UserSubjectEntitlement.subject_id == offering.subject_id,
+                    UserSubjectEntitlement.status == "active",
+                )
+            )
+        ).scalars().all()
+        for entitlement in entitlements:
+            entitlement.status = "revoked"
+        await db.commit()
+
+
+def test_realtime_subscriptions_remove_offering_channel_after_entitlement_revoked(app_client, run_db, test_settings):
+    token, _live_id, offering_id = run_db(_seed_live_session_for_realtime(test_settings, student_tier="vip"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    before = app_client.get("/api/realtime/subscriptions", headers=headers)
+    assert before.status_code == 200
+    assert f"kresco:offering:{offering_id}:notifications" in before.json()["notification_channels"]
+
+    run_db(_revoke_subject_entitlements_for_offering(offering_id))
+
+    after = app_client.get("/api/realtime/subscriptions", headers=headers)
+    assert after.status_code == 200
+    channels = after.json()["notification_channels"]
+    assert any(channel.startswith("kresco:user:") and channel.endswith(":notifications") for channel in channels)
+    assert f"kresco:offering:{offering_id}:notifications" not in channels
 
 
 async def _seed_live_session_limit_scope_regression(test_settings):

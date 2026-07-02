@@ -1153,6 +1153,38 @@ def test_admin_permission_management_requires_roles_manage(app_client, run_db, t
     assert grant["reason"] == "finance viewer"
 
 
+def test_unverified_staff_with_permission_cannot_access_staff_routes(app_client, run_db, test_settings):
+    async def _seed():
+        session_factory = get_session_factory()
+        async with session_factory() as db:
+            actor = User(
+                email="permission-unverified-actor@example.com",
+                full_name="Unverified Actor",
+                is_active=True,
+                is_email_verified=False,
+                is_staff=True,
+            )
+            db.add(actor)
+            await db.flush()
+            db.add(
+                UserPermission(
+                    user_id=actor.id,
+                    permission="roles:manage",
+                    status="active",
+                    reason="seed unverified actor",
+                    granted_by_user_id=actor.id,
+                )
+            )
+            await db.commit()
+            return create_token(actor.id, test_settings)
+
+    token = run_db(_seed())
+    response = app_client.get("/api/admin/permissions", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Staff access required"
+
+
 def test_admin_permission_grant_revoke_and_reactivate(app_client, run_db, test_settings):
     async def _seed():
         session_factory = get_session_factory()

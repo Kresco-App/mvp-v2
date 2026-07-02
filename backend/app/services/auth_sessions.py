@@ -12,7 +12,7 @@ async def revoke_user_sessions(db: AsyncSession, user: User) -> None:
     await db.commit()
 
 
-async def revoke_cookie_session_if_valid(
+async def revoke_session_token_if_valid(
     db: AsyncSession,
     *,
     token: str | None,
@@ -40,3 +40,12 @@ async def revoke_cookie_session_if_valid(
 
     await revoke_user_sessions(db, user)
     return True
+
+
+async def revoke_cookie_session_if_valid(
+    db: AsyncSession,
+    *,
+    token: str | None,
+    settings: Settings,
+) -> bool:
+    return await revoke_session_token_if_valid(db, token=token, settings=settings)
