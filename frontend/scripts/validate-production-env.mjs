@@ -8,7 +8,7 @@ import { validateFrontendProductionEnv } from '../lib/productionEnv.mjs'
 const FRONTEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const { loadEnvConfig } = nextEnv
 const FIXTURE_ENV = {
-  NEXT_PUBLIC_API_BASE_URL: 'https://api.kresco.example/api',
+  NEXT_PUBLIC_API_BASE_URL: 'https://api.kresco.ma/api',
   NEXT_PUBLIC_FIREBASE_API_KEY: 'firebase-web-api-key',
   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: 'kresco-prod.firebaseapp.com',
   NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'kresco-prod',
