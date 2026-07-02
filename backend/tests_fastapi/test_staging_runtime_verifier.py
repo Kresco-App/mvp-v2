@@ -434,7 +434,7 @@ def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
     build_index = workflow.index("- name: Build backend image")
     deploy_index = workflow.index("- name: Deploy backend service")
     resolve_url_index = workflow.index("- name: Resolve backend verification URL")
-    migration_index = workflow.index("- name: Run migrations with stopped-db cleanup")
+    migration_index = workflow.index("- name: Run migrations")
     readiness_index = workflow.index('ready_url = base_url + "/ready"')
     verifier_index = workflow.index("- name: Verify backend release health")
     resolve_url_block = workflow[resolve_url_index:migration_index]
@@ -451,20 +451,23 @@ def test_backend_deploy_workflow_runs_cloud_run_health_after_migrations():
     assert 'echo "BACKEND_VERIFY_URL=$verify_url" >> "$GITHUB_ENV"' in resolve_url_block
     assert 'ready_url = base_url + "/ready"' in migration_block
     assert 'export BACKEND_URL="$BACKEND_VERIFY_URL"' in migration_block
-    assert "--activation-policy NEVER" in migration_block
+    assert "--activation-policy NEVER" not in migration_block
     assert 'export BACKEND_URL="$BACKEND_VERIFY_URL"' in verifier_block
     assert 'echo "backend_url=$BACKEND_VERIFY_URL" >> "$GITHUB_OUTPUT"' in verifier_block
     assert 'echo "backend_service_url=$BACKEND_SERVICE_URL" >> "$GITHUB_OUTPUT"' in verifier_block
     assert "google-github-actions/auth@v2" in workflow
-    assert 'docker build --pull -t "$image" backend' in workflow
-    assert 'docker push "$image"' in workflow
+    assert "docker buildx build --pull" in workflow
+    assert 'kresco-backend:buildcache' in workflow
+    assert '--cache-from "type=registry,ref=$cache_ref"' in workflow
+    assert '--cache-to "type=registry,ref=$cache_ref,mode=max"' in workflow
+    assert "- name: Resolve supplied backend image" in workflow
     assert "gcloud run deploy \"$BACKEND_SERVICE\"" in workflow
     assert "gcloud run jobs deploy \"$MIGRATION_JOB\"" in workflow
     assert "gcloud run jobs execute \"$MIGRATION_JOB\"" in workflow
     assert "--set-cloudsql-instances \"$cloud_sql_connection\"" in workflow
     assert 'ready_url = base_url + "/ready"' in workflow
     assert "--activation-policy ALWAYS" in workflow
-    assert "--activation-policy NEVER" in workflow
+    assert "--activation-policy NEVER" not in workflow
     assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in workflow
 
 def test_provider_diagnostics_workflow_uses_runtime_verifier():

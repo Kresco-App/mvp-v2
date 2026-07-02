@@ -125,7 +125,6 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
         assert "google-github-actions/auth@v2" in workflow
         assert "workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" in workflow
         assert "service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}" in workflow
-        assert "--min-instances 0" in workflow
         assert "--max-instances 3" in workflow
         assert "confirm_production_dark_deploy" in workflow
         assert "enforce_production_launch_gate" in workflow
@@ -134,8 +133,17 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
 
     assert "Deploy Backend to Cloud Run" in backend_workflow
     assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in backend_workflow
-    assert 'docker build --pull -t "$image" backend' in backend_workflow
-    assert 'docker push "$image"' in backend_workflow
+    assert "docker buildx build --pull" in backend_workflow
+    assert 'kresco-backend:buildcache' in backend_workflow
+    assert '--cache-from "type=registry,ref=$cache_ref"' in backend_workflow
+    assert '--cache-to "type=registry,ref=$cache_ref,mode=max"' in backend_workflow
+    assert "- name: Resolve supplied backend image" in backend_workflow
+    assert "Supplied backend image must be under $expected_prefix." in backend_workflow
+    assert "backend_image:" in backend_workflow
+    assert "release_sha:" in backend_workflow
+    assert "backend_min_instances=0" in backend_workflow
+    assert "backend_min_instances=1" in backend_workflow
+    assert '--min-instances "$backend_min_instances"' in backend_workflow
     assert "gcloud run deploy \"$BACKEND_SERVICE\"" in backend_workflow
     assert "gcloud run jobs deploy \"$MIGRATION_JOB\"" in backend_workflow
     assert "gcloud run jobs execute \"$MIGRATION_JOB\"" in backend_workflow
@@ -148,15 +156,17 @@ def test_deploy_workflows_are_manual_only_and_gate_production():
     assert 'export BACKEND_URL="$BACKEND_VERIFY_URL"' in backend_workflow
     assert 'echo "backend_service_url=$BACKEND_SERVICE_URL" >> "$GITHUB_OUTPUT"' in backend_workflow
     assert "--activation-policy ALWAYS" in backend_workflow
-    assert "--activation-policy NEVER" in backend_workflow
+    assert "--activation-policy NEVER" not in backend_workflow
     assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in backend_workflow
 
     assert "Deploy Frontend to Cloud Run" in frontend_workflow
     assert "actions/setup-node@v4" in frontend_workflow
     assert 'node-version: "22"' in frontend_workflow
     assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in frontend_workflow
-    assert "docker build --pull" in frontend_workflow
-    assert 'docker push "$image"' in frontend_workflow
+    assert "docker buildx build --pull" in frontend_workflow
+    assert 'kresco-frontend:buildcache' in frontend_workflow
+    assert "--push" in frontend_workflow
+    assert "--min-instances 0" in frontend_workflow
     assert "gcloud run deploy \"$FRONTEND_SERVICE\"" in frontend_workflow
     assert "Verify deployed frontend Firebase env" in frontend_workflow
     assert "Deployed frontend Firebase env is empty for:" in frontend_workflow

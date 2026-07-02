@@ -1,0 +1,142 @@
+name: Promote Backend Image to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: "Short or full Git SHA from the verified staging deployment"
+        required: true
+        type: string
+      staging_backend_image_digest:
+        description: "Verified staging backend image digest, for example sha256:..."
+        required: true
+        type: string
+      run_migrations:
+        description: "Run production migrations after deploying the promoted image"
+        required: true
+        default: true
+        type: boolean
+      confirm_production_dark_deploy:
+        description: "Required: confirms production deploy starts as dark/no public traffic unless launch gate is enforced"
+        required: true
+        default: false
+        type: boolean
+      enforce_production_launch_gate:
+        description: "Set true only for full production cutover after launch evidence is complete"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-backend-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  copy-backend-image:
+    name: Copy verified backend image
+    runs-on: ubuntu-latest
+    environment: Production
+    outputs:
+      production_backend_image: ${{ steps.copy.outputs.production_backend_image }}
+      production_backend_digest: ${{ steps.copy.outputs.production_backend_digest }}
+    env:
+      REGION: europe-southwest1
+      SOURCE_PROJECT_ID: kresco-staging
+      TARGET_PROJECT_ID: kresco-prod
+      SOURCE_REPOSITORY: kresco-containers
+      TARGET_REPOSITORY: kresco-containers
+      IMAGE_NAME: kresco-backend
+
+    steps:
+      - name: Validate promotion inputs
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          STAGING_BACKEND_IMAGE_DIGEST: ${{ inputs.staging_backend_image_digest }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm_production_dark_deploy }}" != "true" ]; then
+            echo "::error::Production backend promotion requires confirm_production_dark_deploy=true."
+            exit 1
+          fi
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            echo "::error::release_sha must be a 7 to 40 character hexadecimal Git SHA."
+            exit 1
+          fi
+          case "$STAGING_BACKEND_IMAGE_DIGEST" in
+            *@sha256:*) digest="${STAGING_BACKEND_IMAGE_DIGEST##*@}" ;;
+            sha256:*) digest="$STAGING_BACKEND_IMAGE_DIGEST" ;;
+            *)
+              echo "::error::staging_backend_image_digest must be a sha256 digest or image@sha256 reference."
+              exit 1
+              ;;
+          esac
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::staging_backend_image_digest must match sha256:<64 lowercase hex characters>."
+            exit 1
+          fi
+          echo "RELEASE_SHA=$RELEASE_SHA" >> "$GITHUB_ENV"
+          echo "STAGING_BACKEND_DIGEST=$digest" >> "$GITHUB_ENV"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install crane
+        run: |
+          go install github.com/google/go-containerregistry/cmd/crane@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Copy backend digest into production registry
+        id: copy
+        run: |
+          set -euo pipefail
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          source_repo="$REGION-docker.pkg.dev/$SOURCE_PROJECT_ID/$SOURCE_REPOSITORY/$IMAGE_NAME"
+          target_repo="$REGION-docker.pkg.dev/$TARGET_PROJECT_ID/$TARGET_REPOSITORY/$IMAGE_NAME"
+          source_ref="$source_repo@$STAGING_BACKEND_DIGEST"
+          target_tag="$target_repo:promoted-$RELEASE_SHA"
+          crane copy "$source_ref" "$target_tag"
+          target_digest="$(crane digest "$target_tag")"
+          if [ "$target_digest" != "$STAGING_BACKEND_DIGEST" ]; then
+            echo "::error::Copied backend digest mismatch: $target_digest != $STAGING_BACKEND_DIGEST."
+            exit 1
+          fi
+          production_backend_image="$target_repo@$target_digest"
+          echo "production_backend_image=$production_backend_image" >> "$GITHUB_OUTPUT"
+          echo "production_backend_digest=$target_digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Backend image promotion"
+            echo ""
+            echo "- Source: $source_ref"
+            echo "- Target tag: $target_tag"
+            echo "- Target digest: $production_backend_image"
+            echo "- Release SHA: $RELEASE_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-promoted-backend:
+    name: Deploy promoted backend
+    needs:
+      - copy-backend-image
+    uses: ./.github/workflows/deploy-backend.yml
+    with:
+      environment: production
+      run_migrations: ${{ inputs.run_migrations }}
+      backend_image: ${{ needs.copy-backend-image.outputs.production_backend_image }}
+      release_sha: ${{ inputs.release_sha }}
+      confirm_production_dark_deploy: ${{ inputs.confirm_production_dark_deploy }}
+      enforce_production_launch_gate: ${{ inputs.enforce_production_launch_gate }}
+    secrets: inherit

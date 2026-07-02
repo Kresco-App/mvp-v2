@@ -12,6 +12,16 @@ on:
         required: false
         default: true
         type: boolean
+      backend_image:
+        description: "Existing backend image reference to deploy instead of building from source"
+        required: false
+        default: ""
+        type: string
+      release_sha:
+        description: "Release SHA exposed by Cloud Run; defaults to this workflow ref"
+        required: false
+        default: ""
+        type: string
       confirm_production_dark_deploy:
         description: "Required for production: confirms this is dark production only and no domains/traffic are cut over"
         required: false
@@ -56,6 +66,16 @@ on:
         required: true
         default: true
         type: boolean
+      backend_image:
+        description: "Optional existing backend image reference to deploy instead of building from source"
+        required: false
+        default: ""
+        type: string
+      release_sha:
+        description: "Optional release SHA exposed by Cloud Run; defaults to this workflow ref"
+        required: false
+        default: ""
+        type: string
       confirm_production_dark_deploy:
         description: "Required for production: confirms this is dark production only and no domains/traffic are cut over"
         required: true
@@ -91,9 +111,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Resolve target
+        env:
+          REQUESTED_RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
-          short_sha="${GITHUB_SHA::8}"
+          short_sha="$REQUESTED_RELEASE_SHA"
+          if [ -z "$short_sha" ]; then
+            short_sha="${GITHUB_SHA::8}"
+          fi
+          if ! [[ "$short_sha" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            echo "::error::release_sha must be a 7 to 40 character hexadecimal Git SHA."
+            exit 1
+          fi
           echo "SHORT_SHA=$short_sha" >> "$GITHUB_ENV"
           case "${{ inputs.environment }}" in
             staging)
@@ -146,6 +175,7 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Set up Docker Buildx
+        if: ${{ inputs.backend_image == '' }}
         uses: docker/setup-buildx-action@v3
 
       - name: Update runtime release secret
@@ -188,7 +218,34 @@ jobs:
             --api-host "$api_host" \
             --runtime-secret-only
 
+      - name: Resolve supplied backend image
+        if: ${{ inputs.backend_image != '' }}
+        env:
+          SUPPLIED_BACKEND_IMAGE: ${{ inputs.backend_image }}
+        run: |
+          set -euo pipefail
+          expected_prefix="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-backend"
+          case "$SUPPLIED_BACKEND_IMAGE" in
+            "$expected_prefix:"*|"$expected_prefix@"*) ;;
+            *)
+              echo "::error::Supplied backend image must be under $expected_prefix."
+              exit 1
+              ;;
+          esac
+          echo "BACKEND_IMAGE=$SUPPLIED_BACKEND_IMAGE" >> "$GITHUB_ENV"
+          if [[ "$SUPPLIED_BACKEND_IMAGE" == *@sha256:* ]]; then
+            digest="${SUPPLIED_BACKEND_IMAGE##*@}"
+          else
+            digest="$(gcloud artifacts docker images describe "$SUPPLIED_BACKEND_IMAGE" --project "$PROJECT_ID" --format='value(image_summary.digest)' 2>/dev/null || true)"
+          fi
+          if [ -z "$digest" ]; then
+            echo "::error::Could not resolve digest for supplied backend image $SUPPLIED_BACKEND_IMAGE."
+            exit 1
+          fi
+          echo "BACKEND_IMAGE_DIGEST=$digest" >> "$GITHUB_ENV"
+
       - name: Build backend image
+        if: ${{ inputs.backend_image == '' }}
         run: |
           set -euo pipefail
           image="$REGION-docker.pkg.dev/$PROJECT_ID/kresco-containers/kresco-backend:$SHORT_SHA"

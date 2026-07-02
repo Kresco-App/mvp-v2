@@ -273,6 +273,29 @@ The second option is cleaner for production ownership, but it requires a digest-
 
 This matters more for production safety than runner speed.
 
+Current implementation status:
+
+- Backend digest promotion is implemented via `.github/workflows/promote-production-backend.yml`.
+- The workflow takes the verified staging backend digest and release SHA, copies that digest into the production Artifact Registry as `kresco-backend:promoted-<release_sha>`, verifies the copied digest matches exactly, then reuses `.github/workflows/deploy-backend.yml` with `backend_image` and `release_sha` inputs.
+- The existing backend deploy workflow still builds from source by default. It only skips the build when a trusted caller supplies an existing backend image under the target environment's Artifact Registry repository.
+- Frontend digest promotion is deliberately not implemented yet. The current Next.js image bakes environment-specific public build values into the bundle, including `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN`, Firebase public config, Sentry environment, backend origin, and release SHA. Promoting the exact staging frontend image to production would ship staging public config to production.
+
+Frontend promotion decision still required:
+
+- Make the frontend image runtime-configurable despite Next.js public env constraints.
+- Or build a production-shaped candidate image and verify that exact production-shaped image in staging-like infrastructure before promotion.
+- Or keep frontend rebuilds for production while backend uses digest promotion.
+
+External IAM configured for backend promotion:
+
+- The production deploy service account must read the staging Artifact Registry repository and write the production Artifact Registry repository.
+- Current production deploy service account:
+  `github-deployer@kresco-prod.iam.gserviceaccount.com`
+- Staging repository reader grant configured:
+  `roles/artifactregistry.reader` on `projects/kresco-staging/locations/europe-southwest1/repositories/kresco-containers`
+- Production writer grant verified:
+  `roles/artifactregistry.writer` on `projects/kresco-prod` for `github-deployer@kresco-prod.iam.gserviceaccount.com`
+
 ### 9. Consider Path-Aware Deploys Only Later
 
 Do not partial-deploy backend/frontend yet.

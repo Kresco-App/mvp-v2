@@ -831,8 +831,14 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert 'deploy_flags+=(--no-traffic --tag "dark-$SHORT_SHA")' in workflow
     assert '"${deploy_flags[@]}"' in workflow
     assert 'gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet' in workflow
-    assert 'docker build --pull -t "$image" backend' in workflow
-    assert 'docker push "$image"' in workflow
+    assert "docker buildx build --pull" in workflow
+    assert 'kresco-backend:buildcache' in workflow
+    assert '--cache-from "type=registry,ref=$cache_ref"' in workflow
+    assert '--cache-to "type=registry,ref=$cache_ref,mode=max"' in workflow
+    assert "- name: Resolve supplied backend image" in workflow
+    assert "Supplied backend image must be under $expected_prefix." in workflow
+    assert "backend_image:" in workflow
+    assert "release_sha:" in workflow
     assert 'gcloud run deploy "$BACKEND_SERVICE"' in workflow
     assert 'gcloud run jobs deploy "$MIGRATION_JOB"' in workflow
     assert 'gcloud run jobs execute "$MIGRATION_JOB"' in workflow
@@ -840,9 +846,11 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert "--args scripts/run_alembic_from_settings.py" in workflow
     assert 'ready_url = base_url + "/ready"' in workflow
     assert "--activation-policy ALWAYS" in workflow
-    assert "--activation-policy NEVER" in workflow
+    assert "--activation-policy NEVER" not in workflow
     assert "KRESCO_GCP_RUNTIME_SECRET_NAME=projects/$PROJECT_ID/secrets/kresco-runtime/versions/latest" in workflow
-    assert "--min-instances 0" in workflow
+    assert "backend_min_instances=0" in workflow
+    assert "backend_min_instances=1" in workflow
+    assert '--min-instances "$backend_min_instances"' in workflow
     assert "--max-instances 3" in workflow
     assert "lambda" not in workflow.lower()
     update_secret_index = workflow.index("- name: Update runtime release secret")
@@ -860,7 +868,7 @@ def test_backend_deploy_workflow_passes_required_stage_render_inputs():
     assert "api.kresco.ma" in preflight_step
     deploy_step = workflow[
         workflow.index("- name: Deploy backend service"):
-        workflow.index("- name: Run migrations with stopped-db cleanup")
+        workflow.index("- name: Run migrations")
     ]
     assert "KRESCO_RELEASE_SHA=$SHORT_SHA" in deploy_step
     for secret_name in (
