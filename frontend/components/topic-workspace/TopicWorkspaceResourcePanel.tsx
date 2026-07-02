@@ -142,7 +142,7 @@ export function TopicWorkspaceResourcePanel({
             src={previewUrl}
             loading="lazy"
             referrerPolicy="no-referrer"
-            sandbox="allow-scripts allow-forms allow-popups allow-downloads"
+            sandbox=""
             className="h-[420px] w-full border-0 bg-white"
           />
         </div>

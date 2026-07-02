@@ -76,10 +76,17 @@ afterEach(() => {
 })
 
 describe('AppToaster', () => {
-  it('mounts sonner on page load so first toasts are not dropped', async () => {
+  it('keeps sonner unloaded on a cold page until a toast is requested', async () => {
     await renderToaster()
 
     expect(isAppToasterRequested()).toBe(false)
+    expect(document.querySelector('[data-testid="app-toaster"]')).toBeNull()
+
+    act(() => {
+      requestAppToaster()
+    })
+
+    expect(isAppToasterRequested()).toBe(true)
     await waitFor(() => {
       expect(document.querySelector('[data-testid="app-toaster"]')).not.toBeNull()
     })
