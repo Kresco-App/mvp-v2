@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -24,6 +25,7 @@ from check_subdomain_routing import check_subdomain_routing
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_RETRIES = 6
 DEFAULT_DELAY_SECONDS = 5
+SESSION_RATE_LIMIT_RETRY_SECONDS = 65
 EMPTY_SECRET_VALUES = {"", "null", "undefined", "none"}
 FRONTEND_FIREBASE_ENV_KEYS = (
     "NEXT_PUBLIC_FIREBASE_API_KEY",
@@ -196,30 +198,32 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     errors.extend(_check_legacy_auth_routes_absent(opener, backend_url, args.timeout_seconds))
-    errors.extend(
-        _check_optional_firebase_auth_smoke(
-            backend_url,
-            firebase_api_key=args.firebase_api_key.strip(),
-            email=args.auth_email.strip(),
-            password=args.auth_password,
-            timeout_seconds=args.timeout_seconds,
-            label="backend",
-        )
+    role_auth_configured = _role_auth_smoke_configured(os.environ)
+    auth_smoke_url = (
+        public_api_url
+        if public_api_url and public_api_url.rstrip("/") != backend_url.rstrip("/")
+        else backend_url
     )
-    if public_api_url and public_api_url.rstrip("/") != backend_url.rstrip("/"):
+    auth_smoke_label = "public api" if auth_smoke_url == public_api_url else "backend"
+    if role_auth_configured:
+        print("Generic Firebase credential smoke skipped: role-specific staging auth secrets are configured.")
+    else:
         errors.extend(
             _check_optional_firebase_auth_smoke(
-                public_api_url,
+                auth_smoke_url,
                 firebase_api_key=args.firebase_api_key.strip(),
                 email=args.auth_email.strip(),
                 password=args.auth_password,
                 timeout_seconds=args.timeout_seconds,
-                label="public api",
+                label=auth_smoke_label,
             )
-        )
-    auth_targets = [("backend", backend_url)]
+    )
+    auth_targets = [(auth_smoke_label, auth_smoke_url)]
     if public_api_url and public_api_url.rstrip("/") != backend_url.rstrip("/"):
-        auth_targets.append(("public api", public_api_url))
+        print(
+            "Cookie-based auth smoke uses the public API origin; "
+            "direct Cloud Run auth is covered by /ready and /health."
+        )
     errors.extend(
         _check_optional_role_firebase_auth_smokes(
             auth_targets,
@@ -618,6 +622,13 @@ def _check_optional_role_firebase_auth_smokes(
     return errors
 
 
+def _role_auth_smoke_configured(environ: Mapping[str, str]) -> bool:
+    return any(
+        environ.get(str(spec["email_env"]), "").strip() or environ.get(str(spec["password_env"]), "")
+        for spec in ROLE_AUTH_SMOKE_SPECS
+    )
+
+
 def _firebase_password_id_token(
     *,
     firebase_api_key: str,
@@ -657,13 +668,22 @@ def _check_firebase_session_profile(
 ) -> list[str]:
     cookie_jar = http.cookiejar.CookieJar()
     backend_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
-    session = _fetch_json(
-        backend_opener,
-        _url(backend_url, "/api/auth/firebase-session"),
-        method="POST",
-        json_body={"credential": id_token},
-        timeout_seconds=timeout_seconds,
-    )
+    session: dict[str, Any] | Exception = RuntimeError("Firebase session exchange was not attempted.")
+    for attempt in range(2):
+        session = _fetch_json(
+            backend_opener,
+            _url(backend_url, "/api/auth/firebase-session"),
+            method="POST",
+            json_body={"credential": id_token},
+            timeout_seconds=timeout_seconds,
+        )
+        if not _is_rate_limited_response(session) or attempt == 1:
+            break
+        print(
+            f"{label.title()} Firebase session exchange was rate-limited; "
+            f"retrying in {SESSION_RATE_LIMIT_RETRY_SECONDS}s."
+        )
+        time.sleep(SESSION_RATE_LIMIT_RETRY_SECONDS)
     if isinstance(session, Exception):
         return [f"{label} Firebase session exchange failed: {session}"]
     if not isinstance(session.get("user"), dict):
@@ -691,6 +711,10 @@ def _check_firebase_session_profile(
         return errors
     print(f"{label.title()} Firebase credential smoke passed.")
     return []
+
+
+def _is_rate_limited_response(value: dict[str, Any] | Exception) -> bool:
+    return isinstance(value, Exception) and "HTTP 429" in str(value)
 
 
 def _profile_expectation_errors(

@@ -100,17 +100,40 @@ def check_subdomain_routing(
     errors.extend(_check_apex_html(follow_opener, apex_root, expected_sha, hsts_policy, timeout_seconds))
     errors.extend(_check_www_redirect(no_redirect_opener, scheme, apex_host, port, timeout_seconds))
 
-    for label in ("app", "admin", "staff"):
-        workspace_root = f"{scheme}://{label}.{apex_host}{port}/"
-        errors.extend(
-            _expect_redirect(
-                no_redirect_opener,
-                workspace_root,
-                apex_root,
-                timeout_seconds,
-                label=f"{label} unauthenticated root",
-            )
+    app_root = f"{scheme}://app.{apex_host}{port}/"
+    errors.extend(
+        _expect_redirect(no_redirect_opener, app_root, apex_root, timeout_seconds, label="app unauthenticated root")
+    )
+
+    admin_root = f"{scheme}://admin.{apex_host}{port}/"
+    admin_login = (
+        f"{scheme}://admin.{apex_host}{port}/login?"
+        f"{urllib.parse.urlencode({'next': '/admin'})}"
+    )
+    errors.extend(
+        _expect_redirect(
+            no_redirect_opener,
+            admin_root,
+            admin_login,
+            timeout_seconds,
+            label="admin unauthenticated root",
         )
+    )
+
+    staff_root = f"{scheme}://staff.{apex_host}{port}/"
+    staff_login = (
+        f"{scheme}://staff.{apex_host}{port}/login?"
+        f"{urllib.parse.urlencode({'next': '/staff/payments'})}"
+    )
+    errors.extend(
+        _expect_redirect(
+            no_redirect_opener,
+            staff_root,
+            staff_login,
+            timeout_seconds,
+            label="staff unauthenticated root",
+        )
+    )
 
     prof_root = f"{scheme}://prof.{apex_host}{port}/"
     prof_login = f"{scheme}://prof.{apex_host}{port}/professor/login"
