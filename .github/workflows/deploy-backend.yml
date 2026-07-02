@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       run_migrations:
-        description: "Start Cloud SQL, run Alembic job, then stop Cloud SQL again"
+        description: "Ensure Cloud SQL is running, then run Alembic job"
         required: false
         default: true
         type: boolean
@@ -52,7 +52,7 @@ on:
           - staging
           - production
       run_migrations:
-        description: "Start Cloud SQL, run Alembic job, then stop Cloud SQL again"
+        description: "Ensure Cloud SQL is running, then run Alembic job"
         required: true
         default: true
         type: boolean
@@ -249,17 +249,10 @@ jobs:
           echo "BACKEND_VERIFY_URL=$verify_url" >> "$GITHUB_ENV"
           rm -f "$service_json"
 
-      - name: Run migrations with stopped-db cleanup
+      - name: Run migrations
         if: ${{ inputs.run_migrations == true }}
         run: |
           set -euo pipefail
-          cleanup() {
-            gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
-              --project "$PROJECT_ID" \
-              --activation-policy NEVER \
-              --quiet || true
-          }
-          trap cleanup EXIT
           gcloud sql instances patch "$CLOUD_SQL_INSTANCE" \
             --project "$PROJECT_ID" \
             --activation-policy ALWAYS \
