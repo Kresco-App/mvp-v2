@@ -8,6 +8,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "check_subdomain_routing.py"
+ADMIN_LOGIN_URL = "https://admin.staging.kresco.ma/login?next=%2Fadmin"
+STAFF_LOGIN_URL = "https://staff.staging.kresco.ma/login?next=%2Fstaff%2Fpayments"
 
 
 def _load_module():
@@ -48,8 +50,8 @@ def test_subdomain_routing_smoke_verifies_public_host_contract(monkeypatch):
                 location="https://staging.kresco.ma/pricing?subdomain-smoke=1",
             ),
             "https://app.staging.kresco.ma/": _payload(module, 307, location="https://staging.kresco.ma/"),
-            "https://admin.staging.kresco.ma/": _payload(module, 307, location="https://staging.kresco.ma/"),
-            "https://staff.staging.kresco.ma/": _payload(module, 307, location="https://staging.kresco.ma/"),
+            "https://admin.staging.kresco.ma/": _payload(module, 307, location=ADMIN_LOGIN_URL),
+            "https://staff.staging.kresco.ma/": _payload(module, 307, location=STAFF_LOGIN_URL),
             "https://prof.staging.kresco.ma/": _payload(
                 module,
                 307,
@@ -87,8 +89,8 @@ def test_subdomain_routing_smoke_does_not_require_professor_alias_by_default(mon
                 location="https://staging.kresco.ma/pricing?subdomain-smoke=1",
             ),
             "https://app.staging.kresco.ma/": _payload(module, 307, location="https://staging.kresco.ma/"),
-            "https://admin.staging.kresco.ma/": _payload(module, 307, location="https://staging.kresco.ma/"),
-            "https://staff.staging.kresco.ma/": _payload(module, 307, location="https://staging.kresco.ma/"),
+            "https://admin.staging.kresco.ma/": _payload(module, 307, location=ADMIN_LOGIN_URL),
+            "https://staff.staging.kresco.ma/": _payload(module, 307, location=STAFF_LOGIN_URL),
             "https://prof.staging.kresco.ma/": _payload(
                 module,
                 307,
@@ -117,6 +119,10 @@ def test_subdomain_routing_smoke_reports_professor_alias_mismatch_when_requested
             return _payload(module, 200)
         if url == "https://professor.staging.kresco.ma/professor/login?next=chat":
             return _payload(module, 307, location="https://staging.kresco.ma/professor/login?next=chat")
+        if url == "https://admin.staging.kresco.ma/":
+            return _payload(module, 307, location=ADMIN_LOGIN_URL)
+        if url == "https://staff.staging.kresco.ma/":
+            return _payload(module, 307, location=STAFF_LOGIN_URL)
         return _payload(module, 307, location="https://staging.kresco.ma/")
 
     monkeypatch.setattr(module, "_fetch", fake_fetch)
@@ -181,6 +187,10 @@ def test_subdomain_routing_smoke_rejects_hsts_include_subdomains_before_cutover(
             return _payload(module, 307, location="https://staging.kresco.ma/pricing?subdomain-smoke=1")
         if url == "https://prof.staging.kresco.ma/":
             return _payload(module, 307, location="https://prof.staging.kresco.ma/professor/login")
+        if url == "https://admin.staging.kresco.ma/":
+            return _payload(module, 307, location=ADMIN_LOGIN_URL)
+        if url == "https://staff.staging.kresco.ma/":
+            return _payload(module, 307, location=STAFF_LOGIN_URL)
         if url.endswith("/professor/login"):
             return _payload(module, 200)
         return _payload(module, 307, location="https://staging.kresco.ma/")
@@ -202,6 +212,10 @@ def test_subdomain_routing_smoke_can_require_hsts_include_subdomains_after_cutov
             return _payload(module, 307, location="https://staging.kresco.ma/pricing?subdomain-smoke=1")
         if url == "https://prof.staging.kresco.ma/":
             return _payload(module, 307, location="https://prof.staging.kresco.ma/professor/login")
+        if url == "https://admin.staging.kresco.ma/":
+            return _payload(module, 307, location=ADMIN_LOGIN_URL)
+        if url == "https://staff.staging.kresco.ma/":
+            return _payload(module, 307, location=STAFF_LOGIN_URL)
         if url.endswith("/professor/login"):
             return _payload(module, 200)
         return _payload(module, 307, location="https://staging.kresco.ma/")
