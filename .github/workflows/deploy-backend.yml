@@ -155,7 +155,10 @@ jobs:
           gcloud secrets versions access latest \
             --project "$PROJECT_ID" \
             --secret kresco-runtime \
-            | jq --arg sha "$SHORT_SHA" '.KRESCO_RELEASE_SHA=$sha' > "$runtime_json"
+            | jq \
+              --arg sha "$SHORT_SHA" \
+              --arg sentry_dsn "${{ vars.NEXT_PUBLIC_SENTRY_DSN }}" \
+              '.KRESCO_RELEASE_SHA=$sha | .SENTRY_DSN=$sentry_dsn' > "$runtime_json"
           gcloud secrets versions add kresco-runtime \
             --project "$PROJECT_ID" \
             --data-file "$runtime_json"

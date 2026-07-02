@@ -68,6 +68,9 @@ RUNTIME_SECRET_KEY_ALIASES = {
     "KRESCO_RELEASE_SHA": "release_sha",
     "RELEASE_SHA": "release_sha",
     "GITHUB_SHA": "release_sha",
+    "SENTRY_DSN": "sentry_dsn",
+    "NEXT_PUBLIC_SENTRY_DSN": "sentry_dsn",
+    "SENTRY_TRACES_SAMPLE_RATE": "sentry_traces_sample_rate",
     GCP_RUNTIME_SECRET_NAME_ENV: "gcp_runtime_secret_name",
     "GCP_PROJECT": "gcp_project_id",
     "GCP_PROJECT_ID": "gcp_project_id",
@@ -130,6 +133,14 @@ class Settings(BaseSettings):
     release_sha: str = Field(
         default="",
         validation_alias=AliasChoices("release_sha", "KRESCO_RELEASE_SHA", "RELEASE_SHA", "GITHUB_SHA"),
+    )
+    sentry_dsn: str = Field(
+        default="",
+        validation_alias=AliasChoices("sentry_dsn", "SENTRY_DSN", "NEXT_PUBLIC_SENTRY_DSN"),
+    )
+    sentry_traces_sample_rate: float = Field(
+        default=0.1,
+        validation_alias=AliasChoices("sentry_traces_sample_rate", "SENTRY_TRACES_SAMPLE_RATE"),
     )
     gcp_runtime_secret_name: str = Field(
         default="",

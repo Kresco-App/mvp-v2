@@ -20,6 +20,7 @@ firebase-admin
 requests==2.34.2
 cryptography>=48.0.1
 msgpack>=1.2.1
+sentry-sdk[fastapi]==2.64.0
 python-dotenv==1.2.2
 itsdangerous==2.2.0
 slowapi==0.1.9

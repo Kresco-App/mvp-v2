@@ -18,6 +18,15 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+except ImportError:  # pragma: no cover - dependency is installed in deployed images
+    sentry_sdk = None
+    FastApiIntegration = None
+    StarletteIntegration = None
+
 from app.admin.auth import StaffAdminAuth
 from app.admin.views import register_admin_views
 from app.config import Settings, get_settings, validate_production_settings
@@ -30,6 +39,7 @@ from app.services.media_storage import warm_media_storage_client
 from app.services.telemetry import emit_readiness_error_metric, emit_request_metric, emit_unhandled_exception_metric
 
 APP_VERSION = "2.0.0"
+_sentry_configured_for: tuple[str, str] | None = None
 
 logger = logging.getLogger("kresco.api")
 if not logging.getLogger().handlers:
@@ -142,6 +152,50 @@ def _apply_api_cache_headers(request: Request, response: Response) -> Response:
     return response
 
 
+def _bounded_sample_rate(value: float) -> float:
+    return max(0.0, min(float(value), 1.0))
+
+
+def _configure_sentry(settings: Settings, *, release_sha: str) -> None:
+    global _sentry_configured_for
+
+    dsn = settings.sentry_dsn.strip()
+    if not dsn:
+        return
+
+    if sentry_sdk is None or FastApiIntegration is None or StarletteIntegration is None:
+        logger.warning("sentry_sdk_unavailable")
+        return
+
+    environment = settings.environment.strip() or "development"
+    configured_for = (dsn, release_sha)
+    if _sentry_configured_for == configured_for:
+        return
+
+    sentry_sdk.init(
+        dsn=dsn,
+        environment=environment,
+        release=release_sha,
+        send_default_pii=False,
+        traces_sample_rate=_bounded_sample_rate(settings.sentry_traces_sample_rate),
+        integrations=[
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(transaction_style="endpoint"),
+        ],
+    )
+    _sentry_configured_for = configured_for
+
+
+def _capture_sentry_exception(exc: Exception, *, request_id: str, release_sha: str, path: str) -> None:
+    if sentry_sdk is None or _sentry_configured_for is None:
+        return
+
+    sentry_sdk.set_tag("request_id", request_id)
+    sentry_sdk.set_tag("release_sha", release_sha)
+    sentry_sdk.set_context("request", {"path": path})
+    sentry_sdk.capture_exception(exc)
+
+
 def _register_sqladmin(app: FastAPI, settings: Settings, engine) -> None:
     auth_backend = StaffAdminAuth(settings=settings)
     admin = Admin(
@@ -181,6 +235,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     root_path = ""
     release_sha = settings.release_sha.strip() or "development"
+    _configure_sentry(settings, release_sha=release_sha)
     docs_url = None if settings.is_production_like else "/api/docs"
     redoc_url = None if settings.is_production_like else "/api/redoc"
     openapi_url = None if settings.is_production_like else "/api/openapi.json"
@@ -323,6 +378,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
         request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+        _capture_sentry_exception(
+            exc,
+            request_id=request_id,
+            release_sha=release_sha,
+            path=request.url.path,
+        )
         logger.exception("unhandled_exception request_id=%s release_sha=%s path=%s", request_id, release_sha, request.url.path)
         emit_unhandled_exception_metric(
             settings,
